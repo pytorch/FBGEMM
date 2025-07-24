@@ -270,16 +270,16 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   if (nrows <= 20) {
     FBGEMM_DISPATCH_FLOATING_TYPES(
         input.scalar_type(), "_float_to_fused8bitrowwise_cuda_kernel", [&] {
-          _float_to_fused8bitrowwise_cuda_kernel<scalar_t>
-              <<<num_blocks,
-                 threads_per_block,
-                 0,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  input.data_ptr<scalar_t>(),
-                  nrows,
-                  ncols,
-                  output.data_ptr<std::uint8_t>());
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          FBGEMM_LAUNCH_KERNEL(
+              (_float_to_fused8bitrowwise_cuda_kernel<scalar_t>),
+              num_blocks,
+              threads_per_block,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              input.data_ptr<scalar_t>(),
+              nrows,
+              ncols,
+              output.data_ptr<std::uint8_t>());
         });
   } else {
     // range_tensor is used to store the range for each embedding row.
@@ -308,17 +308,17 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_get_8bit_qparam_cuda_kernel", [&] {
-            _get_8bit_qparam_cuda_kernel<scalar_t>
-                <<<num_blocks_warp,
-                   dim3(blockDim_x, rows_per_block),
-                   0,
-                   at::cuda::getCurrentCUDAStream()>>>(
-                    input.data_ptr<scalar_t>(),
-                    nrows,
-                    ncols,
-                    output.data_ptr<std::uint8_t>(),
-                    range_tensor.data_ptr<float>());
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            FBGEMM_LAUNCH_KERNEL(
+                (_get_8bit_qparam_cuda_kernel<scalar_t>),
+                num_blocks_warp,
+                dim3(blockDim_x, rows_per_block),
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                input.data_ptr<scalar_t>(),
+                nrows,
+                ncols,
+                output.data_ptr<std::uint8_t>(),
+                range_tensor.data_ptr<float>());
           });
     }
 
@@ -331,14 +331,17 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_compute_8bit_quantize_cuda_kernel", [&] {
-            _compute_8bit_quantize_cuda_kernel<scalar_t>
-                <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    input.data_ptr<scalar_t>(),
-                    range_tensor.data_ptr<float>(),
-                    nrows,
-                    ncols,
-                    output.data_ptr<std::uint8_t>());
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            FBGEMM_LAUNCH_KERNEL(
+                (_compute_8bit_quantize_cuda_kernel<scalar_t>),
+                gridDim,
+                blockDim,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                input.data_ptr<scalar_t>(),
+                range_tensor.data_ptr<float>(),
+                nrows,
+                ncols,
+                output.data_ptr<std::uint8_t>());
           });
     }
   }
@@ -448,16 +451,20 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-#define DEQUANT_LAUNCH(scale_bias_last, quant_padding_float_type)   \
-  _fused8bitrowwise_to_float_cuda_kernel<                           \
-      scalar_t,                                                     \
-      scale_bias_last,                                              \
-      quant_padding_float_type>                                     \
-      <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>( \
-          input.data_ptr<std::uint8_t>(),                           \
-          nrows,                                                    \
-          ncols,                                                    \
-          output.data_ptr<scalar_t>())
+#define DEQUANT_LAUNCH(scale_bias_last, quant_padding_float_type) \
+  FBGEMM_LAUNCH_KERNEL(                                           \
+      (_fused8bitrowwise_to_float_cuda_kernel<                    \
+          scalar_t,                                               \
+          scale_bias_last,                                        \
+          quant_padding_float_type>),                             \
+      gridDim,                                                    \
+      blockDim,                                                   \
+      0,                                                          \
+      at::cuda::getCurrentCUDAStream(),                           \
+      input.data_ptr<std::uint8_t>(),                             \
+      nrows,                                                      \
+      ncols,                                                      \
+      output.data_ptr<scalar_t>())
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {
@@ -474,7 +481,6 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
             DEQUANT_LAUNCH(false, false);
           }
         }
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 #undef DEQUANT_LAUNCH
   return output;
@@ -600,16 +606,15 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
       output.scalar_type(),
       "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel",
       [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name =
-            "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel";
-#endif
-        _fused8bitrowwise_to_float_mixed_dim_cuda_kernel<scalar_t>
-            <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, input, uint8_t, 2, 32),
-                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, output, scalar_t, 2, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (_fused8bitrowwise_to_float_mixed_dim_cuda_kernel<scalar_t>),
+            gridDim,
+            blockDim,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(input, uint8_t, 2, 32),
+            PTA_B(D_offsets, int32_t, 1, 32),
+            PTA_B(output, scalar_t, 2, 32));
       });
   return output;
 }

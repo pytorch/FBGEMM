@@ -149,17 +149,17 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       input.scalar_type(), "_float_to_fusednbitrowwise_cuda_kernel", [&] {
-        _float_to_fusednbitrowwise_cuda_kernel<scalar_t>
-            <<<num_blocks,
-               threads_per_block,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                bit_rate,
-                input.data_ptr<scalar_t>(),
-                nrows,
-                ncols,
-                output.data_ptr<std::uint8_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (_float_to_fusednbitrowwise_cuda_kernel<scalar_t>),
+            num_blocks,
+            threads_per_block,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            bit_rate,
+            input.data_ptr<scalar_t>(),
+            nrows,
+            ncols,
+            output.data_ptr<std::uint8_t>());
       });
 
   return output;
@@ -267,14 +267,18 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-#define DEQUANT_LAUNCH_NBIT(scale_bias_last)                        \
-  _fusednbitrowwise_to_float_cuda_kernel<scalar_t, scale_bias_last> \
-      <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>( \
-          bit_rate,                                                 \
-          input.data_ptr<std::uint8_t>(),                           \
-          nrows,                                                    \
-          ncols,                                                    \
-          output.data_ptr<scalar_t>())
+#define DEQUANT_LAUNCH_NBIT(scale_bias_last)                               \
+  FBGEMM_LAUNCH_KERNEL(                                                    \
+      (_fusednbitrowwise_to_float_cuda_kernel<scalar_t, scale_bias_last>), \
+      gridDim,                                                             \
+      blockDim,                                                            \
+      0,                                                                   \
+      at::cuda::getCurrentCUDAStream(),                                    \
+      bit_rate,                                                            \
+      input.data_ptr<std::uint8_t>(),                                      \
+      nrows,                                                               \
+      ncols,                                                               \
+      output.data_ptr<scalar_t>())
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {
@@ -283,7 +287,6 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
         } else {
           DEQUANT_LAUNCH_NBIT(false);
         }
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 #undef DEQUANT_LAUNCH_NBIT
   return output;
