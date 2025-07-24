@@ -118,13 +118,11 @@ struct DeviceGemmHelper {
     // Get input information.
     int group_count;
     if constexpr (std::is_same_v<InputType, at::Tensor>) {
-      if (WQ.dim() == 3) {
-        // If WQ is 3D the group count is the min of G and total_M (if XQ is
-        // 2D).
-        group_count = std::min(WQ.size(0), XQ.size(0));
-      } else if (XQ.dim() == 3) {
-        // If XQ is 3D the group count is the min of G and total_N (if WQ is
-        // 2D).
+      if (XQ.dim() == 3 || WQ.dim() == 3) {
+        // If WQ and XQ are 3D, the group count is G.
+        // If WQ is 3D and XQ is 2D (and the reverse by symmetry), the group
+        // count is the minimum of G and total_M/total_N. In all cases we just
+        // compare the first dimension of XQ and WQ.
         group_count = std::min(XQ.size(0), WQ.size(0));
       } else {
         // XQ and WQ are 2D. The group count is G.
@@ -163,7 +161,7 @@ struct DeviceGemmHelper {
       // pointers below are unused, as the device memory contains the correct
       // data.
       if constexpr (std::is_same_v<InputType, at::Tensor>) {
-        // Set these to 0 as placeholders, they are unsused.
+        // Set these to 0 as placeholders, they are unused.
         M = 0;
         N = 0;
         K = 0;
