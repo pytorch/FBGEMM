@@ -17,6 +17,7 @@
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
 using Tensor = at::Tensor;
 
@@ -116,17 +117,20 @@ Tensor permute_pooled_embs_gpu_impl(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       pooled_embs_contiguous.scalar_type(), "permute_pooled_embeddings", [&] {
-        permute_pooled_embs_kernel<scalar_t>
-            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                pooled_embs_contiguous.data_ptr<scalar_t>(),
-                offset_dim_list.data_ptr<int64_t>(),
-                permute_list.data_ptr<int64_t>(),
-                inv_offset_dim_list.data_ptr<int64_t>(),
-                permuted_pooled_embs.data_ptr<scalar_t>(),
-                B,
-                T,
-                dim_sum);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (permute_pooled_embs_kernel<scalar_t>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            pooled_embs_contiguous.data_ptr<scalar_t>(),
+            offset_dim_list.data_ptr<int64_t>(),
+            permute_list.data_ptr<int64_t>(),
+            inv_offset_dim_list.data_ptr<int64_t>(),
+            permuted_pooled_embs.data_ptr<scalar_t>(),
+            B,
+            T,
+            dim_sum);
       });
 
   return permuted_pooled_embs;
