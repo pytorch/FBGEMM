@@ -122,22 +122,26 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
   dim3 block_size(kWarpSize, num_warps_per_threadblock, 1);
 
 #define INVOKE_GROUP_INDEX_SELECT_OR_ADD(USE_INDEX_SELECT, USE_VAR_COLS) \
-  group_index_select_or_add_2d_kernel<                                   \
-      index_t,                                                           \
-      scalar_t,                                                          \
-      USE_INDEX_SELECT,                                                  \
-      USE_VAR_COLS,                                                      \
-      GROUP_INDEX_SELECT_UNROLL_FACTOR,                                  \
-      GROUP_INDEX_SELECT_COLS_PER_WARP,                                  \
-      GROUP_INDEX_SELECT_LOG_COLS_PER_WARP>                              \
-      <<<grid_size, block_size, 0, at::cuda::getCurrentCUDAStream()>>>(  \
-          input_ptrs,                                                    \
-          output_ptrs,                                                   \
-          indices_ptrs,                                                  \
-          warp_offsets_group,                                            \
-          num_cols_group,                                                \
-          num_work_rows,                                                 \
-          group_size)
+  FBGEMM_LAUNCH_KERNEL(                                                  \
+      (group_index_select_or_add_2d_kernel<                              \
+          index_t,                                                       \
+          scalar_t,                                                      \
+          USE_INDEX_SELECT,                                              \
+          USE_VAR_COLS,                                                  \
+          GROUP_INDEX_SELECT_UNROLL_FACTOR,                              \
+          GROUP_INDEX_SELECT_COLS_PER_WARP,                              \
+          GROUP_INDEX_SELECT_LOG_COLS_PER_WARP>),                        \
+      grid_size,                                                         \
+      block_size,                                                        \
+      0,                                                                 \
+      at::cuda::getCurrentCUDAStream(),                                  \
+      input_ptrs,                                                        \
+      output_ptrs,                                                       \
+      indices_ptrs,                                                      \
+      warp_offsets_group,                                                \
+      num_cols_group,                                                    \
+      num_work_rows,                                                     \
+      group_size)
 
   AT_DISPATCH_INDEX_TYPES(
       indices_scalar_type, "group_index_select_2d_wrapper_1", [&] {

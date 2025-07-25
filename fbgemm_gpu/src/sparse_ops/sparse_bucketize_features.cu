@@ -81,37 +81,37 @@ __launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel2(
   }
 }
 
-#define LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT(       \
-    bucketize_pos, return_new_pos)                                        \
-  AT_DISPATCH_INDEX_TYPES(                                                \
-      indices_contig.scalar_type(),                                       \
-      "_bucketize_sparse_features_weight_cuda_kernel2_1",                 \
-      ([&] {                                                              \
-        FBGEMM_DISPATCH_FLOAT_ONLY(                                       \
-            weights_value.scalar_type(),                                  \
-            "_bucketize_sparse_features_cuda_weight_kernel2_2",           \
-            ([&] {                                                        \
-              _bucketize_sparse_features_cuda_kernel2<                    \
-                  true,                                                   \
-                  bucketize_pos,                                          \
-                  index_t,                                                \
-                  scalar_t>                                               \
-                  <<<num_blocks,                                          \
-                     threads_per_block,                                   \
-                     0,                                                   \
-                     at::cuda::getCurrentCUDAStream()>>>(                 \
-                      lengths_size,                                       \
-                      my_size,                                            \
-                      offsets_contig.data_ptr<index_t>(),                 \
-                      indices_contig.data_ptr<index_t>(),                 \
-                      weights_value_contig.data_ptr<scalar_t>(),          \
-                      new_offsets.data_ptr<index_t>(),                    \
-                      new_indices.data_ptr<index_t>(),                    \
-                      new_weights.data_ptr<scalar_t>(),                   \
-                      (return_new_pos) ? new_pos.data_ptr<index_t>()      \
-                                       : static_cast<index_t*>(nullptr)); \
-              C10_CUDA_KERNEL_LAUNCH_CHECK();                             \
-            }));                                                          \
+#define LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT(   \
+    bucketize_pos, return_new_pos)                                    \
+  AT_DISPATCH_INDEX_TYPES(                                            \
+      indices_contig.scalar_type(),                                   \
+      "_bucketize_sparse_features_weight_cuda_kernel2_1",             \
+      ([&] {                                                          \
+        FBGEMM_DISPATCH_FLOAT_ONLY(                                   \
+            weights_value.scalar_type(),                              \
+            "_bucketize_sparse_features_cuda_weight_kernel2_2",       \
+            ([&] {                                                    \
+              FBGEMM_LAUNCH_KERNEL(                                   \
+                  (_bucketize_sparse_features_cuda_kernel2<           \
+                      true,                                           \
+                      bucketize_pos,                                  \
+                      index_t,                                        \
+                      scalar_t>),                                     \
+                  num_blocks,                                         \
+                  threads_per_block,                                  \
+                  0,                                                  \
+                  at::cuda::getCurrentCUDAStream(),                   \
+                  lengths_size,                                       \
+                  my_size,                                            \
+                  offsets_contig.data_ptr<index_t>(),                 \
+                  indices_contig.data_ptr<index_t>(),                 \
+                  weights_value_contig.data_ptr<scalar_t>(),          \
+                  new_offsets.data_ptr<index_t>(),                    \
+                  new_indices.data_ptr<index_t>(),                    \
+                  new_weights.data_ptr<scalar_t>(),                   \
+                  (return_new_pos) ? new_pos.data_ptr<index_t>()      \
+                                   : static_cast<index_t*>(nullptr)); \
+            }));                                                      \
       }));
 
 #define LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT( \
@@ -120,26 +120,26 @@ __launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel2(
       indices_contig.scalar_type(),                                    \
       "_bucketize_sparse_features_cuda_kernel2",                       \
       ([&] {                                                           \
-        _bucketize_sparse_features_cuda_kernel2<                       \
-            false,                                                     \
-            bucketize_pos,                                             \
-            index_t,                                                   \
-            std::nullptr_t>                                            \
-            <<<num_blocks,                                             \
-               threads_per_block,                                      \
-               0,                                                      \
-               at::cuda::getCurrentCUDAStream()>>>(                    \
-                lengths_size,                                          \
-                my_size,                                               \
-                offsets_contig.data_ptr<index_t>(),                    \
-                indices_contig.data_ptr<index_t>(),                    \
-                nullptr,                                               \
-                new_offsets.data_ptr<index_t>(),                       \
-                new_indices.data_ptr<index_t>(),                       \
-                nullptr,                                               \
-                (return_new_pos) ? new_pos.data_ptr<index_t>()         \
-                                 : static_cast<index_t*>(nullptr));    \
-        C10_CUDA_KERNEL_LAUNCH_CHECK();                                \
+        FBGEMM_LAUNCH_KERNEL(                                          \
+            (_bucketize_sparse_features_cuda_kernel2<                  \
+                false,                                                 \
+                bucketize_pos,                                         \
+                index_t,                                               \
+                std::nullptr_t>),                                      \
+            num_blocks,                                                \
+            threads_per_block,                                         \
+            0,                                                         \
+            at::cuda::getCurrentCUDAStream(),                          \
+            lengths_size,                                              \
+            my_size,                                                   \
+            offsets_contig.data_ptr<index_t>(),                        \
+            indices_contig.data_ptr<index_t>(),                        \
+            nullptr,                                                   \
+            new_offsets.data_ptr<index_t>(),                           \
+            new_indices.data_ptr<index_t>(),                           \
+            nullptr,                                                   \
+            (return_new_pos) ? new_pos.data_ptr<index_t>()             \
+                             : static_cast<index_t*>(nullptr));        \
       }));
 
 // This function partitions sparse features
@@ -168,28 +168,31 @@ bucketize_sparse_features_cuda(
   auto offsets_contig = offsets.contiguous();
   Tensor new_weights;
   Tensor new_pos;
-  // count nonzeros
+
+  // Count Non-zeros
   offsets_contig = fbgemm_gpu::asynchronous_inclusive_cumsum_gpu(lengths);
   int threads_per_block = 256;
   const auto num_blocks =
       cuda_calc_xblock_count(lengths_size, threads_per_block);
+
   AT_DISPATCH_INDEX_TYPES(
       indices_contig.scalar_type(),
       "_bucketize_sparse_features_cuda_kernel1",
       ([&] {
-        _bucketize_sparse_features_cuda_kernel1<<<
+        FBGEMM_LAUNCH_KERNEL(
+            (_bucketize_sparse_features_cuda_kernel1<index_t>),
             num_blocks,
             threads_per_block,
             0,
-            at::cuda::getCurrentCUDAStream()>>>(
+            at::cuda::getCurrentCUDAStream(),
             lengths_size,
             my_size,
             offsets_contig.data_ptr<index_t>(),
             indices_contig.data_ptr<index_t>(),
             new_lengths.data_ptr<index_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  // bucketize nonzeros
+
+  // Bucketize non-zeros
   new_offsets = fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(new_lengths);
   if (weights.has_value() & bucketize_pos) {
     Tensor weights_value = weights.value();
