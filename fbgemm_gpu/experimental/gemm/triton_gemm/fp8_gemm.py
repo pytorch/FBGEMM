@@ -3619,7 +3619,7 @@ def prune_configs(configs, named_args, **kwargs):
         if modv != 0:
             continue
         # skip large GROUP_M
-        if GROUP_M * BLOCK_SIZE_M > M and GROUP_M != 1:
+        if GROUP_M * BLOCK_SIZE_M >= M and GROUP_M != 1:
             continue
         # out of shared memory resource
         # TODO (zhanglx): This does not consider the LDS usage in the epilogue
@@ -3641,7 +3641,7 @@ def prune_configs(configs, named_args, **kwargs):
 
         pruned_configs.append(config)
 
-    print(f"{len(configs)=} {len(pruned_configs)=}")
+    print(f"{len(configs)=} {len(pruned_configs)=} for {M=} {N=} {K=}")
     if len(pruned_configs) == 0:
         if not FORCE_FAILURE_ON_EMPTY_CONFIGS:
             # Prune configs that can lead to incorrect results even if all configs are sub-optimal.
@@ -3763,6 +3763,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     triton.Config(
         {
             "BLOCK_M": 256,
+            "BLOCK_N": 256,
+            "BLOCK_K": 128,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 32,
+            "kpack": 2,
+        },
+        num_warps=8,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 256,
             "BLOCK_N": 128,
             "BLOCK_K": 128,
             "GROUP_M": 4,
@@ -3791,9 +3805,37 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     triton.Config(
         {
             "BLOCK_M": 128,
+            "BLOCK_N": 128,
+            "BLOCK_K": 64,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
             "BLOCK_N": 64,
             "BLOCK_K": 64,
             "GROUP_M": 4,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 64,
+            "BLOCK_K": 64,
+            "GROUP_M": 1,
             "SPLIT_K": 1,
             "waves_per_eu": 0,
             "matrix_instr_nonkdim": 16,

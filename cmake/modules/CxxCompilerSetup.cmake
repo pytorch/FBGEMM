@@ -10,7 +10,6 @@
 ################################################################################
 
 # SET THE C AND C++ VERSIONS HERE
-set(C_VERSION 17)
 set(CXX_VERSION 20)
 
 # Set the default C++ standard to CXX_VERSION if CMAKE_CXX_STANDARD is not
@@ -29,24 +28,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(HIP_STANDARD_REQUIRED ON)
 
-# Set the default C standard to C_VERSION if CMAKE_C_STANDARD is not supplied
-# by CMake command invocation.
-# Individual targets can have this value overridden; see
-# https://cmake.org/cmake/help/latest/variable/CMAKE_C_STANDARD.html
-# https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
-if(NOT CMAKE_C_STANDARD)
-  set(C_STANDARD ${C_VERSION})
-  set(CMAKE_C_STANDARD ${C_VERSION})
-endif()
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-
-BLOCK_PRINT(
-  "Default C compiler flags"
-  "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
-  ""
-  "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}"
-)
 
 BLOCK_PRINT(
   "Default C++ compiler flags"

@@ -179,7 +179,7 @@ at::Tensor dispatch_fp4_grouped_kernel(
         "starting_row_after_padding is assumed to be provided.");
     at::Tensor starting_row_after_padding_actual =
         starting_row_after_padding.value_or(at::zeros({0}));
-    TORCH_CHECK(starting_row_after_padding_actual.size(0) == G + 1);
+    TORCH_CHECK(starting_row_after_padding_actual.size(0) % (G + 1) == 0);
   }
 
   // Select kernel to run via heuristics.

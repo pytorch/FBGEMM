@@ -52,7 +52,7 @@ endfunction()
 project(
   fbgemm
   VERSION 1.3.0
-  LANGUAGES CXX C)
+  LANGUAGES CXX)
 
 # Add C++ compiler flag detection
 include(CheckCXXCompilerFlag)
@@ -303,12 +303,7 @@ if(NOT TARGET asmjit)
   endif()
 
   # Build asmjit
-  # For MSVC shared build, asmjit needs to be shared also.
-  if(MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL SHARED))
-    set(ASMJIT_STATIC OFF)
-  else()
-    set(ASMJIT_STATIC ON)
-  endif()
+  set(ASMJIT_STATIC ON)
   set(ASMJIT_NO_INSTALL ON)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
