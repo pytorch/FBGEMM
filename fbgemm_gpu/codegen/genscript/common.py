@@ -7,10 +7,9 @@
 # pyre-strict
 # flake8: noqa F401
 
-import argparse
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import jinja2
 
