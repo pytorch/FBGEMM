@@ -1571,7 +1571,7 @@ def triton_scale_nvfp4_quant(
     num_threads = math.ceil(math.sqrt(input.numel()))
     # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
     # to ever fewer groups per thread than it.
-    GROUP_LOAD = 64
+    GROUP_LOAD = 128
     groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
     # Determine how much padding, if any is needed for each row.
     if K % group_size != 0:
@@ -1921,7 +1921,7 @@ def triton_scale_nvfp4_quant_silu(
     num_threads = math.ceil(math.sqrt(input.numel()))
     # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
     # to ever fewer groups per thread than it.
-    GROUP_LOAD = 64
+    GROUP_LOAD = 128
     groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
     # Determine how much padding, if any is needed for each row.
     if K % group_size != 0:
@@ -2283,7 +2283,7 @@ def triton_scale_nvfp4_quant_rms(
     num_threads = math.ceil(math.sqrt(input.numel()))
     # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
     # to ever fewer groups per thread than it.
-    GROUP_LOAD = 64
+    GROUP_LOAD = 128
     groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
     # Determine how much padding, if any is needed for each row.
     if K % group_size != 0:
@@ -2667,7 +2667,7 @@ def triton_nvfp4_quant_stacked(
     num_threads = math.ceil(math.sqrt(input.numel()))
     # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
     # to ever fewer groups per thread than it.
-    GROUP_LOAD = 64
+    GROUP_LOAD = 128
     groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
     # Determine how much padding, if any is needed for each row.
     if K % group_size != 0:
@@ -2765,6 +2765,7 @@ def fused_single_block_kernel(
     tl.store(
         size_cumulative_ptr + offs + (num_segments + 1) * pid,
         tl.zeros([1], dtype=cumsum.dtype),
+        mask=(offs == 0),
     )
 
     if pid == 0:
@@ -2786,9 +2787,11 @@ def fused_single_block_kernel(
 
         # Set first element to zero
         tl.store(
-            starting_row_after_padding_ptr + offs, tl.zeros([1], dtype=cumsum.dtype)
+            starting_row_after_padding_ptr + offs,
+            tl.zeros([1], dtype=cumsum.dtype),
+            mask=(offs == 0),
         )
-
+    tl.debug_barrier()
     # Part 2: Segmented arange - process N elements in chunks
     new_offs = tl.arange(0, BLOCK_SIZE) + BLOCK_SIZE * pid
     for start in range(0, N, BLOCK_SIZE * NUM_BLOCKS):
@@ -3266,6 +3269,483 @@ def _kernel_nvfp4_quantize_stacked_silu(
         output_offset += GROUP_LOAD * GROUP_SIZE // 8
 
 
+@triton.jit
+def _mega_fp4_quantize_kernel(
+    m_sizes_ptr,  # [num_segments] input sizes
+    size_cumulative_ptr,  # [num_segments + 1] cumulative size sum
+    starting_row_after_padding_ptr,  # [num_segments + 1] output: padded cumsum
+    search_storage_ptr,
+    search_size,
+    search_padded_power: tl.constexpr,
+    A,
+    input_global_scale_tensor,
+    out,
+    scale,
+    num_segments,
+    prefix_num: tl.constexpr,
+    rand_bits,
+    M,
+    K,
+    GROUPS_PER_ROW,
+    GROUPS_PER_THREAD,
+    ROW_PADDING,
+    EPS: tl.constexpr,
+    GROUP_SIZE: tl.constexpr,
+    EBITS: tl.constexpr,
+    MBITS: tl.constexpr,
+    ROUNDING_MODE: tl.constexpr,
+    STOCHASTIC_CASTING: tl.constexpr,
+    FP4_EXP_BIAS: tl.constexpr,
+    GROUP_LOAD: tl.constexpr,
+    USE_INT64: tl.constexpr,
+    SCALE_K: tl.constexpr,
+) -> None:
+    """
+    computed cumulative sum and padded cumulative sum. All blocks will do this
+    in order to ensure that the changes are visible to all blocks without global synchronization
+    """
+    pid = tl.program_id(0)
+
+    offs = tl.arange(0, prefix_num)
+    mask = offs < num_segments
+
+    # Load m_sizes
+    m_sizes = tl.load(m_sizes_ptr + offs, mask=mask, other=0)
+
+    # Compute inclusive cumsum
+    cumsum = tl.cumsum(m_sizes, axis=0)
+
+    # Store cumsum at indices 1 through N
+    tl.store(
+        size_cumulative_ptr + offs + 1 + (num_segments + 1) * pid, cumsum, mask=mask
+    )
+
+    # Set first element to zero
+    tl.store(
+        size_cumulative_ptr + offs + (num_segments + 1) * pid,
+        tl.zeros([1], dtype=cumsum.dtype),
+        mask=(offs == 0),
+    )
+
+    # padded cumsum
+
+    # Compute padded sizes
+    padded_sizes = ((m_sizes + 128 - 1) // 128) * 128
+
+    # Compute inclusive cumsum
+    cumsum = tl.cumsum(padded_sizes, axis=0)
+
+    # Store at indices 1 through num_segments
+    tl.store(
+        starting_row_after_padding_ptr + offs + 1 + (num_segments + 1) * pid,
+        cumsum,
+        mask=mask,
+    )
+
+    # Set first element to zero
+    tl.store(
+        starting_row_after_padding_ptr + offs + (num_segments + 1) * pid,
+        tl.zeros([1], dtype=cumsum.dtype),
+        mask=(offs == 0),
+    )
+
+    # synchronize the updates, sync threads in a block
+    tl.debug_barrier()
+
+    """
+    begin quantization
+    """
+
+    # Define Constant Expressions.
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+
+    # For very large inputs, we need to use int64 indexes. This is slower but necessary.
+    if USE_INT64:
+        pid = pid.to(tl.int64)
+        M = tl.cast(M, tl.int64)
+        K = tl.cast(K, tl.int64)
+        GROUPS_PER_THREAD = tl.cast(GROUPS_PER_THREAD, tl.int64)
+
+    # Boundaries for writing to output tensor.
+    NUM_GROUPS = M * GROUPS_PER_ROW
+    OUTPUT_CHUNK_SIZE = (GROUPS_PER_THREAD * GROUP_SIZE) // 8
+    SCALE_CHUNK_SIZE = GROUPS_PER_THREAD
+    OUTPUT_SIZE = (GROUP_SIZE * NUM_GROUPS) // 8
+    SCALE_SIZE = NUM_GROUPS
+
+    # load scaling factor
+    input_global_scale = tl.load(input_global_scale_tensor)
+
+    # Find starting offsets for this thread. These are calculated before adjusting for padding.
+    input_start = pid * (GROUPS_PER_THREAD * GROUP_SIZE)
+    output_start = pid * OUTPUT_CHUNK_SIZE
+    exp_start = pid * SCALE_CHUNK_SIZE
+    # Initiate offset ranges used in kernel.
+    input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + input_start
+    output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 8)) + output_start
+
+    # We need to shift output offsets to make space for shared exponent storage.
+    # Now create offsets for writing the shared exponent.
+    # make sure to add offset from padding
+    exp_offset = tl.arange(0, GROUP_LOAD) + exp_start
+
+    row_idx = exp_offset // GROUPS_PER_ROW
+
+    init_offset_exp = exp_start // GROUPS_PER_ROW
+
+    # binary search and store the indices of the tensors
+    elements_to_search = tl.arange(0, search_padded_power) + init_offset_exp
+    left = tl.zeros([search_padded_power], dtype=tl.int32)
+    right = tl.zeros([search_padded_power], dtype=tl.int32) + num_segments
+    for _ in range(32):  # log2(num_segments) iterations
+        mid = (left + right) // 2
+
+        # Get cumsum value at mid position
+        # Since we need cumsum[0] = 0, cumsum[1] = m_sizes[0], etc.
+        mid_val = tl.load(
+            size_cumulative_ptr + mid + (num_segments + 1) * pid,
+            mask=(tl.arange(0, search_padded_power) < search_size)
+            & (elements_to_search < M),
+            other=-1,
+        )
+
+        cond = mid_val <= elements_to_search
+        left = tl.where(cond, mid + 1, left)
+        right = tl.where(~cond, mid, right)
+
+    tl.store(
+        search_storage_ptr + pid * search_size + tl.arange(0, search_padded_power),
+        left - 1,
+        mask=(tl.arange(0, search_padded_power) < search_size)
+        & (elements_to_search < M),
+    )
+    tl.debug_barrier()
+    tensor_idx = tl.load(
+        search_storage_ptr + pid * search_size + row_idx - init_offset_exp,
+        mask=(row_idx < M)
+        & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
+        & (exp_offset < SCALE_SIZE),
+        other=-1,
+    )
+
+    tensor_offset = (
+        tl.load(
+            starting_row_after_padding_ptr + tensor_idx + (num_segments + 1) * pid,
+            mask=(tensor_idx >= 0),
+        )
+        * GROUPS_PER_ROW
+    )
+
+    inner_idx = (
+        row_idx
+        - tl.load(
+            size_cumulative_ptr + tensor_idx + (num_segments + 1) * pid,
+            mask=(tensor_idx >= 0),
+        )
+    ) * GROUPS_PER_ROW
+
+    actual_scale_offset = tensor_offset + inner_idx + exp_offset % GROUPS_PER_ROW
+
+    # Load and process blocks of values for this chunk.
+    for _k in range(0, tl.cdiv(GROUPS_PER_THREAD, GROUP_LOAD)):
+        # We need to make some adjustments to allow for padding.
+        pad_mask = (input_offset % (GROUPS_PER_ROW * GROUP_SIZE)) < K
+        if ROW_PADDING != 0:
+            # Shift the input to account for padding.
+            padded_input_offset = (
+                input_offset
+                - (input_offset // (GROUPS_PER_ROW * GROUP_SIZE)) * ROW_PADDING
+            )
+        # When there's no padding we can simplify indexing.
+        else:
+            padded_input_offset = input_offset
+
+        # Load a block of values.
+        a = tl.load(
+            A + padded_input_offset,
+            # Mask values out of range for both the main array and this chunk. Also pad if needed.
+            mask=(padded_input_offset < (M * K))
+            & (padded_input_offset < ((pid + 1) * GROUPS_PER_THREAD * GROUP_SIZE))
+            & pad_mask,
+            other=0,
+        )
+
+        # View the block in terms of groups.
+        a_groups = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE])
+        # Compute the shared exponent of each group.
+        group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
+
+        # Next we scale A in preparation for quantization.
+        scale_ = group_max / 6.0 * input_global_scale
+        # Prevent infinite values in log.
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
+
+        # Apply scale_ to input. We do this by broadcasting scale.
+        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
+            6.0 / group_max, [GROUP_LOAD, 1]
+        )
+        # Reshape back to a flat array.
+        scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
+        # split them into 8 arrays with in a round robin fashion
+        # element 0 -> array 0, element 1 -> array 1, element 2 -> array 2 and so on
+        temp_l, temp_r = tl.split(
+            tl.reshape(scaled_a, [(GROUP_LOAD * GROUP_SIZE) // 2, 2])
+        )  # 0, 2, 4, 6, 8 || 1, 3, 5, 7, 9
+        t_one, t_two = tl.split(
+            tl.reshape(temp_l, [(GROUP_LOAD * GROUP_SIZE) // 4, 2])
+        )  # 0 4 8 || 2, 6, 10
+        t_three, t_four = tl.split(
+            tl.reshape(temp_r, [(GROUP_LOAD * GROUP_SIZE) // 4, 2])
+        )  # 1, 5, 9 || 3, 7, 11
+
+        f_one, f_two = tl.split(
+            tl.reshape(t_one, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 0, 8 || 4, 12
+        f_three, f_four = tl.split(
+            tl.reshape(t_two, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 2, 10 || 6, 14
+        f_five, f_six = tl.split(
+            tl.reshape(t_three, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 1, 9 || 5, 13
+        f_seven, f_eight = tl.split(
+            tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 3, 11 || 7, 15
+        packed_result = tl.inline_asm_elementwise(
+            asm="""
+            {
+                .reg .b8 byte0;
+                .reg .b8 byte1;
+                .reg .b8 byte2;
+                .reg .b8 byte3;
+                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
+                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
+                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
+                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
+                mov.b32 $0, {byte0, byte1, byte2, byte3};
+
+            }
+            """,
+            constraints="=r," "f, f, f, f, f, f, f, f",
+            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
+            dtype=tl.int32,
+            is_pure=True,
+            pack=1,
+        )
+
+        n_col_blocks = SCALE_K // 4
+        first_dim = actual_scale_offset // (512 * n_col_blocks)
+        second_dim = (actual_scale_offset % (512 * n_col_blocks)) // (
+            128 * n_col_blocks
+        )
+        third_dim = (actual_scale_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (actual_scale_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = actual_scale_offset % 4
+        actual_scale_offset_permute = (
+            first_dim * (512 * n_col_blocks)
+            + fourth_dim * (512)
+            + third_dim * (16)
+            + second_dim * (4)
+            + fifth_dim
+        )
+
+        tl.store(
+            scale + actual_scale_offset_permute,
+            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            # Prevent writing outside this chunk or the main array.
+            mask=(row_idx < M)
+            & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
+            & (exp_offset < SCALE_SIZE),
+        )
+        # Write out packed values to output tensor.
+        tl.store(
+            out + output_offset,
+            packed_result,
+            # Prevent writing outside this chunk or the main array.
+            mask=(output_offset < OUTPUT_SIZE)
+            & (output_offset < (OUTPUT_CHUNK_SIZE * (pid + 1))),
+        )
+
+        # Update offsets so we work on the next block.
+        input_offset += GROUP_LOAD * GROUP_SIZE
+
+        # since next group might go across the tensor boundary into a new tensor, recalculate offset
+        exp_offset += GROUP_LOAD
+        row_idx = exp_offset // GROUPS_PER_ROW
+
+        tensor_idx = tl.load(
+            search_storage_ptr + pid * search_size + row_idx - init_offset_exp,
+            mask=(row_idx < M)
+            & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
+            & (exp_offset < SCALE_SIZE),
+            other=-1,
+        )
+
+        tensor_offset = (
+            tl.load(
+                starting_row_after_padding_ptr + tensor_idx + (num_segments + 1) * pid,
+                mask=(tensor_idx >= 0),
+            )
+            * GROUPS_PER_ROW
+        )
+
+        inner_idx = (
+            row_idx
+            - tl.load(
+                size_cumulative_ptr + tensor_idx + (num_segments + 1) * pid,
+                mask=(tensor_idx >= 0),
+            )
+        ) * GROUPS_PER_ROW
+
+        actual_scale_offset = tensor_offset + inner_idx + exp_offset % GROUPS_PER_ROW
+
+        output_offset += GROUP_LOAD * GROUP_SIZE // 8
+
+
+def mega_fp4_quantize_kernel(
+    m_sizes: torch.Tensor,
+    input: torch.Tensor,
+    input_global_scale: torch.Tensor,
+    group_size: int = 16,
+    ebits: int = 2,
+    mbits: int = 1,
+    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    stochastic_casting: bool = False,
+    EPS: float = 1e-5,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+    orig_shape = input.shape
+    assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
+    other_dims = 1 if input.ndim == 1 else -1
+    input = input.reshape(other_dims, input.shape[-1])
+    M, K = input.shape
+    block_size = group_size
+    device = input.device
+
+    assert K % block_size == 0, f"last dim has to be multiple of 16, but got {K}."
+    assert input.dtype in (
+        torch.float16,
+        torch.bfloat16,
+    ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
+
+    # Two fp4 values will be packed into an uint8.
+    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
+
+    # We use the rounded values to store the swizzled values. Due to the
+    # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
+    # So, we first pad the scales to multiples of 128 and 4. Then, the scales
+    # (in float8_e4m3fn) int8. More:
+    # https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-mma-scale-factor-b-layout-4x
+    def round_up(x: int, y: int) -> int:
+        return (x + y - 1) // y * y
+
+    rounded_M = round_up(M + m_sizes.shape[0] * 128, 128)
+    scale_K = K // block_size
+    rounded_K = round_up(scale_K, 4)
+    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
+
+    # In this kernel, we want each row to be divisible by group_size.
+    # If the rows are not, then we will pad them. Find the number of
+    # groups per row after padding.
+    groups_per_row = math.ceil(K / group_size)
+    num_groups = M * groups_per_row
+    # Find how many groups each thread should process. We do this
+    # by assuming that it is good to distribute work evenly over threads.
+    num_threads = min(1024, math.ceil(math.sqrt(input.numel())))
+    # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
+    # to ever fewer groups per thread than it.
+    GROUP_LOAD = 128
+    groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
+    # Determine how much padding, if any is needed for each row.
+    if K % group_size != 0:
+        padding = group_size - (K % group_size)
+    else:
+        padding = 0
+    # If using stochastic rounding, create random noise for each group.
+    # We use the same random bits as seeds when doing stochastic downcasting.
+    if rounding_mode == RoundingMode.stochastic or stochastic_casting:
+        # Each group will need a seed.
+        rand_bits = torch.randint(
+            low=0,
+            high=2**31 - 1,
+            size=(num_groups,),
+            dtype=torch.int32,
+            device=input.device,
+        )
+    else:
+        rand_bits = None
+
+    # Check if we need to use int64 for indexing.
+    use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
+
+    device = m_sizes.device
+    dtype = m_sizes.dtype
+    num_segments = m_sizes.shape[0]
+    max_row_per_thread = math.ceil(groups_per_thread / groups_per_row)
+    # cumulative size for m_sizes
+    size_cumulative = torch.empty(
+        (num_segments + 1) * num_threads, dtype=dtype, device=device
+    )
+
+    # Allocate outputs
+    starting_row_after_padding = torch.empty(
+        (num_segments + 1) * num_threads, dtype=dtype, device=device
+    )
+
+    search_size = max_row_per_thread + 3
+    search_padded_power = triton.next_power_of_2(search_size)
+    search_storage = torch.empty(search_size * num_threads, dtype=dtype, device=device)
+
+    # Invoke triton quantization kernel over rows.
+    grid = (num_threads,)
+
+    # Single block handles everything
+    _mega_fp4_quantize_kernel[grid](
+        m_sizes,
+        size_cumulative,
+        starting_row_after_padding,
+        search_storage,
+        search_size,
+        search_padded_power,
+        input,
+        input_global_scale,
+        out,
+        scale,
+        num_segments=num_segments,
+        prefix_num=triton.next_power_of_2(num_segments),
+        rand_bits=rand_bits,
+        M=M,
+        K=K,
+        GROUPS_PER_ROW=groups_per_row,
+        GROUPS_PER_THREAD=groups_per_thread,
+        ROW_PADDING=padding,
+        # pyre-ignore[6]
+        EPS=EPS,
+        # pyre-ignore[6]
+        GROUP_SIZE=group_size,
+        # pyre-ignore[6]
+        EBITS=ebits,
+        # pyre-ignore[6]
+        MBITS=mbits,
+        # pyre-ignore[6]
+        ROUNDING_MODE=rounding_mode,
+        # pyre-ignore[6]
+        STOCHASTIC_CASTING=stochastic_casting,
+        FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
+        # pyre-ignore[6]
+        GROUP_LOAD=GROUP_LOAD,
+        # pyre-ignore[6]
+        USE_INT64=use_int64,
+        # pyre-ignore[6]
+        SCALE_K=rounded_K,
+    )
+    scale = scale.flatten()
+    return (
+        out.view(list(orig_shape[:-1]) + [-1]).view(torch.uint8),
+        scale,
+        starting_row_after_padding,
+    )
+
+
 def triton_nvfp4_quant_stacked_silu(
     input: torch.Tensor,
     weight: torch.Tensor,
@@ -3342,7 +3822,7 @@ def triton_nvfp4_quant_stacked_silu(
     num_threads = math.ceil(math.sqrt(input.numel()))
     # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
     # to ever fewer groups per thread than it.
-    GROUP_LOAD = 64
+    GROUP_LOAD = 128
     groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
     # Determine how much padding, if any is needed for each row.
     if K % group_size != 0:
@@ -3752,7 +4232,7 @@ def triton_nvfp4_quant_stacked_rms(
     num_threads = math.ceil(math.sqrt(input.numel()))
     # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
     # to ever fewer groups per thread than it.
-    GROUP_LOAD = 64
+    GROUP_LOAD = 128
     groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
     # Determine how much padding, if any is needed for each row.
     if K % group_size != 0:
