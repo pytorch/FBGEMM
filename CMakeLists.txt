@@ -61,6 +61,9 @@ include(CheckCXXCompilerFlag)
 # Install libraries into correct locations on all platforms
 include(GNUInstallDirs)
 
+# Check AVX
+include(${MODULE_PATH}/FindAVX.cmake)
+
 # Load Python
 find_package(Python)
 
@@ -74,6 +77,7 @@ option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
+string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
@@ -81,8 +85,6 @@ if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   else()
     set(FBGEMM_LIBRARY_TYPE "STATIC")
   endif()
-else()
-  string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
 # Add address sanitizer
@@ -96,16 +98,6 @@ endif()
 if(DISABLE_FBGEMM_AUTOVEC)
   add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
-
-if(MSVC)
-  set(MSVC_BOOL True)
-  check_cxx_compiler_flag(/arch:AVX2 COMPILER_SUPPORTS_AVX2)
-  check_cxx_compiler_flag(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
-else(MSVC)
-  set(MSVC_BOOL False)
-  check_cxx_compiler_flag(-mavx2 COMPILER_SUPPORTS_AVX2)
-  check_cxx_compiler_flag(-mavx512f COMPILER_SUPPORTS_AVX512)
-endif(MSVC)
 
 ################################################################################
 # GNU F2H_IEEE Support
@@ -138,6 +130,12 @@ endif()
 ################################################################################
 # Prepare Sources
 ################################################################################
+
+if(MSVC)
+  set(MSVC_BOOL True)
+else()
+  set(MSVC_BOOL False)
+endif()
 
 if(NOT MSVC)
   set_source_files_properties(
@@ -176,6 +174,8 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
+  MSVC_FLAGS
+    /wd4717 /bigobj
   SANITIZER_OPTIONS
     "${FBGEMM_USE_SANITIZER}"
   DEFINITIONS
@@ -332,6 +332,9 @@ if(NOT TARGET asmjit)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
+  if(MSVC)
+    target_compile_options(asmjit PRIVATE /wd5054)
+  endif()
 endif()
 
 ################################################################################
