@@ -104,6 +104,7 @@ function(cpp_library)
             -Wno-sign-compare
             -Wno-vla
             -Wno-error=unused-but-set-parameter
+            -Wno-error=unused-but-set-variable
             -Wno-error=unused-parameter
             -Wno-error=attributes)
 

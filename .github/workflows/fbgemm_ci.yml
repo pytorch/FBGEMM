@@ -44,7 +44,12 @@ jobs:
           { arch: x86, instance: "linux.12xlarge" },
         ]
         library-type: [ static, shared ]
-        compiler: [ "gcc", "clang" ]
+        compiler: [
+          # NOTE: GCC 9 is still used when building FBGEMM as part of PyTorch
+          { name: gcc, version: 9.5.0 },
+          { name: gcc, version: 14.1.0 },
+          { name: clang, version: 16.0.6 }
+        ]
 
     steps:
     - name: Setup Build Container
@@ -64,8 +69,16 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.13
 
+    - name: Set GCC version
+      if: matrix.compiler.name == 'gcc'
+      run: echo "GCC_VERSION=${{ matrix.compiler.version }}" >> $GITHUB_ENV
+
+    - name: Set LLVM version
+      if: matrix.compiler.name == 'clang'
+      run: echo "LLVM_VERSION=${{ matrix.compiler.version }}" >> $GITHUB_ENV
+
     - name: Install C/C++ Compilers
-      run: . $PRELUDE; GCC_VERSION=9.5.0 install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler.name }}
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
