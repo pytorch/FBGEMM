@@ -171,7 +171,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     x86::Gp kIdx = a->gpz(15);
     // x86::Gp B_pf = a->gpz(8);
 
-    x86::Zmm oneReg = x86::zmm29;
+    auto oneReg = x86::zmm29;
     // create 16-bit 1s
     // i.e., oneReg[0:15] contains 0x0001, oneReg[16:31] contains 0x0001
     // and so on

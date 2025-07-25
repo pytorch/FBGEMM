@@ -276,7 +276,7 @@ GenEmbeddingSpMDMNBitLookup<
         x86::Gp scratchReg1_ = a->gpz(reg_id); // 12 or 13
 
         ++reg_id;
-        x86::Gpd lengths_R_ = a->gpz(reg_id).r32(); // 13 or 14
+        auto lengths_R_ = a->gpz(reg_id).r32(); // 13 or 14
 
         ++reg_id;
         x86::Gp scratchReg2_ = a->gpz(reg_id); // 14 or 15
@@ -391,9 +391,9 @@ GenEmbeddingSpMDMNBitLookup<
         vec_reg_t
             vlen_inv_vreg; // used for normalize by lengths -- 1/ lengths[i]
         vec_reg_t src_vreg; // for holding embedding value temporarily
-        x86::Ymm mask_vreg; // mask for avx2
-        x86::Xmm mask2_vreg;
-        x86::Xmm mask_fp16_vreg;
+        Ymm mask_vreg; // mask for avx2
+        Xmm mask2_vreg;
+        Xmm mask_fp16_vreg;
         vec_reg_t ones_vreg;
 
         // We need 2 vec registers for 1. scale 2. bias
