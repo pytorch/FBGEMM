@@ -38,6 +38,7 @@ def split_shuffling(
     expert_start: Optional[int] = None,
     expert_end: Optional[int] = None,
     is_balanced: bool = False,
+    init_with_zeros: bool = False,
 ) -> torch.Tensor:
     # pyre-ignore
     return _combine_or_split_shuffling(
@@ -47,6 +48,7 @@ def split_shuffling(
         expert_end=expert_end,
         is_balanced=is_balanced,
         is_combine=False,
+        init_with_zeros=init_with_zeros,
     )
 
 
@@ -57,6 +59,7 @@ def _combine_or_split_shuffling(
     expert_end: Optional[int],
     is_balanced: bool,
     is_combine: bool,
+    init_with_zeros: bool = False,
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     # T is intentionally ignored in kernel interface to avoid recompilation
     assert tokens.is_contiguous()
@@ -83,7 +86,9 @@ def _combine_or_split_shuffling(
     else:
         grid = (EP * EG * SPLIT_D,)
 
-    output_tokens = torch.empty_like(tokens)
+    output_tokens = (
+        torch.zeros_like(tokens) if init_with_zeros else torch.empty_like(tokens)
+    )
     if is_combine:
         output_token_counts = torch.empty(
             EG + 1, dtype=token_counts.dtype, device=token_counts.device
@@ -168,7 +173,7 @@ _SPLIT_SHUFFLING_OP_NAME = "fbgemm::split_shuffling"
 
 torch.library.define(
     "fbgemm::split_shuffling",
-    "(Tensor tokens, Tensor token_counts, int? expert_start = None, int? expert_end = None, bool? is_balanced = False) -> Tensor",
+    "(Tensor tokens, Tensor token_counts, int? expert_start = None, int? expert_end = None, bool? is_balanced = False, bool? init_with_zeros = False) -> Tensor",
 )
 
 
