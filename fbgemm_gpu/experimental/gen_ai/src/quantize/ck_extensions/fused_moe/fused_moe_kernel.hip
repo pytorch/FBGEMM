@@ -77,14 +77,14 @@ at::Tensor fused_moe_impl(
   auto prec_o = get_prec_str(output);
   auto prec_tkw = get_prec_str(topk_weights);
 
-  int workspace_size = ck_tile::moe_sorting_get_workspace_size(tokens, experts);
+  int workspace_size = ck_tile::moe_sorting_get_workspace_size(tokens, experts, topk, 0 /*dispatch policy*/);
   void *ws_ptr = nullptr;
   if (workspace_size > 0)
   {
       auto ws = at::zeros({workspace_size}, at::TensorOptions().dtype(topk_ids.dtype()).device(device_of(topk_ids)));
       ws_ptr = ws.data_ptr();
   }
-  
+
 
   // Set up traits structure
   fused_moe_traits traits{
@@ -109,7 +109,8 @@ at::Tensor fused_moe_impl(
       gate_up_scales.has_value() ? gate_up_scales->data_ptr() : nullptr,
       down_scales.has_value() ? down_scales->data_ptr() : nullptr,
       smooth_scales.has_value() ? smooth_scales->data_ptr() : nullptr,  // expert_mask
-      nullptr,
+      nullptr, // local_expert_mask_ptr
+      nullptr, // local_tokens
       output.data_ptr(),
       ws_ptr,
       topk_ids.data_ptr(),
