@@ -107,7 +107,7 @@ function(cpp_library)
             -Wno-error=unused-parameter
             -Wno-error=attributes)
 
-        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
             list(APPEND lib_cc_flags
                 -Wno-c99-extensions
                 -Wno-gnu-zero-variadic-macro-arguments
@@ -120,11 +120,11 @@ function(cpp_library)
                     -Wno-error=shadow)
             endif()
 
-        elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
             list(APPEND lib_cc_flags
                 -Wmaybe-uninitialized)
 
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "10.0")
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
                 list(APPEND lib_cc_flags
                     -Wno-deprecated-enum-enum-conversion)
             endif()
