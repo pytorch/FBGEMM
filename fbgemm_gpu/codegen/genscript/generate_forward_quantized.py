@@ -7,7 +7,6 @@
 # pyre-strict
 # flake8: noqa F401
 
-import os
 import sys
 from dataclasses import dataclass
 from typing import Dict, List
@@ -131,7 +130,7 @@ class ForwardQuantizedGenerator:
     def generate_nbit_kernel() -> None:
         # Generate the CUDA nbit (kernel) templates
         template = CodeTemplate.load(
-            f"inference/embedding_forward_quantized_split_nbit_kernel_template.cu"
+            "inference/embedding_forward_quantized_split_nbit_kernel_template.cu"
         )
         for weighted in [True, False]:
             for nobag in [True, False]:
@@ -149,7 +148,7 @@ class ForwardQuantizedGenerator:
     def generate_nbit_host() -> None:
         # Generate the CUDA nbit (host) templates
         template = CodeTemplate.load(
-            f"inference/embedding_forward_quantized_split_nbit_host_template.cu"
+            "inference/embedding_forward_quantized_split_nbit_host_template.cu"
         )
         for weighted in [True, False]:
             for nobag in [True, False]:
@@ -166,7 +165,7 @@ class ForwardQuantizedGenerator:
     def generate_nbit_cpu() -> None:
         # Generate the CPU templates
         template = CodeTemplate.load(
-            f"inference/embedding_forward_quantized_cpu_template.cpp"
+            "inference/embedding_forward_quantized_cpu_template.cpp"
         )
         for weighted in [True, False]:
             template.write(

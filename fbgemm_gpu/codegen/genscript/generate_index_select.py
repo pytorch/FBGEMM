@@ -8,9 +8,7 @@
 # pyre-strict
 # flake8: noqa F401
 
-import re
 import sys
-from typing import Optional
 
 try:
     from .common import CodeTemplate

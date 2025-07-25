@@ -208,7 +208,6 @@ def dispatch_non_vec_blocking_kernel(
             "kThreadGroupSize": kThreadGroupSize,
             "kUseVecBlocking": kUseVecBlocking,
         }
-        max_D_val = kFixedMaxVecsPerThread * kThreadGroupSize * 4
         d_blob = """if (MAX_D <= {max_D_val}) {                               \\
              [[ maybe_unused ]] const int max_vecs_per_thread =               \\
                {kFixedMaxVecsPerThread};                                      \\
