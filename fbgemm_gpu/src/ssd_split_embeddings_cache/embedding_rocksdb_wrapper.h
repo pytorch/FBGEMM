@@ -105,6 +105,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->set(indices, weights, count);
   }
 
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
+    return impl_->set_kv_to_storage(ids, weights);
+  }
+
   void set_range_to_storage(
       const at::Tensor& weights,
       const int64_t start,
