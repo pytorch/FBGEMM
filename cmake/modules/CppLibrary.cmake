@@ -88,6 +88,8 @@ function(cpp_library)
             /wd4244
             /wd4267
             /wd4305
+            # For recursive warnings in Fbgemm.h
+            /wd4717
             /wd4309)
 
     else()
@@ -108,9 +110,7 @@ function(cpp_library)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
             list(APPEND lib_cc_flags
-                -Wno-c99-extensions
-                -Wno-gnu-zero-variadic-macro-arguments
-                -Wno-deprecated-enum-enum-conversion)
+                -Wno-gnu-zero-variadic-macro-arguments)
 
             if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
                 list(APPEND lib_cc_flags
