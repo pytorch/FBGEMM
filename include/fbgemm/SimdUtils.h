@@ -30,7 +30,6 @@ class Ymm : public asmjit::x86::Vec {
 public:
   using Vec::Vec;
   using Vec::operator=;
-  Ymm(const Vec& other): Vec(other) {}
   Ymm(uint32_t regId): Vec(_signatureOf<asmjit::RegType::kVec256>(), regId) {}
   //! Casts this register to a register that has half the size (XMM).
   ASMJIT_INLINE_NODEBUG Xmm half() const noexcept { return Xmm(id()); }
