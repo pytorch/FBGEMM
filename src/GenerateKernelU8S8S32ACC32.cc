@@ -108,7 +108,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     bool accum,
     int32_t mc,
     int32_t nc,
-    int32_t kc [[maybe_unused]]) {
+    int32_t kc) {
+  (void)kc; // Temporarily hack to appease gcc9.5.0
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;

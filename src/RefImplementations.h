@@ -420,6 +420,7 @@ float convert_to_float_ref(T src, bool is_bf16 = false) {
   if constexpr (std::is_same_v<T, uint16_t>) {
     return is_bf16 ? cpu_bf162float(src) : cpu_half2float(src);
   }
+  (void)is_bf16; // Temporarily hack to appease gcc9.5.0
   return src;
 }
 
@@ -428,6 +429,7 @@ T convert_from_float_ref(float src, bool is_bf16 = false) {
   if constexpr (std::is_same_v<T, uint16_t>) {
     return is_bf16 ? cpu_float2bfloat16(src) : cpu_float2half_rn(src);
   }
+  (void)is_bf16; // Temporarily hack to appease gcc9.5.0
   return src;
 }
 
