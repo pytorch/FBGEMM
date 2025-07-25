@@ -95,7 +95,7 @@ BLOCK_PRINT(
   "AMDGPU_TARGETS         : ${AMDGPU_TARGETS}"
   "PYTORCH_ROCM_ARCH      : ${PYTORCH_ROCM_ARCH}")
 
-set(project_languages CXX C)
+set(project_languages CXX)
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   list(APPEND project_languages CUDA)
 endif()
