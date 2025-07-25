@@ -191,7 +191,6 @@ class PartiallyMaterializedTensor:
         layout_str_mapping = {
             "SparseCsr": "sparse_csr",
             "Strided": "strided",
-            "SparseCsr": "sparse_csr",
             "SparseCsc": "sparse_csc",
             "Jagged": "jagged",
         }
