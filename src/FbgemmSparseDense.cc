@@ -70,19 +70,6 @@ fbgemmDenseToBCSR(int R, int C, const T* inp) {
   return fbgemmDenseToBCSR<T, RB, CB>(R, C, inp, C);
 }
 
-#if __cplusplus < 201703L
-
-template <typename T, int RB, int CB>
-constexpr int BCSRMatrix<T, RB, CB>::RB;
-
-template <typename T, int RB, int CB>
-constexpr int BCSRMatrix<T, RB, CB>::CB;
-
-template <typename T, int RB, int CB>
-constexpr int BCSRMatrix<T, RB, CB>::COLTILE;
-
-#endif
-
 template <typename T, int RB, int CB>
 void BCSRMatrix<T, RB, CB>::pack(const DTYPE* src, size_t ld) {
   rowBPtr.push_back(0);
