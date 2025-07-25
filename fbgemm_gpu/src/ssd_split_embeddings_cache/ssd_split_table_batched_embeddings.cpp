@@ -472,6 +472,16 @@ void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
     c10::intrusive_ptr<EmbeddingRocksDBWrapper> db) {
   db_ = db->impl_;
 }
+void KVTensorWrapper::set_read_only_embedding_rocks_dp_wrapper() {
+  auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
+  readonly_db_ = std::make_shared<ReadOnlyEmbeddingKVDB>(
+      db->get_checkpoints(checkpoint_handle_->uuid),
+      db->get_tbe_uuid(),
+      db->num_shards(),
+      db->num_threads(),
+      db->get_max_D());
+  XLOG(INFO) << "KVTensorWrapper is read only, set the readonly_db pointer now";
+}
 
 void KVTensorWrapper::set_dram_db_wrapper(
     c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
@@ -480,7 +490,20 @@ void KVTensorWrapper::set_dram_db_wrapper(
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-  if (db_) {
+  if (readonly_db_) {
+    XLOG(INFO) << "In Narrow:KVTensorWrapper is read only";
+    CHECK(readonly_db_)
+        << "ReadOnlyEmbeddingKVDB pointer must be valid to read tensor";
+    CHECK_GE(readonly_db_->get_max_D(), shape_[1]);
+    CHECK_EQ(width_offset_, 0)
+        << "Width offset must be 0 for ro_rdb becuase the functionality is not supported yet";
+    auto t = at::empty(c10::IntArrayRef({length, shape_[1]}), options_);
+    readonly_db_->get_range_from_rdb_checkpoint(
+        t, start + row_offset_, length, width_offset_);
+    // TBE may have multiple embeddings in one table padded to max D
+    // narrow to the actual shape here before returning
+    return t.narrow(1, 0, shape_[1]);
+  } else {
     CHECK_TRUE(db_ != nullptr);
     CHECK_GE(
         db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
@@ -504,18 +527,6 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
           sorted_indices_.value().slice(0, start, start + length);
       return get_weights_by_ids(sliced_ids);
     }
-  } else {
-    CHECK(readonly_db_)
-        << "ReadOnlyEmbeddingKVDB pointer must be valid to read tensor";
-    CHECK_GE(readonly_db_->get_max_D(), shape_[1]);
-    CHECK_EQ(width_offset_, 0)
-        << "Width offset must be 0 for ro_rdb becuase the functionality is not supported yet";
-    auto t = at::empty(c10::IntArrayRef({length, shape_[1]}), options_);
-    readonly_db_->get_range_from_rdb_checkpoint(
-        t, start + row_offset_, length, width_offset_);
-    // TBE may have multiple embeddings in one table padded to max D
-    // narrow to the actual shape here before returning
-    return t.narrow(1, 0, shape_[1]);
   }
 }
 
@@ -1022,7 +1033,11 @@ static auto kv_tensor_wrapper =
         .def("logs", &KVTensorWrapper::logs, "")
         .def(
             "get_kvtensor_serializable_metadata",
-            &KVTensorWrapper::get_kvtensor_serializable_metadata);
+            &KVTensorWrapper::get_kvtensor_serializable_metadata)
+        .def(
+            "set_read_only_embedding_rocks_dp_wrapper",
+            &KVTensorWrapper::set_read_only_embedding_rocks_dp_wrapper,
+            "");
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
