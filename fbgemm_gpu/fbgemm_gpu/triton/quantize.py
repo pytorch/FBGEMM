@@ -238,7 +238,7 @@ def _kernel_quantize_mx4(
         # We readd fp32_exp_bias for compatibility with cuda dequant.
         tl.store(
             out + exp_offset,
-            (group_exp + FP32_EXP_BIAS).to(tl.int8),
+            (group_exp + FP32_EXP_BIAS).to(tl.uint8),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < OUTPUT_SIZE)
             & (exp_offset < (OUTPUT_CHUNK_SIZE * (pid + 1))),
