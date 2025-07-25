@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <functional>
 
 using Node = int64_t;
