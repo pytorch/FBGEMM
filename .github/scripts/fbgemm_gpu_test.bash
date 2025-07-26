@@ -102,7 +102,7 @@ __configure_fbgemm_gpu_test_cuda () {
   print_exec conda env config vars unset ${env_prefix} CUDA_VISIBLE_DEVICES
 
   export ignored_tests=(
-    ./moe/layers_test.py # not a UnitTest
+    ./moe/layers_test.py  # Not a python unittest file
   )
 }
 
@@ -140,7 +140,7 @@ __configure_fbgemm_gpu_test_rocm () {
     ./batched_unary_embeddings_test.py
     ./sll/triton_sll_test.py
     ./gather_scatter/gather_scatter_test.py
-    ./moe/layers_test.py # Not a python unittest file
+    ./moe/layers_test.py  # Not a python unittest file
   )
 }
 
