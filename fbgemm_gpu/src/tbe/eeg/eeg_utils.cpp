@@ -155,7 +155,7 @@ double directSumOfHarmonicSeries(double s, double q, int64_t n) {
 namespace fbgemm_gpu::tbe {
 
 torch::Tensor loadTensorFromFile(const std::filesystem::path& tensorsPath) {
-  std::cout << "Loading tensor from " << tensorsPath << std::endl;
+  std::cout << "Loading tensor from " << tensorsPath << '\n';
   // PyTorch API requires us to use a torch::pickle_load on a vector<char>
   // (torch::load doesn't work here)
   // https://fb.workplace.com/groups/1405155842844877/posts/4947064988653927/?comment_id=4947149218645504

@@ -24,7 +24,7 @@ namespace fbgemm_gpu::tbe {
 
 class IndicesEstimator {
  public:
-  explicit IndicesEstimator(const std::filesystem::path& tensorPath);
+  explicit IndicesEstimator(const std::filesystem::path& tensors_path);
 
   explicit IndicesEstimator(const torch::Tensor& indices);
 
@@ -80,7 +80,7 @@ class IndicesEstimator {
   mutable std::optional<int64_t> cacheMaxIndex_;
 
   // Populate the index frequencies
-  void populateIndexFreqs_(const torch::Tensor&);
+  void populateIndexFreqs_(const torch::Tensor& /*indices*/);
 
   // Populate the log table from the index frequencies
   void populateLogTable_();
@@ -95,7 +95,7 @@ class IndicesEstimator {
   int64_t maxIndex() const;
 
   // Returns zipf parameters used to fit the distribution
-  ZipfParameters zipfParams(const std::vector<double>&) const;
+  ZipfParameters zipfParams(const std::vector<double>& /*heavyHitters*/) const;
 };
 
 } // namespace fbgemm_gpu::tbe

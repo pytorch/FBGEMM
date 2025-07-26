@@ -651,7 +651,7 @@ class JaggedIndexSelect2dOp
     Tensor indices = *savedItr++;
     Tensor grad_offsets = *savedItr++;
     Tensor output_offsets = *savedItr++;
-    Tensor grad = grad_outputs[0];
+    const Tensor& grad = grad_outputs[0];
 
     TENSORS_ON_SAME_DEVICE(grad, indices);
 
@@ -746,7 +746,7 @@ class JaggedSliceOp : public torch::autograd::Function<JaggedSliceOp> {
     Tensor grad_lengths = *savedItr++;
     Tensor tgt_start = *savedItr++;
     Tensor src_start = *savedItr++;
-    Tensor grad = grad_outputs[0];
+    const Tensor& grad = grad_outputs[0];
 
     TENSORS_ON_SAME_DEVICE(grad, output_lengths);
 

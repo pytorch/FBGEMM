@@ -46,7 +46,7 @@ inline std::string torch_tensor_device_name(
   }
 }
 
-inline const std::string torch_tensor_shape_str(const at::Tensor& ten) {
+inline std::string torch_tensor_shape_str(const at::Tensor& ten) {
   std::stringstream ss;
   const auto sizes = ten.sizes();
   ss << "[";
@@ -264,7 +264,7 @@ std::string tensor_on_same_gpu_if_not_optional_check(
 
   std::vector<std::string> var_names;
   {
-    std::string temp = "";
+    std::string temp;
     for (const auto& x : var_names_str) {
       if (x == ',') {
         var_names.push_back(temp);
