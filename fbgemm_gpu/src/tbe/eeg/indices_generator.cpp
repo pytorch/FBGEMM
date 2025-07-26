@@ -79,14 +79,14 @@ torch::Tensor IndicesGenerator::generate() {
   random::bernoulli_distribution tagUniformSelector(1 - kTagClusterProbability);
 
   // First handle the index
-  for (int64_t i = 0; i < indicesWithTags.size(); ++i) {
+  for (auto & indicesWithTag : indicesWithTags) {
     if (heavyHitterSelectorDist_(rng_)) {
-      indicesWithTags[i].first = heavyHittersDist_(rng_);
+      indicesWithTag.first = heavyHittersDist_(rng_);
     } else {
-      indicesWithTags[i].first =
+      indicesWithTag.first =
           zipfianDist_(rng_) + params_.heavyHitters.size();
     }
-    auto curIdx = indicesWithTags[i].first;
+    auto curIdx = indicesWithTag.first;
     indicesMetadata[curIdx].freq++;
   }
 
@@ -97,12 +97,12 @@ torch::Tensor IndicesGenerator::generate() {
 
   // Now handle the tags
   random::exponential_distribution exponentialDist;
-  for (int64_t i = 0; i < indicesWithTags.size(); ++i) {
+  for (auto & indicesWithTag : indicesWithTags) {
     double tag;
 
     // In the case where the current metadata for the index is empty, simply
     // push in a U[0,1]
-    auto curIdx = indicesWithTags[i].first;
+    auto curIdx = indicesWithTag.first;
     if (indicesMetadata[curIdx].tags.empty()) {
       tag = tagUniformDist(rng_);
     }
@@ -124,7 +124,7 @@ torch::Tensor IndicesGenerator::generate() {
       }
     }
 
-    indicesWithTags[i].second = tag;
+    indicesWithTag.second = tag;
     indicesMetadata[curIdx].tags.push_back(tag);
   }
 

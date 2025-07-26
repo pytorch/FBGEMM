@@ -19,7 +19,7 @@
 
 namespace fbgemm_gpu::config {
 
-const std::string to_string(const FeatureGateName& value) {
+std::string to_string(const FeatureGateName& value) {
   switch (value) {
 #define X(value)               \
   case FeatureGateName::value: \

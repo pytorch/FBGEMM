@@ -190,7 +190,7 @@ class PackSegmentsV2 : public torch::autograd::Function<PackSegmentsV2> {
 Tensor pack_segments_autograd(
     const Tensor& t_in,
     const Tensor& lengths,
-    const at::SymInt max_length
+    at::SymInt max_length
 
 ) {
   return PackSegments::apply(t_in, lengths, max_length)[0];
@@ -357,9 +357,9 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const Tensor& block_sizes,
     const std::optional<Tensor>& total_num_blocks,
     const int64_t my_size,
-    Tensor new_lengths,
-    Tensor new_indices,
-    std::optional<Tensor> new_weights,
+    const Tensor& new_lengths,
+    const Tensor& new_indices,
+    const std::optional<Tensor>& new_weights,
     std::optional<Tensor> new_pos,
     const std::optional<Tensor>& unbucketize_permute,
     const std::optional<Tensor>& batch_size_per_feature,
@@ -389,7 +389,7 @@ void _block_bucketize_sparse_features_cpu_kernel(
   offset_t* batch_sizes_data = nullptr;
   const auto variable_batch_size = batch_size_per_feature.has_value();
   const auto variable_bucket_sizes = block_bucketize_pos.has_value() &&
-      block_bucketize_pos.value().size() != 0;
+      !block_bucketize_pos.value().empty();
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
   std::vector<int64_t> lower_bounds(indices.numel(), 0);
@@ -3180,7 +3180,7 @@ torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
   auto indices_group = std::vector<Tensor>(
       all_inputs.cbegin() + group_size, all_inputs.cbegin() + 2 * group_size);
 
-  const Tensor fwd_input = all_inputs[2 * group_size + 2];
+  const Tensor& fwd_input = all_inputs[2 * group_size + 2];
   const int64_t output_dim = fwd_input.dim();
 
   std::vector<int64_t> output_shape_group;
@@ -3215,8 +3215,8 @@ torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
 
     // initialize grad input
     auto grad_input = at::zeros({grad_input_shape}, fwd_input.options());
-    const auto grad_output = grad_output_group[i];
-    const auto indices = indices_group[i];
+    const auto& grad_output = grad_output_group[i];
+    const auto& indices = indices_group[i];
 
     // add gradient for each index in the group
     for (const auto j : c10::irange(indices.numel())) {
@@ -3319,7 +3319,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   // op.call to make __torch_dispatch__ work for the backward op.
   std::fill(res.begin(), res.begin() + group_size, torch::autograd::Variable());
   // 3) Add 1 Variable() for group_size
-  res.push_back({});
+  res.emplace_back();
   return res;
 }
 

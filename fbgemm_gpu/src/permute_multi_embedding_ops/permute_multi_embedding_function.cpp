@@ -67,10 +67,10 @@ variable_list PermuteMultiEmbeddingOp::backward(
           .typed<decltype(permute_multi_embedding_function_meta)>();
   auto grad_input = permute_op.call(
       grad_output, permutes, out_shapes, in_shapes, in_lengths, true);
-  grad_input.push_back(torch::autograd::Variable()); // permutes
-  grad_input.push_back(torch::autograd::Variable()); // in_shapes
-  grad_input.push_back(torch::autograd::Variable()); // out_shapes
-  grad_input.push_back(torch::autograd::Variable()); // out_lengths
+  grad_input.emplace_back(); // permutes
+  grad_input.emplace_back(); // in_shapes
+  grad_input.emplace_back(); // out_shapes
+  grad_input.emplace_back(); // out_lengths
   return grad_input;
 }
 
@@ -188,7 +188,7 @@ kt_regroup_arguments_impl(
   // length is the length of the feature in the output tensor
   // next is the next duplicate feature's permute-index in the output tensor
   for (auto out_tensor : c10::irange(out_tensors)) {
-    for (auto key : groups[out_tensor]) {
+    for (const auto& key : groups[out_tensor]) {
       // query the loockup dictionary for input tensor index, offset, and length
       auto [in_tensor, length, in_offset] = lookup.at(key);
       int32_t* __restrict__ curr_pp = pp + curr * PermuteParam::size;

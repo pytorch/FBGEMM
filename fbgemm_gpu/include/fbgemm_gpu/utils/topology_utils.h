@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <cstdint>
 
 using Node = int64_t;
 using Links = int64_t;
