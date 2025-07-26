@@ -30,6 +30,7 @@ glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
   src/attention/*.cpp
   src/coalesce/*.cpp
   src/comm/*.cpp
+  src/kv_cache/*.cpp
   src/moe/*.cpp
   src/quantize/*.cpp
   src/quantize/common/*.cpp)
@@ -38,6 +39,7 @@ glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
   src/attention/*.cu
   src/coalesce/*.cu
   src/comm/*.cu
+  src/kv_cache/*.cu
   src/moe/*.cu
   src/quantize/*.cu)
 
@@ -47,16 +49,6 @@ if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
 
   glob_files_nohip(tmp_list_gpu
     src/gather_scatter/*.cu)
-
-  # TODO: kv_cache sources need to be updated with proper CUDA_VERSION ifdef
-  # wrapping before this if-clause can be removed
-  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0)
-    glob_files_nohip(tmp_list_cpu2
-      src/kv_cache/*.cpp)
-
-    glob_files_nohip(tmp_list_gpu2
-      src/kv_cache/*.cu)
-  endif()
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${tmp_list_cpu} ${tmp_list_cpu2})
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu} ${tmp_list_gpu2})
