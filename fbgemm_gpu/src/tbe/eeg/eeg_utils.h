@@ -56,7 +56,7 @@ class ZipfianDistribution {
       std::cout << "WARNING: changing Zipfian s from "
                 << std::setprecision(std::numeric_limits<double>::max_digits10)
                 << s << " to 1.0 to improve generator accuracy"
-                << std::setprecision(printPrecision) << std::endl;
+                << std::setprecision(printPrecision) << '\n';
       s_ = 1.0;
     }
 
@@ -107,7 +107,7 @@ class ZipfianDistribution {
 #endif
 
   // Rejection sampling (continuous) bound distribution
-  inline double boundingInvCdf(double p) {
+  double boundingInvCdf(double p) {
     double pt = p * t_;
     if (pt <= 1.0) {
       return pt;

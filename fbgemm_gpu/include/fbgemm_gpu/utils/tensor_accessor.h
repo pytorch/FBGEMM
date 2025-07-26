@@ -93,7 +93,7 @@ template <
     typename index_t = int64_t>
 class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
  public:
-  typedef typename PtrTraits<T>::PtrType PtrType;
+  using PtrType = typename PtrTraits<T>::PtrType;
 
   C10_HOST_DEVICE TensorAccessor(
       const PtrType data_,
@@ -117,7 +117,7 @@ class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i)
+  C10_HOST_DEVICE auto operator[](const index_t i)
       -> std::
           enable_if_t<(M > 1), TensorAccessor<T, N - 1, PtrTraits, index_t>> {
     return TensorAccessor<T, N - 1, PtrTraits, index_t>(
@@ -129,7 +129,7 @@ class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i) const
+  C10_HOST_DEVICE auto operator[](const index_t i) const
       -> std::enable_if_t<
           (M > 1),
           const TensorAccessor<T, N - 1, PtrTraits, index_t>> {
@@ -142,24 +142,24 @@ class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i)
+  C10_HOST_DEVICE auto operator[](const index_t i)
       -> std::enable_if_t<(M == 1), T&> {
     // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     return this->at(this->strides_[0] * i);
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i) const
+  C10_HOST_DEVICE auto operator[](const index_t i) const
       -> std::enable_if_t<(M == 1), const T&> {
     // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     return this->at(this->strides_[0] * i);
   }
 
-  C10_HOST_DEVICE inline auto numel() const {
+  C10_HOST_DEVICE auto numel() const {
     return numel_;
   }
 
-  C10_HOST_DEVICE inline T& at(const index_t idx) const {
+  C10_HOST_DEVICE T& at(const index_t idx) const {
     if (idx < 0) {
       printf(
           "[%s][Tensor %s] CUDA Kernel Assertion: index is outside of accessor bounds (idx=%ld) < 0\n",
@@ -211,7 +211,7 @@ template <
 class PackedTensorAccessor
     : public at::GenericPackedTensorAccessorBase<T, N, PtrTraits, index_t> {
  public:
-  typedef typename PtrTraits<T>::PtrType PtrType;
+  using PtrType = typename PtrTraits<T>::PtrType;
 
   C10_HOST PackedTensorAccessor(
       const PtrType data_,
@@ -248,7 +248,7 @@ class PackedTensorAccessor
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i)
+  C10_HOST_DEVICE auto operator[](const index_t i)
       -> std::
           enable_if_t<(M > 1), TensorAccessor<T, N - 1, PtrTraits, index_t>> {
     return TensorAccessor<T, N - 1, PtrTraits, index_t>(
@@ -260,7 +260,7 @@ class PackedTensorAccessor
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i) const
+  C10_HOST_DEVICE auto operator[](const index_t i) const
       -> std::enable_if_t<
           (M > 1),
           const TensorAccessor<T, N - 1, PtrTraits, index_t>> {
@@ -273,24 +273,24 @@ class PackedTensorAccessor
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i)
+  C10_HOST_DEVICE auto operator[](const index_t i)
       -> std::enable_if_t<(M == 1), T&> {
     // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     return this->at(this->strides_[0] * i);
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE inline auto operator[](const index_t i) const
+  C10_HOST_DEVICE auto operator[](const index_t i) const
       -> std::enable_if_t<(M == 1), const T&> {
     // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     return this->at(this->strides_[0] * i);
   }
 
-  C10_HOST_DEVICE inline auto numel() const {
+  C10_HOST_DEVICE auto numel() const {
     return numel_;
   }
 
-  C10_HOST_DEVICE inline T& at(const index_t idx) const {
+  C10_HOST_DEVICE T& at(const index_t idx) const {
     if (idx < 0) {
       printf(
           "[%s][Tensor %s] CUDA Kernel Assertion: index is outside of accessor bounds (idx=%ld) < 0\n",
@@ -314,7 +314,7 @@ class PackedTensorAccessor
     return this->data_[idx];
   }
 
-  C10_HOST inline auto transpose(const index_t dim1, const index_t dim2) const {
+  C10_HOST auto transpose(const index_t dim1, const index_t dim2) const {
     if constexpr (N > 1) {
       this->bounds_check_(dim1);
       this->bounds_check_(dim2);
@@ -338,7 +338,7 @@ class PackedTensorAccessor
   char context_[CONTEXT_MAX_LEN];
 
   template <typename source_index_t>
-  C10_HOST_DEVICE inline void set_numel_(
+  C10_HOST_DEVICE void set_numel_(
       const source_index_t* sizes_,
       const source_index_t* strides_) {
     numel_ = 0;
@@ -350,7 +350,7 @@ class PackedTensorAccessor
     }
   }
 
-  C10_HOST inline void bounds_check_(const index_t i) const {
+  C10_HOST void bounds_check_(const index_t i) const {
     TORCH_CHECK_INDEX(
         0 <= i && i < index_t{N},
         "[",

@@ -132,7 +132,7 @@ inline int32_t nbit_elems_to_bytes(const at::Tensor& input) {
 
 inline at::SymInt nbit_elems_to_bytes_meta(const at::Tensor& input) {
   const at::SymIntArrayRef input_sizes = input.sym_sizes();
-  const at::SymInt ncols = input_sizes[1];
+  const at::SymInt& ncols = input_sizes[1];
   // at::kQUInt4x2 is the dtype for quantized int4 tensors and at::kQUInt2x4 is
   // for quantized int2 tensors. QUIntMxN (M*N=8) means quantized M-bit integer
   // with each byte holding N such elements.

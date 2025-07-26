@@ -15,7 +15,7 @@ namespace fbgemm_gpu {
 
 ///@ingroup merge-pooled-emb
 std::vector<at::Tensor> all_to_one_device(
-    std::vector<at::Tensor> inputTensors,
+    std::vector<at::Tensor> input_tensors,
     at::Device target_device);
 
 } // namespace fbgemm_gpu

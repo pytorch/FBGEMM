@@ -12,15 +12,15 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor asynchronous_batched_complete_cumsum_cpu(const at::Tensor& values) {
-  auto B = values.size(0);
-  auto len = values.size(1);
-  auto output = at::empty({B, len + 1}, values.options());
+at::Tensor asynchronous_batched_complete_cumsum_cpu(const at::Tensor& t_in) {
+  auto B = t_in.size(0);
+  auto len = t_in.size(1);
+  auto output = at::empty({B, len + 1}, t_in.options());
   const at::Tensor index = at::range(0, len, at::kLong).cpu();
   for (auto i : c10::irange(B)) {
     at::Tensor t = output[i];
     at::index_put_(
-        t, {index}, fbgemm_gpu::asynchronous_complete_cumsum_cpu(values[i]));
+        t, {index}, fbgemm_gpu::asynchronous_complete_cumsum_cpu(t_in[i]));
   }
   return output;
 }
