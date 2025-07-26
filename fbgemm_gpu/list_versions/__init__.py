@@ -7,5 +7,6 @@
 
 # pyre-strict
 
-from .command_runner import CLI, CLIOutput
+from .cli_run import CLI, CLIOutput
+
 __all__ = ["CLI", "CLIOutput"]
