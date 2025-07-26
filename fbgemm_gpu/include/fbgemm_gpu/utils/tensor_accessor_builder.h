@@ -108,7 +108,7 @@ struct TensorAccessorBuilder {
   // Constructor that takes in reference to tensor
   //////////////////////////////////////////////////////////////////////////////
 
-  constexpr inline TensorAccessorBuilder(
+  constexpr TensorAccessorBuilder(
       const std::string_view& name_,
       const at::Tensor& tensor_) noexcept
       : name(name_), tensor(tensor_) {}
@@ -117,7 +117,7 @@ struct TensorAccessorBuilder {
   // Validate Tensor Properties
   //////////////////////////////////////////////////////////////////////////////
 
-  inline void validate_tensor(const std::string_view& context) const {
+  void validate_tensor(const std::string_view& context) const {
     // Check numel is not out of bounds
     if constexpr (std::is_same_v<index_t, int32_t>) {
       TORCH_CHECK(
