@@ -112,7 +112,7 @@ struct KernelLauncher {
         grid.x,
         " is not within the range (0, ",
         grid_limits[0],
-        ")");
+        "]");
 
     TORCH_CHECK(
         grid.y > 0 && grid.y <= grid_limits[1],
@@ -121,7 +121,7 @@ struct KernelLauncher {
         grid.y,
         " is not within the range (0, ",
         grid_limits[1],
-        ")");
+        "]");
 
     TORCH_CHECK(
         grid.z > 0 && grid.z <= grid_limits[2],
@@ -130,7 +130,7 @@ struct KernelLauncher {
         grid.z,
         " is not within the range (0, ",
         grid_limits[2],
-        ")");
+        "]");
   }
 
   constexpr inline void checkBlockSizesInRange(
@@ -145,7 +145,7 @@ struct KernelLauncher {
         block.x,
         " is not within the range (0, ",
         block_limits[0],
-        ")");
+        "]");
 
     TORCH_CHECK(
         block.y > 0 && block.y <= block_limits[1],
@@ -154,7 +154,7 @@ struct KernelLauncher {
         block.y,
         " is not within the range (0, ",
         block_limits[1],
-        ")");
+        "]");
 
     TORCH_CHECK(
         block.z > 0 && block.z <= block_limits[2],
@@ -163,7 +163,7 @@ struct KernelLauncher {
         block.z,
         " is not within the range (0, ",
         block_limits[2],
-        ")");
+        "]");
   }
 
   constexpr inline void checkThreadCountNotExceeded(
