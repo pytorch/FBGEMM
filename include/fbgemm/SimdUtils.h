@@ -11,9 +11,11 @@
 #include "./Utils.h" // @manual
 
 #include <asmjit/x86.h> // @manual
+#include <asmjit/core.h> // @manual
 
 namespace fbgemm {
 
+#if ASMJIT_LIBRARY_VERSION >= ASMJIT_LIBRARY_MAKE_VERSION(1, 17, 0)
 //! 128-bit XMM register (SSE+).
 class Xmm : public asmjit::x86::Vec {
 public:
@@ -44,6 +46,11 @@ public:
   //! Casts this register to a register that has half the size (YMM).
   ASMJIT_INLINE_NODEBUG Ymm half() const noexcept { return Ymm(id()); }
 };
+#else
+using Xmm = asmjit::x86::Xmm;
+using Ymm = asmjit::x86::Ymm;
+using Zmm = asmjit::x86::Zmm;
+#endif
 
 /**
  * @brief Some commonly used variables for different instruction sets
