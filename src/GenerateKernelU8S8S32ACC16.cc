@@ -29,12 +29,12 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
     int rowRegs,
     int colRegs,
     int lda) {
-  using CRegs = x86::Ymm;
+  using CRegs = Ymm;
   static constexpr int vectorLen = simd_info<inst_set_t::avx2>::WIDTH_BYTES;
 
   // used for matrix A
-  x86::Ymm AReg = x86::ymm13;
-  x86::Ymm tmpReg = x86::ymm14;
+  auto AReg = x86::ymm13;
+  auto tmpReg = x86::ymm14;
   for (int i = 0; i < rowRegs; ++i) {
     // broadcast A
     a->vpbroadcastw(

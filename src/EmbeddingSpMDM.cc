@@ -418,8 +418,8 @@ GenEmbeddingSpMDMLookup<
         vec_reg_t
             vlen_inv_vreg; // used for normalize by lengths -- 1/ lengths[i]
         vec_reg_t src_vreg; // for holding embedding value temporarily
-        x86::Ymm mask_vreg; // mask for avx2
-        x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
+        Ymm mask_vreg; // mask for avx2
+        Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
         vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
 
         if constexpr (is_8bit_in) {

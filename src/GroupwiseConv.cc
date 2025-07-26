@@ -597,10 +597,10 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::initResultRegs(x86::Emitter* a) {
     // Take advantage of implicit zeroing out
     // i.e., zero out xmm and ymm and zmm will be zeroed out too
     for (int k = 0; k < kLoopIters_; ++k) {
-      a->vpxor(x86::Xmm(9 - k), x86::Xmm(9 - k), x86::Xmm(9 - k));
+      a->vpxor(Xmm(9 - k), Xmm(9 - k), Xmm(9 - k));
     }
   } else {
-    a->vpxor(x86::Xmm(9), x86::Xmm(9), x86::Xmm(9));
+    a->vpxor(Xmm(9), Xmm(9), Xmm(9));
   }
 }
 

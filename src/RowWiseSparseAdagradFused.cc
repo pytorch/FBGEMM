@@ -158,9 +158,9 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         x86::Gp h = a->gpz(9);
         x86::Gp indices = a->gpz(10);
         x86::Gp lengths = a->gpz(11);
-        x86::Xmm epsilon(0);
-        x86::Xmm lr(1);
-        x86::Gpd lengths_R = a->gpz(12).r32();
+        Xmm epsilon(0);
+        Xmm lr(1);
+        auto lengths_R = a->gpz(12).r32();
         x86::Gp scratchReg1 = a->gpz(13);
         x86::Gp scratchReg2 = a->gpz(14); // for prefetching
 
@@ -230,13 +230,13 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         int remainder = block_size % vlen;
 
         vec_reg_t src_vreg; // for holding embedding value temporarily
-        x86::Ymm mask_vreg;
+        Ymm mask_vreg;
 
         // Reserve registers with small ids first because some of them need to
         // be used with an instruction not supported in avx512 for which a big
         // register id won't work.
         int first_available_vec_reg_id = 0;
-        x86::Ymm partial_sum_vreg = x86::Ymm(first_available_vec_reg_id);
+        Ymm partial_sum_vreg = Ymm(first_available_vec_reg_id);
         ++first_available_vec_reg_id;
         vec_reg_t float_step_vreg = vec_reg_t(first_available_vec_reg_id);
         ++first_available_vec_reg_id;
@@ -301,7 +301,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             src_vreg = vec_reg_t(first_available_vec_reg_id);
             ++first_available_vec_reg_id;
 
-            mask_vreg = x86::Ymm(first_available_vec_reg_id);
+            mask_vreg = Ymm(first_available_vec_reg_id);
             ++first_available_vec_reg_id;
             // Use scratchReg1 as temp
             a->mov(scratchReg1, asmjit::imm(mask_avx2));
@@ -362,7 +362,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           int cur_unroll_factor =
               std::min(unroll_factor, num_vec_regs_per_block_avx2 - vec_idx);
           for (int v = 0; v < cur_unroll_factor; ++v) {
-            x86::Ymm out_vreg = x86::Ymm(v + first_available_vec_reg_id);
+            Ymm out_vreg = Ymm(v + first_available_vec_reg_id);
 
             auto g_ptr =
                 x86::dword_ptr(g, (vec_idx + v) * vlen_avx2 * sizeof(float));
@@ -385,8 +385,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         // __m256 partial_sum_3 = _mm256_hadd_ps(partial_sum_2, partial_sum_2);
         // Use YMM/XMMs with smaller ids for AVX2 specific instructions like
         // vhaddps
-        x86::Xmm partial_sum_xmm(partial_sum_vreg.id());
-        x86::Xmm float_step_xmm(float_step_vreg.id());
+        Xmm partial_sum_xmm(partial_sum_vreg.id());
+        Xmm float_step_xmm(float_step_vreg.id());
         // a->vmovups(partial_sum_temp0_ymm, partial_sum_vreg);
         a->vhaddps(partial_sum_vreg, partial_sum_vreg, partial_sum_vreg);
         a->vhaddps(partial_sum_vreg, partial_sum_vreg, partial_sum_vreg);

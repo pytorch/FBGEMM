@@ -57,7 +57,7 @@ class GenSparseAdagrad {
       int prefetch,
       const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
       const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-      const x86::Ymm& mask_vreg,
+      const Ymm& mask_vreg,
       const typename simd_info<instSet>::vec_reg_t& temp_vreg,
       const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
       bool has_weight_decay);
@@ -71,7 +71,7 @@ class GenSparseAdagrad {
       int prefetch,
       const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
       const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-      const x86::Ymm& mask_vreg,
+      const Ymm& mask_vreg,
       const typename simd_info<instSet>::vec_reg_t& temp_vreg,
       const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
       bool has_weight_decay);
@@ -129,7 +129,7 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
     int prefetch,
     const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
     const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-    const x86::Ymm& mask_vreg,
+    const Ymm& mask_vreg,
     const typename simd_info<instSet>::vec_reg_t& temp_vreg,
     const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
     bool has_weight_decay) {
@@ -237,7 +237,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     int prefetch,
     const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
     const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-    const x86::Ymm& mask_vreg,
+    const Ymm& mask_vreg,
     const typename simd_info<instSet>::vec_reg_t& temp_vreg,
     const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
     bool has_weight_decay) {
@@ -273,8 +273,8 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
   int num_vec_regs_per_block_avx2 = (block_size + vlen_avx2 - 1) / vlen_avx2;
 
   // Use YMM/XMMs with smaller ids for AVX2 specific instructions like vhaddps
-  x86::Ymm partial_sum_vreg_avx2(0);
-  x86::Xmm partial_sum_xmm0(partial_sum_vreg_avx2.id());
+  Ymm partial_sum_vreg_avx2(0);
+  Xmm partial_sum_xmm0(partial_sum_vreg_avx2.id());
 
   a->vxorps(
       partial_sum_vreg_avx2, partial_sum_vreg_avx2, partial_sum_vreg_avx2);
@@ -285,7 +285,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     int cur_unroll_factor =
         std::min(unroll_factor - 1, num_vec_regs_per_block_avx2 - vec_idx);
     for (int v = 0; v < cur_unroll_factor; ++v) {
-      x86::Ymm out_vreg = x86::Ymm(v + 1);
+      Ymm out_vreg = Ymm(v + 1);
       if (has_weight_decay && prefetch &&
           ((vec_idx + v) % (64 / (vlen_avx2 * sizeof(float))) == 0)) {
         a->prefetchw(x86::dword_ptr(
@@ -329,7 +329,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
   a->vhaddps(
       partial_sum_vreg_avx2, partial_sum_vreg_avx2, partial_sum_vreg_avx2);
 
-  x86::Xmm partial_sum_xmm1(1);
+  Xmm partial_sum_xmm1(1);
 
   //_mm_cvtss_f32(_mm256_castps256_ps128(partial_sum_3))
   a->movss(partial_sum_xmm1, partial_sum_xmm0);
@@ -477,16 +477,16 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         code.setLogger(codeLogger);
 #endif
 
-        x86::Gpd num_rows = a->zdi().r32();
+        auto num_rows = a->zdi().r32();
         x86::Gp param_size = a->zsi();
         w = a->zdx();
         g = a->zcx();
         h = a->gpz(8);
         indices = a->gpz(9);
-        x86::Xmm epsilon(0);
-        x86::Xmm lr(1);
+        Xmm epsilon(0);
+        Xmm lr(1);
         x86::Gp mask_avx2 = a->gpz(10);
-        x86::Xmm weight_decay(2);
+        Xmm weight_decay(2);
         x86::Gp counter = a->gpz(11);
         x86::Gp counter_halflife = a->gpz(12);
 
@@ -568,7 +568,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         vec_reg_t lr_vreg;
         vec_reg_t weight_decay_vreg;
         vec_reg_t adjusted_weight_decay_vreg;
-        x86::Ymm mask_vreg; // mask for avx2
+        Ymm mask_vreg; // mask for avx2
         vec_reg_t
             temp_vreg; // temp vreg for avx2 to handle remainder computation
 
@@ -592,7 +592,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           // Creating masks for non multiples of vlen iterations
           if constexpr (instSet == inst_set_t::avx2) {
             --unroll_factor;
-            mask_vreg = x86::Ymm(unroll_factor);
+            mask_vreg = Ymm(unroll_factor);
             a->vmovups(mask_vreg, x86::dword_ptr(mask_avx2));
           } else {
             a->mov(temp1_, (1 << remainder) - 1);
@@ -666,7 +666,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           // OK to use Xmm registers with small ids that are reserved for temp
           // values in the inner most loop.
           vec_reg_t counter_halflife_vreg(0);
-          x86::Xmm counter_vreg(1);
+          Xmm counter_vreg(1);
           a->cvtsi2sd(counter_halflife_vreg.xmm(), counter_halflife);
           a->movq(counter_vreg, temp3_);
           a->divpd(counter_halflife_vreg.xmm(), counter_vreg);
