@@ -19,7 +19,7 @@ class Xmm : public asmjit::x86::Vec {
 public:
   using Vec::Vec;
   using Vec::operator=;
-  Xmm(uint32_t regId): Vec(_signatureOf<asmjit::RegType::kVec128>(), regId) {}
+  Xmm(uint32_t regId): Vec(asmjit::x86::Vec::make_xmm(regId)) {}
   //! Casts this register to a register that has half the size (XMM).
   ASMJIT_INLINE_NODEBUG Xmm half() const noexcept { return Xmm(id()); }
 };
@@ -30,7 +30,7 @@ class Ymm : public asmjit::x86::Vec {
 public:
   using Vec::Vec;
   using Vec::operator=;
-  Ymm(uint32_t regId): Vec(_signatureOf<asmjit::RegType::kVec256>(), regId) {}
+  Ymm(uint32_t regId): Vec(asmjit::x86::Vec::make_ymm(regId)) {}
   //! Casts this register to a register that has half the size (XMM).
   ASMJIT_INLINE_NODEBUG Xmm half() const noexcept { return Xmm(id()); }
 };
@@ -40,7 +40,7 @@ class Zmm : public asmjit::x86::Vec {
 public:
   using Vec::Vec;
   using Vec::operator=;
-  Zmm(uint32_t regId): Vec(_signatureOf<asmjit::RegType::kVec512>(), regId) {}
+  Zmm(uint32_t regId): Vec(asmjit::x86::Vec::make_zmm(regId)) {}
   //! Casts this register to a register that has half the size (YMM).
   ASMJIT_INLINE_NODEBUG Ymm half() const noexcept { return Ymm(id()); }
 };
