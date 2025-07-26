@@ -93,8 +93,6 @@ function(cpp_library)
     else()
         set(lib_cc_flags
             ${args_CC_FLAGS}
-            # Silence compiler warnings (in asmjit)
-            -Wno-deprecated-enum-enum-conversion
             -Wno-deprecated-declarations
             -Wall
             -Wextra
@@ -103,25 +101,40 @@ function(cpp_library)
             -Wimplicit-fallthrough
             -Wno-strict-aliasing
             -Wunused-variable
-            -Wno-c99-extensions
             -Wno-sign-compare
-            -Wno-gnu-zero-variadic-macro-arguments
-            -Wno-vla)
+            -Wno-vla
+            -Wno-error=unused-but-set-parameter
+            -Wno-error=unused-but-set-variable
+            -Wno-error=unused-parameter
+            -Wno-error=attributes)
 
-        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+        if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
             list(APPEND lib_cc_flags
-                -Wno-vla-cxx-extension
-                -Wno-error=global-constructors
-                -Wno-error=shadow)
-        elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+                -Wno-c99-extensions
+                -Wno-gnu-zero-variadic-macro-arguments
+                -Wno-deprecated-enum-enum-conversion)
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+                list(APPEND lib_cc_flags
+                    -Wno-vla-cxx-extension
+                    -Wno-error=global-constructors
+                    -Wno-error=shadow)
+            endif()
+
+        elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
             list(APPEND lib_cc_flags
                 -Wmaybe-uninitialized)
-        endif()
 
-        if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
-            # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
-            list(APPEND lib_cc_flags
-                -Wno-attributes)
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
+                list(APPEND lib_cc_flags
+                    -Wno-deprecated-enum-enum-conversion)
+            endif()
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0)
+                # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+                list(APPEND lib_cc_flags
+                    -Wno-attributes)
+            endif()
         endif()
     endif()
 
