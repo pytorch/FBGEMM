@@ -1000,13 +1000,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     f"eviction.feature_table.{t}.evict_rate"
                 )
             self.stats_reporter.register_stats(
-                f"eviction.feature_table.full_duration_ms"
+                "eviction.feature_table.full_duration_ms"
             )
             self.stats_reporter.register_stats(
-                f"eviction.feature_table.exec_duration_ms"
+                "eviction.feature_table.exec_duration_ms"
             )
             self.stats_reporter.register_stats(
-                f"eviction.feature_table.exec_div_full_duration_rate"
+                "eviction.feature_table.exec_div_full_duration_rate"
             )
 
         self.bounds_check_version: int = get_bounds_check_version_for_platform()
@@ -3650,19 +3650,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         stats_reporter.report_duration(
             iteration_step=self.step,
-            event_name=f"eviction.feature_table.full_duration_ms",
+            event_name="eviction.feature_table.full_duration_ms",
             duration_ms=full_duration_ms.item(),
             time_unit="ms",
         )
         stats_reporter.report_duration(
             iteration_step=self.step,
-            event_name=f"eviction.feature_table.exec_duration_ms",
+            event_name="eviction.feature_table.exec_duration_ms",
             duration_ms=exec_duration_ms.item(),
             time_unit="ms",
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
-            event_name=f"eviction.feature_table.exec_div_full_duration_rate",
+            event_name="eviction.feature_table.exec_div_full_duration_rate",
             data_bytes=int(exec_duration_ms.item() * 100 / full_duration_ms.item()),
         )
 

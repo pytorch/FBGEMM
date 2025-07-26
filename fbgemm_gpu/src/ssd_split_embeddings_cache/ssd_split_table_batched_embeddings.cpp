@@ -822,6 +822,7 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::get_rocksdb_io_duration)
         .def("get_l2cache_perf", &EmbeddingRocksDBWrapper::get_l2cache_perf)
         .def("set", &EmbeddingRocksDBWrapper::set)
+        .def("set_kv_to_storage", &EmbeddingRocksDBWrapper::set_kv_to_storage)
         .def(
             "set_range_to_storage",
             &EmbeddingRocksDBWrapper::set_range_to_storage)
