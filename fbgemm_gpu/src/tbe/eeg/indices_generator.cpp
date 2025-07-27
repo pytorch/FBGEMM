@@ -7,6 +7,8 @@
  */
 
 #include "indices_generator.h"
+
+#include <math.h>
 #include <chrono>
 #include <execution>
 
@@ -31,7 +33,7 @@ IndicesGenerator::IndicesGenerator(
 }
 
 // Helper function to convert a tagged indices vector to an ATen tensor.
-torch::Tensor convertVectorToTensor(
+static torch::Tensor convertVectorToTensor(
     const std::vector<std::pair<int64_t, double>>& indicesWithTags) {
   std::vector<int64_t> indices(indicesWithTags.size());
   std::transform(
@@ -97,7 +99,7 @@ torch::Tensor IndicesGenerator::generate() {
   // Now handle the tags
   random::exponential_distribution exponentialDist;
   for (auto& indicesWithTag : indicesWithTags) {
-    double tag;
+    double tag = NAN;
 
     // In the case where the current metadata for the index is empty, simply
     // push in a U[0,1]
