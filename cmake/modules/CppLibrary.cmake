@@ -111,9 +111,6 @@ function(cpp_library)
             -Wno-error=attributes)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
-            list(APPEND lib_cc_flags
-                -Wno-gnu-zero-variadic-macro-arguments)
-
             if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
                 list(APPEND lib_cc_flags
                     -Wno-vla-cxx-extension
@@ -124,11 +121,6 @@ function(cpp_library)
         elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
             list(APPEND lib_cc_flags
                 -Wmaybe-uninitialized)
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
-                list(APPEND lib_cc_flags
-                    -Wno-deprecated-enum-enum-conversion)
-            endif()
 
             if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0)
                 # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
