@@ -193,8 +193,13 @@ set(fbgemm_targets)
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
-  if(NOT COMPILER_SUPPORTS_AVX2)
-    message(FATAL_ERROR "The current compiler does not support building AVX2 code")
+  set(AVX2_flags)
+  if(CXX_AVX2_FOUND)
+    if(MSVC)
+      set(AVX2_flags -mavx2)
+    else()
+      set(AVX2_flags -mavx2)
+    endif()
   endif()
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
@@ -211,9 +216,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
       ${FBGEMM_AVX2_SRCS}
       ${FBGEMM_AVX2_INLINE_SRCS}
     CC_FLAGS
-      -m64 -mavx2 -mf16c -mfma
+      -m64 -mf16c -mfma ${AVX2_flags}
     MSVC_FLAGS
-      /arch:AVX2
+      ${AVX2_flags}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
@@ -231,8 +236,13 @@ endif()
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
-  if(NOT COMPILER_SUPPORTS_AVX512)
-    message(FATAL_ERROR "The current compiler does not support building AVX512 code")
+  set(AVX512_flags)
+  if(CXX_AVX512_FOUND)
+    if(MSVC)
+      set(AVX512_flags /arch:AVX512)
+    else()
+      set(AVX512_flags -mavx512f -mavx512bw -mavx512dq -mavx512v)
+    endif()
   endif()
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
@@ -249,9 +259,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
       ${FBGEMM_AVX512_SRCS}
       ${FBGEMM_AVX512_INLINE_SRCS}
     CC_FLAGS
-      -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
+      -m64 -mavx2 -mfma ${AVX512_flags}
     MSVC_FLAGS
-      /arch:AVX512
+      ${AVX512_flags}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
