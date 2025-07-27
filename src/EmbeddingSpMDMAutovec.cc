@@ -35,7 +35,7 @@
 // https://github.com/llvm/llvm-project/issues/114891 / T206675074
 // Work around LLVM loop vectorization not produce optimal code when
 // `block_size` is not a multiple of the natural vector size.
-#ifdef __AVX512F__
+#ifndef NO_AVX512
 #define FBGEMM_VECTOR_WIDTH 16
 #elif __AVX2__
 #define FBGEMM_VECTOR_WIDTH 8

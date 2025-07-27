@@ -234,14 +234,12 @@ endif()
 # FBGEMM AVX512 Target
 ################################################################################
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
   set(AVX512_flags)
-  if(CXX_AVX512_FOUND)
-    if(MSVC)
-      set(AVX512_flags /arch:AVX512)
-    else()
-      set(AVX512_flags -mavx512f -mavx512bw -mavx512dq -mavx512v)
-    endif()
+  if(MSVC)
+    set(AVX512_flags /arch:AVX512)
+  else()
+    set(AVX512_flags -mavx512f -mavx512bw -mavx512dq -mavx512v)
   endif()
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
@@ -258,9 +256,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
       ${FBGEMM_AVX512_SRCS}
       ${FBGEMM_AVX512_INLINE_SRCS}
     CC_FLAGS
-      -m64 -mavx2 -mfma ${AVX512_flags}
+      -m64 -mfma ${AVX512_flags} ${AVX2_flags}
     MSVC_FLAGS
-      ${AVX512_flags}
+      ${AVX512_flags} ${AVX2_flags}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
@@ -268,8 +266,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
   )
 
   list(APPEND fbgemm_targets fbgemm_avx512)
-
 else()
+  add_compile_definitions("NO_AVX512")
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX512 target")
 endif()
 
