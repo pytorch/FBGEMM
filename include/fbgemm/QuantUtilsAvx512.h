@@ -8,6 +8,8 @@
 
 #pragma once
 
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+
 #include <cstdint>
 #include "./FbgemmBuild.h" // @manual
 #include "./UtilsAvx2.h" // @manual
@@ -36,3 +38,5 @@ FBGEMM_API void requantizeOutputProcessingGConvAvx512(
     int ld_in,
     const requantizationParams_t<BIAS_TYPE>& r);
 } // namespace fbgemm
+
+#endif

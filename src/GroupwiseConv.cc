@@ -121,6 +121,7 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
       accum);
 
   if (cpuinfo_initialize()) {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     if (fbgemmHasAvx512VnniSupport()) {
       return GenConvKernel<SPATIAL_DIM, inst_set_t::avx512_vnni>::codeCache_
           .getOrCreate(kernelSig, [&]() {
@@ -160,7 +161,9 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
                 accum);
             return genObj.getOrCreate();
           });
-    } else {
+    } else
+#endif
+    {
       // TODO: Have default slower path
       assert(0 && "unsupported architecture");
     }
@@ -949,11 +952,14 @@ static void dispatchOutputProcessing(
   }
 
   if (cpuinfo_initialize()) {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
       REQUANTIZE_C_PER_G(Avx512);
     } else if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
       REQUANTIZE_C_PER_G(Avx2);
-    } else {
+    } else
+#endif
+    {
       assert(0 && "unsupported architecture");
     }
   } else {
