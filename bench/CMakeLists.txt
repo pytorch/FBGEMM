@@ -11,15 +11,15 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 ################################################################################
 
 find_package(MKL)
-if (NOT ${MKL_FOUND})
+if(NOT ${MKL_FOUND})
   find_package(BLAS)
 endif()
 
-if (${MKL_FOUND})
+if(${MKL_FOUND})
   message(STATUS "MKL_LIBRARIES= ${MKL_LIBRARIES}")
 endif()
 
-if (${BLAS_FOUND})
+if(${BLAS_FOUND})
   message(STATUS "BLAS_LIBRARIES= ${BLAS_LIBRARIES}")
 endif()
 
@@ -38,12 +38,16 @@ function(add_benchmark BENCHNAME)
     ${BENCHNAME}
     ${bench_sources})
 
-  if(NOT MSVC)
-    target_compile_options(${BENCHNAME} PRIVATE
-      -m64
-      -mavx2
-      -mfma
-      -masm=intel)
+  if(CXX_AVX2_FOUND)
+    if(NOT MSVC AND CXX_AVX2_FOUND)
+      target_compile_options(${BENCHNAME} PRIVATE
+        -m64
+        ${AVX2_flags}
+        -mfma
+        -masm=intel)
+    else()
+      target_compile_options(${BENCHNAME} PRIVATE ${AVX2_flags})
+    endif()
   endif()
 
   target_link_libraries(${BENCHNAME} fbgemm)
@@ -59,7 +63,7 @@ function(add_benchmark BENCHNAME)
       -DUSE_MKL)
   endif()
 
-  if (${BLAS_FOUND})
+  if(${BLAS_FOUND})
     target_link_libraries(${BENCHNAME}
       ${BLAS_LIBRARIES})
 
