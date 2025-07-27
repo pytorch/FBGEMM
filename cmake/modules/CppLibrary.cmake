@@ -110,7 +110,6 @@ function(cpp_library)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
             list(APPEND lib_cc_flags
-                -Wno-c99-extensions
                 -Wno-gnu-zero-variadic-macro-arguments
                 -Wno-deprecated-enum-enum-conversion)
 

@@ -949,11 +949,14 @@ static void dispatchOutputProcessing(
   }
 
   if (cpuinfo_initialize()) {
+#ifndef __aarch64__
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
       REQUANTIZE_C_PER_G(Avx512);
     } else if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
       REQUANTIZE_C_PER_G(Avx2);
-    } else {
+    } else
+#endif
+    {
       assert(0 && "unsupported architecture");
     }
   } else {

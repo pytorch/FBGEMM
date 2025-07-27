@@ -38,7 +38,7 @@ function(add_benchmark BENCHNAME)
     ${BENCHNAME}
     ${bench_sources})
 
-  if(NOT MSVC)
+  if(NOT MSVC AND COMPILER_SUPPORTS_AVX2)
     target_compile_options(${BENCHNAME} PRIVATE
       -m64
       -mavx2

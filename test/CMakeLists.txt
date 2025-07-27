@@ -49,23 +49,26 @@ function(add_gtest TESTNAME)
   # functions with _dllimport attributes.
   if(MSVC)
     target_compile_options(${TESTNAME} PRIVATE
-      /arch:AVX2
       /wd4244
       /wd4267
       /wd4305
       /wd4309)
 
-    if (FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
+    if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
       target_compile_definitions(${TESTNAME} PRIVATE
         FBGEMM_STATIC)
     endif()
-
-  else()
-    target_compile_options(${TESTNAME} PRIVATE
-      -m64
-      -mavx2
-      -mfma
-      -masm=intel)
+  endif()
+  if(COMPILER_SUPPORTS_AVX2)
+    if(MSVC)
+      target_compile_options(${TESTNAME} PRIVATE "/arch:AVX2")
+    else()
+      target_compile_options(${TESTNAME} PRIVATE
+        -m64
+        -mavx2
+        -mfma
+        -masm=intel)
+    endif()
   endif()
 
   if (FBGEMM_USE_SANITIZER)
@@ -75,11 +78,12 @@ function(add_gtest TESTNAME)
       "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
   endif()
 
-  target_link_libraries(${TESTNAME}
-    gtest
-    gmock
-    gtest_main
-    fbgemm)
+  target_link_libraries(${TESTNAME} fbgemm)
+  if(TARGET GTest::gtest_main)
+    target_link_libraries(${TESTNAME} GTest::gmock GTest::gtest_main)
+  else()
+    target_link_libraries(${TESTNAME} gmock gtest_main)
+  endif()
 
   if(OpenMP_FOUND)
     target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)
@@ -95,6 +99,18 @@ foreach(TEST_FILE ${TEST_LIST})
   # NOTE: Skip FP32 test until FP32 is properly integrated into OSS builds
   if(TEST_FILE MATCHES "FP32Test.cc$")
     continue()
+  endif()
+  # Skip the following tests when AVX2 is not available
+  if(NOT COMPILER_SUPPORTS_AVX2)
+    if(TEST_FILE MATCHES "Conv"
+    OR TEST_FILE MATCHES "I8DepthwiseTest.cc$"
+    OR TEST_FILE MATCHES "FP16Test.cc$"
+    OR TEST_FILE MATCHES "I8SpmdmTest.cc$"
+    OR TEST_FILE MATCHES "I8DirectconvTest.cc$"
+    OR TEST_FILE MATCHES "Im2ColFusedRequantizeTest.cc$"
+    OR TEST_FILE MATCHES "Requantize")
+      continue()
+    endif()
   endif()
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)

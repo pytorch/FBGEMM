@@ -36,14 +36,18 @@ void FloatToFloat16_simd(
     bool do_clip) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
+#ifndef __aarch64__
     if (fbgemmHasAvx512Support()) {
       FloatToFloat16_avx512(src, dst, size, do_clip);
-    } else if (fbgemmHasAvx2Support()) {
-      FloatToFloat16_avx2(src, dst, size, do_clip);
-    } else {
-      FloatToFloat16_ref(src, dst, size, do_clip);
       return;
     }
+    if (fbgemmHasAvx2Support()) {
+      FloatToFloat16_avx2(src, dst, size, do_clip);
+      return;
+    }
+#endif
+    FloatToFloat16_ref(src, dst, size, do_clip);
+    return;
   } else {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
@@ -52,14 +56,18 @@ void FloatToFloat16_simd(
 void Float16ToFloat_simd(const float16* src, float* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
+#ifndef __aarch64__
     if (fbgemmHasAvx512Support()) {
       Float16ToFloat_avx512(src, dst, size);
-    } else if (fbgemmHasAvx2Support()) {
-      Float16ToFloat_avx2(src, dst, size);
-    } else {
-      Float16ToFloat_ref(src, dst, size);
       return;
     }
+    if (fbgemmHasAvx2Support()) {
+      Float16ToFloat_avx2(src, dst, size);
+      return;
+    }
+#endif
+    Float16ToFloat_ref(src, dst, size);
+    return;
   } else {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }

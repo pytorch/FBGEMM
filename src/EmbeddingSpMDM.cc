@@ -1017,9 +1017,9 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDMWithStrides(
         const int64_t block_size,
-        [[maybe_unused]] bool has_weight,
+        bool has_weight [[maybe_unused]],
         bool normalize_by_lengths,
-        [[maybe_unused]] int prefetch,
+        int prefetch [[maybe_unused]],
         bool is_weight_positional,
         bool use_offsets,
         int64_t output_stride /*=-1*/,
@@ -1029,8 +1029,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool is_bf16_out /*=false*/,
         bool is_bf16_in /*=false*/) {
 #if defined(__APPLE__) || defined(_WIN32)
-  if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
-      std::is_same<outType, float>::value) {
+  if (std::is_same_v<inType, uint16_t> && is_bf16_in &&
+      std::is_same_v<outType, float>) {
     throw std::runtime_error(
         "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
   }
@@ -1341,9 +1341,9 @@ typename EmbeddingSpMDMRowWiseSparseKernelSignature<
     offsetType>::Type
 GenerateEmbeddingSpMDMRowWiseSparse(
     const int64_t block_size,
-    bool has_weight,
+    bool has_weight [[maybe_unused]],
     bool normalize_by_lengths,
-    int prefetch,
+    int prefetch [[maybe_unused]],
     bool is_weight_positional,
     bool use_offsets) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64

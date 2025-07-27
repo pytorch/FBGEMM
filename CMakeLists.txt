@@ -73,6 +73,7 @@ option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
+string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
@@ -80,8 +81,6 @@ if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   else()
     set(FBGEMM_LIBRARY_TYPE "STATIC")
   endif()
-else()
-  string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
 # Add address sanitizer
@@ -95,6 +94,11 @@ endif()
 if(DISABLE_FBGEMM_AUTOVEC)
   add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
+if(MSVC)
+  set(MSVC_BOOL True)
+else()
+  set(MSVC_BOOL False)
+endif()
 
 ################################################################################
 # AVX512 Support
@@ -102,14 +106,15 @@ endif()
 
 if(MSVC)
   CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
-  set(MSVC_BOOL True)
 else(MSVC)
   CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
-  set(MSVC_BOOL False)
 endif(MSVC)
-if(NOT COMPILER_SUPPORTS_AVX512)
-  message(FATAL_ERROR "A compiler with AVX512 support is required.")
-endif()
+
+if(MSVC)
+  CHECK_CXX_COMPILER_FLAG(/arch:AVX2 COMPILER_SUPPORTS_AVX2)
+else(MSVC)
+  CHECK_CXX_COMPILER_FLAG(-mavx2 COMPILER_SUPPORTS_AVX2)
+endif(MSVC)
 
 ################################################################################
 # GNU F2H_IEEE Support
@@ -189,16 +194,45 @@ cpp_library(
     $<BUILD_INTERFACE:asmjit>
 )
 
-set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
+set(fbgemm_targets)
+
+################################################################################
+# FBGEMM NEON Target
+################################################################################
+
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL arm64)
+  add_compile_options(-Wno-deprecated-declarations)
+  get_filelist("get_fbgemm_inline_neon_srcs(msvc=False)" FBGEMM_NEON_INLINE_SRCS)
+
+  cpp_library(
+  PREFIX
+    fbgemm_neon
+  TYPE
+    OBJECT
+  SRCS
+    ${FBGEMM_NEON_INLINE_SRCS}
+  CC_FLAGS
+    -m64
+  DEPS
+    $<BUILD_INTERFACE:cpuinfo>
+    $<BUILD_INTERFACE:asmjit>
+    fbgemm_generic
+  )
+  list(APPEND fbgemm_targets fbgemm_neon)
+  set_source_files_properties(
+    src/GroupwiseConv.cc
+  PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-unused-parameter")
+endif()
 
 ################################################################################
 # FBGEMM AVX2 Target
 ################################################################################
 
-get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
-get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
+if(COMPILER_SUPPORTS_AVX2)
+  get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
+  get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
 
-cpp_library(
+  cpp_library(
   PREFIX
     fbgemm_avx2
   TYPE
@@ -214,16 +248,19 @@ cpp_library(
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
     fbgemm_generic
-)
+  )
+  list(APPEND fbgemm_targets fbgemm_avx2)
+endif()
 
 ################################################################################
 # FBGEMM AVX512 Target
 ################################################################################
 
-get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
-get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+if(COMPILER_SUPPORTS_AVX512)
+  get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+  get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
 
-cpp_library(
+  cpp_library(
   PREFIX
     fbgemm_avx512
   TYPE
@@ -239,7 +276,9 @@ cpp_library(
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
     fbgemm_generic
-)
+  )
+  list(APPEND fbgemm_targets fbgemm_avx512)
+endif()
 
 ################################################################################
 # FBGEMM Autovec Target
@@ -308,6 +347,9 @@ if(NOT TARGET asmjit)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
+  if(APPLE)
+    target_compile_options(asmjit PRIVATE "-Wno-unused-command-line-argument")
+  endif()
 endif()
 
 ################################################################################
@@ -337,6 +379,11 @@ endif()
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
   add_subdirectory(test)
+endif()
+
+# All benchmarks rely on AVX2
+if(NOT COMPILER_SUPPORTS_AVX2)
+  set(FBGEMM_BUILD_BENCHMARKS OFF)
 endif()
 
 if(FBGEMM_BUILD_BENCHMARKS)
