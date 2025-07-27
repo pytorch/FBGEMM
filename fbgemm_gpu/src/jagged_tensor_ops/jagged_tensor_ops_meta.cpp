@@ -24,7 +24,7 @@ Tensor jagged_to_padded_dense_forward_meta(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
     c10::SymIntArrayRef max_lengths,
-    const double padding_value = 0) {
+    const double  /*padding_value*/ = 0) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(
       max_lengths.size() == num_jagged_dim,
@@ -53,7 +53,7 @@ Tensor jagged_to_padded_dense_meta(
 
 Tensor jagged_to_padded_dense_backward_meta(
     const at::Tensor& grad_output,
-    const std::vector<Tensor>& offsets,
+    const std::vector<Tensor>&  /*offsets*/,
     at::SymInt total_L) {
   const auto& grad_padded_values = grad_output;
 
@@ -69,9 +69,9 @@ Tensor jagged_to_padded_dense_backward_meta(
 
 Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
     const at::Tensor& x_values,
-    const std::vector<at::Tensor>& x_offsets,
+    const std::vector<at::Tensor>&  /*x_offsets*/,
     const at::Tensor& y_0,
-    const at::Tensor& y_1) {
+    const at::Tensor&  /*y_1*/) {
   TORCH_CHECK_EQ(y_0.sym_sizes(), y_0.sym_sizes());
   return at::empty_like(x_values);
 }
@@ -88,7 +88,7 @@ jagged_dense_dense_elementwise_add_jagged_output_meta(
 
 Tensor jagged_dense_elementwise_add_meta(
     const Tensor& /* unused x_values */,
-    const std::vector<Tensor>& x_offsets,
+    const std::vector<Tensor>&  /*x_offsets*/,
     const Tensor& y) {
   return at::empty_like(y);
 }
@@ -102,16 +102,16 @@ std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul_meta(
 
 Tensor jagged_dense_elementwise_mul_forward_meta(
     const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y) {
+    const std::vector<Tensor>&  /*x_offsets*/,
+    const Tensor&  /*y*/) {
   return at::empty_like(x_values);
 }
 
 std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward_meta(
     const Tensor& grad_output,
-    const std::vector<Tensor>& x_offsets,
+    const std::vector<Tensor>&  /*x_offsets*/,
     const Tensor& y,
-    const Tensor& x_values) {
+    const Tensor&  /*x_values*/) {
   Tensor x_values_grad = at::empty_like(grad_output);
   Tensor y_grad = at::empty_like(y);
 
@@ -150,10 +150,10 @@ Tensor batched_dense_vec_jagged_2d_mul_meta(
 }
 
 std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward_meta(
-    const Tensor& grad_output,
+    const Tensor&  /*grad_output*/,
     const Tensor& v,
     const Tensor& a_values,
-    const Tensor& a_offsets) {
+    const Tensor&  /*a_offsets*/) {
   Tensor a_values_grad = at::zeros_like(a_values);
   Tensor v_grad = at::empty_like(v);
   return {v_grad, a_values_grad};
@@ -161,9 +161,9 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward_meta(
 
 Tensor jagged_dense_bmm_forward_meta(
     const Tensor& x_values,
-    const Tensor& x_offsets,
+    const Tensor&  /*x_offsets*/,
     const Tensor& y,
-    const int64_t max_L) {
+    const int64_t  /*max_L*/) {
   const auto N = y.sym_size(-1);
   const auto total_L = x_values.sym_size(0);
   return at::zeros_symint({total_L, N}, x_values.options());
@@ -171,8 +171,8 @@ Tensor jagged_dense_bmm_forward_meta(
 
 Tensor jagged_softmax_forward_meta(
     const Tensor& values,
-    const Tensor& offsets,
-    const int64_t max_L) {
+    const Tensor&  /*offsets*/,
+    const int64_t  /*max_L*/) {
   return at::empty_like(values);
 }
 
@@ -180,7 +180,7 @@ Tensor jagged_jagged_bmm_forward_meta(
     const Tensor& x_values,
     const Tensor& y_values,
     const Tensor& offsets,
-    const int64_t max_L) {
+    const int64_t  /*max_L*/) {
   const at::SymInt B = offsets.sym_size(0) - 1;
   const at::SymInt M = x_values.sym_size(-1);
   const at::SymInt N = y_values.sym_size(-1);
@@ -190,9 +190,9 @@ Tensor jagged_jagged_bmm_forward_meta(
 
 Tensor jagged_softmax_backward_meta(
     const Tensor& grad_output,
-    const Tensor& output,
-    const Tensor& offsets,
-    const int64_t max_L) {
+    const Tensor&  /*output*/,
+    const Tensor&  /*offsets*/,
+    const int64_t  /*max_L*/) {
   return at::empty_like(grad_output);
 }
 
