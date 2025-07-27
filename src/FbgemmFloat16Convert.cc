@@ -8,6 +8,7 @@
 
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/Utils.h"
 
 #ifdef USE_MKL
 #include <mkl.h>

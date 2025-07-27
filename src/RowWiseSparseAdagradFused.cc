@@ -10,7 +10,7 @@
 #include "fbgemm/FbgemmEmbedding.h"
 
 #include <cpuinfo.h>
-#include <iostream>
+#include <memory>
 #include <mutex>
 #include "./CodeCache.h" // @manual
 #include "./MaskAvx2.h" // @manual
@@ -145,8 +145,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
-        asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
-        code.setLogger(codeLogger);
+	auto codeLogger = std::make_unique<asmjit::FileLogger>(codeLogFile);
+        code.setLogger(codeLogger.get());
 #endif
 
         x86::Gp rand_buffer = a->zax();
@@ -764,7 +764,6 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
 #if defined(FBGEMM_LOG_CODE)
         fclose(codeLogFile);
-        delete codeLogger;
 #endif
         return fn;
       });

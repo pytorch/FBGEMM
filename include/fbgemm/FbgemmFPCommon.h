@@ -13,7 +13,6 @@
 #include <fbgemm/Types.h>
 #include <fbgemm/Utils.h>
 #include <array>
-#include <cmath>
 #include <memory>
 
 #if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
