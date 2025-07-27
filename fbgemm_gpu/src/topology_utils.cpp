@@ -116,7 +116,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
 
   // Note that NVML uses a different numbering method to CUDA runtime,
   // so we need to learn the mapping by using the bus ID.
-  uint32_t device_count;
+  uint32_t device_count = 0;
   NVML_CHECK(nvmlDeviceGetCount(&device_count));
 
   std::map<std::array<char, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE>, Node>

@@ -308,7 +308,7 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
 // dummy cpu code for gpu fp8_rowwise conversions
 /// @ingroup quantize-data-cpu
 ///
-Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool forward) {
+Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool  /*forward*/) {
   TORCH_CHECK(false, "fp8 is not supported by CPU");
   return input;
 }
@@ -317,8 +317,8 @@ Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool forward) {
 ///
 Tensor FP8rowwise_to_float_cpu(
     const Tensor& input,
-    bool forward,
-    const int64_t output_dtype) {
+    bool  /*forward*/,
+    const int64_t  /*output_dtype*/) {
   TORCH_CHECK(false, "fp8 is not supported by CPU");
   return input;
 }
