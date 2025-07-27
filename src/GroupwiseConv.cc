@@ -955,9 +955,12 @@ static void dispatchOutputProcessing(
 
   if (cpuinfo_initialize()) {
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#ifndef NO_AVX512
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
       REQUANTIZE_C_PER_G(Avx512);
-    } else if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
+    } else
+#endif
+  if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
       REQUANTIZE_C_PER_G(Avx2);
     } else
 #endif

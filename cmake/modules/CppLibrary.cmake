@@ -106,6 +106,7 @@ function(cpp_library)
             -Wno-sign-compare
             -Wno-vla
             -Wno-error=unused-parameter
+            -Wno-error=switch
             -Wno-error=attributes)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES Clang)

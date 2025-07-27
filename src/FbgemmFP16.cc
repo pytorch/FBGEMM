@@ -80,6 +80,7 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {
 };
 #endif
 
+#ifndef NO_AVX512
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
@@ -119,6 +120,7 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
     gemmkernel_14x2_Avx512_fp16_fA0fB0fC0
 #endif
 };
+#endif
 
 } // namespace
 
@@ -128,10 +130,12 @@ const isa_descriptor<float16>& getIsaHandlers(
     float16 /*unused*/) {
   static isa_descriptor<float16> avx2_descriptor =
       std::make_tuple(kernel_fp16_avx2, partition_avx2);
+#ifndef NO_AVX512
   static isa_descriptor<float16> avx512_descriptor =
       std::make_tuple(kernel_fp16_avx512, partition_avx512);
   static isa_descriptor<float16> avx512_256_descriptor =
       std::make_tuple(kernel_fp16_avx512_256, partition_avx512);
+#endif
 #ifdef FBGEMM_ENABLE_KLEIDIAI
   static isa_descriptor<float16> neon_descriptor =
       std::make_tuple(kernel_fp16_neon, partition_neon);
@@ -155,7 +159,7 @@ const isa_descriptor<float16>& getIsaHandlers(
 #endif
     case inst_set_t::avx2:
       return avx2_descriptor;
-
+#ifndef NO_AVX512
     case inst_set_t::avx512:
     case inst_set_t::avx512_vnni:
       return avx512_descriptor;
@@ -163,6 +167,7 @@ const isa_descriptor<float16>& getIsaHandlers(
     case inst_set_t::avx512_ymm:
     case inst_set_t::avx512_vnni_ymm:
       return avx512_256_descriptor;
+#endif
   }
 
   throw std::runtime_error("Unsupported uArch");

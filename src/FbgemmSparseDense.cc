@@ -197,10 +197,13 @@ void SparseDenseMM(
   // Run time CPU detection
   static const auto iset = fbgemmInstructionSet();
 
+#ifndef NO_AVX512
   if (isZmm(iset)) {
     internal::SparseDenseMMAvx512(
         M, N, row_ptr, col_idx, values, B, ldb, C, ldc, accum);
-  } else if (isYmm(iset)) {
+  } else
+#endif
+  if (isYmm(iset)) {
     internal::SparseDenseMMAvx2(
         M, N, row_ptr, col_idx, values, B, ldb, C, ldc, accum);
   } else
@@ -233,6 +236,7 @@ FBGEMM_API void fbgemmSparseDenseInt8MM(
   // Run time CPU detection
   static const auto iset = fbgemmInstructionSet();
 
+#ifndef NO_AVX512
   if (isZmm(iset)) {
     internal::SparseDenseInt8MMAvx512<FUSE_RELU, Q_GRAN>(
         N,
@@ -246,7 +250,9 @@ FBGEMM_API void fbgemmSparseDenseInt8MM(
         accum,
         thread_id,
         num_threads);
-  } else if (isYmm(iset)) {
+  } else 
+#endif
+  if (isYmm(iset)) {
     internal::SparseDenseInt8MMAvx2<FUSE_RELU, Q_GRAN>(
         N,
         bcsr,
