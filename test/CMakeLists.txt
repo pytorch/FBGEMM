@@ -37,12 +37,16 @@ if(${OpenMP_FOUND})
 endif()
 
 function(add_gtest TESTNAME)
-  add_executable(${TESTNAME}
+  set(test_sources
     ${ARGN}
     ../bench/BenchUtils.cc
     EmbeddingSpMDMTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
+
+    add_executable(
+      ${TESTNAME}
+      ${test_sources})
 
   # To compile test files with AVX2 turned on
   # For static build, defining FBGEMM_STATIC to avoid generating
@@ -87,6 +91,12 @@ function(add_gtest TESTNAME)
 
   add_test(${TESTNAME} ${TESTNAME})
   set_target_properties(${TESTNAME} PROPERTIES FOLDER test)
+
+  BLOCK_PRINT(
+    "Test Target: ${TESTNAME}"
+    " "
+    "SRCS:"
+    "${test_sources}")
 endfunction()
 
 
@@ -96,6 +106,19 @@ foreach(TEST_FILE ${TEST_LIST})
   if(TEST_FILE MATCHES "FP32Test.cc$")
     continue()
   endif()
+
+  message(STATUS "Processing: ${TEST_FILE}")
+  message(STATUS "COMPILER_SUPPORTS_AVX512 = ${FBGEMM_ENABLE_AVX512}")
+
+  # # Skip the following tests when AVX512 is not available
+  # if(NOT FBGEMM_ENABLE_AVX512)
+  #   if(TEST_FILE MATCHES "FP16Test.cc$"
+  #       OR TEST_FILE MATCHES "GConvTest.cc$"
+  #       OR TEST_FILE MATCHES "UniConvTest.cc$"
+  #       OR TEST_FILE MATCHES "SparseDenseMMInt8Test.cc$")
+  #     continue()
+  #   endif()
+  # endif()
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
   get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)
