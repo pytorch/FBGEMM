@@ -52,13 +52,13 @@ Tensor merge_pooled_embeddings_cpu(
 Tensor sum_reduce_to_one_cpu(
     std::vector<Tensor> input_tensors,
     at::Device /* target_device */) {
-  TORCH_CHECK(input_tensors.size() > 0);
+  TORCH_CHECK(!input_tensors.empty());
   const auto input_0 = input_tensors[0];
   TENSOR_ON_CPU(input_0);
   Tensor result = at::zeros_like(input_0);
-  for (auto i = 0UL; i < input_tensors.size(); i++) {
-    TENSOR_ON_CPU(input_tensors[i]);
-    result.add_(input_tensors[i]);
+  for (const auto& input_tensor : input_tensors) {
+    TENSOR_ON_CPU(input_tensor);
+    result.add_(input_tensor);
   }
 
   return result;

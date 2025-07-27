@@ -168,7 +168,7 @@ class IndexSelectDim0GPUOp
       orig_indices = *savedItr++;
     }
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(sorted_indices, orig_indices);
-    Tensor grad_output = grad_outputs[0];
+    const Tensor& grad_output = grad_outputs[0];
     TENSORS_ON_SAME_DEVICE(grad_output, sorted_indices);
     auto input_shape = ctx->saved_data["input_shape"].toIntVector();
     int consecutive_range_start =
@@ -395,11 +395,10 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   // + 1 args_tensor + 1 saved_data + 1 first input
   const int64_t group_size = (all_inputs.size() - 3) / 2;
 
-  Tensor fwd_input = all_inputs[2 * group_size + 2];
+  const Tensor& fwd_input = all_inputs[2 * group_size + 2];
   const int64_t output_dim = fwd_input.dim();
-  Tensor saved_data = all_inputs[2 * group_size + 1];
-  Tensor args_tensor_old = all_inputs[2 * group_size];
-  Tensor first_indices = all_inputs[group_size];
+  const Tensor& saved_data = all_inputs[2 * group_size + 1];
+  const Tensor& first_indices = all_inputs[group_size];
 
   auto grad_output_group = std::vector<Tensor>(
       all_inputs.cbegin(), all_inputs.cbegin() + group_size);

@@ -33,6 +33,8 @@ from torch.distributed.launcher.api import elastic_launch, LaunchConfig
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+running_on_github: bool = os.getenv("GITHUB_ENV") is not None
+
 
 @functools.lru_cache
 def has_nvswitch() -> bool:
@@ -312,6 +314,10 @@ def _run_oneshot_car_stress_inner(path: str) -> None:
 @unittest.skipIf(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     "Skip when CUDA is not available or when there are not enough GPUs; these tests require at least two GPUs",
+)
+@unittest.skipIf(
+    running_on_github and torch.version.hip,
+    "Skip when running on GitHub and using ROCm",
 )
 class LLamaMultiGpuTests(unittest.TestCase):
     @given(

@@ -17,7 +17,7 @@ namespace x86 = asmjit::x86;
  * Accumulation kernel.
  */
 void initCRegs(x86::Emitter* a, int rowRegs, int colRegs) {
-  using CRegs = x86::Xmm;
+  using CRegs = Xmm;
   // Take advantage of implicit zeroing out
   // i.e., zero out xmm and ymm will be zeroed out too
   for (int i = 0; i < rowRegs; ++i) {

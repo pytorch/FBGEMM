@@ -349,6 +349,7 @@ FBGEMM_API bool EmbeddingSpMDMBlockSize1_(
     bool use_offsets = true,
     bool is_bf16 = false);
 
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 template <typename IndexType, bool HAS_WEIGHTS>
 void compressed_indices_remap_avx512(
     std::int32_t offsets_numel,
@@ -359,6 +360,7 @@ void compressed_indices_remap_avx512(
     IndexType* out_indices,
     IndexType* out_offsets,
     float* out_weights);
+#endif
 
 } // namespace internal
 

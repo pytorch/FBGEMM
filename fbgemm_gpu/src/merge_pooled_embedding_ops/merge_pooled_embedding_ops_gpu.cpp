@@ -628,7 +628,7 @@ Tensor cat_dim_2d(
     int64_t uncat_dim_size,
     at::Device output_device,
     int64_t cat_dim = 1) {
-  if (tensors.size() == 0) {
+  if (tensors.empty()) {
     return at::empty({0}, at::TensorOptions().device(output_device));
   }
   // only support 2d tensor concatenation.
@@ -727,7 +727,7 @@ std::vector<Tensor> all_to_one_device(
 Tensor sum_reduce_to_one_device(
     std::vector<Tensor> input_tensors,
     at::Device target_device) {
-  TORCH_CHECK(input_tensors.size() > 0, "reducing no tensor is undefined");
+  TORCH_CHECK(!input_tensors.empty(), "reducing no tensor is undefined");
 
   init_p2p_access();
 

@@ -35,8 +35,8 @@
 template <
     typename Integer1,
     typename Integer2,
-    std::enable_if_t<std::is_integral<Integer1>::value, bool> = true,
-    std::enable_if_t<std::is_integral<Integer2>::value, bool> = true>
+    std::enable_if_t<std::is_integral_v<Integer1>, bool> = true,
+    std::enable_if_t<std::is_integral_v<Integer2>, bool> = true>
 constexpr uint32_t cuda_calc_xblock_count_base(
     Integer1 num_items,
     Integer2 threads_per_block) {
@@ -61,10 +61,10 @@ template <
     typename Integer1,
     typename Integer2,
     std::enable_if_t<
-        std::is_integral<Integer1>::value && std::is_signed<Integer2>::value,
+        std::is_integral_v<Integer1> && std::is_signed_v<Integer2>,
         bool> = true,
     std::enable_if_t<
-        std::is_integral<Integer2>::value && std::is_unsigned<Integer2>::value,
+        std::is_integral_v<Integer2> && std::is_unsigned_v<Integer2>,
         bool> = true>
 constexpr uint32_t cuda_calc_xblock_count(
     Integer1 num_items,
@@ -80,10 +80,10 @@ template <
     typename Integer1,
     typename Integer2,
     std::enable_if_t<
-        std::is_integral<Integer1>::value && std::is_unsigned<Integer2>::value,
+        std::is_integral_v<Integer1> && std::is_unsigned_v<Integer2>,
         bool> = true,
     std::enable_if_t<
-        std::is_integral<Integer2>::value && std::is_signed<Integer2>::value,
+        std::is_integral_v<Integer2> && std::is_signed_v<Integer2>,
         bool> = true>
 constexpr uint32_t cuda_calc_xblock_count(
     Integer1 num_items,
@@ -99,10 +99,10 @@ template <
     typename Integer1,
     typename Integer2,
     std::enable_if_t<
-        std::is_integral<Integer1>::value && std::is_signed<Integer2>::value,
+        std::is_integral_v<Integer1> && std::is_signed_v<Integer2>,
         bool> = true,
     std::enable_if_t<
-        std::is_integral<Integer2>::value && std::is_signed<Integer2>::value,
+        std::is_integral_v<Integer2> && std::is_signed_v<Integer2>,
         bool> = true>
 constexpr uint32_t cuda_calc_xblock_count(
     Integer1 num_items,
@@ -121,10 +121,10 @@ template <
     typename Integer1,
     typename Integer2,
     std::enable_if_t<
-        std::is_integral<Integer1>::value && std::is_unsigned<Integer2>::value,
+        std::is_integral_v<Integer1> && std::is_unsigned_v<Integer2>,
         bool> = true,
     std::enable_if_t<
-        std::is_integral<Integer2>::value && std::is_unsigned<Integer2>::value,
+        std::is_integral_v<Integer2> && std::is_unsigned_v<Integer2>,
         bool> = true>
 constexpr uint32_t cuda_calc_xblock_count(
     Integer1 num_items,
@@ -138,8 +138,8 @@ constexpr uint32_t cuda_calc_xblock_count(
 template <
     typename Integer1,
     typename Integer2,
-    std::enable_if_t<std::is_integral<Integer1>::value, bool> = true,
-    std::enable_if_t<std::is_integral<Integer2>::value, bool> = true>
+    std::enable_if_t<std::is_integral_v<Integer1>, bool> = true,
+    std::enable_if_t<std::is_integral_v<Integer2>, bool> = true>
 constexpr uint32_t cuda_calc_block_count(
     Integer1 num_items,
     Integer2 threads_per_block) {

@@ -77,7 +77,7 @@ enum class FeatureGateName {
 /// @ingroup fbgemm-gpu-config
 ///
 /// @brief Get the string value of the `FeatureGateName` enum.
-const std::string to_string(const FeatureGateName& value);
+std::string to_string(const FeatureGateName& value);
 
 /// @ingroup fbgemm-gpu-config
 ///

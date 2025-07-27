@@ -49,6 +49,7 @@ endfunction()
 # FBGEMM Build Kickstart
 ################################################################################
 
+# Declare CMake project
 project(
   fbgemm
   VERSION 1.3.0
@@ -96,20 +97,15 @@ if(DISABLE_FBGEMM_AUTOVEC)
   add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
 
-################################################################################
-# AVX512 Support
-################################################################################
-
 if(MSVC)
-  CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
   set(MSVC_BOOL True)
+  check_cxx_compiler_flag(/arch:AVX2 COMPILER_SUPPORTS_AVX2)
+  check_cxx_compiler_flag(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
 else(MSVC)
-  CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
   set(MSVC_BOOL False)
+  check_cxx_compiler_flag(-mavx2 COMPILER_SUPPORTS_AVX2)
+  check_cxx_compiler_flag(-mavx512f COMPILER_SUPPORTS_AVX512)
 endif(MSVC)
-if(NOT COMPILER_SUPPORTS_AVX512)
-  message(FATAL_ERROR "A compiler with AVX512 support is required.")
-endif()
 
 ################################################################################
 # GNU F2H_IEEE Support
@@ -189,63 +185,91 @@ cpp_library(
     $<BUILD_INTERFACE:asmjit>
 )
 
-set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
+set(fbgemm_targets)
 
 ################################################################################
 # FBGEMM AVX2 Target
 ################################################################################
 
-get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
-get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
+  if(NOT COMPILER_SUPPORTS_AVX2)
+    message(FATAL_ERROR "The current compiler does not support building AVX2 code")
+  endif()
 
-cpp_library(
-  PREFIX
-    fbgemm_avx2
-  TYPE
-    OBJECT
-  SRCS
-    ${FBGEMM_AVX2_SRCS}
-    ${FBGEMM_AVX2_INLINE_SRCS}
-  CC_FLAGS
-    -m64 -mavx2 -mf16c -mfma
-  MSVC_FLAGS
-    /arch:AVX2
-  DEPS
-    $<BUILD_INTERFACE:cpuinfo>
-    $<BUILD_INTERFACE:asmjit>
-    fbgemm_generic
-)
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
+
+  get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
+  get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_avx2
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_AVX2_SRCS}
+      ${FBGEMM_AVX2_INLINE_SRCS}
+    CC_FLAGS
+      -m64 -mavx2 -mf16c -mfma
+    MSVC_FLAGS
+      /arch:AVX2
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_avx2)
+
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX2 target")
+endif()
 
 ################################################################################
 # FBGEMM AVX512 Target
 ################################################################################
 
-get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
-get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
+  if(NOT COMPILER_SUPPORTS_AVX512)
+    message(FATAL_ERROR "The current compiler does not support building AVX512 code")
+  endif()
 
-cpp_library(
-  PREFIX
-    fbgemm_avx512
-  TYPE
-    OBJECT
-  SRCS
-    ${FBGEMM_AVX512_SRCS}
-    ${FBGEMM_AVX512_INLINE_SRCS}
-  CC_FLAGS
-    -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
-  MSVC_FLAGS
-    /arch:AVX512
-  DEPS
-    $<BUILD_INTERFACE:cpuinfo>
-    $<BUILD_INTERFACE:asmjit>
-    fbgemm_generic
-)
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
+
+  get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+  get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_avx512
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_AVX512_SRCS}
+      ${FBGEMM_AVX512_INLINE_SRCS}
+    CC_FLAGS
+      -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
+    MSVC_FLAGS
+      /arch:AVX512
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_avx512)
+
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX512 target")
+endif()
 
 ################################################################################
 # FBGEMM Autovec Target
 ################################################################################
 
 if(NOT DISABLE_FBGEMM_AUTOVEC)
+  message(STATUS "Will build autovec target")
+
   get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
 
   cpp_library(

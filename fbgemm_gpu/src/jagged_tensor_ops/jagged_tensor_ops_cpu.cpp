@@ -1068,7 +1068,7 @@ void jagged_index_select_2d_kernel(
           int index_pos;
           binary_search_range_cpu(
               &index_pos,
-              reinterpret_cast<const offset_t*>(&output_offsets[0]),
+              reinterpret_cast<const offset_t*>(output_offsets.data()),
               static_cast<offset_t>(dense_output_offset),
               num_output_rows);
           const offset_t rel_index = dense_output_offset -
@@ -1212,7 +1212,7 @@ void jagged_index_add_2d_kernel(
       int index_pos;
       binary_search_range_cpu(
           &index_pos,
-          reinterpret_cast<const offset_t*>(&input_offsets[0]),
+          reinterpret_cast<const offset_t*>(input_offsets.data()),
           static_cast<offset_t>(dense_input_offset),
           num_input_rows);
       const offset_t rel_index = dense_input_offset -

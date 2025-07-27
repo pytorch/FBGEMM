@@ -11,6 +11,8 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include <utility>
+
 #include "fbgemm_gpu/sparse_ops.h"
 
 namespace fbgemm_gpu {
@@ -53,13 +55,13 @@ Tensor jagged_to_padded_dense_backward_meta(
     const at::Tensor& grad_output,
     const std::vector<Tensor>& offsets,
     at::SymInt total_L) {
-  auto grad_padded_values = grad_output;
+  const auto& grad_padded_values = grad_output;
 
   at::SymInt D = grad_padded_values.sym_size(-1);
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
   auto grad_values =
-      at::zeros_symint({total_L, D}, grad_padded_values.options());
+      at::zeros_symint({std::move(total_L), D}, grad_padded_values.options());
 
   TORCH_CHECK(grad_values.is_meta());
   return grad_values;
@@ -199,7 +201,8 @@ Tensor jagged_1d_to_dense_meta(
     Tensor offsets,
     c10::SymInt max_L,
     int64_t padding_value) {
-  return jagged_to_padded_dense_meta(values, {offsets}, {max_L}, padding_value);
+  return jagged_to_padded_dense_meta(
+      values, {std::move(offsets)}, {std::move(max_L)}, padding_value);
 }
 
 Tensor jagged_2d_to_dense_meta(
@@ -208,8 +211,8 @@ Tensor jagged_2d_to_dense_meta(
     c10::SymInt max_sequence_length) {
   return jagged_to_padded_dense_meta(
       values,
-      {offsets},
-      {max_sequence_length},
+      {std::move(offsets)},
+      {std::move(max_sequence_length)},
       /*padding_value=*/0);
 }
 

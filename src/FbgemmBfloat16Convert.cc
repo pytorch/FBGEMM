@@ -42,14 +42,14 @@ namespace fbgemm {
 void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
-#ifndef __aarch64__
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     if (fbgemmHasAvx512Support()) {
       FloatToBfloat16_avx512(src, dst, size);
+    } else if (fbgemmHasAvx2Support()) {
+      FloatToBfloat16_avx2(src, dst, size);
     } else
 #endif
-        if (fbgemmHasAvx2Support()) {
-      FloatToBfloat16_avx2(src, dst, size);
-    } else {
+    {
       FloatToBfloat16_ref(src, dst, size);
       return;
     }
@@ -61,14 +61,14 @@ void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
 void Bfloat16ToFloat_simd(const bfloat16* src, float* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
-#ifndef __aarch64__
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     if (fbgemmHasAvx512Support()) {
       Bfloat16ToFloat_avx512(src, dst, size);
+    } else if (fbgemmHasAvx2Support()) {
+      Bfloat16ToFloat_avx2(src, dst, size);
     } else
 #endif
-        if (fbgemmHasAvx2Support()) {
-      Bfloat16ToFloat_avx2(src, dst, size);
-    } else {
+    {
       Bfloat16ToFloat_ref(src, dst, size);
       return;
     }
