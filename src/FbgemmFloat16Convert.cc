@@ -10,10 +10,6 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Utils.h"
 
-#ifdef USE_MKL
-#include <mkl.h>
-#endif
-
 #include <cpuinfo.h>
 #include <memory>
 #include <vector>
