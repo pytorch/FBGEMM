@@ -4,6 +4,26 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+def default_compiler_flags():
+    return [
+        "-pedantic",
+        "-Wall",
+        "-DFBGEMM_FBCODE",  # Used for enabling fbcode-specific code paths
+    ] + select({
+        "DEFAULT": [],
+        "ovr_config//compiler:clang": [
+            "-Werror",
+            "-Wextra",
+            "-Wno-gnu-zero-variadic-macro-arguments",
+            "-Wno-c99-extensions",
+            "-Wno-unused-parameter",
+            "-Wno-unused-variable",
+            "-Wimplicit-fallthrough",
+            "-Wignored-qualifiers",
+            "-Wno-vla",
+        ],
+    })
+
 def get_fbgemm_base_srcs():
     return [
         "src/GenerateI8Depthwise.cc",
