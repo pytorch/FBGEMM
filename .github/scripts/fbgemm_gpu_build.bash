@@ -123,6 +123,11 @@ __configure_fbgemm_gpu_build_nvcc () {
     )
   fi
 
+  # Join the nvcc_prepend_flags array into a single quoted string
+  local nvcc_prepend_flags_str=$(printf '%q ' "${nvcc_prepend_flags[@]}")
+  # Remove trailing space
+  nvcc_prepend_flags_str=${nvcc_prepend_flags_str% }
+
   # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
   # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the standard
   # library
@@ -131,9 +136,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   #   https://github.com/ROCm/HIP/issues/931
   #
   echo "[BUILD] Setting NVCC flags ..."
-  echo "[BUILD] ${nvcc_prepend_flags[@]}"
   # shellcheck disable=SC2086,SC2145,SC2068
-  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags[@]}\"
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags_str}\"
   # shellcheck disable=SC2086
   print_exec conda run ${env_prefix} printenv NVCC_PREPEND_FLAGS
 
