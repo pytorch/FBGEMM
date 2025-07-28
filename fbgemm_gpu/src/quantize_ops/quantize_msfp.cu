@@ -158,17 +158,17 @@ DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
   auto shared_exponents =
       at::empty({nrows, ncols}, input.options().dtype(at::kInt));
 
-  _compute_msfp_shared_exponent_cuda_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (_compute_msfp_shared_exponent_cuda_kernel),
       gridDim,
       blockDim,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       input.contiguous().data_ptr<float>(),
       nrows,
       ncols,
       bounding_box_size,
       shared_exponents.data_ptr<int>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   auto iter = at::TensorIteratorConfig()
                   .check_all_same_dtype(false)
