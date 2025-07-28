@@ -187,8 +187,8 @@ Functions</h2></td></tr>
 <tr class="separator:aafb575930df07db6f09594c7e2d08650"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a71a54a14d90862afc8e5fe03e0c9ed8f" id="r_a71a54a14d90862afc8e5fe03e0c9ed8f"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a71a54a14d90862afc8e5fe03e0c9ed8f">jagged_index_select_2d_forward_cpu</a> (const Tensor &amp;values, const Tensor &amp;indices, const Tensor &amp;input_offsets, const Tensor &amp;output_offsets, const int64_t num_dense_output_rows)</td></tr>
 <tr class="separator:a71a54a14d90862afc8e5fe03e0c9ed8f"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:af80524a7d454f6db1c478808e8a659a6" id="r_af80524a7d454f6db1c478808e8a659a6"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af80524a7d454f6db1c478808e8a659a6">jagged_index_add_2d_forward_cpu</a> (const Tensor &amp;values, const Tensor &amp;indices, const Tensor &amp;input_offsets, const Tensor &amp;output_offsets, const int64_t num_dense_input_rows, const int64_t num_output_rows)</td></tr>
-<tr class="separator:af80524a7d454f6db1c478808e8a659a6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad432deefd25af7d6124a888825e67f5a" id="r_ad432deefd25af7d6124a888825e67f5a"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad432deefd25af7d6124a888825e67f5a">jagged_index_add_2d_forward_cpu</a> (const Tensor &amp;values, const Tensor &amp;indices, const Tensor &amp;input_offsets, const Tensor &amp;output_offsets, const int64_t, const int64_t num_output_rows)</td></tr>
+<tr class="separator:ad432deefd25af7d6124a888825e67f5a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4e6521d00a6f81ad8ad7f7d38eef1aea" id="r_a4e6521d00a6f81ad8ad7f7d38eef1aea"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4e6521d00a6f81ad8ad7f7d38eef1aea">jagged_slice_forward_cpu</a> (const Tensor &amp;x_values, const Tensor &amp;x_lengths, const Tensor &amp;src_start, const Tensor &amp;output_lengths, const Tensor &amp;tgt_start, const int64_t num_output_rows, const int64_t slice_length, const bool fill_zeros)</td></tr>
 <tr class="separator:a4e6521d00a6f81ad8ad7f7d38eef1aea"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gad34ac20d2c9be5a6489c8e8befff7938" id="r_gad34ac20d2c9be5a6489c8e8befff7938"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, std::vector&lt; Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__jagged-tensor-ops-cuda.html#gad34ac20d2c9be5a6489c8e8befff7938">jagged_dense_elementwise_add_jagged_output_cuda</a> (const Tensor &amp;x_values, const std::vector&lt; Tensor &gt; &amp;x_offsets, const Tensor &amp;y)</td></tr>
@@ -535,8 +535,8 @@ template&lt;typename scalar_t, int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK&g
 
 </div>
 </div>
-<a id="af80524a7d454f6db1c478808e8a659a6" name="af80524a7d454f6db1c478808e8a659a6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af80524a7d454f6db1c478808e8a659a6">&#9670;&#160;</a></span>jagged_index_add_2d_forward_cpu()</h2>
+<a id="ad432deefd25af7d6124a888825e67f5a" name="ad432deefd25af7d6124a888825e67f5a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad432deefd25af7d6124a888825e67f5a">&#9670;&#160;</a></span>jagged_index_add_2d_forward_cpu()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -564,7 +564,7 @@ template&lt;typename scalar_t, int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK&g
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>num_dense_input_rows</em></span>, </td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em></em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
