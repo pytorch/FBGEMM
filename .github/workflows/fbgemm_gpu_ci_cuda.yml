@@ -94,6 +94,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: true
+        ref: ${{ github.event_name == 'schedule' && 'nightly' || 'main' }}
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
@@ -187,6 +188,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: true
+        ref: ${{ github.event_name == 'schedule' && 'nightly' || 'main' }}
 
     - name: Download Wheel Artifact from GHA
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
