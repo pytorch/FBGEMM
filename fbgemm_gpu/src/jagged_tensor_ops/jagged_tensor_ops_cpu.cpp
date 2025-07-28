@@ -1202,12 +1202,16 @@ void jagged_index_add_2d_kernel(
   const auto num_cols = input.size(1);
   // Allocate one lock per row
   std::vector<std::atomic_flag> locks(output.size(0));
+  // C++20 supports value initialization of std::atomic_flag, but old C++20
+  // compilers may not implement it.
+#ifndef __cpp_lib_atomic_value_initialization
   // Initialize all locks since before c++20 std::atomic_flag is initialized to
   // an unspecified state.
   // https://en.cppreference.com/w/cpp/atomic/atomic_flag/atomic_flag
   for (auto& lock : locks) {
     lock.clear();
   }
+#endif
 
   at::parallel_for(0, num_dense_input_rows, 0, [&](int64_t start, int64_t end) {
     for (const auto dense_input_offset : c10::irange(start, end)) {
