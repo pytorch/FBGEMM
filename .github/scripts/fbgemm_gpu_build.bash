@@ -107,13 +107,13 @@ __configure_fbgemm_gpu_build_nvcc () {
     -ccbin "${cxx_path}"
     -allow-unsupported-compiler
     # warn: variable "nUpdates" was declared but never referenced
-    -diag-suppress 177
+    "-diag-suppress=177"
     # warn: argument is incompatible with corresponding format string conversion
-    -diag-suppress 181
+    "-diag-suppress=181"
     # warn: the implicit by-copy capture of "this" is deprecated
-    -diag-suppress 2908
+    "-diag-suppress=2908"
     # warn: __device__ annotation is ignored on a function that is explicitly defaulted on its first declaration
-    -diag-suppress 20012
+    "-diag-suppress=20012"
   )
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
