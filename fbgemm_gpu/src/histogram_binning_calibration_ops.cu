@@ -11,6 +11,7 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
@@ -78,23 +79,23 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
   const auto bin_num_positives_packed = bin_num_positives.contiguous();
   FBGEMM_DISPATCH_FLOATING_TYPES(
       logit.scalar_type(), "histogram_binning_calibration_cuda", [&] {
-        histogram_binning_calibration_kernel<scalar_t>
-            <<<fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
-               kMaxThreads,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                logit.numel(),
-                bin_num_examples.numel(),
-                recalibrate_value,
-                step,
-                bin_ctr_in_use_after,
-                bin_ctr_weight_value,
-                logit_packed.data_ptr<scalar_t>(),
-                bin_num_examples_packed.data_ptr<double>(),
-                bin_num_positives_packed.data_ptr<double>(),
-                calibrated_prediction.data_ptr<scalar_t>(),
-                bin_ids.data_ptr<int64_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (histogram_binning_calibration_kernel<scalar_t>),
+            fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+            kMaxThreads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            logit.numel(),
+            bin_num_examples.numel(),
+            recalibrate_value,
+            step,
+            bin_ctr_in_use_after,
+            bin_ctr_weight_value,
+            logit_packed.data_ptr<scalar_t>(),
+            bin_num_examples_packed.data_ptr<double>(),
+            bin_num_positives_packed.data_ptr<double>(),
+            calibrated_prediction.data_ptr<scalar_t>(),
+            bin_ids.data_ptr<int64_t>());
       });
 
   return std::make_tuple(calibrated_prediction, bin_ids);
@@ -205,17 +206,18 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
         AT_DISPATCH_INDEX_TYPES(
             segment_value.scalar_type(), "to_dense_segment_value_cuda", [&] {
               using value_t = index_t;
-              to_dense_segment_value_kernel<offset_t, value_t>
-                  <<<fbgemm_gpu::div_round_up(
-                         segment_offsets.numel(), kMaxThreads),
-                     kMaxThreads,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      segment_offsets.numel(),
-                      segment_value_packed.data_ptr<value_t>(),
-                      segment_offsets_packed.data_ptr<offset_t>(),
-                      dense_segment_value_packed.data_ptr<value_t>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+              FBGEMM_LAUNCH_KERNEL(
+                  (to_dense_segment_value_kernel<offset_t, value_t>),
+                  fbgemm_gpu::div_round_up(
+                      segment_offsets.numel(), kMaxThreads),
+                  kMaxThreads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  segment_offsets.numel(),
+                  segment_value_packed.data_ptr<value_t>(),
+                  segment_offsets_packed.data_ptr<offset_t>(),
+                  dense_segment_value_packed.data_ptr<value_t>());
             });
       });
 
@@ -238,27 +240,28 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
             "histogram_binning_calibration_by_feature_cuda",
             [&] {
               using segment_value_t = index_t;
-              histogram_binning_calibration_by_feature_kernel<
-                  logit_t,
-                  segment_value_t>
-                  <<<fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
-                     kMaxThreads,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      logit.numel(),
-                      num_bins,
-                      num_segments,
-                      recalibrate_value,
-                      step,
-                      bin_ctr_in_use_after,
-                      bin_ctr_weight_value,
-                      logit_packed.data_ptr<logit_t>(),
-                      dense_segment_value_packed.data_ptr<segment_value_t>(),
-                      bin_num_examples_packed.data_ptr<double>(),
-                      bin_num_positives_packed.data_ptr<double>(),
-                      calibrated_prediction.data_ptr<logit_t>(),
-                      bin_ids.data_ptr<int64_t>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+              FBGEMM_LAUNCH_KERNEL(
+                  (histogram_binning_calibration_by_feature_kernel<
+                      logit_t,
+                      segment_value_t>),
+                  fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+                  kMaxThreads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  logit.numel(),
+                  num_bins,
+                  num_segments,
+                  recalibrate_value,
+                  step,
+                  bin_ctr_in_use_after,
+                  bin_ctr_weight_value,
+                  logit_packed.data_ptr<logit_t>(),
+                  dense_segment_value_packed.data_ptr<segment_value_t>(),
+                  bin_num_examples_packed.data_ptr<double>(),
+                  bin_num_positives_packed.data_ptr<double>(),
+                  calibrated_prediction.data_ptr<logit_t>(),
+                  bin_ids.data_ptr<int64_t>());
             });
       });
 
@@ -364,17 +367,18 @@ generic_histogram_binning_calibration_by_feature_cuda(
         AT_DISPATCH_INDEX_TYPES(
             segment_value.scalar_type(), "to_dense_segment_value_cuda", [&] {
               using value_t = index_t;
-              to_dense_segment_value_kernel<offset_t, value_t>
-                  <<<fbgemm_gpu::div_round_up(
-                         segment_offsets.numel(), kMaxThreads),
-                     kMaxThreads,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      segment_offsets.numel(),
-                      segment_value_packed.data_ptr<value_t>(),
-                      segment_offsets_packed.data_ptr<offset_t>(),
-                      dense_segment_value_packed.data_ptr<value_t>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+              FBGEMM_LAUNCH_KERNEL(
+                  (to_dense_segment_value_kernel<offset_t, value_t>),
+                  fbgemm_gpu::div_round_up(
+                      segment_offsets.numel(), kMaxThreads),
+                  kMaxThreads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  segment_offsets.numel(),
+                  segment_value_packed.data_ptr<value_t>(),
+                  segment_offsets_packed.data_ptr<offset_t>(),
+                  dense_segment_value_packed.data_ptr<value_t>());
             });
       });
 
@@ -396,27 +400,28 @@ generic_histogram_binning_calibration_by_feature_cuda(
             "generic_histogram_binning_calibration_by_feature_cuda",
             [&] {
               using segment_value_t = index_t;
-              generic_histogram_binning_calibration_by_feature_kernel<
-                  logit_t,
-                  segment_value_t>
-                  <<<fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
-                     kMaxThreads,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      logit.numel(),
-                      bin_boundaries.numel() + 1,
-                      num_segments,
-                      recalibrate_value,
-                      bin_ctr_in_use_after,
-                      bin_ctr_weight_value,
-                      logit_packed.data_ptr<logit_t>(),
-                      dense_segment_value_packed.data_ptr<segment_value_t>(),
-                      bin_num_examples_packed.data_ptr<double>(),
-                      bin_num_positives_packed.data_ptr<double>(),
-                      bin_boundaries_packed.data_ptr<double>(),
-                      calibrated_prediction.data_ptr<logit_t>(),
-                      bin_ids.data_ptr<int64_t>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+              FBGEMM_LAUNCH_KERNEL(
+                  (generic_histogram_binning_calibration_by_feature_kernel<
+                      logit_t,
+                      segment_value_t>),
+                  fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+                  kMaxThreads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  logit.numel(),
+                  bin_boundaries.numel() + 1,
+                  num_segments,
+                  recalibrate_value,
+                  bin_ctr_in_use_after,
+                  bin_ctr_weight_value,
+                  logit_packed.data_ptr<logit_t>(),
+                  dense_segment_value_packed.data_ptr<segment_value_t>(),
+                  bin_num_examples_packed.data_ptr<double>(),
+                  bin_num_positives_packed.data_ptr<double>(),
+                  bin_boundaries_packed.data_ptr<double>(),
+                  calibrated_prediction.data_ptr<logit_t>(),
+                  bin_ids.data_ptr<int64_t>());
             });
       });
 
