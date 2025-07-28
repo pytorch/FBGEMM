@@ -8,8 +8,10 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/Types.h"
-#include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
@@ -182,7 +184,7 @@ FBGEMM_API void RoundToFloat16(
  * fbgemm_gpu/quantize_ops_utils.h
  */
 FBGEMM_API void FloatToFloat8_ref(
-    const float input,
+    float input,
     uint8_t* output,
     int exponent_bits,
     int exponent_bias);
@@ -192,7 +194,7 @@ FBGEMM_API void FloatToFloat8_ref(
  * fbgemm_gpu/quantize_ops_utils.h
  */
 FBGEMM_API void Float8ToFloat_ref(
-    const uint8_t input,
+    uint8_t input,
     float* output,
     int exponent_bits,
     int exponent_bias);
