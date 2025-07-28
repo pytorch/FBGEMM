@@ -160,7 +160,75 @@ class PermuteIndicesTest(unittest.TestCase):
                     permuted_weights_gpu.cpu(), permuted_weights_cpu
                 )
             else:
-                assert permuted_weights_gpu is None
+                self.assertIsNone(permuted_weights_gpu)
+
+    @given(
+        B=st.integers(min_value=2, max_value=20),
+        T=st.integers(min_value=2, max_value=20),
+        L=st.integers(min_value=2, max_value=20),
+        long_index=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_indices_non_contiguous(
+        self,
+        B: int,
+        T: int,
+        L: int,
+        long_index: bool,
+    ) -> None:
+        index_dtype = torch.int64 if long_index else torch.int32
+        lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
+
+        indices = torch.randint(
+            low=1,
+            high=int(1e5),
+            # pyre-fixme[6]: Expected `Union[int, typing.Tuple[int, ...]]` for 3rd
+            #  param but got `Tuple[typing.Union[float, int]]`.
+            size=(lengths.sum().item(),),
+        ).type(index_dtype)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        def create_non_contiguous(x: torch.Tensor) -> torch.Tensor:
+            # Create a diluted tensor with 2x elements, and then take every other element
+            # with the value from the original tensor. For example, if x = [1, 2, 3, 4],
+            # then the diluted tensor is [1, 0, 2, 0, 3, 0, 4, 0].
+            diluted = x.new_zeros(x.numel() * 2).flatten()
+            diluted[::2] = x.flatten()
+            # Returns the sliced tensor, which is non-contiguous.
+            return diluted[::2].view(x.shape)
+
+        (
+            permuted_lengths_ref,
+            permuted_indices_ref,
+            permuted_weights_ref,
+            # pyre-fixme[6]: For 4th param expected `LongTensor` but got `Tensor`.
+        ) = permute_indices_ref_(lengths, indices, None, permute.long())
+
+        permute_gpu = create_non_contiguous(permute.cuda())
+        lengths_gpu = create_non_contiguous(lengths.cuda())
+        indices_gpu = create_non_contiguous(indices.cuda())
+        self.assertFalse(permute_gpu.is_contiguous())
+        self.assertFalse(lengths_gpu.is_contiguous())
+        self.assertFalse(indices_gpu.is_contiguous())
+
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute_gpu,
+            lengths_gpu,
+            indices_gpu,
+            None,
+            None,
+        )
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_ref)
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_ref)
+        self.assertIsNone(permuted_weights_gpu)
 
     # TorchScript has different behaviors than eager mode. We can see undefined
     # models returned. So we need to add a unittest to ensure the op return
