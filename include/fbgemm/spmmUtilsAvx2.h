@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <cstdint>
 #include "./FbgemmBuild.h" // @manual
 #include "fbgemm/UtilsAvx2.h"
 

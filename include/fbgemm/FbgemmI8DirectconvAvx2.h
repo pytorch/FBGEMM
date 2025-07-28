@@ -8,12 +8,10 @@
 
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <vector>
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmBuild.h"
-#include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
 
