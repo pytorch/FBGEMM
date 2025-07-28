@@ -103,8 +103,6 @@ function(cpp_library)
             -Wunused-variable
             -Wno-sign-compare
             -Wno-vla
-            -Wno-error=unused-but-set-parameter
-            -Wno-error=unused-but-set-variable
             -Wno-error=unused-parameter
             -Wno-error=attributes)
 
@@ -113,6 +111,12 @@ function(cpp_library)
                 -Wno-c99-extensions
                 -Wno-gnu-zero-variadic-macro-arguments
                 -Wno-deprecated-enum-enum-conversion)
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
+                list(APPEND lib_cc_flags
+                    -Wno-error=unused-but-set-parameter
+                    -Wno-error=unused-but-set-variable)
+            endif()
 
             if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
                 list(APPEND lib_cc_flags
@@ -123,7 +127,9 @@ function(cpp_library)
 
         elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
             list(APPEND lib_cc_flags
-                -Wmaybe-uninitialized)
+                -Wmaybe-uninitialized
+                -Wno-error=unused-but-set-parameter
+                -Wno-error=unused-but-set-variable)
 
             if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
                 list(APPEND lib_cc_flags
