@@ -917,6 +917,8 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
     const Tensor& mask) {
   TORCH_CHECK(values.dim() == 1);
   TORCH_CHECK(lengths.dim() == 1);
+  TORCH_CHECK(mask.dim() == 1);
+  TORCH_CHECK(mask.numel() == values.numel());
 
   auto values_contiguous = values.expect_contiguous();
   auto lengths_contiguous = lengths.expect_contiguous();
