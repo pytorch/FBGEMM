@@ -60,14 +60,17 @@ DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
   AT_DISPATCH_INDEX_TYPES(
       permute.scalar_type(), "expand_into_jagged_permute_kernel", [&] {
         using offsets_t = index_t;
-        expand_into_jagged_permute_kernel<index_t, offsets_t>
-            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                input_offsets.data_ptr<offsets_t>(),
-                output_offsets.data_ptr<offsets_t>(),
-                permute_size,
-                permute.data_ptr<index_t>(),
-                output_permute.data_ptr<index_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (expand_into_jagged_permute_kernel<index_t, offsets_t>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            input_offsets.data_ptr<offsets_t>(),
+            output_offsets.data_ptr<offsets_t>(),
+            permute_size,
+            permute.data_ptr<index_t>(),
+            output_permute.data_ptr<index_t>());
       });
 
   return output_permute;

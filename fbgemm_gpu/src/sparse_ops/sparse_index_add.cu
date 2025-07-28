@@ -150,9 +150,7 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
                   cuda_calc_xblock_count(num_unique_indices, 1),
                   (D + stride_D - 1) / stride_D,
                   1);
-#ifdef FBGEMM_GPU_MEMCHECK
-              const auto func_name = "index_add_2d_with_unique_indices_kernel";
-#endif
+
               const auto unique_indices_ = consecutive_indices
                   ? at::empty(
                         {0},
@@ -160,29 +158,26 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
                             std::is_same_v<index_t, int64_t> ? at::kLong
                                                              : at::kInt))
                   : unique_indices;
-              index_add_2d_with_unique_indices_kernel<
-                  index_t,
-                  scalar_t,
-                  UNROLL_FACTOR>
-                  <<<grid_size,
-                     block_size,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      MAKE_PTA_WITH_NAME(
-                          func_name, grad_output_reshaped, scalar_t, 2, 32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, unique_indices_, index_t, 1, 32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, orig_indices, int64_t, 1, 32),
-                      MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, input_grad, scalar_t, 2, 64),
-                      stride_D, // Pass constants as kernel args
-                      rounded_D,
-                      remaining_D,
-                      consecutive_indices,
-                      consecutive_range_start);
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+              FBGEMM_LAUNCH_KERNEL(
+                  (index_add_2d_with_unique_indices_kernel<
+                      index_t,
+                      scalar_t,
+                      UNROLL_FACTOR>),
+                  grid_size,
+                  block_size,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(grad_output_reshaped, scalar_t, 2, 32),
+                  PTA_B(unique_indices_, index_t, 1, 32),
+                  PTA_B(orig_indices, int64_t, 1, 32),
+                  PTA_B(offsets, int64_t, 1, 32),
+                  PTA_B(input_grad, scalar_t, 2, 64),
+                  stride_D, // Pass constants as kernel args
+                  rounded_D,
+                  remaining_D,
+                  consecutive_indices,
+                  consecutive_range_start);
             });
       });
   return input_grad.reshape(input_shape);

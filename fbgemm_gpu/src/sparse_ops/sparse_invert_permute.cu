@@ -37,12 +37,15 @@ DLL_PUBLIC Tensor invert_permute_cuda(const Tensor& permute) {
   constexpr int32_t threads_1 = kMaxThreads;
   const auto blocks_1 = cuda_calc_xblock_count(permute_size, threads_1);
   AT_DISPATCH_INDEX_TYPES(permute.scalar_type(), "invert_permute_kernel", [&] {
-    invert_permute_kernel<index_t>
-        <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
-            permute_size,
-            permute_contig.data_ptr<index_t>(),
-            inversed_permute.data_ptr<index_t>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (invert_permute_kernel<index_t>),
+        blocks_1,
+        threads_1,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        permute_size,
+        permute_contig.data_ptr<index_t>(),
+        inversed_permute.data_ptr<index_t>());
   });
   return inversed_permute;
 }
