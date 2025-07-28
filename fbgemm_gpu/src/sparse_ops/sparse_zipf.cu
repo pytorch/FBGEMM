@@ -95,20 +95,20 @@ __global__ void zipf_kernel(
 
 DLL_PUBLIC Tensor
 zipf_cuda(const double a, const int64_t n, const int64_t seed) {
-  Tensor y = at::empty(
+  auto y = at::empty(
       {n},
       at::TensorOptions().dtype(at::kLong).device(
           at::kCUDA, at::cuda::current_device()));
-#ifdef FBGEMM_GPU_MEMCHECK
-  const auto func_name = "zipf_kernel";
-#endif
-  zipf_kernel<<<
+
+  FBGEMM_LAUNCH_KERNEL(
+      (zipf_kernel),
       cuda_calc_xblock_count(n, kMaxThreads),
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      a, seed, MAKE_PTA_WITH_NAME(func_name, y, long, 1, 64));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+      at::cuda::getCurrentCUDAStream(),
+      a,
+      seed,
+      PTA_B(y, long, 1, 64));
 
   return y;
 }
