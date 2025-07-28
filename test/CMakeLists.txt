@@ -49,30 +49,27 @@ function(add_gtest TESTNAME)
       ${test_sources})
 
   # To compile test files with AVX2 turned on
-  # For static build, defining FBGEMM_STATIC to avoid generating
-  # functions with _dllimport attributes.
   if(MSVC)
     target_compile_options(${TESTNAME} PRIVATE
-      /arch:AVX2
       /wd4244
       /wd4267
       /wd4305
       /wd4309)
-
-    if (FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
-      target_compile_definitions(${TESTNAME} PRIVATE
-        FBGEMM_STATIC)
-    endif()
-
-  else()
-    target_compile_options(${TESTNAME} PRIVATE
-      -m64
-      -mavx2
-      -mfma
-      -masm=intel)
   endif()
 
-  if (FBGEMM_USE_SANITIZER)
+  if(CXX_AVX2_FOUND)
+    if(MSVC)
+      target_compile_options(${TESTNAME} PRIVATE ${CXX_AVX2_FLAGS})
+    else()
+      target_compile_options(${TESTNAME} PRIVATE
+      -m64
+      ${CXX_AVX2_FLAGS}
+      -mfma
+      -masm=intel)
+    endif()
+  endif()
+
+  if(FBGEMM_USE_SANITIZER)
     target_compile_options(${TESTNAME} PRIVATE
       "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
     target_link_options(${TESTNAME} PRIVATE

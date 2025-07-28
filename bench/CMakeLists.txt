@@ -39,14 +39,14 @@ function(add_benchmark BENCHNAME)
     ${bench_sources})
 
   if(CXX_AVX2_FOUND)
-    if(NOT MSVC AND CXX_AVX2_FOUND)
+    if(NOT MSVC)
       target_compile_options(${BENCHNAME} PRIVATE
         -m64
-        ${AVX2_flags}
+        ${CXX_AVX2_FLAGS}
         -mfma
         -masm=intel)
     else()
-      target_compile_options(${BENCHNAME} PRIVATE ${AVX2_flags})
+      target_compile_options(${BENCHNAME} PRIVATE ${CXX_AVX2_FLAGS})
     endif()
   endif()
 

@@ -159,8 +159,9 @@ endif()
 
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 
+set(fbgemm_generic_defs ASMJIT_STATIC)
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
-  set(fbgemm_generic_defs FBGEMM_STATIC)
+  list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
 endif()
 
 cpp_library(
@@ -192,14 +193,6 @@ set(fbgemm_targets)
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
-  set(AVX2_flags)
-  if(CXX_AVX2_FOUND)
-    if(MSVC)
-      set(AVX2_flags /arch:AVX2)
-    else()
-      set(AVX2_flags -mavx2)
-    endif()
-  endif()
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
 
@@ -215,9 +208,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
       ${FBGEMM_AVX2_SRCS}
       ${FBGEMM_AVX2_INLINE_SRCS}
     CC_FLAGS
-      -m64 -mf16c -mfma ${AVX2_flags}
+      -m64 -mf16c -mfma ${CXX_AVX2_FLAGS}
     MSVC_FLAGS
-      ${AVX2_flags}
+      ${CXX_AVX2_FLAGS}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
@@ -235,13 +228,6 @@ endif()
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
-  set(AVX512_flags)
-  if(MSVC)
-    set(AVX512_flags /arch:AVX512)
-  else()
-    set(AVX512_flags -mavx512f -mavx512bw -mavx512dq -mavx512v)
-  endif()
-
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
 
   get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
@@ -256,9 +242,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
       ${FBGEMM_AVX512_SRCS}
       ${FBGEMM_AVX512_INLINE_SRCS}
     CC_FLAGS
-      -m64 -mfma ${AVX512_flags} ${AVX2_flags}
+      -m64 -mfma ${CXX_AVX512_FLAGS} ${CXX_AVX2_FLAGS}
     MSVC_FLAGS
-      ${AVX512_flags} ${AVX2_flags}
+      ${CXX_AVX512_FLAGS} ${CXX_AVX2_FLAGS}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
