@@ -8,20 +8,7 @@
 
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
-
-#ifdef USE_MKL
-#include <mkl.h>
-#endif
-
-#ifdef USE_BLAS
-#if __APPLE__
-// not sure whether need to differentiate TARGET_OS_MAC or TARGET_OS_IPHONE,
-// etc.
-#include <Accelerate/Accelerate.h> // @manual
-#else
-#include <cblas.h> // @manual
-#endif
-#endif
+#include "fbgemm/Utils.h"
 
 #include <cpuinfo.h>
 #include <memory>

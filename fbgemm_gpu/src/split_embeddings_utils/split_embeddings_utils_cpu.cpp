@@ -115,9 +115,9 @@ generate_vbe_metadata_cpu(
     const Tensor& B_offsets_rank_per_feature,
     const Tensor& output_offsets_feature_rank,
     const Tensor& D_offsets,
-    const int64_t D,
-    const bool nobag,
-    const c10::SymInt max_B_feature_rank,
+    const int64_t /*D*/,
+    const bool /*nobag*/,
+    const c10::SymInt /*max_B_feature_rank*/,
     const int64_t info_B_num_bits,
     const c10::SymInt total_B) {
   TENSOR_ON_CPU(B_offsets);
@@ -170,7 +170,7 @@ generate_vbe_metadata_cpu(
 }
 
 std::tuple<int64_t, int64_t>
-get_infos_metadata_cpu(Tensor unused, int64_t B, int64_t T) {
+get_infos_metadata_cpu(Tensor /*unused*/, int64_t B, int64_t T) {
   return get_info_B_num_bits_from_T(T, B);
 }
 

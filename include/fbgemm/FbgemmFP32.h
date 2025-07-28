@@ -6,14 +6,9 @@
 // upgraded to match with new fbgemm interface.
 
 #include <cpuinfo.h>
-#include <cstdlib>
-#include <memory>
-#include <stdexcept>
-#include <vector>
 
 #include "fbgemm/FbgemmFPCommon.h"
 #include "fbgemm/FbgemmPackMatrixB.h"
-#include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {

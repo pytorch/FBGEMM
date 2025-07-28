@@ -11,7 +11,7 @@
 
 #include <cpuinfo.h>
 #include <cmath>
-#include <iostream>
+#include <memory>
 #include <mutex>
 #include <tuple>
 #include "./CodeCache.h" // @manual
@@ -473,8 +473,8 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
-        asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
-        code.setLogger(codeLogger);
+        auto codeLogger = std::make_unique<asmjit::FileLogger>(codeLogFile);
+        code.setLogger(codeLogger.get());
 #endif
 
         auto num_rows = a->zdi().r32();
@@ -780,7 +780,6 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 
 #if defined(FBGEMM_LOG_CODE)
         fclose(codeLogFile);
-        delete codeLogger;
 #endif
         return fn;
       });

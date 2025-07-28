@@ -11,7 +11,6 @@
 #include <cpuinfo.h>
 #include <cassert>
 #include <cstdint>
-#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>

@@ -12,10 +12,7 @@
  * Top level include file for FBGEMM.
  */
 #include <cassert>
-#include <cmath>
-#include <limits>
 #include <memory>
-#include <type_traits>
 #include "./ConvUtils.h" // @manual
 #include "./FbgemmBuild.h" // @manual
 #include "./FbgemmEmbedding.h" // @manual

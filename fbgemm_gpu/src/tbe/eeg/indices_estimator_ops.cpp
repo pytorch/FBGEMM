@@ -25,7 +25,7 @@ namespace fbgemm_gpu::tbe {
 ///     - The S parameter of a Zipfian distribution
 ///     - The maximum index value
 ///     - The number of indices
-std::tuple<torch::Tensor, double, double, int64_t, int64_t>
+static std::tuple<torch::Tensor, double, double, int64_t, int64_t>
 estimate_indices_distribution(const at::Tensor& indices) {
   TORCH_CHECK(
       indices.numel() > 0, "indices numel is ", indices.numel(), "(< 1)");

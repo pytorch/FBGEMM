@@ -26,10 +26,10 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cpu(
 
 DLL_PUBLIC Tensor direct_mapped_lxu_cache_lookup_cpu(
     Tensor linear_cache_indices,
-    Tensor lxu_cache_state,
-    int64_t invalid_index,
-    bool gather_cache_stats,
-    std::optional<Tensor> uvm_cache_stats) {
+    Tensor /*lxu_cache_state*/,
+    int64_t /*invalid_index*/,
+    bool /*gather_cache_stats*/,
+    std::optional<Tensor> /*uvm_cache_stats*/) {
   return empty_like(
       linear_cache_indices, linear_cache_indices.options().dtype(at::kInt));
 }

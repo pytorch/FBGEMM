@@ -25,7 +25,7 @@ namespace fbgemm {
 template <typename T>
 FBGEMM_API std::unique_ptr<CSRMatrix<T>>
 fbgemmDenseToCSR(int R, int C, const T* inp, int ld) {
-  unique_ptr<CSRMatrix<T>> csr(new CSRMatrix<T>());
+  auto csr = std::make_unique<CSRMatrix<T>>();
   csr->rowPtr.push_back(0);
   int nnz = 0;
   for (int i = 0; i < R; ++i) {
@@ -59,7 +59,7 @@ fbgemmDenseToCSR(int R, int C, const float* inp, int ld);
 template <typename T, int RB, int CB>
 FBGEMM_API std::unique_ptr<BCSRMatrix<T, RB, CB>>
 fbgemmDenseToBCSR(int R, int C, const T* inp, int ld) {
-  unique_ptr<BCSRMatrix<T, RB, CB>> bcsr(new BCSRMatrix<T, RB, CB>(R, C));
+  auto bcsr = std::make_unique<BCSRMatrix<T, RB, CB>>(R, C);
   bcsr->pack(inp, ld);
   return bcsr;
 }

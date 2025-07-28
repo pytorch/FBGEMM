@@ -10,15 +10,12 @@
 #include <asmjit/x86.h> // @manual
 #include <cpuinfo.h>
 #include <cstdint>
-#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <tuple>
 #include <type_traits>
 #include "./CodeCache.h" // @manual
-#include "fbgemm/ConvUtils.h"
-#include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"
 /*#define FBGEMM_LOG_CODE 1*/
 
