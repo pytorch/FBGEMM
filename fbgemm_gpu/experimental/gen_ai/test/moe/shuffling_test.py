@@ -54,7 +54,7 @@ class ShufflingTests(unittest.TestCase):
         num_tokens=st.sampled_from(
             [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
         ),
-        num_experts=st.sampled_from([16, 128]),
+        num_experts=st.sampled_from([16, 32, 128, 320]),
         num_local_experts=st.sampled_from([None, 8]),
         padded=st.sampled_from([True, False]),
         rowmajor=st.sampled_from([True, False]),
@@ -74,7 +74,7 @@ class ShufflingTests(unittest.TestCase):
     ) -> None:
         if (
             routing_score_dtype == torch.float
-            and num_experts == 128
+            and num_experts > 16
             and torch.version.hip
         ):
             self.skipTest(

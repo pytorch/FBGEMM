@@ -31,8 +31,6 @@ constexpr int kNumThreadsPerWarp = 64;
 #else
 constexpr int kNumThreadsPerWarp = 32;
 #endif
-constexpr int kNumWarps = 4;
-constexpr int kNumThreads = kNumThreadsPerWarp * kNumWarps;
 
 __inline__ constexpr int ceil_of_ratio(int a, int b) {
   return (a + b - 1) / b;
@@ -115,6 +113,13 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   // expert_indices/shuffled_expert_indices: [num_tokens]
   // token_indices/shuffled_token_indices: [num_tokens]
 
+  // When the number of experts is large, increase the total number of threads
+  // to make the parallel reduction below work. Note that this logic is
+  // duplicated inside index_shuffling_torch, but for const instead of
+  // constexpr.
+  constexpr int kNumWarps = (NumExperts > 128) ? 8 : 4;
+  constexpr int kNumThreads = kNumThreadsPerWarp * kNumWarps;
+
   __shared__ SharedStorage<DataType, IndexType, NumExperts, NumTokensPerTile>
       smem;
 
@@ -159,7 +164,11 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
 
     // 2. Top-1 Reduction
     static_assert(NumExperts % 2 == 0, "");
-    constexpr int kNumParallelReductionThreads = NumExperts / 2;
+    // When there are many experts, increase kNumParallelReductionThreads to
+    // make sure it's above NumExperts/2, so the parallel reduction covers all
+    // experts.
+    constexpr int kNumParallelReductionThreads =
+        (NumExperts > 128) ? 256 : (NumExperts / 2);
 
     static_assert(kNumThreads % kNumParallelReductionThreads == 0, "");
     constexpr int kNumParallelReductionGroups =
@@ -177,20 +186,23 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
         if (!(tidx & (num_reduced_threads - 1))) {
           int local_token_index =
               local_token_offset + tidx / kNumParallelReductionThreads;
-          int lhs_smem_index = local_token_index * NumExperts +
-              (tidx % kNumParallelReductionThreads) * 2;
+          int lhs_expert_offset = (tidx % kNumParallelReductionThreads) * 2;
+          int lhs_smem_index =
+              local_token_index * NumExperts + lhs_expert_offset;
+
           int rhs_smem_index = lhs_smem_index + num_reduced_threads;
+          if (lhs_expert_offset + num_reduced_threads < NumExperts) {
+            auto lhs_score = smem.routing_scores[lhs_smem_index];
+            auto rhs_score = smem.routing_scores[rhs_smem_index];
+            auto lhs_expert_index = smem.expert_indices[lhs_smem_index];
+            auto rhs_expert_index = smem.expert_indices[rhs_smem_index];
 
-          auto lhs_score = smem.routing_scores[lhs_smem_index];
-          auto rhs_score = smem.routing_scores[rhs_smem_index];
-          auto lhs_expert_index = smem.expert_indices[lhs_smem_index];
-          auto rhs_expert_index = smem.expert_indices[rhs_smem_index];
-
-          bool lhs_larger = lhs_score >= rhs_score;
-          smem.routing_scores[lhs_smem_index] =
-              lhs_larger ? lhs_score : rhs_score;
-          smem.expert_indices[lhs_smem_index] =
-              lhs_larger ? lhs_expert_index : rhs_expert_index;
+            bool lhs_larger = lhs_score >= rhs_score;
+            smem.routing_scores[lhs_smem_index] =
+                lhs_larger ? lhs_score : rhs_score;
+            smem.expert_indices[lhs_smem_index] =
+                lhs_larger ? lhs_expert_index : rhs_expert_index;
+          }
         }
       }
 #ifdef USE_ROCM
@@ -240,9 +252,8 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   __syncthreads();
 
   // 4. Scan
-  static_assert(kNumThreads >= NumExperts, "");
-  if (tidx < NumExperts) {
-    smem.token_count_cumsums[tidx] = params.token_count_per_expert[tidx];
+  for (int i = tidx; i < NumExperts; i += kNumThreads) {
+    smem.token_count_cumsums[i] = params.token_count_per_expert[i];
   }
   __syncthreads();
 
@@ -318,7 +329,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         TORCH_CHECK(routing_scores.dim() == 2);
         const int num_tokens = routing_scores.size(0);
         const int num_experts = routing_scores.size(1);
-        TORCH_CHECK(num_experts == 16 || num_experts == 128);
+        TORCH_CHECK(
+            num_experts == 16 || num_experts == 32 || num_experts == 128 ||
+            num_experts == 320);
 
         auto allocate_index_tensor = [&](int size) {
           return at::empty(
@@ -353,9 +366,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         }
 
 #ifdef USE_ROCM
-        constexpr int kNumTokensPerTile = 32;
+        constexpr int kNumTokensPerTileFewExperts = 32;
 #else
-        constexpr int kNumTokensPerTile = 16;
+        constexpr int kNumTokensPerTileFewExperts = 16;
 #endif
 
         void* kernel;
@@ -366,17 +379,24 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
   smem_size = sizeof(SharedStorage<DataType, IndexType, E, B>);
 
         if (num_experts == 16) {
-          DISPATCH(16, kNumTokensPerTile);
+          DISPATCH(16, kNumTokensPerTileFewExperts);
+        } else if (num_experts == 32) {
+          DISPATCH(32, kNumTokensPerTileFewExperts);
+        } else if (num_experts == 128) {
+          DISPATCH(128, kNumTokensPerTileFewExperts);
         } else {
-          TORCH_CHECK(num_experts == 128);
-          DISPATCH(128, kNumTokensPerTile);
+          // Reducing tile size to avoid cudaErrorCooperativeLaunchTooLarge.
+          TORCH_CHECK(num_experts == 320);
+          DISPATCH(320, 8);
         }
 
-        const int num_tiles = ceil_of_ratio(num_tokens, kNumTokensPerTile);
+        const int num_tokens_per_tile =
+            (num_experts > 128) ? 8 : kNumTokensPerTileFewExperts;
+        const int num_tiles = ceil_of_ratio(num_tokens, num_tokens_per_tile);
         const int num_ctas = std::min(num_tiles, num_sms);
         const int num_tiles_per_cta = ceil_of_ratio(
-            ceil_of_ratio(num_tokens, num_ctas), kNumTokensPerTile);
-        const int num_tokens_per_cta = num_tiles_per_cta * kNumTokensPerTile;
+            ceil_of_ratio(num_tokens, num_ctas), num_tokens_per_tile);
+        const int num_tokens_per_cta = num_tiles_per_cta * num_tokens_per_tile;
 
         Params<DataType, IndexType> params = {
             // Inputs
@@ -406,9 +426,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
                 shuffled_expert_indices.data_ptr()),
             .shuffled_token_indices = reinterpret_cast<IndexType*>(
                 shuffled_token_indices.data_ptr())};
-
+        const int num_warps = (num_experts > 128) ? 8 : 4;
+        const int num_threads = kNumThreadsPerWarp * num_warps;
         dim3 grids(num_ctas);
-        dim3 blocks(kNumThreads);
+        dim3 blocks(num_threads);
         void* args[] = {(void*)&params};
         auto stream = at::cuda::getCurrentCUDAStream();
 
