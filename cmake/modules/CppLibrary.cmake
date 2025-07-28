@@ -75,14 +75,6 @@ function(cpp_library)
     ############################################################################
 
     if(MSVC)
-        # MSVC needs to define these variables to avoid generating _dllimport
-        # functions.
-        if(args_TYPE STREQUAL STATIC)
-            target_compile_definitions(${lib_name}
-                PUBLIC ASMJIT_STATIC
-                PUBLIC FBGEMM_STATIC)
-        endif()
-
         set(lib_cc_flags
             ${args_MSVC_FLAGS}
             /wd4244
@@ -99,6 +91,7 @@ function(cpp_library)
             -Wall
             -Wextra
             -Werror
+            -Wno-switch
             -Wunknown-pragmas
             -Wimplicit-fallthrough
             -Wno-strict-aliasing
