@@ -101,18 +101,18 @@ __configure_fbgemm_gpu_build_nvcc () {
 
   # Certain warnings are suppressed to avoid overly verbose output coming from
   # building CUTLASS
+    # warn: variable "nUpdates" was declared but never referenced
+    # warn: argument is incompatible with corresponding format string conversion
+    # warn: the implicit by-copy capture of "this" is deprecated
+    # warn: __device__ annotation is ignored on a function that is explicitly defaulted on its first declaration
   local nvcc_prepend_flags=(
     "-std=c++${cppstd_ver}"
     -Xcompiler "-std=c++${cppstd_ver}"
     -ccbin "${cxx_path}"
     -allow-unsupported-compiler
-    # warn: variable "nUpdates" was declared but never referenced
     "-diag-suppress=177"
-    # warn: argument is incompatible with corresponding format string conversion
     "-diag-suppress=181"
-    # warn: the implicit by-copy capture of "this" is deprecated
     "-diag-suppress=2908"
-    # warn: __device__ annotation is ignored on a function that is explicitly defaulted on its first declaration
     "-diag-suppress=20012"
   )
 
@@ -131,6 +131,7 @@ __configure_fbgemm_gpu_build_nvcc () {
   #   https://github.com/ROCm/HIP/issues/931
   #
   echo "[BUILD] Setting NVCC flags ..."
+  echo "[BUILD] ${nvcc_prepend_flags[@]}"
   # shellcheck disable=SC2086,SC2145,SC2068
   print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags[@]}\"
   # shellcheck disable=SC2086
