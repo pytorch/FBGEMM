@@ -110,10 +110,10 @@ __configure_fbgemm_gpu_build_nvcc () {
     -Xcompiler "-std=c++${cppstd_ver}"
     -ccbin "${cxx_path}"
     -allow-unsupported-compiler
-    "-diag-suppress=177"
-    "-diag-suppress=181"
-    "-diag-suppress=2908"
-    "-diag-suppress=20012"
+    -diag-suppress 177
+    -diag-suppress 181
+    -diag-suppress 2908
+    -diag-suppress 20012
   )
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
@@ -124,9 +124,7 @@ __configure_fbgemm_gpu_build_nvcc () {
   fi
 
   # Join the nvcc_prepend_flags array into a single quoted string
-  local nvcc_prepend_flags_str=$(printf '%q ' "${nvcc_prepend_flags[@]}")
-  # Remove trailing space
-  nvcc_prepend_flags_str=${nvcc_prepend_flags_str% }
+  local nvcc_prepend_flags_str="${nvcc_prepend_flags[*]}"
 
   # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
   # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the standard
@@ -136,6 +134,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   #   https://github.com/ROCm/HIP/issues/931
   #
   echo "[BUILD] Setting NVCC flags ..."
+  echo "[BUILD] FOO BAR"
+  echo "[BUILD] ${nvcc_prepend_flags_str}"
   # shellcheck disable=SC2086,SC2145,SC2068
   print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags_str}\"
   # shellcheck disable=SC2086
