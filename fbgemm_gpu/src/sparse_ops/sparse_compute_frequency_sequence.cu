@@ -37,16 +37,16 @@ DLL_PUBLIC void compute_frequency_sequence(
 
   AT_DISPATCH_INDEX_TYPES(
       input.scalar_type(), "compute_frequency_sequence_kernel_1", [&] {
-        compute_frequency_sequence_kernel<index_t>
-            <<<cuda_calc_xblock_count(input.numel(), kWarpSize),
-               kWarpSize,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                input.data_ptr<index_t>(),
-                output.data_ptr<int64_t>(),
-                start_input,
-                input.numel());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (compute_frequency_sequence_kernel<index_t>),
+            cuda_calc_xblock_count(input.numel(), kWarpSize),
+            kWarpSize,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            input.data_ptr<index_t>(),
+            output.data_ptr<int64_t>(),
+            start_input,
+            input.numel());
       });
 }
 

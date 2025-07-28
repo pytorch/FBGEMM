@@ -92,19 +92,19 @@ DLL_PUBLIC Tensor pack_segments_backward_cuda(
           const auto* const data_ptr = data_contig->data_ptr<scalar_t>();
           auto* const out_data = unpacked_tensor.data_ptr<scalar_t>();
 
-          unpack_segments_cuda_kernel<index_t, scalar_t>
-              <<<cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
-                 128,
-                 0,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  data_ptr,
-                  lengths_data,
-                  lps_data,
-                  max_length,
-                  num_seq,
-                  cell_size,
-                  out_data);
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          FBGEMM_LAUNCH_KERNEL(
+              (unpack_segments_cuda_kernel<index_t, scalar_t>),
+              cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+              128,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              data_ptr,
+              lengths_data,
+              lps_data,
+              max_length,
+              num_seq,
+              cell_size,
+              out_data);
         });
   });
 
