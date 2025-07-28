@@ -99,11 +99,26 @@ __configure_fbgemm_gpu_build_nvcc () {
     local cppstd_ver=20
   fi
 
+  # Certain warnings are suppressed to avoid overly verbose output coming from
+  # building CUTLASS
+  local nvcc_prepend_flags=(
+    "-std=c++${cppstd_ver}"
+    -Xcompiler "-std=c++${cppstd_ver}"
+    -ccbin "${cxx_path}"
+    -allow-unsupported-compiler
+    # warn: variable "nUpdates" was declared but never referenced
+    -diag-suppress 177
+    # warn: argument is incompatible with corresponding format string conversion
+    -diag-suppress 181
+    # warn: the implicit by-copy capture of "this" is deprecated
+    -diag-suppress 2908
+  )
+
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
-    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
-  else
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
-    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
+    nvcc_prepend_flags+=(
+      -Xcompiler -stdlib=libstdc++
+    )
   fi
 
   # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
@@ -114,8 +129,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   #   https://github.com/ROCm/HIP/issues/931
   #
   echo "[BUILD] Setting NVCC flags ..."
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags}\"
+  # shellcheck disable=SC2086,SC2145,SC2068
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags[@]}\"
   # shellcheck disable=SC2086
   print_exec conda run ${env_prefix} printenv NVCC_PREPEND_FLAGS
 
