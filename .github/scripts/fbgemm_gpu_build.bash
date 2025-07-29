@@ -117,13 +117,6 @@ __configure_fbgemm_gpu_build_nvcc () {
     -diag-suppress 20012
   )
 
-  echo "[BUILD] IMMEDIATE AFTER ARRAY: ${nvcc_prepend_flags[*]}"
-  echo "[BUILD] ARRAY LENGTH: ${#nvcc_prepend_flags[@]}"
-
-  # Join the nvcc_prepend_flags array into a single quoted string
-  local nvcc_prepend_flags_str="${nvcc_prepend_flags[*]}"
-  echo "[BUILD] IMMEDIATE STRING: ${nvcc_prepend_flags_str}"
-
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     echo "[BUILD] Host compiler is clang; setting stdlib to libstdc++..."
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
@@ -132,9 +125,6 @@ __configure_fbgemm_gpu_build_nvcc () {
     )
   fi
 
-  # Join the nvcc_prepend_flags array into a single quoted string
-  local nvcc_prepend_flags_str="${nvcc_prepend_flags[*]}"
-
   # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
   # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the standard
   # library
@@ -142,11 +132,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
   #   https://github.com/ROCm/HIP/issues/931
   #
-  echo "[BUILD] Setting NVCC flags ..."
-  echo "[BUILD] ${nvcc_prepend_flags_str}"
-
   # shellcheck disable=SC2086,SC2145,SC2068
-  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags_str}\"
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags[*]}\"
   # shellcheck disable=SC2086
   print_exec conda run ${env_prefix} printenv NVCC_PREPEND_FLAGS
 
