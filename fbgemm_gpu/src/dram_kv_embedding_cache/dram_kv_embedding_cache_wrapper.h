@@ -108,6 +108,15 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->get_keys_in_range_impl(start_id, end_id, id_offset);
   }
 
+  at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const std::optional<
+          c10::intrusive_ptr<ssd::EmbeddingSnapshotHandleWrapper>>&
+      /*snapshot_handle*/) {
+    return impl_->get_kv_zch_eviction_metadata_impl(indices, count);
+  }
+
   void get(
       at::Tensor indices,
       at::Tensor weights,

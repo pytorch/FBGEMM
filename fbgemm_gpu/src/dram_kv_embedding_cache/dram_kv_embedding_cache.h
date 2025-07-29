@@ -232,6 +232,60 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         .view({-1, 1});
   }
 
+  /// Get eviction metadata given indices
+  at::Tensor get_kv_zch_eviction_metadata_impl(
+      const at::Tensor& indices,
+      const at::Tensor& count) override {
+    std::vector<folly::Future<folly::Unit>> futures;
+    auto numel = indices.size(0);
+    auto metadata_tensor = at::zeros({numel}, at::kLong);
+
+    auto shardid_to_indexes = shard_input(indices, count);
+    for (auto iter = shardid_to_indexes.begin();
+         iter != shardid_to_indexes.end();
+         iter++) {
+      const auto shard_id = iter->first;
+      const auto indexes = iter->second;
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([this, shard_id, indexes, &indices, &metadata_tensor](
+                             folly::Unit) {
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(),
+                    "dram_kv_zch_eviction_metadata",
+                    [this, shard_id, indexes, &indices, &metadata_tensor] {
+                      using index_t = scalar_t;
+                      CHECK(indices.is_contiguous());
+                      auto indices_data_ptr = indices.data_ptr<index_t>();
+                      auto* metadata = metadata_tensor.data_ptr<int64_t>();
+                      {
+                        auto rlmap = kv_store_.by(shard_id).rlock();
+                        for (auto index_iter = indexes.begin();
+                             index_iter != indexes.end();
+                             index_iter++) {
+                          const auto& id_index = *index_iter;
+                          auto id = int64_t(indices_data_ptr[id_index]);
+
+                          // use mempool
+                          weight_type* block = nullptr;
+
+                          auto it = rlmap->find(id);
+                          // All ids should be found in backend to get metadata
+                          CHECK(it != rlmap->end());
+                          block = it->second;
+
+                          metadata[id_index] =
+                              FixedBlockPool::get_metaheader_raw(block);
+                        }
+                      }
+                    });
+              });
+      futures.push_back(std::move(f));
+    }
+    folly::collectAll(futures).wait();
+    return metadata_tensor;
+  }
+
   /// insert embeddings into kvstore.
   /// current underlying memory management is done through F14FastMap
   /// key value pair will be sharded into multiple shards to increase

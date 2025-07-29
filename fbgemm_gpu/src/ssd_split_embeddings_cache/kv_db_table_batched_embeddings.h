@@ -345,6 +345,14 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
+  virtual at::Tensor get_kv_zch_eviction_metadata_impl(
+      const at::Tensor& indices,
+      const at::Tensor& count) {
+    (void)indices;
+    (void)count;
+    FBEXCEPTION("Not implemented");
+  }
+
   virtual std::vector<double> get_dram_kv_perf(
       const int64_t step,
       const int64_t interval) {
