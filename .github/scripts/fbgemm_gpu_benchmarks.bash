@@ -81,6 +81,9 @@ run_tbe_microbench () {
         --bench-export-trace --bench-trace-url "test_${cache_type}_${embedding_location}.json"
   }
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   pushd fbgemm_gpu/bench || return 1
 
   local cache_types=(
@@ -88,17 +91,26 @@ run_tbe_microbench () {
     fp32
   )
 
-
   if  [ "${BUILD_VARIANT}" == "cpu" ]; then
     local embedding_locations=(
       host
     )
   else
-    local embedding_locations=(
-      managed_caching
-      managed
-      device
-    )
+    # shellcheck disable=SC2086,SC2155
+    local torch_cuda_available=$(conda run ${env_prefix} python -c "import torch; print(int(torch.cuda.is_available()))")
+
+    if [ "${torch_cuda_available}" == "1" ]; then
+      local embedding_locations=(
+        managed_caching
+        managed
+        device
+      )
+    else
+      local embedding_locations=(
+        host
+      )
+      echo "[BENCH] GPU devices not visible from torch; falling back to host-only embedding location ..."
+    fi
   fi
 
   for cache_type in "${cache_types[@]}"; do

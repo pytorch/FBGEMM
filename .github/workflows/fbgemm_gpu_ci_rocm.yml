@@ -89,7 +89,7 @@ jobs:
     - name: Checkout the Repository
       uses: actions/checkout@v4
       with:
-        ref: ${{ github.event_name == 'schedule' && 'nightly' || 'main' }}
+        ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
@@ -176,7 +176,7 @@ jobs:
     - name: Checkout the Repository
       uses: actions/checkout@v4
       with:
-        ref: ${{ github.event_name == 'schedule' && 'nightly' || 'main' }}
+        ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
 
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v4

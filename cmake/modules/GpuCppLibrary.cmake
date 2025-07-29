@@ -314,7 +314,8 @@ function(gpu_cpp_library)
         ${args_CC_FLAGS}
         # Silence compiler warnings (in asmjit)
         -Wno-deprecated-enum-enum-conversion
-        -Wno-deprecated-declarations)
+        -Wno-deprecated-declarations
+        -Wno-unused-command-line-argument)
 
     ############################################################################
     # Post-Build Steps
