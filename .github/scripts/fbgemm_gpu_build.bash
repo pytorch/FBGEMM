@@ -116,6 +116,11 @@ __configure_fbgemm_gpu_build_nvcc () {
     -diag-suppress 20012
   )
 
+  # Join the nvcc_prepend_flags array into a single quoted string
+  local nvcc_prepend_flags_str="${nvcc_prepend_flags[*]}"
+  echo "[BUILD] FOO BAR"
+  echo "[BUILD] ${nvcc_prepend_flags_str}"
+
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
     nvcc_prepend_flags+=(
