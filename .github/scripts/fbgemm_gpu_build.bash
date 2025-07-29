@@ -121,7 +121,7 @@ __configure_fbgemm_gpu_build_nvcc () {
     echo "[BUILD] Host compiler is clang; setting stdlib to libstdc++..."
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
     nvcc_prepend_flags+=(
-      -Xcompiler "-stdlib=libstdc++"
+      -Xcompiler -stdlib=libstdc++
     )
   fi
 
