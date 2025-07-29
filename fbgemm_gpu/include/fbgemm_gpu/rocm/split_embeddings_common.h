@@ -215,6 +215,24 @@ struct load_row_per_warp<half, 512, index_t> {
   }
 };
 
+template <int32_t embedding_dim, typename index_t>
+struct load_row_per_warp<c10::Half, embedding_dim, index_t> {
+  static __device__ void run(
+      c10::Half* emb_data,
+      index_t row_index,
+      const c10::Half* p_emb_table,
+      int lane_id) {
+        load_row_per_warp<half, embedding_dim, index_t>::run(
+          reinterpret_cast<half*>(emb_data),
+          row_index,
+          reinterpret_cast<const half*>(p_emb_table),
+          lane_id
+        );
+      }
+
+};
+
+
 template <
     typename emb_t,
     int32_t embedding_dim,
@@ -471,7 +489,7 @@ __device__ __forceinline__ void generic_dpp_reduction(data_t& result) {
 // of trivial operation with an option to use custom operation
 template <typename data_t, typename reduce_op_t, int wave_size = 64>
 __device__ __forceinline__ void dpp_reduction(data_t& result) {
-#if defined(__gfx942__) || defined(__gfx90a__)
+#if defined(__gfx942__) || defined(__gfx90a__) || defined(__gfx950__)
   if constexpr (std::is_same_v<reduce_op_t, reduce_op::sum>) {
     DPP_REDUCE_F16_F32(add);
     return;
