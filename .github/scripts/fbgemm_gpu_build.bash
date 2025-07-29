@@ -117,7 +117,9 @@ __configure_fbgemm_gpu_build_nvcc () {
     -diag-suppress 20012
   )
 
-  if ! [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+  # NOTE: This check covers both Nova and non-Nova builds, as we set
+  # BUILD_CUDA_VERSION to be CU_VERSION in the Nova build case
+  if ! [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] && [[ "$BUILD_CUDA_VERSION" != "cu126" ]]; then
     # NOTE: This flag is only supported in NVCC 12.8+
     nvcc_prepend_flags+=(
       # warn: in whole program compilation mode ("-rdc=false"), a __global__ function template instantiation or specialization will be required to have a definition in the current translation unit, when "-static-global-template-stub" will be set to "true" by default in the future. To resolve this issue, either use "-rdc=true", or explicitly set "-static-global-template-stub=false" (but see nvcc documentation about downsides of turning it off)
@@ -154,6 +156,8 @@ __configure_fbgemm_gpu_build_nvcc () {
 }
 
 __configure_fbgemm_gpu_cuda_home () {
+  # NOTE: This only matches for non-Nova builds, as CUDA versions in Nova builds
+  # are formatted as `cu12x“
   if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
       [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
       [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
