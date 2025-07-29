@@ -117,6 +117,13 @@ __configure_fbgemm_gpu_build_nvcc () {
     -diag-suppress 20012
   )
 
+  echo "[BUILD] IMMEDIATE AFTER ARRAY: ${nvcc_prepend_flags[*]}"
+  echo "[BUILD] ARRAY LENGTH: ${#nvcc_prepend_flags[@]}"
+
+  # Join the nvcc_prepend_flags array into a single quoted string
+  local nvcc_prepend_flags_str="${nvcc_prepend_flags[*]}"
+  echo "[BUILD] IMMEDIATE STRING: ${nvcc_prepend_flags_str}"
+
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     echo "[BUILD] Host compiler is clang; setting stdlib to libstdc++..."
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
