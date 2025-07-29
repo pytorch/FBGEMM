@@ -98,33 +98,30 @@ __configure_fbgemm_gpu_build_nvcc () {
   else
     local cppstd_ver=20
   fi
+  echo "[BUILD] Setting C++ version to ${cppstd_ver} ..."
 
   # Certain warnings are suppressed to avoid overly verbose output coming from
   # building CUTLASS
-    # warn: variable "nUpdates" was declared but never referenced
-    # warn: argument is incompatible with corresponding format string conversion
-    # warn: the implicit by-copy capture of "this" is deprecated
-    # warn: __device__ annotation is ignored on a function that is explicitly defaulted on its first declaration
   local nvcc_prepend_flags=(
     "-std=c++${cppstd_ver}"
     -Xcompiler "-std=c++${cppstd_ver}"
     -ccbin "${cxx_path}"
     -allow-unsupported-compiler
+    # warn: variable "nUpdates" was declared but never referenced
     -diag-suppress 177
+    # warn: argument is incompatible with corresponding format string conversion
     -diag-suppress 181
+    # warn: the implicit by-copy capture of "this" is deprecated
     -diag-suppress 2908
+    # warn: __device__ annotation is ignored on a function that is explicitly defaulted on its first declaration
     -diag-suppress 20012
   )
 
-  # Join the nvcc_prepend_flags array into a single quoted string
-  local nvcc_prepend_flags_str="${nvcc_prepend_flags[*]}"
-  echo "[BUILD] FOO BAR 123"
-  echo "[BUILD] 123  ${nvcc_prepend_flags_str}"
-
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    echo "[BUILD] Host compiler is clang; setting stdlib to libstdc++..."
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
     nvcc_prepend_flags+=(
-      -Xcompiler -stdlib=libstdc++
+      -Xcompiler "-stdlib=libstdc++"
     )
   fi
 
@@ -139,8 +136,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   #   https://github.com/ROCm/HIP/issues/931
   #
   echo "[BUILD] Setting NVCC flags ..."
-  echo "[BUILD] FOO BAR"
   echo "[BUILD] ${nvcc_prepend_flags_str}"
+
   # shellcheck disable=SC2086,SC2145,SC2068
   print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags_str}\"
   # shellcheck disable=SC2086
@@ -388,7 +385,7 @@ __configure_fbgemm_gpu_build () {
   fi
 
   # Set debugging options
-  if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
+  if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" == "1" ]; then
     echo "[BUILD] Enabling debug features in the build ..."
     build_args+=(
       --debug=1
@@ -396,7 +393,7 @@ __configure_fbgemm_gpu_build () {
   fi
 
   # Set FB-only options
-  if [ "$BUILD_INCLUDE_FB_ONLY" -eq 1 ]; then
+  if [ "$BUILD_INCLUDE_FB_ONLY" == "1" ]; then
     echo "[BUILD] Enabling build of FB-only code ..."
     build_args+=(
       --use_fb_only
