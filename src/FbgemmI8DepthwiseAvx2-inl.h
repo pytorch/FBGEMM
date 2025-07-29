@@ -20,6 +20,9 @@
 #include <math.h>
 #endif
 
+#include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/UtilsAvx2.h"
+
 namespace fbgemm {
 
 // Almost same as ReQuantizeOutput in OutputProcessing-inh.h but different

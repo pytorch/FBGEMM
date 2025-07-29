@@ -23,7 +23,7 @@ namespace fbgemm_gpu::tbe {
 /// @param num_indices The number of indices to generate
 ///
 /// @return A tensor of in64_t TBE indices
-at::Tensor generate_indices_from_distribution(
+static at::Tensor generate_indices_from_distribution(
     at::Tensor heavy_hitters,
     double zipf_q,
     double zipf_s,

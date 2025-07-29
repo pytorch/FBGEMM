@@ -113,7 +113,7 @@ permute_2D_sparse_data_cuda(
                 T,
                 B,
                 lengths_contig.data_ptr<index_t>(),
-                permute.data_ptr<int32_t>(),
+                permute_contig.data_ptr<int32_t>(),
                 permuted_lengths.data_ptr<index_t>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });

@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cmath>
 #include <cstring>
 #include "./OptimizedKernelsAvx2.h" // @manual
 
@@ -63,11 +62,10 @@ void CompressedSparseColumn::SpMDM(
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-  std::chrono::time_point<std::chrono::high_resolution_clock> t_very_start,
-      t_start, t_end;
-  double dt;
-  t_start = std::chrono::high_resolution_clock::now();
-  t_very_start = std::chrono::high_resolution_clock::now();
+  std::chrono::time_point<std::chrono::high_resolution_clock> t_end;
+  double dt = 0;
+  auto t_start = std::chrono::high_resolution_clock::now();
+  auto t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
 // Note: These (and others below) cause a ~2-3% overall performance drop in

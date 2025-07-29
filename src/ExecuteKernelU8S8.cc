@@ -213,9 +213,9 @@ void ExecuteKernel<
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-  std::chrono::time_point<std::chrono::high_resolution_clock> t_start, t_end;
+  std::chrono::time_point<std::chrono::high_resolution_clock> t_end;
   double dt;
-  t_start = std::chrono::high_resolution_clock::now();
+  auto t_start = std::chrono::high_resolution_clock::now();
 #endif
 
   for (int jb = jb_begin; jb < jb_end; ++jb) {

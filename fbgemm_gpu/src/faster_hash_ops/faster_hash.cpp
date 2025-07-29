@@ -24,8 +24,8 @@ namespace fbgemm_gpu {
 using at::Tensor;
 
 namespace {
-static constexpr int32_t kDefaultTensor = -1;
-static constexpr int64_t kMaxIdentityNum = INT32_MAX;
+constexpr int32_t kDefaultTensor = -1;
+constexpr int64_t kMaxIdentityNum = INT32_MAX;
 
 template <
     bool DISABLE_FALLBACK,
