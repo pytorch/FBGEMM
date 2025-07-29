@@ -179,7 +179,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     const int32_t segment_length_mod = segment_length & length_mask;
 
     cache_t grad_acc[dword_per_row];
-    int32_t infos[segment_unroll];
+    uint32_t infos[segment_unroll];
     grad_t grad_data[dword_per_row * segment_prefetch];
     emb_t emb_data[dword_per_row];
     float indice_weights[segment_unroll];
