@@ -698,6 +698,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return returned_keys;
   }
 
+  at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const SnapshotHandle* snapshot_handle) {
+    // no op for ssd embedding now, default value is 0
+    return at::zeros_like(indices, at::kLong);
+  }
+
   void get_range_from_snapshot(
       const at::Tensor& weights,
       const int64_t start,

@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstring>
 #include <memory_resource>
 #include <mutex>
 #include <numeric>
@@ -86,6 +87,16 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
   static uint32_t current_timestamp() {
     return std::time(nullptr);
+  }
+
+  static uint64_t get_metaheader_raw(const void* block) {
+    const char* ptr = reinterpret_cast<const char*>(block);
+    // skip key
+    ptr += sizeof(int64_t);
+    uint64_t result = 0;
+    // Copy 8 bytes of timestamp and count+used to result
+    memcpy(&result, ptr, sizeof(uint64_t));
+    return result;
   }
 
   // Calculate storage size
@@ -259,6 +270,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     void* result = free_list_;
     free_list_ = *static_cast<void**>(free_list_);
     FixedBlockPool::set_used(result, true);
+    FixedBlockPool::set_count(result, 0);
     return result;
   }
 

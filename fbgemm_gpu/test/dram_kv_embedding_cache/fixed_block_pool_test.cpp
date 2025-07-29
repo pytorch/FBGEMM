@@ -335,6 +335,36 @@ TEST(FixedBlockPool, BasicFunctionality) {
 
   // Test memory deallocation
   EXPECT_NO_THROW(pool.deallocate_t<float>(block));
+
+  // Test Get timestamp + count + used
+  uint32_t test_timestamp = 123456789;
+  uint32_t test_count = 0x1234567;
+  bool test_used = true;
+
+  FixedBlockPool::set_timestamp(block, test_timestamp);
+  FixedBlockPool::set_count(block, test_count);
+  FixedBlockPool::set_used(block, test_used);
+
+  uint64_t raw = FixedBlockPool::get_metaheader_raw(block);
+
+  uint32_t timestamp = static_cast<uint32_t>(raw & 0xFFFFFFFF);
+  uint32_t count_used = static_cast<uint32_t>(raw >> 32);
+  bool used = (count_used >> 31) & 0x1;
+  uint32_t count = count_used & 0x7FFFFFFF;
+
+  uint64_t expected_count_used =
+      (static_cast<uint64_t>(test_used) << 31) | (test_count & 0x7FFFFFFF);
+  uint64_t expected_raw = (expected_count_used << 32) | test_timestamp;
+
+  EXPECT_EQ(timestamp, test_timestamp);
+  EXPECT_EQ(count, test_count);
+  EXPECT_EQ(used, test_used);
+  EXPECT_EQ(raw, expected_raw);
+
+  // Test Get and Set timestamp
+  EXPECT_EQ(FixedBlockPool::get_timestamp(block), test_timestamp);
+  EXPECT_EQ(FixedBlockPool::get_count(block), test_count);
+  EXPECT_EQ(FixedBlockPool::get_used(block), test_used);
 }
 
 TEST(FixedBlockPool, MultiDimensionTest) {

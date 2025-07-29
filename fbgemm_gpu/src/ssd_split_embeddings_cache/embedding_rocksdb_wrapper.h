@@ -130,6 +130,18 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
                                     : nullptr);
   }
 
+  at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+          snapshot_handle) {
+    return impl_->get_kv_zch_eviction_metadata_by_snapshot(
+        indices,
+        count,
+        snapshot_handle.has_value() ? snapshot_handle.value()->handle
+                                    : nullptr);
+  }
+
   void toggle_compaction(bool enable) {
     impl_->toggle_compaction(enable);
   }
