@@ -38,7 +38,11 @@ class CodeCache {
   CodeCache(const CodeCache&) = delete;
   CodeCache& operator=(const CodeCache&) = delete;
 
+  CodeCache(CodeCache&&) = default;
+  CodeCache& operator=(CodeCache&&) = default;
+
   CodeCache() = default;
+  ~CodeCache() = default;
 
   template <typename GENFUNC>
   VALUE getOrCreate(const KEY& key, GENFUNC generatorFunction) {
@@ -92,7 +96,11 @@ class CodeCache<KEY, VALUE, /*THREAD_LOCAL=*/true> {
   CodeCache(const CodeCache&) = delete;
   CodeCache& operator=(const CodeCache&) = delete;
 
+  CodeCache(CodeCache&&) = default;
+  CodeCache& operator=(CodeCache&&) = default;
+
   CodeCache() = default;
+  ~CodeCache() = default;
 
   template <typename GENFUNC>
   VALUE getOrCreate(const KEY& key, GENFUNC generatorFunction) {

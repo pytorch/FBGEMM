@@ -53,7 +53,7 @@ std::tuple<Tensor, std::optional<Tensor>> pack_segments_forward_meta_v2(
     const Tensor& t_in,
     const Tensor& lengths,
     const at::SymInt max_length,
-    const bool pad_minf,
+    const bool /*pad_minf*/,
     const bool return_presence_mask) {
   TENSOR_NDIM_IS_GE(t_in, 1);
   TENSOR_NDIM_EQUALS(lengths, 1);
@@ -84,9 +84,9 @@ std::tuple<Tensor, std::optional<Tensor>> pack_segments_forward_meta_v2(
 
 Tensor pack_segments_backward_meta(
     const at::Tensor& data,
-    const at::Tensor& lengths,
+    const at::Tensor& /*lengths*/,
     const at::SymInt total_length,
-    const at::SymInt max_length) {
+    const at::SymInt /*max_length*/) {
   // Create output tensor of appropriate dimensions
   auto shape = data.sym_sizes().vec();
   shape.erase(shape.begin());

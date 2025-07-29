@@ -47,7 +47,7 @@ void embedding_inplace_update_cpu_kernel(
         nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
     int64_t weight_offset = weights_offsets[t];
 
-    uint8_t* __restrict__ weight_row;
+    uint8_t* __restrict__ weight_row = nullptr;
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::HOST) {
       weight_row =
@@ -81,8 +81,8 @@ void embedding_inplace_update_cpu(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    std::optional<Tensor> lxu_cache_weights,
-    std::optional<Tensor> lxu_cache_locations) {
+    std::optional<Tensor> /*lxu_cache_weights*/,
+    std::optional<Tensor> /*lxu_cache_locations*/) {
   TENSOR_ON_CPU(dev_weights);
   TENSOR_ON_CPU(uvm_weights);
   TENSOR_ON_CPU(weights_placements);
