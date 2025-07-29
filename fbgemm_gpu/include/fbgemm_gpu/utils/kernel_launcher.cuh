@@ -265,19 +265,7 @@ struct KernelLauncher {
         false,
         context.description(),
         " CUDA Error: ",
-        cudaGetErrorString(cuda_error),
-#ifdef __HIPCC__
-        // c10::cuda::get_cuda_check_suffix has only been recently added to
-        // Torch HIPify mappings, so wrap with __HIPCC__ until the mapping land
-        // in PyTorch OSS.
-        //
-        // TODO: Remove when HIPify mappings are updated in PyTorch OSS
-        c10::hip::get_hip_check_suffix(),
-#else
-        c10::cuda::get_cuda_check_suffix(),
-#endif
-        "\n",
-        c10::cuda::c10_retrieve_device_side_assertion_info());
+        cudaGetErrorString(cuda_error));
   }
 
   template <typename KernelFunc, typename... Args>
