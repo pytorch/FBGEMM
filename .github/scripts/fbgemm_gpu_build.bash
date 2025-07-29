@@ -115,6 +115,8 @@ __configure_fbgemm_gpu_build_nvcc () {
     -diag-suppress 2908
     # warn: __device__ annotation is ignored on a function that is explicitly defaulted on its first declaration
     -diag-suppress 20012
+    # warn: in whole program compilation mode ("-rdc=false"), a __global__ function template instantiation or specialization will be required to have a definition in the current translation unit, when "-static-global-template-stub" will be set to "true" by default in the future. To resolve this issue, either use "-rdc=true", or explicitly set "-static-global-template-stub=false" (but see nvcc documentation about downsides of turning it off)
+    -diag-suppress 20281
   )
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
