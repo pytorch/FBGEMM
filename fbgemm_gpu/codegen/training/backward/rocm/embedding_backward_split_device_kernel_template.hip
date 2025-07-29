@@ -452,7 +452,7 @@ L_tail_grad_acc:
     }
 
     // load the old emb weight data
-    load_row_per_warp<emb_t, embedding_dim, int64_t>::run(
+    load_row_per_warp<emb_t, embedding_dim, index_t>::run(
         &emb_data[0], emb_idx, p_emb_table, lane_id);
     optimizer_t optimizer(opt_karg);
     optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx);
