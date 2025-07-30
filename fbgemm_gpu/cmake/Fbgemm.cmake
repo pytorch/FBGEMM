@@ -51,8 +51,7 @@ if((NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM) AND CXX_AVX512_FOUND)
     ${fbgemm_sources}
     ${fbgemm_sources_avx2}
     ${fbgemm_sources_avx512})
-else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNO_AVX512=1")
+  add_compile_definitions(HAS_AVX512)
 endif()
 
 set_source_files_properties(${fbgemm_sources} PROPERTIES

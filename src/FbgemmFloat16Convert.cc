@@ -24,7 +24,7 @@ void FloatToFloat16_simd(
   // Run time CPU detection
   if (cpuinfo_initialize()) {
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
-#ifndef NO_AVX512
+#ifdef HAS_AVX512
     if (fbgemmHasAvx512Support()) {
       FloatToFloat16_avx512(src, dst, size, do_clip);
     } else
@@ -46,7 +46,7 @@ void Float16ToFloat_simd(const float16* src, float* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
-#ifndef NO_AVX512
+#ifdef HAS_AVX512
     if (fbgemmHasAvx512Support()) {
       Float16ToFloat_avx512(src, dst, size);
     } else

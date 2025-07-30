@@ -58,7 +58,7 @@ void transpose_simd(
   static const auto iset = fbgemmInstructionSet();
   // Run time CPU detection
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
-#ifndef NO_AVX512
+#ifdef HAS_AVX512
   if (isZmm(iset)) {
     internal::transpose_avx512<T>(M, N, src, ld_src, dst, ld_dst);
   } else
