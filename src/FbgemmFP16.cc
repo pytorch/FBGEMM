@@ -80,7 +80,7 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {
 };
 #endif
 
-#ifndef NO_AVX512
+#ifdef HAS_AVX512
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
@@ -130,7 +130,7 @@ const isa_descriptor<float16>& getIsaHandlers(
     float16 /*unused*/) {
   static isa_descriptor<float16> avx2_descriptor =
       std::make_tuple(kernel_fp16_avx2, partition_avx2);
-#ifndef NO_AVX512
+#ifdef HAS_AVX512
   static isa_descriptor<float16> avx512_descriptor =
       std::make_tuple(kernel_fp16_avx512, partition_avx512);
   static isa_descriptor<float16> avx512_256_descriptor =
@@ -159,7 +159,7 @@ const isa_descriptor<float16>& getIsaHandlers(
 #endif
     case inst_set_t::avx2:
       return avx2_descriptor;
-#ifndef NO_AVX512
+#ifdef HAS_AVX512
     case inst_set_t::avx512:
     case inst_set_t::avx512_vnni:
       return avx512_descriptor;
