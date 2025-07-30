@@ -244,7 +244,7 @@ void fbgemmEnableAvx512Ymm(bool flag) {
  */
 inst_set_t fbgemmInstructionSet() {
   static const inst_set_t env_forced_isa = fbgemmEnvGetIsa();
-  static const bool isAvx512_Ymm_enabled = fbgemmEnvAvx512_256Enabled();
+  static const bool isAvx512_Ymm_enabled [[maybe_unused]] = fbgemmEnvAvx512_256Enabled();
 
   if (fbgemmHasArmSveSupport()) {
     return inst_set_t::sve;
@@ -256,6 +256,7 @@ inst_set_t fbgemmInstructionSet() {
     inst_set_t isa = inst_set_t::anyarch;
     // Check environment
     if (cpuinfo_initialize()) {
+#ifdef __AVX512F__
       const bool isXeonD = fbgemmIsIntelXeonD() &&
           (g_Avx512_Ymm_enabled.value_or(isAvx512_Ymm_enabled));
       if (fbgemmHasAvx512VnniSupport()) {
@@ -270,7 +271,9 @@ inst_set_t fbgemmInstructionSet() {
         } else {
           isa = inst_set_t::avx512;
         }
-      } else if (fbgemmHasAvx2Support()) {
+      } else
+#endif
+      if (fbgemmHasAvx2Support()) {
         isa = inst_set_t::avx2;
       }
     }
