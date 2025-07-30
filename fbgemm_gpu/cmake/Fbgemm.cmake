@@ -51,7 +51,6 @@ if((NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM) AND CXX_AVX512_FOUND)
     ${fbgemm_sources}
     ${fbgemm_sources_avx2}
     ${fbgemm_sources_avx512})
-  add_compile_definitions(HAS_AVX512)
 endif()
 
 set_source_files_properties(${fbgemm_sources} PROPERTIES

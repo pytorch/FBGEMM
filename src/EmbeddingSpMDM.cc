@@ -1590,7 +1590,7 @@ void compressed_indices_remap(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-#ifdef HAS_AVX512
+#ifdef __AVX512F__
   const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
 #ifndef USE_ROCM

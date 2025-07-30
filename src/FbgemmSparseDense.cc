@@ -197,7 +197,7 @@ void SparseDenseMM(
   // Run time CPU detection
   static const auto iset = fbgemmInstructionSet();
 
-#ifdef HAS_AVX512
+#ifdef __AVX512F__
   if (isZmm(iset)) {
     internal::SparseDenseMMAvx512(
         M, N, row_ptr, col_idx, values, B, ldb, C, ldc, accum);
@@ -236,7 +236,7 @@ FBGEMM_API void fbgemmSparseDenseInt8MM(
   // Run time CPU detection
   static const auto iset = fbgemmInstructionSet();
 
-#ifdef HAS_AVX512
+#ifdef __AVX512F__
   if (isZmm(iset)) {
     internal::SparseDenseInt8MMAvx512<FUSE_RELU, Q_GRAN>(
         N,
