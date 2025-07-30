@@ -221,6 +221,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     }
   }
 
+  void set_backend_return_whole_row(bool backend_return_whole_row) {
+    impl_->set_backend_return_whole_row(backend_return_whole_row);
+  }
+
  private:
   friend class KVTensorWrapper;
 
