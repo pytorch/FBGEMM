@@ -73,17 +73,17 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
         using values_t = scalar_t;
         AT_DISPATCH_INDEX_TYPES(
             csr_seg.scalar_type(), "_segment_sum_csr_cuda_2", [&] {
-              _segment_sum_csr_cuda_kernel<values_t, index_t>
-                  <<<num_blocks,
-                     threads_per_block,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      csr_seg.numel() - 1,
-                      batch_size,
-                      csr_seg.data_ptr<index_t>(),
-                      values.data_ptr<values_t>(),
-                      output.data_ptr<values_t>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+              FBGEMM_LAUNCH_KERNEL(
+                  (_segment_sum_csr_cuda_kernel<values_t, index_t>),
+                  num_blocks,
+                  threads_per_block,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  csr_seg.numel() - 1,
+                  batch_size,
+                  csr_seg.data_ptr<index_t>(),
+                  values.data_ptr<values_t>(),
+                  output.data_ptr<values_t>());
             });
       });
 

@@ -94,13 +94,16 @@ offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
 
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig.scalar_type(), "offsets_range_kernel", [&] {
-        _offsets_range_cuda_kernel<index_t>
-            <<<num_blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                N,
-                range_size,
-                offsets_contig.data_ptr<index_t>(),
-                range.data_ptr<index_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (_offsets_range_cuda_kernel<index_t>),
+            num_blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            N,
+            range_size,
+            offsets_contig.data_ptr<index_t>(),
+            range.data_ptr<index_t>());
       });
 
   return range;
@@ -148,13 +151,16 @@ DLL_PUBLIC Tensor lengths_range_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       t_in_contig.scalar_type(), "lengths_range_compute", [&] {
-        fbgemm_gpu::_offsets_range_cuda_kernel<index_t>
-            <<<num_blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                num_seq,
-                output_size,
-                offsets.data_ptr<index_t>(),
-                output.data_ptr<index_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (_offsets_range_cuda_kernel<index_t>),
+            num_blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            num_seq,
+            output_size,
+            offsets.data_ptr<index_t>(),
+            output.data_ptr<index_t>());
       });
 
   return output;
