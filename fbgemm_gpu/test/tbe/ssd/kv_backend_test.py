@@ -493,6 +493,79 @@ class SSDCheckpointTest(unittest.TestCase):
         # Compare actual and expected tensor outputs
         self.assertTrue(torch.equal(bucket_t.view(-1), expected_bucket_tensor))
 
+    def test_get_kv_zch_eviction_metadata_by_snapshot(self) -> None:
+        max_D = 132  # 128 + 4
+        E = 20
+        weight_precision = SparseType.FP16
+        T = 4
+        feature_dims = torch.tensor([64, 32, 128, 64], dtype=torch.int64)
+        hash_size_cumsum = torch.tensor(
+            [0, E / T, 2 * E / T, 3 * E / T, 4 * E / T + 10], dtype=torch.int64
+        )
+        eviction_policy: EvictionPolicy = EvictionPolicy(
+            eviction_trigger_mode=1,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+            eviction_strategy=1,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+            eviction_step_intervals=2,  # trigger_step_interval if trigger mode is iteration
+            counter_thresholds=[
+                1,
+                1,
+                1,
+                1,
+            ],  # count_thresholds for each table if eviction strategy is feature score
+            counter_decay_rates=[
+                1,
+                1,
+                1,
+                1,
+            ],  # count_decay_rates for each table if eviction strategy is feature score
+            interval_for_insufficient_eviction_s=0,
+            interval_for_sufficient_eviction_s=0,
+        )
+        dram_kv_backend = self.generate_fbgemm_kv_backend(
+            max_D=max_D,
+            weight_precision=weight_precision,
+            enable_l2=False,
+            feature_dims=feature_dims,
+            hash_size_cumsum=hash_size_cumsum,
+            backend_type=BackendType.DRAM,
+            flushing_block_size=1000,
+            eviction_policy=eviction_policy,
+        )
+
+        indices = torch.arange(E, dtype=torch.int64)
+        weights = torch.randn(E, max_D, dtype=weight_precision.as_dtype())
+        weights_out = torch.empty_like(weights)
+        count = torch.as_tensor([E])
+
+        # init
+        dram_kv_backend.set(indices, weights, count)  # pyre-ignore
+        for _ in range(10):
+            dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
+            dram_kv_backend.set(indices, weights, count)
+            time.sleep(0.01)  # 20ms, stimulate training forward time
+            dram_kv_backend.set(indices, weights, count)
+            time.sleep(0.01)  # 20ms, stimulate training backward time
+
+        time.sleep(1)
+        metadata_tensor = (
+            dram_kv_backend.get_kv_zch_eviction_metadata_by_snapshot(  # pyre-ignore
+                indices, count, None
+            )
+        )
+
+        def parse_metadata_tensor(metadata_tensor: torch.Tensor):
+            assert metadata_tensor.dtype == torch.int64
+            data = metadata_tensor.cpu().numpy()
+            timestamps = (data & 0xFFFFFFFF).astype("uint32")
+            count_used = (data >> 32).astype("uint32")
+            counts = count_used & 0x7FFFFFFF
+            used = (count_used >> 31).astype(bool)
+            return timestamps, counts, used
+
+        _, counts, used = parse_metadata_tensor(metadata_tensor)
+        assert all(counts == 21)
+        assert all(used)
+
     @given(
         T=st.integers(min_value=2, max_value=10),
         D=st.integers(min_value=2, max_value=128),

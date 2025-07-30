@@ -101,13 +101,16 @@ permute_1D_sparse_data_cuda(
       cuda_calc_xblock_count(permuted_lengths_size, threads_1);
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
-        permute_1D_lengths_kernel<index_t>
-            <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
-                lengths_contig.data_ptr<index_t>(),
-                permuted_lengths_size,
-                permute_contig.data_ptr<int32_t>(),
-                permuted_lengths.data_ptr<index_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (permute_1D_lengths_kernel<index_t>),
+            blocks_1,
+            threads_1,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            lengths_contig.data_ptr<index_t>(),
+            permuted_lengths_size,
+            permute_contig.data_ptr<int32_t>(),
+            permuted_lengths.data_ptr<index_t>());
       });
 
   // convert lengths to offsets
@@ -143,46 +146,46 @@ permute_1D_sparse_data_cuda(
                     "permute_1D_data_kernel_3",
                     [&] {
                       using weights_t = scalar_t;
-                      permute_1D_data_kernel<
-                          true,
-                          offsets_t,
-                          indices_t,
-                          weights_t>
-                          <<<blocks_2,
-                             threads_2,
-                             0,
-                             at::cuda::getCurrentCUDAStream()>>>(
-                              permuted_indices_size,
-                              permuted_lengths_size,
-                              indices_contig.data_ptr<indices_t>(),
-                              weights_value_contig.data_ptr<weights_t>(),
-                              permute_contig.data_ptr<int32_t>(),
-                              input_offsets.data_ptr<offsets_t>(),
-                              output_offsets.data_ptr<offsets_t>(),
-                              permuted_indices.data_ptr<indices_t>(),
-                              permuted_weights.data_ptr<weights_t>());
-                      C10_CUDA_KERNEL_LAUNCH_CHECK();
+                      FBGEMM_LAUNCH_KERNEL(
+                          (permute_1D_data_kernel<
+                              true,
+                              offsets_t,
+                              indices_t,
+                              weights_t>),
+                          blocks_2,
+                          threads_2,
+                          0,
+                          at::cuda::getCurrentCUDAStream(),
+                          permuted_indices_size,
+                          permuted_lengths_size,
+                          indices_contig.data_ptr<indices_t>(),
+                          weights_value_contig.data_ptr<weights_t>(),
+                          permute_contig.data_ptr<int32_t>(),
+                          input_offsets.data_ptr<offsets_t>(),
+                          output_offsets.data_ptr<offsets_t>(),
+                          permuted_indices.data_ptr<indices_t>(),
+                          permuted_weights.data_ptr<weights_t>());
                     }); // for each weights_t
               } else {
-                permute_1D_data_kernel<
-                    false,
-                    offsets_t,
-                    indices_t,
-                    std::nullptr_t>
-                    <<<blocks_2,
-                       threads_2,
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        permuted_indices_size,
-                        permuted_lengths_size,
-                        indices_contig.data_ptr<indices_t>(),
-                        nullptr,
-                        permute_contig.data_ptr<int32_t>(),
-                        input_offsets.data_ptr<offsets_t>(),
-                        output_offsets.data_ptr<offsets_t>(),
-                        permuted_indices.data_ptr<indices_t>(),
-                        nullptr);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                FBGEMM_LAUNCH_KERNEL(
+                    (permute_1D_data_kernel<
+                        false,
+                        offsets_t,
+                        indices_t,
+                        std::nullptr_t>),
+                    blocks_2,
+                    threads_2,
+                    0,
+                    at::cuda::getCurrentCUDAStream(),
+                    permuted_indices_size,
+                    permuted_lengths_size,
+                    indices_contig.data_ptr<indices_t>(),
+                    nullptr,
+                    permute_contig.data_ptr<int32_t>(),
+                    input_offsets.data_ptr<offsets_t>(),
+                    output_offsets.data_ptr<offsets_t>(),
+                    permuted_indices.data_ptr<indices_t>(),
+                    nullptr);
               }
             }); // for each indices_t
       }); // for each offsets_t

@@ -74,17 +74,20 @@ Tensor batched_unary_embeddings_forward_cuda(
             weight.scalar_type(),
             "batched_unary_embeddings_forward_kernel",
             [&] {
-              batched_unary_embeddings_forward_kernel<scalar_t>
-                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                      N,
-                      B,
-                      T,
-                      weight.data_ptr<scalar_t>(),
-                      table_offsets.data_ptr<index_t>(),
-                      offsets.data_ptr<index_t>(),
-                      indices.data_ptr<index_t>(),
-                      output.data_ptr<scalar_t>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+              FBGEMM_LAUNCH_KERNEL(
+                  (batched_unary_embeddings_forward_kernel<scalar_t, index_t>),
+                  blocks,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  N,
+                  B,
+                  T,
+                  weight.data_ptr<scalar_t>(),
+                  table_offsets.data_ptr<index_t>(),
+                  offsets.data_ptr<index_t>(),
+                  indices.data_ptr<index_t>(),
+                  output.data_ptr<scalar_t>());
             });
       });
   return output;
@@ -225,26 +228,25 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
             grad_output.scalar_type(),
             "batched_unary_embeddings_backward_kernel",
             [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-              const auto func_name = "batched_unary_embeddings_backward_kernel";
-#endif
-              batched_unary_embeddings_backward_kernel<scalar_t>
-                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                      N,
-                      B,
-                      T,
-                      grad_output.data_ptr<scalar_t>(),
-                      table_offsets.data_ptr<index_t>(),
-                      grad_weight.data_ptr<scalar_t>(),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, sorted_linear_indices_run, index_t, 1, 32),
-                      sorted_linear_indices_cumulative_run_lengths
-                          .data_ptr<int32_t>(),
-                      infos_sorted.data_ptr<int32_t>(),
-                      sorted_linear_indices_num_runs.data_ptr<int32_t>(),
-                      info_B_num_bits,
-                      info_B_mask);
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+              FBGEMM_LAUNCH_KERNEL(
+                  (batched_unary_embeddings_backward_kernel<scalar_t, index_t>),
+                  blocks,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  N,
+                  B,
+                  T,
+                  grad_output.data_ptr<scalar_t>(),
+                  table_offsets.data_ptr<index_t>(),
+                  grad_weight.data_ptr<scalar_t>(),
+                  PTA_B(sorted_linear_indices_run, index_t, 1, 32),
+                  sorted_linear_indices_cumulative_run_lengths
+                      .data_ptr<int32_t>(),
+                  infos_sorted.data_ptr<int32_t>(),
+                  sorted_linear_indices_num_runs.data_ptr<int32_t>(),
+                  info_B_num_bits,
+                  info_B_mask);
             });
       });
   return grad_weight;

@@ -851,6 +851,9 @@ static auto embedding_rocks_db_wrapper =
             "get_keys_in_range_by_snapshot",
             &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot)
         .def(
+            "get_kv_zch_eviction_metadata_by_snapshot",
+            &EmbeddingRocksDBWrapper::get_kv_zch_eviction_metadata_by_snapshot)
+        .def(
             "create_rocksdb_hard_link_snapshot",
             &EmbeddingRocksDBWrapper::create_rocksdb_hard_link_snapshot)
         .def(
@@ -932,6 +935,10 @@ static auto dram_kv_embedding_cache_wrapper =
         .def(
             "get_keys_in_range_by_snapshot",
             &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot)
+        .def(
+            "get_kv_zch_eviction_metadata_by_snapshot",
+            &DramKVEmbeddingCacheWrapper::
+                get_kv_zch_eviction_metadata_by_snapshot)
         .def(
             "get_feature_evict_metric",
             &DramKVEmbeddingCacheWrapper::get_feature_evict_metric)
