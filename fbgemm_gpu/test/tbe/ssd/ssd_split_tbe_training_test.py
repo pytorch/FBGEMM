@@ -788,7 +788,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def split_optimizer_states_(
         self, emb: SSDTableBatchedEmbeddingBags
     ) -> List[List[torch.Tensor]]:
-        _, bucket_asc_ids_list, _ = emb.split_embedding_weights(
+        _, bucket_asc_ids_list, _, _ = emb.split_embedding_weights(
             no_snapshot=False, should_flush=True
         )
 
@@ -1113,7 +1113,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         split_optimizer_states = self.split_optimizer_states_(emb)
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict, _, _ = emb.split_embedding_weights(no_snapshot=False)
+        emb_state_dict, _, _, _ = emb.split_embedding_weights(no_snapshot=False)
         for feature_index, table_index in self.get_physical_table_arg_indices_(
             emb.feature_table_map
         ):
@@ -1728,9 +1728,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         split_optimizer_states = []
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
-            emb.split_embedding_weights(no_snapshot=False, should_flush=True)
-        )
+        (
+            emb_state_dict_list,
+            bucket_asc_ids_list,
+            num_active_id_per_bucket_list,
+            metadata_list,
+        ) = emb.split_embedding_weights(no_snapshot=False, should_flush=True)
 
         for s in emb.split_optimizer_states(
             bucket_asc_ids_list, no_snapshot=False, should_flush=True
@@ -1797,6 +1800,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
             self.assertLess(table_index, len(emb_state_dict_list))
             assert len(split_optimizer_states[table_index][0]) == num_ids
+            assert len(metadata_list[table_index]) == num_ids
             # NOTE: The [0] index is a hack since the test is fixed to use
             # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
             # be upgraded in the future to support multiple optimizers
@@ -1943,7 +1947,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
+        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list, _ = (
             emb.split_embedding_weights(no_snapshot=False, should_flush=True)
         )
         split_optimizer_states = emb.split_optimizer_states(
@@ -2172,7 +2176,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
+        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list, _ = (
             emb.split_embedding_weights(no_snapshot=False, should_flush=True)
         )
         split_optimizer_states = emb.split_optimizer_states(
@@ -2440,7 +2444,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
+        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list, _ = (
             emb.split_embedding_weights(no_snapshot=False, should_flush=True)
         )
         split_optimizer_states = emb.split_optimizer_states(
@@ -2508,6 +2512,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             emb_state_dict_list2,
             bucket_asc_ids_list2,
             num_active_id_per_bucket_list2,
+            _,
         ) = emb2.split_embedding_weights(no_snapshot=False, should_flush=True)
         split_optimizer_states2 = emb2.split_optimizer_states(
             bucket_asc_ids_list2, no_snapshot=False, should_flush=True
@@ -2963,7 +2968,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        _emb_state_dict_list, bucket_asc_ids_list, _num_active_id_per_bucket_list = (
+        _emb_state_dict_list, bucket_asc_ids_list, _num_active_id_per_bucket_list, _ = (
             emb.split_embedding_weights(no_snapshot=False, should_flush=True)
         )
         assert bucket_asc_ids_list is not None

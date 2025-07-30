@@ -2783,6 +2783,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Union[List[PartiallyMaterializedTensor], List[torch.Tensor]],
         Optional[List[torch.Tensor]],
         Optional[List[torch.Tensor]],
+        Optional[List[torch.Tensor]],
     ]:
         """
         This method is intended to be used by the checkpointing engine
@@ -2802,6 +2803,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             2nd arg: input id sorted in bucket id ascending order
             3rd arg: active id count per bucket id, tensor size is [bucket_id_end - bucket_id_start]
                     where for the i th element, we have i + bucket_id_start = global bucket id
+            4th arg: kvzch eviction metadata for each input id sorted in bucket id ascending order
         """
         snapshot_handle, checkpoint_handle = self._may_create_snapshot_for_state_dict(
             no_snapshot=no_snapshot,
@@ -2818,16 +2820,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._cached_kvzch_data.cached_weight_tensor_per_table,
                 self._cached_kvzch_data.cached_id_tensor_per_table,
                 self._cached_kvzch_data.cached_bucket_splits,
+                [],  # metadata tensor is not needed for checkpointing loading
             )
         start_time = time.time()
         pmt_splits = []
         bucket_sorted_id_splits = [] if self.kv_zch_params else None
         active_id_cnt_per_bucket_split = [] if self.kv_zch_params else None
+        metadata_splits = [] if self.kv_zch_params else None
 
         table_offset = 0
         for i, (emb_height, emb_dim) in enumerate(self.embedding_specs):
             bucket_ascending_id_tensor = None
             bucket_t = None
+            metadata_tensor = None
             row_offset = table_offset
             metaheader_dim = 0
             if self.kv_zch_params:
@@ -2859,6 +2864,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         bucket_size,
                     )
                 )
+                metadata_tensor = self._ssd_db.get_kv_zch_eviction_metadata_by_snapshot(
+                    bucket_ascending_id_tensor,
+                    torch.as_tensor(bucket_ascending_id_tensor.size(0)),
+                    snapshot_handle,
+                )
+
                 # 3. convert local id back to global id
                 bucket_ascending_id_tensor.add_(bucket_id_start * bucket_size)
 
@@ -2874,11 +2885,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         device=torch.device("cpu"),
                         dtype=torch.int64,
                     )
+                    metadata_tensor = torch.zeros(
+                        (self.local_weight_counts[i], 1),
+                        device=torch.device("cpu"),
+                        dtype=torch.int64,
+                    )
                     # self.local_weight_counts[i] = 0  # Reset the count
 
                 # pyre-ignore [16] bucket_sorted_id_splits is not None
                 bucket_sorted_id_splits.append(bucket_ascending_id_tensor)
                 active_id_cnt_per_bucket_split.append(bucket_t)
+                metadata_splits.append(metadata_tensor)
 
                 # for KV ZCH tbe, the sorted_indices is global id for checkpointing and publishing
                 # but in backend, local id is used during training, so the KVTensorWrapper need to convert global id to local id
@@ -2934,7 +2951,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
             )
 
-        return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
+        return (
+            pmt_splits,
+            bucket_sorted_id_splits,
+            active_id_cnt_per_bucket_split,
+            metadata_splits,
+        )
 
     @torch.jit.ignore
     def _apply_state_dict_w_offloading(self) -> None:
