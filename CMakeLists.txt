@@ -252,7 +252,6 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
   )
 
   list(APPEND fbgemm_targets fbgemm_avx512)
-  add_compile_definitions(HAS_AVX512)
 else()
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX512 target")
 endif()
