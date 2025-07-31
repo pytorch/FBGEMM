@@ -985,13 +985,13 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool no_bag /*=false*/,
         bool is_bf16_out /*=false*/,
         bool is_bf16_in /*=false*/) {
-#if defined(__APPLE__) || defined(_WIN32)
-  if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
-      std::is_same<outType, float>::value) {
-    throw std::runtime_error(
-        "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
+  bool use_avx [[maybe_unused]] = true;
+  if constexpr (std::is_same_v<inType, uint16_t> &&
+      std::is_same_v<outType, float> ) {
+    if (is_bf16_in) {
+      use_avx = false;
+    }
   }
-#endif
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1006,7 +1006,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   }
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-  if (!no_bag) {
+  if (!no_bag && use_avx) {
     if (!cpuinfo_initialize()) {
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
