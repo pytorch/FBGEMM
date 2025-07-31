@@ -141,6 +141,7 @@ __configure_fbgemm_gpu_test_rocm () {
     ./sll/triton_sll_test.py
     ./gather_scatter/gather_scatter_test.py
     ./moe/layers_test.py  # Not a python unittest file
+    ./attention/mem_eff_attention_test.py # temporarily disabled until CK sources ready
   )
 }
 
