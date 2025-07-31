@@ -152,10 +152,10 @@ def bench_gather_scale_dense_tokens(E: int, T: int, D: int, quantize: bool):
     )
 
 
-def bench_top1_index_shuffling(T: int, E: int) -> None:
+def bench_topk_index_shuffling(T: int, E: int, K: int) -> None:
     torch.manual_seed(0)
 
-    num_rotating_buffers = max(2, triton.cdiv(1024 * 1024 * 1024, T * E * 2))
+    num_rotating_buffers = min(max(2, triton.cdiv(1024 * 1024 * 1024, T * E * 2)), 1000)
     scores_list: List[torch.Tensor] = [
         torch.randn(T, E, device=_ACCELERATOR_TAG, dtype=torch.bfloat16)
         for i in range(num_rotating_buffers)
@@ -163,12 +163,14 @@ def bench_top1_index_shuffling(T: int, E: int) -> None:
 
     def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         for scores in scores_list:
-            index_shuffling(scores)
+            index_shuffling(scores, top_k=K)
 
     def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         for scores in scores_list:
-            _, selected_expert_indices = torch.topk(scores, 1, dim=1)
-            expert_indices, _ = torch.sort(selected_expert_indices, dim=0)
+            _, selected_expert_indices = torch.topk(scores, K, dim=1)
+            expert_indices, _ = torch.sort(
+                selected_expert_indices.flatten(), dim=0, stable=True
+            )
             _ = (
                 expert_indices[:, None]
                 == torch.arange(E, device=expert_indices.device)[None, :]
@@ -177,7 +179,7 @@ def bench_top1_index_shuffling(T: int, E: int) -> None:
     fbgemm_time = do_bench_cudagraph(fn) * 1e3 / num_rotating_buffers
     torch_time = do_bench_cudagraph(ref_fn) * 1e3 / num_rotating_buffers
     print(
-        f"Benchmark index_shuffling, num_tokens={T:4}, num_experts={E:4}, "
+        f"Benchmark index_shuffling, num_tokens={T:4}, num_experts={E:4}, top_k={K:4}, "
         f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us"
     )
 
@@ -311,10 +313,12 @@ def main(kernels: Optional[str]):
         for T, D in itertools.product(Ts, Ds):
             bench_scatter_add_dense_tokens(T, T, D)
 
+    Ks = [1, 2, 4]
+    Es = [16, 32, 128, 320]
     # Shuffling
     if should_bench_kernel(index_shuffling):
-        for T, E in itertools.product(Ts, Es):
-            bench_top1_index_shuffling(T, E)
+        for T, E, K in itertools.product(Ts, Es, Ks):
+            bench_topk_index_shuffling(T, E, K)
 
     EPs = [2, 16]
     Ts = [32, 128, 2048, 4096, 8192, 16384]
