@@ -166,7 +166,7 @@ def _custom_mask_type(bias: Optional[Union[torch.Tensor, AttentionBias]]) -> int
 class FwOp(AttentionFwOpBase):
     """xFormers' MHA kernel based on Composable Kernel."""
 
-    OPERATOR = get_operator("xformers", "efficient_attention_forward_ck")
+    OPERATOR = get_operator("fbgemm", "efficient_attention_forward_ck")
     SUPPORTED_DEVICES: Set[str] = {"cuda"}
     SUPPORTED_DTYPES: Set[torch.dtype] = {torch.half, torch.bfloat16}
     SUPPORTED_MAX_K = 512
@@ -374,7 +374,7 @@ class FwOp(AttentionFwOpBase):
 class BwOp(AttentionBwOpBase):
     __doc__ = FwOp.__doc__
 
-    OPERATOR = get_operator("xformers", "efficient_attention_backward_ck")
+    OPERATOR = get_operator("fbgemm", "efficient_attention_backward_ck")
     SUPPORTED_DEVICES = FwOp.SUPPORTED_DEVICES
     SUPPORTED_DTYPES = FwOp.SUPPORTED_DTYPES
     SUPPORTED_MAX_K = 256

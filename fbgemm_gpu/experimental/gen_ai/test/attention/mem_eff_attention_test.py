@@ -958,7 +958,7 @@ def _get_drop_mask(op, batch_size, q_len, kv_len, p, device):
     assert op == fmha.ck.FwOp, f"Op {op.NAME} does not expose dropout mask"
     mask = torch.empty((batch_size, 1, q_len, kv_len), device=device)
     # rand_uniform is an int8_t tensor
-    rand_uniform = torch.ops.xformers._ck_rand_uniform(p, mask)
+    rand_uniform = torch.ops.fbgemm._ck_rand_uniform(p, mask)
     mask = (rand_uniform <= int((1.0 - p) * 255.0)).to(torch.float32)
     mask = mask.reshape(batch_size, q_len, kv_len)
 
