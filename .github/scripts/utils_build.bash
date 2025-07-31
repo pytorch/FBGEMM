@@ -372,6 +372,7 @@ install_build_tools () {
     scikit-build \
     tbb \
     wheel \
+    xz \
     pyyaml) || return 1
 
   echo "[INSTALL] Adding symlink librhash.so.0, which is needed by CMake ..."
