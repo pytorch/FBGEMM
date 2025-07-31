@@ -47,7 +47,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmSparseDense.cc",
         "src/FbgemmI8Spmdm.cc",
         "src/FbgemmPackMatrixB.cc",
-        # "src/fp32/FbgemmFP32.cc",
+        "src/fp32/FbgemmFP32.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
@@ -129,7 +129,7 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
 
     #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
-        # "src/fp32/FbgemmFP32UKernelsAvx2.cc",
+        "src/fp32/FbgemmFP32UKernelsAvx2.cc",
         "src/FbgemmFP16UKernelsAvx2.cc",
     ]
     if buck:
@@ -162,8 +162,8 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
     asm_srcs = [
         "src/FbgemmFP16UKernelsAvx512.cc",
         "src/FbgemmFP16UKernelsAvx512_256.cc",
-        # "src/fp32/FbgemmFP32UKernelsAvx512.cc",
-        # "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
+        "src/fp32/FbgemmFP32UKernelsAvx512.cc",
+        "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
     ]
     if buck:
         return select({

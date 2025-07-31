@@ -143,6 +143,9 @@ if(NOT MSVC)
     src/FbgemmFP16UKernelsAvx2.cc
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
+    src/fp32/FbgemmFP32UKernelsAvx2.cc
+    src/fp32/FbgemmFP32UKernelsAvx512.cc
+    src/fp32/FbgemmFP32UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
 
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
