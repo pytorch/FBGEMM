@@ -1416,12 +1416,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               const auto& id_index = *index_iter;
                               auto id = int64_t(indices_data_ptr[id_index]);
                               // Defensive programming
-                              // it shouldn't occur under normal circumstances
-                              auto used = FixedBlockPool::get_used(
-                                  weights_data_ptr + id_index * stride);
-                              if (!used) {
-                                continue;
-                              }
+                              // used is false shouldn't occur under normal
+                              // circumstances
+                              FixedBlockPool::set_used(
+                                  weights_data_ptr + id_index * stride, true);
+
                               // use mempool
                               weight_type* block = nullptr;
                               // First check if the key already exists
