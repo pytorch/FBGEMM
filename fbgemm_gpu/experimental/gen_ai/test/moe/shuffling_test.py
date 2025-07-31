@@ -56,17 +56,19 @@ class ShufflingTests(unittest.TestCase):
         ),
         num_experts=st.sampled_from([16, 32, 128, 320]),
         num_local_experts=st.sampled_from([None, 8]),
+        top_k=st.sampled_from([1, 2, 4] if torch.version.cuda else [1]),
         padded=st.sampled_from([True, False]),
         rowmajor=st.sampled_from([True, False]),
         compiled=st.sampled_from([True, False]),
         routing_score_dtype=st.sampled_from([torch.float, torch.bfloat16]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
-    def test_top1_index_shuffling(
+    def test_topk_index_shuffling(
         self,
         num_tokens: int,
         num_experts: int,
         num_local_experts: Optional[int],
+        top_k: int,
         padded: bool,
         rowmajor: bool,
         compiled: bool,
@@ -97,12 +99,9 @@ class ShufflingTests(unittest.TestCase):
             num_valid_tokens = num_tokens
             valid_token_counts = torch.tensor([num_tokens], device="cuda")
 
-        routing_scores: torch.Tensor = torch.randn(
-            num_total_tokens,
-            num_experts,
-            device=torch.accelerator.current_accelerator(),
-            dtype=routing_score_dtype,
-        ).contiguous()
+        routing_scores: torch.Tensor = _get_scores_without_ties(
+            num_total_tokens, num_experts, routing_score_dtype
+        )
         if not rowmajor:
             routing_scores = routing_scores.transpose(0, 1).contiguous().transpose(0, 1)
 
@@ -111,19 +110,23 @@ class ShufflingTests(unittest.TestCase):
             if compiled:
                 op = torch.compile(op, backend="inductor", fullgraph=True)
             if num_local_experts is None and valid_token_counts is None:
-                return op(routing_scores)
+                return op(routing_scores, top_k=top_k)
             else:
                 return op(
                     routing_scores,
                     expert_index_start,
                     expert_index_end,
                     valid_token_counts,
+                    top_k,
                 )
 
         def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             valid_routing_scores = routing_scores[:num_valid_tokens].contiguous()
-            selected_expert_indices = torch.topk(valid_routing_scores, 1, dim=1)[1]
-            expert_indices, token_indices = torch.sort(selected_expert_indices, dim=0)
+            selected_expert_indices = torch.topk(valid_routing_scores, top_k, dim=1)[1]
+            expert_indices, flattened_position_indices = torch.sort(
+                selected_expert_indices.flatten(), dim=0
+            )
+            token_indices = flattened_position_indices // top_k
             expert_ids = torch.arange(num_experts, device=expert_indices.device)
             token_counts_per_expert = (
                 expert_indices[:, None] == expert_ids[None, :]
@@ -152,8 +155,8 @@ class ShufflingTests(unittest.TestCase):
         self.assertEqual(token_counts_per_expert[-1].item(), ref_num_sorted_tokens)
 
         # 2. Checks `expert_indices` and `token_indices` returns are correct.
-        self.assertEqual(expert_indices.shape, (num_total_tokens,))
-        self.assertEqual(token_indices.shape, (num_total_tokens,))
+        self.assertEqual(expert_indices.shape, (num_total_tokens * top_k,))
+        self.assertEqual(token_indices.shape, (num_total_tokens * top_k,))
 
         # Test behavior assertions
         if padded:
@@ -366,6 +369,35 @@ class ShufflingTests(unittest.TestCase):
             self.assertTrue(reverse_input_tokens.equal(tokens[:num_valid_tokens]))
         else:
             self.assertTrue(output_tokens[:num_valid_tokens].equal(ref_output_tokens))
+
+
+def _get_scores_without_ties(
+    num_total_tokens: int, num_experts: int, routing_score_dtype: torch.dtype
+) -> torch.Tensor:
+    """
+    Generate routing scores without ties in each row - ties are harmless in a real run, but difficult to test.
+    """
+    diffs = (
+        torch.randn(
+            num_total_tokens,
+            num_experts,
+            device=torch.accelerator.current_accelerator(),
+            dtype=routing_score_dtype,
+        ).abs()
+        + 0.1
+    )
+    rand_shifts = torch.randn(
+        num_total_tokens,
+        1,
+        device=torch.accelerator.current_accelerator(),
+        dtype=routing_score_dtype,
+    )
+    # Cumulative sums are all positive, so add random shifts to make some score values negative for testing.
+    routing_scores_sorted = diffs.cumsum(dim=1) - rand_shifts
+    random_indices = torch.argsort(
+        torch.rand(num_total_tokens, num_experts, device=diffs.device), dim=1
+    )
+    return routing_scores_sorted.gather(1, random_indices).contiguous()
 
 
 if __name__ == "__main__":

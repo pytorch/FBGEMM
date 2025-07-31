@@ -16,7 +16,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "index_shuffling(Tensor routing_scores,             "
       "                int? expert_index_start=None,      "
       "                int? expert_index_end=None,        "
-      "                Tensor? valid_token_count=None) -> "
+      "                Tensor? valid_token_count=None,    "
+      "                int top_k=1) ->                    "
       "(Tensor, Tensor, Tensor)");
 }
 
