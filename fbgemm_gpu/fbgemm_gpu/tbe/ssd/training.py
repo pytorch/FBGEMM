@@ -3604,7 +3604,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if self.kv_zch_params.eviction_policy.eviction_trigger_mode == 0:
             return
 
-        T = len(self.feature_table_map)
+        T = len(set(self.feature_table_map))
         evicted_counts = torch.zeros(T, dtype=torch.int64)
         processed_counts = torch.zeros(T, dtype=torch.int64)
         full_duration_ms = torch.tensor(0, dtype=torch.int64)
@@ -3623,13 +3623,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             event_name=self.eviction_sum_processed_counts_stats_name,
             data_bytes=int(processed_counts.sum().item()),
         )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.eviction_evict_rate_stats_name,
-            data_bytes=int(
-                evicted_counts.sum().item() * 100 / processed_counts.sum().item()
-            ),
-        )
+        if processed_counts.sum().item() != 0:
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.eviction_evict_rate_stats_name,
+                data_bytes=int(
+                    evicted_counts.sum().item() * 100 / processed_counts.sum().item()
+                ),
+            )
         for t in self.feature_table_map:
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
@@ -3641,13 +3642,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 event_name=f"eviction.feature_table.{t}.processed_counts",
                 data_bytes=int(processed_counts[t].item()),
             )
-            stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name=f"eviction.feature_table.{t}.evict_rate",
-                data_bytes=int(
-                    evicted_counts[t].item() * 100 / processed_counts[t].item()
-                ),
-            )
+            if processed_counts[t].item() != 0:
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=f"eviction.feature_table.{t}.evict_rate",
+                    data_bytes=int(
+                        evicted_counts[t].item() * 100 / processed_counts[t].item()
+                    ),
+                )
         stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="eviction.feature_table.full_duration_ms",
@@ -3660,11 +3662,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             duration_ms=exec_duration_ms.item(),
             time_unit="ms",
         )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="eviction.feature_table.exec_div_full_duration_rate",
-            data_bytes=int(exec_duration_ms.item() * 100 / full_duration_ms.item()),
-        )
+        if full_duration_ms.item() != 0:
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="eviction.feature_table.exec_div_full_duration_rate",
+                data_bytes=int(exec_duration_ms.item() * 100 / full_duration_ms.item()),
+            )
 
     @torch.jit.ignore
     def _report_dram_kv_perf_stats(self) -> None:
