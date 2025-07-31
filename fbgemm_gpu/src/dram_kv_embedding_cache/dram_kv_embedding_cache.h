@@ -1050,6 +1050,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return feature_evict_->get_feature_evict_metric();
   }
 
+  void set_backend_return_whole_row(bool backend_return_whole_row) override {
+    backend_return_whole_row_ = backend_return_whole_row;
+  }
+
  private:
   int64_t get_dim_from_index(int64_t weight_idx) const {
     if (sub_table_dims_.empty()) {

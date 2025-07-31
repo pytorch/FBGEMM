@@ -812,6 +812,13 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("count"),
                 torch::arg("blocking_tensor_copy"),
             })
+        .def(
+            "set_backend_return_whole_row",
+            &EmbeddingRocksDBWrapper::set_backend_return_whole_row,
+            "",
+            {
+                torch::arg("backend_return_whole_row"),
+            })
         .def("stream_sync_cuda", &EmbeddingRocksDBWrapper::stream_sync_cuda)
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
         .def("compact", &EmbeddingRocksDBWrapper::compact)
@@ -903,6 +910,13 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("is_bwd") = false,
             })
         .def("get_cuda", &DramKVEmbeddingCacheWrapper::get_cuda)
+        .def(
+            "set_backend_return_whole_row",
+            &DramKVEmbeddingCacheWrapper::set_backend_return_whole_row,
+            "",
+            {
+                torch::arg("backend_return_whole_row"),
+            })
         .def("set", &DramKVEmbeddingCacheWrapper::set)
         .def(
             "set_range_to_storage",

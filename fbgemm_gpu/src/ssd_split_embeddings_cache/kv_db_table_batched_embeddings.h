@@ -318,6 +318,13 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
+  /**
+   * @brief need to support set backend_return_whole_row from frontend
+   * if one model changed from SSD to DRAM, or vice versa we need to
+   * support this API to change backend_return_whole_row
+   */
+  virtual void set_backend_return_whole_row(bool backend_return_whole_row);
+
   /// export internally collected L2 performance metrics out
   ///
   /// @param step the training step that caller side wants to report the stats
