@@ -3613,11 +3613,6 @@ def prune_configs(configs, named_args, **kwargs):
         # skip large split_k when not necessary
         if SPLIT_K != 1 and not need_split_k(M, N, K):
             continue
-        # skip split_k that leads to EVEN_K = false
-        leap = SPLIT_K * BLOCK_SIZE_K
-        modv = K % leap
-        if modv != 0:
-            continue
         # skip large GROUP_M
         if GROUP_M * BLOCK_SIZE_M >= M and GROUP_M != 1:
             continue
@@ -3734,6 +3729,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     ),
     triton.Config(
         {
+            "BLOCK_M": 64,
+            "BLOCK_N": 64,
+            "BLOCK_K": 256,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
             "BLOCK_M": 256,
             "BLOCK_N": 256,
             "BLOCK_K": 128,
@@ -3786,6 +3795,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
             "kpack": 1,
         },
         num_warps=8,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 128,
+            "BLOCK_K": 128,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
         num_stages=2,
     ),
     triton.Config(
