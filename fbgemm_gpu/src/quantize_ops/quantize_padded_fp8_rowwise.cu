@@ -239,19 +239,19 @@ Tensor _float_to_paddedFP8rowwise_gpu_t(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
-        _float_to_paddedFP8rowwise_cuda_kernel<scalar_t>
-            <<<num_blocks,
-               threads_per_block,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                input.data_ptr<scalar_t>(),
-                nrows,
-                ncols,
-                output.data_ptr<std::uint8_t>(),
-                forward,
-                row_dim);
+        FBGEMM_LAUNCH_KERNEL(
+            (_float_to_paddedFP8rowwise_cuda_kernel<scalar_t>),
+            num_blocks,
+            threads_per_block,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            input.data_ptr<scalar_t>(),
+            nrows,
+            ncols,
+            output.data_ptr<std::uint8_t>(),
+            forward,
+            row_dim);
       });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return output;
 }
 
@@ -289,11 +289,12 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
       input.options().dtype(at::kInt));
   int total_pad = 0;
   if (nrows == 1) {
-    _get_padding_value_kernel<<<
+    FBGEMM_LAUNCH_KERNEL(
+        (_get_padding_value_kernel),
         num_blocks,
         threads_per_block,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
+        at::cuda::getCurrentCUDAStream(),
         ncols,
         row_dim,
         input.data_ptr<std::uint8_t>(),
@@ -303,11 +304,12 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
   if (output_last_dim < 0) {
     if (nrows != 1) {
       Tensor total_pad_tensor = at::empty(1, input.options().dtype(at::kInt));
-      _single_thread_sum_padding_kernel<<<
+      FBGEMM_LAUNCH_KERNEL(
+          (_single_thread_sum_padding_kernel),
           1,
           1,
           0,
-          at::cuda::getCurrentCUDAStream()>>>(
+          at::cuda::getCurrentCUDAStream(),
           ncols,
           row_dim,
           input.data_ptr<std::uint8_t>(),
@@ -352,39 +354,40 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
         kMaxThreads < row_dim ? kMaxThreads : row_dim;
     FBGEMM_DISPATCH_FLOATING_TYPES(
         output.scalar_type(), "PaddedFP8rowwise_to_float_1d_cuda_kernel", [&] {
-          _PaddedFP8rowwise_to_float_1d_cuda_kernel<scalar_t>
-              <<<num_rows,
-                 threads_per_block,
-                 0,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  output.data_ptr<scalar_t>(),
-                  input.data_ptr<std::uint8_t>(),
-                  output_columns,
-                  row_dim,
-                  offsets.data_ptr<int>(),
-                  row_ext,
-                  ebit,
-                  bias);
+          FBGEMM_LAUNCH_KERNEL(
+              (_PaddedFP8rowwise_to_float_1d_cuda_kernel<scalar_t>),
+              num_rows,
+              threads_per_block,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              output.data_ptr<scalar_t>(),
+              input.data_ptr<std::uint8_t>(),
+              output_columns,
+              row_dim,
+              offsets.data_ptr<int>(),
+              row_ext,
+              ebit,
+              bias);
         });
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
   } else {
     FBGEMM_DISPATCH_FLOATING_TYPES(
         output.scalar_type(), "PaddedFP8rowwise_to_float_2d_cuda_kernel", [&] {
-          _PaddedFP8rowwise_to_float_2d_cuda_kernel<scalar_t>
-              <<<num_blocks,
-                 threads_per_block,
-                 0,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  input.data_ptr<std::uint8_t>(),
-                  nrows,
-                  ncols,
-                  output_columns,
-                  output.data_ptr<scalar_t>(),
-                  forward,
-                  row_dim,
-                  offsets.data_ptr<int>());
+          FBGEMM_LAUNCH_KERNEL(
+              (_PaddedFP8rowwise_to_float_2d_cuda_kernel<scalar_t>),
+              num_blocks,
+              threads_per_block,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              input.data_ptr<std::uint8_t>(),
+              nrows,
+              ncols,
+              output_columns,
+              output.data_ptr<scalar_t>(),
+              forward,
+              row_dim,
+              offsets.data_ptr<int>());
         });
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
   return output;
