@@ -914,11 +914,23 @@ Tensor jagged_1d_to_truncated_values_cpu(
 std::tuple<Tensor, Tensor> masked_select_jagged_1d(
     const Tensor& values,
     const Tensor& lengths,
-    const Tensor& mask) {
+    const Tensor& mask,
+    const std::optional<bool> check_length) {
   TORCH_CHECK(values.dim() == 1);
   TORCH_CHECK(lengths.dim() == 1);
   TORCH_CHECK(mask.dim() == 1);
-  TORCH_CHECK(mask.numel() == values.numel());
+
+  // TODO: We keep this check optional for backward compatibility,
+  // will need to make it default enabled once we are confident
+  // all callsites are fixed.
+  if (check_length.has_value() && check_length.value()) {
+    TORCH_CHECK(
+        mask.numel() == values.numel(),
+        "mask and values should have the same numel, but got mask numel: ",
+        mask.numel(),
+        " values numel: ",
+        values.numel());
+  }
 
   auto values_contiguous = values.expect_contiguous();
   auto lengths_contiguous = lengths.expect_contiguous();
@@ -1714,7 +1726,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
   m.def(
-      "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)",
+      "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask, bool? check_length = False) -> (Tensor, Tensor)",
       {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_softmax(Tensor values, Tensor x_offsets, int max_L) -> (Tensor, Tensor)",
