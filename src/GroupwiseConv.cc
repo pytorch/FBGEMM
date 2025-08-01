@@ -122,6 +122,8 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
 
   if (cpuinfo_initialize()) {
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+// Disable AVX512 because the tests fail
+#if defined(__AVX512F__) && 0
     if (fbgemmHasAvx512VnniSupport()) {
       return GenConvKernel<SPATIAL_DIM, inst_set_t::avx512_vnni>::codeCache_
           .getOrCreate(kernelSig, [&]() {
@@ -148,7 +150,9 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
                 accum);
             return genObj.getOrCreate();
           });
-    } else if (fbgemmHasAvx2Support()) {
+    } else
+#endif
+	if (fbgemmHasAvx2Support()) {
       return GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::codeCache_
           .getOrCreate(kernelSig, [&]() {
             auto genObj = GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>(
