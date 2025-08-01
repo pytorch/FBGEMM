@@ -677,7 +677,8 @@ std::tuple<at::Tensor, at::Tensor> jagged_dense_bmm(
 std::tuple<at::Tensor, at::Tensor> masked_select_jagged_1d(
     const at::Tensor& values,
     const at::Tensor& lengths,
-    const at::Tensor& mask);
+    const at::Tensor& mask,
+    const std::optional<bool> check_length);
 
 #endif
 
