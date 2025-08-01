@@ -552,6 +552,11 @@ void EmbeddingKVDB::reset_l2_cache() {
   l2_cache_ = nullptr;
 }
 
+void EmbeddingKVDB::set_backend_return_whole_row(
+    const bool /*backend_return_whole_row*/) {
+  return;
+}
+
 void EmbeddingKVDB::set(
     const at::Tensor& indices,
     const at::Tensor& weights,

@@ -234,20 +234,17 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   if (nrows <= 20) {
     FBGEMM_DISPATCH_FLOATING_TYPES(
         input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-          const auto func_name = "_float_to_FP8rowwise_cuda_kernel";
-#endif
-          _float_to_FP8rowwise_cuda_kernel<scalar_t>
-              <<<num_blocks,
-                 threads_per_block,
-                 0,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
-                  nrows,
-                  ncols,
-                  MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
-                  forward);
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          FBGEMM_LAUNCH_KERNEL(
+              (_float_to_FP8rowwise_cuda_kernel<scalar_t>),
+              num_blocks,
+              threads_per_block,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              PTA_B(input_1D, scalar_t, 1, 64),
+              nrows,
+              ncols,
+              PTA_B(output_1D, uint8_t, 1, 64),
+              forward);
         });
   } else {
     // range_tensor is used to store the range for each embedding row.
@@ -277,20 +274,17 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_get_FP8_qparam_cuda_kernel", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "_get_FP8_qparam_cuda_kernel";
-#endif
-            _get_FP8_qparam_cuda_kernel<scalar_t>
-                <<<num_blocks_warp,
-                   dim3(blockDim_x, rows_per_block),
-                   0,
-                   at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
-                    nrows,
-                    ncols,
-                    MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
-                    forward);
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            FBGEMM_LAUNCH_KERNEL(
+                (_get_FP8_qparam_cuda_kernel<scalar_t>),
+                num_blocks_warp,
+                dim3(blockDim_x, rows_per_block),
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                PTA_B(input_1D, scalar_t, 1, 64),
+                nrows,
+                ncols,
+                PTA_B(output_1D, uint8_t, 1, 64),
+                forward);
           });
     }
 
@@ -304,17 +298,17 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "_compute_FP8_quantize_cuda_kernel";
-#endif
-            _compute_FP8_quantize_cuda_kernel<scalar_t>
-                <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
-                    nrows,
-                    ncols,
-                    MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
-                    forward);
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            FBGEMM_LAUNCH_KERNEL(
+                (_compute_FP8_quantize_cuda_kernel<scalar_t>),
+                gridDim,
+                blockDim,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                PTA_B(input_1D, scalar_t, 1, 64),
+                nrows,
+                ncols,
+                PTA_B(output_1D, uint8_t, 1, 64),
+                forward);
           });
     }
   }
@@ -398,17 +392,17 @@ Tensor _FP8rowwise_to_float_gpu_t(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "FP8rowwise_to_float_cuda_kernel", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "_FP8rowwise_to_float_cuda_kernel";
-#endif
-        _FP8rowwise_to_float_cuda_kernel<scalar_t>
-            <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, input_1D, uint8_t, 1, 64),
-                nrows,
-                ncols,
-                MAKE_PTA_WITH_NAME(func_name, output_1D, scalar_t, 1, 64),
-                forward);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (_FP8rowwise_to_float_cuda_kernel<scalar_t>),
+            gridDim,
+            blockDim,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(input_1D, uint8_t, 1, 64),
+            nrows,
+            ncols,
+            PTA_B(output_1D, scalar_t, 1, 64),
+            forward);
       });
 
   return output;

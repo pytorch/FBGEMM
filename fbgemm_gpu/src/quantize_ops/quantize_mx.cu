@@ -16,6 +16,7 @@
 
 #include "c10/core/ScalarType.h"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
@@ -181,24 +182,22 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
   // Call CUDA kernel
   if (input.dtype() == torch::ScalarType::Half) {
     TORCH_CHECK(0, " fp16 not supported for MX");
+
   } else {
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name = "quantize_float_to_mx4_kernel";
-#endif
-    kernel_func<<<
+    FBGEMM_LAUNCH_KERNEL(
+        (kernel_func),
         gridDim,
         blockDim,
         smem_size,
-        at::cuda::getCurrentCUDAStream()>>>(
-        MAKE_PTA_WITH_NAME(func_name, input, float, 1, 64),
+        at::cuda::getCurrentCUDAStream(),
+        PTA_B(input, float, 1, 64),
         mx_group_size,
         total_elems,
         // flush_fp32_subnorms, // TODO: Update as template argument
         rd,
-        MAKE_PTA_WITH_NAME(func_name, output, uint8_t, 1, 64),
+        PTA_B(output, uint8_t, 1, 64),
         num_warps_in_group,
         max(num_warps_in_group, int(mx_group_size / 4))); // smem_stride
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   return output;
 }
@@ -266,20 +265,18 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
   // Call CUDA kernel
   if (input.dtype() == torch::ScalarType::Half) {
     TORCH_CHECK(0, " fp16 not supported for MX");
+
   } else {
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name = "dequantize_mx4_to_float_kernel";
-#endif
-    dequantize_mx4_to_float_kernel<<<
+    FBGEMM_LAUNCH_KERNEL(
+        (dequantize_mx4_to_float_kernel<float>),
         gridDim,
         blockDim,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        MAKE_PTA_WITH_NAME(func_name, input, uint8_t, 1, 64),
+        at::cuda::getCurrentCUDAStream(),
+        PTA_B(input, uint8_t, 1, 64),
         mx_group_size,
         total_quant_elems,
-        MAKE_PTA_WITH_NAME(func_name, output, float, 1, 64));
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+        PTA_B(output, float, 1, 64));
   }
 
   return output;

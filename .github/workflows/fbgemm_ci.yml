@@ -42,6 +42,7 @@ jobs:
       matrix:
         host-machine: [
           { arch: x86, instance: "linux.12xlarge" },
+          { arch: arm, instance: "linux.arm64.2xlarge" },
         ]
         library-type: [ static, shared ]
         compiler: [
@@ -50,6 +51,14 @@ jobs:
           { name: gcc, version: 14.1.0 },
           { name: clang, version: 16.0.6 }
         ]
+        exclude:
+          # ARM SVE support doesn't exist in GCC 9
+          - host-machine:
+              arch: arm
+              instance: linux.arm64.2xlarge
+            compiler:
+              name: gcc
+              version: 9.5.0
 
     steps:
     - name: Setup Build Container

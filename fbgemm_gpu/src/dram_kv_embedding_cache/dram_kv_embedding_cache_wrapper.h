@@ -165,6 +165,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     impl_->wait_until_eviction_done();
   }
 
+  void set_backend_return_whole_row(bool backend_return_whole_row) {
+    impl_->set_backend_return_whole_row(backend_return_whole_row);
+  }
+
  private:
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;
