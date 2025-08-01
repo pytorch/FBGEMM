@@ -221,7 +221,6 @@ class GatherScatterTests(unittest.TestCase):
         dim=st.sampled_from([5120]),
         partial=st.sampled_from([True, False]),
         compiled=st.sampled_from([True, False]),
-        k=st.sampled_from([1, 2, 4]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_scatter_add_dense_tokens(
@@ -230,67 +229,64 @@ class GatherScatterTests(unittest.TestCase):
         dim: int,
         partial: bool,
         compiled: bool,
-        k: int,
     ) -> None:
         torch.manual_seed(0)
-        in_tokens_len = num_tokens * k
-        device = torch.accelerator.current_accelerator()
 
         in_tokens: torch.Tensor = torch.randn(
-            in_tokens_len, dim, device=device, dtype=torch.bfloat16
+            num_tokens, dim, device="cuda", dtype=torch.bfloat16
         )
         out_tokens: torch.Tensor = torch.randn(
-            num_tokens, dim, device=device, dtype=torch.bfloat16
+            num_tokens, dim, device="cuda", dtype=torch.bfloat16
         )
 
-        token_indices: torch.Tensor = (
-            torch.randperm(in_tokens_len, device=device) // k
-        ).to(torch.int32)
+        token_indices: torch.Tensor = torch.randperm(num_tokens, device="cuda").to(
+            torch.int32
+        )
 
-        num_valid_tokens: int = in_tokens_len
+        num_valid_tokens: int = num_tokens
         valid_token_count: Optional[torch.Tensor] = None
         partial_token_indices: torch.Tensor = token_indices
         if partial:
-            num_valid_tokens = in_tokens_len // 2
-
+            num_valid_tokens = num_tokens // 2
             valid_token_count = torch.tensor(
-                [num_valid_tokens], dtype=torch.int32, device=device
+                [num_valid_tokens], dtype=torch.int32, device="cuda"
             )
             partial_token_indices = torch.where(
-                torch.arange(in_tokens_len).cuda() < num_valid_tokens, token_indices, -1
+                torch.arange(num_tokens).cuda() < num_valid_tokens, token_indices, -1
             )
-        assert token_indices.max() == num_tokens - 1
-        assert partial_token_indices.max() < num_tokens
 
         test_out_tokens: torch.Tensor = out_tokens.clone()
         ref_out_tokens: torch.Tensor = out_tokens.clone()
 
-        # Test
-        op = scatter_add_dense_tokens
-        if compiled:
-            op = torch.compile(op)
-        test_out_tokens = op(
-            test_out_tokens,
-            in_tokens,
-            partial_token_indices,
-            valid_token_count,
-        )
+        def fn() -> None:
+            op = scatter_add_dense_tokens
+            if compiled:
+                op = torch.compile(op)
+            op(
+                test_out_tokens,
+                in_tokens,
+                partial_token_indices,
+                valid_token_count,
+            )
 
-        # Reference
+        fn()
+
         token_indices: torch.Tensor = token_indices[:num_valid_tokens].to(torch.int64)
 
-        ref_out_tokens = ref_out_tokens.to(torch.float32)
-        ref_out_tokens.scatter_add_(
-            dim=0,
-            index=token_indices.view(-1, 1).expand(-1, dim),
-            src=in_tokens.view(-1, dim).to(torch.float32),
-        )
-        ref_out_tokens = ref_out_tokens.to(torch.bfloat16)
+        def ref_fn() -> None:
+            ref_out_tokens.scatter_add_(
+                dim=0,
+                index=token_indices.view(-1, 1).expand(-1, dim),
+                src=in_tokens.view(-1, dim),
+            )
 
-        # Compare
+        ref_fn()
+
         torch.testing.assert_close(
             test_out_tokens[:num_valid_tokens],
             ref_out_tokens[:num_valid_tokens],
+            atol=1e-3,
+            rtol=1.6e-2,
         )
 
     @given(
@@ -300,7 +296,6 @@ class GatherScatterTests(unittest.TestCase):
         dim=st.sampled_from([5120]),
         balanced=st.sampled_from([True, False]),
         compiled=st.sampled_from([True, False]),
-        k=st.sampled_from([1, 2, 4]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_scatter_add_padded_tokens(
@@ -311,74 +306,75 @@ class GatherScatterTests(unittest.TestCase):
         dim: int,
         balanced: bool,
         compiled: bool,
-        k: int,
     ) -> None:
         torch.manual_seed(0)
-        in_tokens_len = num_tokens * k
+
         device = torch.accelerator.current_accelerator()
+
         in_tokens: torch.Tensor = torch.randn(
-            ep_size, in_tokens_len, dim, device=device, dtype=torch.bfloat16
+            ep_size, num_tokens, dim, device=device, dtype=torch.bfloat16
         )
         out_tokens: torch.Tensor = torch.randn(
             num_tokens, dim, device=device, dtype=torch.bfloat16
         )
 
         if balanced:
-            if in_tokens_len < num_experts:
+            if num_tokens < num_experts:
                 logger.info("Skipping test as num_tokens must be >= num_experts")
                 return
-            num_tokens_per_expert = in_tokens_len // num_experts
+            num_tokens_per_expert = num_tokens // num_experts
             token_counts: torch.Tensor = torch.tensor(
                 [num_tokens_per_expert] * num_experts, device=device
             ).to(torch.int32)
         else:
-            token_choices = torch.randint(
-                0, num_experts, (in_tokens_len,), device=device
-            )
+            token_choices = torch.randint(0, num_experts, (num_tokens,), device=device)
             token_counts = torch.bincount(token_choices, minlength=num_experts)
 
         token_cumsums = torch.cumsum(token_counts, dim=0)
 
-        token_indices: torch.Tensor = (
-            torch.randperm(in_tokens_len, device=device) // k
-        ).to(torch.int32)
+        token_indices: torch.Tensor = torch.randperm(num_tokens, device=device).to(
+            torch.int32
+        )
 
         test_out_tokens: torch.Tensor = out_tokens.clone()
         ref_out_tokens: torch.Tensor = out_tokens.clone()
 
-        # Test
-        op = scatter_add_padded_tokens
-        if compiled:
-            op = torch.compile(op)
-        test_out_tokens = op(
-            in_tokens,
-            token_counts,
-            token_indices,
-            test_out_tokens,
-        )
+        def fn() -> None:
+            op = scatter_add_padded_tokens
+            if compiled:
+                op = torch.compile(op)
+            op(
+                in_tokens,
+                token_counts,
+                token_indices,
+                test_out_tokens,
+            )
+
+        fn()
 
         token_indices: torch.Tensor = token_indices.to(torch.int64)
         token_cumsums_list: list[int] = [0] + token_cumsums.tolist()
         num_experts_per_rank: int = num_experts // ep_size
 
-        # Reference
-        ref_out_tokens = ref_out_tokens.to(torch.float32)
-        for rank in range(ep_size):
-            start_index = token_cumsums_list[num_experts_per_rank * rank]
-            end_index = token_cumsums_list[num_experts_per_rank * (rank + 1)]
-            if start_index == end_index:
-                continue
-            ref_out_tokens.scatter_add_(
-                dim=0,
-                index=token_indices[start_index:end_index].view(-1, 1).expand(-1, dim),
-                src=in_tokens[rank, start_index:end_index, :]
-                .view(-1, dim)
-                .to(torch.float32),
-            )
-        ref_out_tokens = ref_out_tokens.to(torch.bfloat16)
+        def ref_fn() -> None:
+            for rank in range(ep_size):
+                start_index = token_cumsums_list[num_experts_per_rank * rank]
+                end_index = token_cumsums_list[num_experts_per_rank * (rank + 1)]
+                if start_index == end_index:
+                    continue
+                ref_out_tokens.scatter_add_(
+                    dim=0,
+                    index=token_indices[start_index:end_index]
+                    .view(-1, 1)
+                    .expand(-1, dim),
+                    src=in_tokens[rank, start_index:end_index, :].view(-1, dim),
+                )
 
-        # Compare
-        torch.testing.assert_close(test_out_tokens, ref_out_tokens)
+        ref_fn()
+
+        torch.testing.assert_close(
+            test_out_tokens, ref_out_tokens, atol=1e-3, rtol=1.6e-2
+        )
 
 
 if __name__ == "__main__":

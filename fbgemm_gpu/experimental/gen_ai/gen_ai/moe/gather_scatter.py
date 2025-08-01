@@ -175,7 +175,7 @@ def scatter_add_dense_tokens(
     in_tokens: torch.Tensor,  # [a, D]
     token_indices: torch.Tensor,  # [a]
     valid_token_count: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
+) -> None:
     """
     Scatter add dense tokens along 1D indices.
 
@@ -186,7 +186,7 @@ def scatter_add_dense_tokens(
         valid_token_count (torch.Tensor, optional): valid token count of shape (1,)
 
     Returns:
-        out_tokens (torch.Tensor): output tensor of shape (T, D)
+        None
     """
 
     assert torch.version.hip is not None or (
@@ -200,6 +200,7 @@ def scatter_add_dense_tokens(
     a, D = in_tokens.shape
     assert token_indices.shape == (a,)
     assert out_tokens.ndim == 2 and out_tokens.shape[1] == D
+
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
     if a >= NUM_SMS:
         BLOCK_D_OUTER = D
@@ -210,8 +211,6 @@ def scatter_add_dense_tokens(
         BLOCK_D_INNER = 256
         assert D % BLOCK_D_OUTER == 0
     grid = (a, D // BLOCK_D_OUTER)
-    out_dtype = out_tokens.dtype
-    out_tokens = out_tokens.to(torch.float32)
     _fbgemm_scatter_add_dense_tokens[grid](
         out_tokens,
         in_tokens,
@@ -221,8 +220,6 @@ def scatter_add_dense_tokens(
         BLOCK_D_OUTER,  # pyre-ignore
         BLOCK_D_INNER,  # pyre-ignore
     )
-    out_tokens = out_tokens.to(out_dtype)
-    return out_tokens
 
 
 def scatter_add_padded_tokens(
@@ -230,18 +227,18 @@ def scatter_add_padded_tokens(
     token_counts: torch.Tensor,  # [E]
     token_indices: torch.Tensor,  # [T]
     out_tokens: torch.Tensor,  # [T, D]
-) -> torch.Tensor:
+) -> None:
     """
     Scatter add valid tokens based on token counts metadata.
 
     Args:
-        in_tokens (torch.Tensor): input tensor of shape (EP, T*K, D)
+        in_tokens (torch.Tensor): input tensor of shape (EP, T, D)
         token_counts (torch.Tensor): token counts of shape (E,)
-        token_indices (torch.Tensor): token indices of shape (T*K,)
+        token_indices (torch.Tensor): token indices of shape (T,)
         out_tokens (torch.Tensor): output tensor of shape (T, D)
 
     Returns:
-        torch.Tensor: output tensor of shape (T, D)
+        None
     """
     assert torch.version.hip is not None or (
         torch.version.cuda is not None and torch.version.cuda >= "12.4"
@@ -252,12 +249,10 @@ def scatter_add_padded_tokens(
     assert token_indices.is_contiguous()
     assert out_tokens.is_contiguous()
 
-    EP, T_K, D = in_tokens.shape
+    EP, T, D = in_tokens.shape
     E = token_counts.shape[0]
-    assert tuple(token_indices.shape) == (T_K,)
-
-    out_tokens_dtype = out_tokens.dtype
-    out_tokens = out_tokens.to(torch.float32)
+    assert tuple(token_indices.shape) == (T,)
+    assert tuple(out_tokens.shape) == (T, D)
 
     def grid(META):
         return (
@@ -266,7 +261,7 @@ def scatter_add_padded_tokens(
         )
 
     T_BUCKET_CAP = 16384
-    T_BUCKET = min(triton.next_power_of_2(T_K), T_BUCKET_CAP)
+    T_BUCKET = min(triton.next_power_of_2(T), T_BUCKET_CAP)
     BLOCK_E = max(triton.next_power_of_2(E), 8)
     _fbgemm_scatter_add_padded_tokens[grid](
         in_tokens,
@@ -276,12 +271,10 @@ def scatter_add_padded_tokens(
         EP,
         E,
         T_BUCKET,
-        T_K,
+        T,
         D,
         BLOCK_E,
     )
-    out_tokens = out_tokens.to(out_tokens_dtype)
-    return out_tokens
 
 
 # Torch Custom Op Registrations
@@ -371,7 +364,7 @@ _SCATTER_ADD_DENSE_TOKENS_OP_NAME = "fbgemm::scatter_add_dense_tokens"
 
 torch.library.define(
     "fbgemm::scatter_add_dense_tokens",
-    "(Tensor out_tokens, Tensor in_tokens, Tensor token_indices, Tensor? valid_token_count=None) -> Tensor",
+    "(Tensor out_tokens, Tensor in_tokens, Tensor token_indices, Tensor? valid_token_count=None) -> None",
 )
 
 
@@ -401,7 +394,7 @@ _SCATTER_ADD_PADDED_TOKENS_OP_NAME = "fbgemm::scatter_add_padded_tokens"
 
 torch.library.define(
     "fbgemm::scatter_add_padded_tokens",
-    "(Tensor in_tokens, Tensor token_counts, Tensor token_indices, Tensor out_tokens) -> Tensor",
+    "(Tensor in_tokens, Tensor token_counts, Tensor token_indices, Tensor out_tokens) -> None",
 )
 
 
@@ -518,7 +511,7 @@ def _fbgemm_scatter_add_dense_tokens(
             in_tokens + input_token_index * D + feature_offset,
             None,
             eviction_policy="evict_first",
-        ).to(tl.float32)
+        )
 
         tl.atomic_add(
             out_tokens + output_token_index * D + feature_offset,
@@ -686,14 +679,14 @@ def _fbgemm_scatter_add_padded_tokens(
     EP: tl.constexpr,
     E: tl.constexpr,
     T_BUCKET,
-    T_K,
+    T,
     D: tl.constexpr,
     BLOCK_E: tl.constexpr,
     SPLIT_T: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     """
-    in_tokens: [EP, T_K, D]
+    in_tokens: [EP, T, D]
     token_counts: [E]
     out_tokens: [T, D]
     """
@@ -728,13 +721,11 @@ def _fbgemm_scatter_add_padded_tokens(
         output_global_offset = output_local_offset * D
 
         d_ptr = tl.arange(0, BLOCK_D)
-        input_global_ptr = (
-            in_tokens_ptr + rank * T_K * D + input_local_offset * D + d_ptr
-        )
+        input_global_ptr = in_tokens_ptr + rank * T * D + input_local_offset * D + d_ptr
         output_global_ptr = out_tokens_ptr + output_global_offset + d_ptr
 
         for _d in range(NUM_D_BLOCKS):
-            vec = tl.load(input_global_ptr).to(tl.float32)
+            vec = tl.load(input_global_ptr)
             tl.atomic_add(output_global_ptr, vec, sem="relaxed")
             input_global_ptr += BLOCK_D
             output_global_ptr += BLOCK_D
