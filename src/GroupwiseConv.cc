@@ -882,17 +882,17 @@ template <typename processOutputType, typename outT, typename inT>
 static void dispatchOutputProcessing(
     const processOutputType& outProcess,
     int32_t* rowOffsetBuf,
-    outT* out,
-    const inT* inp,
-    const block_type_t& block,
-    int ld_out,
-    int ld_in,
+    outT* out [[maybe_unused]],
+    const inT* inp [[maybe_unused]],
+    const block_type_t& block [[maybe_unused]],
+    int ld_out [[maybe_unused]],
+    int ld_in [[maybe_unused]],
     int groups,
-    int C_per_G,
+    int C_per_G [[maybe_unused]],
     true_type /*unused*/) {
+  constexpr int FUSE_RELU [[maybe_unused]] = processOutputType::RELU_FUSED;
   constexpr QuantizationGranularity Q_GRAN = processOutputType::QGRANType;
-  constexpr int FUSE_RELU = processOutputType::RELU_FUSED;
-  bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
+  bool b_symmetric [[maybe_unused]] = (Q_GRAN == QuantizationGranularity::TENSOR &&
                       outProcess.getBZeroPoint()[0] == 0) ||
       rowOffsetBuf == nullptr;
   int32_t a_zero_point = outProcess.getAZeroPoint();
