@@ -291,7 +291,7 @@ class GatherScatterTests(unittest.TestCase):
 
     @given(
         num_tokens=st.sampled_from([64, 128, 256]),
-        num_experts=st.sampled_from([16, 128]),
+        num_experts=st.sampled_from([16, 80, 128]),
         ep_size=st.sampled_from([2, 4, 8, 16]),
         dim=st.sampled_from([5120]),
         balanced=st.sampled_from([True, False]),
@@ -309,11 +309,13 @@ class GatherScatterTests(unittest.TestCase):
     ) -> None:
         torch.manual_seed(0)
 
+        device = torch.accelerator.current_accelerator()
+
         in_tokens: torch.Tensor = torch.randn(
-            ep_size, num_tokens, dim, device="cuda", dtype=torch.bfloat16
+            ep_size, num_tokens, dim, device=device, dtype=torch.bfloat16
         )
         out_tokens: torch.Tensor = torch.randn(
-            num_tokens, dim, device="cuda", dtype=torch.bfloat16
+            num_tokens, dim, device=device, dtype=torch.bfloat16
         )
 
         if balanced:
@@ -322,15 +324,15 @@ class GatherScatterTests(unittest.TestCase):
                 return
             num_tokens_per_expert = num_tokens // num_experts
             token_counts: torch.Tensor = torch.tensor(
-                [num_tokens_per_expert] * num_experts, device="cuda"
+                [num_tokens_per_expert] * num_experts, device=device
             ).to(torch.int32)
         else:
-            token_choices = torch.randint(0, num_experts, (num_tokens,), device="cuda")
+            token_choices = torch.randint(0, num_experts, (num_tokens,), device=device)
             token_counts = torch.bincount(token_choices, minlength=num_experts)
 
         token_cumsums = torch.cumsum(token_counts, dim=0)
 
-        token_indices: torch.Tensor = torch.randperm(num_tokens, device="cuda").to(
+        token_indices: torch.Tensor = torch.randperm(num_tokens, device=device).to(
             torch.int32
         )
 
