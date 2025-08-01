@@ -262,6 +262,7 @@ def scatter_add_padded_tokens(
 
     T_BUCKET_CAP = 16384
     T_BUCKET = min(triton.next_power_of_2(T), T_BUCKET_CAP)
+    BLOCK_E = max(triton.next_power_of_2(E), 8)
     _fbgemm_scatter_add_padded_tokens[grid](
         in_tokens,
         token_counts,
@@ -272,6 +273,7 @@ def scatter_add_padded_tokens(
         T_BUCKET,
         T,
         D,
+        BLOCK_E,
     )
 
 
@@ -679,6 +681,7 @@ def _fbgemm_scatter_add_padded_tokens(
     T_BUCKET,
     T,
     D: tl.constexpr,
+    BLOCK_E: tl.constexpr,
     SPLIT_T: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
@@ -705,9 +708,10 @@ def _fbgemm_scatter_add_padded_tokens(
     EXPERT_PER_RANK: tl.constexpr = E // EP
     rank = expert // EXPERT_PER_RANK
 
-    token_counts = tl.load(token_counts_ptr + tl.arange(0, E))
+    offs_e = tl.arange(0, BLOCK_E)
+    token_counts = tl.load(token_counts_ptr + offs_e, mask=(offs_e < E), other=0)
     input_local_offset = (
-        tl.sum(tl.where(tl.arange(0, E) < expert, token_counts, 0)) + start_token
+        tl.sum(tl.where(offs_e < expert, token_counts, 0)) + start_token
     ).to(tl.int64)
 
     for _t in range(start_token, end_token):
