@@ -91,7 +91,12 @@ endfunction()
 ################################################################################
 
 if(FBGEMM_BUILD_BENCHMARKS)
-  file(GLOB BENCH_LIST "*Benchmark.cc")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+    set(BENCH_LIST FP16Benchmark.cc)
+  else()
+    file(GLOB BENCH_LIST "*Benchmark.cc")
+  endif()
+
   # NOTE: Skip FP32 benchmark until FP32 is properly integrated into OSS builds
   list(FILTER BENCH_LIST EXCLUDE REGEX "FP32Benchmark\\.cc$")
 

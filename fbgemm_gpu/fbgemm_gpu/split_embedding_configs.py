@@ -96,6 +96,18 @@ class EmbOptimType(enum.Enum):
         else:
             return {}
 
+    def state_size_bytes_table(
+        self, D: int, optimizer_state_dtypes: Dict[str, "SparseType"]
+    ) -> Dict[str, int]:
+        """
+        Returns the table of state names to state sizes in terms of number of
+        elements (per table row)
+        """
+        return dict(
+            (name, count * self._extract_dtype(optimizer_state_dtypes, name).itemsize)
+            for name, count in self.state_size_table(D).items()
+        )
+
     def state_size_nbytes(
         self, D: int, optimizer_state_dtypes: Dict[str, "SparseType"] = {}  # noqa: B006
     ) -> int:

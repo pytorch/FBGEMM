@@ -174,42 +174,35 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
     return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
-    intrinsics_srcs = [
+    srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
         "src/QuantUtilsNeon.cc",
         "src/UtilsSve.cc",
-    ] + select({
-        "DEFAULT": [],
-        "ovr_config//cpu:arm64": [
-            "src/FbgemmFloat16ConvertSVE.cc",
-        ],
-    })
+        "src/FbgemmFloat16ConvertSVE.cc",
+    ]
 
-    #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-    asm_srcs = [
-        "src/FbgemmFP16UKernelsSve128.cc",
-        "src/KleidiAIFP16UKernelsNeon.cc",
-        "src/QuantUtilsNeon.cc",
-        "src/UtilsSve.cc",
-    ] + select({
-        "DEFAULT": [],
-        "ovr_config//cpu:arm64": [
-            "src/FbgemmFloat16ConvertSVE.cc",
-        ],
-    })
     if buck:
-        return select({
-            "DEFAULT": asm_srcs,
-            "ovr_config//compiler:cl": intrinsics_srcs,
-            "ovr_config//cpu:arm64": intrinsics_srcs,
+        # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
+        srcs += select({
+            "DEFAULT": [],
+            "ovr_config//cpu:arm64": [
+                "src/FbgemmFloat16ConvertSVE.cc",
+            ],
         })
-    return asm_srcs if not msvc else intrinsics_srcs
+        return select({
+            "DEFAULT": srcs,
+            "ovr_config//compiler:cl": srcs,
+            "ovr_config//cpu:arm64": srcs,
+        })
+
+    else:
+        return srcs
 
 def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
     intrinsics_srcs = ["src/UtilsNeon.cc"]
 
-    #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
+    # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = ["src/UtilsNeon.cc"]
     if buck:
         return select({
