@@ -475,6 +475,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     const std::optional<int64_t>& expert_index_start,
     const std::optional<int64_t>& expert_index_end,
     const std::optional<at::Tensor>& valid_token_count,
+    const std::optional<int64_t>& D,
     const int64_t top_k = 1) {
   TORCH_CHECK(
       routing_scores.dtype() == torch::kBFloat16 ||
@@ -639,8 +640,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
                 reinterpret_cast<IndexType*>(token_count_per_expert.data_ptr()),
             .shuffled_expert_indices = reinterpret_cast<IndexType*>(
                 shuffled_expert_indices.data_ptr()),
-            .shuffled_token_indices = reinterpret_cast<IndexType*>(
-                shuffled_token_indices.data_ptr())};
+            .shuffled_token_indices =
+                reinterpret_cast<IndexType*>(shuffled_token_indices.data_ptr()),
+        };
         const int num_warps = (num_experts > 128) ? 8 : 4;
         const int num_threads = kNumThreadsPerWarp * num_warps;
         dim3 grids(num_ctas);
@@ -662,7 +664,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
             (void*)kernel, grids, blocks, args, smem_size, stream));
 #endif
       }));
-
+  if (D.has_value()) {
+    for (size_t i = 0; i < token_count_per_expert.numel() - 2; i++) {
+      token_count_per_expert[i] *= D.value();
+    }
+  }
   return std::make_tuple(
       token_count_per_expert, shuffled_expert_indices, shuffled_token_indices);
 }
