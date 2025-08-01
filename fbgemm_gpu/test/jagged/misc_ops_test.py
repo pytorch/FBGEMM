@@ -167,12 +167,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             RuntimeError,
-            r"Expected mask\.numel\(\) == values\.numel\(\) to be true, but got false\..*",
+            r"mask and values should have the same numel, but got mask numel: .+ values numel: .+",
         ):
             torch.ops.fbgemm.masked_select_jagged_1d(
                 values,
                 lengths,
                 mask,
+                True,
             )
 
     @given(
