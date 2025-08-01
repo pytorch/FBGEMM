@@ -15,7 +15,10 @@ import torch
 import triton  # @manual=//triton:triton
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
+    calculate_group_max,
+    mega_fp4_pack,
     mega_fp4_quantize_kernel,
+    mega_fp4_unpack,
     triton_quantize_mx4_unpack,
     triton_scale_nvfp4_quant,
     triton_scale_nvfp4_quant_rms,
@@ -2225,12 +2228,12 @@ class NVFP4Gemm(QuantizeOpBase):
     """
 
     def quantize(self, x, w):
-        x_global_scale = (
-            (448.0 * 6.0) / torch.amax(torch.abs(x.flatten()), dim=-1)
-        ).to(torch.float32)
-        w_global_scale = (
-            (448.0 * 6.0) / torch.amax(torch.abs(w.flatten()), dim=-1)
-        ).to(torch.float32)
+        x_global_scale = (448.0 * 6.0) / torch.amax(torch.abs(x.flatten()), dim=-1).to(
+            torch.float32
+        )
+        w_global_scale = (448.0 * 6.0) / torch.amax(torch.abs(w.flatten()), dim=-1).to(
+            torch.float32
+        )
         global_scale = 1 / (x_global_scale * w_global_scale)
 
         xq, x_scale = triton_scale_nvfp4_quant(x, x_global_scale)
@@ -2271,9 +2274,9 @@ class NVFP4Quantize(QuantizeOpBase):
         M, N = w.shape
         group_size = 16
         w = torch.randn(group_size, dtype=torch.bfloat16, device=w.device)
-        x_global_scale = torch.tensor([448.0 * 6.0]).to(device=x.device) / torch.amax(
-            torch.abs(x.flatten()), dim=-1
-        )
+        x_global_scale = torch.tensor([448.0 * 6.0]).to(
+            device=x.device, dtype=torch.float32
+        ) / torch.amax(torch.abs(x.flatten()), dim=-1).to(torch.float32)
         xq_ref, x_scale_ref = triton_scale_nvfp4_quant_rms(
             x,
             w.repeat(M * N // group_size),
@@ -2293,9 +2296,9 @@ class NVFP4Quantize(QuantizeOpBase):
     def quantize_silu(self, x, w):
         M, N = x.shape
         group_size = 16
-        x_global_scale = torch.tensor([448.0 * 6.0]).to(device=x.device) / torch.amax(
-            torch.abs(x.flatten()), dim=-1
-        )
+        x_global_scale = torch.tensor([448.0 * 6.0]).to(
+            device=x.device, dtype=torch.float32
+        ) / torch.amax(torch.abs(x.flatten()), dim=-1).to(torch.float32)
         xq_ref, x_scale_ref = triton_scale_nvfp4_quant_silu(
             x,
             w,
@@ -2312,12 +2315,12 @@ class NVFP4Quantize(QuantizeOpBase):
         )
 
     def quantize(self, x, w):
-        x_global_scale = (
-            (448.0 * 6.0) / torch.amax(torch.abs(x.flatten()), dim=-1)
-        ).to(torch.float32)
-        w_global_scale = (
-            (448.0 * 6.0) / torch.amax(torch.abs(w.flatten()), dim=-1)
-        ).to(torch.float32)
+        x_global_scale = (448.0 * 6.0) / torch.amax(torch.abs(x.flatten()), dim=-1).to(
+            torch.float32
+        )
+        w_global_scale = (448.0 * 6.0) / torch.amax(torch.abs(w.flatten()), dim=-1).to(
+            torch.float32
+        )
         global_scale = 1 / (x_global_scale * w_global_scale)
 
         xq, x_scale = triton_scale_nvfp4_quant(x, x_global_scale)
@@ -2426,11 +2429,11 @@ class NVFP4GroupedGemm(QuantizeOpBase):
 
     def quantize(self, x, w):
         def get_global_scale(x, w):
-            x_global_scale = (
-                (448.0 * 6.0) / torch.amax(torch.abs(x.flatten()), dim=-1)
+            x_global_scale = (448.0 * 6.0) / torch.amax(
+                torch.abs(x.flatten()), dim=-1
             ).to(torch.float32)
-            w_global_scale = (
-                (448.0 * 6.0) / torch.amax(torch.abs(w.flatten()), dim=-1)
+            w_global_scale = (448.0 * 6.0) / torch.amax(
+                torch.abs(w.flatten()), dim=-1
             ).to(torch.float32)
             global_scale = 1 / (x_global_scale * w_global_scale)
             return x_global_scale, w_global_scale, global_scale
@@ -2533,19 +2536,214 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
         m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
         x = torch.concat(x, dim=0).contiguous()
 
+        def get_global_scale(x, w, m_sizes):
+            G = len(w)
+            ref_scale = []
+            w_global_scale = []
+            global_scale = []
+
+            cumulative_sum = torch.zeros(
+                m_sizes.shape[0] + 1, dtype=torch.int64, device=m_sizes.device
+            )
+            cumulative_sum[1:] = torch.cumsum(m_sizes, dim=0)
+            cumulative_sum_list = cumulative_sum.tolist()
+
+            x_global_scale, tensor_idx = calculate_group_max(x, m_sizes=m_sizes)
+
+            for i in range(G):
+                w_global_scale_ = (448.0 * 6.0) / torch.amax(
+                    torch.abs(w[i].flatten()), dim=-1
+                ).to(torch.float32)
+                tensor_slice = x[cumulative_sum_list[i] : cumulative_sum_list[i + 1]]
+                if tensor_slice.numel() != 0:
+                    ref_scale_ = (448.0 * 6.0) / torch.amax(
+                        torch.abs(
+                            x[cumulative_sum_list[i] : cumulative_sum_list[i + 1]]
+                        ).flatten(),
+                        dim=0,
+                    ).to(torch.float32)
+                else:
+                    ref_scale_ = torch.tensor(
+                        torch.finfo(torch.float32).max, device=x.device
+                    )
+
+                global_scale_ = 1 / (x_global_scale[i] * w_global_scale_)
+
+                ref_scale.append(ref_scale_)
+                w_global_scale.append(w_global_scale_)
+                global_scale.append(global_scale_)
+
+            return x_global_scale, w_global_scale, global_scale, ref_scale, tensor_idx
+
+        # Compute global scale for each group
+        G = m_sizes.numel()
+        x_global_scale, w_global_scale, global_scale, ref_scale, tensor_idx = (
+            get_global_scale(x, w, m_sizes)
+        )
+        ref_scale = torch.tensor(ref_scale, device=m_sizes.device)
+        ref_scale.masked_fill_(torch.isinf(ref_scale), torch.finfo(torch.float32).max)
+        if not torch.allclose(x_global_scale, ref_scale):
+            print(x_global_scale)
+            print(ref_scale)
+            raise AssertionError("per tensor calculation is different from reference")
+        global_scale = torch.stack(global_scale, dim=0).contiguous()
+
+        wq, w_scale = zip(
+            *[triton_scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
+        )
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+
+        return x, wq, w_scale, x_global_scale, global_scale, m_sizes, tensor_idx
+
+    def quantize(
+        self, x, wq, w_scale, x_global_scale, global_scale, m_sizes, tensor_idx
+    ):
+        # alternative methods, may be useful in some scenarios
+        """
+        starting_row_after_padding, belong_indices, row_within_tensor = (
+            nvfp4_fused_padding_cumsum_and_segmented_arange(m_sizes, x.shape[0])
+            # fused_single_block_cumsum_and_segmented_arange(m_sizes, x.shape[0])
+        )
+
+        xq, x_scale = triton_nvfp4_quant_stacked(
+            x,
+            x_global_scale[0],
+            belong_indices,
+            starting_row_after_padding,
+            row_within_tensor,
+        )
+        """
+
+        # we can optionally set optional_tensor_idx to None to run the alternative method
+        xq, x_scale, starting_row_after_padding = mega_fp4_quantize_kernel(
+            m_sizes, x, x_global_scale, optional_tensor_idx=tensor_idx
+        )
+
+        xq_other, x_scale_other, starting_row_after_padding_other = (
+            mega_fp4_quantize_kernel(
+                m_sizes, x, x_global_scale, optional_tensor_idx=None
+            )
+        )
+
+        x_scale = x_scale.reshape(-1, x.shape[1] // 16)
+        x_scale_other = x_scale_other.reshape(-1, x.shape[1] // 16)
+        return (
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding,
+            xq_other,
+            x_scale_other,
+            starting_row_after_padding_other,
+        )
+
+    def compute(
+        self,
+        xq,
+        wq,
+        x_scale,
+        w_scale,
+        m_sizes,
+        global_scale,
+        starting_row_after_padding,
+        xq_other,
+        x_scale_other,
+        starting_row_after_padding_other,
+    ):
+        ref_solution = torch.ops.fbgemm.f4f4bf16_grouped_stacked(
+            xq_other,
+            wq,
+            x_scale_other,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding_other,
+            use_mx=False,
+        )
+        gemm_result = torch.ops.fbgemm.f4f4bf16_grouped_stacked(
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding,
+            use_mx=False,
+        )
+        assert torch.allclose(ref_solution, gemm_result)
+        return gemm_result
+
+    def quantize_and_compute(
+        self, x, wq, w_scale, x_global_scale, global_scale, m_sizes, tensor_idx
+    ):
+        (
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding,
+            xq_other,
+            x_scale_other,
+            starting_row_after_padding_other,
+        ) = self.quantize(
+            x, wq, w_scale, x_global_scale, global_scale, m_sizes, tensor_idx
+        )
+        return self.compute(
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding,
+            xq_other,
+            x_scale_other,
+            starting_row_after_padding_other,
+        )
+
+    @property
+    def name(self) -> str:
+        return "cutlass_nv_f4f4bf16_grouped_stacked"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class NVFP4StackedGroupedGemmPackUnpack(QuantizeOpBase):
+    """
+    NVFP4 grouped matmul with blockwise scaling and stacked inputs.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        x = torch.concat(x, dim=0).contiguous()
+
         def get_global_scale(x, w):
             G = len(w)
             x_global_scale = []
             w_global_scale = []
             global_scale = []
 
-            x_global_scale_ = (
-                (448.0 * 6.0) / torch.amax(torch.abs(x.flatten()), dim=-1)
+            x_global_scale_ = (448.0 * 6.0) / torch.amax(
+                torch.abs(x.flatten()), dim=-1
             ).to(torch.float32)
 
             for i in range(G):
-                w_global_scale_ = (
-                    (448.0 * 6.0) / torch.amax(torch.abs(w[i].flatten()), dim=-1)
+                w_global_scale_ = (448.0 * 6.0) / torch.amax(
+                    torch.abs(w[i].flatten()), dim=-1
                 ).to(torch.float32)
 
                 global_scale_ = 1 / (x_global_scale_ * w_global_scale_)
@@ -2567,34 +2765,38 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
         )
         wq = torch.stack(wq, dim=0).contiguous()
         w_scale = torch.stack(w_scale, dim=0).contiguous()
-
-        return x, wq, w_scale, x_global_scale, global_scale, m_sizes
+        x_global_scale = torch.tensor(x_global_scale, device=m_sizes.device)
+        return (
+            x,
+            wq,
+            w_scale,
+            x_global_scale,
+            global_scale,
+            m_sizes,
+        )
 
     def quantize(self, x, wq, w_scale, x_global_scale, global_scale, m_sizes):
-        # alternative methods, may be useful in some scenarios
+        # alternative packing methods that only uses the overall global scale rather than per tensor
         """
-        starting_row_after_padding, belong_indices, row_within_tensor = (
-            nvfp4_fused_padding_cumsum_and_segmented_arange(m_sizes, x.shape[0])
-            # fused_single_block_cumsum_and_segmented_arange(m_sizes, x.shape[0])
-        )
-
-        xq, x_scale = triton_nvfp4_quant_stacked(
-            x,
-            x_global_scale[0],
-            belong_indices,
-            starting_row_after_padding,
-            row_within_tensor,
-        )
+        packed = mega_fp4_pack(x, x_global_scale[0])
         """
-
-        xq, x_scale, starting_row_after_padding = mega_fp4_quantize_kernel(
-            m_sizes,
+        packed = mega_fp4_pack(
             x,
-            x_global_scale[0],
+            x_global_scale,
+            per_tensor=True,
+            m_sizes=m_sizes,
+        )
+        xq, x_scale, starting_row_after_padding = mega_fp4_unpack(m_sizes, packed)
+        xq_other, x_scale_other, starting_row_after_padding_other = (
+            mega_fp4_quantize_kernel(
+                m_sizes,
+                x,
+                x_global_scale,
+            )
         )
 
         x_scale = x_scale.reshape(-1, x.shape[1] // 16)
-
+        x_scale_other = x_scale_other.reshape(-1, x.shape[1] // 16)
         return (
             xq,
             wq,
@@ -2603,6 +2805,9 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             m_sizes,
             global_scale,
             starting_row_after_padding,
+            xq_other,
+            x_scale_other,
+            starting_row_after_padding_other,
         )
 
     def compute(
@@ -2614,8 +2819,21 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
         m_sizes,
         global_scale,
         starting_row_after_padding,
+        xq_other,
+        x_scale_other,
+        starting_row_after_padding_other,
     ):
-        return torch.ops.fbgemm.f4f4bf16_grouped_stacked(
+        ref_solution = torch.ops.fbgemm.f4f4bf16_grouped_stacked(
+            xq_other,
+            wq,
+            x_scale_other,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding_other,
+            use_mx=False,
+        )
+        gemm_result = torch.ops.fbgemm.f4f4bf16_grouped_stacked(
             xq,
             wq,
             x_scale,
@@ -2625,20 +2843,41 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             starting_row_after_padding,
             use_mx=False,
         )
+        assert torch.allclose(ref_solution, gemm_result)
+
+        return gemm_result
 
     def quantize_and_compute(
         self, x, wq, w_scale, x_global_scale, global_scale, m_sizes
     ):
-        xq, wq, x_scale, w_scale, m_sizes, global_scale, starting_row_after_padding = (
-            self.quantize(x, wq, w_scale, x_global_scale, global_scale, m_sizes)
-        )
+        (
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding,
+            xq_other,
+            x_scale_other,
+            starting_row_after_padding_other,
+        ) = self.quantize(x, wq, w_scale, x_global_scale, global_scale, m_sizes)
         return self.compute(
-            xq, wq, x_scale, w_scale, m_sizes, global_scale, starting_row_after_padding
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            global_scale,
+            starting_row_after_padding,
+            xq_other,
+            x_scale_other,
+            starting_row_after_padding_other,
         )
 
     @property
     def name(self) -> str:
-        return "cutlass_nv_f4f4bf16_grouped_stacked"
+        return "cutlass_nv_f4f4bf16_grouped_stacked_pack_unpack"
 
     @property
     def hip(self) -> bool:
