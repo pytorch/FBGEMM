@@ -39,11 +39,13 @@ function(add_benchmark BENCHNAME)
     ${bench_sources})
 
   if(NOT MSVC)
-    target_compile_options(${BENCHNAME} PRIVATE
-      -m64
-      -mavx2
-      -mfma
-      -masm=intel)
+    if(COMPILER_SUPPORTS_AVX2)
+      target_compile_options(${BENCHNAME} PRIVATE
+        -m64
+        -mavx2
+        -mfma
+        -masm=intel)
+    endif()
   endif()
 
   target_link_libraries(${BENCHNAME} fbgemm)
@@ -87,7 +89,12 @@ endfunction()
 ################################################################################
 
 if(FBGEMM_BUILD_BENCHMARKS)
-  file(GLOB BENCH_LIST "*Benchmark.cc")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+    set(BENCH_LIST FP16Benchmark.cc)
+  else()
+    file(GLOB BENCH_LIST "*Benchmark.cc")
+  endif()
+
   # NOTE: Skip FP32 benchmark until FP32 is properly integrated into OSS builds
   list(FILTER BENCH_LIST EXCLUDE REGEX "FP32Benchmark\\.cc$")
 

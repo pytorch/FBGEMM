@@ -264,6 +264,78 @@ else()
 endif()
 
 ################################################################################
+# FBGEMM Neon Target
+################################################################################
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")
+
+  get_filelist("get_fbgemm_inline_neon_srcs(msvc=${MSVC_BOOL})" FBGEMM_NEON_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_neon
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_NEON_SRCS}
+    CC_FLAGS
+      -ftree-vectorize
+      -fno-trapping-math
+      -Wignored-qualifiers
+    DEFINITIONS
+      FBGEMM_ENABLE_KLEIDIAI
+      FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+      FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_neon)
+
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build Neon target")
+endif()
+
+################################################################################
+# FBGEMM SVE Target
+################################################################################
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build SVE target")
+
+  get_filelist("get_fbgemm_inline_sve_srcs(msvc=${MSVC_BOOL})" FBGEMM_SVE_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_sve
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_SVE_SRCS}
+    CC_FLAGS
+      -ftree-vectorize
+      -fno-trapping-math
+      -Wignored-qualifiers
+    DEFINITIONS
+      FBGEMM_ENABLE_KLEIDIAI
+      FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+      FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_sve)
+
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build SVE target")
+endif()
+
+################################################################################
 # FBGEMM Autovec Target
 ################################################################################
 

@@ -891,24 +891,26 @@ static void dispatchOutputProcessing(
     int C_per_G,
     true_type /*unused*/) {
   constexpr QuantizationGranularity Q_GRAN = processOutputType::QGRANType;
-  constexpr int FUSE_RELU = processOutputType::RELU_FUSED;
-  bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
-                      outProcess.getBZeroPoint()[0] == 0) ||
+  [[maybe_unused]] constexpr int FUSE_RELU = processOutputType::RELU_FUSED;
+  [[maybe_unused]] bool b_symmetric =
+      (Q_GRAN == QuantizationGranularity::TENSOR &&
+       outProcess.getBZeroPoint()[0] == 0) ||
       rowOffsetBuf == nullptr;
   int32_t a_zero_point = outProcess.getAZeroPoint();
 
   // Requantization
-  requantizationParams_t<typename processOutputType::BIAS_T> r = {
-      a_zero_point,
-      outProcess.getBZeroPoint(),
-      outProcess.getCZeroPoint(),
-      outProcess.getCMultiplier(),
-      rowOffsetBuf,
-      outProcess.getColOffsets(),
-      outProcess.getBias(),
-      outProcess.getNCols(),
-      groups,
-      outProcess.getActWScale()};
+  [[maybe_unused]] requantizationParams_t<typename processOutputType::BIAS_T>
+      r = {
+          a_zero_point,
+          outProcess.getBZeroPoint(),
+          outProcess.getCZeroPoint(),
+          outProcess.getCMultiplier(),
+          rowOffsetBuf,
+          outProcess.getColOffsets(),
+          outProcess.getBias(),
+          outProcess.getNCols(),
+          groups,
+          outProcess.getActWScale()};
 
 #define REQUANTIZE_BASE(ISA, C_PER_G, A_SYM, B_SYM, BIAS) \
   requantizeOutputProcessingGConv##ISA<                   \

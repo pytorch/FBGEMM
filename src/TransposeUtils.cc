@@ -118,4 +118,5 @@ template FBGEMM_API void transpose_simd<uint16_t>(
     int64_t ld_src,
     uint16_t* dst,
     int64_t ld_dst);
+
 } // namespace fbgemm

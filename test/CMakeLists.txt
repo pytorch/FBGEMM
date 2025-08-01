@@ -65,11 +65,13 @@ function(add_gtest TESTNAME)
     endif()
 
   else()
-    target_compile_options(${TESTNAME} PRIVATE
-      -m64
-      -mavx2
-      -mfma
-      -masm=intel)
+    if(COMPILER_SUPPORTS_AVX2)
+      target_compile_options(${TESTNAME} PRIVATE
+        -m64
+        -mavx2
+        -mfma
+        -masm=intel)
+    endif()
   endif()
 
   if (FBGEMM_USE_SANITIZER)
@@ -107,18 +109,12 @@ foreach(TEST_FILE ${TEST_LIST})
     continue()
   endif()
 
-  message(STATUS "Processing: ${TEST_FILE}")
-  message(STATUS "COMPILER_SUPPORTS_AVX512 = ${FBGEMM_ENABLE_AVX512}")
+  # NOTE: Skip tests on ARM for now until linking issues are fixed
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+    continue()
+  endif()
 
-  # # Skip the following tests when AVX512 is not available
-  # if(NOT FBGEMM_ENABLE_AVX512)
-  #   if(TEST_FILE MATCHES "FP16Test.cc$"
-  #       OR TEST_FILE MATCHES "GConvTest.cc$"
-  #       OR TEST_FILE MATCHES "UniConvTest.cc$"
-  #       OR TEST_FILE MATCHES "SparseDenseMMInt8Test.cc$")
-  #     continue()
-  #   endif()
-  # endif()
+  message(STATUS "Processing: ${TEST_FILE}")
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
   get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)
