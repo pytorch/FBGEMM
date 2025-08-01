@@ -53,6 +53,25 @@ class BackwardAdagradTest(unittest.TestCase):
             **kwargs,
         )
 
+    @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
+    @unittest.skipIf(*gpu_unavailable)
+    @given(mixed_B=st.booleans(), **test_st)
+    @settings(**common_settings)
+    def test_backward_adagrad_fp8_pmSUM(  # noqa C901
+        self,
+        **kwargs: Any,
+    ) -> None:
+        kwargs = adjust_mixed_B_st(kwargs)
+        # Skip for use_cpu=True, as FP8 is not supported on CPU.
+        if kwargs["use_cpu"]:
+            return
+        execute_backward_adagrad(
+            weights_precision=SparseType.NFP8,
+            pooling_mode=PoolingMode.SUM,
+            compile=False,  # FIXME: make compilation work for fp16
+            **kwargs,
+        )
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         mixed_B=st.booleans(),
