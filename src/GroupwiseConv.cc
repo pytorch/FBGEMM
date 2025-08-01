@@ -882,13 +882,13 @@ template <typename processOutputType, typename outT, typename inT>
 static void dispatchOutputProcessing(
     const processOutputType& outProcess,
     int32_t* rowOffsetBuf,
-    outT* out,
-    const inT* inp,
-    const block_type_t& block,
-    int ld_out,
-    int ld_in,
+    outT* out [[maybe_unused]],
+    const inT* inp [[maybe_unused]],
+    const block_type_t& block [[maybe_unused]],
+    int ld_out [[maybe_unused]],
+    int ld_in [[maybe_unused]],
     int groups,
-    int C_per_G,
+    int C_per_G [[maybe_unused]],
     true_type /*unused*/) {
   constexpr QuantizationGranularity Q_GRAN = processOutputType::QGRANType;
   [[maybe_unused]] constexpr int FUSE_RELU = processOutputType::RELU_FUSED;
