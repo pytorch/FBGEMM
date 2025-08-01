@@ -13,6 +13,8 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
 
+#include <stdexcept>
+
 namespace fbgemm {
 
 #if defined(__ARM_FEATURE_SVE2)
