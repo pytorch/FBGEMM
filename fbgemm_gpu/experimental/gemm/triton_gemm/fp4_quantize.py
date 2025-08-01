@@ -3272,9 +3272,7 @@ def _kernel_nvfp4_quantize_stacked_silu(
 @triton.jit
 def _mega_fp4_quantize_kernel(
     m_sizes_ptr,  # [num_segments] input sizes
-    size_cumulative_ptr,  # [num_segments + 1] cumulative size sum
     starting_row_after_padding_ptr,  # [num_segments + 1] output: padded cumsum
-    search_storage_ptr,
     search_size,
     search_padded_power: tl.constexpr,
     A,
@@ -3315,30 +3313,15 @@ def _mega_fp4_quantize_kernel(
     # Compute inclusive cumsum
     cumsum = tl.cumsum(m_sizes, axis=0)
 
-    # Store cumsum at indices 1 through N
-    tl.store(
-        size_cumulative_ptr + offs + 1 + (num_segments + 1) * pid, cumsum, mask=mask
-    )
-
-    # Set first element to zero
-    tl.store(
-        size_cumulative_ptr + offs + (num_segments + 1) * pid,
-        tl.zeros([1], dtype=cumsum.dtype),
-        mask=(offs == 0),
-    )
-
     # padded cumsum
-
-    # Compute padded sizes
-    padded_sizes = ((m_sizes + 128 - 1) // 128) * 128
-
+    padded = ((m_sizes + 128 - 1) // 128) * 128
     # Compute inclusive cumsum
-    cumsum = tl.cumsum(padded_sizes, axis=0)
+    padded_cumsum = tl.cumsum(padded, axis=0)
 
     # Store at indices 1 through num_segments
     tl.store(
         starting_row_after_padding_ptr + offs + 1 + (num_segments + 1) * pid,
-        cumsum,
+        padded_cumsum,
         mask=mask,
     )
 
@@ -3348,9 +3331,9 @@ def _mega_fp4_quantize_kernel(
         tl.zeros([1], dtype=cumsum.dtype),
         mask=(offs == 0),
     )
-
-    # synchronize the updates, sync threads in a block
-    tl.debug_barrier()
+    cumsum_shift = cumsum
+    cumsum = cumsum - m_sizes
+    padded_cumsum = padded_cumsum - padded
 
     """
     begin quantization
@@ -3397,51 +3380,36 @@ def _mega_fp4_quantize_kernel(
     elements_to_search = tl.arange(0, search_padded_power) + init_offset_exp
     left = tl.zeros([search_padded_power], dtype=tl.int32)
     right = tl.zeros([search_padded_power], dtype=tl.int32) + num_segments
+    search_guard = (tl.arange(0, search_padded_power) < search_size) & (
+        elements_to_search < M
+    )
     for _ in range(32):  # log2(num_segments) iterations
-        mid = (left + right) // 2
+        mid = tl.where(search_guard, (left + right) // 2, 0)
 
         # Get cumsum value at mid position
         # Since we need cumsum[0] = 0, cumsum[1] = m_sizes[0], etc.
-        mid_val = tl.load(
-            size_cumulative_ptr + mid + (num_segments + 1) * pid,
-            mask=(tl.arange(0, search_padded_power) < search_size)
-            & (elements_to_search < M),
-            other=-1,
-        )
+        mid_val = tl.gather(cumsum_shift, mid, 0)
 
         cond = mid_val <= elements_to_search
         left = tl.where(cond, mid + 1, left)
         right = tl.where(~cond, mid, right)
 
-    tl.store(
-        search_storage_ptr + pid * search_size + tl.arange(0, search_padded_power),
-        left - 1,
-        mask=(tl.arange(0, search_padded_power) < search_size)
-        & (elements_to_search < M),
-    )
-    tl.debug_barrier()
-    tensor_idx = tl.load(
-        search_storage_ptr + pid * search_size + row_idx - init_offset_exp,
-        mask=(row_idx < M)
+    tensor_idx_guard = (
+        (row_idx < M)
         & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
-        & (exp_offset < SCALE_SIZE),
-        other=-1,
+        & (exp_offset < SCALE_SIZE)
+    )
+    tensor_idx = tl.gather(
+        left, tl.where(tensor_idx_guard, row_idx - init_offset_exp, 0), 0
     )
 
     tensor_offset = (
-        tl.load(
-            starting_row_after_padding_ptr + tensor_idx + (num_segments + 1) * pid,
-            mask=(tensor_idx >= 0),
-        )
+        tl.gather(padded_cumsum, tl.where(tensor_idx_guard, tensor_idx, 0), 0)
         * GROUPS_PER_ROW
     )
 
     inner_idx = (
-        row_idx
-        - tl.load(
-            size_cumulative_ptr + tensor_idx + (num_segments + 1) * pid,
-            mask=(tensor_idx >= 0),
-        )
+        row_idx - tl.gather(cumsum, tl.where(tensor_idx_guard, tensor_idx, 0), 0)
     ) * GROUPS_PER_ROW
 
     actual_scale_offset = tensor_offset + inner_idx + exp_offset % GROUPS_PER_ROW
@@ -3572,28 +3540,22 @@ def _mega_fp4_quantize_kernel(
         exp_offset += GROUP_LOAD
         row_idx = exp_offset // GROUPS_PER_ROW
 
-        tensor_idx = tl.load(
-            search_storage_ptr + pid * search_size + row_idx - init_offset_exp,
-            mask=(row_idx < M)
+        tensor_idx_guard = (
+            (row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
-            & (exp_offset < SCALE_SIZE),
-            other=-1,
+            & (exp_offset < SCALE_SIZE)
+        )
+        tensor_idx = tl.gather(
+            left, tl.where(tensor_idx_guard, row_idx - init_offset_exp, 0), 0
         )
 
         tensor_offset = (
-            tl.load(
-                starting_row_after_padding_ptr + tensor_idx + (num_segments + 1) * pid,
-                mask=(tensor_idx >= 0),
-            )
+            tl.gather(padded_cumsum, tl.where(tensor_idx_guard, tensor_idx, 0), 0)
             * GROUPS_PER_ROW
         )
 
         inner_idx = (
-            row_idx
-            - tl.load(
-                size_cumulative_ptr + tensor_idx + (num_segments + 1) * pid,
-                mask=(tensor_idx >= 0),
-            )
+            row_idx - tl.gather(cumsum, tl.where(tensor_idx_guard, tensor_idx, 0), 0)
         ) * GROUPS_PER_ROW
 
         actual_scale_offset = tensor_offset + inner_idx + exp_offset % GROUPS_PER_ROW
@@ -3681,10 +3643,6 @@ def mega_fp4_quantize_kernel(
     dtype = m_sizes.dtype
     num_segments = m_sizes.shape[0]
     max_row_per_thread = math.ceil(groups_per_thread / groups_per_row)
-    # cumulative size for m_sizes
-    size_cumulative = torch.empty(
-        (num_segments + 1) * num_threads, dtype=dtype, device=device
-    )
 
     # Allocate outputs
     starting_row_after_padding = torch.empty(
@@ -3693,7 +3651,6 @@ def mega_fp4_quantize_kernel(
 
     search_size = max_row_per_thread + 3
     search_padded_power = triton.next_power_of_2(search_size)
-    search_storage = torch.empty(search_size * num_threads, dtype=dtype, device=device)
 
     # Invoke triton quantization kernel over rows.
     grid = (num_threads,)
@@ -3701,9 +3658,7 @@ def mega_fp4_quantize_kernel(
     # Single block handles everything
     _mega_fp4_quantize_kernel[grid](
         m_sizes,
-        size_cumulative,
         starting_row_after_padding,
-        search_storage,
         search_size,
         search_padded_power,
         input,
