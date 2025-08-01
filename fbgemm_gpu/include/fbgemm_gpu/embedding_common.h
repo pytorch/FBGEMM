@@ -23,6 +23,9 @@ enum class SparseType : uint8_t {
   BF16 = 5,
   FP8 = 6,
   INVALID = 7,
+  MX4 = 8,
+  NFP8 = 9,
+
 };
 
 enum class PoolingMode : uint8_t { SUM = 0, MEAN = 1, NONE = 2 };
@@ -55,6 +58,12 @@ inline at::ScalarType getScalarType(SparseType dtype) {
       return at::kQUInt4x2;
     case SparseType::INT2:
       return at::kQUInt2x4;
+    case SparseType::NFP8:
+#if (defined(USE_ROCM) && !HIP_FP8_TYPE_OCP)
+      return at::kFloat8_e4m3fnuz;
+#else
+      return at::kFloat8_e4m3fn;
+#endif
     default:
       return at::ScalarType::Undefined;
   }
@@ -77,6 +86,10 @@ inline SparseType getSparseType(at::ScalarType dtype) {
       return SparseType::INT4;
     case at::kQUInt2x4:
       return SparseType::INT2;
+    case at::kFloat8_e4m3fn:
+      return SparseType::NFP8;
+    case at::kFloat8_e4m3fnuz:
+      return SparseType::NFP8;
     default:
       return SparseType::INVALID;
   }
@@ -106,6 +119,9 @@ C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t unpadded_row_size_in_bytes(
     return dim * 2;
   }
   if (weight_ty == fbgemm_gpu::SparseType::FP8) {
+    return dim;
+  }
+  if (weight_ty == fbgemm_gpu::SparseType::NFP8) {
     return dim;
   }
   if (weight_ty == fbgemm_gpu::SparseType::INT8) {
