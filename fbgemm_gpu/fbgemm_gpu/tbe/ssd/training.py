@@ -180,6 +180,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Set the optimizer
         assert optimizer in (
             OptimType.EXACT_ROWWISE_ADAGRAD,
+            OptimType.PARTIAL_ROWWISE_ADAM,
         ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
         self.optimizer = optimizer
 
@@ -2248,7 +2249,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.step += 1
 
         # Increment the iteration (value is used for certain optimizers)
-        self._increment_iteration()
+        iter_int = self._increment_iteration()
 
         if self.optimizer == OptimType.EXACT_SGD:
             raise AssertionError(
@@ -2267,6 +2268,24 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
             return invokers.lookup_rowwise_adagrad_ssd.invoke(
                 common_args, self.optimizer_args, momentum1
+            )
+
+        elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
+            momentum2 = invokers.lookup_args_ssd.Momentum(
+                # pyre-ignore[6]
+                dev=self.momentum2_dev,
+                # pyre-ignore[6]
+                host=self.momentum2_host,
+                # pyre-ignore[6]
+                uvm=self.momentum2_uvm,
+                # pyre-ignore[6]
+                offsets=self.momentum2_offsets,
+                # pyre-ignore[6]
+                placements=self.momentum2_placements,
+            )
+
+            return invokers.lookup_partial_rowwise_adam_ssd.invoke(
+                common_args, self.optimizer_args, momentum1, momentum2, iter_int
             )
 
     @torch.jit.ignore

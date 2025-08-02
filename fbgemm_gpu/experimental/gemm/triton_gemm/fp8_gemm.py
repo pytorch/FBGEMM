@@ -23,6 +23,8 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.utils import (
     map_dtype_to_triton,
     TmaAutoTuneHelper,
 )
+
+from packaging import version
 from torch._tensor import Tensor
 
 from triton import Config  # @manual
@@ -926,12 +928,24 @@ def _kernel_matmul_fp8_row_tma_persistent(
 has_warp_specialization = hasattr(tl, "async_task")
 
 
+def make_autotuner_config(dictargs, **kwargs):
+    # NOTE: Triton 3.4.x removed some keyword arguments from Config constructor;
+    # however, fbcode uses 3.3.1, and so this shim is provided to support both
+    # versions.
+    #
+    # https://github.com/triton-lang/triton/blob/v3.3.1/python/triton/runtime/autotuner.py#L275
+    # https://github.com/triton-lang/triton/blame/release/3.4.x/python/triton/runtime/autotuner.py#L319
+    if version.parse(triton.__version__) > version.parse("3.3.1"):
+        for key in ["num_buffers_warp_spec", "num_consumer_groups"]:
+            kwargs.pop(key, None)
+    return Config(dictargs, **kwargs)
+
+
 def get_ws_configs() -> List[Config]:
     if not has_warp_specialization:
         return []
     return [
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 128,
                 "BLOCK_N": 256,
@@ -944,8 +958,7 @@ def get_ws_configs() -> List[Config]:
             num_consumer_groups=2,
             num_buffers_warp_spec=3,
         ),
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 128,
                 "BLOCK_N": 128,
@@ -958,8 +971,7 @@ def get_ws_configs() -> List[Config]:
             num_consumer_groups=2,
             num_buffers_warp_spec=4,
         ),
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 128,
                 "BLOCK_N": 256,
@@ -972,8 +984,7 @@ def get_ws_configs() -> List[Config]:
             num_consumer_groups=0,
             num_buffers_warp_spec=3,
         ),
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 64,
                 "BLOCK_N": 64,
@@ -3613,11 +3624,6 @@ def prune_configs(configs, named_args, **kwargs):
         # skip large split_k when not necessary
         if SPLIT_K != 1 and not need_split_k(M, N, K):
             continue
-        # skip split_k that leads to EVEN_K = false
-        leap = SPLIT_K * BLOCK_SIZE_K
-        modv = K % leap
-        if modv != 0:
-            continue
         # skip large GROUP_M
         if GROUP_M * BLOCK_SIZE_M >= M and GROUP_M != 1:
             continue
@@ -3734,6 +3740,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     ),
     triton.Config(
         {
+            "BLOCK_M": 64,
+            "BLOCK_N": 64,
+            "BLOCK_K": 256,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
             "BLOCK_M": 256,
             "BLOCK_N": 256,
             "BLOCK_K": 128,
@@ -3786,6 +3806,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
             "kpack": 1,
         },
         num_warps=8,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 128,
+            "BLOCK_K": 128,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
         num_stages=2,
     ),
     triton.Config(
