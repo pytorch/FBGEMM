@@ -98,6 +98,9 @@ def _combine_or_split_shuffling(
     T_BUCKET_CAP = 16384
     T_BUCKET = min(triton.next_power_of_2(T), T_BUCKET_CAP)
 
+    BLOCK_E = max(triton.next_power_of_2(E), 8)
+    BLOCK_EG = max(triton.next_power_of_2(EG), 8)
+
     _fbgemm_combine_or_split_shuffling[grid](
         tokens,
         token_counts,
@@ -106,11 +109,13 @@ def _combine_or_split_shuffling(
         is_combine,
         is_balanced,
         T_BUCKET,
+        expert_start,
         EG,
         EP,
         E,
         D,
-        expert_start,
+        BLOCK_E,
+        BLOCK_EG,
         SPLIT_D,
     )
 
@@ -262,11 +267,13 @@ def _fbgemm_combine_or_split_shuffling(
     COMBINE: tl.constexpr,
     BALANCED,
     T_BUCKET,
+    EG_START,
     EG: tl.constexpr,
     EP: tl.constexpr,
     E: tl.constexpr,
     D: tl.constexpr,
-    EG_START,
+    BLOCK_E: tl.constexpr,
+    BLOCK_EG: tl.constexpr,
     SPLIT_D: tl.constexpr,
     BLOCK_T: tl.constexpr,
     BLOCK_D: tl.constexpr,
@@ -284,22 +291,24 @@ def _fbgemm_combine_or_split_shuffling(
     rank = tidx // (EG * SPLIT_D)
     local_expert = (tidx % (EG * SPLIT_D)) // SPLIT_D
     didx = tidx % SPLIT_D
+    offs_e = tl.arange(0, BLOCK_E)
+    offs_eg = tl.arange(0, BLOCK_EG)
 
     global_expert = local_expert + EG_START
 
     input_token_counts = tl.load(
-        input_token_counts_ptr
-        + tl.arange(0, EP)[:, None] * E
-        + tl.arange(0, E)[None, :],
+        input_token_counts_ptr + tl.arange(0, EP)[:, None] * E + offs_e[None, :],
         eviction_policy="evict_last",
+        mask=(offs_e[None, :] < E),
     )  # [EP, E]
 
     input_token_counts_eg = tl.load(
         input_token_counts_ptr
         + tl.arange(0, EP)[:, None] * E
         + EG_START
-        + tl.arange(0, EG)[None, :],
+        + offs_eg[None, :],
         eviction_policy="evict_last",
+        mask=(offs_eg[None, :] < EG),
     )  # [EP, EG]
 
     if COMBINE:
@@ -309,15 +318,18 @@ def _fbgemm_combine_or_split_shuffling(
             if EG == E:
                 output_token_counts = tl.sum(input_token_counts, axis=0)
                 tl.store(
-                    output_token_counts_ptr + tl.arange(0, E)[:], output_token_counts
+                    output_token_counts_ptr + offs_e,
+                    output_token_counts,
+                    mask=(offs_e < E),
                 )
                 output_token_counts = tl.sum(output_token_counts)
                 tl.store(output_token_counts_ptr + E, output_token_counts)
             else:
                 output_token_counts_eg = tl.sum(input_token_counts_eg, axis=0)
                 tl.store(
-                    output_token_counts_ptr + tl.arange(0, EG)[:],
+                    output_token_counts_ptr + offs_eg,
                     output_token_counts_eg,
+                    mask=(offs_eg < EG),
                 )
                 output_token_counts_eg = tl.sum(output_token_counts_eg)
                 tl.store(output_token_counts_ptr + EG, output_token_counts_eg)
@@ -326,8 +338,8 @@ def _fbgemm_combine_or_split_shuffling(
     cond0 = tl.arange(0, EP)[:, None] < rank
     cond1 = tl.arange(0, EP)[:, None] == rank
 
-    cond2 = tl.arange(0, E)[None, :] < global_expert
-    cond3 = tl.arange(0, E)[None, :] == global_expert
+    cond2 = offs_e[None, :] < global_expert
+    cond3 = offs_e[None, :] == global_expert
 
     # r < rank || (r == rank && e < expert)
     ep_first_order = tl.sum(tl.where(cond0 or (cond1 and cond2), input_token_counts, 0))
@@ -338,8 +350,8 @@ def _fbgemm_combine_or_split_shuffling(
         )
     else:
         # e < expert || (e == expert && r < rank)
-        cond4 = tl.arange(0, EG)[None, :] < local_expert
-        cond5 = tl.arange(0, EG)[None, :] == local_expert
+        cond4 = offs_eg[None, :] < local_expert
+        cond5 = offs_eg[None, :] == local_expert
 
         expert_first_order = tl.sum(
             tl.where(cond4 or (cond5 and cond0), input_token_counts_eg, 0)
