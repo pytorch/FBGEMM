@@ -75,14 +75,13 @@ option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
+string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
     set(FBGEMM_LIBRARY_TYPE "SHARED")
   else()
     set(FBGEMM_LIBRARY_TYPE "STATIC")
   endif()
-else()
-  string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
 # Add address sanitizer
