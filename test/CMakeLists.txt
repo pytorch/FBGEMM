@@ -28,7 +28,7 @@ if(NOT GTest_FOUND)
   set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS})
 endif()
 
-if (FBGEMM_USE_SANITIZER)
+if(FBGEMM_USE_SANITIZER)
   message(WARNING "USING SANITIZER IN TEST")
 endif()
 
@@ -59,7 +59,7 @@ function(add_gtest TESTNAME)
       /wd4305
       /wd4309)
 
-    if (FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
+    if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
       target_compile_definitions(${TESTNAME} PRIVATE
         FBGEMM_STATIC)
     endif()
@@ -74,18 +74,19 @@ function(add_gtest TESTNAME)
     endif()
   endif()
 
-  if (FBGEMM_USE_SANITIZER)
+  if(FBGEMM_USE_SANITIZER)
     target_compile_options(${TESTNAME} PRIVATE
       "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
     target_link_options(${TESTNAME} PRIVATE
       "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
   endif()
 
-  target_link_libraries(${TESTNAME}
-    gtest
-    gmock
-    gtest_main
-    fbgemm)
+  target_link_libraries(${TESTNAME} fbgemm)
+  if(TARGET GTest::gtest_main)
+    target_link_libraries(${TESTNAME} GTest::gmock GTest::gtest_main)
+  else()
+    target_link_libraries(${TESTNAME} gmock gtest_main)
+  endif()
 
   if(OpenMP_FOUND)
     target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)
@@ -110,8 +111,15 @@ foreach(TEST_FILE ${TEST_LIST})
   endif()
 
   # NOTE: Skip tests on ARM for now until linking issues are fixed
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
-    continue()
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    if(TEST_FILE MATCHES "Conv"
+    OR TEST_FILE MATCHES "I8DepthwiseTest.cc$"
+    OR TEST_FILE MATCHES "FP16Test.cc$"
+    OR TEST_FILE MATCHES "I8SpmdmTest.cc$"
+    OR TEST_FILE MATCHES "I8DirectconvTest.cc$"
+    OR TEST_FILE MATCHES "Requantize")
+      continue()
+    endif()
   endif()
 
   message(STATUS "Processing: ${TEST_FILE}")

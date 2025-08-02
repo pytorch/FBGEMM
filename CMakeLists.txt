@@ -75,14 +75,13 @@ option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
+  string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
     set(FBGEMM_LIBRARY_TYPE "SHARED")
   else()
     set(FBGEMM_LIBRARY_TYPE "STATIC")
   endif()
-else()
-  string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
 # Add address sanitizer
@@ -267,7 +266,7 @@ endif()
 # FBGEMM Neon Target
 ################################################################################
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")
 
   get_filelist("get_fbgemm_inline_neon_srcs(msvc=${MSVC_BOOL})" FBGEMM_NEON_SRCS)
@@ -436,7 +435,9 @@ if(FBGEMM_BUILD_TESTS)
 endif()
 
 if(FBGEMM_BUILD_BENCHMARKS)
-  add_subdirectory(bench)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    add_subdirectory(bench)
+  endif()
 endif()
 
 if(FBGEMM_BUILD_DOCS)
