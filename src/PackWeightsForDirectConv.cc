@@ -216,6 +216,8 @@ template void directConvRowSum<3>(
     int32_t* inSum,
     int32_t* rowSum);
 
+#ifndef __aarch64__
+
 template <
     int SPATIAL_DIM,
     QuantizationGranularity Q_GRAN,
@@ -487,4 +489,7 @@ INSTANTIATE_Q_GRANS(false)
 #undef INSTANTIATE_REQUANTIZE_BIAS_TYPE
 #undef INSTANTIATE_REQUANTIZE
 #undef INSTANTIATE_Q_GRANS
+
+#endif // __aarch64__
+
 } // namespace fbgemm

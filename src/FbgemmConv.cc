@@ -114,6 +114,8 @@ optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   }
 }
 
+#ifndef __aarch64__
+
 template <typename processOutputType, int SPATIAL_DIM, typename ACC_T>
 int fbgemmConv(
     const conv_param_t<SPATIAL_DIM>& conv_p,
@@ -386,6 +388,8 @@ INSTANTIATE_Q_GRANS(std::int32_t)
 #undef INSTANTIATE_SPATIAL_DIM
 #undef INSTANTIATE_BIAS_T
 #undef INSTANTIATE_BASE
+
+#endif // __aarch64__
 
 template bool takeDepthWiseFastPath<2, std::int32_t>(
     const conv_param_t<2>& conv_p);
