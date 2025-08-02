@@ -54,6 +54,7 @@ class ShufflingTests(unittest.TestCase):
         num_tokens=st.sampled_from(
             [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
         ),
+        D=st.sampled_from([None, 5120]),
         num_experts=st.sampled_from([16, 32, 128, 320]),
         num_local_experts=st.sampled_from([None, 8]),
         top_k=st.sampled_from([1, 2, 4] if torch.version.cuda else [1]),
@@ -66,6 +67,7 @@ class ShufflingTests(unittest.TestCase):
     def test_topk_index_shuffling(
         self,
         num_tokens: int,
+        D: int,
         num_experts: int,
         num_local_experts: Optional[int],
         top_k: int,
@@ -84,7 +86,7 @@ class ShufflingTests(unittest.TestCase):
             )
 
         torch.manual_seed(0)
-
+        D = 1 if D is None else D
         expert_index_start: int = 0
         expert_index_end: int = num_experts
         if num_local_experts is not None:
@@ -109,7 +111,7 @@ class ShufflingTests(unittest.TestCase):
             op = index_shuffling
             if compiled:
                 op = torch.compile(op, backend="inductor", fullgraph=True)
-            if num_local_experts is None and valid_token_counts is None:
+            if num_local_experts is None and valid_token_counts is None and D is None:
                 return op(routing_scores, top_k=top_k)
             else:
                 return op(
@@ -117,6 +119,7 @@ class ShufflingTests(unittest.TestCase):
                     expert_index_start,
                     expert_index_end,
                     valid_token_counts,
+                    D,
                     top_k,
                 )
 
@@ -129,8 +132,8 @@ class ShufflingTests(unittest.TestCase):
             token_indices = flattened_position_indices // top_k
             expert_ids = torch.arange(num_experts, device=expert_indices.device)
             token_counts_per_expert = (
-                expert_indices[:, None] == expert_ids[None, :]
-            ).sum(dim=0)
+                (expert_indices[:, None] == expert_ids[None, :]).sum(dim=0)
+            ) * D
             return (
                 token_counts_per_expert.flatten(),
                 expert_indices.flatten(),
@@ -149,8 +152,9 @@ class ShufflingTests(unittest.TestCase):
             )
         )
         self.assertEqual(token_counts_per_expert[-2].item(), num_total_tokens)
-        ref_num_sorted_tokens = torch.sum(
-            ref_token_counts_per_expert[expert_index_start:expert_index_end]
+        ref_num_sorted_tokens = (
+            torch.sum(ref_token_counts_per_expert[expert_index_start:expert_index_end])
+            // D
         )
         self.assertEqual(token_counts_per_expert[-1].item(), ref_num_sorted_tokens)
 
@@ -193,9 +197,9 @@ class ShufflingTests(unittest.TestCase):
 
         ref_start_index, start_index = 0, 0
         for i in range(num_experts):
-            ref_end_index = ref_start_index + ref_token_counts_per_expert[i]
+            ref_end_index = ref_start_index + ref_token_counts_per_expert[i] // D
             if i >= expert_index_start and i < expert_index_end:
-                end_index = start_index + token_counts_per_expert[i]
+                end_index = start_index + token_counts_per_expert[i] // D
                 self.assertTrue(
                     torch.equal(
                         token_counts_per_expert[i],

@@ -24,6 +24,8 @@ Args:
       the expert to be routed, exclusive. If not passed, it is assumed to be E.
     - `valid_token_count`: Optional. (1) tensor of valid token count per expert.
       If not passed, it is assumed to be T.
+    - `D`: Optional. Multiplier to number of tokens. If not passed, it is
+assumed to be 1.
     - `top_k`: Optional. Number of experts to activate per token. If not passed,
 it is assumed to be 1.
 
@@ -42,6 +44,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     const std::optional<int64_t>& expert_index_start,
     const std::optional<int64_t>& expert_index_end,
     const std::optional<at::Tensor>& valid_token_count,
+    const std::optional<int64_t>& D,
     const int64_t top_k = 1);
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch_meta(
@@ -49,6 +52,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch_meta(
     const std::optional<int64_t>& expert_index_start,
     const std::optional<int64_t>& expert_index_end,
     const std::optional<at::Tensor>& valid_token_count,
+    const std::optional<int64_t>& D,
     const int64_t top_k = 1) {
   int T = routing_scores.size(0);
   int E = routing_scores.size(1);
