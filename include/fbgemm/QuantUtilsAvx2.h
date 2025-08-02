@@ -8,6 +8,8 @@
 
 #pragma once
 
+#ifndef __aarch64__
+
 #include <cstdint>
 #include "./FbgemmBuild.h" // @manual
 #include "./UtilsAvx2.h" // @manual
@@ -168,3 +170,5 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     OutputType* output);
 
 } // namespace fbgemm
+
+#endif // __aarch64__
