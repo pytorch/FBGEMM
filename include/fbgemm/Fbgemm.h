@@ -1419,6 +1419,8 @@ FBGEMM_API void fbgemmGroupwiseConv(
     int thread_id,
     int num_threads);
 
+#ifndef __aarch64__
+
 template <
     int SPATIAL_DIM,
     QuantizationGranularity Q_GRAN,
@@ -1434,6 +1436,8 @@ FBGEMM_API void fbgemmDirectConv(
     const BIAS_TYPE* bias,
     int thread_id,
     int num_threads);
+
+#endif // __aarch64__
 
 /**
  * @return Size of row offset buffer in number of elements needed for
@@ -1467,6 +1471,8 @@ FBGEMM_API bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
  */
 FBGEMM_API bool fbgemmSupportedCPU();
 
+#ifndef __aarch64__
+
 /**
  * @brief Performs convolution using fastest path available.
  *
@@ -1486,6 +1492,8 @@ FBGEMM_API int fbgemmConv(
     int thread_id,
     int num_threads,
     const BlockingFactors* blocking_params = nullptr);
+
+#endif // __aarch64__    
 
 /**
  * @brief Returns which fast path to take
