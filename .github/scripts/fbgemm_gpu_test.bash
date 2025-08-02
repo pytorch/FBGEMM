@@ -141,6 +141,7 @@ __configure_fbgemm_gpu_test_rocm () {
     ./sll/triton_sll_test.py
     ./gather_scatter/gather_scatter_test.py
     ./moe/layers_test.py  # Not a python unittest file
+    ./attention/mem_eff_attention_test.py # temporarily disabled until CK sources ready
   )
 }
 
@@ -198,7 +199,8 @@ __setup_fbgemm_gpu_test () {
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     pytest \
-    expecttest) || return 1
+    expecttest \
+    scipy) || return 1
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
