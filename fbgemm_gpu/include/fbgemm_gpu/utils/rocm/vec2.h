@@ -112,6 +112,17 @@ struct Vec2T<float> : public Vec2BaseT<float> {
     acc.y = p[1];
   }
 
+  DEVICE_INLINE void load(const at::Float8_e4m3fnuz* p) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    const __nv_fp8x2_e4m3* fp8_ptr =
+        reinterpret_cast<const __nv_fp8x2_e4m3*>(p);
+    acc = static_cast<float2>(fp8_ptr[0]);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
   DEVICE_INLINE void load(const uint8_t* p) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -137,6 +148,16 @@ struct Vec2T<float> : public Vec2BaseT<float> {
   DEVICE_INLINE void store(at::BFloat16* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
+  }
+
+  DEVICE_INLINE void store(at::Float8_e4m3fnuz* p) const {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    __nv_fp8x2_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x2_e4m3*>(p);
+    fp8_ptr[0] = static_cast<__nv_fp8x2_e4m3>(acc);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
   }
 
   DEVICE_INLINE void store(uint8_t* p) const {

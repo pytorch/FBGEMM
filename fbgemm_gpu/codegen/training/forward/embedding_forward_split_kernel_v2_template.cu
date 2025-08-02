@@ -92,6 +92,18 @@ struct Vec4Type<uint8_t> {
   using type = uint8_t;
 };
 
+{%- if is_rocm %}
+template <>
+struct Vec4Type<at::Float8_e4m3fnuz> {
+  using type = c10::Float8_e4m3fnuz;
+};
+{%- else %}
+template <>
+struct Vec4Type<at::Float8_e4m3fn> {
+  using type = c10::Float8_e4m3fn;
+};
+{%- endif %}
+
 template <typename T>
 using vec4_type = typename Vec4Type<T>::type;
 
@@ -987,7 +999,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 
 {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
 {%- for index_type in ['int32_t', 'int64_t'] %}
-{%- for emb_type in ['float', 'at::Half'] %}
+{%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for use_cache in ['true', 'false'] %}
 
