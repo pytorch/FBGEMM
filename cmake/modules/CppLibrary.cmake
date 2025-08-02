@@ -75,19 +75,13 @@ function(cpp_library)
     ############################################################################
 
     if(MSVC)
-        # MSVC needs to define these variables to avoid generating _dllimport
-        # functions.
-        if(args_TYPE STREQUAL STATIC)
-            target_compile_definitions(${lib_name}
-                PUBLIC ASMJIT_STATIC
-                PUBLIC FBGEMM_STATIC)
-        endif()
-
         set(lib_cc_flags
             ${args_MSVC_FLAGS}
             /wd4244
             /wd4267
             /wd4305
+            # For recursive warnings in Fbgemm.h
+            /wd4717
             /wd4309)
 
     else()
@@ -97,6 +91,7 @@ function(cpp_library)
             -Wall
             -Wextra
             -Werror
+            -Wno-switch
             -Wunknown-pragmas
             -Wimplicit-fallthrough
             -Wno-strict-aliasing
@@ -104,13 +99,12 @@ function(cpp_library)
             -Wno-sign-compare
             -Wno-vla
             -Wno-error=unused-parameter
+            -Wno-error=switch
             -Wno-error=attributes)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
             list(APPEND lib_cc_flags
-                -Wno-c99-extensions
-                -Wno-gnu-zero-variadic-macro-arguments
-                -Wno-deprecated-enum-enum-conversion)
+                -Wno-gnu-zero-variadic-macro-arguments)
 
             if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
                 list(APPEND lib_cc_flags
@@ -130,11 +124,6 @@ function(cpp_library)
                 -Wmaybe-uninitialized
                 -Wno-error=unused-but-set-parameter
                 -Wno-error=unused-but-set-variable)
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
-                list(APPEND lib_cc_flags
-                    -Wno-deprecated-enum-enum-conversion)
-            endif()
 
             if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0)
                 # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
