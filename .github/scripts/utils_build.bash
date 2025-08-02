@@ -413,14 +413,16 @@ install_build_tools () {
 
 print_library_infos () {
   # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
-  local built_so_files=$(find . -name *.so | grep .*cmake-build/.*)
-  readarray -t built_so_files <<<"$built_so_files"
+  readarray -t built_so_files < <(
+    find . -name "*.so" | grep '\.cmake-build/' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+  )
 
   # Check if array is empty
   if [ ${#built_so_files[@]} -eq 0 ]; then
-    echo "No .so files found in cmake-build directories."
-    built_so_files=$(find . -name *.so)
-
+    echo "[BUILD] No .so files found in cmake-build/, looking at . instead ..."
+    readarray -t built_so_files < <(
+      find . -name "*.so" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+    )
   fi
 
   for library in "${built_so_files[@]}"; do
