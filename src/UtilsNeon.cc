@@ -8,9 +8,7 @@
 #include "./TransposeUtils.h" // @manual
 #include "./TransposeUtilsNeon.h" // @manual
 
-namespace fbgemm {
-
-namespace internal {
+namespace fbgemm::internal {
 
 static inline void transpose_kernel_mx1(
     const float* src,
@@ -107,8 +105,6 @@ void transpose_neon(
   }
 }
 
-} // namespace internal
-
-} // namespace fbgemm
+} // namespace fbgemm::internal
 
 #endif // #ifdef __aarch64__
