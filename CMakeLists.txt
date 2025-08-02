@@ -62,6 +62,7 @@ include(CheckCXXCompilerFlag)
 include(GNUInstallDirs)
 
 # Check AVX
+set(CHECK_AVX_COMPILE ON)
 include(${MODULE_PATH}/FindAVX.cmake)
 
 # Load Python

@@ -82,7 +82,7 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
-#ifdef __AVX512F__
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
@@ -102,7 +102,7 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
     nullptr,
-#ifdef __AVX512F__
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
@@ -150,6 +150,7 @@ const isa_descriptor<float16>& getIsaHandlers(
     case inst_set_t::anyarch:
     case inst_set_t::avx2:
       return avx2_descriptor;
+
     case inst_set_t::avx512:
     case inst_set_t::avx512_vnni:
       return avx512_descriptor;
