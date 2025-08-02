@@ -10,10 +10,25 @@
 import logging
 from typing import Optional, Union
 
-import torch
+import torch  # isort:skip
+
+import fbgemm_gpu
 
 from fbgemm_gpu.triton import dequantize_mx4, quantize_mx4, RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
+
+try:
+    # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+    open_source = bool(getattr(fbgemm_gpu, "open_source", False))
+except NotImplementedError:
+    open_source = False
+
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+if not open_source:
+    from mtia.kernels.triton.mx4.quantize import (
+        triton_dequantize_mx4 as mtia_dequantize_mx4,
+        triton_quantize_mx4 as mtia_quantize_mx4,
+    )
 
 logger: logging.Logger = logging.getLogger()
 
@@ -60,7 +75,7 @@ def fp32_to_mx4(
     if rounding_mode is None:
         rounding_mode = RoundingMode.even
 
-    if not tensor.is_cuda:
+    if not tensor.is_cuda and not tensor.is_mtia:
         return py_quantize_mx4(
             tensor,
             group_size,
@@ -71,6 +86,15 @@ def fp32_to_mx4(
         )
 
     if use_triton:
+        if tensor.is_mtia:
+            return mtia_quantize_mx4(
+                tensor,
+                group_size,
+                ebits=ebits,
+                mbits=mbits,
+                rounding_mode=rounding_mode,
+                stochastic_casting=stochastic_casting,
+            )
         return quantize_mx4(
             tensor,
             group_size,
@@ -113,9 +137,11 @@ def mx4_to_fp32(
         output: FP32 tensor with total elements (M).
     """
     # Accelerated MX4 dequantize is only available on cuda, if input is on cpu, use python.
-    if not tensor.is_cuda:
+    if not tensor.is_cuda and not tensor.is_mtia:
         return py_dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
     if use_triton:
+        if tensor.is_mtia:
+            return mtia_dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
         return dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
     else:
         return torch.ops.fbgemm.dequantize_mx_cuda(tensor.flatten(), group_size)
