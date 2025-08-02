@@ -217,9 +217,10 @@ class ShufflingTests(unittest.TestCase):
         num_tokens=st.sampled_from(
             [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
         ),
-        num_experts=st.sampled_from([16, 128]),
+        num_experts=st.sampled_from([16, 80, 128]),
         ep_size=st.sampled_from([4, 8]),
         dim=st.sampled_from([5120]),
+        top_k=st.sampled_from([1, 4]),
         sparse=st.sampled_from([True, False]),
         balanced=st.sampled_from([False]),
         target_fn=st.sampled_from(["combine_shuffling", "split_shuffling"]),
@@ -231,11 +232,13 @@ class ShufflingTests(unittest.TestCase):
         num_experts: int,
         ep_size: int,
         dim: int,
+        top_k: int,
         sparse: bool,
         balanced: bool,
         target_fn: str,
     ) -> None:
         torch.manual_seed(0)
+        device = device = torch.accelerator.current_accelerator()
 
         is_combine_shuffling: bool = target_fn == "combine_shuffling"
         assert num_experts % ep_size == 0
@@ -253,7 +256,7 @@ class ShufflingTests(unittest.TestCase):
         expert_group_size: int = expert_end - expert_start
 
         tokens: torch.Tensor = torch.randn(
-            num_tokens, dim, device="cuda", dtype=torch.bfloat16
+            num_tokens * ep_size * top_k, dim, device=device, dtype=torch.bfloat16
         )
 
         if balanced:
@@ -261,7 +264,7 @@ class ShufflingTests(unittest.TestCase):
             num_tokens_per_expert = num_tokens // (ep_size * num_local_experts)
             token_counts: torch.Tensor = (
                 torch.ones(
-                    [ep_size, num_local_experts], dtype=torch.int32, device="cuda"
+                    [ep_size, num_local_experts], dtype=torch.int32, device=device
                 )
                 * num_tokens_per_expert
             )
@@ -271,7 +274,7 @@ class ShufflingTests(unittest.TestCase):
                     low=0,
                     high=num_tokens,
                     size=(num_local_experts * ep_size + 1,),
-                    device="cuda",
+                    device=device,
                     dtype=torch.int32,
                 )
             )
@@ -360,7 +363,9 @@ class ShufflingTests(unittest.TestCase):
             )
 
         num_valid_tokens = ref_output_tokens.shape[0]
-        self.assertEqual(tuple(output_tokens.shape), (num_tokens, dim))
+        self.assertEqual(
+            tuple(output_tokens.shape), (num_tokens * ep_size * top_k, dim)
+        )
         if not is_combine_shuffling and sparse:
             reverse_input_tokens = torch.concat(
                 slice_tokens(output_tokens, combine=True)
