@@ -22,6 +22,8 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.utils import (
     map_dtype_to_triton,
     TmaAutoTuneHelper,
 )
+
+from packaging import version
 from torch._tensor import Tensor
 
 from triton import Config  # @manual
@@ -923,12 +925,24 @@ def _kernel_matmul_fp8_row_tma_persistent(
 has_warp_specialization = hasattr(tl, "async_task")
 
 
+def make_autotuner_config(dictargs, **kwargs):
+    # NOTE: Triton 3.4.x removed some keyword arguments from Config constructor;
+    # however, fbcode uses 3.3.1, and so this shim is provided to support both
+    # versions.
+    #
+    # https://github.com/triton-lang/triton/blob/v3.3.1/python/triton/runtime/autotuner.py#L275
+    # https://github.com/triton-lang/triton/blame/release/3.4.x/python/triton/runtime/autotuner.py#L319
+    if version.parse(triton.__version__) > version.parse("3.3.1"):
+        for key in ["num_buffers_warp_spec", "num_consumer_groups"]:
+            kwargs.pop(key, None)
+    return Config(dictargs, **kwargs)
+
+
 def get_ws_configs() -> List[Config]:
     if not has_warp_specialization:
         return []
     return [
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 128,
                 "BLOCK_N": 256,
@@ -941,8 +955,7 @@ def get_ws_configs() -> List[Config]:
             num_consumer_groups=2,
             num_buffers_warp_spec=3,
         ),
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 128,
                 "BLOCK_N": 128,
@@ -955,8 +968,7 @@ def get_ws_configs() -> List[Config]:
             num_consumer_groups=2,
             num_buffers_warp_spec=4,
         ),
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 128,
                 "BLOCK_N": 256,
@@ -969,8 +981,7 @@ def get_ws_configs() -> List[Config]:
             num_consumer_groups=0,
             num_buffers_warp_spec=3,
         ),
-        # pyre-ignore
-        Config(
+        make_autotuner_config(
             {
                 "BLOCK_M": 64,
                 "BLOCK_N": 64,
