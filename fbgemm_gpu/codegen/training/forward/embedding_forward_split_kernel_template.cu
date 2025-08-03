@@ -931,7 +931,7 @@ batch_index_select_dim0_codegen_forward_kernel
 
 {%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
     {%- set max_vecs_per_thread = 2 * kMaxVecsPerThread if is_rocm else kMaxVecsPerThread %}
-    {%- for emb_type in ['float', 'at::Half'] %}
+    {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for index_type in ['int32_t', 'int64_t'] %}
