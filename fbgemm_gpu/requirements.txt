@@ -28,3 +28,4 @@ setuptools_git_versioning
 tabulate
 patchelf
 fairscale
+torchrec-nightly
