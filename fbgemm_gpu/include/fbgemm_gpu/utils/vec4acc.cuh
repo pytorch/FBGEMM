@@ -114,6 +114,22 @@ struct Vec4AccT {
     CUDA_KERNEL_ASSERT(false);
   }
 
+  DEVICE_INLINE void add(const c10::Float8_e4m3fn* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void fma(const c10::Float8_e4m3fn* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void add(const c10::Float8_e4m3fnuz* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void fma(const c10::Float8_e4m3fnuz* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
   DEVICE_INLINE void div(uint32_t denom) {
     acc[0] /= denom;
     acc[1] /= denom;
@@ -365,6 +381,134 @@ struct Vec4StepT<STEP, uint8_t> : Vec4AccT {
 
   DEVICE_INLINE void
   index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+};
+
+template <uint32_t STEP>
+struct Vec4StepT<STEP, c10::Float8_e4m3fn> : Vec4AccT {
+  DEVICE_INLINE Vec4StepT() {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void load(const c10::Float8_e4m3fn* ptr, const uint32_t idx) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void sum() {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void weighted_sum(
+      const float* const weights,
+      const uint32_t idx_shift,
+      const uint32_t idx_scale) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_add(uint32_t idx) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_fma(uint32_t idx, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_store(uint32_t idx, float4* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_store(uint32_t idx, float2* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_store(uint32_t idx, c10::Float8_e4m3fn* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, float4* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, float2* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t idx,
+      c10::Float8_e4m3fn* ptr,
+      const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+};
+
+template <uint32_t STEP>
+struct Vec4StepT<STEP, c10::Float8_e4m3fnuz> : Vec4AccT {
+  DEVICE_INLINE Vec4StepT() {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void load(const c10::Float8_e4m3fnuz* ptr, const uint32_t idx) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void sum() {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void weighted_sum(
+      const float* const weights,
+      const uint32_t idx_shift,
+      const uint32_t idx_scale) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_add(uint32_t idx) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_fma(uint32_t idx, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_store(uint32_t idx, float4* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_store(uint32_t idx, float2* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_store(uint32_t idx, c10::Float8_e4m3fnuz* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, float4* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, float2* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t idx,
+      c10::Float8_e4m3fnuz* ptr,
+      const float weight) {
     CUDA_KERNEL_ASSERT(false);
   }
 };

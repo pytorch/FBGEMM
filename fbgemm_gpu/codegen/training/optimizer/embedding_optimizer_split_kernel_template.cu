@@ -105,7 +105,7 @@ void split_{{ optimizer }}_update_kernel(
 
 {{ "#ifdef FBGEMM_USE_SUBWARP_SHUFFLE" if use_subwarp else "#else" }}
 
-{%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
+{%- for emb_type in (['uint8_t', 'float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for ph_type_combo in args.placeholder_type_combos %}
 
