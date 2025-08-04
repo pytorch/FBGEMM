@@ -7,7 +7,11 @@
  */
 
 #define FBGEMM_EXPORTS
+
+#ifndef __aarch64__
 #include "./OptimizedKernelsAvx2.h" // @manual
+#endif // __aarch64__
+
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>

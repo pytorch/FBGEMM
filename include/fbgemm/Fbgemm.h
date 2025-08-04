@@ -161,7 +161,11 @@ class PackMatrix {
    * @brief Actual packing of a block of the source matrix in pmat buffer.
    */
   void pack(const block_type_t& block) {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     static_cast<PT*>(this)->pack(block);
+#else
+    throw std::runtime_error("PackMatrix::pack() not implemented for aarch64");
+#endif // __aarch64__
   }
 
   std::int32_t numRows() const {
@@ -612,9 +616,11 @@ class FBGEMM_API PackWeightsForConv {
     return W_im2col_packed_;
   }
 
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWForDepthwise() {
     return W_dw_packed_;
   }
+#endif // __aarch64__
 
   std::shared_ptr<PackedDirectConvMatrix> getPackedWForDirectconv() {
     return W_dc_packed_;
@@ -666,8 +672,10 @@ class FBGEMM_API PackWeightsForConv {
   const conv_param_t<SPATIAL_DIM> conv_param_;
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   // Packed weights if we use depthwise convolution implementation
   std::shared_ptr<PackedDepthWiseConvMatrix> W_dw_packed_;
+#endif // __aarch64__
   // Packed weights if we use direct convolution implementation
   std::shared_ptr<PackedDirectConvMatrix> W_dc_packed_;
   // Packed weights if we use groupwise (small channels per group) convolution
