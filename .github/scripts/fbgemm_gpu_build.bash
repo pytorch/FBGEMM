@@ -8,6 +8,7 @@
 
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
+. "$( dirname -- "$BASH_SOURCE"; )/utils_build.bash"
 
 ################################################################################
 # FBGEMM_GPU Build Auxiliary Functions
@@ -556,46 +557,6 @@ __build_fbgemm_gpu_common_pre_steps () {
   print_exec git diff
 }
 
-__print_library_infos () {
-  # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
-  local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
-  readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
-
-  for library in "${fbgemm_gpu_so_files[@]}"; do
-    echo "################################################################################"
-    echo "[CHECK] BUILT LIBRARY: ${library}"
-
-    echo "[CHECK] Listing out library size:"
-    print_exec "du -h --block-size=1M ${library}"
-
-    print_glibc_info "${library}"
-
-    # shellcheck disable=SC2155
-    local symbols_file=$(mktemp --suffix ".symbols.txt")
-    print_exec "nm -gDC ${library} > ${symbols_file}"
-    # shellcheck disable=SC2086
-    echo "[CHECK] Total Number of symbols: $(wc -l ${symbols_file} | awk '{print $1}')"
-    # shellcheck disable=SC2086
-    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm ${symbols_file})"
-
-    # shellcheck disable=SC2155
-    local usymbols_file=$(mktemp --suffix ".usymbols.txt")
-    print_exec "nm -gDCu ${library} > ${usymbols_file}"
-    # shellcheck disable=SC2086
-    echo "[CHECK] Listing out undefined symbols ($(wc -l ${usymbols_file} | awk '{print $1}') total):"
-    cat "${usymbols_file}" | sort
-
-    echo "[CHECK] Listing out external shared libraries linked:"
-    print_exec ldd "${library}"
-
-    echo "[CHECK] Displaying ELF information:"
-    print_exec readelf -d "${library}"
-    echo "################################################################################"
-    echo ""
-    echo ""
-  done
-}
-
 __verify_library_symbols () {
   __test_one_symbol () {
     local symbol="$1"
@@ -670,7 +631,7 @@ __run_fbgemm_gpu_postbuild_checks () {
     return 1
   fi
 
-  __print_library_infos     || return 1
+  print_library_infos       || return 1
   __verify_library_symbols  || return 1
 }
 

@@ -13,7 +13,9 @@
 #include <array>
 #include <cassert>
 #include <cstring>
+#ifndef __aarch64__
 #include "./OptimizedKernelsAvx2.h" // @manual
+#endif // __aarch64__
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double spmdm_initial_time = 0.0;
@@ -54,6 +56,11 @@ void CompressedSparseColumn::SpMDM(
     bool accumulation,
     int32_t* C,
     int ldc) const {
+#ifdef __aarch64__
+  throw std::runtime_error(
+      "No fallback for fbgemm::SpMDM when AVX2 is not available");
+#else
+
   int K = NumOfRows();
   int N = block.col_size;
 
@@ -281,6 +288,8 @@ void CompressedSparseColumn::SpMDM(
   fbgemmAlignedFree(A_buffer);
   fbgemmAlignedFree(C_buffer);
 #endif
+
+#endif // __aarch64__
 }
 
 void CompressedSparseColumn::SparseConv(

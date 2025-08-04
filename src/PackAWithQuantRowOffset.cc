@@ -13,9 +13,12 @@
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
+
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 #include "./OptimizedKernelsAvx2.h" // @manual
-#include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx2.h"
+#endif // __aarch64__
+#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
@@ -122,6 +125,11 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
 
 template <typename T, typename accT>
 void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
+#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
+  throw std::runtime_error(
+      "PackAWithQuantRowOffset<T, accT>::pack(): No fallback available for aarch64");
+#else
+
   // assert(block.row_start % BaseType::blockRowSize() == 0);
   assert(block.row_size <= BaseType::blockRowSize());
   assert(block.col_size <= BaseType::blockColSize());
@@ -186,6 +194,8 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
   if (smat_transposed) {
     fbgemmAlignedFree(smat_transposed);
   }
+
+#endif // __aarch64__
 }
 
 template <typename T, typename accT>
