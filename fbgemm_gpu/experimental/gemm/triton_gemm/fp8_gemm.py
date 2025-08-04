@@ -3740,6 +3740,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     ),
     triton.Config(
         {
+            "BLOCK_M": 32,
+            "BLOCK_N": 64,
+            "BLOCK_K": 512,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=8,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
             "BLOCK_M": 64,
             "BLOCK_N": 64,
             "BLOCK_K": 256,
@@ -3820,6 +3834,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
             "kpack": 2,
         },
         num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 128,
+            "BLOCK_K": 256,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=8,
         num_stages=2,
     ),
     triton.Config(
