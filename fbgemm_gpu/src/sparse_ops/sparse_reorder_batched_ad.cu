@@ -85,18 +85,17 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
       cat_ad_lengths.scalar_type(),
       "reorder_batched_ad_lengths_gpu_kernel",
       [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "reorder_batched_ad_lengths_kernel";
-#endif
-        reorder_batched_ad_lengths_kernel<scalar_t>
-            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, cat_ad_lengths, scalar_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, batch_offsets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, reordered_cat_ad_lengths, scalar_t, 1, 32),
-                T,
-                broadcast_lengths);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (reorder_batched_ad_lengths_kernel<scalar_t>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(cat_ad_lengths, scalar_t, 1, 32),
+            PTA_B(batch_offsets, int32_t, 1, 32),
+            PTA_B(reordered_cat_ad_lengths, scalar_t, 1, 32),
+            T,
+            broadcast_lengths);
       });
   return reordered_cat_ad_lengths;
 }
@@ -377,27 +376,17 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
                 cat_ad_offsets.scalar_type(),
                 "narrow_broadcast_indices_kernel_2",
                 [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-                  const auto func_name = "narrow_broadcast_indices_kernel";
-#endif
-                  narrow_broadcast_indices_kernel<scalar_t, index_t>
-                      <<<blocks,
-                         threads,
-                         0,
-                         at::cuda::getCurrentCUDAStream()>>>(
-                          MAKE_PTA_WITH_NAME(
-                              func_name, cat_ad_offsets, index_t, 1, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name, cat_ad_indices, scalar_t, 1, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name,
-                              reordered_cat_ad_indices,
-                              scalar_t,
-                              1,
-                              32),
-                          num_ads_in_batch,
-                          reordered_cat_ad_offsets.numel() - 1);
-                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                  FBGEMM_LAUNCH_KERNEL(
+                      (narrow_broadcast_indices_kernel<scalar_t, index_t>),
+                      blocks,
+                      threads,
+                      0,
+                      at::cuda::getCurrentCUDAStream(),
+                      PTA_B(cat_ad_offsets, index_t, 1, 32),
+                      PTA_B(cat_ad_indices, scalar_t, 1, 32),
+                      PTA_B(reordered_cat_ad_indices, scalar_t, 1, 32),
+                      num_ads_in_batch,
+                      reordered_cat_ad_offsets.numel() - 1);
                 });
           });
       return reordered_cat_ad_indices;
@@ -416,35 +405,20 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
                 cat_ad_offsets.scalar_type(),
                 "narrow_batched_broadcast_indices_kernel_2",
                 [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-                  const auto func_name =
-                      "narrow_batched_broadcast_indices_kernel";
-#endif
-                  narrow_batched_broadcast_indices_kernel<scalar_t, index_t>
-                      <<<blocks,
-                         threads,
-                         0,
-                         at::cuda::getCurrentCUDAStream()>>>(
-                          MAKE_PTA_WITH_NAME(
-                              func_name, cat_ad_offsets, index_t, 1, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name, cat_ad_indices, scalar_t, 1, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name,
-                              reordered_cat_ad_offsets,
-                              index_t,
-                              1,
-                              32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name,
-                              reordered_cat_ad_indices,
-                              scalar_t,
-                              1,
-                              32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name, batch_offsets, int32_t, 1, 32),
-                          T);
-                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                  FBGEMM_LAUNCH_KERNEL(
+                      (narrow_batched_broadcast_indices_kernel<
+                          scalar_t,
+                          index_t>),
+                      blocks,
+                      threads,
+                      0,
+                      at::cuda::getCurrentCUDAStream(),
+                      PTA_B(cat_ad_offsets, index_t, 1, 32),
+                      PTA_B(cat_ad_indices, scalar_t, 1, 32),
+                      PTA_B(reordered_cat_ad_offsets, index_t, 1, 32),
+                      PTA_B(reordered_cat_ad_indices, scalar_t, 1, 32),
+                      PTA_B(batch_offsets, int32_t, 1, 32),
+                      T);
                 });
           });
       return reordered_cat_ad_indices;
@@ -582,41 +556,25 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
             cat_sequence_embeddings_offsets.scalar_type(),
             "reorder_batched_sequence_embeddings_gpu_kernel_2",
             [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-              const auto func_name =
-                  "reorder_batched_sequence_embeddings_kernel";
-#endif
-              reorder_batched_sequence_embeddings_kernel<scalar_t, index_t>
-                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                      MAKE_PTA_WITH_NAME(
-                          func_name,
-                          cat_sequence_embeddings_offsets,
-                          index_t,
-                          1,
-                          32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name,
-                          (*cat_sequence_embeddings_contig),
-                          scalar_t,
-                          2,
-                          32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name,
-                          reordered_cat_sequence_embeddings_offsets,
-                          index_t,
-                          1,
-                          32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name,
-                          reordered_cat_sequence_embeddings,
-                          scalar_t,
-                          2,
-                          32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, batch_offsets, int32_t, 1, 32),
-                      T,
-                      D);
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+              FBGEMM_LAUNCH_KERNEL(
+                  (reorder_batched_sequence_embeddings_kernel<
+                      scalar_t,
+                      index_t>),
+                  blocks,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(cat_sequence_embeddings_offsets, index_t, 1, 32),
+                  PTA_B((*cat_sequence_embeddings_contig), scalar_t, 2, 32),
+                  PTA_B(
+                      reordered_cat_sequence_embeddings_offsets,
+                      index_t,
+                      1,
+                      32),
+                  PTA_B(reordered_cat_sequence_embeddings, scalar_t, 2, 32),
+                  PTA_B(batch_offsets, int32_t, 1, 32),
+                  T,
+                  D);
             });
       });
   return reordered_cat_sequence_embeddings;
