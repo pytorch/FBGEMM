@@ -265,7 +265,7 @@ void sparseDenseInt8MMRef(
     bool accum,
     int /*thread_id*/,
     int /*num_threads*/) {
-  // Calcualtes accum ? C += A * B : C = A * B
+  // Calculates accum ? C += A * B : C = A * B
   constexpr int rowBlockSize = BCSRMatrix<>::RB;
   constexpr int colBlockSize = BCSRMatrix<>::CB;
   constexpr int colTileSize = BCSRMatrix<>::COLTILE;
@@ -279,6 +279,7 @@ void sparseDenseInt8MMRef(
   for (int j = 0; j < N; ++j) {
     for (int kt = 0; kt < kTiles; ++kt) {
       int* rowBPtr_start = bcsr->rowBPtr.data() + kt * M;
+      auto curKSize = std::min(K - kt * colTileSize, colTileSize);
       for (int i = 0; i < M / rowBlockSize; i += rowBlockSize) {
         // only initialize to 0 for the first ktile
         if (!accum && !kt) {
@@ -289,7 +290,7 @@ void sparseDenseInt8MMRef(
           const int8_t* blockValues =
               bcsr->values.data() + r * rowBlockSize * colBlockSize;
           for (int i_b = 0; i_b < rowBlockSize; ++i_b) {
-            for (int k_b = 0; k_b < colBlockSize; ++k_b) {
+            for (int k_b = 0; k_b < std::min(colBlockSize, curKSize - acbr_block * colBlockSize); ++k_b) {
               C_i32[(i * rowBlockSize + i_b) * ldc + j] +=
                   static_cast<int32_t>(blockValues[i_b * colBlockSize + k_b]) *
                   static_cast<int32_t>(
