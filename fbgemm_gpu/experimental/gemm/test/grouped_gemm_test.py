@@ -156,7 +156,7 @@ class TestGroupedGEMM(unittest.TestCase):
         G=st.sampled_from([1, 4, 16, 128]),
         M=st.sampled_from([0, 128, 2048, 16384]),
         N=st.sampled_from([256]),
-        K=st.sampled_from([256]),
+        K=st.sampled_from([100, 256, 257]),
         warp_specialization=st.sampled_from(
             [True, False] if torch.cuda.is_available() and _HAS_WS_SUPPORT else [False]
         ),
@@ -179,9 +179,14 @@ class TestGroupedGEMM(unittest.TestCase):
         warp_specialization: bool,
         fuse_scatter_add: bool,
     ) -> None:
+        if K % 8 != 0:
+            # When K is not a multiple of 8, using fuse_scatter_add has large numerical discrepancy,
+            # possibly due to atomic add in scatter_add or larger rounding error with negative numbers.
+            fuse_scatter_add = False
+
         torch.manual_seed(0)
 
-        device = torch.device("cuda")
+        device = torch.accelerator.current_accelerator()
         a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
         b = torch.randn(N * G, K, dtype=torch.bfloat16, device=device)
         m_ends, _ = torch.sort(

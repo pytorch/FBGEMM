@@ -138,6 +138,10 @@ int fbgemmConv(
 
   switch (ConvFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     case optimized_conv_t::depthwise: {
+#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
+      throw std::runtime_error(
+          "fbgemmConv<processOutputType, SPATIAL_DIM, ACC_T>(): No fallback available for aarch64");
+#else
       // 2D and 3D depthwise fast path
       // std::cout << "Depthwise fast path" << std::endl;
       if constexpr (SPATIAL_DIM == 3) {
@@ -216,6 +220,7 @@ int fbgemmConv(
         throw std::runtime_error(msg);
       }
       break;
+#endif // __aarch64__
     }
     case optimized_conv_t::groupwise: {
       // optimized groupwise convolution

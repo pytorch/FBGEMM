@@ -124,6 +124,28 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     acc.w = p[3];
   }
 
+  DEVICE_INLINE void load(const at::Float8_e4m3fnuz* p) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    const __nv_fp8x4_e4m3* fp8_ptr =
+        reinterpret_cast<const __nv_fp8x4_e4m3*>(p);
+    acc = static_cast<float4>(fp8_ptr[0]);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
+  DEVICE_INLINE void load(const at::Float8_e4m3fn* p) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    const __nv_fp8x4_e4m3* fp8_ptr =
+        reinterpret_cast<const __nv_fp8x4_e4m3*>(p);
+    acc = static_cast<float4>(fp8_ptr[0]);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
   DEVICE_INLINE void load(const uint8_t* p) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -156,6 +178,26 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
+  }
+
+  DEVICE_INLINE void store(at::Float8_e4m3fn* p) const {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    __nv_fp8x4_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x4_e4m3*>(p);
+    fp8_ptr[0] = static_cast<__nv_fp8x4_e4m3>(acc);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
+  DEVICE_INLINE void store(at::Float8_e4m3fnuz* p) const {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    __nv_fp8x4_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x4_e4m3*>(p);
+    fp8_ptr[0] = static_cast<__nv_fp8x4_e4m3>(acc);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
   }
 
   DEVICE_INLINE void store(uint8_t* p) const {
