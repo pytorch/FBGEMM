@@ -451,7 +451,7 @@ def _fbgemm_grouped_gemm_ws(
             N_start_offset = g.to(tl.int64) * N
 
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
-            tl.static_assert(N % BLOCK_SIZE_N == 0)
+            tl.static_assert(N % BLOCK_SIZE_N == 0, f"{N=} {BLOCK_SIZE_N=}")
             NUM_N_TILES: tl.constexpr = N // BLOCK_SIZE_N
             num_tiles = num_m_tiles * NUM_N_TILES
 
@@ -1005,21 +1005,21 @@ def _grouped_gemm(
     N = w.shape[0] // G
     assert K == w.shape[1]
 
-    if K % 8 != 0:
+    if K % 8 != 0 or N % 8 != 0:
         use_warp_specialization = False
         USE_TMA_LOAD = False
         USE_TMA_STORE = False
         warnings.warn(
-            f"TMA load and warp specialization are disabled since K is not a multiple of 8: {K=}.",
+            f"TMA load and warp specialization are disabled since K or N is not a multiple of 8: {K=}, {N=}.",
             stacklevel=2,
         )
         assert (
             x_scale is None
-        ), f"Quantisation is not supported yet when K is not a multiple of 8: {K=}"
+        ), f"Quantisation is not supported yet when K or N is not a multiple of 8: {K=}, {N=}."
 
         assert (
             output_tensor is None
-        ), f"Fused scatter add has large rounding error when K is not a multiple of 8: {K=}"
+        ), f"Fused scatter add has large rounding error when K or N is not a multiple of 8: {K=}, {N=}."
 
     if output_tensor is None:
         FUSE_SCATTER_ADD = False
