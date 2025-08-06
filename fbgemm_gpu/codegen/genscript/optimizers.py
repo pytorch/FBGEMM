@@ -1123,23 +1123,21 @@ def partial_rowwise_adam() -> Dict[str, Any]:
 
     // Define the optimizer state (for use with optimizer offloading)
     struct OptimizerState {
-        // momentum1 is an array of D values, so a method to return a pointer given the offset is defined instead
-        DEVICE_INLINE momentum1_ph_t* momentum1_ptr() {
-            // Cast to uintptr_t for pointer arithmetic
-            auto addr = reinterpret_cast<uintptr_t>(momentum2_ptr() + 1);
-            
-            // Align to 16-byte boundary - this is needed to avoid 
-            // `CUDA error: misaligned address` errors, due to coalesced 
-            // warp-wide access requirements
-            addr = (addr + 15) & ~15;
-            
-            // Cast back to momentum1_ph_t* and return 
-            return reinterpret_cast<momentum1_ph_t *>(addr);
+        // momentum2 is a single value placed at the beginning of the struct
+        momentum2_ph_t momentum2;
+        
+        // momentum1 is an array of values placed after momentum2, aligned to 4-byte boundary
+        // to support mixed state precision (e.g. FP32 momentum1 and FP16 momentum2)
+        alignas(4) momentum1_ph_t momentum1[1];
+        
+        // momentum2_ptr returns a pointer to the beginning of the struct
+        DEVICE_INLINE momentum2_ph_t* momentum2_ptr() {
+            return &momentum2;
         }
         
-        // momentum2 is a single value placed at the back of weights array
-        DEVICE_INLINE momentum2_ph_t* momentum2_ptr() {
-            return reinterpret_cast<momentum2_ph_t*>(this);
+        // momentum1_ptr returns a pointer to the beginning of the momentum1 array
+        DEVICE_INLINE momentum1_ph_t* momentum1_ptr() {
+            return momentum1;
         }
     };
 
@@ -1148,7 +1146,8 @@ def partial_rowwise_adam() -> Dict[str, Any]:
 
     // Fetch the pointer to the momentum1 value
     // Define the fetch here instead of in split_weight_update to avoid conditionals inside a loop
-    auto* momentum1_start = enable_optimizer_offloading ?
+    // Use explicit type instead of auto* to avoid type deduction issues with alignas(16)
+    momentum1_ph_t* momentum1_start = enable_optimizer_offloading ?
         (optimizer->momentum1_ptr()) :
         (&momentum1[idx * D]);
 
@@ -1175,12 +1174,44 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     """
 
     split_weight_update = """
-      auto* momentum1_ptr = momentum1_start + d;
-      Vec4T<momentum1_ph_t> m_t(momentum1_ptr);
-      m_t.mul_(beta1);
-      m_t.fma_(grad, 1.0 - beta1);
-      m_t.store(momentum1_ptr);
-
+      // Create a Vec4T for momentum1 values - either directly from momentum1_start
+      // or from a temporary aligned buffer if optimizer offloading is enabled
+      Vec4T<momentum1_ph_t> m_t;
+      
+      if (enable_optimizer_offloading) {
+        // When offloading is enabled, we need to ensure proper alignment
+        // Create a temporary aligned array on the stack
+        alignas(16) momentum1_ph_t local_momentum1[4];
+        
+        // Load values from momentum1_start into the aligned array
+        #pragma unroll
+        for (int i = 0; i < 4; i++) {
+          local_momentum1[i] = momentum1_start[d + i];
+        }
+        
+        // Use the aligned array for computation
+        m_t = Vec4T<momentum1_ph_t>(local_momentum1);
+        m_t.mul_(beta1);
+        m_t.fma_(grad, 1.0 - beta1);
+        
+        // Store results back to the aligned array
+        m_t.store(local_momentum1);
+        
+        // Copy results back to momentum1_start
+        #pragma unroll
+        for (int i = 0; i < 4; i++) {
+          momentum1_start[d + i] = local_momentum1[i];
+        }
+      } else {
+        // When not offloading, we can directly use momentum1_start
+        // This avoids the extra copy operations and temporary array
+        m_t = Vec4T<momentum1_ph_t>(&momentum1_start[d]);
+        m_t.mul_(beta1);
+        m_t.fma_(grad, 1.0 - beta1);
+        m_t.store(&momentum1_start[d]);
+      }
+      
+      // Update weights using the momentum values
       weight_new.acc.x -= learning_rate * (m_t.acc.x / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.x);
       weight_new.acc.y -= learning_rate * (m_t.acc.y / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.y);
       weight_new.acc.z -= learning_rate * (m_t.acc.z / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.z);

@@ -116,7 +116,6 @@ class EmbOptimType(enum.Enum):
     def state_size_nbytes(
         self,
         D: int,
-        weights_dtype: "SparseType",
         optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
     ) -> int:
         """
@@ -125,17 +124,12 @@ class EmbOptimType(enum.Enum):
         """
         momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
         momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
-        weights_bytes = pad4(D) * weights_dtype.as_dtype().itemsize
 
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             return momentum1_dtype.itemsize
 
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
-            return (
-                pad16(weights_bytes + momentum2_dtype.itemsize)
-                - weights_bytes
-                + (D * momentum1_dtype.itemsize)
-            )
+            return pad4(1 * momentum2_dtype.itemsize) + D * momentum1_dtype.itemsize
 
         else:
             return 0
@@ -161,8 +155,8 @@ class EmbOptimType(enum.Enum):
             return {"momentum1": (p0, p0 + momentum1_dtype.itemsize)}
 
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
-            # momentum1 lies after momentum2, padded to 16 bytes
-            p1 = pad16(p0 + 1 * momentum2_dtype.itemsize)
+            # momentum1 lies after momentum2
+            p1 = p0 + pad4(1 * momentum2_dtype.itemsize)
             return {
                 "momentum2": (p0, p0 + momentum2_dtype.itemsize),
                 "momentum1": (
