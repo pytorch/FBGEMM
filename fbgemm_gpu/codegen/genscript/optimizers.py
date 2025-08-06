@@ -1123,16 +1123,23 @@ def partial_rowwise_adam() -> Dict[str, Any]:
 
     // Define the optimizer state (for use with optimizer offloading)
     struct OptimizerState {
-        // momentum2 is a single value so it will be accessed directly as a struct field
-        momentum2_ph_t momentum2;
-
         // momentum1 is an array of D values, so a method to return a pointer given the offset is defined instead
         DEVICE_INLINE momentum1_ph_t* momentum1_ptr() {
-            // Re-cast the address to momentum1_ph_t* and return
-            return reinterpret_cast<momentum1_ph_t *>(
-                // Cast the address this to momentum2_t* and increment by 1 to skip over the momentum2 value
-                reinterpret_cast<momentum2_ph_t *>(this) + 1
-            );
+            // Cast to uintptr_t for pointer arithmetic
+            auto addr = reinterpret_cast<uintptr_t>(momentum2_ptr() + 1);
+            
+            // Align to 16-byte boundary - this is needed to avoid 
+            // `CUDA error: misaligned address` errors, due to coalesced 
+            // warp-wide access requirements
+            addr = (addr + 15) & ~15;
+            
+            // Cast back to momentum1_ph_t* and return 
+            return reinterpret_cast<momentum1_ph_t *>(addr);
+        }
+        
+        // momentum2 is a single value placed at the back of weights array
+        DEVICE_INLINE momentum2_ph_t* momentum2_ptr() {
+            return reinterpret_cast<momentum2_ph_t*>(this);
         }
     };
 
@@ -1154,8 +1161,9 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         auto v_t = g_avg_square * (1.0 - beta2);
 
         if (enable_optimizer_offloading) {
-            v_t += optimizer->momentum2 * beta2;
-            optimizer->momentum2 = v_t;
+            auto *momentum2_ptr = optimizer->momentum2_ptr();
+            v_t += (*momentum2_ptr) * beta2;
+            (*momentum2_ptr) = v_t;
         } else {
             v_t += momentum2[idx] * beta2;
             momentum2[idx] = v_t;
