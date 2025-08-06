@@ -181,6 +181,12 @@ __setup_fbgemm_gpu_test () {
     __configure_fbgemm_gpu_test_cuda
   fi
 
+  if [ "$fbgemm_build_target" == "hstu" ]; then
+    ignored_tests+=(
+      ./tma_error_test.py
+    )
+  fi
+
   if [[ $MACHINE_NAME == 'aarch64' ]]; then
     # NOTE: Setting KMP_DUPLICATE_LIB_OK silences the error about multiple
     # OpenMP being linked when FBGEMM_GPU is compiled under Clang on aarch64
