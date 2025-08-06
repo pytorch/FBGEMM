@@ -123,9 +123,8 @@ __install_check_operator_registrations () {
     fi
 
   elif [ "$installed_fbgemm_target" == "hstu" ]; then
-    test_operators+=(
-      "torch.ops.fbgemm.hstu_varlen_bwd_80"
-    )
+    # NOTE: We can only build HSTU for sm_80 or sm90a exclusively, so there is
+    # no common operator between the the two to test for.
     base_import="fbgemm_gpu.experimental.hstu"
 
   elif [ "$installed_fbgemm_target" == "genai" ]; then

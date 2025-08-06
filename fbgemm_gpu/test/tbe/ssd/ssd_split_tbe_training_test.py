@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from enum import Enum
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -37,6 +37,124 @@ from torch import distributed as dist
 
 from .. import common  # noqa E402
 from ..common import gen_mixed_B_batch_sizes, gpu_unavailable, running_in_oss
+
+
+def find_different_rows(
+    tensor1: torch.Tensor,
+    tensor2: torch.Tensor,
+    atol: float = 1.0e-4,
+    rtol: float = 1.0e-4,
+    return_values: bool = False,
+) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """
+    Find the indices of rows that are different between two tensors.
+
+    Args:
+        tensor1: First tensor
+        tensor2: Second tensor
+        atol: Absolute tolerance for comparison
+        rtol: Relative tolerance for comparison
+        return_values: If True, also return the values of the different rows
+
+    Returns:
+        If return_values is False:
+            indices: Indices of rows that are different
+        If return_values is True:
+            (indices, tensor1_values, tensor2_values): Tuple containing indices and corresponding values
+    """
+    # Convert to float and CPU for consistent comparison
+    t1 = tensor1.float().cpu()
+    t2 = tensor2.float().cpu()
+
+    # Check if shapes match
+    if t1.shape != t2.shape:
+        raise ValueError(f"Tensor shapes don't match: {t1.shape} vs {t2.shape}")
+
+    # Calculate absolute and relative differences
+    abs_diff = torch.abs(t1 - t2)
+    rel_diff = abs_diff / torch.max(torch.abs(t2), torch.tensor(1e-8))
+
+    # Find rows where either absolute or relative difference exceeds tolerance
+    # First check if each element in a row exceeds the tolerance
+    abs_mask = abs_diff > atol
+    rel_mask = rel_diff > rtol
+    element_mask = abs_mask & rel_mask
+
+    # Then check if any element in a row exceeds the tolerance
+    if len(t1.shape) > 1:
+        # For 2D+ tensors, check if any element in each row differs
+        row_mask = element_mask.any(dim=tuple(range(1, len(t1.shape))))
+    else:
+        # For 1D tensors, each element is a "row"
+        row_mask = element_mask
+
+    # Get indices of different rows
+    diff_indices = torch.nonzero(row_mask).flatten()
+
+    if return_values:
+        # Return indices and the corresponding rows from both tensors
+        return diff_indices, t1[diff_indices], t2[diff_indices]
+    else:
+        return diff_indices
+
+
+def print_different_rows(
+    tensor1: torch.Tensor,
+    tensor2: torch.Tensor,
+    atol: float = 1.0e-4,
+    rtol: float = 1.0e-4,
+    max_rows: int = 10,
+    name1: str = "tensor1",
+    name2: str = "tensor2",
+) -> None:
+    """
+    Print the indices and values of rows that are different between two tensors.
+
+    Args:
+        tensor1: First tensor
+        tensor2: Second tensor
+        atol: Absolute tolerance for comparison
+        rtol: Relative tolerance for comparison
+        max_rows: Maximum number of different rows to print
+        name1: Name of the first tensor for display
+        name2: Name of the second tensor for display
+    """
+    indices, values1, values2 = find_different_rows(
+        tensor1, tensor2, atol, rtol, return_values=True
+    )
+
+    num_diff = len(indices)
+    print(f"Found {num_diff} different rows out of {tensor1.shape[0]} total rows")
+
+    if num_diff == 0:
+        return
+
+    # Limit the number of rows to display
+    display_count = min(num_diff, max_rows)
+    if num_diff > max_rows:
+        print(f"Showing first {display_count} differences:")
+
+    # Calculate max absolute and relative differences for each row
+    t1 = tensor1.float().cpu()
+    t2 = tensor2.float().cpu()
+
+    for i in range(display_count):
+        idx = indices[i].item()
+        row1 = t1[idx]
+        row2 = t2[idx]
+
+        abs_diff = torch.abs(row1 - row2)
+        rel_diff = abs_diff / torch.max(torch.abs(row2), torch.tensor(1e-8))
+
+        max_abs_diff = torch.max(abs_diff).item()
+        max_rel_diff = torch.max(rel_diff).item()
+
+        print(f"Row {idx}:")
+        print(f"  {name1}: {row1}")
+        print(f"  {name2}: {row2}")
+        print(f"  Max absolute difference: {max_abs_diff}")
+        print(f"  Max relative difference: {max_rel_diff}")
+        print()
 
 
 MAX_EXAMPLES = 40
@@ -274,6 +392,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         lr: float = 0.01,  # from SSDTableBatchedEmbeddingBags
         eps: float = 1.0e-8,  # from SSDTableBatchedEmbeddingBags
+        weight_decay: float = 0.0,  # used by LARS-SGD, LAMB, ADAM, and Rowwise Adagrad
+        beta1: float = 0.9,  # used by Partial Rowwise Adam
+        beta2: float = 0.999,  # used by Partial Rowwise Adam
         ssd_shards: int = 1,  # from SSDTableBatchedEmbeddingBags
         optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
         cache_set_scale: float = 1.0,
@@ -289,6 +410,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool = False,
         enable_optimizer_offloading: bool = False,
         backend_return_whole_row: bool = False,
+        optimizer_state_dtypes: Optional[Dict[OptimType, SparseType]] = None,
     ) -> Tuple[
         SSDTableBatchedEmbeddingBags,
         List[torch.nn.EmbeddingBag],
@@ -412,6 +534,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_upper=0.1,
             learning_rate=lr,
             eps=eps,
+            weight_decay=weight_decay,
+            beta1=beta1,
+            beta2=beta2,
             ssd_rocksdb_shards=ssd_shards,
             optimizer=optimizer,
             pooling_mode=pooling_mode,
@@ -423,6 +548,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             l2_cache_size=8,
             backend_type=backend_type,
             kv_zch_params=kv_zch_param,
+            optimizer_state_dtypes=optimizer_state_dtypes,
         ).cuda()
 
         if backend_type == BackendType.SSD:
@@ -1009,15 +1135,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb_test = emb.debug_split_embedding_weights()
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
             emb_r = emb_ref[f]
+            (m1,) = split_optimizer_states[t]
             new_ref_weight = torch.addcdiv(
                 emb_r.weight.float(),
                 value=-lr,
                 tensor1=emb_r.weight.grad.float().to_dense(),
-                tensor2=split_optimizer_states[t][0]
-                .float()
-                .sqrt_()
-                .add_(eps)
-                .view(Es[t], 1),
+                tensor2=m1.float().sqrt_().add_(eps).view(Es[t], 1),
             )
 
             if weights_precision == SparseType.FP16:
@@ -1106,7 +1229,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             emb.feature_table_map,
             weights_precision=weights_precision,
             trigger_bounds_check=trigger_bounds_check,
-            # mixed_B=mixed_B,
         )
 
         # Execute forward
@@ -1141,10 +1263,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb_test_weights = emb.debug_split_embedding_weights()
         split_optimizer_states = self.split_optimizer_states_(emb)
 
-        for _, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-            (m1, m2) = split_optimizer_states[t]
-            print(f"{t=} {m1.shape=}, {m2.shape=}")
-
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
             (m1, m2) = split_optimizer_states[t]
             # Some optimizers have non-float momentum values
@@ -1158,7 +1276,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             # Compare momentum1 values: (1 - beta1) * dL
             m1_ref = ref_grad * (1.0 - beta1)
-            print(f"{m1_ref.shape=}, {m1.shape=}")
             self.assert_close_(m1, m1_ref)
 
             # Bias corrections
@@ -1293,26 +1410,166 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for feature_index, table_index in self.get_physical_table_arg_indices_(
             emb.feature_table_map
         ):
+            (m1,) = split_optimizer_states[table_index]
             emb_r = emb_ref[feature_index]
             self.assertLess(table_index, len(emb_state_dict))
             new_ref_weight = torch.addcdiv(
                 emb_r.weight.float(),
                 value=-lr,
                 tensor1=emb_r.weight.grad.float().to_dense(),  # pyre-ignore[16]
-                # NOTE: The [0] index is a hack since the test is fixed to use
-                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
-                # be upgraded in the future to support multiple optimizers
-                tensor2=split_optimizer_states[table_index][0]
-                .float()
-                .sqrt_()
-                .add_(eps)
-                .view(Es[table_index], 1),
+                tensor2=m1.float().sqrt_().add_(eps).view(Es[table_index], 1),
             ).cpu()
 
             torch.testing.assert_close(
                 # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
                 emb_state_dict[table_index].full_tensor().float(),
                 new_ref_weight,
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
+    @given(
+        bulk_init_chunk_size=st.sampled_from([0, 204800]),
+        lazy_bulk_init_enabled=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_ssd_emb_state_dict_partial_rowwise_adam(
+        self, bulk_init_chunk_size: int, lazy_bulk_init_enabled: bool
+    ) -> None:
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+        beta1 = 0.9
+        beta2 = 0.99
+        weight_decay = 0.01
+
+        T = 4
+        B = 10
+        D = 128
+        L = 10
+        log_E = 4
+        weights_precision = SparseType.FP32
+        output_dtype = SparseType.FP32
+        pooling_mode = PoolingMode.SUM
+
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+        ) = self.generate_ssd_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            False,  # weighted
+            lr=lr,
+            eps=eps,
+            weight_decay=weight_decay,
+            beta1=beta1,
+            beta2=beta2,
+            ssd_shards=ssd_shards,
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+            cache_set_scale=0.2,
+            pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=True,
+            bulk_init_chunk_size=bulk_init_chunk_size,
+            lazy_bulk_init_enabled=lazy_bulk_init_enabled,
+        )
+
+        Es = [emb.embedding_specs[t][0] for t in range(T)]
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=True,
+        )
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            False,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
+
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
+
+        emb.flush()
+
+        tolerance = 1.0e-2
+
+        split_optimizer_states = self.split_optimizer_states_(emb)
+
+        # Compare emb state dict with expected values from nn.EmbeddingBag
+        emb_state_dict, _, _, _ = emb.split_embedding_weights(no_snapshot=False)
+        for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
+            (
+                m1,
+                m2,
+            ) = split_optimizer_states[t]
+            # Some optimizers have non-float momentum values
+            # pyre-ignore[16]
+            ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
+            ref_weights = emb_ref[f].weight.cpu()
+
+            # Compare momentum2 values: (1 - beta2) * dL^2
+            m2_ref = (ref_grad.pow(2).mean(dim=1)) * (1.0 - beta2)
+            self.assert_close_(m2, m2_ref)
+
+            # Compare momentum1 values: (1 - beta1) * dL
+            m1_ref = ref_grad * (1.0 - beta1)
+            self.assert_close_(m1, m1_ref)
+
+            # Bias corrections
+            iter_ = emb.iter.item()
+            v_hat_t = m2_ref / (1 - beta2**iter_)
+            v_hat_t = v_hat_t.view(v_hat_t.numel(), 1)
+            m_hat_t = m1_ref / (1 - beta1**iter_)
+
+            # Weight update
+            ref_weights_updated = (
+                torch.addcdiv(
+                    ref_weights,
+                    value=-lr,
+                    tensor1=m_hat_t,
+                    tensor2=v_hat_t.sqrt_().add_(eps),
+                )
+                - lr * weight_decay * ref_weights
+            )
+
+            # Compare weights
+            torch.testing.assert_close(
+                # pyre-fixme [16]
+                emb_state_dict[t].full_tensor().float(),
+                ref_weights_updated,
                 atol=tolerance,
                 rtol=tolerance,
             )
@@ -1511,11 +1768,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # Compare optimizer states
             split_optimizer_states = self.split_optimizer_states_(emb)
             for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-                optim_state_r = optimizer_states_ref[t][0]
-                # NOTE: The [0] index is a hack since the test is fixed to use
-                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
-                # be upgraded in the future to support multiple optimizers
-                optim_state_t = split_optimizer_states[t][0]
+                (optim_state_r,) = optimizer_states_ref[t]
+                (optim_state_t,) = split_optimizer_states[t]
                 emb_r = emb_ref[f]
 
                 optim_state_r.add_(
@@ -1976,23 +2230,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
             self.assertLess(table_index, len(emb_state_dict_list))
             assert len(split_optimizer_states[table_index][0]) == num_ids
-            assert len(metadata_list[table_index]) == num_ids
-            # NOTE: The [0] index is a hack since the test is fixed to use
-            # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
-            # be upgraded in the future to support multiple optimizers
-            opt = split_optimizer_states[table_index][0]
+            (m1,) = split_optimizer_states[table_index]
             new_ref_weight = torch.addcdiv(
                 emb_r_w.float(),
                 value=-lr,
                 tensor1=emb_r_w_g,
-                tensor2=opt.float()
-                .sqrt_()
-                .add_(eps)
-                .view(
-                    num_ids,
-                    1,
-                )
-                .cuda(),
+                tensor2=m1.float().sqrt_().add_(eps).view(num_ids, 1).cuda(),
             ).cpu()
 
             emb_w = (
@@ -2006,6 +2249,492 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=tolerance,
                 rtol=tolerance,
             )
+
+    @given(
+        **{
+            "T": st.integers(min_value=1, max_value=10),
+            "D": st.integers(min_value=2, max_value=128),
+            "B": st.integers(min_value=1, max_value=128),
+            "log_E": st.integers(min_value=3, max_value=5),
+            "L": st.integers(min_value=0, max_value=20),
+            "weighted": st.just(False),
+            "cache_set_scale": st.just(0.0),
+            "pooling_mode": st.just(PoolingMode.NONE),
+            "weights_precision": st.sampled_from([SparseType.FP16, SparseType.FP32]),
+            "output_dtype": st.sampled_from([SparseType.FP16, SparseType.FP32]),
+            "m1_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
+            "m2_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
+            "share_table": st.just(False),
+            "trigger_bounds_check": st.just(False),
+            "mixed_B": st.just(False),
+        },
+        num_buckets=st.just(10),
+        enable_optimizer_offloading=st.just(True),
+        backend_type=st.sampled_from([BackendType.DRAM]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_kv_emb_state_dict_partial_rowwise_adam(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        cache_set_scale: float,
+        pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
+        m1_dtype: SparseType,
+        m2_dtype: SparseType,
+        share_table: bool,
+        trigger_bounds_check: bool,
+        mixed_B: bool,
+        num_buckets: int,
+        enable_optimizer_offloading: bool,
+        backend_type: BackendType,
+    ) -> None:
+        assume(not weighted or pooling_mode == PoolingMode.SUM)
+        # VBE is currently not supported for PARTIAL_ROWWISE_ADAM optimizer
+        assume(not mixed_B)
+        # Don't stimulate boundary check cases
+        trigger_bounds_check = False
+
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+        beta1 = 0.9
+        beta2 = 0.99
+        weight_decay = 0.01
+
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+            Es,
+            _,
+            bucket_offsets,
+            bucket_sizes,
+        ) = self.generate_kvzch_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            lr=lr,
+            eps=eps,
+            weight_decay=weight_decay,
+            beta1=beta1,
+            beta2=beta2,
+            ssd_shards=ssd_shards,
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+            cache_set_scale=cache_set_scale,
+            pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=share_table,
+            num_buckets=num_buckets,
+            enable_optimizer_offloading=enable_optimizer_offloading,
+            backend_type=backend_type,
+            optimizer_state_dtypes={
+                "momentum1": m1_dtype,
+                "momentum2": m2_dtype,
+            },
+        )
+
+        # Generate inputs
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
+            bucket_offsets=bucket_offsets,
+            bucket_sizes=bucket_sizes,
+            is_kv_tbes=True,
+        )
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            weighted,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
+
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
+
+        emb.flush()
+
+        split_optimizer_states = []
+
+        # Compare emb state dict with expected values from nn.EmbeddingBag
+        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list, _ = (
+            emb.split_embedding_weights(no_snapshot=False, should_flush=True)
+        )
+
+        for s in emb.split_optimizer_states(
+            bucket_asc_ids_list, no_snapshot=False, should_flush=True
+        ):
+            split_optimizer_states.append(s)
+
+        # Compare optimizer states
+        for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
+            (m1, m2) = split_optimizer_states[t]
+            # Some optimizers have non-float momentum values
+            # pyre-ignore[16]
+            ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
+            ref_weights = emb_ref[f].weight.cpu()
+
+            # Compare momentum2 values: (1 - beta2) * dL^2
+            m2_ref = (ref_grad.pow(2).mean(dim=1)) * (1.0 - beta2)
+            # Get only the subset of rows based on bucket_asc_ids_list[t]
+            # pyre-ignore [16]
+            m2_ref = m2_ref[bucket_asc_ids_list[t].view(-1)]
+            self.assert_close_(m2, m2_ref)
+
+            # Compare momentum1 values: (1 - beta1) * dL
+            m1_ref = ref_grad * (1.0 - beta1)
+            # Get only the subset of rows based on bucket_asc_ids_list[t]
+            m1_ref = m1_ref[bucket_asc_ids_list[t].view(-1)]
+
+            # Print which rows are different between m1 and m1_ref
+            print_different_rows(
+                m1, m1_ref, atol=1.0e-2, rtol=1.0e-2, name1="m1", name2="m1_ref"
+            )
+
+            self.assert_close_(m1, m1_ref)
+            ####################################################################
+            # Compare weight values
+            ####################################################################
+
+            # Re-index the weights according to bucket ids
+            ref_weights = ref_weights[bucket_asc_ids_list[t].view(-1)]
+
+            # Bias corrections
+            iter_ = emb.iter.item()
+            v_hat_t = m2_ref / (1 - beta2**iter_)
+            v_hat_t = v_hat_t.view(v_hat_t.numel(), 1)
+            m_hat_t = m1_ref / (1 - beta1**iter_)
+
+            # Manually update the ref weights
+            ref_weights_updated = (
+                torch.addcdiv(
+                    ref_weights,
+                    value=-lr,
+                    tensor1=m_hat_t,
+                    tensor2=v_hat_t.sqrt_().add_(eps),
+                )
+                - lr * weight_decay * ref_weights
+            )
+
+            # Fetch the updated weights from SSDTableBatchedEmbeddingBags
+            emb_w = (
+                emb_state_dict_list[t]
+                .narrow(0, 0, bucket_asc_ids_list[t].size(0))
+                .float()
+            )
+
+            # Compare weights
+            tolerance = 1.0e-2
+            torch.testing.assert_close(
+                emb_w,
+                ref_weights_updated,
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
+    @given(
+        **{
+            "T": st.integers(min_value=1, max_value=10),
+            "D": st.integers(min_value=2, max_value=128),
+            "B": st.integers(min_value=1, max_value=128),
+            "log_E": st.integers(min_value=3, max_value=5),
+            "L": st.integers(min_value=0, max_value=20),
+            "weighted": st.just(False),
+            "cache_set_scale": st.just(0.0),
+            "pooling_mode": st.just(PoolingMode.NONE),
+            "weights_precision": st.sampled_from([SparseType.FP16, SparseType.FP32]),
+            "output_dtype": st.sampled_from([SparseType.FP16, SparseType.FP32]),
+            "m1_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
+            "m2_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
+            "share_table": st.just(False),
+            "trigger_bounds_check": st.just(False),
+            "mixed_B": st.just(False),
+        },
+        num_buckets=st.just(10),
+        enable_optimizer_offloading=st.just(True),
+        backend_type=st.sampled_from([BackendType.DRAM]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_kv_emb_state_dict_partial_rowwise_adam_whole_row(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        cache_set_scale: float,
+        pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
+        m1_dtype: SparseType,
+        m2_dtype: SparseType,
+        share_table: bool,
+        trigger_bounds_check: bool,
+        mixed_B: bool,
+        num_buckets: int,
+        enable_optimizer_offloading: bool,
+        backend_type: BackendType,
+    ) -> None:
+        assume(not weighted or pooling_mode == PoolingMode.SUM)
+        # VBE is currently not supported for PARTIAL_ROWWISE_ADAM optimizer
+        assume(not mixed_B)
+        # Don't stimulate boundary check cases
+        trigger_bounds_check = False
+
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+        beta1 = 0.9
+        beta2 = 0.99
+        weight_decay = 0.01
+        metaheader_dim = 16 // (
+            weights_precision.as_dtype().itemsize
+        )  # 16-byte metaheader
+
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+            Es,
+            _,
+            bucket_offsets,
+            bucket_sizes,
+        ) = self.generate_kvzch_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            lr=lr,
+            eps=eps,
+            weight_decay=weight_decay,
+            beta1=beta1,
+            beta2=beta2,
+            ssd_shards=ssd_shards,
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+            cache_set_scale=cache_set_scale,
+            pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=share_table,
+            num_buckets=num_buckets,
+            enable_optimizer_offloading=enable_optimizer_offloading,
+            backend_type=backend_type,
+            backend_return_whole_row=True,
+            optimizer_state_dtypes={
+                "momentum1": m1_dtype,
+                "momentum2": m2_dtype,
+            },
+        )
+
+        # Generate inputs
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
+            bucket_offsets=bucket_offsets,
+            bucket_sizes=bucket_sizes,
+            is_kv_tbes=True,
+        )
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            weighted,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
+
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
+
+        emb.flush()
+
+        split_optimizer_states = []
+
+        # Compare emb state dict with expected values from nn.EmbeddingBag
+        emb_state_dict_list, bucket_asc_ids_list, _, _ = emb.split_embedding_weights(
+            no_snapshot=False, should_flush=True
+        )
+
+        for s in emb.split_optimizer_states(
+            bucket_asc_ids_list, no_snapshot=False, should_flush=True
+        ):
+            split_optimizer_states.append(s)
+
+        # Compare optimizer states
+        table_offset = 0
+        for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
+            (m1, m2) = split_optimizer_states[t]
+            # Some optimizers have non-float momentum values
+            # pyre-ignore[16]
+            ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
+            ref_weights = emb_ref[f].weight.cpu()
+
+            # Compare momentum2 values: (1 - beta2) * dL^2
+            m2_ref = (ref_grad.pow(2).mean(dim=1)) * (1.0 - beta2)
+            # Get only the subset of rows based on bucket_asc_ids_list[t]
+            # pyre-ignore [16]
+            m2_ref = m2_ref[bucket_asc_ids_list[t].view(-1)]
+            m2_tensor = m2.full_tensor().view(m2_dtype.as_dtype())
+            if m2_tensor.shape[1] > 1:
+                # HACK: the KVTensorWrapper does not support dtypes other than weight dtype,
+                # so when the optimizer state dtype is smaller than weight dtype, we'll save more
+                # data than needed. Before we support the optimizer dtype from backend, we workaround the
+                # verification in test:
+                # the m2 dtype could be smaller than weight dtype, so we need to get the first column as the
+                # m2 value, and then convert it to the same dtype as m2_ref and then compare with it.
+                m2_tensor = m2_tensor[:, 0]
+            # Compare the weight part
+            self.assert_close_(m2_tensor.view(-1), m2_ref)
+
+            # Compare momentum1 values: (1 - beta1) * dL
+            m1_ref = ref_grad * (1.0 - beta1)
+            # Get only the subset of rows based on bucket_asc_ids_list[t]
+            m1_ref = m1_ref[bucket_asc_ids_list[t].view(-1)]
+            m1_tensor = m1.full_tensor().view(m1_dtype.as_dtype())
+
+            # Print which rows are different between m1 and m1_ref
+            print_different_rows(
+                m1_tensor, m1_ref, atol=1.0e-2, rtol=1.0e-2, name1="m1", name2="m1_ref"
+            )
+
+            self.assert_close_(m1_tensor, m1_ref)
+
+            ####################################################################
+            # Compare weight values
+            ####################################################################
+            # Re-index the weights according to bucket ids
+            ref_weights = ref_weights[bucket_asc_ids_list[t].view(-1)]
+            iter_ = emb.iter.item()
+            v_hat_t = m2_ref / (1 - beta2**iter_)
+            v_hat_t = v_hat_t.view(v_hat_t.numel(), 1)
+            m_hat_t = m1_ref / (1 - beta1**iter_)
+
+            # Manually update the ref weights
+            ref_weights_updated = (
+                torch.addcdiv(
+                    ref_weights,
+                    value=-lr,
+                    tensor1=m_hat_t,
+                    tensor2=v_hat_t.sqrt_().add_(eps),
+                )
+                - lr * weight_decay * ref_weights
+            )
+
+            """
+            validate the whole embeddings rows (metaheader + weight + m2 + m1)
+            """
+
+            emb_w = emb_state_dict_list[t].narrow(0, 0, bucket_asc_ids_list[t].size(0))
+            emb_d = emb.embedding_specs[t][1]
+
+            # Lookup the byte offsets for each optimizer state
+            optimizer_state_byte_offsets = emb.optimizer.byte_offsets_along_row(
+                emb_d,
+                emb.weights_precision,
+                emb.optimizer_state_dtypes,
+            )
+
+            m2_start, m2_end = optimizer_state_byte_offsets["momentum2"]
+            m1_start, m1_end = optimizer_state_byte_offsets["momentum1"]
+            meta_bytes = metaheader_dim * weights_precision.as_dtype().itemsize
+            m2_from_emb_w = (
+                emb_w.view(dtype=torch.uint8)[
+                    :,
+                    meta_bytes + m2_start : meta_bytes + m2_end,
+                ]
+                .view(m2_dtype.as_dtype())
+                .view(-1)
+            )
+            m1_from_emb_w = emb_w.view(dtype=torch.uint8)[
+                :,
+                meta_bytes + m1_start : meta_bytes + m1_end,
+            ].view(m1_dtype.as_dtype())
+            self.assert_close_(m2_from_emb_w, m2_ref)
+            self.assert_close_(m1_from_emb_w, m1_ref)
+
+            # Copmare the id part
+            id_extracted_from_emb_w = (
+                emb_w[:, 0 : metaheader_dim // 2].view(torch.int64).view(-1)
+            )
+            self.assert_close_(
+                id_extracted_from_emb_w, bucket_asc_ids_list[t].view(-1) + table_offset
+            )
+            # Compare the weight part
+            tolerance = 1.0e-2
+            torch.testing.assert_close(
+                emb_w[:, metaheader_dim : metaheader_dim + emb_d].float(),
+                ref_weights_updated,
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
+            table_offset += VIRTUAL_TABLE_ROWS
 
     @given(
         **default_st,
