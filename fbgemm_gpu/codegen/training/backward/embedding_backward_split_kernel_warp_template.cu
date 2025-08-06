@@ -426,6 +426,8 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
     {%- endif %}
     const auto start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
 
+#define SUBWARP_SHFL_SYNC(val, srcLane) __shfl_sync(UINT64_MAX, val, srcLane, kThreadGroupSize)
+
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
     const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
@@ -445,7 +447,7 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
       ? smem.getPointer() + threadIdx.y * grad_sum_stride
       : nullptr;
 
-    constexpr int num_unroll = 32;
+    constexpr int num_unroll = kThreadGroupSize;
 
     auto num_run_id = min(sorted_linear_indices_run.size(0), sorted_linear_indices_num_runs[0]);
 
@@ -476,38 +478,48 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
 
         int32_t s_table_unique_indice_offset = is_valid? table_unique_indices_offsets[s_t_0] : 0;
         int64_t s_weights_offset = is_valid? weights_offsets[s_t_0] : 0;
-        int64_t s_momentum1_offset = is_valid? momentum1_offsets[s_t_0] : 0;
         int32_t s_weights_placement = is_valid? weights_placements[s_t_0] : 0;
-        int32_t s_momentum1_placement = is_valid? momentum1_placements[s_t_0] : 0;
 
-        at::acc_type<cache_t, true>* __restrict__ s_momentum1;
-        if (static_cast<PlacementType>(s_momentum1_placement) == PlacementType::DEVICE) {
-            s_momentum1 = &momentum1_dev[s_momentum1_offset];
+        {%- for tensor in args.split_tensors %}
+        {{ args.split_tensor_types[tensor] }}* __restrict__ s_{{ tensor }};
+        const auto s_{{ tensor }}_placement = {{ tensor }}_placements[s_t_0];
+        const int64_t s_{{ tensor }}_offset = {{ tensor }}_offsets[s_t_0];
+        if (static_cast<PlacementType>(s_{{ tensor }}_placement) == PlacementType::DEVICE) {
+            s_{{ tensor }} = &{{ tensor }}_dev[s_{{ tensor }}_offset];
         } else {
-            s_momentum1 = &momentum1_uvm[s_momentum1_offset];
+            s_{{ tensor }} = &{{ tensor }}_uvm[s_{{ tensor }}_offset];
         }
+        {{ args.split_tensor_types[tensor] }} s_{{tensor}}_val = is_valid? s_{{tensor}}[s_idx] : 0;
+
+        {%- endfor %}
 
         for (auto i = 0; i < num_valid_id; ++i) {
-            auto run_id = out_run_id + i;
-            auto t_0 = BROADCAST(s_t_0, i);
-            auto idx = BROADCAST(s_idx, i);
-            auto segment_start = BROADCAST(s_segment_start, i);
-            auto segment_end = BROADCAST(s_segment_end, i);
-            auto D = BROADCAST(s_D, i);
-            int32_t table_unique_indice_offset = BROADCAST(s_table_unique_indice_offset, i);
+            auto segment_start = SUBWARP_SHFL_SYNC(s_segment_start, i);
+            auto segment_end = SUBWARP_SHFL_SYNC(s_segment_end, i);
             const int32_t SL = segment_end - segment_start;
-
-            const int64_t weights_offset = SHFL_SYNC(s_weights_offset, i);
-            const auto weights_placement = static_cast<PlacementType>(SHFL_SYNC(s_weights_placement, i));
-
-            const int64_t momentum1_offset = SHFL_SYNC(s_momentum1_offset, i);
-            const auto momentum1_placement = static_cast<PlacementType>(SHFL_SYNC(s_momentum1_placement, i));
-            auto momentum1 = reinterpret_cast<at::acc_type<cache_t, true>*>(SHFL_SYNC(reinterpret_cast<uint64_t>(s_momentum1), i));
-            auto momentum1_val = momentum1[idx];
-
             if (SL >= max_segment_length_per_warp) {
                 continue;
             }
+
+            auto run_id = out_run_id + i;
+            auto t_0 = SUBWARP_SHFL_SYNC(s_t_0, i);
+            auto idx = SUBWARP_SHFL_SYNC(s_idx, i);
+
+            {%- if not nobag %}
+            auto D = SUBWARP_SHFL_SYNC(s_D, i);
+            {%- endif %}
+            int32_t table_unique_indice_offset = SUBWARP_SHFL_SYNC(s_table_unique_indice_offset, i);
+
+            {%- for tensor in args.split_tensors %}
+            const auto {{ tensor }}_placement = SUBWARP_SHFL_SYNC(s_{{ tensor }}_placement, i);
+            const int64_t {{ tensor }}_offset = SUBWARP_SHFL_SYNC(s_{{ tensor }}_offset, i);
+            {{ args.split_tensor_types[tensor] }} {{tensor}}_val = SUBWARP_SHFL_SYNC(s_{{ tensor }}_val, i);
+            {%- endfor %}
+
+            // const int64_t momentum1_offset = SHFL_SYNC(s_momentum1_offset, i);
+            // const auto momentum1_placement = static_cast<PlacementType>(SHFL_SYNC(s_momentum1_placement, i));
+            // auto momentum1 = reinterpret_cast<at::acc_type<cache_t, true>*>(SHFL_SYNC(reinterpret_cast<uint64_t>(s_momentum1), i));
+            // auto momentum1_val = momentum1[idx];
 
             // now, each segment corresponds to exactly one table `t` and row in
             // that table (`idx`). Thus, we can hoist out some of the book-keeping.
@@ -558,7 +570,11 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
             // when kUseVecBlocking == false
             const int32_t max_vecs =
                 kUseVecBlocking ? max_vecs_per_thread : kFixedMaxVecsPerThread;
-            split_rowwise_adagrad_table_update_kernel<
+
+            {%- if not dense and optimizer != "none" %}
+            const int64_t weights_offset = SUBWARP_SHFL_SYNC(s_weights_offset, i);
+            const int32_t weights_placement = SUBWARP_SHFL_SYNC(s_weights_placement, i);
+            {{ mdesc }}_{{ optimizer }}_table_update_kernel<
               emb_t,
               cache_t,
               {%- for ph_name in args.placeholder_tensor_names %}
@@ -571,8 +587,8 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
                   dev_weights,
                   uvm_weights,
                   lxu_cache_weights,
-                  weights_placements,
-                  weights_offsets,
+                  weights_placement,
+                  weights_offset,
                   sorted_{{ locs_or_addrs_tensor }},
                   grad_sum,
                   smem_grad_sum,
@@ -594,8 +610,42 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
                   {%- endif %}
                   shfl_sync_mask,
                   max_vecs,
-                  momentum1, momentum1_val, learning_rate, eps, weight_decay, weight_decay_mode, max_norm
+                  {%- if ssd %}
+                  enable_optimizer_offloading,
+                  {%- endif %}
+                  {%- for tensor in args.split_tensors %}
+                  {{ tensor }}_placement,
+                  {{ tensor }}_offset,
+                  {{ tensor }}_val,
+                  {%- endfor %}
+                  {{ args.split_kernel_arg_names | join(", ") }}
             );
+            {%- else %}
+            // Write deduplicated gradient to grad_dev_weights gradient is sparse
+            // for split_embedding and dense for dense_embedding
+            {%- if dense %}
+            const int64_t weights_offset = weights_offsets[t_0];
+            {%- else %}
+            // Compute offset of sparse gradient
+            const int64_t weights_offset = run_id * max_D;
+            idx = 0;
+            {%- endif %}
+            store_grad_sum<
+                emb_t,
+                cache_t,
+                kFixedMaxVecsPerThread,
+                kThreadGroupSize,
+                VEC_WIDTH,
+                kUseVecBlocking>(
+                  grad_dev_weights,
+                  grad_sum,
+                  kUseVecBlocking ? smem_grad_sum : nullptr,
+                  D,
+                  weights_offset,
+                  idx,
+                  max_vecs
+            );
+            {%- endif %} // if not dense and optimizer != "none"
         }
     }
 }
@@ -877,7 +927,7 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
     codegen/embedding_common_code_generator.py for more details
 */ #}
 
-{{ instantiate_templates(use_subwarp_shuffle=False) }}
+{{ instantiate_templates(use_subwarp_shuffle=True) }}
 
 ////////////////////////////////////////////////////////////////////////////////
 #endif
@@ -1101,10 +1151,10 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
 
 {%- macro hip_bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
-    {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
-    {%- for cache_type in ['float', 'at::Half'] %}
-    {%- for index_type in ['int32_t', 'int64_t'] %}
-    {%- for kEmbeddingDim in [64, 128, 160, 192, 256, 320] %}
+    {%- for emb_type in (['float', 'at::Half', 'at::BFloat16'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
+    {%- for cache_type in ['float', 'at::Half', 'at::BFloat16'] %}
+    {%- for index_type in ['int32_t', 'int64_t', 'at::BFloat16'] %}
+    {%- for kEmbeddingDim in [64, 128, 160, 192, 256] %}
     {%- for kWeighDecayMode in [0, 1, 2] %}
         {{ hip_template_instantiation(
             emb_type,
