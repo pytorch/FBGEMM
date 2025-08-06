@@ -286,23 +286,28 @@ __configure_fbgemm_gpu_build_cuda () {
     # appending 7.0/7.5 to the back of the list mysteriously results in
     # undefined symbol errors on .SO loads
     if [[ $fbgemm_build_target == "hstu" ]]; then
-      # HSTU requires sm_75 or higher
-      local arch_list="7.5"
-    else
-      local arch_list="7.0"
-    fi
+      if  [[ $cuda_version_nvcc == *"V12"* ]]; then
+        # NOTE: Compiling 9.0a code will fail if sm_80 output is also is also
+        # enabled, bc the code relies on the following function that is not
+        # supported in sm_80:
+        #   float4 atomicAdd(float4* address, float4 val);
+        local arch_list="9.0a;10.0a;12.0a"
+      else
+        # NOTE: HSTU requires sm_75 or higher
+        local arch_list="7.5;8.0"
+      fi
 
-    if    [[ $cuda_version_nvcc == *"V12.9"* ]] ||
+    elif  [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="${arch_list};8.0;9.0a;10.0a;12.0a"
+      local arch_list="7.5;8.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
           [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="${arch_list};8.0;9.0a"
+      local arch_list="7.5;8.0;9.0a"
 
     else
-      local arch_list="${arch_list};8.0;9.0"
+      local arch_list="7.5;8.0;9.0"
       echo "[BUILD] Unknown NVCC version $cuda_version_nvcc - setting TORCH_CUDA_ARCH_LIST to: ${arch_list}"
     fi
   fi
