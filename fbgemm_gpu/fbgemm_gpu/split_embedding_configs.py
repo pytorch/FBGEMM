@@ -36,6 +36,23 @@ def pad4(value: int) -> int:
     return (int(value) + 3) & ~3
 
 
+def pad16(value: int) -> int:
+    """
+    Compute the smallest multiple of 16 that is greater than or equal to the given value.
+
+    Parameters:
+        value (int): The integer to align (must be non-negative).
+
+    Returns:
+        int: The aligned value.
+
+    Raises:
+        ValueError: If the input is negative.
+        TypeError: If the input is not an integer.
+    """
+    return (int(value) + 15) & ~15
+
+
 @enum.unique
 class EmbOptimType(enum.Enum):
     SGD = "sgd"  # uses non-deterministic updates (atomicAdd(..)) with duplicate ids
@@ -96,33 +113,32 @@ class EmbOptimType(enum.Enum):
         else:
             return {}
 
-    def state_size_bytes_table(
-        self, D: int, optimizer_state_dtypes: Dict[str, "SparseType"]
-    ) -> Dict[str, int]:
-        """
-        Returns the table of state names to state sizes in terms of number of
-        elements (per table row)
-        """
-        return dict(
-            (name, count * self._extract_dtype(optimizer_state_dtypes, name).itemsize)
-            for name, count in self.state_size_table(D).items()
-        )
-
     def state_size_nbytes(
-        self, D: int, optimizer_state_dtypes: Dict[str, "SparseType"] = {}  # noqa: B006
+        self,
+        D: int,
+        weights_dtype: "SparseType",
+        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
     ) -> int:
         """
         Returns the size of the data (in bytes) required to hold the optimizer
-        state (per table row)
+        state (per table row).  This size includes byte-padding.
         """
-        return sum(
-            [
-                # For each state, multiply the number of elements by the byte
-                # size of each element
-                (self._extract_dtype(optimizer_state_dtypes, name).itemsize * elem)
-                for name, elem in self.state_size_table(D).items()
-            ]
-        )
+        momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
+        momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
+        weights_bytes = pad4(D) * weights_dtype.as_dtype().itemsize
+
+        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
+            return momentum1_dtype.itemsize
+
+        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+            return (
+                pad16(weights_bytes + momentum2_dtype.itemsize)
+                - weights_bytes
+                + (D * momentum1_dtype.itemsize)
+            )
+
+        else:
+            return 0
 
     def byte_offsets_along_row(
         self,
@@ -134,23 +150,24 @@ class EmbOptimType(enum.Enum):
         Returns the start and end byte offsets of each optimizer state along a
         cache row with optimizer state offloading enabled.
         """
+        # Extract the optimizer state dtypes
+        momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
+        momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
 
         # This is the pointer to where the optimizer state begins in the memory
         p0 = pad4(D) * weights_precision.as_dtype().itemsize
 
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
-            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
-            # Store one value for momentum per row
             return {"momentum1": (p0, p0 + momentum1_dtype.itemsize)}
 
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
-            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
-            momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
+            # momentum1 lies after momentum2, padded to 16 bytes
+            p1 = pad16(p0 + 1 * momentum2_dtype.itemsize)
             return {
                 "momentum2": (p0, p0 + momentum2_dtype.itemsize),
                 "momentum1": (
-                    p0 + momentum2_dtype.itemsize,
-                    p0 + momentum2_dtype.itemsize + D * momentum1_dtype.itemsize,
+                    p1,
+                    p1 + D * momentum1_dtype.itemsize,
                 ),
             }
 

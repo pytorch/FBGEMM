@@ -1040,7 +1040,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return int(
             math.ceil(
                 self.optimizer.state_size_nbytes(
-                    self.max_D, self.optimizer_state_dtypes
+                    self.max_D, self.weights_precision, self.optimizer_state_dtypes
                 )
                 / self.weights_precision.as_dtype().itemsize
             )
