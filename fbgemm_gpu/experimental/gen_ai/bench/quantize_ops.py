@@ -2538,7 +2538,6 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
 
         def get_global_scale(x, w, m_sizes):
             G = len(w)
-            ref_scale = []
             w_global_scale = []
             global_scale = []
 
@@ -2546,7 +2545,6 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
                 m_sizes.shape[0] + 1, dtype=torch.int64, device=m_sizes.device
             )
             cumulative_sum[1:] = torch.cumsum(m_sizes, dim=0)
-            cumulative_sum_list = cumulative_sum.tolist()
 
             x_global_scale, tensor_idx = calculate_group_max(x, m_sizes=m_sizes)
 
@@ -2554,38 +2552,19 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
                 w_global_scale_ = (448.0 * 6.0) / torch.amax(
                     torch.abs(w[i].flatten()), dim=-1
                 ).to(torch.float32)
-                tensor_slice = x[cumulative_sum_list[i] : cumulative_sum_list[i + 1]]
-                if tensor_slice.numel() != 0:
-                    ref_scale_ = (448.0 * 6.0) / torch.amax(
-                        torch.abs(
-                            x[cumulative_sum_list[i] : cumulative_sum_list[i + 1]]
-                        ).flatten(),
-                        dim=0,
-                    ).to(torch.float32)
-                else:
-                    ref_scale_ = torch.tensor(
-                        torch.finfo(torch.float32).max, device=x.device
-                    )
 
                 global_scale_ = 1 / (x_global_scale[i] * w_global_scale_)
 
-                ref_scale.append(ref_scale_)
                 w_global_scale.append(w_global_scale_)
                 global_scale.append(global_scale_)
 
-            return x_global_scale, w_global_scale, global_scale, ref_scale, tensor_idx
+            return x_global_scale, w_global_scale, global_scale, tensor_idx
 
         # Compute global scale for each group
         G = m_sizes.numel()
-        x_global_scale, w_global_scale, global_scale, ref_scale, tensor_idx = (
-            get_global_scale(x, w, m_sizes)
+        x_global_scale, w_global_scale, global_scale, tensor_idx = get_global_scale(
+            x, w, m_sizes
         )
-        ref_scale = torch.tensor(ref_scale, device=m_sizes.device)
-        ref_scale.masked_fill_(torch.isinf(ref_scale), torch.finfo(torch.float32).max)
-        if not torch.allclose(x_global_scale, ref_scale):
-            print(x_global_scale)
-            print(ref_scale)
-            raise AssertionError("per tensor calculation is different from reference")
         global_scale = torch.stack(global_scale, dim=0).contiguous()
 
         wq, w_scale = zip(
@@ -2620,14 +2599,7 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             m_sizes, x, x_global_scale, optional_tensor_idx=tensor_idx
         )
 
-        xq_other, x_scale_other, starting_row_after_padding_other = (
-            mega_fp4_quantize_kernel(
-                m_sizes, x, x_global_scale, optional_tensor_idx=None
-            )
-        )
-
         x_scale = x_scale.reshape(-1, x.shape[1] // 16)
-        x_scale_other = x_scale_other.reshape(-1, x.shape[1] // 16)
         return (
             xq,
             wq,
@@ -2636,9 +2608,6 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             m_sizes,
             global_scale,
             starting_row_after_padding,
-            xq_other,
-            x_scale_other,
-            starting_row_after_padding_other,
         )
 
     def compute(
@@ -2650,20 +2619,7 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
         m_sizes,
         global_scale,
         starting_row_after_padding,
-        xq_other,
-        x_scale_other,
-        starting_row_after_padding_other,
     ):
-        ref_solution = torch.ops.fbgemm.f4f4bf16_grouped_stacked(
-            xq_other,
-            wq,
-            x_scale_other,
-            w_scale,
-            m_sizes,
-            global_scale,
-            starting_row_after_padding_other,
-            use_mx=False,
-        )
         gemm_result = torch.ops.fbgemm.f4f4bf16_grouped_stacked(
             xq,
             wq,
@@ -2674,7 +2630,6 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             starting_row_after_padding,
             use_mx=False,
         )
-        assert torch.allclose(ref_solution, gemm_result)
         return gemm_result
 
     def quantize_and_compute(
@@ -2688,9 +2643,6 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             m_sizes,
             global_scale,
             starting_row_after_padding,
-            xq_other,
-            x_scale_other,
-            starting_row_after_padding_other,
         ) = self.quantize(
             x, wq, w_scale, x_global_scale, global_scale, m_sizes, tensor_idx
         )
@@ -2702,9 +2654,6 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             m_sizes,
             global_scale,
             starting_row_after_padding,
-            xq_other,
-            x_scale_other,
-            starting_row_after_padding_other,
         )
 
     @property
