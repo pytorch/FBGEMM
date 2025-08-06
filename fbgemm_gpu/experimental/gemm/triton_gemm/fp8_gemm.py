@@ -2253,8 +2253,12 @@ def prep_matmul(
         tl.float8e5,
         tl.float8e4b8,
     ]
-    c_dtype = torch.bfloat16
-    c_dtype_triton = tl.bfloat16
+
+    c_dtype, c_dtype_triton = (
+        (torch.bfloat16, tl.bfloat16)
+        if dot_out_dtype is None
+        else (dot_out_dtype, map_dtype_to_triton(dot_out_dtype))
+    )
 
     c = torch.empty((M, N), device=device, dtype=c_dtype)
     if dot_out_dtype is None:
