@@ -1040,7 +1040,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return int(
             math.ceil(
                 self.optimizer.state_size_nbytes(
-                    self.max_D, self.weights_precision, self.optimizer_state_dtypes
+                    self.max_D, self.optimizer_state_dtypes
                 )
                 / self.weights_precision.as_dtype().itemsize
             )
@@ -2638,10 +2638,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
                 # Get the size of the state in elements of the optimizer state,
                 # in terms of the **weights** dtype
-                state_size = (
+                state_size = math.ceil(
                     optimizer_state_size_table[state_name]
                     * state_dtype.itemsize
-                    // dtype.itemsize
+                    / dtype.itemsize
                 )
 
                 # Extract the offsets relative to the start of the weights (in
