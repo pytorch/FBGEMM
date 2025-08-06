@@ -10,7 +10,7 @@
 # pyre-strict
 
 from typing import Any, Optional, Tuple
-
+from .library import *  # noqa: F401, F403
 import torch
 
 
@@ -312,3 +312,73 @@ def hstu_attn_varlen_func(
         descale_k,
         descale_v,
     )
+
+
+# api for hstu attention when rab and delta_q are not used
+@torch.fx.wrap
+def cuda_hstu_attn_varlen(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    seq_offsets_q: torch.Tensor,
+    seq_offsets_k: torch.Tensor,
+    max_seqlen_q: int,
+    max_seqlen_k: int,
+    num_targets: torch.Tensor,
+    window_size: Tuple[int, int] = (-1, -1),
+    alpha: float = 1.0,
+    is_train: bool = True,
+) -> torch.Tensor:
+    if is_train:
+        out = hstu_attn_varlen_func(
+            q,
+            k,
+            v,
+            seq_offsets_q,
+            seq_offsets_k,
+            max_seqlen_q,
+            max_seqlen_k,
+            None,  # num_contexts, # pyre-ignore[6]
+            num_targets,
+            1,  # target_group_size
+            window_size,
+            alpha,
+        )
+
+    else:
+        major_version = torch.cuda.get_device_capability()[0]
+        assert major_version == 8 or major_version == 9, "Only support sm80 and sm90"
+        if major_version == 8:
+            out, _ = torch.ops.fbgemm.hstu_varlen_fwd_80(
+                q,
+                k,
+                v,
+                seq_offsets_q,
+                seq_offsets_k,
+                max_seqlen_q,
+                max_seqlen_k,
+                None,  # num_contexts,
+                num_targets,
+                1,  # target_group_size
+                window_size[0],
+                window_size[1],
+                alpha,
+            )
+        else:
+            out, _ = torch.ops.fbgemm.hstu_varlen_fwd_90(
+                q,
+                k,
+                v,
+                seq_offsets_q,
+                seq_offsets_k,
+                max_seqlen_q,
+                max_seqlen_k,
+                None,
+                num_targets,
+                1,
+                window_size[0],
+                window_size[1],
+                alpha,
+            )
+        return out
+    return out
