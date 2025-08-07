@@ -100,6 +100,7 @@ def _combine_or_split_shuffling(
 
     BLOCK_E = max(triton.next_power_of_2(E), 8)
     BLOCK_EG = max(triton.next_power_of_2(EG), 8)
+    BLOCK_EP = max(triton.next_power_of_2(EP), 8)
 
     _fbgemm_combine_or_split_shuffling[grid](
         tokens,
@@ -116,6 +117,7 @@ def _combine_or_split_shuffling(
         D,
         BLOCK_E,
         BLOCK_EG,
+        BLOCK_EP,
         SPLIT_D,
     )
 
@@ -274,6 +276,7 @@ def _fbgemm_combine_or_split_shuffling(
     D: tl.constexpr,
     BLOCK_E: tl.constexpr,
     BLOCK_EG: tl.constexpr,
+    BLOCK_EP: tl.constexpr,
     SPLIT_D: tl.constexpr,
     BLOCK_T: tl.constexpr,
     BLOCK_D: tl.constexpr,
@@ -293,22 +296,22 @@ def _fbgemm_combine_or_split_shuffling(
     didx = tidx % SPLIT_D
     offs_e = tl.arange(0, BLOCK_E)
     offs_eg = tl.arange(0, BLOCK_EG)
+    offs_ep = tl.arange(0, BLOCK_EP)
 
     global_expert = local_expert + EG_START
 
     input_token_counts = tl.load(
-        input_token_counts_ptr + tl.arange(0, EP)[:, None] * E + offs_e[None, :],
+        input_token_counts_ptr + offs_ep[:, None] * E + offs_e[None, :],
         eviction_policy="evict_last",
-        mask=(offs_e[None, :] < E),
+        mask=((offs_ep[:, None] < EP) & (offs_e[None, :] < E)),
+        other=0,
     )  # [EP, E]
 
     input_token_counts_eg = tl.load(
-        input_token_counts_ptr
-        + tl.arange(0, EP)[:, None] * E
-        + EG_START
-        + offs_eg[None, :],
+        input_token_counts_ptr + offs_ep[:, None] * E + EG_START + offs_eg[None, :],
         eviction_policy="evict_last",
-        mask=(offs_eg[None, :] < EG),
+        mask=((offs_ep[:, None] < EP) & (offs_eg[None, :] < EG)),
+        other=0,
     )  # [EP, EG]
 
     if COMBINE:
@@ -335,8 +338,8 @@ def _fbgemm_combine_or_split_shuffling(
                 tl.store(output_token_counts_ptr + EG, output_token_counts_eg)
             return
 
-    cond0 = tl.arange(0, EP)[:, None] < rank
-    cond1 = tl.arange(0, EP)[:, None] == rank
+    cond0 = offs_ep[:, None] < rank
+    cond1 = offs_ep[:, None] == rank
 
     cond2 = offs_e[None, :] < global_expert
     cond3 = offs_e[None, :] == global_expert
