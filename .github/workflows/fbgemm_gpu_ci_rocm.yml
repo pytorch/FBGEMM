@@ -73,6 +73,7 @@ jobs:
         ]
         container-image: [ "ubuntu:22.04" ]
         build-target: [ "default", "genai" ]
+        # NOTE: we test only a subset of Python versions to reduce CI expenses
         python-version: [ "3.13" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
