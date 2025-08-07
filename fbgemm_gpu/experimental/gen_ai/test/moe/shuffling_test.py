@@ -218,7 +218,7 @@ class ShufflingTests(unittest.TestCase):
             [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
         ),
         num_experts=st.sampled_from([16, 80, 128]),
-        ep_size=st.sampled_from([4, 8]),
+        ep_size=st.sampled_from([4, 5, 8, 11]),
         dim=st.sampled_from([5120]),
         top_k=st.sampled_from([1, 4]),
         sparse=st.sampled_from([True, False]),
@@ -241,7 +241,6 @@ class ShufflingTests(unittest.TestCase):
         device = device = torch.accelerator.current_accelerator()
 
         is_combine_shuffling: bool = target_fn == "combine_shuffling"
-        assert num_experts % ep_size == 0
 
         if sparse:
             num_tokens *= ep_size
