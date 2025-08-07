@@ -89,11 +89,11 @@ class GenSparseAdagrad {
     return rt;
   }
 
-  static std::mutex rtMutex_; /// Controll access to runtime;
+  inline static std::mutex rtMutex_; /// Controll access to runtime;
 
   // The hash depends on embedding dimension (block size), prefetch distance,
   // rowwise, and has_weight_decay
-  static CodeCache<
+  inline static CodeCache<
       std::tuple<int, int, bool, bool>,
       typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
@@ -111,14 +111,6 @@ class GenSparseAdagrad {
   x86::KReg reduce_mask_avx512_;
 }; // GenEmbeddingLookup
 
-template <typename indxType, inst_set_t instSet>
-std::mutex GenSparseAdagrad<indxType, instSet>::rtMutex_;
-
-template <typename indxType, inst_set_t instSet>
-CodeCache<
-    std::tuple<int, int, bool, bool>,
-    typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel>
-    GenSparseAdagrad<indxType, instSet>::codeCache_;
 
 template <typename indxType, inst_set_t instSet>
 void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
