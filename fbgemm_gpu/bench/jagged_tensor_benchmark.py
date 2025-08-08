@@ -911,5 +911,97 @@ def permute_pooled_embs_bench(
         assert torch.allclose(out, output[i])
 
 
+@cli.command()
+@click.option("--num-elements", type=int, default=100000)
+@click.option("--num-unique-indices", type=int, default=1000)
+@click.option("--weight-dim", type=int, default=64)
+@click.option("--num-iterations", type=int, default=10)
+@click.option("--num-warmup", type=int, default=5)
+def jagged_acc_weights_and_counts_bench(
+    num_elements: int,
+    num_unique_indices: int,
+    weight_dim: int,
+    num_iterations: int,
+    num_warmup: int,
+) -> None:
+    """Performance comparison benchmark for jagged_acc_weights_and_counts."""
+    logging.info("######## Jagged Accumulate Weights and Counts Performance ########")
+
+    if not torch.cuda.is_available():
+        logging.info("CUDA not available, skipping benchmark")
+        return
+
+    device = torch.accelerator.current_accelerator()
+
+    # 1D test
+    weights_1d = torch.randn(num_elements, device=device)
+    reverse_indices = torch.randint(
+        0, num_unique_indices, (num_elements,), dtype=torch.int64, device=device
+    )
+
+    # Warm up
+    for _ in range(num_warmup):
+        _ = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            weights_1d, reverse_indices, num_unique_indices
+        )
+
+    torch.cuda.synchronize()
+
+    # Time our optimized version
+    start_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iterations)]
+    end_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iterations)]
+
+    # Initialize result_optimized before the loop to ensure it's always defined
+    result_optimized = None
+    for i in range(num_iterations):
+        start_events[i].record()
+        result_optimized = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            weights_1d, reverse_indices, num_unique_indices
+        )
+        end_events[i].record()
+
+    torch.cuda.synchronize()
+    optimized_times = [
+        start_events[i].elapsed_time(end_events[i]) for i in range(num_iterations)
+    ]
+
+    # Time reference version
+    for i in range(num_iterations):
+        start_events[i].record()
+        reference = torch.zeros((num_unique_indices, 2), device=device)
+        weights_float = weights_1d.float()
+        counts = torch.ones_like(weights_float)
+        reference[:, 0].scatter_add_(0, reverse_indices, weights_float)
+        reference[:, 1].scatter_add_(0, reverse_indices, counts)
+        end_events[i].record()
+
+    torch.cuda.synchronize()
+    reference_times = [
+        start_events[i].elapsed_time(end_events[i]) for i in range(num_iterations)
+    ]
+
+    # Verify correctness
+    reference_final = torch.zeros((num_unique_indices, 2), device=device)
+    weights_float = weights_1d.float()
+    counts = torch.ones_like(weights_float)
+    reference_final[:, 0].scatter_add_(0, reverse_indices, weights_float)
+    reference_final[:, 1].scatter_add_(0, reverse_indices, counts)
+
+    # Ensure result_optimized is defined before using it
+    if result_optimized is not None:
+        torch.testing.assert_close(
+            result_optimized, reference_final, rtol=1e-4, atol=1e-5
+        )
+
+    # Log timing results
+    avg_optimized = sum(optimized_times) / len(optimized_times)
+    avg_reference = sum(reference_times) / len(reference_times)
+    logging.info("1D Accumulation Performance:")
+    logging.info(f"  Optimized kernel: {avg_optimized:.3f} ms")
+    logging.info(f"  Reference (scatter_add): {avg_reference:.3f} ms")
+    logging.info(f"  Speedup: {avg_reference / avg_optimized:.2f}x")
+    logging.info("")
+
+
 if __name__ == "__main__":
     cli()
