@@ -107,6 +107,113 @@ void transpose_neon(
   }
 }
 
+template <>
+void transpose_neon(int64_t M, int64_t N, const __fp16 *src,
+                    int64_t ld_src, __fp16 *dst, int64_t ld_dst) {
+  int64_t ib = 0, jb = 0;
+  if (N % 8 > 0 && N % 8 < 4) {
+    for (ib = 0; ib + 8 <= M; ib += 8) {
+      for (jb = 0; jb + 8 <= N; jb += 8) {
+        transpose_kernel_8x8_neon(&src[ib * ld_src + jb], ld_src,
+                                  &dst[ib + jb * ld_dst], ld_dst);
+      }
+      for (int64_t i = ib; i < ib + 8; i += 4) {
+        transpose_kernel_mxn_neon_64<4>(N - jb, &src[i * ld_src + jb], ld_src,
+                                         &dst[i + jb * ld_dst], ld_dst);
+      }
+    }
+  } else if (N % 8 == 4) {
+    for (ib = 0; ib + 8 <= M; ib += 8) {
+      for (jb = 0; jb + 8 <= N; jb += 8) {
+        transpose_kernel_8x8_neon(&src[ib * ld_src + jb], ld_src,
+                                  &dst[ib + jb * ld_dst], ld_dst);
+      }
+      for (int64_t i = ib; i < ib + 8; i += 4) {
+        transpose_kernel_4x4_neon(&src[i * ld_src + jb], ld_src,
+                                  &dst[i + jb * ld_dst], ld_dst);
+      }
+    }
+  } else {
+    for (ib = 0; ib + 8 <= M; ib += 8) {
+      for (jb = 0; jb + 8 <= N; jb += 8) {
+        transpose_kernel_8x8_neon(&src[ib * ld_src + jb], ld_src,
+                                  &dst[ib + jb * ld_dst], ld_dst);
+      }
+      if (jb < N) {
+        transpose_kernel_mxn_neon_128<8>(N - jb, &src[ib * ld_src + jb], ld_src,
+                                         &dst[ib + jb * ld_dst], ld_dst);
+      }
+    }
+  }
+  switch (M - ib) {
+  case 1:
+    for (int64_t j = 0; j < N; ++j) {
+      dst[ib + j * ld_dst] = src[ib * ld_src + j];
+    }
+    break;
+  case 2:
+    for (jb = 0; jb + 4 <= N; jb += 4) {
+      transpose_kernel_mxn_neon_64<2>(4, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    if (jb < N) {
+      transpose_kernel_mxn_neon_64<2>(N - jb, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    break;
+  case 3:
+    for (jb = 0; jb + 4 <= N; jb += 4) {
+      transpose_kernel_mxn_neon_64<3>(4, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    if (jb < N) {
+      transpose_kernel_mxn_neon_64<3>(N - jb, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    break;
+  case 4:
+    for (jb = 0; jb + 4 <= N; jb += 4) {
+      transpose_kernel_4x4_neon(&src[ib * ld_src + jb], ld_src,
+                                &dst[ib + jb * ld_dst], ld_dst);
+    }
+    if (jb < N) {
+      transpose_kernel_mxn_neon_64<4>(N - jb, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    break;
+  case 5:
+    for (jb = 0; jb + 8 <= N; jb += 8) {
+      transpose_kernel_mxn_neon_128<5>(8, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    if (jb < N) {
+      transpose_kernel_mxn_neon_128<5>(N - jb, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    break;
+  case 6:
+    for (jb = 0; jb + 8 <= N; jb += 8) {
+      transpose_kernel_mxn_neon_128<6>(8, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    if (jb < N) {
+      transpose_kernel_mxn_neon_128<6>(N - jb, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    break;
+  case 7:
+    for (jb = 0; jb + 8 <= N; jb += 8) {
+      transpose_kernel_mxn_neon_128<7>(8, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    if (jb < N) {
+      transpose_kernel_mxn_neon_128<7>(N - jb, &src[ib * ld_src + jb], ld_src,
+                                       &dst[ib + jb * ld_dst], ld_dst);
+    }
+    break;
+  }
+}
+
 } // namespace internal
 
 } // namespace fbgemm
