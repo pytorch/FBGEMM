@@ -38,7 +38,7 @@ template <
 inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
   static_assert(
       L <= fbgemm_gpu::kWarpSize / 2, "merge list size must be <= 16");
-  int32_t laneId = threadIdx.x;
+  auto laneId = threadIdx.x;
 
   if (!IsBitonic) {
     // Reverse the first comparison stage.
