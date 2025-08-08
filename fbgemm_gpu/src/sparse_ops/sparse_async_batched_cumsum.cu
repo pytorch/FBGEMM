@@ -53,10 +53,10 @@ template <
     uint32_t nthreads_per_block,
     typename = std::enable_if_t<std::is_integral<val_t>::value>>
 __global__ __launch_bounds__(kMaxThreads) void _batched_complete_cumsum_kernel(
-    const at::PackedTensorAccessor64<val_t, 2, at::RestrictPtrTraits> values,
+    const pta::PackedTensorAccessor64<val_t, 2, at::RestrictPtrTraits> values,
     const uint32_t len,
     const uint32_t items_per_thread,
-    at::PackedTensorAccessor64<val_t, 2, at::RestrictPtrTraits> out) {
+    pta::PackedTensorAccessor64<val_t, 2, at::RestrictPtrTraits> out) {
   using BlockScan = cub::BlockScan<val_t, nthreads_per_block>;
   __shared__ typename BlockScan::TempStorage temp_storage;
 
@@ -78,6 +78,18 @@ __global__ __launch_bounds__(kMaxThreads) void _batched_complete_cumsum_kernel(
     }
   }
 }
+
+#define BATCHED_COMPLETE_CUMSUM_KERNEL(NTHREADS_PER_BLOCK)          \
+  FBGEMM_LAUNCH_KERNEL(                                             \
+      (_batched_complete_cumsum_kernel<val_t, NTHREADS_PER_BLOCK>), \
+      B,                                                            \
+      NTHREADS_PER_BLOCK,                                           \
+      0,                                                            \
+      at::cuda::getCurrentCUDAStream(),                             \
+      PTA_B(values, val_t, 2, 64),                                  \
+      len,                                                          \
+      items_per_thread,                                             \
+      PTA_B(cumsum, val_t, 2, 64));
 
 at::Tensor asynchronous_batched_complete_cumsum_gpu(const at::Tensor& values) {
   at::cuda::OptionalCUDAGuard device_guard;
@@ -102,47 +114,28 @@ at::Tensor asynchronous_batched_complete_cumsum_gpu(const at::Tensor& values) {
   AT_DISPATCH_INTEGRAL_TYPES(
       values.scalar_type(), "batched_complete_cumsum_cuda_input1", [&] {
         using val_t = scalar_t;
+
         if (nthreads_per_block == 64) {
-          _batched_complete_cumsum_kernel<val_t, 64>
-              <<<B, 64, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  values.packed_accessor64<val_t, 2, at::RestrictPtrTraits>(),
-                  len,
-                  items_per_thread,
-                  cumsum.packed_accessor64<val_t, 2, at::RestrictPtrTraits>());
+          BATCHED_COMPLETE_CUMSUM_KERNEL(64);
+
         } else if (nthreads_per_block == 128) {
-          _batched_complete_cumsum_kernel<val_t, 128>
-              <<<B, 128, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  values.packed_accessor64<val_t, 2, at::RestrictPtrTraits>(),
-                  len,
-                  items_per_thread,
-                  cumsum.packed_accessor64<val_t, 2, at::RestrictPtrTraits>());
+          BATCHED_COMPLETE_CUMSUM_KERNEL(128);
+
         } else if (nthreads_per_block == 256) {
-          _batched_complete_cumsum_kernel<val_t, 256>
-              <<<B, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  values.packed_accessor64<val_t, 2, at::RestrictPtrTraits>(),
-                  len,
-                  items_per_thread,
-                  cumsum.packed_accessor64<val_t, 2, at::RestrictPtrTraits>());
+          BATCHED_COMPLETE_CUMSUM_KERNEL(256);
+
         } else if (nthreads_per_block == 512) {
-          _batched_complete_cumsum_kernel<val_t, 512>
-              <<<B, 512, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  values.packed_accessor64<val_t, 2, at::RestrictPtrTraits>(),
-                  len,
-                  items_per_thread,
-                  cumsum.packed_accessor64<val_t, 2, at::RestrictPtrTraits>());
+          BATCHED_COMPLETE_CUMSUM_KERNEL(512);
+
         } else {
-          _batched_complete_cumsum_kernel<val_t, 1024>
-              <<<B, 1024, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  values.packed_accessor64<val_t, 2, at::RestrictPtrTraits>(),
-                  len,
-                  items_per_thread,
-                  cumsum.packed_accessor64<val_t, 2, at::RestrictPtrTraits>());
+          BATCHED_COMPLETE_CUMSUM_KERNEL(1024);
         }
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
   return cumsum;
 }
+
+#undef BATCHED_COMPLETE_CUMSUM_KERNEL
 
 } // namespace fbgemm_gpu
 
