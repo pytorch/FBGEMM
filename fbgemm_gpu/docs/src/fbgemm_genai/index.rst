@@ -16,3 +16,15 @@ FP8 row-wise quantization and collective communications.
    development/BuildInstructions
    development/InstallationInstructions
    development/TestInstructions
+
+.. toctree::
+   :maxdepth: 2
+   :caption: FBGEMM GenAI Overview
+
+   overview/Overview
+
+.. toctree::
+   :maxdepth: 2
+   :caption: FBGEMM GenAI Python API
+
+   python-api/quantize_ops
