@@ -14,8 +14,14 @@ import click
 import torch
 import yaml
 
-from .tbe_data_config import TBEDataConfig
-from .tbe_data_config_param_models import BatchParams, IndicesParams, PoolingParams
+from fbgemm_gpu.tbe.bench.tbe_data_config import (
+    BatchListParams,
+    BatchParams,
+    IndicesParams,
+    PoolingParams,
+    TBEDataConfig,
+    TBEDataListConfig,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -230,6 +236,197 @@ class TBEDataConfigLoader:
 
     @classmethod
     def load(cls, context: click.Context) -> TBEDataConfig:
+        tbe_config_filepath = context.params["tbe_config"]
+        if tbe_config_filepath is not None:
+            return cls.load_from_file(tbe_config_filepath)
+        else:
+            return cls.load_from_context(context)
+
+
+class TBEDataConfigListLoader:
+    @classmethod
+    # pyre-ignore [2]
+    def options(cls, func) -> click.Command:
+        options = [
+            # Config File
+            click.option(
+                "--tbe-config",
+                type=str,
+                required=False,
+                help=TBEDataConfigHelperText.TBE_CONFIG.value,
+            ),
+            # Table Parameters
+            click.option(
+                "--tbe-num-tables",
+                type=int,
+                default=32,
+                help=TBEDataConfigHelperText.TBE_NUM_TABLES.value,
+            ),
+            click.option(
+                "--tbe-num-embeddings-list",
+                type=str,
+                default=",".join(["100000"] * 32),
+                help="Comma-separated list of number of embeddings (Es)",
+            ),
+            click.option(
+                "--tbe-embedding-dim-list",
+                type=str,
+                default=",".join(["128"] * 32),
+                help="Comma-separated list of number of Embedding dimensions (D)",
+            ),
+            click.option(
+                "--tbe-weighted",
+                is_flag=True,
+                default=False,
+                help=TBEDataConfigHelperText.TBE_WEIGHTED.value,
+            ),
+            click.option(
+                "--tbe-max-indices",
+                type=int,
+                default=None,
+                help="(Optional) Maximum number of indices, will be calculated if not provided",
+            ),
+            ####################################################################
+            # Batch Parameters
+            click.option(
+                "--tbe-batch-sizes-list",
+                type=str,
+                default=",".join(["512"] * 32),
+                help="List Batch sizes per feature (Bs)",
+            ),
+            click.option(
+                "--tbe-batch-vbe-sigma",
+                type=int,
+                required=False,
+                help=TBEDataConfigHelperText.TBE_BATCH_VBE_SIGMA.value,
+            ),
+            click.option(
+                "--tbe-batch-vbe-dist",
+                type=click.Choice(["uniform", "normal"]),
+                required=False,
+                help=TBEDataConfigHelperText.TBE_BATCH_VBE_DIST.value,
+            ),
+            click.option(
+                "--tbe-batch-vbe-ranks",
+                type=int,
+                required=False,
+                help=TBEDataConfigHelperText.TBE_BATCH_VBE_RANKS.value,
+            ),
+            # Indices Parameters
+            click.option(
+                "--tbe-indices-hitters",
+                type=str,
+                default="",
+                help=TBEDataConfigHelperText.TBE_INDICES_HITTERS.value,
+            ),
+            click.option(
+                "--tbe-indices-zipf",
+                type=(float, float),
+                default=(0.1, 0.1),
+                help=TBEDataConfigHelperText.TBE_INDICES_ZIPF.value,
+            ),
+            click.option(
+                "--tbe-indices-dtype",
+                type=click.Choice(["32", "64"]),
+                default="64",
+                help=TBEDataConfigHelperText.TBE_INDICES_DTYPE.value,
+            ),
+            click.option(
+                "--tbe-offsets-dtype",
+                type=click.Choice(["32", "64"]),
+                default="64",
+                help="The dtype of the table offsets",
+            ),
+            # Pooling Parameters
+            click.option(
+                "--tbe-pooling-size",
+                type=int,
+                default=20,
+                help=TBEDataConfigHelperText.TBE_POOLING_SIZE.value,
+            ),
+            click.option(
+                "--tbe-pooling-vl-sigma",
+                type=int,
+                required=False,
+                help=TBEDataConfigHelperText.TBE_POOLING_VL_SIGMA.value,
+            ),
+            click.option(
+                "--tbe-pooling-vl-dist",
+                type=click.Choice(["uniform", "normal"]),
+                required=False,
+                help=TBEDataConfigHelperText.TBE_POOLING_VL_DIST.value,
+            ),
+        ]
+
+        for option in reversed(options):
+            func = option(func)
+        return func
+
+    @classmethod
+    def load_from_file(cls, filepath: str) -> TBEDataListConfig:
+        with open(filepath, "r") as f:
+            if filepath.endswith(".yaml") or filepath.endswith(".yml"):
+                data = yaml.safe_load(f)
+                return TBEDataListConfig.from_dict(data).validate()
+            else:
+                return TBEDataListConfig.from_json(f.read()).validate()
+
+    @classmethod
+    def load_from_context(cls, context: click.Context) -> TBEDataListConfig:
+        params = context.params
+
+        # Read table parameters
+        T = params["tbe_num_tables"]
+        Es = [int(x) for x in params["tbe_num_embeddings_list"].split(",")]
+        Ds = [int(x) for x in params["tbe_embedding_dim_list"].split(",")]
+        weighted = params["tbe_weighted"]
+        max_indices = params["tbe_max_indices"]
+
+        # Read batch parameters
+        Bs = [int(x) for x in params["tbe_batch_sizes_list"].split(",")]
+        sigma_B = params["tbe_batch_vbe_sigma"]
+        vbe_distribution = params["tbe_batch_vbe_dist"]
+        vbe_num_ranks = params["tbe_batch_vbe_ranks"]
+        batch_params = BatchListParams(Bs, sigma_B, vbe_distribution, vbe_num_ranks)
+
+        # Read indices parameters
+        heavy_hitters = (
+            torch.tensor([float(x) for x in params["tbe_indices_hitters"].split(",")])
+            if params["tbe_indices_hitters"]
+            else torch.tensor([])
+        )
+        zipf_q, zipf_s = params["tbe_indices_zipf"]
+
+        index_dtype = (
+            torch.int32 if int(params["tbe_indices_dtype"]) == 32 else torch.int64
+        )
+        offset_dtype = (
+            torch.int32 if int(params["tbe_offsets_dtype"]) == 32 else torch.int64
+        )
+        indices_params = IndicesParams(
+            heavy_hitters, zipf_q, zipf_s, index_dtype, offset_dtype
+        )
+
+        # Read pooling parameters
+        L = params["tbe_pooling_size"]
+        sigma_L = params["tbe_pooling_vl_sigma"]
+        length_distribution = params["tbe_pooling_vl_dist"]
+        pooling_params = PoolingParams(L, sigma_L, length_distribution)
+
+        return TBEDataListConfig(
+            T,
+            Es,
+            Ds,
+            weighted,
+            batch_params,
+            indices_params,
+            pooling_params,
+            not torch.cuda.is_available(),
+            max_indices,
+        ).validate()
+
+    @classmethod
+    def load(cls, context: click.Context) -> TBEDataListConfig:
         tbe_config_filepath = context.params["tbe_config"]
         if tbe_config_filepath is not None:
             return cls.load_from_file(tbe_config_filepath)
