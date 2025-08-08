@@ -53,16 +53,16 @@ class DirectConvCodeGenBase {
       int o1Xoc,
       int i1);
 
-  static std::mutex rtMutex_; ///< Control access to runtime;
+  inline static std::mutex rtMutex_; ///< Control access to runtime;
 
   // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr
-  static CodeCache<
+  inline static CodeCache<
       std::tuple<bool, int, int, int, int, int, int>,
       jit_micro_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
 
   // The hash depends on accumulate, stride, mr, nr
-  static CodeCache<
+  inline static CodeCache<
       std::tuple<bool, int, int, int>,
       jit_micro_kernel_fp_convT>
       codeCacheT_; ///< JIT Code Cache for reuse.
@@ -204,20 +204,5 @@ class DirectConvCodeGenBase {
     return rt;
   }
 };
-
-template <typename TA, typename TB, typename TC, typename accT>
-std::mutex DirectConvCodeGenBase<TA, TB, TC, accT>::rtMutex_;
-
-template <typename TA, typename TB, typename TC, typename accT>
-CodeCache<
-    std::tuple<bool, int, int, int, int, int, int>,
-    typename DirectConvCodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
-    DirectConvCodeGenBase<TA, TB, TC, accT>::codeCache_;
-
-template <typename TA, typename TB, typename TC, typename accT>
-CodeCache<
-    std::tuple<bool, int, int, int>,
-    typename DirectConvCodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp_convT>
-    DirectConvCodeGenBase<TA, TB, TC, accT>::codeCacheT_;
 
 } // namespace fbgemm
