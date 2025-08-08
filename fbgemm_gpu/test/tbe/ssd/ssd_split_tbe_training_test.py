@@ -410,7 +410,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool = False,
         enable_optimizer_offloading: bool = False,
         backend_return_whole_row: bool = False,
-        optimizer_state_dtypes: Optional[Dict[OptimType, SparseType]] = None,
+        optimizer_state_dtypes: Dict[OptimType, SparseType] = {},
     ) -> Tuple[
         SSDTableBatchedEmbeddingBags,
         List[torch.nn.EmbeddingBag],
@@ -3654,8 +3654,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             row_ids: torch.Tensor,
         ) -> None:
             if row_ids.numel() != 0:
-                updates, _mask = emb.fetch_from_l1_sp_w_row_ids(row_ids=row_ids)
-                updated_weights.copy_(updates)
+                updates_list, _mask = emb.fetch_from_l1_sp_w_row_ids(row_ids=row_ids)
+                # The function now returns a list of tensors, but for weights we expect only one tensor
+                updated_weights.copy_(updates_list[0])
 
         emb.register_backward_hook_before_eviction(
             lambda grad: copy_weights_hook(
@@ -3831,10 +3832,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             row_ids: torch.Tensor,
         ) -> None:
             if row_ids.numel() != 0:
-                updates, _mask = emb.fetch_from_l1_sp_w_row_ids(
+                updates_list, _mask = emb.fetch_from_l1_sp_w_row_ids(
                     row_ids=row_ids, only_get_optimizer_states=True
                 )
-                updated_opt_states.copy_(updates)
+                # The function now returns a list of tensors
+                # for EXACT_ROWWISE_ADAGRAD optimizer states we take the first one
+                updated_opt_states.copy_(updates_list[0])
 
         emb.register_backward_hook_before_eviction(
             lambda grad: copy_opt_states_hook(
@@ -3917,6 +3920,215 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # be upgraded in the future to support multiple optimizers
                 split_optimizer_states[t][0][indices].float(),
                 opt_states_per_tb.cpu().float(),
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
+    @given(**default_st)
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_ssd_fetch_from_l1_sp_w_row_ids_partial_rowwise_adam(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        cache_set_scale: float,
+        pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
+        share_table: bool,
+        trigger_bounds_check: bool,
+        mixed_B: bool,
+    ) -> None:
+
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+        beta1 = 0.9
+        beta2 = 0.999
+        weight_decay = 0.01
+
+        trigger_bounds_check = False  # don't stimulate boundary check cases
+        assume(not mixed_B)
+        assume(not weighted or pooling_mode == PoolingMode.SUM)
+
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+            Es,
+            _,
+            bucket_offsets,
+            bucket_sizes,
+        ) = self.generate_kvzch_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            lr=lr,
+            eps=eps,
+            weight_decay=weight_decay,
+            beta1=beta1,
+            beta2=beta2,
+            ssd_shards=ssd_shards,
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+            cache_set_scale=cache_set_scale,
+            pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=share_table,
+            enable_optimizer_offloading=True,
+        )
+
+        # Generate inputs
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
+            mixed_B=False,
+            bucket_offsets=bucket_offsets,
+            bucket_sizes=bucket_sizes,
+            is_kv_tbes=True,
+        )
+
+        # For PARTIAL_ROWWISE_ADAM, we need to handle two optimizer states (m1 and m2)
+        updated_m1 = torch.zeros(
+            indices.numel(),
+            emb.max_D,
+            device=emb.current_device,
+            dtype=torch.float32,
+        )
+
+        updated_m2 = torch.zeros(
+            indices.numel(),
+            1,
+            device=emb.current_device,
+            dtype=torch.float32,
+        )
+
+        linearized_indices = []
+        for f, idxes in enumerate(indices_list):
+            linearized_indices.append(idxes.flatten().add(emb.hash_size_cumsum[f]))
+        linearized_indices_tensor = torch.cat(linearized_indices)
+
+        def copy_opt_states_hook(
+            _grad: torch.Tensor,
+            updated_m1: torch.Tensor,
+            updated_m2: torch.Tensor,
+            emb: SSDTableBatchedEmbeddingBags,
+            row_ids: torch.Tensor,
+        ) -> None:
+            if row_ids.numel() != 0:
+                updates_list, _mask = emb.fetch_from_l1_sp_w_row_ids(
+                    row_ids=row_ids, only_get_optimizer_states=True
+                )
+                # The function now returns a list of tensors for optimizer states
+                # For PARTIAL_ROWWISE_ADAM, we expect two tensors: m1 and m2
+                updated_m1.copy_(updates_list[1])
+                updated_m2.copy_(updates_list[0])
+
+        emb.register_backward_hook_before_eviction(
+            lambda grad: copy_opt_states_hook(
+                grad,
+                updated_m1,
+                updated_m2,
+                emb,
+                linearized_indices_tensor,
+            )
+        )
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            weighted,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
+
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
+
+        emb.flush()
+
+        # Compare emb state dict with expected values from nn.EmbeddingBag
+        _emb_state_dict_list, bucket_asc_ids_list, _num_active_id_per_bucket_list, _ = (
+            emb.split_embedding_weights(no_snapshot=False, should_flush=True)
+        )
+        assert bucket_asc_ids_list is not None
+        split_optimizer_states = emb.split_optimizer_states(
+            bucket_asc_ids_list, no_snapshot=False
+        )
+        table_input_id_range = []
+        for t, row in enumerate(Es):
+            bucket_id_start = bucket_offsets[t][0]
+            bucket_id_end = bucket_offsets[t][1]
+            bucket_size = bucket_sizes[t]
+            table_input_id_range.append(
+                (
+                    min(bucket_id_start * bucket_size, row),
+                    min(bucket_id_end * bucket_size, row),
+                )
+            )
+            # since we use ref_emb in dense format, the rows start from id 0
+            self.assertEqual(table_input_id_range[-1][0], 0)
+
+        cursor = 0
+        tolerance = 1.0e-4
+        # Compare optimizer states
+        for f, t in enumerate(emb.feature_table_map):
+            row_idxes = indices_list[f]
+            local_idxes = row_idxes.flatten()
+            value_to_index = {
+                v.item(): i for i, v in enumerate(bucket_asc_ids_list[t].flatten())
+            }
+            indices = torch.tensor([value_to_index[v.item()] for v in local_idxes])
+            m1_states_per_tb = updated_m1[cursor : cursor + local_idxes.numel()]
+            m2_states_per_tb = updated_m2[cursor : cursor + local_idxes.numel()]
+
+            if local_idxes.numel() == 0:
+                continue
+            cursor += local_idxes.numel()
+
+            # For PARTIAL_ROWWISE_ADAM, we have two optimizer states: m1 and m2
+            torch.testing.assert_close(
+                split_optimizer_states[t][0][indices].float(),
+                m1_states_per_tb.cpu().float(),
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
+            torch.testing.assert_close(
+                split_optimizer_states[t][1][indices].float(),
+                m2_states_per_tb.cpu().flatten().float(),
                 atol=tolerance,
                 rtol=tolerance,
             )
