@@ -58,13 +58,15 @@ Tensor jagged_to_padded_dense_backward_meta(
   const auto& grad_padded_values = grad_output;
 
   at::SymInt D = grad_padded_values.sym_size(-1);
+  const bool D_folded =
+      static_cast<size_t>(grad_padded_values.dim()) == offsets.size() + 1;
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
   auto grad_values =
       at::zeros_symint({std::move(total_L), D}, grad_padded_values.options());
 
   TORCH_CHECK(grad_values.is_meta());
-  return grad_values;
+  return D_folded ? grad_values.squeeze(-1) : grad_values;
 }
 
 Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
