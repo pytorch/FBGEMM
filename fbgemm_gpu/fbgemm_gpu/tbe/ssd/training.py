@@ -2866,6 +2866,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     f"flush latency for weight states: {(time.time() - start_time) * 1000} ms"
                 )
                 snapshot_handle = self.ssd_db.create_snapshot()
+                self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
                 checkpoint_handle = self.ssd_db.get_active_checkpoint_uuid(self.step)
                 logging.info(
                     f"created snapshot for weight states: {snapshot_handle}, latency: {(time.time() - start_time) * 1000} ms"
