@@ -455,10 +455,10 @@ batch_index_select_dim0_codegen_forward_cuda(
     CUDA_DEVICE_GUARD(dev_weights);
 
     {%- if not nobag %}
-    int32_t T = D_offsets.numel() - 1;
+    auto T = D_offsets.numel() - 1;
     {%- else %}
-    int32_t total_L = indices.numel();
-    int32_t T = weights_offsets.numel();
+    auto total_L = indices.numel();
+    auto T = weights_offsets.numel();
     {%- endif %}
     TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]

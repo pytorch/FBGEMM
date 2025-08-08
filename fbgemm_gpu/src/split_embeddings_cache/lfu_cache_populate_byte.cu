@@ -167,7 +167,7 @@ void lfu_cache_insert_byte_cuda(
 
   CUDA_DEVICE_GUARD(weights);
 
-  const int32_t N = cache_set_sorted_unique_indices.numel();
+  const auto N = cache_set_sorted_unique_indices.numel();
 
   AT_DISPATCH_INDEX_TYPES(
       cache_set_sorted_unique_indices.scalar_type(),

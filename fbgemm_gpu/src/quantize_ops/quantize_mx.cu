@@ -108,7 +108,7 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
   TORCH_CHECK(!flush_fp32_subnorms, "flush_fp32_subnorms is not yet supported");
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input);
 
-  const uint32_t total_elems = input.numel();
+  const auto total_elems = input.numel();
   if (total_elems == 0) {
     return at::empty(0, input.options().dtype(at::kByte));
   }
@@ -134,7 +134,7 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
 
   at::Device device = input.device();
   const at::cuda::CUDAGuard device_guard{device};
-  const uint32_t total_num_groups = input.numel() / mx_group_size;
+  const auto total_num_groups = input.numel() / mx_group_size;
 
   RoundingMode rd = static_cast<RoundingMode>(rounding_mode);
 

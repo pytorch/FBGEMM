@@ -121,7 +121,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
       static_cast<int64_t>(
           static_cast<uint64_t>(lxu_cache_state.size(0)) << kLFUCounterBits),
       unique_indices.options().dtype(at::kLong));
-  const int32_t N = unique_indices.numel();
+  const auto N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 

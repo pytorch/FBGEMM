@@ -180,8 +180,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
     device_guard.set_index(values.get_device());
 
     const auto batch_size = _batch_size.guard_int(__FILE__, __LINE__);
-    const int num_batches = lengths.numel() / batch_size;
-    const int num_output_lengths = num_batches * indices.numel();
+    const auto num_batches = lengths.numel() / batch_size;
+    const auto num_output_lengths = num_batches * indices.numel();
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
     auto grid_size = cuda_calc_xblock_count(
         num_output_lengths, MAX_CUMSUM_ENTRIES_PER_BLOCK);
