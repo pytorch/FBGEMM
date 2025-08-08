@@ -106,6 +106,43 @@ def init_to_zero(name):
     return lambda nargs: nargs[name].zero_()
 
 
+def get_pps_configs() -> List[Config]:
+    """
+    Returns a list of AMD configs that with
+    the Ping Pong Scheduler enabled can take the PPC1,
+    PPC2, and PPC4 code path.
+
+    Returns:
+        List[Config]: list of selected configs, all of which
+        can invoke the ping pong scheduler.
+    """
+    if torch.version.hip is None:
+        # Ping Pong Scheduler is only relevant for AMD
+        return []
+    else:
+        configs = []
+        block_m_range = [32, 64, 128]
+        block_n_range = [32, 64, 128, 256]
+        block_k_range = [32, 64, 128]
+        for block_m in block_m_range:
+            for block_k in block_k_range:
+                for block_n in block_n_range:
+                    num_warps = 4 if (block_m * block_k * block_n) <= 2097152 else 8
+                    configs.append(
+                        Config(
+                            {
+                                "BLOCK_M": block_m,
+                                "BLOCK_N": block_n,
+                                "BLOCK_K": block_k,
+                                "SPLIT_K": 1,
+                            },
+                            num_stages=2,
+                            num_warps=num_warps,
+                        )
+                    )
+        return configs
+
+
 def get_configs_io_bound() -> List[Config]:
     """
     Returns a list of configs for matmul that are IO bound.
@@ -149,105 +186,109 @@ def get_configs_io_bound() -> List[Config]:
     return configs
 
 
-MATMUL_CONFIGS: List[Config] = [
-    # basic configs for compute-bound matmuls
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=3,
-        num_warps=8,
-    ),
-    Config(
-        {"BLOCK_M": 256, "BLOCK_N": 128, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=3,
-        num_warps=8,
-    ),
-    Config(
-        {"BLOCK_M": 256, "BLOCK_N": 64, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 64, "BLOCK_N": 256, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 64, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 32, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 64, "BLOCK_N": 32, "BLOCK_K": 32, "SPLIT_K": 1},
-        num_stages=5,
-        num_warps=2,
-    ),
-    # good for int8
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 128, "SPLIT_K": 1},
-        num_stages=3,
-        num_warps=8,
-    ),
-    Config(
-        {"BLOCK_M": 256, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
-        num_stages=3,
-        num_warps=8,
-    ),
-    Config(
-        {"BLOCK_M": 256, "BLOCK_N": 64, "BLOCK_K": 128, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 64, "BLOCK_N": 256, "BLOCK_K": 128, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 64, "BLOCK_K": 64, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 64, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 128, "BLOCK_N": 32, "BLOCK_K": 64, "SPLIT_K": 1},
-        num_stages=4,
-        num_warps=4,
-    ),
-    Config(
-        {"BLOCK_M": 64, "BLOCK_N": 32, "BLOCK_K": 64, "SPLIT_K": 1},
-        num_stages=5,
-        num_warps=2,
-    ),
-] + get_configs_io_bound()
+MATMUL_CONFIGS: List[Config] = (
+    [
+        # basic configs for compute-bound matmuls
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=3,
+            num_warps=8,
+        ),
+        Config(
+            {"BLOCK_M": 256, "BLOCK_N": 128, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=3,
+            num_warps=8,
+        ),
+        Config(
+            {"BLOCK_M": 256, "BLOCK_N": 64, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 256, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 64, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 32, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 32, "BLOCK_K": 32, "SPLIT_K": 1},
+            num_stages=5,
+            num_warps=2,
+        ),
+        # good for int8
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 128, "SPLIT_K": 1},
+            num_stages=3,
+            num_warps=8,
+        ),
+        Config(
+            {"BLOCK_M": 256, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
+            num_stages=3,
+            num_warps=8,
+        ),
+        Config(
+            {"BLOCK_M": 256, "BLOCK_N": 64, "BLOCK_K": 128, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 256, "BLOCK_K": 128, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 64, "BLOCK_K": 64, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 64, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 32, "BLOCK_K": 64, "SPLIT_K": 1},
+            num_stages=4,
+            num_warps=4,
+        ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 32, "BLOCK_K": 64, "SPLIT_K": 1},
+            num_stages=5,
+            num_warps=2,
+        ),
+    ]
+    + get_configs_io_bound()
+    + get_pps_configs()
+)
 
 
 @triton.autotune(
