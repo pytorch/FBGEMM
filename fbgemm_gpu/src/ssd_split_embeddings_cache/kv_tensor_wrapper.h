@@ -87,6 +87,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   void set_dram_db_wrapper(
       c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db);
 
+  void set_read_only_embedding_rocks_dp_wrapper();
+
   void set_range(
       int64_t dim,
       const int64_t start,
