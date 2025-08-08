@@ -15,15 +15,8 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from fbgemm_gpu.experimental.gen_ai import attention as fmha
 from hypothesis import assume, given, settings, Verbosity
-
-try:
-    from xformers.ops import fmha
-    from xformers.ops.fmha import triton_splitk
-
-    HAS_XFORMERS = True
-except ImportError:
-    HAS_XFORMERS = False
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -258,9 +251,7 @@ class Int4GQATest(unittest.TestCase):
     )
     # pyre-fixme[56]
     @unittest.skipIf(
-        not torch.cuda.is_available()
-        # or torch.cuda.get_device_capability()[0] < 8
-        or not HAS_XFORMERS,
+        not torch.cuda.is_available(),
         "Skip when CUDA is not available or xformers is not available",
     )
     def test_mqa_main(  # noqa C901
@@ -561,11 +552,11 @@ class Int4GQATest(unittest.TestCase):
         # TODO: Add fmha.flash.FwOp when it supports padded mask
         for op in (
             [
-                triton_splitk.FwOp,
-                triton_splitk.FwOp_S16,
-                triton_splitk.FwOp_S32,
-                triton_splitk.FwOp_S64,
-                triton_splitk.FwOp_S128,
+                fmha.triton_splitk.FwOp,
+                fmha.triton_splitk.FwOp_S16,
+                fmha.triton_splitk.FwOp_S32,
+                fmha.triton_splitk.FwOp_S64,
+                fmha.triton_splitk.FwOp_S128,
             ]
             + [fmha.cutlass.FwOp]
             if not int4_kv
