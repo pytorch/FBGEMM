@@ -21,6 +21,7 @@ from .bench_runs import (  # noqa F401
     benchmark_pipelined_requests,
     benchmark_requests,
     benchmark_requests_refer,
+    benchmark_requests_with_spec,
     benchmark_vbe,
 )
 from .benchmark_click_interface import TbeBenchClickInterface  # noqa F401
@@ -30,9 +31,10 @@ from .eval_compression import (  # noqa F401
     EvalCompressionBenchmarkOutput,
 )
 from .reporter import BenchmarkReporter  # noqa F401
-from .tbe_data_config import TBEDataConfig  # noqa F401
+from .tbe_data_config import TBEDataConfig, TBEDataListConfig  # noqa F401
 from .tbe_data_config_loader import (  # noqa F401
     TBEDataConfigHelperText,
+    TBEDataConfigListLoader,
     TBEDataConfigLoader,
 )
 from .tbe_data_config_param_models import (  # noqa F401

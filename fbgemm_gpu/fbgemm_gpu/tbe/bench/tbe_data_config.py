@@ -9,7 +9,7 @@
 
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -23,7 +23,12 @@ from fbgemm_gpu.tbe.utils.requests import (
     TBERequest,
 )
 
-from .tbe_data_config_param_models import BatchParams, IndicesParams, PoolingParams
+from .tbe_data_config_param_models import (
+    BatchListParams,
+    BatchParams,
+    IndicesParams,
+    PoolingParams,
+)
 
 try:
     torch.ops.load_library(
@@ -35,6 +40,25 @@ except Exception:
 
 @dataclasses.dataclass(frozen=True)
 class TBEDataConfig:
+    # Number of tables
+    T: int
+    # Number of rows in the embedding table
+    E: int
+    # Target embedding dimension for a table (number of columns)
+    D: int
+    # Generate mixed dimensions if true
+    mixed_dim: bool
+    # Whether the lookup rows are weighted or not
+    weighted: bool
+    # Batch parameters
+    batch_params: BatchParams
+    # Indices parameters
+    indices_params: IndicesParams
+    # Pooling parameters
+    pooling_params: PoolingParams
+    # Force generated tensors to be on CPU
+    use_cpu: bool = False
+
     # Number of tables
     T: int
     # Number of rows in the embedding table
@@ -105,7 +129,7 @@ class TBEDataConfig:
         # Per-sample weights will always be FP32
         return None if not self.weighted else torch.randn(size, device=get_device())
 
-    def _generate_batch_sizes(self) -> Tuple[List[int], Optional[List[List[int]]]]:
+    def _generate_batch_sizes(self) -> tuple[List[int], Optional[List[List[int]]]]:
         if self.variable_B():
             assert (
                 self.batch_params.vbe_num_ranks is not None
@@ -252,7 +276,7 @@ class TBEDataConfig:
         else:
             return self._build_requests_dense(iters, all_indices)
 
-    def generate_embedding_dims(self) -> Tuple[int, List[int]]:
+    def generate_embedding_dims(self) -> tuple[int, List[int]]:
         if self.mixed_dim:
             Ds = [
                 round_up(
@@ -263,6 +287,280 @@ class TBEDataConfig:
             return (int(np.average(Ds)), Ds)
         else:
             return (self.D, [self.D] * self.T)
+
+    def generate_feature_requires_grad(self, size: int) -> torch.Tensor:
+        assert size <= self.T, "size of feature_requires_grad must be less than T"
+        weighted_requires_grad_tables = np.random.choice(
+            self.T, replace=False, size=(size,)
+        ).tolist()
+        return (
+            torch.tensor(
+                [1 if t in weighted_requires_grad_tables else 0 for t in range(self.T)]
+            )
+            .to(get_device())
+            .int()
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class TBEDataListConfig:
+    T: int  # Number of features (tables)
+    Es: List[int]  # Number of embeddings in each embedding features (number of rows)
+    Ds: List[int]  # Target embedding dimension for each features (number of columns)
+    weighted: bool  # Whether the lookup rows are weighted or not
+    batch_params: BatchListParams  # Batch parameters
+    indices_params: IndicesParams  # Indices parameters
+    pooling_params: PoolingParams  # Pooling parameters
+    use_cpu: bool = False  # Force generated tensors to be on CPU
+    max_indices: Optional[int] = None  # Maximum number of indices
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mixed_dim", len(set(self.Ds)) > 1)
+        if self.max_indices is None:
+            object.__setattr__(self, "max_indices", sum(self.Es) - 1)
+        self.validate()
+
+    @staticmethod
+    def complex_fields() -> Dict[str, Any]:
+        return {
+            "batch_params": BatchListParams,
+            "indices_params": IndicesParams,
+            "pooling_params": PoolingParams,
+        }
+
+    @classmethod
+    # pyre-ignore [3]
+    def from_dict(cls, data: Dict[str, Any]):
+        for field, Type in cls.complex_fields().items():
+            if not isinstance(data[field], Type):
+                data[field] = Type.from_dict(data[field])
+        return cls(**data)
+
+    @classmethod
+    # pyre-ignore [3]
+    def from_json(cls, data: str):
+        return cls.from_dict(json.loads(data))
+
+    def dict(self) -> Dict[str, Any]:
+        tmp = dataclasses.asdict(self)
+        for field in TBEDataListConfig.complex_fields().keys():
+            tmp[field] = self.__dict__[field].dict()
+        return tmp
+
+    def json(self, format: bool = False) -> str:
+        return json.dumps(self.dict(), indent=(2 if format else -1), sort_keys=True)
+
+    # pyre-ignore [3]
+    def validate(self):
+        # NOTE: Add validation logic here
+        assert self.T > 0, "T must be positive"
+        assert all(e > 0 for e in self.Es), "All elements in Es must be positive"
+        assert all(d > 0 for d in self.Ds), "All elements in Ds must be positive"
+        assert (
+            len(self.Es) == len(self.Ds) == self.T
+        ), "Lengths of Es, Lengths of Ds, and T must be equal"
+        assert self.max_indices == (
+            sum(self.Es) - 1
+        ), "max_indices must be equal to sum(Es) - 1"
+        self.batch_params.validate()
+        self.indices_params.validate()
+        self.pooling_params.validate()
+        return self
+
+    def variable_B(self) -> bool:
+        return self.batch_params.sigma_B is not None
+
+    def variable_L(self) -> bool:
+        return self.pooling_params.sigma_L is not None
+
+    def _new_weights(self, size: int) -> Optional[torch.Tensor]:
+        # Per-sample weights will always be FP32
+        return None if not self.weighted else torch.randn(size, device=get_device())
+
+    def _generate_pooling_info(self, iters: int, Bs: List[int]) -> torch.Tensor:
+        if self.variable_L():
+            # Generate L from stats
+            _, L_offsets = generate_pooling_factors_from_stats(
+                iters,
+                Bs,
+                self.pooling_params.L,
+                # pyre-ignore [6]
+                self.pooling_params.sigma_L,
+                # pyre-ignore [6]
+                self.pooling_params.length_distribution,
+            )
+
+        else:
+            Ls = [self.pooling_params.L] * (sum(Bs) * iters)
+            # print("Ls: ", Ls, "----------------------")
+            L_offsets = torch.tensor([0] + Ls, dtype=torch.long).cumsum(0)
+
+        return L_offsets
+
+    def _generate_indices(
+        self,
+        iters: int,
+        Bs: List[int],
+        L_offsets: torch.Tensor,
+    ) -> torch.Tensor:
+        total_B = sum(Bs)
+        L_offsets_list = L_offsets.tolist()
+        indices_list = []
+        for it in range(iters):
+            # L_offsets is defined over the entire set of batches for a single iteration
+            start_offset = L_offsets_list[it * total_B]
+            end_offset = L_offsets_list[(it + 1) * total_B]
+
+            indices_list.append(
+                torch.ops.fbgemm.tbe_generate_indices_from_distribution(
+                    self.indices_params.heavy_hitters,
+                    self.indices_params.zipf_q,
+                    self.indices_params.zipf_s,
+                    # max_index = maximum index to generate
+                    self.max_indices,
+                    # num_indices = number of indices to generate
+                    end_offset - start_offset,
+                )
+            )
+
+        return torch.cat(indices_list)
+
+    def _build_requests_jagged(
+        self,
+        iters: int,
+        Bs: List[int],
+        Bs_feature_rank: Optional[List[List[int]]],
+        L_offsets: torch.Tensor,
+        all_indices: torch.Tensor,
+    ) -> List[TBERequest]:
+        total_B = sum(Bs)
+        all_indices = all_indices.flatten()
+        requests = []
+        for it in range(iters):
+            start_offset = L_offsets[it * total_B]
+            it_L_offsets = torch.concat(
+                [
+                    torch.zeros(1, dtype=L_offsets.dtype, device=L_offsets.device),
+                    L_offsets[it * total_B + 1 : (it + 1) * total_B + 1] - start_offset,
+                ]
+            )
+            requests.append(
+                TBERequest(
+                    maybe_to_dtype(
+                        all_indices[start_offset : L_offsets[(it + 1) * total_B]],
+                        self.indices_params.index_dtype,
+                    ),
+                    maybe_to_dtype(
+                        it_L_offsets.to(get_device()), self.indices_params.offset_dtype
+                    ),
+                    self._new_weights(int(it_L_offsets[-1].item())),
+                    Bs_feature_rank if self.variable_B() else None,
+                )
+            )
+        return requests
+
+    def _build_requests_dense(
+        self, iters: int, all_indices: torch.Tensor
+    ) -> List[TBERequest]:
+        # NOTE: We're using existing code from requests.py to build the
+        # requests, and since the existing code requires 2D view of all_indices,
+        # the existing all_indices must be reshaped
+        all_indices = all_indices.reshape(iters, -1)
+        B = self.batch_params.Bs[0]
+
+        requests = []
+        for it in range(iters):
+            indices, offsets = get_table_batched_offsets_from_dense(
+                all_indices[it].view(self.T, B, self.pooling_params.L),
+                use_cpu=self.use_cpu,
+            )
+            requests.append(
+                TBERequest(
+                    maybe_to_dtype(indices, self.indices_params.index_dtype),
+                    maybe_to_dtype(offsets, self.indices_params.offset_dtype),
+                    self._new_weights(self.T * B * self.pooling_params.L),
+                )
+            )
+        return requests
+
+    def generate_requests(
+        self,
+        iters: int = 1,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+    ) -> List[TBERequest]:
+        # Generate batch sizes
+        Bs = self.batch_params.Bs
+        # print("Batch size: ", Bs, "----------------------")
+
+        # Generate pooling info
+        L_offsets = self._generate_pooling_info(iters, Bs)
+        # print("L_offsets: ", L_offsets, "----------------------")
+
+        # Generate indices
+        all_indices = self._generate_indices(iters, Bs, L_offsets)
+        # print("all_indices shape: ", all_indices.shape, "----------------------")
+        heavy_hitters, q, s, _, _ = torch.ops.fbgemm.tbe_estimate_indices_distribution(
+            all_indices.cpu()
+        )
+
+        # print("heavy_hitters: ", heavy_hitters, "----------------------")
+        # print("q: ", q, "----------------------")
+        # print("s: ", s, "----------------------")
+        # Build TBE requests
+        if self.variable_B() or self.variable_L():
+            return self._build_requests_jagged(
+                iters, Bs, batch_size_per_feature_per_rank, L_offsets, all_indices
+            )
+        else:
+            return self._build_requests_dense(iters, all_indices)
+
+    def generate_requests_with_Llist(
+        self,
+        L_list: torch.Tensor,
+        iters: int = 1,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+    ) -> List[TBERequest]:
+        # Generate batch sizes
+        # print("Generating requests with L list----------------------")
+        Bs = self.batch_params.Bs
+        # print("Batch size: ", Bs, "----------------------")
+
+        # Generate pooling info from L list
+        Ls_list = []
+        for i in range(len(Bs)):
+            L = L_list[i]
+            B = Bs[i]
+            Ls_iter = np.random.normal(
+                loc=L, scale=self.pooling_params.sigma_L, size=B
+            ).astype(int)
+            Ls_list.append(Ls_iter)
+        Ls = np.concatenate(Ls_list)
+        Ls[Ls < 0] = 0
+        # Use the same L distribution across iters
+        Ls = np.tile(Ls, iters)
+        L = Ls.max()
+        # Make it exclusive cumsum
+        L_offsets = torch.from_numpy(np.insert(Ls.cumsum(), 0, 0)).to(torch.long)
+
+        # print("L_offsets: ", L_offsets, "----------------------")
+
+        # Generate indices
+        all_indices = self._generate_indices(iters, Bs, L_offsets)
+        all_indices = all_indices.to(get_device())
+
+        # heavy_hitters, q, s, _, _ = torch.ops.fbgemm.tbe_estimate_indices_distribution(
+        #     all_indices.cpu()
+        # )
+        # print("heavy_hitters: ", heavy_hitters, "----------------------")
+        # print("q: ", q, "----------------------")
+        # print("s: ", s, "----------------------")
+        # Build TBE requests
+        if self.variable_B() or self.variable_L():
+            return self._build_requests_jagged(
+                iters, Bs, batch_size_per_feature_per_rank, L_offsets, all_indices
+            )
+        else:
+            return self._build_requests_dense(iters, all_indices)
 
     def generate_feature_requires_grad(self, size: int) -> torch.Tensor:
         assert size <= self.T, "size of feature_requires_grad must be less than T"

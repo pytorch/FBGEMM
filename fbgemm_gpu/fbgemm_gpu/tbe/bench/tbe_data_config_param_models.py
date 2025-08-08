@@ -130,6 +130,48 @@ class BatchParams:
 
 
 @dataclasses.dataclass(frozen=True)
+class BatchListParams:
+    # Target batch sizes, i.e. number of batch lookups per table
+    Bs: list[int]
+
+    # [Optional] Standard deviation of B (for variable batch size configuration)
+    sigma_B: Optional[int] = None
+    # [Optional] Distribution of batch sizes (normal, uniform)
+    vbe_distribution: Optional[str] = "normal"
+    # Number of ranks for variable batch size generation
+    vbe_num_ranks: Optional[int] = None
+
+    @classmethod
+    # pyre-ignore [3]
+    def from_dict(cls, data: Dict[str, Any]):
+        return cls(**data)
+
+    @classmethod
+    # pyre-ignore [3]
+    def from_json(cls, data: str):
+        return cls.from_dict(json.loads(data))
+
+    def dict(self) -> Dict[str, Any]:
+        return dataclasses.asdict(self)
+
+    def json(self, format: bool = False) -> str:
+        return json.dumps(self.dict(), indent=(2 if format else -1), sort_keys=True)
+
+    # pyre-ignore [3]
+    def validate(self):
+        assert all(b > 0 for b in self.Bs), "All elements in Bs must be positive"
+        assert not self.sigma_B or self.sigma_B > 0, "sigma_B must be positive"
+        assert (
+            self.vbe_num_ranks is None or self.vbe_num_ranks > 0
+        ), "vbe_num_ranks must be positive"
+        assert self.vbe_distribution is None or self.vbe_distribution in [
+            "normal",
+            "uniform",
+        ], "vbe_distribution must be one of [normal, uniform]"
+        return self
+
+
+@dataclasses.dataclass(frozen=True)
 class PoolingParams:
     # Target bag size, i.e. pooling factor, or number of indices per batch lookup
     L: int
