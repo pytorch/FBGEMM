@@ -107,6 +107,7 @@ project(
   LANGUAGES ${project_languages})
 
 # AVX Flags Setup - must be set AFTER project declaration
+set(CHECK_AVX_COMPILE ON)
 include(${CMAKEMODULES}/FindAVX.cmake)
 
 # PyTorch Dependencies Setup
