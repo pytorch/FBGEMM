@@ -1906,12 +1906,27 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;embedding_table_index_type must be torch.int32 or torch.int64, but got </span><span class="si">{</span><span class="n">embedding_table_index_type</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">embedding_table_index_type</span>
         <span class="k">if</span> <span class="n">embedding_table_offset_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;embedding_table_offset_type must be torch.int32 or torch.int64, but got </span><span class="si">{</span><span class="n">embedding_table_offset_type</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">embedding_table_offset_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">enable_int32_indices_offsets</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span>
+            <span class="n">FeatureGateName</span><span class="o">.</span><span class="n">INT32_INDICES_AND_OFFSETS</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">enable_int32_indices_offsets</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span>
+                <span class="n">embedding_table_index_type</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
+                <span class="ow">and</span> <span class="n">embedding_table_offset_type</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
+            <span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Casting indices and offsets to int64&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+                    <span class="s2">&quot;Casting indices and offsets to int32 based on embedding_table_index_type and embedding_table_offset_type inputs&quot;</span>
+                <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -4042,6 +4057,11 @@
         <span class="c1"># We cannot use lambda as it fails jit script.</span>
         <span class="c1"># torch._check is also not supported in jitscript</span>
 
+        <span class="c1"># Apply flag-based casting if JK enabled. TODO: remove this check after it&#39;s determined that the feature is stable</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">enable_int32_indices_offsets</span><span class="p">:</span>
+            <span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="p">)</span>
+            <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">)</span>
+
         <span class="c1"># TODO: remove this and add an assert after updating</span>
         <span class="c1"># bounds_check_indices to support different indices type and offset</span>
         <span class="c1"># type</span>
@@ -4049,19 +4069,11 @@
             <span class="n">indices</span><span class="o">.</span><span class="n">dtype</span> <span class="o">!=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">or</span> <span class="n">force_cast_input_types</span>
         <span class="p">)</span>
 
+        <span class="c1"># Apply basic casting if force_cast_input_types is true</span>
         <span class="k">if</span> <span class="n">force_cast_input_types</span><span class="p">:</span>
             <span class="c1"># NOTE: Force offsets to have the same dtype as indices since the</span>
             <span class="c1"># kernels assume same dtype.  We might need to revisit the assumption</span>
             <span class="c1"># of same dtypes in the future.</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
-                    <span class="s2">&quot;Casting indices to int32 based on embedding_table_index_type input.&quot;</span>
-                <span class="p">)</span>
-                <span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;Force casting offsets to </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="si">}</span><span class="s2"> so that it is the same as the indices type.&quot;</span>
-                <span class="p">)</span>
             <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
             <span class="c1"># Force casting per_sample_weights to float</span>
