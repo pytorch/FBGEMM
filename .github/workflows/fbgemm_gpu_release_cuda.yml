@@ -63,7 +63,7 @@ jobs:
     with:
       matrix: ${{ needs.generate_build_matrix.outputs.matrix }}
       repo-ref: ${{ github.ref }}
-      pytorch-channel-version: ${{ github.event.inputs.pytorch-channel }}
+      pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'release' }}
 
   generate_test_matrix:
     needs: build
@@ -80,7 +80,7 @@ jobs:
     with:
       matrix: ${{ needs.generate_test_matrix.outputs.matrix }}
       repo-ref: ${{ github.ref }}
-      pytorch-channel-version: ${{ github.event.inputs.pytorch-channel }}
+      pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'release' }}
       publish-to-pypi: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish-to-pypi == 'true' }}
       cuda-version-publish: ${{ github.event.inputs.cuda-version-publish }}
       extra-env: >-
