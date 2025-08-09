@@ -29,6 +29,8 @@ class TBEBenchmarkingConfig:
     export_trace: bool
     # The path for exporting the trace
     trace_url: Optional[str]
+    # If set and export_trace is true, the benchmark will upload performance data from the trace to Scuba
+    upload_perf_data: bool
 
     @classmethod
     # pyre-ignore [3]
@@ -71,6 +73,7 @@ class TBEBenchmarkingHelperText(Enum):
         "If set, trace will be exported to the path specified in trace url"
     )
     BENCH_TRACE_URL = "The path for exporting the trace"
+    BENCH_UPLOAD_PERF_DATA = "If set and export_trace is true, the benchmark will upload performance data from the trace to Scuba"
 
 
 class TBEBenchmarkingConfigLoader:
@@ -115,6 +118,12 @@ class TBEBenchmarkingConfigLoader:
                 default="{emb_op_type}_tbe_{phase}_trace_{ospid}.json",
                 help=TBEBenchmarkingHelperText.BENCH_TRACE_URL.value,
             ),
+            click.option(
+                "--upload-perf-data",
+                is_flag=True,
+                default=False,
+                help=TBEBenchmarkingHelperText.BENCH_UPLOAD_PERF_DATA.value,
+            ),
         ]
 
         for option in reversed(options):
@@ -131,6 +140,7 @@ class TBEBenchmarkingConfigLoader:
         flush_gpu_cache_size = params["bench_flush_gpu_cache_size"]
         export_trace = params["bench_export_trace"]
         trace_url = params["bench_trace_url"]
+        upload_perf_data = params["upload_perf_data"]
 
         # Default the number of TBE requests to number of iterations specified
         num_requests = iterations if num_requests == -1 else num_requests
@@ -142,4 +152,5 @@ class TBEBenchmarkingConfigLoader:
             flush_gpu_cache_size,
             export_trace,
             trace_url,
+            upload_perf_data,
         ).validate()
