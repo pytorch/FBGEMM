@@ -95,9 +95,6 @@ if(FBGEMM_BUILD_BENCHMARKS)
     file(GLOB BENCH_LIST "*Benchmark.cc")
   endif()
 
-  # NOTE: Skip FP32 benchmark until FP32 is properly integrated into OSS builds
-  list(FILTER BENCH_LIST EXCLUDE REGEX "FP32Benchmark\\.cc$")
-
   foreach(BENCH_FILE ${BENCH_LIST})
     get_filename_component(BENCH_NAME ${BENCH_FILE} NAME_WE)
     get_filename_component(BENCH_FILENAME ${BENCH_FILE} NAME)

@@ -218,7 +218,7 @@ def get_fbgemm_autovec_srcs():
         "src/EmbeddingStatsTracker.cc",
     ]
 
-def get_fbgemm_tests(skip_tests = ["test/FP32Test.cc"]):
+def get_fbgemm_tests(skip_tests = []):
     return native.glob(["test/*Test.cc"], exclude = skip_tests)
 
 def read_bool(section, field, default):
