@@ -57,7 +57,6 @@ jobs:
       BUILD_TARGET: ${{ matrix.build-target }}
       BUILD_VARIANT: cuda
       BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
-      ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(inputs.matrix) }}
