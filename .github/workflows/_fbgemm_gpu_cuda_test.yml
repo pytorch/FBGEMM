@@ -63,7 +63,21 @@ jobs:
       matrix: ${{ fromJson(inputs.matrix) }}
 
     steps:
-    # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
+    - name: Merge Extra Environment Variables
+      run: |
+        ENV_JSON='${{ inputs.extra-env }}'
+
+        # Validate JSON
+        if ! echo "$ENV_JSON" | jq empty; then
+          echo "❌ Invalid JSON provided: $ENV_JSON" >&2
+          exit 1
+        fi
+
+        # Merge key-value pairs into GITHUB_ENV
+        echo "$ENV_JSON" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+
+        unset ENV_JSON
+
     - name: Checkout the Repository
       uses: actions/checkout@v4
       with:
