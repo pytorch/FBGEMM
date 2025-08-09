@@ -48,7 +48,7 @@ constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
 #ifndef FBGEMM_ENABLE_KLEIDIAI
 constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
     nullptr,
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
     gemmkernel_1x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_2x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_3x2_Sve128_fp16_fA0fB0fC0,
@@ -102,7 +102,7 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
     nullptr,
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
     gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
@@ -147,7 +147,12 @@ const isa_descriptor<float16>& getIsaHandlers(
 #else
       return sve128_descriptor;
 #endif
+#ifdef __aarch64__
     case inst_set_t::anyarch:
+      throw std::runtime_error("Unsupported uArch");
+#else
+    case inst_set_t::anyarch:
+#endif
     case inst_set_t::avx2:
       return avx2_descriptor;
 

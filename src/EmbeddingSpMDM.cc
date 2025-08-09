@@ -1298,9 +1298,9 @@ typename EmbeddingSpMDMRowWiseSparseKernelSignature<
     offsetType>::Type
 GenerateEmbeddingSpMDMRowWiseSparse(
     const int64_t block_size,
-    bool has_weight,
+    bool has_weight [[maybe_unused]],
     bool normalize_by_lengths,
-    int prefetch,
+    int prefetch [[maybe_unused]],
     bool is_weight_positional,
     bool use_offsets) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64

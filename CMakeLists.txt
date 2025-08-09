@@ -266,7 +266,7 @@ endif()
 # FBGEMM Neon Target
 ################################################################################
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")
 
   get_filelist("get_fbgemm_inline_neon_srcs(msvc=${MSVC_BOOL})" FBGEMM_NEON_SRCS)
@@ -435,7 +435,9 @@ if(FBGEMM_BUILD_TESTS)
 endif()
 
 if(FBGEMM_BUILD_BENCHMARKS)
-  add_subdirectory(bench)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    add_subdirectory(bench)
+  endif()
 endif()
 
 if(FBGEMM_BUILD_DOCS)

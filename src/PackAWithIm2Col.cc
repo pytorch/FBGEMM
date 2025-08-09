@@ -15,9 +15,7 @@
 #include <iostream>
 #include <numeric>
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 #include "./OptimizedKernelsAvx2.h" // @manual
-#endif // __aarch64__
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
@@ -134,7 +132,7 @@ static void pack_a_with_im2col_opt(
     int32_t* row_offset_buf,
     int COL_SIZE,
     int COL_P_SIZE,
-    bool row_offset_acc) {
+    bool row_offset_acc [[maybe_unused]]) {
   constexpr int IC = 3;
   int IN_DIM_H = conv_p.IN_DIM[0];
   int IN_DIM_W = conv_p.IN_DIM[1];
@@ -213,15 +211,10 @@ static void pack_a_with_im2col_opt(
     }
 
     if (row_offset_buf) {
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-      throw std::runtime_error(
-          "pack_a_with_im2col_opt<SPATIAL_DIM, BCOL>(): No fallback available for aarch64");
-#else
       int32_t row_sum =
           row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
       row_sum += reduceAvx2(out + (i - block.row_start) * BCOL, COL_SIZE);
       row_offset_buf[i - block.row_start] = row_sum;
-#endif // __aarch64__
     }
   }
 }
@@ -263,10 +256,6 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
   if (point_wise) {
     int32_t ld = this->numCols();
     if (row_offset_buf) {
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-      throw std::runtime_error(
-          "PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(): No fallback available for aarch64");
-#else
       for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
         int buf_idx = i - block.row_start;
         memcpy(
@@ -283,7 +272,6 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
             reduceAvx2(sdata_ + i * ld + block.col_start, block.col_size);
         row_offset_buf[i - block.row_start] = row_sum;
       }
-#endif // __aarch64__
     } else {
       for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
         int buf_idx = i - block.row_start;
@@ -506,16 +494,11 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       }
 
       if (row_offset_buf) {
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-        throw std::runtime_error(
-            "PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(): No fallback available for aarch64");
-#else
         int32_t row_sum =
             row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
         row_sum += reduceAvx2(
             out + (i - block.row_start) * this->blockColSize(), block.col_size);
         row_offset_buf[i - block.row_start] = row_sum;
-#endif // __aarch64__
       }
     } // for each i
   } else {
@@ -708,16 +691,11 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       }
 
       if (row_offset_buf) {
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-        throw std::runtime_error(
-            "PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(): No fallback available for aarch64");
-#else
         int32_t row_sum =
             row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
         row_sum += reduceAvx2(
             out + (i - block.row_start) * this->blockColSize(), block.col_size);
         row_offset_buf[i - block.row_start] = row_sum;
-#endif // __aarch64_
       }
     } // for each i
   }

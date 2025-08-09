@@ -27,6 +27,7 @@ def default_compiler_flags():
 def get_fbgemm_base_srcs():
     return [
         "src/GenerateI8Depthwise.cc",
+        "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/RefImplementations.cc",
         "src/Utils.cc",
     ]
@@ -48,7 +49,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmI8Spmdm.cc",
         "src/FbgemmPackMatrixB.cc",
         # "src/fp32/FbgemmFP32.cc",
-        "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
         "src/GenerateKernelU8S8S32ACC16Avx512.cc",  # Acc16 AVX512 JIT code gen
@@ -66,7 +66,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/PackMatrix.cc",
         "src/PackWeightMatrixForGConv.cc",
         "src/PackWeightsForConv.cc",
-        "src/PackWeightsForDirectConv.cc",
         "src/QuantUtils.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
@@ -119,6 +118,7 @@ def get_fbgemm_avx2_srcs(msvc = False):
         "src/FbgemmSparseDenseInt8Avx2.cc",
         "src/OptimizedKernelsAvx2.cc",
         "src/PackDepthwiseConvMatrixAvx2.cc",
+        "src/PackWeightsForDirectConv.cc",
         "src/QuantUtilsAvx2.cc",
         "src/spmmUtilsAvx2.cc",
         "src/UtilsAvx2.cc",
