@@ -162,6 +162,9 @@ endif()
 ################################################################################
 
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
+if(MSVC)
+  list(FILTER FBGEMM_GENERIC_SRCS EXCLUDE REGEX "src/fp32/.*\\.cc$")
+endif()
 
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   set(fbgemm_generic_defs FBGEMM_STATIC)
