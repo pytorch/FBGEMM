@@ -104,18 +104,18 @@ class GenEmbeddingSpMDMNBitLookup {
  private:
   static asmjit::JitRuntime& runtime() {
     static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
-                                  // depents on other static
+                                  // depends on other static
                                   // variables.  Required to prevent
                                   // initialization order fiasco
     return rt;
   }
 
-  static mutex rtMutex_; ///< Controll access to runtime;
+  inline static mutex rtMutex_; ///< Control access to runtime;
 
   // The hash depends on bit_rate, embedding dimension (block size), weighted
-  // sls, positional weights, normalize by lenths, prefetch distance,
+  // sls, positional weights, normalize by lengths, prefetch distance,
   // use_offsets, output_stride, input_stride, and scale_bias_last
-  static CodeCache<
+  inline static CodeCache<
       tuple<int, int, bool, bool, bool, int, bool, int, int, bool, bool>,
       typename ReturnFunctionSignature<
           indxType,
@@ -125,44 +125,6 @@ class GenEmbeddingSpMDMNBitLookup {
       THREAD_LOCAL>
       codeCache_; ///< JIT Code Cache for reuse.
 }; // GenEmbeddingSpmDMLookup
-
-template <
-    typename indxType,
-    typename offsetType,
-    typename outType,
-    inst_set_t instSet,
-    bool ROWWISE_SPARSE,
-    bool THREAD_LOCAL>
-mutex GenEmbeddingSpMDMNBitLookup<
-    indxType,
-    offsetType,
-    outType,
-    instSet,
-    ROWWISE_SPARSE,
-    THREAD_LOCAL>::rtMutex_;
-
-template <
-    typename indxType,
-    typename offsetType,
-    typename outType,
-    inst_set_t instSet,
-    bool ROWWISE_SPARSE,
-    bool THREAD_LOCAL>
-CodeCache<
-    tuple<int, int, bool, bool, bool, int, bool, int, int, bool, bool>,
-    typename ReturnFunctionSignature<
-        indxType,
-        offsetType,
-        outType,
-        ROWWISE_SPARSE>::jit_embedding_kernel,
-    THREAD_LOCAL>
-    GenEmbeddingSpMDMNBitLookup<
-        indxType,
-        offsetType,
-        outType,
-        instSet,
-        ROWWISE_SPARSE,
-        THREAD_LOCAL>::codeCache_;
 
 template <
     typename indxType,
