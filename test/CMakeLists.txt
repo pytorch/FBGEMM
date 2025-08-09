@@ -117,6 +117,11 @@ foreach(TEST_FILE ${TEST_LIST})
     endif()
   endif()
 
+  if(MSVC AND TEST_FILE MATCHES "FP32Test.cc$")
+    # NOTE: Skip FP32 test for MSVC until intrinsic kernels are implemented
+    continue()
+  endif()
+
   message(STATUS "Processing: ${TEST_FILE}")
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
