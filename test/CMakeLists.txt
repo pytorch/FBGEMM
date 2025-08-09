@@ -104,13 +104,13 @@ endfunction()
 
 file(GLOB TEST_LIST "*Test.cc")
 foreach(TEST_FILE ${TEST_LIST})
-  # NOTE: Skip FP32 test until FP32 is properly integrated into OSS builds
-  if(TEST_FILE MATCHES "FP32Test.cc$")
+  # NOTE: Skip tests on ARM for now until linking issues are fixed
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
     continue()
   endif()
 
-  # NOTE: Skip tests on ARM for now until linking issues are fixed
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+  if(MSVC AND TEST_FILE MATCHES "FP32Test.cc$")
+    # NOTE: Skip FP32 test for MSVC until intrinsic kernels are implemented
     continue()
   endif()
 
