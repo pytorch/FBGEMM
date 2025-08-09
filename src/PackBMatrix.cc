@@ -248,6 +248,8 @@ PackBMatrix<T, accT>::PackBMatrix(
         64,
         BaseType::numGroups() * BaseType::blockRows() * BaseType::brow_ *
             BaseType::blockCols() * BaseType::bcol_ * sizeof(T)));
+  } else if (!smat) {
+    return;
   }
   pack(block, params);
 }
