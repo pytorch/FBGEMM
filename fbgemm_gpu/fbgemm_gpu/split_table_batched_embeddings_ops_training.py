@@ -1453,27 +1453,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             raise ValueError(
                 f"embedding_table_index_type must be torch.int32 or torch.int64, but got {embedding_table_index_type}"
             )
+        self.embedding_table_index_type: torch.dtype = embedding_table_index_type
         if embedding_table_offset_type not in [torch.int32, torch.int64]:
             raise ValueError(
                 f"embedding_table_offset_type must be torch.int32 or torch.int64, but got {embedding_table_offset_type}"
             )
-        self.enable_int32_indices_offsets: bool = self._feature_is_enabled(
-            FeatureGateName.INT32_INDICES_AND_OFFSETS
-        )
-        if self.enable_int32_indices_offsets:
-            if not (
-                embedding_table_index_type == torch.int32
-                and embedding_table_offset_type == torch.int32
-            ):
-                self.log("Casting indices and offsets to int64")
-                self.embedding_table_index_type: torch.dtype = torch.int64
-                self.embedding_table_offset_type: torch.dtype = torch.int64
-            else:
-                self.log(
-                    "Casting indices and offsets to int32 based on embedding_table_index_type and embedding_table_offset_type inputs"
-                )
-                self.embedding_table_index_type: torch.dtype = torch.int32
-                self.embedding_table_offset_type: torch.dtype = torch.int32
+        self.embedding_table_offset_type: torch.dtype = embedding_table_offset_type
 
     @torch.jit.ignore
     def log(self, msg: str) -> None:
@@ -3604,11 +3589,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # We cannot use lambda as it fails jit script.
         # torch._check is also not supported in jitscript
 
-        # Apply flag-based casting if JK enabled. TODO: remove this check after it's determined that the feature is stable
-        if self.enable_int32_indices_offsets:
-            indices = indices.to(self.embedding_table_index_type)
-            offsets = offsets.to(self.embedding_table_offset_type)
-
         # TODO: remove this and add an assert after updating
         # bounds_check_indices to support different indices type and offset
         # type
@@ -3616,11 +3596,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indices.dtype != offsets.dtype or force_cast_input_types
         )
 
-        # Apply basic casting if force_cast_input_types is true
         if force_cast_input_types:
             # NOTE: Force offsets to have the same dtype as indices since the
             # kernels assume same dtype.  We might need to revisit the assumption
             # of same dtypes in the future.
+            if self.embedding_table_index_type == torch.int32:
+                self.log(
+                    "Casting indices to int32 based on embedding_table_index_type input."
+                )
+                indices = indices.to(torch.int32)
+            if self.embedding_table_index_type != self.embedding_table_offset_type:
+                self.log(
+                    f"Force casting offsets to {self.embedding_table_index_type} so that it is the same as the indices type."
+                )
             offsets = offsets.to(dtype=indices.dtype)
 
             # Force casting per_sample_weights to float
