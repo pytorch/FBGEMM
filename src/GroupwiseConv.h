@@ -171,9 +171,9 @@ class GenConvKernelBase {
     return rt;
   }
 
-  static std::mutex rtMutex_; ///< Control access to runtime;
+  inline static std::mutex rtMutex_; ///< Control access to runtime;
 
-  static CodeCache<
+  inline static CodeCache<
       kernel_sig_t,
       jit_conv_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
@@ -324,12 +324,5 @@ class FBGEMM_API GenConvKernel
   x86::Gp scratchReg1_;
   x86::Gp scratchReg2_;
 };
-
-template <int SPATIAL_DIM, inst_set_t INST_SET>
-std::mutex GenConvKernelBase<SPATIAL_DIM, INST_SET>::rtMutex_;
-
-template <int SPATIAL_DIM, inst_set_t INST_SET>
-CodeCache<kernel_sig_t, jit_conv_kernel_fp>
-    GenConvKernelBase<SPATIAL_DIM, INST_SET>::codeCache_;
 
 } // namespace fbgemm

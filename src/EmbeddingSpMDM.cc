@@ -117,12 +117,12 @@ class GenEmbeddingSpMDMLookup {
     return rt;
   }
 
-  static std::mutex rtMutex_; ///< Controll access to runtime;
+  inline static std::mutex rtMutex_; ///< Control access to runtime;
 
   // The hash depends on embedding dimension (block size), weighted sls,
-  // positional weights, normalize by lenths, prefetch distance, use_offsets,
+  // positional weights, normalize by lengths, prefetch distance, use_offsets,
   // output_stride, input_stride, and scale_bias_last
-  static CodeCache<
+  inline static CodeCache<
       std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
       typename ReturnFunctionSignature<
           inType,
@@ -133,49 +133,6 @@ class GenEmbeddingSpMDMLookup {
       THREAD_LOCAL>
       codeCache_; ///< JIT Code Cache for reuse.
 }; // GenEmbeddingSpmDMLookup
-
-template <
-    typename inType,
-    typename indxType,
-    typename offsetType,
-    typename outType,
-    inst_set_t instSet,
-    bool ROWWISE_SPARSE,
-    bool THREAD_LOCAL>
-std::mutex GenEmbeddingSpMDMLookup<
-    inType,
-    indxType,
-    offsetType,
-    outType,
-    instSet,
-    ROWWISE_SPARSE,
-    THREAD_LOCAL>::rtMutex_;
-
-template <
-    typename inType,
-    typename indxType,
-    typename offsetType,
-    typename outType,
-    inst_set_t instSet,
-    bool ROWWISE_SPARSE,
-    bool THREAD_LOCAL>
-CodeCache<
-    std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
-    typename ReturnFunctionSignature<
-        inType,
-        indxType,
-        offsetType,
-        outType,
-        ROWWISE_SPARSE>::jit_embedding_kernel,
-    THREAD_LOCAL>
-    GenEmbeddingSpMDMLookup<
-        inType,
-        indxType,
-        offsetType,
-        outType,
-        instSet,
-        ROWWISE_SPARSE,
-        THREAD_LOCAL>::codeCache_;
 
 template <
     typename inType,

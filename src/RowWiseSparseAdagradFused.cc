@@ -66,37 +66,17 @@ class GenRowWiseSparseAdagradFused {
     return rt;
   }
 
-  static mutex rtMutex_; /// Controll access to runtime;
+  inline static mutex rtMutex_; /// Control access to runtime;
 
   // The hash depends on:
   // avx2 mask array, embedding dimension (block size), prefetch distance,
   // use_offsets and use_stochastic_rouding switch
-  static CodeCache<
+  inline static CodeCache<
       tuple<const int*, int, int, bool, bool, int>,
       typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           jit_sparse_adagrad_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
 }; // class GenRowWiseSparseAdagradFused
-
-template <
-    typename indxType,
-    typename offsetType,
-    typename dataType,
-    inst_set_t instSet>
-mutex GenRowWiseSparseAdagradFused<indxType, offsetType, dataType, instSet>::
-    rtMutex_;
-
-template <
-    typename indxType,
-    typename offsetType,
-    typename dataType,
-    inst_set_t instSet>
-CodeCache<
-    tuple<const int*, int, int, bool, bool, int>,
-    typename ReturnFunctionSignature<indxType, offsetType, dataType>::
-        jit_sparse_adagrad_kernel>
-    GenRowWiseSparseAdagradFused<indxType, offsetType, dataType, instSet>::
-        codeCache_;
 
 template <
     typename indxType,
