@@ -60,10 +60,6 @@ class FeatureGateName(Enum):
     # Enable bounds_check_indices_v2
     BOUNDS_CHECK_INDICES_V2 = auto()
 
-    # true - Enable casting to indices/offsets to int32 in TBE kernels
-    # false - Disable indices and offsets type flags
-    INT32_INDICES_AND_OFFSETS = auto()
-
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
