@@ -14,9 +14,7 @@
 #include <iostream>
 #include <stdexcept>
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 #include "./OptimizedKernelsAvx2.h" // @manual
-#endif // __aarch64__
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
@@ -155,11 +153,6 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
         std::is_same_v<T, uint8_t>,
         "PackAWithRowOffset<T, accT>::pack only works for T == uint8_t");
 
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-    throw std::runtime_error(
-        "PackAWithRowOffset<T, accT>::pack(): No fallback available for aarch64");
-#else
-
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       int buf_idx = i - block.row_start;
       memcpy(
@@ -174,8 +167,6 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
       row_sum += reduceAvx2(smat_ + i * ld_ + block.col_start, block.col_size);
       row_offset_buf[buf_idx] = row_sum;
     }
-
-#endif // __aarch64__
   }
 }
 
