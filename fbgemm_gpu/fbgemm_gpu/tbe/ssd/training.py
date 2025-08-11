@@ -18,7 +18,7 @@ import tempfile
 import threading
 import time
 from functools import cached_property
-from math import ceil, floor, log2
+from math import floor, log2
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 
@@ -3994,7 +3994,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     def fetch_from_l1_sp_w_row_ids(
         self, row_ids: torch.Tensor, only_get_optimizer_states: bool = False
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[List[torch.Tensor], torch.Tensor]:
         """
         Fetch the optimizer states and/or weights from L1 and SP for given linearized row_ids.
         @return: updated_weights/optimizer_states, mask of which rows are filled
@@ -4007,36 +4007,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # NOTE: Remove this once there is support for fetching multiple
         # optimizer states in fetch_from_l1_sp_w_row_ids
         if only_get_optimizer_states and self.optimizer not in [
-            OptimType.EXACT_ROWWISE_ADAGRAD
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            OptimType.PARTIAL_ROWWISE_ADAM,
         ]:
             raise RuntimeError(
                 f"Fetching optimizer states using fetch_from_l1_sp_w_row_ids() is not yet supported for {self.optimizer}"
             )
 
+        def split_results_by_opt_states(
+            updated_weights: torch.Tensor, cache_location_mask: torch.Tensor
+        ) -> Tuple[List[torch.Tensor], torch.Tensor]:
+            if not only_get_optimizer_states:
+                return [updated_weights], cache_location_mask
+            # TODO: support mixed dimension case
+            # currently only supports tables with the same max_D dimension
+            opt_to_dim = self.optimizer.byte_offsets_along_row(
+                self.max_D, self.weights_precision, self.optimizer_state_dtypes
+            )
+            updated_opt_states = []
+            for opt_name, dim in opt_to_dim.items():
+                opt_dtype = self.optimizer._extract_dtype(
+                    self.optimizer_state_dtypes, opt_name
+                )
+                updated_opt_states.append(
+                    updated_weights.view(dtype=torch.uint8)[:, dim[0] : dim[1]].view(
+                        dtype=opt_dtype
+                    )
+                )
+            return updated_opt_states, cache_location_mask
+
         with torch.no_grad():
             weights_dtype = self.weights_precision.as_dtype()
             step = self.step
-
-            if only_get_optimizer_states:
-                start_pos = pad4(self.max_D)
-                # NOTE: This is a hack to keep fetch_from_l1_sp_w_row_ids working
-                # until it is upgraded to support optimizers with multiple states
-                # and dtypes
-                row_dim = int(
-                    math.ceil(torch.float32.itemsize / weights_dtype.itemsize)
-                )
-                result_dtype = torch.float32
-                result_dim = int(
-                    ceil(row_dim / (result_dtype.itemsize / weights_dtype.itemsize))
-                )
-
-            else:
-                start_pos = 0
-                # get the whole row
-                row_dim = self.cache_row_dim
-                result_dim = row_dim
-                result_dtype = weights_dtype
-
             with record_function(f"## fetch_from_l1_{step}_{self.tbe_unique_id} ##"):
                 lxu_cache_locations: torch.Tensor = torch.ops.fbgemm.lxu_cache_lookup(
                     row_ids,
@@ -4045,17 +4047,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
                 updated_weights = torch.empty(
                     row_ids.numel(),
-                    result_dim,
+                    self.cache_row_dim,
                     device=self.current_device,
-                    dtype=result_dtype,
+                    dtype=weights_dtype,
                 )
 
                 # D2D copy cache
                 cache_location_mask = lxu_cache_locations >= 0
-                updated_weights[cache_location_mask] = self.lxu_cache_weights[
-                    lxu_cache_locations[cache_location_mask],
-                    start_pos : start_pos + row_dim,
-                ].view(result_dtype)
+                torch.ops.fbgemm.masked_index_select(
+                    updated_weights,
+                    lxu_cache_locations,
+                    self.lxu_cache_weights,
+                    torch.tensor(
+                        [row_ids.numel()],
+                        device=self.current_device,
+                        dtype=torch.int32,
+                    ),
+                )
 
             with record_function(f"## fetch_from_sp_{step}_{self.tbe_unique_id} ##"):
                 if len(self.ssd_scratch_pad_eviction_data) > 0:
@@ -4066,7 +4074,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     actions_count_gpu = self.ssd_scratch_pad_eviction_data[0][2][0]
                     if actions_count_gpu.item() == 0:
                         # no action to take
-                        return (updated_weights, cache_location_mask)
+                        return split_results_by_opt_states(
+                            updated_weights, cache_location_mask
+                        )
 
                     sp_idx = sp_idx[:actions_count_gpu]
 
@@ -4117,16 +4127,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     )
 
                     # D2D copy SP
-                    updated_weights[exact_match_mask] = sp[
-                        sp_locations_found, start_pos : start_pos + row_dim
-                    ].view(result_dtype)
+                    torch.ops.fbgemm.masked_index_select(
+                        updated_weights,
+                        sp_locations_in_updated_weights,
+                        sp,
+                        torch.tensor(
+                            [row_ids.numel()],
+                            device=self.current_device,
+                            dtype=torch.int32,
+                        ),
+                    )
                     # cache_location_mask is the mask of rows in L1
                     # exact_match_mask is the mask of rows in SP
                     cache_location_mask = torch.logical_or(
                         cache_location_mask, exact_match_mask
                     )
 
-            return (updated_weights, cache_location_mask)
+            return split_results_by_opt_states(updated_weights, cache_location_mask)
 
     def register_backward_hook_before_eviction(
         self, backward_hook: Callable[[torch.Tensor], None]
