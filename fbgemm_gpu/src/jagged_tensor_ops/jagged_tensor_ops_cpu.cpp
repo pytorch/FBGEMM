@@ -909,6 +909,54 @@ Tensor jagged_1d_to_truncated_values_cpu(
   return truncated_values;
 }
 
+// CPU implementation for 1D weight accumulation
+template <typename index_t, typename scalar_t>
+void jagged_acc_weights_and_counts_cpu_kernel(
+    const at::TensorAccessor<scalar_t, 1>& weights,
+    const at::TensorAccessor<index_t, 1>& reverse_indices,
+    at::TensorAccessor<float, 2> accumulated_data) {
+  const auto total_elements = weights.size(0);
+
+  for (const auto i : c10::irange(total_elements)) {
+    const index_t unique_idx = reverse_indices[i];
+    const scalar_t weight_val = weights[i];
+
+    // Accumulate weight in dimension 0
+    accumulated_data[unique_idx][0] += static_cast<float>(weight_val);
+    // Accumulate count in dimension 1
+    accumulated_data[unique_idx][1] += 1.0f;
+  }
+}
+
+Tensor jagged_acc_weights_and_counts_cpu(
+    const Tensor& weights,
+    const Tensor& reverse_indices,
+    int64_t num_unique_indices) {
+  TENSOR_ON_CPU(weights);
+  TENSOR_ON_CPU(reverse_indices);
+
+  // Create 2D tensor: [num_unique_indices, 2] where dim 0 = accumulated
+  // weights, dim 1 = counts
+  Tensor accumulated_data = at::zeros(
+      {num_unique_indices, 2},
+      at::TensorOptions().dtype(at::kFloat).device(weights.device()));
+
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      weights.scalar_type(), "jagged_acc_weights_and_counts_cpu", [&] {
+        AT_DISPATCH_INDEX_TYPES(
+            reverse_indices.scalar_type(),
+            "jagged_acc_weights_and_counts_cpu_idx",
+            [&] {
+              jagged_acc_weights_and_counts_cpu_kernel<index_t, scalar_t>(
+                  weights.accessor<scalar_t, 1>(),
+                  reverse_indices.accessor<index_t, 1>(),
+                  accumulated_data.accessor<float, 2>());
+            });
+      });
+
+  return accumulated_data;
+}
+
 } // namespace
 
 std::tuple<Tensor, Tensor> masked_select_jagged_1d(
@@ -1754,6 +1802,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_unique_indices(Tensor hash_size_cumsum, Tensor hash_size_offsets, Tensor offsets, Tensor indices) -> (Tensor, Tensor, Tensor, Tensor)");
   m.def(
       "jagged_hash_size_cumsum(Tensor offsets, Tensor indices, int batch_size) -> (Tensor, Tensor)");
+  m.def(
+      "jagged_acc_weights_and_counts(Tensor weights, Tensor reverse_indices, int num_unique_indices) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1823,6 +1873,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "jagged_dense_bmm_forward", fbgemm_gpu::jagged_dense_bmm_forward);
   DISPATCH_TO_CPU("jagged_slice_forward", fbgemm_gpu::jagged_slice_forward_cpu);
+  DISPATCH_TO_CPU(
+      "jagged_acc_weights_and_counts",
+      fbgemm_gpu::jagged_acc_weights_and_counts_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CompositeExplicitAutograd, m) {
