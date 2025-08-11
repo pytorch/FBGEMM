@@ -31,6 +31,10 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 {%- endif %}
 
+{%- if is_rocm %}
+#include "fbgemm_gpu/rocm/cdna_guard.h"
+{%- endif %}
+
 {%- if not is_index_select %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
@@ -454,6 +458,16 @@ batch_index_select_dim0_codegen_forward_cuda(
 
     CUDA_DEVICE_GUARD(dev_weights);
 
+    #ifdef USE_ROCM
+        if (!rocm::is_supported_cdna()) {
+            TORCH_WARN_ONCE("Running on non-CDNA architecture. Performance may be suboptimal.");
+        }
+        else {
+            // Ensure we're running on a supported CDNA architecture (including MI350)
+            TORCH_WARN_ONCE("Running on CDNA architecture");
+        }
+    #endif
+    
     {%- if not nobag %}
     int32_t T = D_offsets.numel() - 1;
     {%- else %}
