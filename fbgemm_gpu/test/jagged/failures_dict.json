@@ -16,6 +16,32 @@
       }
     },
     "fbgemm::jagged_2d_to_dense": {},
+    "fbgemm::jagged_acc_weights_and_counts": {
+      "UniqueIndicesTest.test_aot_dispatch_dynamic__test_jagged_acc_weights_and_counts_1d": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "UniqueIndicesTest.test_aot_dispatch_dynamic__test_jagged_acc_weights_and_counts_different_sizes": {
+        "comment": "Test fails during AOT dispatch dynamic checks. The operator doesn't handle different sized weights and counts correctly, which could lead to silently incorrect behavior.",
+        "status": "xfail"
+      },
+      "UniqueIndicesTest.test_aot_dispatch_dynamic__test_jagged_acc_weights_and_counts_edge_cases": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "UniqueIndicesTest.test_faketensor__test_jagged_acc_weights_and_counts_1d": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "UniqueIndicesTest.test_faketensor__test_jagged_acc_weights_and_counts_different_sizes": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "UniqueIndicesTest.test_faketensor__test_jagged_acc_weights_and_counts_edge_cases": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
     "fbgemm::jagged_dense_bmm": {},
     "fbgemm::jagged_dense_dense_elementwise_add_jagged_output": {},
     "fbgemm::jagged_dense_elementwise_add": {

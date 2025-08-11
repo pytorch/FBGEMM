@@ -778,7 +778,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
         FBGEMM_DISPATCH_ALL_TYPES(
             indices.scalar_type(), "permute_2D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
-              FBGEMM_DISPATCH_FLOAT_ONLY(
+              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_2D_indices_weights_kernel_3",
@@ -1166,7 +1166,7 @@ _block_bucketize_sparse_features_cpu(
             indices.scalar_type(),                               \
             "block_bucketize_sparse_features_weights_cpu_2",     \
             [&] {                                                \
-              FBGEMM_DISPATCH_FLOAT_ONLY(                        \
+              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(                  \
                   weights_value.scalar_type(),                   \
                   "bucketize_sparse_features_weights_cpu_3",     \
                   [&] {                                          \

@@ -8,6 +8,16 @@
 
 #include "common.cuh"
 
+// clang-format off
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
+#include <cub/device/device_radix_sort.cuh>
+#include <cub/device/device_run_length_encode.cuh>
+#include <cub/device/device_scan.cuh>
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
+// clang-format on
+
+#include "fbgemm_gpu/split_embeddings_utils.cuh"
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -268,6 +278,74 @@ std::tuple<Tensor, Tensor> jagged_hash_size_cumsum_cuda(
   hash_size_offsets = asynchronous_complete_cumsum_gpu(hash_size_lengths);
   return {hash_size_cumsum, hash_size_offsets};
 }
+
+// Optimized atomic kernel with better memory access patterns
+template <typename index_t, typename scalar_t>
+__global__
+__launch_bounds__(kMaxThreads) void accumulate_weights_and_counts_kernel(
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        reverse_indices,
+    const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits>
+        weights,
+    pta::PackedTensorAccessor32<float, 2, at::RestrictPtrTraits>
+        accumulated_data) {
+  const auto tid = threadIdx.x;
+  const auto bid = blockIdx.x;
+  const auto total_elements = weights.size(0);
+
+  // Process elements with stride of kMaxThreads for better memory
+  // bandwidth utilization
+  for (int i = bid * kMaxThreads + tid; i < total_elements;
+       i += kMaxThreads * gridDim.x) {
+    const index_t unique_idx = reverse_indices[i];
+    const scalar_t weight_val = weights[i];
+
+    // Use fast atomic operations
+    atomicAdd(&accumulated_data[unique_idx][0], static_cast<float>(weight_val));
+    atomicAdd(&accumulated_data[unique_idx][1], 1.0f);
+  }
+}
+
+// Optimized function to accumulate weights and counts using atomic operations
+// Simplified approach that focuses on memory bandwidth and atomic efficiency
+Tensor jagged_acc_weights_and_counts_cu(
+    const Tensor& weights,
+    const Tensor& reverse_indices,
+    int64_t num_unique_indices) {
+  // Create 2D tensor: [num_unique_indices, 2] where dim 0 = accumulated
+  // weights, dim 1 = counts
+  Tensor accumulated_data = at::zeros(
+      {num_unique_indices, 2},
+      at::TensorOptions().dtype(at::kFloat).device(weights.device()));
+
+  const auto total_elements = weights.size(0);
+
+  // Use optimized atomic approach - simpler and often faster than segmented
+  // reduction for this use case due to reduced overhead
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      weights.scalar_type(), "accumulate_weights_and_counts", ([&] {
+        AT_DISPATCH_INDEX_TYPES(
+            reverse_indices.scalar_type(),
+            "accumulate_weights_and_counts_idx",
+            ([&] {
+              // Calculate number of blocks based on total elements
+              const int num_blocks = div_round_up(total_elements, kMaxThreads);
+
+              FBGEMM_LAUNCH_KERNEL(
+                  (accumulate_weights_and_counts_kernel<index_t, scalar_t>),
+                  num_blocks,
+                  kMaxThreads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(reverse_indices, index_t, 1, 32),
+                  PTA_B(weights, scalar_t, 1, 32),
+                  PTA_B(accumulated_data, float, 2, 32));
+            }));
+      }));
+
+  return accumulated_data;
+}
+
 } // namespace fbgemm_gpu
 
 FBGEMM_OP_DISPATCH(
@@ -279,3 +357,8 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "jagged_hash_size_cumsum",
     fbgemm_gpu::jagged_hash_size_cumsum_cuda);
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "jagged_acc_weights_and_counts",
+    fbgemm_gpu::jagged_acc_weights_and_counts_cu);

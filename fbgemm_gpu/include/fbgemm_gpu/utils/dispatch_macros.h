@@ -299,6 +299,10 @@
   AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
   FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__)
 
+#define FBGEMM_DISPATCH_FLOAT_AND_DOUBLE_CASE(...)     \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Double, __VA_ARGS__)
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Type Dispatch Macros
 ///
@@ -309,6 +313,10 @@
 #define FBGEMM_DISPATCH_FLOAT_ONLY(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                               \
       TYPE, NAME, AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__))
+
+#define FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                     \
+      TYPE, NAME, FBGEMM_DISPATCH_FLOAT_AND_DOUBLE_CASE(__VA_ARGS__))
 
 #define FBGEMM_DISPATCH_FLOAT_AND_HALF(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                   \
@@ -349,6 +357,14 @@
       NAME,                                            \
       FBGEMM_DISPATCH_FLOATING_TYPES_CASE(__VA_ARGS__) \
           FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__))
+
+#define FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                         \
+      TYPE,                                                   \
+      NAME,                                                   \
+      FBGEMM_DISPATCH_FLOATING_TYPES_CASE(__VA_ARGS__)        \
+          FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__)    \
+              AT_DISPATCH_CASE(at::ScalarType::Double, __VA_ARGS__))
 
 // We can cleanup the following once fbgemm uses PyTorch 2.2 in January 2024.
 #ifndef PT2_COMPLIANT_TAG
