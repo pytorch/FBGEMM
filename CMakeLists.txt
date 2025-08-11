@@ -143,6 +143,9 @@ if(NOT MSVC)
     src/FbgemmFP16UKernelsAvx2.cc
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
+    src/fp32/FbgemmFP32UKernelsAvx2.cc
+    src/fp32/FbgemmFP32UKernelsAvx512.cc
+    src/fp32/FbgemmFP32UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
 
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
@@ -158,7 +161,11 @@ endif()
 # FBGEMM Generic Target
 ################################################################################
 
-get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
+get_filelist("get_fbgemm_generic_srcs(with_base=True, msvc=${MSVC_BOOL})"
+  FBGEMM_GENERIC_SRCS)
+if(MSVC)
+  list(FILTER FBGEMM_GENERIC_SRCS EXCLUDE REGEX "src/fp32/.*\\.cc$")
+endif()
 
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   set(fbgemm_generic_defs FBGEMM_STATIC)
