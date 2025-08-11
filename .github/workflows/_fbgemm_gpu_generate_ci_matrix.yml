@@ -47,7 +47,6 @@ jobs:
       - name: Checkout the Repository
         uses: actions/checkout@v4
         with:
-          submodules: true
           ref: ${{ inputs.repo-ref }}
 
       - name: Generate CI Matrix
