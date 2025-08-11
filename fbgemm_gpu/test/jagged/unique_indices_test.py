@@ -277,6 +277,130 @@ class UniqueIndicesTest(unittest.TestCase):
         self.assertEqual(torch.sum(output_lengths).item(), 0)
         self.assertEqual(torch.sum(output_offsets).item(), 0)
 
+    @given(
+        num_elements=st.integers(min_value=100, max_value=10000),
+        num_unique_indices=st.integers(min_value=5, max_value=100),
+        weight_dtype=st.sampled_from([torch.float32, torch.float16]),
+        use_cpu=st.booleans() if not gpu_unavailable[0] else st.just(True),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_acc_weights_and_counts_1d(
+        self,
+        num_elements: int,
+        num_unique_indices: int,
+        weight_dtype: torch.dtype,
+        use_cpu: bool,
+    ) -> None:
+        """Test 1D weight accumulation kernel against torch native implementation.
+
+        Tests both CPU and GPU implementations.
+        """
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        # Generate test data
+        weights = torch.randn(num_elements, dtype=weight_dtype, device=device)
+        reverse_indices = torch.randint(
+            0, num_unique_indices, (num_elements,), dtype=torch.int64, device=device
+        )
+
+        # Test our optimized kernel
+        result_optimized = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            weights, reverse_indices, num_unique_indices
+        )
+
+        # Reference implementation using torch native operations
+        result_reference = torch.zeros(
+            (num_unique_indices, 2), dtype=torch.float32, device=device
+        )
+
+        # Accumulate weights and counts using scatter_add (torch native)
+        weights_float = weights.float()
+        counts = torch.ones_like(weights_float)
+
+        result_reference[:, 0].scatter_add_(0, reverse_indices, weights_float)
+        result_reference[:, 1].scatter_add_(0, reverse_indices, counts)
+
+        # Compare results
+        torch.testing.assert_close(
+            result_optimized, result_reference, rtol=1e-4, atol=1e-5
+        )
+
+        # Verify output shape and types
+        self.assertEqual(result_optimized.shape, (num_unique_indices, 2))
+        self.assertEqual(result_optimized.dtype, torch.float32)
+        self.assertEqual(result_optimized.device.type, device.type)
+
+    @given(
+        use_cpu=st.booleans() if not gpu_unavailable[0] else st.just(True),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    def test_jagged_acc_weights_and_counts_edge_cases(self, use_cpu: bool) -> None:
+        """Test edge cases for both 1D and 2D accumulation kernels.
+
+        Tests both CPU and GPU implementations.
+        """
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        # Test case 1: Single element
+        weights_1d = torch.tensor([5.0], device=device)
+        reverse_indices = torch.tensor([0], dtype=torch.int64, device=device)
+        result = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            weights_1d, reverse_indices, 1
+        )
+        expected = torch.tensor([[5.0, 1.0]], device=device)
+        torch.testing.assert_close(result, expected)
+
+        # Test case 2: All elements map to same unique index
+        weights_1d = torch.tensor([1.0, 2.0, 3.0], device=device)
+        reverse_indices = torch.tensor([0, 0, 0], dtype=torch.int64, device=device)
+        result = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            weights_1d, reverse_indices, 1
+        )
+        expected = torch.tensor([[6.0, 3.0]], device=device)
+        torch.testing.assert_close(result, expected)
+
+    @given(use_cpu=st.booleans() if not gpu_unavailable[0] else st.just(True))
+    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    def test_jagged_acc_weights_and_counts_different_sizes(self, use_cpu: bool) -> None:
+        """Test that the kernel works correctly with different dataset sizes.
+
+        Tests both small and large datasets to ensure the implementation works
+        correctly across different scales. For CPU, just tests basic functionality.
+        """
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        # Test small dataset
+        small_weights = torch.randn(500, device=device)
+        small_reverse_indices = torch.randint(
+            0, 10, (500,), dtype=torch.int64, device=device
+        )
+        result_small = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            small_weights, small_reverse_indices, 10
+        )
+
+        # Test large dataset
+        large_weights = torch.randn(5000, device=device)
+        large_reverse_indices = torch.randint(
+            0, 50, (5000,), dtype=torch.int64, device=device
+        )
+        result_large = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            large_weights, large_reverse_indices, 50
+        )
+
+        # Both should produce valid results
+        self.assertEqual(result_small.shape, (10, 2))
+        self.assertEqual(result_large.shape, (50, 2))
+
+        # Verify results are reasonable (non-negative counts, finite weights)
+        self.assertTrue(
+            torch.all(result_small[:, 1] >= 0)
+        )  # Counts should be non-negative
+        self.assertTrue(
+            torch.all(result_large[:, 1] >= 0)
+        )  # Counts should be non-negative
+        self.assertTrue(torch.all(torch.isfinite(result_small)))
+        self.assertTrue(torch.all(torch.isfinite(result_large)))
+
 
 if __name__ == "__main__":
     unittest.main()

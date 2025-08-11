@@ -413,7 +413,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
             indices_contig.scalar_type(),                                        \
             "_block_bucketize_sequence_sparse_features_cuda_kernel2_2",          \
             [&] {                                                                \
-              FBGEMM_DISPATCH_FLOAT_ONLY(                                        \
+              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(                                  \
                   weights_value.scalar_type(),                                   \
                   "_block_bucketize_sequence_sparse_features_cuda_kernel2_3",    \
                   [&] {                                                          \
@@ -539,7 +539,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
             indices_contig.scalar_type(),                                        \
             "_block_bucketize_pooled_sparse_features_cuda_kernel2_2",            \
             [&] {                                                                \
-              FBGEMM_DISPATCH_FLOAT_ONLY(                                        \
+              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(                                  \
                   weights_value.scalar_type(),                                   \
                   "_block_bucketize_pooled_sparse_features_cuda_kernel2_3",      \
                   [&] {                                                          \
