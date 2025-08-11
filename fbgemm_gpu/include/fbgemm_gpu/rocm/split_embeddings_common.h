@@ -261,7 +261,14 @@ struct accumulate_row_per_warp {
     } else {
 #pragma unroll
       for (int i = 0; i < dword_per_row; i++) {
-        acc[i] += static_cast<output_t>((float)emb_data[i] * row_weight);
+        if constexpr (std::is_same_v<emb_t, c10::Half>)
+        {
+          acc[i] += static_cast<output_t>(__half2float(emb_data[i]) * row_weight);
+        }
+        else
+        {
+          acc[i] += static_cast<output_t>(static_cast<float>(emb_data[i]) * row_weight);
+        }
       }
     }
   }
