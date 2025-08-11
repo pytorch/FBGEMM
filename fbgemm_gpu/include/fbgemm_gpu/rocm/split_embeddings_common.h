@@ -295,6 +295,16 @@ struct store_row_per_warp {
 };
 
 template <>
+struct store_row_per_warp<c10::Half, 256, c10::Half> {
+  static __device__ void run(c10::Half* acc, c10::Half* p_output, int lane_id) {
+    auto out = reinterpret_cast<half2*>(p_output);
+    out[lane_id] = *reinterpret_cast<half2*>(acc);
+    out[lane_id + 64] = *reinterpret_cast<half2*>(&acc[2]);
+  }
+};
+
+
+template <>
 struct store_row_per_warp<half, 128, float> {
   static __device__ void run(float* acc, float* p_output, int lane_id) {
     int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
