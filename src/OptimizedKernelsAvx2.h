@@ -13,10 +13,21 @@
 
 namespace fbgemm {
 
+#if !defined(__aarch64__)
 /**
  * @brief Sum a given vector.
  */
 FBGEMM_API std::int32_t reduceAvx2(const std::uint8_t* A, int len);
+
+#else
+inline std::int32_t reduceAvx2(const std::uint8_t* A, int len) {
+  std::int32_t row_sum = 0;
+  for (int i = 0; i < len; ++i) {
+    row_sum += A[i];
+  }
+  return row_sum;
+}
+#endif
 
 /**
  * @brief Transpose 8 rows from source matrix.

@@ -979,9 +979,9 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     GenerateEmbeddingSpMDMNBitWithStrides(
         const int input_bit_rate,
         const int64_t block_size,
-        bool has_weight,
+        bool has_weight [[maybe_unused]],
         bool normalize_by_lengths,
-        int prefetch,
+        int prefetch [[maybe_unused]],
         bool is_weight_positional,
         bool use_offsets,
         int64_t output_stride /*=-1*/,
@@ -1194,9 +1194,9 @@ typename EmbeddingSpMDMRowWiseSparseKernelSignature<
 GenerateEmbeddingSpMDMNBitRowWiseSparse(
     int bit_rate,
     const int64_t block_size,
-    bool has_weight,
+    bool has_weight [[maybe_unused]],
     bool normalize_by_lengths,
-    int prefetch,
+    int prefetch [[maybe_unused]],
     bool is_weight_positional,
     bool use_offsets) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");

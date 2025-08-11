@@ -14,11 +14,12 @@
 #include <iostream>
 #include <stdexcept>
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
-#include "./OptimizedKernelsAvx2.h" // @manual
+#if !defined(__aarch64__)
 #include "fbgemm/QuantUtilsAvx2.h"
 #endif // __aarch64__
+#include "./OptimizedKernelsAvx2.h" // @manual
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/QuantUtils.h"
 
 namespace fbgemm {
 
@@ -124,12 +125,8 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
 }
 
 template <typename T, typename accT>
-void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-  throw std::runtime_error(
-      "PackAWithQuantRowOffset<T, accT>::pack(): No fallback available for aarch64");
-#else
-
+void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block
+                                            [[maybe_unused]]) {
   // assert(block.row_start % BaseType::blockRowSize() == 0);
   assert(block.row_size <= BaseType::blockRowSize());
   assert(block.col_size <= BaseType::blockColSize());
@@ -176,11 +173,20 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
   qparams.zero_point = zero_pt_;
 
   for (int i = 0; i < block.row_size; ++i) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     QuantizeAvx2(
         smat_temp + i * ld_temp,
         out + i * BaseType::blockColSize(),
         block.col_size,
         qparams);
+#else
+    Quantize(
+        smat_temp + i * ld_temp,
+        out + i * BaseType::blockColSize(),
+        block.col_size,
+        qparams);
+#endif
+
     int32_t row_sum = row_offset_acc ? row_offset_buf[i] : 0;
     row_sum += reduceAvx2(out + i * BaseType::blockColSize(), block.col_size);
     row_offset_buf[i] = row_sum;
@@ -194,8 +200,6 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
   if (smat_transposed) {
     fbgemmAlignedFree(smat_transposed);
   }
-
-#endif // __aarch64__
 }
 
 template <typename T, typename accT>

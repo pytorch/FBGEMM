@@ -48,13 +48,14 @@ cc_library(
     ],
     deps = [
         ":fbgemm_autovec",
+        ":fbgemm_base",
+        ":fbgemm_headers",
+    ]+ select({
+        ":linux-x86_64": [
         ":fbgemm_avx2",
         ":fbgemm_inline_avx2",
         ":fbgemm_avx512",
-        ":fbgemm_inline_avx512",
-        ":fbgemm_base",
-        ":fbgemm_headers",
-    ],
+        ":fbgemm_inline_avx512"]}),
     linkstatic = 1,
 )
 

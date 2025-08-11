@@ -17,9 +17,7 @@ cc_library(
     ),
     hdrs = glob([
         "include/*.h",
-        "src/*.h",
         "src/cpuinfo/*.h",
-        "src/include/*.h",
         "src/x86/*.h",
         "src/x86/linux/*.h",
         "src/linux/*.h",
