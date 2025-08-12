@@ -985,13 +985,13 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool no_bag /*=false*/,
         bool is_bf16_out /*=false*/,
         bool is_bf16_in /*=false*/) {
-#if defined(__APPLE__) || defined(_WIN32)
+// #if defined(__APPLE__) || defined(_WIN32)
   if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
       std::is_same<outType, float>::value) {
     throw std::runtime_error(
-        "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
+        "Bfloat16 input with float32 output is not yet supported");
   }
-#endif
+// #endif
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1590,7 +1590,6 @@ void compressed_indices_remap(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-#ifndef NO_AVX512
   const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
 #ifndef USE_ROCM
@@ -1619,7 +1618,6 @@ void compressed_indices_remap(
     }
 #endif // USE_ROCM
   }
-#endif // NO_AVX512
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 
   // Non-vectorized fallback implementation

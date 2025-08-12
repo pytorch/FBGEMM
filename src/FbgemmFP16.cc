@@ -102,7 +102,7 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
     nullptr,
-#if !defined(__aarch64__)
+#if defined(FBGEMM_FBCODE) || (!defined(__aarch64__) && defined(__AVX512F__))
     gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,

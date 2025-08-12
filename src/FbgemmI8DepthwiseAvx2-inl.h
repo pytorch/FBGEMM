@@ -45,11 +45,11 @@ static ALWAYS_INLINE void requantize_(
     int n,
     const std::int32_t* row_offsets,
     const std::int32_t* col_offsets,
-    const BIAS_TYPE* bias,
+    const BIAS_TYPE* bias [[maybe_unused]],
     const float* act_times_w_scale = nullptr) {
   __m256 multiplier_v = _mm256_setzero_ps();
   // Broadcasted reciprocal of act_times_w_scale
-  __m256 act_times_w_rcp_v = _mm256_setzero_ps();
+  __m256 act_times_w_rcp_v [[maybe_unused]] = _mm256_setzero_ps();
   __m256i B_zero_point_v = _mm256_setzero_si256();
   if constexpr (Q_GRAN == QuantizationGranularity::TENSOR) {
     multiplier_v = _mm256_set1_ps(*C_multiplier);
