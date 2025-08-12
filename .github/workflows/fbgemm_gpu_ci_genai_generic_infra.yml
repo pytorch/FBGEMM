@@ -34,7 +34,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  if: ${{ github.repository_owner != 'pytorch' }}
   generate_build_matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
