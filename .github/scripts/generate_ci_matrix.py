@@ -188,6 +188,8 @@ class BuildConfigScheme:
         return ["6.3", "6.4"]
 
     def host_machines(self) -> List[Dict[str, str]]:
+        # Available instance types: https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
+
         if self.repo_owner != REPO_OWNER_PYTORCH:
             if self.jobtype == JOBTYPE_BUILD:
                 return [{"arch": "x86", "instance": "32-core-ubuntu"}]
