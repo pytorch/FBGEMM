@@ -20,9 +20,7 @@
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/UtilsAvx2.h"
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 #include "./OptimizedKernelsAvx2.h" // @manual
-#endif // __aarch64__
 
 namespace fbgemm {
 
@@ -164,11 +162,6 @@ static void directConvRowSum(
     const uint8_t* A,
     int32_t* inSum,
     int32_t* rowSum) {
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-  throw std::runtime_error(
-      "PackedDirectConvMatrix::directConvRowSum(): No fallback available for aarch64");
-#else
-
   int IN0 = conv_p.IN_DIM[0];
   int IN1 = conv_p.IN_DIM[1];
   int IC = conv_p.IC;
@@ -204,8 +197,6 @@ static void directConvRowSum(
         OUT1,
         5);
   */
-
-#endif // __aarch64__
 }
 
 template void directConvRowSum<1>(
