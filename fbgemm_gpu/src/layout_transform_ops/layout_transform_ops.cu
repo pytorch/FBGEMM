@@ -22,6 +22,7 @@
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
@@ -143,16 +144,19 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
 
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {
-        recat_copy_async_kernel<scalar_t>
-            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                dim_sum_per_rank.data_ptr<int64_t>(),
-                cumsum_dim_sum_per_rank.data_ptr<int64_t>(),
-                grad_output.data_ptr<scalar_t>(),
-                sharded_grad_output.data_ptr<scalar_t>(),
-                dim_num,
-                B_local,
-                dim_sum);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (recat_copy_async_kernel<scalar_t>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            dim_sum_per_rank.data_ptr<int64_t>(),
+            cumsum_dim_sum_per_rank.data_ptr<int64_t>(),
+            grad_output.data_ptr<scalar_t>(),
+            sharded_grad_output.data_ptr<scalar_t>(),
+            dim_num,
+            B_local,
+            dim_sum);
       });
 
   return sharded_grad_output;
