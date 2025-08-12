@@ -37,7 +37,7 @@ jobs:
         {
           "build-target": [ "default" ],
           "host-machine": [
-            { "arch": x86, "instance": "linux.24xlarge" },
+            { "arch": "x86", "instance": "linux.24xlarge" },
           ],
           "python-version": [ "3.13" ],
           "cuda-version": [ "12.8.1" ],
