@@ -50,10 +50,12 @@ concurrency:
 
 jobs:
   generate_build_matrix:
+    if: ${{ github.repository_owner == 'pytorch' }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
+      repo-owner: ${{ github.repository_owner }}
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
-      targets: "default,genai,hstu"
+      targets: default,genai,hstu
       variant: cuda
       jobtype: build
 
@@ -69,8 +71,9 @@ jobs:
     needs: build
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
+      repo-owner: ${{ github.repository_owner }}
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
-      targets: "default,genai,hstu"
+      targets: default,genai,hstu
       variant: cuda
       jobtype: test
 

@@ -13,8 +13,13 @@ on:
       matrix:
         required: true
         type: string
+      container:
+        description: 'Container configuration for the job'
+        type: string
+        required: false
+        default: '{"image": null}'
       repo-ref:
-        description: Repo ref/sha
+        description: Repository ref/sha
         type: string
         required: true
         default: ""
@@ -48,6 +53,7 @@ jobs:
     # runs-on: linux.4xlarge.nvidia.gpu
     # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
     runs-on: ${{ matrix.host-machine.instance }}
+    container: ${{ fromJSON(inputs.container) }}
     defaults:
       run:
         shell: bash
@@ -57,18 +63,39 @@ jobs:
       BUILD_TARGET: ${{ matrix.build-target }}
       BUILD_VARIANT: cuda
       BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
-      ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(inputs.matrix) }}
 
     steps:
-    # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
+    - name: Setup Build Container
+      if: ${{ fromJSON(inputs.container).image != null }}
+      run: yum update -y; yum install -y binutils findutils git jq pciutils sudo tar wget which xz
+
+    - name: Merge Extra Environment Variables
+      run: |
+        ENV_JSON='${{ inputs.extra-env }}'
+
+        # Validate JSON
+        if ! echo "$ENV_JSON" | jq empty; then
+          echo "❌ Invalid JSON provided: $ENV_JSON" >&2
+          exit 1
+        fi
+
+        # Merge key-value pairs into GITHUB_ENV
+        echo "$ENV_JSON" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+
+        unset ENV_JSON
+
     - name: Checkout the Repository
       uses: actions/checkout@v4
       with:
         submodules: true
         ref: ${{ inputs.repo-ref }}
+
+    - name: Free Disk Space on Host
+      if: ${{ fromJSON(inputs.container).image != null }}
+      run: . $PRELUDE; free_disk_space_on_host
 
     - name: Download Wheel Artifact from GHA
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
@@ -78,6 +105,7 @@ jobs:
 
     # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
     - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
+      if: ${{ fromJSON(inputs.container).image == null }}
       uses: pytorch/test-infra/.github/actions/setup-nvidia@main
 
     - name: Display System Info

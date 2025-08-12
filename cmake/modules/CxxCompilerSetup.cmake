@@ -40,7 +40,9 @@ BLOCK_PRINT(
 )
 
 # Strip all symbols from the .SO file after building
-add_link_options($<$<CONFIG:RELEASE>:-s>)
+if(NOT MSVC AND NOT APPLE)
+  add_link_options($<$<CONFIG:RELEASE>:-s>)
+endif()
 
 # Enable compile commands to compile_commands.json for debugging
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
