@@ -13,8 +13,13 @@ on:
       matrix:
         required: true
         type: string
+      container:
+        description: 'Container configuration for the job'
+        type: string
+        required: false
+        default: '{"image": null}'
       repo-ref:
-        description: Repo ref/sha
+        description: Repository ref/sha
         type: string
         required: true
         default: ""
@@ -48,6 +53,7 @@ jobs:
     # runs-on: linux.4xlarge.nvidia.gpu
     # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
     runs-on: ${{ matrix.host-machine.instance }}
+    container: ${{ fromJSON(inputs.container) }}
     defaults:
       run:
         shell: bash
@@ -62,6 +68,10 @@ jobs:
       matrix: ${{ fromJson(inputs.matrix) }}
 
     steps:
+    - name: Setup Build Container
+      if: ${{ fromJSON(inputs.container).image != null }}
+      run: yum update -y; yum install -y binutils findutils git jq pciutils sudo tar wget which xz
+
     - name: Merge Extra Environment Variables
       run: |
         ENV_JSON='${{ inputs.extra-env }}'
@@ -83,6 +93,10 @@ jobs:
         submodules: true
         ref: ${{ inputs.repo-ref }}
 
+    - name: Free Disk Space on Host
+      if: ${{ fromJSON(inputs.container).image != null }}
+      run: . $PRELUDE; free_disk_space_on_host
+
     - name: Download Wheel Artifact from GHA
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/download-artifact@v4
@@ -91,6 +105,7 @@ jobs:
 
     # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
     - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
+      if: ${{ fromJSON(inputs.container).image == null }}
       uses: pytorch/test-infra/.github/actions/setup-nvidia@main
 
     - name: Display System Info
