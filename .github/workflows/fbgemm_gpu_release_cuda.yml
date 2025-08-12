@@ -52,6 +52,7 @@ jobs:
     if: ${{ github.repository_owner == 'pytorch' }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
+      repo-owner: ${{ github.repository_owner }}
       repo-ref: ${{ github.ref }}
       targets: default,genai
       variant: cuda
@@ -69,6 +70,7 @@ jobs:
     needs: build
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
+      repo-owner: ${{ github.repository_owner }}
       repo-ref: ${{ github.ref }}
       targets: default,genai
       variant: cuda
