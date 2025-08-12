@@ -25,6 +25,10 @@ VARIANT_ROCM = "rocm"
 JOBTYPE_BUILD = "build"
 JOBTYPE_TEST = "test"
 
+REPO_OWNER_PYTORCH = "pytorch"
+REPO_OWNER_FACEBOOKRESEARCH = "facebookresearch"
+ALL_REPO_OWNERS = [REPO_OWNER_PYTORCH, REPO_OWNER_FACEBOOKRESEARCH]
+
 
 @dataclass(frozen=True)
 class BuildConfigScheme:
@@ -36,6 +40,7 @@ class BuildConfigScheme:
     target: str
     variant: str
     jobtype: str
+    repo_owner: str
 
     @classmethod
     def _create_parser(cls) -> argparse.ArgumentParser:
@@ -63,6 +68,13 @@ class BuildConfigScheme:
             choices=[JOBTYPE_BUILD, JOBTYPE_TEST],
             help="Job type",
         )
+        parser.add_argument(
+            "--repo-owner",
+            required=False,
+            choices=[REPO_OWNER_PYTORCH, REPO_OWNER_FACEBOOKRESEARCH],
+            default=REPO_OWNER_PYTORCH,
+            help=f"Repository owner: {', '.join(ALL_REPO_OWNERS)}",
+        )
         return parser
 
     @classmethod
@@ -87,7 +99,12 @@ class BuildConfigScheme:
                 )
 
         return [
-            cls(target=t, variant=args.variant, jobtype=args.jobtype).validated()
+            cls(
+                target=t,
+                variant=args.variant,
+                jobtype=args.jobtype,
+                repo_owner=args.repo_owner,
+            ).validated()
             for t in targets
         ]
 
@@ -140,6 +157,8 @@ class BuildConfigScheme:
         return self
 
     def python_versions(self) -> List[str]:
+        if self.repo_owner != REPO_OWNER_PYTORCH:
+            return ["3.13"]
         if self.target == TARGET_HSTU:
             # FBGEMM HSTU is expensive, so conserve CI resources
             return ["3.13"]
@@ -148,12 +167,16 @@ class BuildConfigScheme:
         return ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
     def compilers(self) -> List[str]:
+        if self.repo_owner != REPO_OWNER_PYTORCH:
+            return ["gcc"]
         if self.target == TARGET_HSTU:
             return ["gcc"]
         else:
             return ["gcc", "clang"]
 
     def cuda_versions(self) -> List[str]:
+        if self.repo_owner != REPO_OWNER_PYTORCH:
+            return ["12.9.1"]
         if self.target == TARGET_HSTU:
             # FBGEMM HSTU is expensive, so conserve CI resources
             return ["12.9.1"]
@@ -165,6 +188,12 @@ class BuildConfigScheme:
         return ["6.3", "6.4"]
 
     def host_machines(self) -> List[Dict[str, str]]:
+        if self.repo_owner != REPO_OWNER_PYTORCH:
+            if self.jobtype == JOBTYPE_BUILD:
+                return [{"arch": "x86", "instance": "32-core-ubuntu"}]
+            else:
+                return [{"arch": "x86", "instance": "ubuntu-latest"}]
+
         if self.variant == VARIANT_CPU:
             return [
                 {"arch": "x86", "instance": "linux.4xlarge"},

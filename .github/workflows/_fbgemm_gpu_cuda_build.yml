@@ -13,10 +13,15 @@ on:
         required: true
         type: string
       repo-ref:
-        description: Repo ref/sha
+        description: Repository ref/sha
         type: string
         required: true
         default: ""
+      extra-env:
+        description: 'JSON string of extra environment variables, e.g. {"KEY1": "value1", "KEY2": "value2"}'
+        type: string
+        required: false
+        default: '{}'
       pytorch-channel-version:
         description: Package Channel + Version to Use for PyTorch Installation, in `<channel>[/<version>]` Format
         type: string
@@ -46,7 +51,22 @@ jobs:
 
     steps:
     - name: Setup Build Container
-      run: yum update -y; yum install -y binutils findutils git pciutils sudo tar wget which xz
+      run: yum update -y; yum install -y binutils findutils git jq pciutils sudo tar wget which xz
+
+    - name: Merge Extra Environment Variables
+      run: |
+        ENV_JSON='${{ inputs.extra-env }}'
+
+        # Validate JSON
+        if ! echo "$ENV_JSON" | jq empty; then
+          echo "❌ Invalid JSON provided: $ENV_JSON" >&2
+          exit 1
+        fi
+
+        # Merge key-value pairs into GITHUB_ENV
+        echo "$ENV_JSON" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+
+        unset ENV_JSON
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
