@@ -35,7 +35,7 @@ jobs:
     with:
       matrix: >-
         {
-          "build-target": [ "default" ]
+          "build-target": [ "default" ],
           "host-machine": [
             { "arch": x86, "instance": "linux.24xlarge" },
           ],
