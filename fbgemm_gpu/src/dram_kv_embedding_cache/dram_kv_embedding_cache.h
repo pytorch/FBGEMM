@@ -1184,9 +1184,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const int64_t step,
       const int64_t interval) {
     std::vector<double> ret(22, 0); // num metrics
-
-    allocated_memory_ = get_map_used_memsize_in_bytes();
-    actual_used_chunk_memory_ = get_map_actual_used_chunk_in_bytes();
     if (step > 0 && step % interval == 0) {
       int reset_val = 0;
 
@@ -1233,10 +1230,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       auto dram_bwd_l1_cnflct_miss_write_missing_load_ =
           bwd_l1_cnflct_miss_write_missing_load_avg_.exchange(reset_val);
 
-      auto dram_allocated_memory = allocated_memory_.exchange(reset_val);
-      auto dram_actual_used_chunk_memory =
-          actual_used_chunk_memory_.exchange(reset_val);
-
       ret[0] = dram_read_total_duration / interval;
       ret[1] = dram_read_sharding_total_duration / interval;
       ret[2] = dram_read_cache_hit_copy_duration / interval;
@@ -1260,8 +1253,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       ret[18] = dram_bwd_l1_cnflct_miss_write_acquire_lock_duration_ / interval;
       ret[19] = dram_bwd_l1_cnflct_miss_write_missing_load_ / interval;
 
-      ret[20] = dram_allocated_memory / interval;
-      ret[21] = dram_actual_used_chunk_memory / interval;
+      ret[20] = get_map_used_memsize_in_bytes();
+      ret[21] = get_map_actual_used_chunk_in_bytes();
     }
     return ret;
   }
@@ -1494,9 +1487,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> fwd_l1_eviction_write_lookup_cache_avg_duration_{0};
   std::atomic<int64_t> fwd_l1_eviction_write_acquire_lock_avg_duration_{0};
   std::atomic<int64_t> fwd_l1_eviction_write_missing_load_avg_{0};
-
-  std::atomic<int64_t> allocated_memory_{0};
-  std::atomic<int64_t> actual_used_chunk_memory_{0};
 
   std::atomic<int64_t> inplace_update_hit_cnt_{0};
   std::atomic<int64_t> inplace_update_miss_cnt_{0};
