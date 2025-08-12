@@ -10,6 +10,7 @@
 #include "fbgemm_gpu/input_combine.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
 using Tensor = at::Tensor;
 
@@ -146,25 +147,24 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cuda(
   const auto num_blocks =
       div_round_up(num_warps_per_list * num_lists, NUM_WARPS_PER_BLOCK);
 
-  tbe_input_combine_with_length_kernel<VEC_WIDTH, IS_LONG_NUM_BITS>
-      <<<num_blocks,
-         dim3(kWarpSize, NUM_WARPS_PER_BLOCK),
-         0,
-         at::cuda::getCurrentCUDAStream()>>>(
-          combined_indices.data_ptr<int32_t>(),
-          combined_lengths.data_ptr<int32_t>(),
-          per_sample_weights_addrs ? combined_weights.data_ptr<float>()
-                                   : nullptr,
-          indices_addrs,
-          lengths_addrs,
-          per_sample_weights_addrs,
-          indices_is_long,
-          lengths_is_long,
-          indices_offsets,
-          lengths_offsets,
-          num_lists,
-          FixedDivisor(num_warps_per_list));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  FBGEMM_LAUNCH_KERNEL(
+      (tbe_input_combine_with_length_kernel<VEC_WIDTH, IS_LONG_NUM_BITS>),
+      num_blocks,
+      dim3(kWarpSize, NUM_WARPS_PER_BLOCK),
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      combined_indices.data_ptr<int32_t>(),
+      combined_lengths.data_ptr<int32_t>(),
+      per_sample_weights_addrs ? combined_weights.data_ptr<float>() : nullptr,
+      indices_addrs,
+      lengths_addrs,
+      per_sample_weights_addrs,
+      indices_is_long,
+      lengths_is_long,
+      indices_offsets,
+      lengths_offsets,
+      num_lists,
+      FixedDivisor(num_warps_per_list));
 
   return {
       std::move(combined_indices),
