@@ -187,8 +187,6 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
 def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
     srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
-        "src/KleidiAIFP16UKernelsNeon.cc",
-        "src/QuantUtilsNeon.cc",
         "src/UtilsSve.cc",
         "src/FbgemmFloat16ConvertSVE.cc",
     ]
@@ -214,7 +212,12 @@ def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
     intrinsics_srcs = ["src/UtilsNeon.cc"]
 
     # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-    asm_srcs = ["src/UtilsNeon.cc"]
+    asm_srcs = [
+        "src/UtilsNeon.cc",
+        "src/KleidiAIFP16UKernelsNeon.cc",
+        "src/fp32/KleidiAIFP32UKernelsNeon.cc",
+        "src/QuantUtilsNeon.cc"
+    ]
     if buck:
         return select({
             "DEFAULT": asm_srcs,
