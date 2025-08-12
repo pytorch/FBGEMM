@@ -1975,7 +1975,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.ssd_cache_stats = torch.add(
                     self.ssd_cache_stats, self.local_ssd_cache_stats
                 )
-                self._report_kv_backend_stats()
+                # only report metrics from rank0 to avoid flooded logging
+                if dist.get_rank() == 0:
+                    self._report_kv_backend_stats()
 
             # Fetch data from SSD
             if linear_cache_indices.numel() > 0:
