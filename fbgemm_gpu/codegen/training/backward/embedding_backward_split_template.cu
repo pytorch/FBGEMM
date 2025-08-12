@@ -1054,7 +1054,7 @@ Tensor {{ embedding_cuda_op }}(
 
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
-                    int32_t num_cta_per_row_groups = (kMaxThreads/2) / kWarpSize;
+                    int32_t num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
                         [&] (int num_groups) {
@@ -1065,7 +1065,7 @@ Tensor {{ embedding_cuda_op }}(
                     );
 
                     const int32_t cta_per_row_grid_size = std::min(
-                        div_round_up(total_unique_indices, (kMaxThreads/2)),
+                        div_round_up(total_unique_indices, (kMaxThreads/4)),
                         get_max_thread_blocks_());
 
                     FBGEMM_LAUNCH_KERNEL(
