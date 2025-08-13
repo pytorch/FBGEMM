@@ -2497,20 +2497,53 @@ class MXFP4StackedGroupedGemm(QuantizeOpBase):
         return x, wq, w_scale, m_sizes
 
     def quantize(self, x, wq, w_scale, m_sizes):
-        xq, x_scale = zip(*[triton_quantize_mx4_unpack(i) for i in x])
-        xq = torch.stack(xq, dim=0).contiguous()
-        x_scale = torch.stack(x_scale, dim=0).contiguous()
+        starting_row_after_padding_list = [0]
+        xq_list = []
+        x_scale_list = []
+        for i in range(m_sizes.shape[0]):
+            scale_slice = x[i]
+            if m_sizes[i].item() != 0:
+                xq, x_scale = triton_quantize_mx4_unpack(scale_slice)
+                xq_list.append(xq)
+                x_scale_list.append(x_scale)
+                starting_row_after_padding_list.append(
+                    starting_row_after_padding_list[i]
+                    + x_scale.numel() // (x[0].shape[1] // 32)
+                )
+            else:
+                starting_row_after_padding_list.append(
+                    starting_row_after_padding_list[i]
+                )
+        xq = torch.cat(xq_list, dim=0).contiguous()
+        x_scale = torch.cat(x_scale_list, dim=0).contiguous()
+        x_scale = x_scale.reshape(-1, x[0].shape[-1] // 32)
         xq = xq.view(-1, xq.shape[-1])
-        return xq, wq, x_scale, w_scale, m_sizes
+        return (
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            torch.tensor(starting_row_after_padding_list, device=xq.device),
+        )
 
-    def compute(self, xq, wq, x_scale, w_scale, m_sizes):
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes, starting_row_after_padding):
         return torch.ops.fbgemm.f4f4bf16_grouped_stacked(
-            xq, wq, x_scale, w_scale, m_sizes
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            starting_row_after_padding=starting_row_after_padding,
         )
 
     def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale, w_scale, m_sizes)
+        xq, wq, x_scale, w_scale, m_sizes, starting_row_after_padding = self.quantize(
+            x, w
+        )
+        return self.compute(
+            xq, wq, x_scale, w_scale, m_sizes, starting_row_after_padding
+        )
 
     @property
     def name(self) -> str:
