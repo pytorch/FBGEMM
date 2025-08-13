@@ -48,7 +48,7 @@ constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
 #ifdef __aarch64__
 constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
     nullptr,
-#if defined(__aarch64__) && __ARM_FEATURE_SVE
+#if defined(__aarch64__)
     gemmkernel_1x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_2x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_3x2_Sve128_fp16_fA0fB0fC0,
