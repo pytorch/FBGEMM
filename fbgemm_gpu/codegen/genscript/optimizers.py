@@ -1179,32 +1179,15 @@ def partial_rowwise_adam() -> Dict[str, Any]:
       Vec4T<momentum1_ph_t> m_t;
       
       if (enable_optimizer_offloading) {
-        // When offloading is enabled, we need to ensure proper alignment
-        // Create a temporary aligned array on the stack
-        alignas(16) momentum1_ph_t local_momentum1[4];
-        
-        // Load values from momentum1_start into the aligned array
-        #pragma unroll
-        for (int i = 0; i < 4; i++) {
-          local_momentum1[i] = momentum1_start[d + i];
-        }
-        
-        // Use the aligned array for computation
-        m_t = Vec4T<momentum1_ph_t>(local_momentum1);
+        // When offloading is enabled, we need to ensure proper alignment, so 
+        // first copy to a temporary aligned array before loading to Vec4T
+        m_t = vec4_load_unaligned(momentum1_start + d);        
         m_t.mul_(beta1);
         m_t.fma_(grad, 1.0 - beta1);
-        
-        // Store results back to the aligned array
-        m_t.store(local_momentum1);
-        
-        // Copy results back to momentum1_start
-        #pragma unroll
-        for (int i = 0; i < 4; i++) {
-          momentum1_start[d + i] = local_momentum1[i];
-        }
+        vec4_store_unaligned(m_t, momentum1_start + d);
+
       } else {
-        // When not offloading, we can directly use momentum1_start
-        // This avoids the extra copy operations and temporary array
+        // When offloading is not enabled, we can directly use momentum1_start
         m_t = Vec4T<momentum1_ph_t>(&momentum1_start[d]);
         m_t.mul_(beta1);
         m_t.fma_(grad, 1.0 - beta1);
