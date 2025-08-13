@@ -103,7 +103,7 @@ constexpr kernel_array_t<float> kernel_fp32_neon = {
 } // namespace
 
 template <>
-const isa_descriptor<float>& getIsaHandlers(inst_set_t isa, float) {
+const isa_descriptor<float>& getIsaHandlers(inst_set_t isa) {
   static isa_descriptor<float> avx2_descriptor =
       std::make_tuple(kernel_f32_avx2, partition_avx2);
   static isa_descriptor<float> avx512_descriptor =

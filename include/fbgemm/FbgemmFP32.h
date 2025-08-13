@@ -44,6 +44,6 @@ extern template void cblas_gemm_compute(
     int num_threads);
 
 template <>
-const isa_descriptor<float>& getIsaHandlers(inst_set_t isa, float);
+const isa_descriptor<float>& getIsaHandlers(inst_set_t isa);
 
 } // namespace fbgemm
