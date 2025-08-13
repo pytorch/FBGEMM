@@ -84,13 +84,13 @@ template <typename T>
 using isa_descriptor = std::tuple<kernel_array_t<T>, partition_array_t>;
 
 template <typename T>
-extern const isa_descriptor<T>& getIsaHandlers(inst_set_t isa, T);
+extern const isa_descriptor<T>& getIsaHandlers(inst_set_t isa);
 
 void PackA(int nrow, int ncol, const float* from, int ldim, float* to);
 
-// define this to debug fp16 kernel using a reference C implementation
-// #define FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-#ifdef FBGEMM_USE_REF_KERNEL
+// define fp16/fp32 kernels using a reference C implementation
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
+    defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
 template <typename T>
 FBGEMM_API void ref_kernel(
     int kernel_nrows,
@@ -141,10 +141,10 @@ void cblas_gemm_compute(
   const int mb_max = 120;
 
 #if defined(FBGEMM_USE_REF_KERNEL) && defined(__APPLE__)
-  const auto& [_, partition] = getIsaHandlers<T>(inst_set_t::sve, T());
+  const auto& [_, partition] = getIsaHandlers<float16>(inst_set_t::sve);
 #else
   const auto iset = fbgemmInstructionSet();
-  const auto& [kernels, partition] = getIsaHandlers<T>(iset, T());
+  const auto& [kernels, partition] = getIsaHandlers<T>(iset);
 #endif
 
 #ifdef FBGEMM_USE_REF_KERNEL
