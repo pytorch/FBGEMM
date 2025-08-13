@@ -1205,7 +1205,7 @@ Tensor {{ embedding_cuda_op }}(
                     const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
                                                       || dev_weights.scalar_type() == at::ScalarType::Float;
 
-                    if (use_hip_kernel && supported_weights_type && rocm::is_supported_cdna())
+                    if (use_hip_kernel && !mixed_D && supported_weights_type && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256] %}
