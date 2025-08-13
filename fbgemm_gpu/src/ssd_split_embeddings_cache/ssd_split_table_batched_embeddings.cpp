@@ -305,8 +305,9 @@ CheckpointHandle::CheckpointHandle(
   CHECK_GT(num_shards, 0);
   shard_checkpoints_.reserve(num_shards);
   for (auto shard = 0; shard < num_shards; ++shard) {
+    std::string curr_base_path = db->paths_[shard % db->paths_.size()];
     auto rocksdb_path = kv_db_utils::get_rocksdb_path(
-        base_path, shard, tbe_uuid, use_default_ssd_path);
+        curr_base_path, shard, tbe_uuid, use_default_ssd_path);
     auto checkpoint_shard_dir =
         kv_db_utils::get_rocksdb_checkpoint_dir(shard, rocksdb_path);
     kv_db_utils::create_dir(checkpoint_shard_dir);
@@ -323,6 +324,8 @@ CheckpointHandle::CheckpointHandle(
                   << s.ToString();
     shard_checkpoints_.push_back(checkpoint_shard_path);
   }
+
+  XLOG(INFO) << "rocksdb checkpoint shards paths: " << shard_checkpoints_;
 }
 
 std::vector<std::string> CheckpointHandle::get_shard_checkpoints() const {
