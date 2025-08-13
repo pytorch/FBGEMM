@@ -180,6 +180,7 @@ set(fbgemm_generic_defs "${fbgemm_arm_defs}")
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
 endif()
+list(REMOVE_ITEM fbgemm_generic_defs "FBGEMM_ENABLE_KLEIDIAI")
 
 cpp_library(
   PREFIX
