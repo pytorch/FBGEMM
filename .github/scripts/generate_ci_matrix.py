@@ -188,7 +188,8 @@ class BuildConfigScheme:
         return ["6.3", "6.4"]
 
     def host_machines(self) -> List[Dict[str, str]]:
-        # Available instance types: https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
+        # For the list of available instance types:
+        # https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
 
         if self.repo_owner != REPO_OWNER_PYTORCH:
             if self.jobtype == JOBTYPE_BUILD:
@@ -199,7 +200,8 @@ class BuildConfigScheme:
         if self.variant == VARIANT_CPU:
             return [
                 {"arch": "x86", "instance": "linux.4xlarge"},
-                {"arch": "arm", "instance": "linux.arm64.2xlarge"},
+                # Use Graviton 3 instances for FP16FML support
+                {"arch": "arm", "instance": "linux.arm64.m7g.4xlarge"},
             ]
 
         elif self.variant == VARIANT_CUDA:

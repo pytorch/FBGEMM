@@ -42,7 +42,7 @@ jobs:
       matrix:
         host-machine: [
           { arch: x86, instance: "linux.12xlarge" },
-          { arch: arm, instance: "linux.arm64.2xlarge" },
+          { arch: arm, instance: "linux.arm64.m7g.4xlarge" },
         ]
         library-type: [ static, shared ]
         compiler: [
@@ -55,7 +55,7 @@ jobs:
           # ARM SVE support doesn't exist in GCC 9
           - host-machine:
               arch: arm
-              instance: linux.arm64.2xlarge
+              instance: linux.arm64.m7g.4xlarge
             compiler:
               name: gcc
               version: 9.5.0
