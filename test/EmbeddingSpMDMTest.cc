@@ -138,12 +138,6 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     return;
   }
 
-#if defined(__APPLE__) || defined(_WIN32)
-  if (in_type == BFLOAT16 && out_type == FLOAT) {
-    return;
-  }
-#endif
-
   for (auto input : inputs) {
     int batch_size = input[0];
     int num_rows = input[1];
