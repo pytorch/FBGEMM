@@ -8,6 +8,7 @@
 
 #include "common.cuh"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
 using namespace at;
 
@@ -428,21 +429,27 @@ __global__ void copy_kernel(uint8_t* x, int x_size, int shared_mem_size) {
 }
 
 void copy_to_shared(const Tensor& t) {
-  // Make sure input is on GPU and get proper index.
+  // Make sure input is on the GPU
   TORCH_CHECK(t.device().is_cuda(), "Input tensor must be on CUDA device");
-  int device_index = t.device().index();
-  // Extract device information.
-  cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, device_index);
-  int total_shared_mem = prop.sharedMemPerBlock;
-  int num_sms = prop.multiProcessorCount;
-  // Make sure that input tensor can fit on shared memory.
-  int input_size = t.numel() * t.element_size();
+
+  // Fetch device properties
+  const auto device = t.device().index();
+  const auto properties = *at::cuda::getDeviceProperties(device);
+  const auto nbytes = t.numel() * t.element_size();
+
   TORCH_CHECK(
-      input_size <= total_shared_mem,
+      nbytes <= properties.sharedMemPerBlock,
       "Input tensor is too large to fit on shared memory");
-  copy_kernel<<<num_sms, 1, total_shared_mem>>>(
-      reinterpret_cast<uint8_t*>(t.data_ptr()), input_size, total_shared_mem);
+
+  FBGEMM_LAUNCH_KERNEL(
+      (copy_kernel),
+      properties.multiProcessorCount,
+      1,
+      properties.sharedMemPerBlock,
+      at::cuda::getCurrentCUDAStream(),
+      reinterpret_cast<uint8_t*>(t.data_ptr()),
+      nbytes,
+      properties.sharedMemPerBlock);
 }
 
 void initialize_nan_shared_mem(int64_t device_index) {
