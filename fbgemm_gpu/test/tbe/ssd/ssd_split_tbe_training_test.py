@@ -685,7 +685,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             emb = SSDTableBatchedEmbeddingBags(
                 embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
                 feature_table_map=feature_table_map,
-                ssd_storage_directory=tempfile.mkdtemp(),
+                ssd_storage_directory=f"{tempfile.mkdtemp()},{tempfile.mkdtemp()}",
                 cache_sets=cache_sets,
                 ssd_uniform_init_lower=-0.1,
                 ssd_uniform_init_upper=0.1,
