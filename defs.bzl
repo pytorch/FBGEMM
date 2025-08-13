@@ -31,8 +31,8 @@ def get_fbgemm_base_srcs():
         "src/Utils.cc",
     ]
 
-def get_fbgemm_generic_srcs(with_base = False):
-    return [
+def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
+    sources = [
         "src/EmbeddingSpMDM.cc",
         "src/EmbeddingSpMDMNBit.cc",
         "src/ExecuteKernel.cc",
@@ -47,7 +47,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmSparseDense.cc",
         "src/FbgemmI8Spmdm.cc",
         "src/FbgemmPackMatrixB.cc",
-        # "src/fp32/FbgemmFP32.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
@@ -73,6 +72,18 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/spmmUtils.cc",
         "src/TransposeUtils.cc",
     ] + (get_fbgemm_base_srcs() if with_base else [])
+
+    fp32sources = [
+        "src/fp32/FbgemmFP32.cc",
+    ]
+
+    if buck:
+        return select({
+            "DEFAULT": sources + fp32sources,
+            "ovr_config//compiler:cl": sources,
+        })
+
+    return sources + fp32sources if not msvc else sources
 
 def get_fbgemm_public_headers():
     return [
@@ -129,7 +140,7 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
 
     #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
-        # "src/fp32/FbgemmFP32UKernelsAvx2.cc",
+        "src/fp32/FbgemmFP32UKernelsAvx2.cc",
         "src/FbgemmFP16UKernelsAvx2.cc",
     ]
     if buck:
@@ -162,8 +173,8 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
     asm_srcs = [
         "src/FbgemmFP16UKernelsAvx512.cc",
         "src/FbgemmFP16UKernelsAvx512_256.cc",
-        # "src/fp32/FbgemmFP32UKernelsAvx512.cc",
-        # "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
+        "src/fp32/FbgemmFP32UKernelsAvx512.cc",
+        "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
     ]
     if buck:
         return select({
@@ -218,7 +229,7 @@ def get_fbgemm_autovec_srcs():
         "src/EmbeddingStatsTracker.cc",
     ]
 
-def get_fbgemm_tests(skip_tests = ["test/FP32Test.cc"]):
+def get_fbgemm_tests(skip_tests = []):
     return native.glob(["test/*Test.cc"], exclude = skip_tests)
 
 def read_bool(section, field, default):
