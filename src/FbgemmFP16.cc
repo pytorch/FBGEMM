@@ -45,24 +45,21 @@ constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
 #endif
 };
 
-#ifdef __aarch64__
+#if defined(__aarch64__) && defined(FBGEMM_ENABLE_FP16_SVE128)
 constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
     nullptr,
-#if defined(__aarch64__)
     gemmkernel_1x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_2x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_3x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_4x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_5x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_6x2_Sve128_fp16_fA0fB0fC0,
-#else
     nullptr,
     nullptr,
     nullptr,
     nullptr,
     nullptr,
     nullptr,
-#endif
 };
 #endif
 
@@ -135,14 +132,18 @@ const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa) {
   static isa_descriptor<float16> neon_descriptor =
       std::make_tuple(kernel_fp16_neon, partition_neon);
 #endif
+#ifdef FBGEMM_ENABLE_FP16_SVE128
   static isa_descriptor<float16> sve128_descriptor =
       std::make_tuple(kernel_fp16_sve128, partition_sve128);
+#endif
 #endif
 
   switch (isa) {
     case inst_set_t::sve:
 #ifdef __aarch64__
+#ifdef FBGEMM_ENABLE_FP16_SVE128
       return sve128_descriptor;
+#endif
     case inst_set_t::anyarch:
 #ifdef FBGEMM_ENABLE_KLEIDIAI
       return neon_descriptor;
