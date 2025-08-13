@@ -77,7 +77,8 @@ at::Tensor rope_qkv_varseq_prefill(
     bool k_norm,
     bool update_kv,
     std::optional<at::Tensor> amax_qkv,
-    std::optional<at::Tensor> kv_quant_scale_precomputed);
+    std::optional<at::Tensor> kv_quant_scale_precomputed,
+    bool symmetric_quant);
 
 at::Tensor rope_qkv_decoding(
     at::Tensor XQ,
@@ -103,7 +104,8 @@ at::Tensor rope_qkv_decoding(
     std::optional<at::Tensor> qparam_v,
     bool k_norm,
     bool update_kv,
-    std::optional<at::Tensor> amax_qkv);
+    std::optional<at::Tensor> amax_qkv,
+    bool symmetric_quant);
 
 at::Tensor xpos_qkv_varseq_prefill(
     at::Tensor XQ,
@@ -172,7 +174,8 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     std::optional<at::Tensor> qparam_k,
     std::optional<at::Tensor> qparam_v,
     std::optional<at::Tensor> block_tables,
-    int64_t page_size);
+    int64_t page_size,
+    std::optional<bool> symmetric);
 
 at::Tensor quantize_qkv_per_head(
     at::Tensor amax,

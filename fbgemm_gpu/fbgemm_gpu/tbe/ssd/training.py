@@ -14,7 +14,6 @@ import itertools
 import logging
 import math
 import os
-import tempfile
 import threading
 import time
 from functools import cached_property
@@ -107,6 +106,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         embedding_specs: List[Tuple[int, int]],  # tuple of (rows, dims)
         feature_table_map: Optional[List[int]],  # [T]
         cache_sets: int,
+        # A comma-separated string, e.g. "/data00_nvidia0,/data01_nvidia0/", db shards
+        # will be placed in these paths round-robin.
         ssd_storage_directory: str,
         ssd_rocksdb_shards: int = 1,
         ssd_memtable_flush_period: int = -1,
@@ -151,8 +152,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ps_client_thread_num: Optional[int] = None,
         ps_max_local_index_length: Optional[int] = None,
         tbe_unique_id: int = -1,
-        # in local test we need to use the pass in path for rocksdb creation
-        # in production we need to do it inside SSD mount path which will ignores the passed in path
+        # If set to True, will use `ssd_storage_directory` as the ssd paths.
+        # If set to False, will use the default ssd paths.
+        # In local test we need to use the pass in path for rocksdb creation
+        # fn production we could either use the default ssd mount points or explicity specify ssd
+        # mount points using `ssd_storage_directory`.
         use_passed_in_path: int = True,
         gather_ssd_cache_stats: Optional[bool] = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
@@ -522,11 +526,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.record_function_via_dummy_profile_factory(use_dummy_profile)
         )
 
-        os.makedirs(ssd_storage_directory, exist_ok=True)
+        if use_passed_in_path:
+            ssd_dir_list = ssd_storage_directory.split(",")
+            for ssd_dir in ssd_dir_list:
+                os.makedirs(ssd_dir, exist_ok=True)
 
-        ssd_directory = tempfile.mkdtemp(
-            prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
-        )
+        ssd_directory = ssd_storage_directory
         # logging.info("DEBUG: weights_precision {}".format(weights_precision))
 
         """
@@ -1975,7 +1980,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.ssd_cache_stats = torch.add(
                     self.ssd_cache_stats, self.local_ssd_cache_stats
                 )
-                self._report_kv_backend_stats()
+                # only report metrics from rank0 to avoid flooded logging
+                if dist.get_rank() == 0:
+                    self._report_kv_backend_stats()
 
             # Fetch data from SSD
             if linear_cache_indices.numel() > 0:

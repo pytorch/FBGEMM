@@ -329,6 +329,20 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
+  std::vector<std::string> split_paths(const std::string& input) {
+    std::vector<std::string> result;
+    std::stringstream ss(input);
+    std::string item;
+
+    while (std::getline(ss, item, ',')) {
+      if (!item.empty()) {
+        result.push_back(item);
+      }
+    }
+
+    return result;
+  }
+
   void initialize_dbs(
       int64_t num_shards,
       std::string path,
@@ -344,15 +358,17 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
     tbe_uuid_ = facebook::strings::generateUUID();
     use_default_ssd_path_ = !use_passed_in_path;
-    if (!use_passed_in_path) {
-      path_ = std::move(ssd_mount_point);
+    if (use_passed_in_path) {
+      paths_ = split_paths(path);
     } else {
-      path_ = std::move(path);
+      paths_.push_back(ssd_mount_point);
     }
+    CHECK(paths_.size() > 0);
     db_paths_.reserve(num_shards);
     std::string all_shards_path;
 #endif
     for (auto i = 0; i < num_shards; ++i) {
+      path_ = paths_[i % paths_.size()];
 #ifdef FBGEMM_FBCODE
       auto rocksdb_path = kv_db_utils::get_rocksdb_path(
           path_, i, tbe_uuid_, !use_passed_in_path);
@@ -1269,6 +1285,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::vector<int64_t> sub_table_hash_cumsum_;
   std::string tbe_uuid_;
   std::string path_;
+  std::vector<std::string> paths_;
   bool use_default_ssd_path_;
 
   // rocksdb checkpoint is used to create an on disk database to support

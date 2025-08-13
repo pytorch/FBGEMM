@@ -611,4 +611,36 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
   return s;
 }
 
+template <typename T>
+DEVICE_INLINE Vec4T<T> vec4_load_unaligned(const T* src) {
+  // src is not guaranteed to have proper alignment.
+  // Create a temporary aligned array on the stack.
+  alignas(16) T temp[4];
+
+  // Load values from src into the byte-aligned array
+#pragma unroll
+  for (auto i = 0; i < 4; i++) {
+    temp[i] = src[i];
+  }
+
+  // Then load the aligned array values into Vec4T
+  return Vec4T<T>(temp);
+}
+
+template <typename T>
+DEVICE_INLINE void vec4_store_unaligned(const Vec4T<T>& vec, T* dst) {
+  // dst is not guaranteed to have proper alignment.
+  // Create a temporary aligned array on the stack.
+  alignas(16) T temp[4];
+
+  // Store Vec4T values into the byte-aligned array
+  vec.store(temp);
+
+  // Then store the aligned array values into dst
+#pragma unroll
+  for (auto i = 0; i < 4; i++) {
+    dst[i] = temp[i];
+  }
+}
+
 } // namespace fbgemm_gpu

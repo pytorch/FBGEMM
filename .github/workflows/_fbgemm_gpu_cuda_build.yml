@@ -12,6 +12,18 @@ on:
       matrix:
         required: true
         type: string
+      container:
+        description: 'Container configuration for the job'
+        type: string
+        required: false
+        default: >-
+          {
+            "image": "amazonlinux:2023",
+            "options": "--user root --privileged --pid=host",
+            "volumes": [
+              "/var/run/docker.sock:/var/run/docker.sock"
+            ]
+          }
       repo-ref:
         description: Repository ref/sha
         type: string
@@ -32,9 +44,7 @@ jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
     runs-on: ${{ matrix.host-machine.instance }}
-    container:
-      image: amazonlinux:2023
-      options: --user root --privileged --pid=host
+    container: ${{ fromJson(inputs.container) }}
     defaults:
       run:
         shell: bash
@@ -73,6 +83,10 @@ jobs:
       with:
         submodules: true
         ref: ${{ inputs.repo-ref }}
+
+    - name: Free Disk Space on Host
+      if: ${{ fromJson(inputs.container).image != null }}
+      run: . $PRELUDE; free_disk_space_on_host
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
