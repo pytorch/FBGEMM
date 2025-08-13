@@ -40,7 +40,7 @@ BLOCK_PRINT(
 )
 
 # Strip all symbols from the .SO file after building
-if(NOT MSVC AND NOT APPLE)
+if(NOT WIN32 AND NOT APPLE)
   add_link_options($<$<CONFIG:RELEASE>:-s>)
 endif()
 
