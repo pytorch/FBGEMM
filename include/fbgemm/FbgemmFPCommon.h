@@ -17,7 +17,9 @@
 
 #if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
     defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
+#if defined(__APPLE__) && defined(__aarch64__)
 #define FBGEMM_USE_REF_KERNEL
+#endif
 #endif
 
 namespace fbgemm {
@@ -82,13 +84,13 @@ template <typename T>
 using isa_descriptor = std::tuple<kernel_array_t<T>, partition_array_t>;
 
 template <typename T>
-extern const isa_descriptor<T>& getIsaHandlers(inst_set_t isa, T);
+extern const isa_descriptor<T>& getIsaHandlers(inst_set_t isa);
 
 void PackA(int nrow, int ncol, const float* from, int ldim, float* to);
 
-// define this to debug fp16 kernel using a reference C implementation
-// #define FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-#ifdef FBGEMM_USE_REF_KERNEL
+// define fp16/fp32 kernels using a reference C implementation
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
+    defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
 template <typename T>
 FBGEMM_API void ref_kernel(
     int kernel_nrows,
@@ -130,35 +132,35 @@ void cblas_gemm_compute(
 #endif
   assert(transa == matrix_op_t::NoTranspose);
 
-  const auto iset = fbgemmInstructionSet();
   // private scratchpad storage
   static thread_local std::unique_ptr<std::array<float, 256 * 1024>> scratchpad(
       new std::array<float, 256 * 1024>());
 
-  const auto& isaHandlers = getIsaHandlers<T>(iset, T());
-
-  const auto& kernels = std::get<0>(isaHandlers);
-  const auto& partition = std::get<1>(isaHandlers);
-
   // constants
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
   const int mb_max = 120;
+
+#if defined(FBGEMM_USE_REF_KERNEL) && defined(__APPLE__)
+  const auto& [_, partition] = getIsaHandlers<float16>(inst_set_t::sve);
+#else
+  const auto iset = fbgemmInstructionSet();
+  const auto& [kernels, partition] = getIsaHandlers<T>(iset);
+#endif
+
 #ifdef FBGEMM_USE_REF_KERNEL
-  const int kernel_ncol_blocks = Bp.kernelNumColBlocks();
   // By some reason, if packed B is using packing layout for avx2, we just use
   // avx2 even if avx512 is available.
   const int simd_width =
 #ifndef __aarch64__
       (iset == inst_set_t::avx512 || iset == inst_set_t::avx512_vnni) &&
-          (Bp.blockColSize() == 16 * kernel_ncol_blocks)
+          (Bp.blockColSize() == 16 * Bp.kernelNumColBlocks())
       ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
       : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
 #else
       simd_info<inst_set_t::sve>::WIDTH_32BIT_ELEMS;
-  (void)kernel_ncol_blocks;
-  (void)kernels;
 #endif
 #endif
+
   GemmParams<T> gp;
   int i_begin = 0, i_end = 0;
   i_begin = 0;
@@ -236,13 +238,7 @@ void cblas_gemm_compute(
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (
-                  std::is_same<T, float16>::value ||
-                  std::is_same<T, float>::value) {
-                kernels[kernel_nrows](&gp);
-              } else {
-                ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
-              }
+              ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
 #else
               kernels[kernel_nrows](&gp);
 #endif
@@ -258,13 +254,7 @@ void cblas_gemm_compute(
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-                if constexpr (
-                    std::is_same<T, float16>::value ||
-                    std::is_same<T, float>::value) {
-                  kernels[kernel_nrows](&gp);
-                } else {
-                  ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
-                }
+                ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
 #else
                 kernels[kernel_nrows](&gp);
 #endif
@@ -290,14 +280,8 @@ void cblas_gemm_compute(
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (
-                  std::is_same<T, float16>::value ||
-                  std::is_same<T, float>::value) {
-                kernels[kernel_nrows](&gp);
-              } else {
-                ref_kernel<T>(
-                    kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
-              }
+              ref_kernel<T>(
+                  kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
 #else
               kernels[kernel_nrows](&gp);
 #endif

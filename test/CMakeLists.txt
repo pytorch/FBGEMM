@@ -108,9 +108,9 @@ foreach(TEST_FILE ${TEST_LIST})
   # NOTE: Skip tests on ARM for now until linking issues are fixed
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
     if(TEST_FILE MATCHES "Conv"
+    OR(TEST_FILE MATCHES "FP16Test.cc$" AND (NOT APPLE))
+    OR(TEST_FILE MATCHES "FP32Test.cc$" AND (NOT APPLE))
     OR TEST_FILE MATCHES "I8DepthwiseTest.cc$"
-    OR TEST_FILE MATCHES "FP16Test.cc$"
-    OR TEST_FILE MATCHES "FP32Test.cc$"
     OR TEST_FILE MATCHES "I8SpmdmTest.cc$"
     OR TEST_FILE MATCHES "I8DirectconvTest.cc$"
     OR TEST_FILE MATCHES "Requantize")
