@@ -232,6 +232,13 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     acc.w *= scale;
   }
 
+  DEVICE_INLINE void sq_() {
+    acc.x *= acc.x;
+    acc.y *= acc.y;
+    acc.z *= acc.z;
+    acc.w *= acc.w;
+  }
+
   // this <- this element-wise mul a
   DEVICE_INLINE void element_wise_mul_(const Vec4T<float>& a) {
     acc.x *= a.acc.x;
@@ -426,6 +433,13 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     acc.z *= scale;
     acc.w *= scale;
   }
+
+  DEVICE_INLINE void sq_() {
+    acc.x *= acc.x;
+    acc.y *= acc.y;
+    acc.z *= acc.z;
+    acc.w *= acc.w;
+  }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -592,6 +606,13 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     acc.y *= scale;
     acc.z *= scale;
     acc.w *= scale;
+  }
+
+  DEVICE_INLINE void sq_() {
+    acc.x *= acc.x;
+    acc.y *= acc.y;
+    acc.z *= acc.z;
+    acc.w *= acc.w;
   }
 };
 
