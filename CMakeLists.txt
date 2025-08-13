@@ -104,6 +104,9 @@ else(MSVC)
   set(MSVC_BOOL False)
   check_cxx_compiler_flag(-mavx2 COMPILER_SUPPORTS_AVX2)
   check_cxx_compiler_flag(-mavx512f COMPILER_SUPPORTS_AVX512)
+  check_cxx_compiler_flag(-march=armv8-a+sve COMPILER_SUPPORTS_SVE)
+  check_cxx_compiler_flag(-march=armv8-a+sve2 COMPILER_SUPPORTS_SVE2)
+  check_cxx_compiler_flag(-march=armv8-a+fp16fml COMPILER_SUPPORTS_FP16FML)
 endif(MSVC)
 
 ################################################################################
@@ -289,6 +292,10 @@ endif()
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  if(NOT COMPILER_SUPPORTS_FP16FML)
+    message(FATAL_ERROR "The current compiler does not support building FP16FML code")
+  endif()
+
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")
 
   get_filelist("get_fbgemm_inline_neon_srcs(msvc=${MSVC_BOOL})" FBGEMM_NEON_SRCS)
@@ -304,6 +311,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
       -ftree-vectorize
       -fno-trapping-math
       -Wignored-qualifiers
+      -march=armv8-a+fp16fml
     DEFINITIONS
       ${fbgemm_arm_defs}
     DEPS
@@ -322,7 +330,18 @@ endif()
 # FBGEMM SVE Target
 ################################################################################
 
+set(FBGEMM_BUILD_SVE False)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+  if(COMPILER_SUPPORTS_SVE2)
+    set(FBGEMM_BUILD_SVE True)
+    set(fbgemm_sve_flags "-march=armv8-a+sve2")
+  elseif(COMPILER_SUPPORTS_SVE)
+    set(FBGEMM_BUILD_SVE True)
+    set(fbgemm_sve_flags "-march=armv8-a+sve")
+  endif()
+endif()
+
+if(FBGEMM_BUILD_SVE)
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build SVE target")
 
   get_filelist("get_fbgemm_inline_sve_srcs(msvc=${MSVC_BOOL})" FBGEMM_SVE_SRCS)
@@ -338,6 +357,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
       -ftree-vectorize
       -fno-trapping-math
       -Wignored-qualifiers
+      -Wno-inline-asm
+      -Wno-asm-operand-widths
+      ${fbgemm_sve_flags}
     DEFINITIONS
       ${fbgemm_arm_defs}
     DEPS
