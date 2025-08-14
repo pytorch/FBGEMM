@@ -1640,7 +1640,11 @@ def matmul_fp8_row_meta(
     """Shape function for torch compile."""
     M, K = a.shape
     N, K = b.shape
-    return torch.empty((M, N), device=a.device, dtype=torch.bfloat16)
+    return torch.empty(
+        (M, N),
+        device=a.device,
+        dtype=torch.bfloat16 if dot_out_dtype is None else dot_out_dtype,
+    )
 
 
 # pruned some unreasonable config

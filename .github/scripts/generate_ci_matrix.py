@@ -8,10 +8,15 @@
 import argparse
 import itertools
 import json
+import logging
+import os
+import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+logging.basicConfig(level=logging.INFO)
 
 TARGET_DEFAULT = "default"
 TARGET_GENAI = "genai"
@@ -28,6 +33,98 @@ JOBTYPE_TEST = "test"
 REPO_OWNER_PYTORCH = "pytorch"
 REPO_OWNER_FACEBOOKRESEARCH = "facebookresearch"
 ALL_REPO_OWNERS = [REPO_OWNER_PYTORCH, REPO_OWNER_FACEBOOKRESEARCH]
+
+
+class GitRepo:
+    @classmethod
+    def is_pr_merge_ref(cls) -> bool:
+        """
+        Determine whether the current ref is a PR merge commit
+        """
+
+        try:
+            ref = os.getenv("GITHUB_REF") or ""
+            logging.debug(f"Fetched git ref: {ref}")
+            return re.match(r"^refs/pull/\d+/merge$", ref) is not None
+
+        except Exception as e:
+            logging.error(f"Error fetching git ref: {e}")
+            return False
+
+    @classmethod
+    def files_changed(cls) -> List[str]:
+        """
+        Lists the files that have changed on HEAD
+        """
+
+        # In CI, use environment to determine base ref
+        if "GITHUB_ACTIONS" in os.environ:
+            # Get the base ref (e.g., main, or the PR base)
+            base_ref = os.getenv("GITHUB_BASE_REF")
+
+            if base_ref:
+                # PR: compare base branch with current head
+                range_spec = f"origin/{base_ref}...HEAD"
+            else:
+                # Push or schedule: compare last commit on this branch
+                # Fallback: compare with parent of HEAD
+                range_spec = "HEAD~1...HEAD"
+
+            cmd = ["git", "diff", "--name-only", range_spec]
+
+        else:
+            # Local: just compare with last commit
+            cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
+
+        try:
+            # Get list of changed files in the latest commit
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            files = result.stdout.strip().split("\n")
+            logging.debug(f"Changed files on HEAD: {files}")
+            # Filter out empty lines
+            return [f for f in files if f]
+
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error fetching list of changed files on HEAD: {e}")
+            return []
+
+    @classmethod
+    def relevant_build_target(cls, target: str) -> bool:
+        """
+        Filter the build targets based on what files have changed on HEAD.
+        """
+
+        # Always build if we're not on a PR merge commit
+        if not cls.is_pr_merge_ref():
+            logging.info(f"Not a PR merge commit, will build target: {target}")
+            return True
+
+        filepaths = cls.files_changed()
+        relevant_target_regexes = {
+            TARGET_HSTU: [
+                "fbgemm_gpu/experimental/hstu",
+            ],
+        }
+
+        regexes = relevant_target_regexes.get(target, [])
+        if not regexes:
+            # If no designated regexes exist for the target, then pass and
+            # declare the target as relevant for the CI run
+            logging.info(f"Will build target: {target}")
+            return True
+        else:
+            # Else, declare the target as relevant for the CI run only if any
+            # of the filepaths of the files changed in HEAD match any of the
+            # regexes for the target
+            result = any(
+                [
+                    (re.match(r, f) is not None)
+                    for r, f in itertools.product(regexes, filepaths)
+                ]
+            )
+            logging.info(f"{"Will" if result else "Will NOT"} build target: {target}")
+            return result
 
 
 @dataclass(frozen=True)
@@ -106,13 +203,16 @@ class BuildConfigScheme:
                 repo_owner=args.repo_owner,
             ).validated()
             for t in targets
+            # Filter out targets that are not relevant for the PR merge commit
+            # to save on CI resources expenditure
+            if GitRepo.relevant_build_target(t)
         ]
 
     def _dict_cartesian_product(
         self, table: Dict[str, List[Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Compute the Cartesian product of lists in a dictionary, e.g.:
+        Compute the Cartesian product of a dictionary of lists, e.g.:
 
         { "x": [1, 2], "y": [3, 4] }
         -> [
@@ -188,7 +288,8 @@ class BuildConfigScheme:
         return ["6.3", "6.4"]
 
     def host_machines(self) -> List[Dict[str, str]]:
-        # Available instance types: https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
+        # For the list of available instance types:
+        # https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
 
         if self.repo_owner != REPO_OWNER_PYTORCH:
             if self.jobtype == JOBTYPE_BUILD:
@@ -199,7 +300,8 @@ class BuildConfigScheme:
         if self.variant == VARIANT_CPU:
             return [
                 {"arch": "x86", "instance": "linux.4xlarge"},
-                {"arch": "arm", "instance": "linux.arm64.2xlarge"},
+                # Use Graviton 3 instances for FP16FML support
+                {"arch": "arm", "instance": "linux.arm64.m7g.4xlarge"},
             ]
 
         elif self.variant == VARIANT_CUDA:
@@ -245,6 +347,7 @@ class BuildConfigScheme:
 
 def main():
     try:
+        logging.info(f"Current working directory: {os.getcwd()}")
         configs = BuildConfigScheme.from_args()
 
         matrix = []

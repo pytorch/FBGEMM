@@ -157,6 +157,16 @@ if(NOT MSVC)
   endif()
 endif()
 
+set(fbgemm_arm_defs)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  set(fbgemm_arm_defs
+      FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+      FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
+  if(NOT APPLE)
+    list(APPEND fbgemm_arm_defs FBGEMM_ENABLE_KLEIDIAI)
+  endif()
+endif()
+
 ################################################################################
 # FBGEMM Generic Target
 ################################################################################
@@ -166,9 +176,11 @@ if(MSVC)
   list(FILTER FBGEMM_GENERIC_SRCS EXCLUDE REGEX "src/fp32/.*\\.cc$")
 endif()
 
+set(fbgemm_generic_defs "${fbgemm_arm_defs}")
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
-  set(fbgemm_generic_defs FBGEMM_STATIC)
+  list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
 endif()
+list(REMOVE_ITEM fbgemm_generic_defs "FBGEMM_ENABLE_KLEIDIAI")
 
 cpp_library(
   PREFIX
@@ -289,9 +301,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
       -fno-trapping-math
       -Wignored-qualifiers
     DEFINITIONS
-      FBGEMM_ENABLE_KLEIDIAI
-      FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-      FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
+      ${fbgemm_arm_defs}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
@@ -325,9 +335,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
       -fno-trapping-math
       -Wignored-qualifiers
     DEFINITIONS
-      FBGEMM_ENABLE_KLEIDIAI
-      FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-      FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
+      ${fbgemm_arm_defs}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
