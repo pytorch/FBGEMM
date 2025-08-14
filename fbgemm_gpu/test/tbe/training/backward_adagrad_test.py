@@ -12,6 +12,8 @@
 import unittest
 from typing import Any, Dict
 
+import torch
+
 from hypothesis import given, settings
 
 from .backward_adagrad_common import (
@@ -48,6 +50,26 @@ class BackwardAdagradTest(unittest.TestCase):
         kwargs = adjust_mixed_B_st(kwargs)
         execute_backward_adagrad(
             weights_precision=SparseType.FP16,
+            pooling_mode=PoolingMode.SUM,
+            compile=False,  # FIXME: make compilation work for fp16
+            **kwargs,
+        )
+
+    @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
+    @unittest.skipIf(*gpu_unavailable)
+    @given(mixed_B=st.booleans(), **test_st)
+    @settings(**common_settings)
+    def test_backward_adagrad_fp8_pmSUM(  # noqa C901
+        self,
+        **kwargs: Any,
+    ) -> None:
+        kwargs = adjust_mixed_B_st(kwargs)
+        # Skip for use_cpu=True, as FP8 is not supported on CPU.
+        # Also disable on AMD for now.
+        if kwargs["use_cpu"] or torch.version.hip:
+            return
+        execute_backward_adagrad(
+            weights_precision=SparseType.NFP8,
             pooling_mode=PoolingMode.SUM,
             compile=False,  # FIXME: make compilation work for fp16
             **kwargs,
