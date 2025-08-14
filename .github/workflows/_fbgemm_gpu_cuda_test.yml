@@ -50,9 +50,9 @@ on:
         default: true
       custom-steps:
         description: Custom steps to run
+        type: string
         required: false
-        type: object
-        default: []
+        default: '[]'
     secrets:
       PYPI_TOKEN:
         required: true
