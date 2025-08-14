@@ -50,6 +50,7 @@ if open_source:
     from test_utils import (
         additional_decorators,
         gpu_unavailable,
+        is_nvidia_device,
         optests,
         TEST_WITH_ROCM,
     )
@@ -57,11 +58,16 @@ else:
     from fbgemm_gpu.test.test_utils import (
         additional_decorators,
         gpu_unavailable,
+        is_nvidia_device,
         optests,
         TEST_WITH_ROCM,
     )
 
 VERBOSITY: Verbosity = Verbosity.verbose
+
+fp8_dtype: torch.dtype = (
+    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
+)
 
 # pyre-ignore
 additional_decorators.update(
@@ -235,6 +241,10 @@ class ForwardTest(unittest.TestCase):
                     )
                 )
 
+        if weights_precision == SparseType.NFP8:
+            for t in range(T):
+                bs[t].weight.data.copy_(bs[t].weight.data.to(fp8_dtype).to(torch.float))
+
         if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
@@ -301,11 +311,15 @@ class ForwardTest(unittest.TestCase):
             cc = torch.jit.script(cc)
 
         for t in range(T):
-            cc.split_embedding_weights()[t].data.copy_(
-                bs[t].weight
-                if weights_precision != SparseType.INT8
-                else torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(bs[t].weight)
-            )
+            if weights_precision == SparseType.INT8:
+                b_weight = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                    bs[t].weight
+                )
+            elif weights_precision == SparseType.NFP8:
+                b_weight = bs[t].weight.to(fp8_dtype)
+            else:
+                b_weight = bs[t].weight
+            cc.split_embedding_weights()[t].data.copy_(b_weight)
 
         x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
         xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
@@ -633,6 +647,65 @@ class ForwardTest(unittest.TestCase):
             use_experimental_tbe,
         )
 
+    @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
+    @unittest.skipIf(*gpu_unavailable)
+    def test_forward_gpu_no_cache_fp8(
+        self,
+        use_experimental_tbe: bool = False,  # TODO This does not yet work when True.
+    ) -> None:
+        # Skip on rocm as fp8 is not supported for all versions.
+        if not is_nvidia_device:
+            return
+
+        weights_precision = SparseType.NFP8
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+            ]
+            + ([PoolingMode.NONE] if not use_experimental_tbe else [])
+        )
+        if pooling_mode == PoolingMode.NONE:
+            mixed = False
+            mixed_B = False
+        else:
+            mixed = random.choice([True, False])
+            mixed_B = (
+                random.choice([True, False]) if not use_experimental_tbe else False
+            )
+        if pooling_mode == PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            SparseType.FP32,
+            use_experimental_tbe,
+        )
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         use_experimental_tbe=st.booleans(),
@@ -711,6 +784,76 @@ class ForwardTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
     ) -> None:
         weights_precision = SparseType.INT8
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = True
+
+        pooling_mode = random.choice(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        )
+        output_dtype = random.choice(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.BF16,
+            ]
+        )
+        if pooling_mode == PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        mixed_B = False
+        if pooling_mode == PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            output_dtype,
+            False,  # use_experimental_tbe
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
+    @given(
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_gpu_uvm_cache_fp8(
+        self,
+        cache_algorithm: CacheAlgorithm,
+    ) -> None:
+        # Skip tests on rocm since it does not work for all versions.
+        if not is_nvidia_device:
+            return
+
+        weights_precision = SparseType.NFP8
         use_cpu = False
         T = random.randint(1, 10)
         D = random.randint(2, 256)

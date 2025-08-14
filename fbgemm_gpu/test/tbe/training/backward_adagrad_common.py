@@ -96,6 +96,10 @@ common_settings: Dict[str, Any] = {
     "suppress_health_check": [HealthCheck.filter_too_much, HealthCheck.data_too_large],
 }
 
+fp8_dtype: torch.dtype = (
+    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
+)
+
 
 def execute_backward_adagrad(  # noqa C901
     T: int,
@@ -225,6 +229,10 @@ def execute_backward_adagrad(  # noqa C901
             for (E, D) in zip(Es, Ds)
         ]
 
+    if weights_precision == SparseType.NFP8:
+        for t in range(T):
+            bs[t].weight.data.copy_(bs[t].weight.data.to(fp8_dtype).to(torch.float))
+
     if weights_precision == SparseType.FP16:
         bs = [b.half() for b in bs]
 
@@ -310,8 +318,12 @@ def execute_backward_adagrad(  # noqa C901
 
     del bs[table_to_replicate]
     for t in range(T):
+        if weights_precision == SparseType.NFP8:
+            b_weight = bs[t].weight.to(fp8_dtype)
+        else:
+            b_weight = bs[t].weight
         # pyre-ignore[16]: Anonymous callable has no attribute `split_embedding_weights`.
-        cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
+        cc.split_embedding_weights()[t].data.copy_(b_weight)
 
     x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
     xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
@@ -362,7 +374,7 @@ def execute_backward_adagrad(  # noqa C901
     tolerance = (
         1.0e-4
         if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
-        else 1.0e-2
+        else 1.0e-2 if weights_precision != SparseType.NFP8 else 1.0e-1
     )
 
     for t in range(T):
@@ -415,6 +427,9 @@ def execute_backward_adagrad(  # noqa C901
                 weights_ref * max_norm / weights_norm,
                 weights_ref,
             )
+        # If weights are FP8, add quantization noise.
+        if weights_precision == SparseType.NFP8:
+            weights_ref = weights_ref.to(fp8_dtype).to(torch.float)
         torch.testing.assert_close(
             cc.split_embedding_weights()[t].float().cpu(),
             weights_ref,
