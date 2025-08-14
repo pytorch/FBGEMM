@@ -3154,6 +3154,28 @@
                 <span class="n">tmp_emb</span><span class="o">.</span><span class="n">uniform_</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span>
                 <span class="n">tmp_emb_i8</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">FloatToFused8BitRowwiseQuantized</span><span class="p">(</span><span class="n">tmp_emb</span><span class="p">)</span>
                 <span class="n">emb</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">tmp_emb_i8</span><span class="p">)</span>
+        <span class="c1"># Torch doesnt implement direct fp8 distribution functions, so we need to start in higher precision.</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">==</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">NFP8</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;cuda&quot;</span>
+            <span class="p">),</span> <span class="s2">&quot;NFP8 is currently only supportd on GPU.&quot;</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="ow">in</span> <span class="p">[</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">ROWWISE_ADAGRAD</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+            <span class="p">],</span> <span class="s2">&quot;NFP8 is currently only supportd with adagrad optimizers.&quot;</span>
+            <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">splits</span><span class="p">:</span>
+                <span class="n">tmp_param</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">param</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">)</span>
+                <span class="c1"># Create initialized weights and cast to fp8.</span>
+                <span class="n">fp8_dtype</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fnuz</span>
+                    <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">hip</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                    <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+                <span class="p">)</span>
+                <span class="n">tmp_param</span><span class="o">.</span><span class="n">uniform_</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">fp8_dtype</span><span class="p">)</span>
+                <span class="n">param</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">tmp_param</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">splits</span><span class="p">:</span>
                 <span class="n">param</span><span class="o">.</span><span class="n">uniform_</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span>
@@ -3606,6 +3628,9 @@
         <span class="k">if</span> <span class="n">cache_precision</span> <span class="o">==</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span><span class="p">:</span>
             <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
         <span class="k">elif</span> <span class="n">cache_precision</span> <span class="o">==</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP16</span><span class="p">:</span>
+            <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span>
+        <span class="k">elif</span> <span class="n">cache_precision</span> <span class="o">==</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">NFP8</span><span class="p">:</span>
+            <span class="c1"># NFP8 weights use floating point cache.</span>
             <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>  <span class="c1"># not relevant, but setting it to keep linter happy</span>
