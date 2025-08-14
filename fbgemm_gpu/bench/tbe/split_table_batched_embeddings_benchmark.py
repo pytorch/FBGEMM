@@ -290,7 +290,7 @@ def device(  # noqa C901
         )
     emb = emb.to(get_device())
 
-    if weights_precision == SparseType.INT8:
+    if weights_precision in [SparseType.INT8, SparseType.NFP8]:
         # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
         #  min_val: float, max_val: float) -> None, (self:
         #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
@@ -745,6 +745,7 @@ def uvm(
 )
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--cache-precision", type=SparseType, default=None)
 @click.option(
     "--uvm-host-mapped",
     is_flag=True,
@@ -772,6 +773,7 @@ def cache(  # noqa C901
     requests_data_file: Optional[str],
     tables: Optional[str],
     uvm_host_mapped: bool,
+    cache_precision: SparseType,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -805,6 +807,7 @@ def cache(  # noqa C901
         ],
         optimizer=optimizer,
         weights_precision=weights_precision,
+        cache_precision=cache_precision,
         stochastic_rounding=stoc,
         uvm_host_mapped=uvm_host_mapped,
     ).cuda()
