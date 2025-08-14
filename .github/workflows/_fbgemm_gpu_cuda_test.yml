@@ -43,6 +43,16 @@ on:
         type: string
         required: false
         default: ""
+      run-tests:
+        description: Run tests
+        type: boolean
+        required: false
+        default: true
+      custom-steps:
+        description: Custom steps to run
+        required: false
+        type: object
+        default: []
     secrets:
       PYPI_TOKEN:
         required: true
@@ -145,8 +155,11 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
+      if: ${{ inputs.run-tests }}
       timeout-minutes: 60
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
+
+    - ${{ fromJson(inputs.custom-steps) }}
 
     - name: Push Wheel to PyPI
       if: ${{ inputs.publish-to-pypi && matrix.cuda-version == inputs.cuda-version-publish }}
