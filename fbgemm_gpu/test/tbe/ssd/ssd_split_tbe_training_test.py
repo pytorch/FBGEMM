@@ -2250,6 +2250,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
 
+            self.assertTrue(len(metadata_list[table_index].size()) == 2)
+
     @given(
         **{
             "T": st.integers(min_value=1, max_value=10),
