@@ -25,6 +25,7 @@
 
 #include "fbgemm_gpu/intraining_embedding_pruning.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
@@ -476,16 +477,16 @@ void init_address_lookup_cuda(
 
   // Table entries can be as small as 0.1 million and as large as 4 millions.
   // Allocate all SMs to each table
-  init_address_lookup_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (init_address_lookup_kernel),
       num_tables * blocks_per_table,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       blocks_per_table,
       address_lookups.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       emb_sizes.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
@@ -516,14 +517,15 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   int64_t total_buffer_size = row_utils.size(0);
   float decay_factor =
       iter > pruning_interval ? 0.98 : 1.0; // i.e., expf(-logf(1.1));
-  decay_row_utils<<<
+
+  FBGEMM_LAUNCH_KERNEL(
+      (decay_row_utils),
       div_round_up(total_buffer_size, kMaxThreads),
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       decay_factor,
       row_utils.packed_accessor32<float, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // 2. Get number of samples per table to create sampling buffers
   // For each table, we sampled some utility rows instead of sorting all
@@ -545,11 +547,13 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   // threshold
   auto sampled_utilities = at::zeros({total_samples_h}, row_utils.options());
   // Allocate all SMs to each table
-  get_util_samples<<<
+
+  FBGEMM_LAUNCH_KERNEL(
+      (get_util_samples),
       num_tables * blocks_per_table,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       iter,
       blocks_per_table,
       rows_per_sample,
@@ -557,7 +561,6 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
       sampling_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       row_utils.packed_accessor32<float, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // 4. Sort sampled row utilities to determine the utility threshold
   // First, sort sampled row utilities
@@ -596,29 +599,34 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   // Second, get util thresholds
   auto util_thresholds = at::zeros({num_tables}, row_utils.options());
   CUDA_KERNEL_ASSERT(num_tables <= kMaxThreads);
-  get_util_thresholds<<<1, num_tables, 0, at::cuda::getCurrentCUDAStream()>>>(
+
+  FBGEMM_LAUNCH_KERNEL(
+      (get_util_thresholds),
+      1,
+      num_tables,
+      0,
+      at::cuda::getCurrentCUDAStream(),
       util_thresholds.packed_accessor32<float, 1, at::RestrictPtrTraits>(),
       sampled_utilities_sorted
           .packed_accessor32<float, 1, at::RestrictPtrTraits>(),
       sampling_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       emb_sizes.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // 5. Prune embedding tables based on row utilities threshold.
   // Table entries can be as small as 0.1 million and as large as 4 millions.
   // Allocate all SMs to each table
-  prune_indices_per_table<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (prune_indices_per_table),
       blocks_per_table * num_tables,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       blocks_per_table,
       util_thresholds.packed_accessor32<float, 1, at::RestrictPtrTraits>(),
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       row_utils.packed_accessor32<float, 1, at::RestrictPtrTraits>(),
       address_lookups.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // 6. Get pruning length for each table
   int64_t num_table_segments = num_tables * kMaxThreads;
@@ -629,18 +637,18 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   auto pruning_lengths =
       at::zeros({num_tables}, buffer_offsets.options().dtype(at::kLong));
 
-  get_pruning_lengths<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (get_pruning_lengths),
       num_tables,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       address_lookups.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       pruned_row_lengths.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       inserted_row_lengths
           .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       pruning_lengths.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // 7. Retrieve pruned and inserted rows
   auto pruned_row_offsets = at::zeros(
@@ -669,11 +677,12 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   auto inserted_rows =
       at::zeros({inserted_row_len}, buffer_offsets.options().dtype(at::kLong));
 
-  retrieve_pruned_and_inserted_rows<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (retrieve_pruned_and_inserted_rows),
       num_tables,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       pruned_row_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       pruned_rows.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       inserted_row_offsets
@@ -681,7 +690,6 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
       inserted_rows.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       address_lookups.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // 8. Retrieve the pruned indices
   auto pruning_offsets =
@@ -698,11 +706,12 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   auto pruning_indices = at::zeros(
       {pruning_indices_len}, buffer_offsets.options().dtype(at::kLong));
 
-  retrieve_pruned_indices<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (retrieve_pruned_indices),
       num_tables,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       pruned_row_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       pruned_rows.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       inserted_row_offsets
@@ -712,18 +721,17 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
       pruning_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       address_lookups.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // 9. Cleanup remaining marked rows in address lookups
-  cleanup_address_lookups<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (cleanup_address_lookups),
       num_tables * blocks_per_table,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       blocks_per_table,
       buffer_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       address_lookups.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return std::tuple(pruning_indices, pruning_offsets, pruning_total_length);
 }
@@ -861,11 +869,12 @@ Tensor remap_indices_update_utils_cuda(
 
             // remap indices and update row utils
             const int32_t buf_idx = buffer_idx_a[i];
-            remap_indices_update_utils_per_table_sorted_kernel<<<
+            FBGEMM_LAUNCH_KERNEL(
+                (remap_indices_update_utils_per_table_sorted_kernel<index_t>),
                 div_round_up(length, kMaxThreads),
                 kMaxThreads,
                 0,
-                at::cuda::getCurrentCUDAStream()>>>(
+                at::cuda::getCurrentCUDAStream(),
                 buf_idx,
                 start,
                 length,
@@ -881,15 +890,15 @@ Tensor remap_indices_update_utils_cuda(
                 row_util.packed_accessor32<float, 1, at::RestrictPtrTraits>(),
                 buffer_offsets
                     .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
           } else {
             // remap indices and update row utils
             const int32_t buf_idx = buffer_idx_a[i];
-            remap_indices_per_table_kernel<<<
+            FBGEMM_LAUNCH_KERNEL(
+                (remap_indices_per_table_kernel<index_t>),
                 div_round_up(length, kMaxThreads),
                 kMaxThreads,
                 0,
-                at::cuda::getCurrentCUDAStream()>>>(
+                at::cuda::getCurrentCUDAStream(),
                 buf_idx,
                 start,
                 length,
@@ -898,7 +907,6 @@ Tensor remap_indices_update_utils_cuda(
                     .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 buffer_offsets
                     .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
           }
         }
       });
