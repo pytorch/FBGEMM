@@ -209,3 +209,7 @@ class FileStoreTest(unittest.TestCase):
         from fbgemm_gpu.fb.utils.manifold_wrapper import FileStore
 
         self._test_filestore_directory(FileStore("tlparse_reports"), "tree/unit_tests")
+
+
+if __name__ == "__main__":
+    unittest.main()
