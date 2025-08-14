@@ -27,7 +27,7 @@ except Exception:
 if (
     torch.cuda.is_available()
     and torch.version.cuda is not None
-    and torch.version.cuda > "12.4"
+    and torch.version.cuda >= "12.4"
 ):
     if open_source:
         torch.ops.load_library(
