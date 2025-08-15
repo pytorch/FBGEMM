@@ -2668,7 +2668,7 @@ __global__ void dequantize_fp8_cache_kernel(
     if (symmetric) {
       // No shift, FP32 scale
       float* qparam_src_fp32 = reinterpret_cast<float*>(qparam_src);
-      kv_dq = quantize_packed_fp8_symmetric(q, *qparam_src_fp32);
+      kv_dq = dequantize_packed_fp8_symmetric(q, *qparam_src_fp32);
     } else {
       kv_dq = dequantize_packed_fp8(q, *qparam_src);
     }
