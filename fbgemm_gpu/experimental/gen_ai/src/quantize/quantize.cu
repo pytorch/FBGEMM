@@ -89,7 +89,7 @@ namespace fbgemm_gpu {
 // outputs are of size float[D]
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-#if HIP_FP8_TYPE_OCP
+#if HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ
 using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3;
 using __nv_fp8x2_e4m3 = __hip_fp8x2_e4m3;
 using __nv_fp8_e4m3 = __hip_fp8_e4m3;
@@ -1075,7 +1075,11 @@ void invokeComputeScalesAndQuantizeMatrix(
     bool stochastic_rounding,
     cudaStream_t stream) {
   dim3 grid(numel / lda);
+#ifdef USE_ROCM
   bool use_shmem = true;
+#else
+  bool use_shmem = false;
+#endif
   auto const shmem_size = lda * sizeof(T_IN);
   if (shmem_size >= (48 << 10)) {
     cudaError_t ret;
