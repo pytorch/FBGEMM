@@ -981,7 +981,7 @@ Tensor {{ embedding_cuda_op }}(
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
                 const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
-                const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 1024;
+                const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
 
                 Tensor long_run_id_to_really_long_run_ids;
                 if (use_deterministic_algorithms) {
