@@ -265,6 +265,7 @@ struct FeatureEvictMetrics {
   explicit FeatureEvictMetrics(int table_num) {
     evicted_counts.resize(table_num, 0);
     processed_counts.resize(table_num, 0);
+    eviction_threshold_with_dry_run.resize(table_num, 0.0);
     exec_duration_ms = 0;
     full_duration_ms = 0;
     dry_run_exec_duration_ms = 0;
@@ -273,6 +274,10 @@ struct FeatureEvictMetrics {
   void reset() {
     std::fill(evicted_counts.begin(), evicted_counts.end(), 0);
     std::fill(processed_counts.begin(), processed_counts.end(), 0);
+    std::fill(
+        eviction_threshold_with_dry_run.begin(),
+        eviction_threshold_with_dry_run.end(),
+        0.0);
     exec_duration_ms = 0;
     full_duration_ms = 0;
     dry_run_exec_duration_ms = 0;
@@ -296,6 +301,7 @@ struct FeatureEvictMetrics {
 
   std::vector<int64_t> evicted_counts;
   std::vector<int64_t> processed_counts;
+  std::vector<float> eviction_threshold_with_dry_run;
   int64_t exec_duration_ms;
   int64_t full_duration_ms;
   int64_t dry_run_exec_duration_ms;
@@ -307,6 +313,7 @@ struct FeatureEvictMetricTensors {
   explicit FeatureEvictMetricTensors(int64_t table_num)
       : evicted_counts(at::zeros({table_num}, at::kLong)),
         processed_counts(at::zeros({table_num}, at::kLong)),
+        eviction_threshold_with_dry_run(at::zeros({table_num}, at::kFloat)),
         exec_duration_ms(at::scalar_tensor(0, at::kLong)),
         dry_run_exec_duration_ms(at::scalar_tensor(0, at::kLong)),
         full_duration_ms(at::scalar_tensor(0, at::kLong)) {}
@@ -315,11 +322,14 @@ struct FeatureEvictMetricTensors {
   FeatureEvictMetricTensors(
       at::Tensor evicted,
       at::Tensor processed,
+      at::Tensor eviction_threshold_with_dry_run,
       at::Tensor exec_duration,
       at::Tensor dry_run_exec_duration_ms,
       at::Tensor full_duration)
       : evicted_counts(std::move(evicted)),
         processed_counts(std::move(processed)),
+        eviction_threshold_with_dry_run(
+            std::move(eviction_threshold_with_dry_run)),
         exec_duration_ms(std::move(exec_duration)),
         dry_run_exec_duration_ms(std::move(dry_run_exec_duration_ms)),
         full_duration_ms(std::move(full_duration)) {}
@@ -328,6 +338,7 @@ struct FeatureEvictMetricTensors {
     return FeatureEvictMetricTensors{
         evicted_counts.clone(),
         processed_counts.clone(),
+        eviction_threshold_with_dry_run.clone(),
         exec_duration_ms.clone(),
         dry_run_exec_duration_ms.clone(),
         full_duration_ms.clone()};
@@ -337,6 +348,8 @@ struct FeatureEvictMetricTensors {
   at::Tensor evicted_counts;
   // feature count before evict
   at::Tensor processed_counts;
+  // feature evict threshold with dry run
+  at::Tensor eviction_threshold_with_dry_run;
   // feature evict exec duration
   at::Tensor exec_duration_ms;
   // feature evict dry run exec duration
@@ -893,6 +906,14 @@ class FeatureEvict {
             at::kLong)
             .clone();
 
+    metric_tensors_.eviction_threshold_with_dry_run =
+        at::from_blob(
+            const_cast<float*>(metrics_.eviction_threshold_with_dry_run.data()),
+            {static_cast<int64_t>(
+                metrics_.eviction_threshold_with_dry_run.size())},
+            at::kFloat)
+            .clone();
+
     metric_tensors_.full_duration_ms =
         at::scalar_tensor(metrics_.full_duration_ms, at::kLong);
     metric_tensors_.exec_duration_ms =
@@ -913,14 +934,16 @@ class FeatureEvict {
         "  - dryrun Time taken: {}ms\n"
         "  - Total blocks processed: [{}]\n"
         "  - Blocks evicted: [{}]\n"
-        "  - Eviction rate: [{}]%\n",
+        "  - Eviction rate: [{}]%\n"
+        "  - Eviction threshold dry run: [{}]\n",
         metrics_.full_duration_ms,
         metrics_.exec_duration_ms,
         metrics_.exec_duration_ms * 100.0f / metrics_.full_duration_ms,
         metrics_.dry_run_exec_duration_ms,
         fmt::join(metrics_.processed_counts, ", "),
         fmt::join(metrics_.evicted_counts, ", "),
-        fmt::join(evict_rates, ", "));
+        fmt::join(evict_rates, ", "),
+        fmt::join(metrics_.eviction_threshold_with_dry_run, ", "));
   }
 
   // Thread pool.
@@ -1319,6 +1342,11 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
           std::chrono::duration_cast<std::chrono::seconds>(
               std::chrono::high_resolution_clock::now().time_since_epoch())
               .count();
+    }
+
+    for (int table_id = 0; table_id < num_tables_; ++table_id) {
+      this->metrics_.eviction_threshold_with_dry_run[table_id] =
+          thresholds_[table_id];
     }
   }
 
