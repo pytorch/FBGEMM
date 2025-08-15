@@ -821,6 +821,7 @@ class SSDCheckpointTest(unittest.TestCase):
 
         evicted_counts = torch.zeros(T, dtype=torch.int64)
         processed_counts = torch.zeros(T, dtype=torch.int64)
+        eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
         full_duration_ms = torch.ones(1, dtype=torch.int64) * -1
         exec_duration_ms = torch.empty(1, dtype=torch.int64)
         dry_run_exec_duration_ms = torch.empty(1, dtype=torch.int64)
@@ -831,6 +832,7 @@ class SSDCheckpointTest(unittest.TestCase):
         dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
             evicted_counts,
             processed_counts,
+            eviction_threshold_with_dry_run,
             full_duration_ms,
             exec_duration_ms,
             dry_run_exec_duration_ms,
@@ -840,10 +842,11 @@ class SSDCheckpointTest(unittest.TestCase):
             dram_kv_backend.set(indices, weights, count)
             time.sleep(0.01)  # 20ms, stimulate training forward time
             dram_kv_backend.set_cuda(indices, weights, count, 1, True)  # pyre-ignore
-            time.sleep(0.01)  # 20ms, stimulate training backward time
+            time.sleep(1)  # 20ms, stimulate training backward time
             dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
                 evicted_counts,
                 processed_counts,
+                eviction_threshold_with_dry_run,
                 full_duration_ms,
                 exec_duration_ms,
                 dry_run_exec_duration_ms,
@@ -876,6 +879,7 @@ class SSDCheckpointTest(unittest.TestCase):
             dram_kv_backend.get_feature_evict_metric(
                 evicted_counts,
                 processed_counts,
+                eviction_threshold_with_dry_run,
                 full_duration_ms,
                 exec_duration_ms,
                 dry_run_exec_duration_ms,
@@ -946,6 +950,7 @@ class SSDCheckpointTest(unittest.TestCase):
         full_duration_ms = torch.ones(1, dtype=torch.int64) * -1
         exec_duration_ms = torch.empty(1, dtype=torch.int64)
         dry_run_exec_duration_ms = torch.empty(1, dtype=torch.int64)
+        eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
 
         shard_load = E / 4
         # init
@@ -969,6 +974,7 @@ class SSDCheckpointTest(unittest.TestCase):
             dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
                 evicted_counts,
                 processed_counts,
+                eviction_threshold_with_dry_run,
                 full_duration_ms,
                 exec_duration_ms,
                 dry_run_exec_duration_ms,
@@ -978,6 +984,7 @@ class SSDCheckpointTest(unittest.TestCase):
         self.assertTrue(full_duration_ms.item() > 0)
         self.assertTrue(exec_duration_ms.item() >= 0)
         self.assertTrue(dry_run_exec_duration_ms.item() > 0)
+        self.assertTrue(all(eviction_threshold_with_dry_run > 0))
 
     @given(
         T=st.integers(min_value=2, max_value=10),

@@ -146,6 +146,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   void get_feature_evict_metric(
       at::Tensor evicted_counts,
       at::Tensor processed_counts,
+      at::Tensor eviction_threshold_with_dry_run,
       at::Tensor full_duration_ms,
       at::Tensor exec_duration_ms,
       at::Tensor dry_run_exec_duration_ms) {
@@ -155,6 +156,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           metrics.value().evicted_counts); // evicted_counts (Long)
       processed_counts.copy_(
           metrics.value().processed_counts); // processed_counts (Long)
+      eviction_threshold_with_dry_run.copy_(
+          metrics.value()
+              .eviction_threshold_with_dry_run); // eviction threshold with dry
+                                                 // run (float)
       full_duration_ms.copy_(
           metrics.value().full_duration_ms); // full duration (Long)
       exec_duration_ms.copy_(
