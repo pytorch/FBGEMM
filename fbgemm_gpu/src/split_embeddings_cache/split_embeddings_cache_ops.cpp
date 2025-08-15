@@ -7,6 +7,7 @@
  */
 
 #include "common.h"
+#include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
 
 namespace {
 
@@ -72,5 +73,40 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_META("linearize_cache_indices", linearize_cache_indices_meta);
   DISPATCH_TO_META("lxu_cache_lookup", lxu_cache_lookup_meta);
 }
+
+static auto raw_embedding_streamer =
+    torch::class_<fbgemm_gpu::RawEmbeddingStreamer>(
+        "fbgemm",
+        "RawEmbeddingStreamer")
+        .def(
+            torch::init<
+                std::string,
+                bool,
+                int64_t,
+                int64_t,
+                std::vector<std::string>,
+                std::vector<int64_t>,
+                std::vector<int64_t>>(),
+            "",
+            {
+                torch::arg("unique_id") = 0,
+                torch::arg("enable_raw_embedding_streaming") = false,
+                torch::arg("res_store_shards") = 0,
+                torch::arg("res_server_port") = 0,
+                torch::arg("table_names") = torch::List<std::string>(),
+                torch::arg("table_offsets") = torch::List<int64_t>(),
+                torch::arg("table_sizes") = torch::List<int64_t>(),
+            })
+        .def(
+            "stream",
+            &fbgemm_gpu::RawEmbeddingStreamer::stream,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("require_tensor_copy"),
+                torch::arg("blocking_tensor_copy"),
+            });
 
 } // namespace
