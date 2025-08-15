@@ -75,6 +75,22 @@ class FixedBlockPool : public std::pmr::memory_resource {
       reinterpret_cast<MetaHeader*>(block)->count++;
     }
   }
+
+  // Feature score operations
+  static void set_feature_score_rate(void* block, float ratio) {
+    uint32_t bits = 0;
+    memcpy(&bits, &ratio, sizeof(float));
+    uint32_t no_sign = bits & 0x7FFFFFFF; // Clear the sign bit, keep 31 bits
+    reinterpret_cast<MetaHeader*>(block)->count = no_sign;
+  }
+  static float get_feature_score_rate(const void* block) {
+    uint32_t no_sign = reinterpret_cast<const MetaHeader*>(block)->count;
+    uint32_t bits = no_sign & 0x7FFFFFFF; // Ensure sign bit is zero (positive)
+    float ratio = NAN;
+    memcpy(&ratio, &bits, sizeof(float));
+    return ratio;
+  }
+
   // timestamp operations
   static uint32_t get_timestamp(const void* block) {
     return reinterpret_cast<const MetaHeader*>(block)->timestamp;
@@ -271,6 +287,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     free_list_ = *static_cast<void**>(free_list_);
     FixedBlockPool::set_used(result, true);
     FixedBlockPool::set_count(result, 0);
+    FixedBlockPool::update_timestamp(result);
     return result;
   }
 

@@ -702,6 +702,12 @@ static auto feature_evict_config =
                 std::optional<std::vector<double>>,
                 std::optional<std::vector<double>>,
                 std::optional<std::vector<int64_t>>,
+                std::optional<std::vector<double>>,
+                std::optional<std::vector<double>>,
+                std::optional<std::vector<int64_t>>,
+                std::optional<double>,
+                std::optional<int64_t>,
+                int64_t,
                 int64_t,
                 int64_t>(),
             "",
@@ -713,10 +719,17 @@ static auto feature_evict_config =
                 torch::arg("ttls_in_mins") = std::nullopt,
                 torch::arg("counter_thresholds") = std::nullopt,
                 torch::arg("counter_decay_rates") = std::nullopt,
+                torch::arg("feature_score_counter_decay_rates") = std::nullopt,
+                torch::arg("max_training_id_num_per_table") = std::nullopt,
+                torch::arg("target_eviction_percent_per_table") = std::nullopt,
                 torch::arg("l2_weight_thresholds") = std::nullopt,
                 torch::arg("embedding_dims") = std::nullopt,
+                torch::arg("threshold_calculation_bucket_stride") = 0.2,
+                torch::arg("threshold_calculation_bucket_num") = 1000000,
                 torch::arg("interval_for_insufficient_eviction_s") = 600,
                 torch::arg("interval_for_sufficient_eviction_s") = 60,
+                torch::arg("interval_for_feature_statistics_decay_s") =
+                    24 * 3600,
             });
 
 static auto embedding_snapshot_handle_wrapper =
@@ -804,6 +817,15 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("count"),
                 torch::arg("timestep"),
                 torch::arg("is_bwd") = false,
+            })
+        .def(
+            "set_feature_score_metadata_cuda",
+            &EmbeddingRocksDBWrapper::set_feature_score_metadata_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("count"),
+                torch::arg("engage_rates"),
             })
         .def(
             "stream_cuda",
@@ -947,6 +969,15 @@ static auto dram_kv_embedding_cache_wrapper =
             {
                 torch::arg("start"),
                 torch::arg("end"),
+            })
+        .def(
+            "set_feature_score_metadata_cuda",
+            &DramKVEmbeddingCacheWrapper::set_feature_score_metadata_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("count"),
+                torch::arg("engage_rates"),
             })
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(

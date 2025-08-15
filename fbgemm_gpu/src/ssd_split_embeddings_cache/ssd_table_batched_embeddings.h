@@ -444,6 +444,16 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return;
   }
 
+  folly::SemiFuture<std::vector<folly::Unit>>
+  set_kv_zch_eviction_metadata_async(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_rates) override {
+    // no op for now
+    return folly::makeSemiFuture<std::vector<folly::Unit>>(
+        std::vector<folly::Unit>{});
+  }
+
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,

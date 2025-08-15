@@ -633,6 +633,111 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             });
   }
 
+  /// Update feature scores metadata into kvstore.
+  folly::SemiFuture<std::vector<folly::Unit>>
+  set_kv_zch_eviction_metadata_async(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engege_rates) override {
+    if (!feature_evict_ || !feature_evict_config_.has_value() ||
+        feature_evict_config_.value()->trigger_mode_ ==
+            EvictTriggerMode::DISABLED) {
+      // featre eviction is disabled
+      return folly::makeSemiFuture(std::vector<folly::Unit>());
+    }
+
+    CHECK_EQ(engege_rates.scalar_type(), at::ScalarType::Float);
+    auto* feature_score_evict =
+        dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+            feature_evict_.get());
+
+    if (feature_score_evict == nullptr) {
+      // Not a feature score based eviction
+      return folly::makeSemiFuture(std::vector<folly::Unit>());
+    }
+    pause_ongoing_eviction();
+    std::vector<folly::Future<int64_t>> futures;
+    auto shardid_to_indexes = shard_input(indices, count);
+    for (auto iter = shardid_to_indexes.begin();
+         iter != shardid_to_indexes.end();
+         iter++) {
+      const auto shard_id = iter->first;
+      const auto indexes = iter->second;
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          indices,
+                          engege_rates,
+                          feature_score_evict](folly::Unit) {
+                int64_t updated_id_count = 0;
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(),
+                    "dram_set_kv_feature_score_metadata",
+                    [this,
+                     shard_id,
+                     indexes,
+                     indices,
+                     engege_rates,
+                     feature_score_evict,
+                     &updated_id_count] {
+                      using index_t = scalar_t;
+                      CHECK(indices.is_contiguous());
+                      CHECK(engege_rates.is_contiguous());
+                      CHECK_EQ(indices.size(0), engege_rates.size(0));
+                      auto indices_data_ptr = indices.data_ptr<index_t>();
+                      auto engage_rate_ptr = engege_rates.data_ptr<float>();
+                      int64_t stride = 2;
+                      {
+                        auto wlmap = kv_store_.by(shard_id).wlock();
+                        auto* pool = kv_store_.pool_by(shard_id);
+
+                        for (auto index_iter = indexes.begin();
+                             index_iter != indexes.end();
+                             index_iter++) {
+                          const auto& id_index = *index_iter;
+                          auto id = int64_t(indices_data_ptr[id_index]);
+                          float engege_rate =
+                              float(engage_rate_ptr[id_index * stride + 0]);
+                          // use mempool
+                          weight_type* block = nullptr;
+                          auto it = wlmap->find(id);
+                          if (it != wlmap->end()) {
+                            block = it->second;
+                          } else {
+                            // Key doesn't exist, allocate new block and
+                            // insert.
+                            block = pool->template allocate_t<weight_type>();
+                            FixedBlockPool::set_key(block, id);
+                            wlmap->insert({id, block});
+                          }
+
+                          feature_score_evict->update_feature_score_statistics(
+                              block, engege_rate);
+                          updated_id_count++;
+                        }
+                      }
+                    });
+                return updated_id_count;
+              });
+      futures.push_back(std::move(f));
+    }
+    return folly::collect(std::move(futures))
+        .via(executor_.get())
+        .thenValue([this](const std::vector<int64_t>& results) {
+          resume_ongoing_eviction();
+          int total_updated_ids = 0;
+          for (const auto& result : results) {
+            total_updated_ids += result;
+          }
+          LOG(INFO)
+              << "[DRAM KV][Feature Score Eviction]Total updated IDs across all shards: "
+              << total_updated_ids;
+          return std::vector<folly::Unit>(results.size());
+        });
+  }
+
   /// Get embeddings from kvstore.
   ///
   /// @param indices The 1D embedding index tensor, should skip on negative

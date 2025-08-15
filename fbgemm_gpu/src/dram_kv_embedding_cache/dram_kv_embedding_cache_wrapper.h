@@ -76,7 +76,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor count,
       int64_t timestep,
       bool is_bwd) {
-    return impl_->set_cuda(indices, weights, count, timestep);
+    return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
   }
 
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
@@ -147,7 +147,8 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor evicted_counts,
       at::Tensor processed_counts,
       at::Tensor full_duration_ms,
-      at::Tensor exec_duration_ms) {
+      at::Tensor exec_duration_ms,
+      at::Tensor dry_run_exec_duration_ms) {
     auto metrics = impl_->get_feature_evict_metric();
     if (metrics.has_value()) {
       evicted_counts.copy_(
@@ -158,6 +159,8 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           metrics.value().full_duration_ms); // full duration (Long)
       exec_duration_ms.copy_(
           metrics.value().exec_duration_ms); // exec duration (Long)
+      dry_run_exec_duration_ms.copy_(
+          metrics.value().dry_run_exec_duration_ms); // dry run exec duration
     }
   }
 
@@ -167,6 +170,13 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
 
   void set_backend_return_whole_row(bool backend_return_whole_row) {
     impl_->set_backend_return_whole_row(backend_return_whole_row);
+  }
+
+  void set_feature_score_metadata_cuda(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_show_count) {
+    impl_->set_feature_score_metadata_cuda(indices, count, engage_show_count);
   }
 
  private:

@@ -242,6 +242,12 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& count,
       const RocksdbWriteMode w_mode = RocksdbWriteMode::FWD_ROCKSDB_READ) = 0;
 
+  virtual folly::SemiFuture<std::vector<folly::Unit>>
+  set_kv_zch_eviction_metadata_async(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_show_count) = 0;
+
   virtual void compact() = 0;
 
   /// Flush L2 cache into backend storage
@@ -266,6 +272,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& count,
       const int64_t timestep,
       const bool is_bwd = false);
+
+  void set_feature_score_metadata_cuda(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const at::Tensor& engage_show_count);
 
   void stream_cuda(
       const at::Tensor& indices,
