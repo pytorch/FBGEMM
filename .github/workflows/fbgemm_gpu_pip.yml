@@ -75,7 +75,6 @@ jobs:
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
       pytorch-channel-version: ${{ github.event.inputs.pytorch-channel-version || 'nightly' }}
       fbgemm-channel-version: ${{ github.event.inputs.fbgemm-channel-version || 'nightly' }}
-      installation-source: pip
       extra-env: >-
         {
           "ENFORCE_CUDA_DEVICE": 1
