@@ -102,16 +102,22 @@ class SSDCheckpointTest(unittest.TestCase):
             if eviction_policy:
                 eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
                     eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
-                    eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+                    eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter, 2: counter + timestamp, 3: feature l2 norm, 4: timestamp threshold 5: feature score
                     eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
                     None,  # mem_util_threshold_in_GB if trigger mode is mem_util
                     eviction_policy.ttls_in_mins,  # ttls_in_mins for each table if eviction strategy is timestamp
-                    eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is feature score
-                    eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is feature score
+                    eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is counter
+                    eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is counter
+                    eviction_policy.feature_score_counter_decay_rates,  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
+                    eviction_policy.max_training_id_num_per_table,  # max_training_id_num for each table
+                    eviction_policy.target_eviction_percent_per_table,  # target_eviction_percent for each table
                     eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
                     feature_dims.tolist() if feature_dims is not None else None,
+                    eviction_policy.threshold_calculation_bucket_stride,  # threshold_calculation_bucket_stride if eviction strategy is feature score
+                    eviction_policy.threshold_calculation_bucket_num,  # threshold_calculation_bucket_num if eviction strategy is feature score
                     eviction_policy.interval_for_insufficient_eviction_s,
                     eviction_policy.interval_for_sufficient_eviction_s,
+                    eviction_policy.interval_for_feature_statistics_decay_s,
                 )
             return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 max_D,  # num elements in value field, including weight, opt, etc
@@ -543,7 +549,7 @@ class SSDCheckpointTest(unittest.TestCase):
             dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
             dram_kv_backend.set(indices, weights, count)
             time.sleep(0.01)  # 20ms, stimulate training forward time
-            dram_kv_backend.set(indices, weights, count)
+            dram_kv_backend.set_cuda(indices, weights, count, 1, True)  # pyre-ignore
             time.sleep(0.01)  # 20ms, stimulate training backward time
 
         time.sleep(1)
@@ -776,7 +782,7 @@ class SSDCheckpointTest(unittest.TestCase):
         )
         eviction_policy: EvictionPolicy = EvictionPolicy(
             eviction_trigger_mode=1,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
-            eviction_strategy=1,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+            eviction_strategy=1,  # evict_trigger_strategy: 0: timestamp, 1: counter , 2: counter + timestamp, 3: feature l2 norm, 5: feature score
             eviction_step_intervals=2,  # trigger_step_interval if trigger mode is iteration
             counter_thresholds=[
                 1,
@@ -813,31 +819,41 @@ class SSDCheckpointTest(unittest.TestCase):
         weights_out = torch.empty_like(weights)
         count = torch.as_tensor([E])
 
-        evicted_counts = torch.empty(T, dtype=torch.int64)
-        processed_counts = torch.empty(T, dtype=torch.int64)
+        evicted_counts = torch.zeros(T, dtype=torch.int64)
+        processed_counts = torch.zeros(T, dtype=torch.int64)
         full_duration_ms = torch.ones(1, dtype=torch.int64) * -1
         exec_duration_ms = torch.empty(1, dtype=torch.int64)
+        dry_run_exec_duration_ms = torch.empty(1, dtype=torch.int64)
 
         shard_load = E / 4
         # init
         dram_kv_backend.set(indices, weights, count)  # pyre-ignore
         dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
-            evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+            evicted_counts,
+            processed_counts,
+            full_duration_ms,
+            exec_duration_ms,
+            dry_run_exec_duration_ms,
         )
         for _ in range(10):
             dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
             dram_kv_backend.set(indices, weights, count)
             time.sleep(0.01)  # 20ms, stimulate training forward time
-            dram_kv_backend.set(indices, weights, count)
+            dram_kv_backend.set_cuda(indices, weights, count, 1, True)  # pyre-ignore
             time.sleep(0.01)  # 20ms, stimulate training backward time
             dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
-                evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+                evicted_counts,
+                processed_counts,
+                full_duration_ms,
+                exec_duration_ms,
+                dry_run_exec_duration_ms,
             )
             if all(processed_counts == shard_load):
                 self.assertTrue(all(evicted_counts == 0))
                 self.assertTrue(all(processed_counts == shard_load))
                 self.assertTrue(full_duration_ms.item() > 0)
                 self.assertTrue(exec_duration_ms.item() >= 0)
+                self.assertTrue(dry_run_exec_duration_ms.item() == 0)
 
         # after another 10 rounds, the original ids should all be evicted
         for _ in range(10):
@@ -846,13 +862,23 @@ class SSDCheckpointTest(unittest.TestCase):
             dram_kv_backend.get(
                 torch.tensor([E + 1]), weights_out[0].view(1, -1), torch.tensor([1])
             )
-            time.sleep(0.01)  # 20ms, stimulate training forward time
-            dram_kv_backend.set(
-                torch.tensor([E + 1]), weights[0].view(1, -1), torch.tensor([1])
+            time.sleep(0.01)  # 5s, stimulate training forward time
+            dram_kv_backend.set_cuda(
+                torch.tensor([E + 1]),
+                weights[0].view(1, -1),
+                torch.tensor([1]),
+                1,
+                True,
             )
-            time.sleep(0.01)  # 20ms, stimulate training backward time
+            time.sleep(
+                0.01
+            )  # 5s, stimulate training backward time, give longer time to let first round evict finished, otherwise get_feature_evict_metric will throw error
             dram_kv_backend.get_feature_evict_metric(
-                evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+                evicted_counts,
+                processed_counts,
+                full_duration_ms,
+                exec_duration_ms,
+                dry_run_exec_duration_ms,
             )
             if evicted_counts.sum() > 1:  # ID E+1 might be evicted
                 break
@@ -860,6 +886,98 @@ class SSDCheckpointTest(unittest.TestCase):
         self.assertTrue(all(processed_counts >= shard_load))
         self.assertTrue(all(full_duration_ms > 0))
         self.assertTrue(all(exec_duration_ms >= 0))
+        self.assertTrue(all(dry_run_exec_duration_ms == 0))
+
+    def test_dram_kv_feature_score_eviction(self) -> None:
+        max_D = 132  # 128 + 4
+        E = 10000
+        weight_precision = SparseType.FP16
+        T = 4
+        feature_dims = torch.tensor([64, 32, 128, 64], dtype=torch.int64)
+        hash_size_cumsum = torch.tensor(
+            [0, E / T, 2 * E / T, 3 * E / T, 4 * E / T + 10], dtype=torch.int64
+        )
+        eviction_policy: EvictionPolicy = EvictionPolicy(
+            eviction_trigger_mode=1,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+            eviction_strategy=5,  # evict_trigger_strategy: 0: timestamp, 1: counter , 2: counter + timestamp, 3: feature l2 norm, 5: feature score
+            eviction_step_intervals=2,  # trigger_step_interval if trigger mode is iteration
+            feature_score_counter_decay_rates=[
+                0.9,
+                0.9,
+                0.9,
+                0.9,
+            ],  # feature_score_counter_decay_rates for each table if eviction strategy is feature score`
+            max_training_id_num_per_table=[
+                2000,
+                2000,
+                2000,
+                2000,
+            ],
+            target_eviction_percent_per_table=[
+                0.1,
+                0.1,
+                0.1,
+                0.1,
+            ],
+            threshold_calculation_bucket_stride=0.2,
+            threshold_calculation_bucket_num=1000000,
+            interval_for_insufficient_eviction_s=0,
+            interval_for_sufficient_eviction_s=0,
+            interval_for_feature_statistics_decay_s=0,
+        )
+        dram_kv_backend = self.generate_fbgemm_kv_backend(
+            max_D=max_D,
+            weight_precision=weight_precision,
+            enable_l2=False,
+            feature_dims=feature_dims,
+            hash_size_cumsum=hash_size_cumsum,
+            backend_type=BackendType.DRAM,
+            flushing_block_size=1000,
+            eviction_policy=eviction_policy,
+        )
+
+        indices = torch.arange(0, E, dtype=torch.int64)
+        weights = torch.randn(E, max_D, dtype=weight_precision.as_dtype())
+        weights_out = torch.empty_like(weights)
+        count = torch.as_tensor([E])
+
+        evicted_counts = torch.zeros(T, dtype=torch.int64)
+        processed_counts = torch.zeros(T, dtype=torch.int64)
+        full_duration_ms = torch.ones(1, dtype=torch.int64) * -1
+        exec_duration_ms = torch.empty(1, dtype=torch.int64)
+        dry_run_exec_duration_ms = torch.empty(1, dtype=torch.int64)
+
+        shard_load = E / 4
+        # init
+        dram_kv_backend.set(indices, weights, count)  # pyre-ignore
+        metadata = torch.arange(0, E, dtype=torch.float32).unsqueeze(1)
+        metadata_2d = torch.cat([metadata, metadata], dim=1)
+        dram_kv_backend.set_feature_score_metadata_cuda(  # pyre-ignore
+            indices, count, metadata_2d
+        )
+        time.sleep(5)  # wait async set_feature_score_metadata_cuda done
+        for i in range(2):
+            print(f"round {i}")
+            dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
+            dram_kv_backend.set(indices, weights, count)
+            dram_kv_backend.set_feature_score_metadata_cuda(indices, count, metadata_2d)
+            time.sleep(0.01)  # 20ms, stimulate training forward time
+            dram_kv_backend.set_cuda(indices, weights, count, 1, True)  # pyre-ignore
+            print("after set_cuda")
+            time.sleep(0.01)  # 20ms, stimulate training backward time
+            dram_kv_backend.wait_until_eviction_done()  # pyre-ignore
+            dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
+                evicted_counts,
+                processed_counts,
+                full_duration_ms,
+                exec_duration_ms,
+                dry_run_exec_duration_ms,
+            )
+        self.assertTrue(all(evicted_counts == 700))
+        self.assertTrue(all(processed_counts == shard_load))
+        self.assertTrue(full_duration_ms.item() > 0)
+        self.assertTrue(exec_duration_ms.item() >= 0)
+        self.assertTrue(dry_run_exec_duration_ms.item() > 0)
 
     @given(
         T=st.integers(min_value=2, max_value=10),

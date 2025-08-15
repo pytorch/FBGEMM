@@ -60,6 +60,13 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
       const at::Tensor& count) override {
     return std::vector<folly::Unit>(1);
   }
+  folly::SemiFuture<std::vector<folly::Unit>>
+  set_kv_zch_eviction_metadata_async(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_show_count) override {
+    return std::vector<folly::Unit>(1);
+  }
   void flush() {}
   void compact() override {}
   // cleanup cached results in server side
