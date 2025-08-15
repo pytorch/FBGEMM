@@ -675,18 +675,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if self.kv_zch_params.eviction_policy.eviction_mem_threshold_gb
                     else self.l2_cache_size
                 )
+                # Please refer to https://fburl.com/gdoc/nuupjwqq for the following eviction parameters.
                 eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
                     self.kv_zch_params.eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
-                    self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+                    self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter, 2: counter + timestamp, 3: feature l2 norm, 4: timestamp threshold 5: feature score
                     self.kv_zch_params.eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
                     eviction_mem_threshold_gb,  # mem_util_threshold_in_GB if trigger mode is mem_util
                     self.kv_zch_params.eviction_policy.ttls_in_mins,  # ttls_in_mins for each table if eviction strategy is timestamp
-                    self.kv_zch_params.eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is feature score
-                    self.kv_zch_params.eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is counter
+                    self.kv_zch_params.eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is counter
+                    self.kv_zch_params.eviction_policy.feature_score_counter_decay_rates,  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.max_training_id_num_per_table,  # max_training_id_num for each table
+                    self.kv_zch_params.eviction_policy.target_eviction_percent_per_table,  # target_eviction_percent for each table
                     self.kv_zch_params.eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
                     table_dims.tolist() if table_dims is not None else None,
+                    self.kv_zch_params.eviction_policy.threshold_calculation_bucket_stride,  # threshold_calculation_bucket_stride if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.threshold_calculation_bucket_num,  # threshold_calculation_bucket_num if eviction strategy is feature score
                     self.kv_zch_params.eviction_policy.interval_for_insufficient_eviction_s,
                     self.kv_zch_params.eviction_policy.interval_for_sufficient_eviction_s,
+                    self.kv_zch_params.eviction_policy.interval_for_feature_statistics_decay_s,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -1017,6 +1024,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
             self.stats_reporter.register_stats(
                 "eviction.feature_table.exec_duration_ms"
+            )
+            self.stats_reporter.register_stats(
+                "eviction.feature_table.dry_run_exec_duration_ms"
             )
             self.stats_reporter.register_stats(
                 "eviction.feature_table.exec_div_full_duration_rate"
@@ -1605,6 +1615,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
+        weights: Optional[Tensor] = None,  # todo: need to update caller
         forward_stream: Optional[torch.cuda.Stream] = None,
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
     ) -> None:
@@ -1630,6 +1641,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._prefetch(
             indices,
             offsets,
+            weights,
             vbe_metadata,
             forward_stream,
         )
@@ -1638,6 +1650,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
+        weights: Optional[Tensor] = None,
         vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
         forward_stream: Optional[torch.cuda.Stream] = None,
     ) -> None:
@@ -1665,6 +1678,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
+            if self.backend_type == BackendType.DRAM and weights is not None:
+                # DRAM backend supports feature score eviction, if there is weights available
+                # in the prefetch call, we will set metadata for feature score eviction asynchronously
+                cloned_linear_cache_indices = linear_cache_indices.clone()
+            else:
+                cloned_linear_cache_indices = None
 
             # Lookup and virtually insert indices into L1. After this operator,
             # we know:
@@ -2022,6 +2041,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     is_bwd=False,
                 )
 
+            if self.backend_type == BackendType.DRAM and weights is not None:
+                # Write feature score metadata to DRAM
+                self.record_function_via_dummy_profile(
+                    "## ssd_write_feature_score_metadata ##",
+                    self.ssd_db.set_feature_score_metadata_cuda,
+                    cloned_linear_cache_indices.cpu(),
+                    torch.tensor([weights.shape[0]], device="cpu", dtype=torch.long),
+                    weights.cpu().view(torch.float32).view(-1, 2),
+                )
+
             # Generate row addresses (pointing to either L1 or the current
             # iteration's scratch pad)
             with record_function("## ssd_generate_row_addrs ##"):
@@ -2164,6 +2193,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
+        weights: Optional[Tensor] = None,
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
@@ -2185,7 +2215,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 context=self.step,
                 stream=self.ssd_eviction_stream,
             ):
-                self._prefetch(indices, offsets, vbe_metadata)
+                self._prefetch(indices, offsets, weights, vbe_metadata)
 
         assert len(self.ssd_prefetch_data) > 0
 
@@ -3745,8 +3775,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         processed_counts = torch.zeros(T, dtype=torch.int64)
         full_duration_ms = torch.tensor(0, dtype=torch.int64)
         exec_duration_ms = torch.tensor(0, dtype=torch.int64)
+        dry_run_exec_duration_ms = torch.tensor(0, dtype=torch.int64)
         self.ssd_db.get_feature_evict_metric(
-            evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+            evicted_counts,
+            processed_counts,
+            full_duration_ms,
+            exec_duration_ms,
+            dry_run_exec_duration_ms,
         )
 
         stats_reporter.report_data_amount(
@@ -3796,6 +3831,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name="eviction.feature_table.exec_duration_ms",
             duration_ms=exec_duration_ms.item(),
+            time_unit="ms",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="eviction.feature_table.dry_run_exec_duration_ms",
+            duration_ms=dry_run_exec_duration_ms.item(),
             time_unit="ms",
         )
         if full_duration_ms.item() != 0:
