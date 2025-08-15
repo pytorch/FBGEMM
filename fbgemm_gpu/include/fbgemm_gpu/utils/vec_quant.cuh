@@ -415,7 +415,7 @@ DEVICE_INLINE bfx8 dequantize_packed_fp8_symmetric(
   result.vals[3] = __floats2bfloat162_rn(r3.x, r3.y);
   return result;
 }
-DEVICE_INLINE bfx4 quantize_packed_fp8_symmetric(
+DEVICE_INLINE bfx4 dequantize_packed_fp8_symmetric(
     uint32_t xs, // x0 x1 x2 x3
     float scale) {
   __nv_fp8_e4m3* fp8_vs = reinterpret_cast<__nv_fp8_e4m3*>(&xs); // 4 element
