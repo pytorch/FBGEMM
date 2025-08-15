@@ -51,7 +51,7 @@ on:
       run-target:
         description: Run target (test, benchmark)
         type: string
-        required: true
+        required: false
         default: test
     secrets:
       PYPI_TOKEN:
