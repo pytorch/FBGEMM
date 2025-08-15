@@ -64,7 +64,7 @@ jobs:
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
       targets: ${{ github.event.inputs.fbgemm-build-target || 'default,genai' }}
       variant: cuda
-      jobtype: test
+      jobtype: install
 
   test-pypi-install-cuda:
     # if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
