@@ -29,6 +29,7 @@ VARIANT_ROCM = "rocm"
 
 JOBTYPE_BUILD = "build"
 JOBTYPE_TEST = "test"
+JOBTYPE_INSTALL = "install"
 
 REPO_OWNER_PYTORCH = "pytorch"
 REPO_OWNER_FACEBOOKRESEARCH = "facebookresearch"
@@ -329,11 +330,14 @@ class BuildConfigScheme:
     def generate(self) -> List[Dict[str, Any]]:
         # Build a table of dimensions to values for each dimension
         table: Dict[str, List[Any]] = {
-            "compiler": self.compilers(),
             "python-version": self.python_versions(),
             "host-machine": self.host_machines(),
             "build-target": [self.target],
         }
+
+        if self.jobtype != JOBTYPE_INSTALL:
+            # The choice of compiler irrelevant for package installation tetss
+            table |= {"compiler": self.compilers()}
 
         if self.variant == VARIANT_CUDA:
             table |= {"cuda-version": self.cuda_versions()}
