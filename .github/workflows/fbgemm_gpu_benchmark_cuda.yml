@@ -28,16 +28,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-x-matrix: &matrix >-
-  {
-    "build-target": [ "default" ],
-    "host-machine": [
-      { "arch": "x86", "instance": "linux.24xlarge" }
-    ],
-    "python-version": [ "3.13" ],
-    "cuda-version": [ "12.8.1" ],
-    "compiler": [ "gcc" ]
-  }
+env:
+  x_matrix: &matrix >-
+    {
+      "build-target": [ "default" ],
+      "host-machine": [
+        { "arch": "x86", "instance": "linux.24xlarge" }
+      ],
+      "python-version": [ "3.13" ],
+      "cuda-version": [ "12.8.1" ],
+      "compiler": [ "gcc" ]
+    }
 
 jobs:
   build:
