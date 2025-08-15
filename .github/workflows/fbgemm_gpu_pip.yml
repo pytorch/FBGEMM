@@ -5,15 +5,9 @@
 
 # This workflow is used for testing the download and installation of FBGEMM_GPU
 # nightly releases published to PyTorch PyPI.
-name: FBGEMM_GPU PIP Install + Test
+name: FBGEMM_GPU PIP Installation Test
 
 on:
-  # PR Trigger (enabled for regression checks and debugging)
-  #
-  pull_request:
-    branches:
-      - main
-
   # Cron Trigger (UTC)
   #
   # Based on the the nightly releases schedule in PyTorch infrastructure, the
@@ -57,7 +51,7 @@ on:
 
 jobs:
   generate-test-matrix-cuda:
-    # if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
       repo-owner: ${{ github.repository_owner }}
@@ -67,7 +61,7 @@ jobs:
       jobtype: install
 
   test-pypi-install-cuda:
-    # if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
     needs: generate-test-matrix-cuda
     uses: ./.github/workflows/_fbgemm_gpu_cuda_test.yml
     with:
