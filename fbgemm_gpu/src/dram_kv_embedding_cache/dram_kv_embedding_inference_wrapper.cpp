@@ -35,6 +35,11 @@ void DramKVEmbeddingInferenceWrapper::init(
       static_cast<fbgemm_gpu::SparseType>(std::get<2>(specs[0])),
       static_cast<int32_t>(row_alignment),
       static_cast<int32_t>(scale_bias_size_in_bytes));
+  LOG(INFO) << "Initialize dram_kv with max_D: " << max_D
+            << ", sparse_type: " << std::get<2>(specs[0])
+            << ", row_alignment: " << row_alignment
+            << ", scale_bias_size_in_bytes: " << scale_bias_size_in_bytes
+            << ", max_row_bytes_: " << max_row_bytes_;
   if (dram_kv_ != nullptr) {
     return;
   }
