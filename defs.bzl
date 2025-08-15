@@ -222,7 +222,7 @@ def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
         return select({
             "DEFAULT": asm_srcs,
             "ovr_config//compiler:cl": intrinsics_srcs,
-            "ovr_config//cpu:arm64": intrinsics_srcs,
+            "ovr_config//cpu:arm64": asm_srcs,
         })
     return asm_srcs if not msvc else intrinsics_srcs
 
