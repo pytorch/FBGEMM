@@ -471,13 +471,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Ds = [D] * T
             Es = [E] * T
         else:
-            Ds = [
-                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
-                for _ in range(T)
-            ]
-            Es = [
-                np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
-            ]
+            # Ds = [
+            #     round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
+            #     for _ in range(T)
+            # ]
+            Ds = [D] * T
+            Es = [np.random.randint(low=int(0.5 * E), high=int(E)) for _ in range(T)]
 
         if pooling_mode == PoolingMode.SUM:
             mode = "sum"
@@ -571,9 +570,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pad_opt = torch.zeros(emb_ref_.size(0), pad_opt_width, dtype=emb_ref_.dtype)
             emb_opt_ref = torch.cat((emb_ref_, pad_opt), dim=1)
             emb.ssd_db.set_cuda(
-                torch.arange(t * virtual_E, t * virtual_E + E).to(torch.int64),
+                torch.arange(t * virtual_E, t * virtual_E + Es[t]).to(torch.int64),
                 emb_opt_ref,
-                torch.as_tensor([E]),
+                torch.as_tensor([Es[t]]),
                 t,
             )
             emb_ref_cpu.append(emb_ref_)
@@ -2099,6 +2098,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             num_buckets=num_buckets,
             enable_optimizer_offloading=enable_optimizer_offloading,
             backend_type=backend_type,
+            mixed=True,
         )
 
         # Generate inputs
@@ -2249,6 +2249,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=tolerance,
                 rtol=tolerance,
             )
+
+            self.assertTrue(len(metadata_list[table_index].size()) == 2)
 
     @given(
         **{

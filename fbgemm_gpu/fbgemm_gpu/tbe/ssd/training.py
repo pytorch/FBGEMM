@@ -2979,10 +2979,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     )
                 )
                 metadata_tensor = self._ssd_db.get_kv_zch_eviction_metadata_by_snapshot(
-                    bucket_ascending_id_tensor,
+                    bucket_ascending_id_tensor + table_offset,
                     torch.as_tensor(bucket_ascending_id_tensor.size(0)),
                     snapshot_handle,
-                )
+                ).view(-1, 1)
 
                 # 3. convert local id back to global id
                 bucket_ascending_id_tensor.add_(bucket_id_start * bucket_size)
