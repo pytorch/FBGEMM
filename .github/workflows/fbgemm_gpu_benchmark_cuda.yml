@@ -28,21 +28,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+x-matrix: &matrix >-
+  {
+    "build-target": [ "default" ],
+    "host-machine": [
+      { "arch": "x86", "instance": "linux.24xlarge" }
+    ],
+    "python-version": [ "3.13" ],
+    "cuda-version": [ "12.8.1" ],
+    "compiler": [ "gcc" ]
+  }
+
 jobs:
   build:
     if: ${{ github.repository_owner == 'pytorch' }}
     uses: ./.github/workflows/_fbgemm_gpu_cuda_build.yml
     with:
-      matrix: >-
-        {
-          "build-target": [ "default" ],
-          "host-machine": [
-            { "arch": "x86", "instance": "linux.24xlarge" },
-          ],
-          "python-version": [ "3.13" ],
-          "cuda-version": [ "12.8.1" ],
-          "compiler": [ "gcc" ],
-        }
+      matrix: *matrix
       repo-ref: ${{ github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
 
@@ -51,16 +53,7 @@ jobs:
     needs: build
     uses: ./.github/workflows/_fbgemm_gpu_cuda_test.yml
     with:
-      matrix: >-
-        {
-          "build-target": [ "default" ],
-          "host-machine": [
-            { "arch": "x86", "instance": "linux.24xlarge" },
-          ],
-          "python-version": [ "3.13" ],
-          "cuda-version": [ "12.8.1" ],
-          "compiler": [ "gcc" ],
-        }
+      matrix: *matrix
       repo-ref: ${{ github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
       run-target: benchmark
