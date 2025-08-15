@@ -63,30 +63,11 @@ jobs:
         }
       repo-ref: ${{ github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
-      run-tests: false
+      run-target: benchmark
       extra-env: >-
         {
           "ENFORCE_CUDA_DEVICE": 1
         }
-      custom-steps: |
-        [
-          {
-            "name": "Run FBGEMM_GPU Benchmark",
-            "timeout-minutes": 40,
-            "run": ". $PRELUDE; run_tbe_microbench $BUILD_ENV"
-          },
-          {
-            "name": "Upload Benchmark Traces as GHA Artifacts",
-            "uses": "actions/upload-artifact@v4",
-            "with": {
-              "name": "fbgemm_gpu_traces_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.zip",
-              "path": "fbgemm_gpu/bench/*.json",
-              "if-no-files-found": "error",
-            }
-          }
-        ]
-
-
 
   # benchmark:
   #   needs: build

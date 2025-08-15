@@ -43,11 +43,11 @@ on:
         type: string
         required: false
         default: ""
-      run-tests:
-        description: Run tests
-        type: boolean
-        required: false
-        default: true
+      run-target:
+        description: Run target (test, benchmark)
+        type: string
+        required: true
+        default: test
       custom-steps:
         description: Custom steps to run
         type: string
@@ -155,11 +155,22 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      if: ${{ inputs.run-tests }}
+      if: ${{ inputs.run-target == 'test' }}
       timeout-minutes: 60
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
-    - ${{ fromJson(inputs.custom-steps) }}
+    - name: Run FBGEMM_GPU Benchmark
+      if: ${{ inputs.run-target == 'benchmark' }}
+      timeout-minutes: 40
+      run: . $PRELUDE; run_tbe_microbench $BUILD_ENV
+
+    - name: Upload Benchmark Traces as GHA Artifacts
+      if: ${{ inputs.run-target == 'benchmark' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: fbgemm_gpu_traces_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.zip
+        path: fbgemm_gpu/bench/*.json
+        if-no-files-found: error
 
     - name: Push Wheel to PyPI
       if: ${{ inputs.publish-to-pypi && matrix.cuda-version == inputs.cuda-version-publish }}
