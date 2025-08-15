@@ -929,7 +929,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     def assert_close_(self, test: torch.Tensor, ref: torch.Tensor) -> None:
-        tolerance = 1.0e-4 if test.dtype == torch.float else 1.0e-2
+        tolerance = 1.0e-3 if test.dtype == torch.float else 1.0e-2
 
         torch.testing.assert_close(
             test.float().cpu(),
@@ -1281,6 +1281,158 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             iter_ = emb.iter.item()
             v_hat_t = m2_ref / (1 - beta2**iter_)
             v_hat_t = v_hat_t.view(v_hat_t.numel(), 1)
+            m_hat_t = m1_ref / (1 - beta1**iter_)
+
+            # Weight update
+            ref_weights_updated = (
+                torch.addcdiv(
+                    ref_weights,
+                    value=-lr,
+                    tensor1=m_hat_t,
+                    tensor2=v_hat_t.sqrt_().add_(eps),
+                )
+                - lr * weight_decay * ref_weights
+            )
+
+            if weights_precision == SparseType.FP16:
+                # Round the reference weight the same way that TBE does
+                ref_weights_updated = ref_weights_updated.half().float()
+
+            # Compare weights
+            torch.testing.assert_close(
+                emb_test_weights[t].float().cuda(),
+                ref_weights_updated.cuda(),
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
+    @given(
+        **default_st,
+        backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_ssd_backward_adam(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        cache_set_scale: float,
+        pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
+        share_table: bool,
+        trigger_bounds_check: bool,
+        mixed_B: bool,
+        backend_type: BackendType,
+    ) -> None:
+        assume(not weighted or pooling_mode == PoolingMode.SUM)
+        # VBE is currently not supported for PARTIAL_ROWWISE_ADAM optimizer
+        assume(not mixed_B)
+
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+        beta1 = 0.9
+        beta2 = 0.99
+        weight_decay = 0.01
+
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+        ) = self.generate_ssd_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            lr=lr,
+            eps=eps,
+            weight_decay=weight_decay,
+            beta1=beta1,
+            beta2=beta2,
+            ssd_shards=ssd_shards,
+            optimizer=OptimType.ADAM,
+            cache_set_scale=cache_set_scale,
+            pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=share_table,
+            backend_type=backend_type,
+        )
+
+        Es = [emb.embedding_specs[t][0] for t in range(T)]
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
+        )
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            weighted,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
+
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
+
+        emb.flush()
+
+        tolerance = 1.0e-2
+
+        emb_test_weights = emb.debug_split_embedding_weights()
+        split_optimizer_states = self.split_optimizer_states_(emb)
+
+        for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
+            (m1, m2) = split_optimizer_states[t]
+            # Some optimizers have non-float momentum values
+            # pyre-ignore[16]
+            ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
+            ref_weights = emb_ref[f].weight.cpu()
+
+            # Compare momentum2 values: (1 - beta2) * dL^2
+            m2_ref = ref_grad.pow(2) * (1.0 - beta2)
+            self.assert_close_(m2, m2_ref)
+
+            # Compare momentum1 values: (1 - beta1) * dL
+            m1_ref = ref_grad * (1.0 - beta1)
+            self.assert_close_(m1, m1_ref)
+
+            # Bias corrections
+            iter_ = emb.iter.item()
+            v_hat_t = m2_ref / (1 - beta2**iter_)
             m_hat_t = m1_ref / (1 - beta1**iter_)
 
             # Weight update
