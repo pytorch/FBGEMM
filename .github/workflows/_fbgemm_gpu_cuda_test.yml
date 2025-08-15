@@ -55,7 +55,8 @@ on:
         default: '[]'
     secrets:
       PYPI_TOKEN:
-        required: true
+        # The PyPI token is only needed if publishing the artifact to PyPI is desired
+        required: false
 
 jobs:
   # Download the built artifact from GHA, test on GPU, and push to PyPI
@@ -176,4 +177,12 @@ jobs:
       if: ${{ inputs.publish-to-pypi && matrix.cuda-version == inputs.cuda-version-publish }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
+      run: |
+        . $PRELUDE;
+
+        if [[ -z "$PYPI_TOKEN" ]]; then
+          echo "PYPI_TOKEN is not set!" >&2
+          exit 1
+        fi
+
+        publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl

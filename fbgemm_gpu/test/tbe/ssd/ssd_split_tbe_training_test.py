@@ -30,7 +30,6 @@ from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     get_table_batched_offsets_from_dense,
-    round_up,
 )
 from hypothesis import assume, given, settings, Verbosity
 from torch import distributed as dist
