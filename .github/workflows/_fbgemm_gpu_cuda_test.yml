@@ -48,11 +48,6 @@ on:
         type: string
         required: true
         default: test
-      custom-steps:
-        description: Custom steps to run
-        type: string
-        required: false
-        default: '[]'
     secrets:
       PYPI_TOKEN:
         # The PyPI token is only needed if publishing the artifact to PyPI is desired
