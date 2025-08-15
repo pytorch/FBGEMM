@@ -57,7 +57,7 @@ on:
 
 jobs:
   generate-test-matrix-cuda:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
+    # if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
       repo-owner: ${{ github.repository_owner }}
@@ -67,7 +67,7 @@ jobs:
       jobtype: test
 
   test-pypi-install-cuda:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
+    # if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
     needs: generate-test-matrix-cuda
     uses: ./.github/workflows/_fbgemm_gpu_cuda_test.yml
     with:
