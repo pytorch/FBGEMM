@@ -177,6 +177,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
         flushing_block_size: int = 2_000_000_000,  # 2GB
         table_names: Optional[List[str]] = None,
+        use_rowwise_bias_correction: bool = False,  # For Adam use
         optimizer_state_dtypes: Dict[str, SparseType] = {},  # noqa: B006
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
@@ -185,6 +186,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert optimizer in (
             OptimType.EXACT_ROWWISE_ADAGRAD,
             OptimType.PARTIAL_ROWWISE_ADAM,
+            OptimType.ADAM,
         ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
         self.optimizer = optimizer
 
@@ -848,7 +850,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             weight_norm_coefficient=cowclip_regularization.weight_norm_coefficient,
             lower_bound=cowclip_regularization.lower_bound,
             regularization_mode=weight_decay_mode.value,
-            use_rowwise_bias_correction=False,  # Unused, this is used in TBE's Adam
+            use_rowwise_bias_correction=use_rowwise_bias_correction,  # Used in Adam optimizer
         )
 
         table_embedding_dtype = weights_precision.as_dtype()
@@ -2258,11 +2260,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Increment the iteration (value is used for certain optimizers)
         iter_int = self._increment_iteration()
 
-        if self.optimizer == OptimType.EXACT_SGD:
-            raise AssertionError(
-                "SSDTableBatchedEmbeddingBags currently does not support SGD"
+        if self.optimizer in [OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM]:
+            momentum2 = invokers.lookup_args_ssd.Momentum(
+                # pyre-ignore[6]
+                dev=self.momentum2_dev,
+                # pyre-ignore[6]
+                host=self.momentum2_host,
+                # pyre-ignore[6]
+                uvm=self.momentum2_uvm,
+                # pyre-ignore[6]
+                offsets=self.momentum2_offsets,
+                # pyre-ignore[6]
+                placements=self.momentum2_placements,
             )
-            return invokers.lookup_sgd_ssd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args_ssd.Momentum(
             dev=self.momentum1_dev,
@@ -2278,21 +2288,37 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
 
         elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
-            momentum2 = invokers.lookup_args_ssd.Momentum(
-                # pyre-ignore[6]
-                dev=self.momentum2_dev,
-                # pyre-ignore[6]
-                host=self.momentum2_host,
-                # pyre-ignore[6]
-                uvm=self.momentum2_uvm,
-                # pyre-ignore[6]
-                offsets=self.momentum2_offsets,
-                # pyre-ignore[6]
-                placements=self.momentum2_placements,
+            return invokers.lookup_partial_rowwise_adam_ssd.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                # pyre-ignore[61]
+                momentum2,
+                iter_int,
             )
 
-            return invokers.lookup_partial_rowwise_adam_ssd.invoke(
-                common_args, self.optimizer_args, momentum1, momentum2, iter_int
+        elif self.optimizer == OptimType.ADAM:
+            row_counter = invokers.lookup_args_ssd.Momentum(
+                # pyre-fixme[6]
+                dev=self.row_counter_dev,
+                # pyre-fixme[6]
+                host=self.row_counter_host,
+                # pyre-fixme[6]
+                uvm=self.row_counter_uvm,
+                # pyre-fixme[6]
+                offsets=self.row_counter_offsets,
+                # pyre-fixme[6]
+                placements=self.row_counter_placements,
+            )
+
+            return invokers.lookup_adam_ssd.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                # pyre-ignore[61]
+                momentum2,
+                iter_int,
+                row_counter=row_counter,
             )
 
     @torch.jit.ignore
@@ -2355,6 +2381,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ]
                 for t, _ in enumerate(rows)
             ]
+
+        elif self.optimizer == OptimType.ADAM:
+            return [
+                [
+                    _slice(self.momentum1_dev, t, rowwise=False),
+                    # pyre-ignore[6]
+                    _slice(self.momentum2_dev, t, rowwise=False),
+                ]
+                for t, _ in enumerate(rows)
+            ]
+
         else:
             raise NotImplementedError(
                 f"Getting optimizer states is not supported for {self.optimizer}"
@@ -2431,6 +2468,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     _slice("momentum1", self.momentum1_dev, t, rowwise=False),
                     # pyre-ignore[6]
                     _slice("momentum2", self.momentum2_dev, t, rowwise=True),
+                ]
+                for t, _ in enumerate(rows)
+            ]
+
+        elif self.optimizer == OptimType.ADAM:
+            return [
+                [
+                    _slice("momentum1", self.momentum1_dev, t, rowwise=False),
+                    # pyre-ignore[6]
+                    _slice("momentum2", self.momentum2_dev, t, rowwise=False),
                 ]
                 for t, _ in enumerate(rows)
             ]
@@ -3140,7 +3187,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Set up the plan for copying optimizer states over
             if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
                 mapping = [(opt_states[0], self.momentum1_dev)]
-            elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
+            elif self.optimizer in [OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM]:
                 mapping = [
                     (opt_states[0], self.momentum1_dev),
                     (opt_states[1], self.momentum2_dev),
