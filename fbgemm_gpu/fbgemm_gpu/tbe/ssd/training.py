@@ -1019,6 +1019,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     f"eviction.feature_table.{t}.processed_counts"
                 )
                 self.stats_reporter.register_stats(
+                    f"eviction.feature_table.{t}.eviction_threshold_with_dry_run"
+                )
+                self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.evict_rate"
                 )
             self.stats_reporter.register_stats(
@@ -3820,12 +3823,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         T = len(set(self.feature_table_map))
         evicted_counts = torch.zeros(T, dtype=torch.int64)
         processed_counts = torch.zeros(T, dtype=torch.int64)
+        eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
         full_duration_ms = torch.tensor(0, dtype=torch.int64)
         exec_duration_ms = torch.tensor(0, dtype=torch.int64)
         dry_run_exec_duration_ms = torch.tensor(0, dtype=torch.int64)
         self.ssd_db.get_feature_evict_metric(
             evicted_counts,
             processed_counts,
+            eviction_threshold_with_dry_run,
             full_duration_ms,
             exec_duration_ms,
             dry_run_exec_duration_ms,
@@ -3859,6 +3864,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 iteration_step=self.step,
                 event_name=f"eviction.feature_table.{t}.processed_counts",
                 data_bytes=int(processed_counts[t].item()),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"eviction.feature_table.{t}.eviction_threshold_with_dry_run",
+                data_bytes=float(eviction_threshold_with_dry_run[t].item()),
             )
             if processed_counts[t].item() != 0:
                 stats_reporter.report_data_amount(
