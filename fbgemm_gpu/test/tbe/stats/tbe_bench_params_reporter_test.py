@@ -9,23 +9,41 @@
 
 import unittest
 
+import fbgemm_gpu
+
 import hypothesis.strategies as st
 
 import torch
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
-from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     ComputeDevice,
+    EmbeddingLocation,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-from fbgemm_gpu.tbe.bench import (
+from fbgemm_gpu.tbe.bench.tbe_data_config import (
     BatchParams,
     IndicesParams,
     PoolingParams,
     TBEDataConfig,
 )
+
+from fbgemm_gpu.tbe.bench.tbe_data_config_bench_helper import (
+    generate_embedding_dims,
+    generate_requests,
+)
+
 from fbgemm_gpu.tbe.stats import TBEBenchmarkParamsReporter
 from fbgemm_gpu.tbe.utils import get_device
 from hypothesis import given, settings
+
+from .. import common  # noqa E402
+
+try:
+    # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+    open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+except Exception:
+    open_source: bool = False
 
 
 class TestTBEBenchmarkParamsReporter(unittest.TestCase):
@@ -74,23 +92,25 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
         )
 
         # Generate the embedding dimension list
-        _, Ds = tbeconfig.generate_embedding_dims()
+        _, Ds = generate_embedding_dims(tbeconfig)
+
+        embedding_specs = [
+            (
+                tbeconfig.E,
+                D,
+                embedding_location,
+                (
+                    ComputeDevice.CUDA
+                    if torch.cuda.is_available()
+                    else ComputeDevice.CPU
+                ),
+            )
+            for D in Ds
+        ]
 
         # Generate the embedding operation
         embedding_op = SplitTableBatchedEmbeddingBagsCodegen(
-            [
-                (
-                    tbeconfig.E,
-                    D,
-                    embedding_location,
-                    (
-                        ComputeDevice.CUDA
-                        if torch.cuda.is_available()
-                        else ComputeDevice.CPU
-                    ),
-                )
-                for D in Ds
-            ],
+            embedding_specs,
             embedding_table_index_type=tbeconfig.indices_params.index_dtype
             or torch.int64,
             embedding_table_offset_type=tbeconfig.indices_params.offset_dtype
@@ -103,11 +123,12 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
         reporter = TBEBenchmarkParamsReporter(report_interval=1)
 
         # Generate indices and offsets
-        request = tbeconfig.generate_requests(1)[0]
+        request = generate_requests(tbeconfig, 1)[0]
 
-        # Call the report_stats method
+        # Call the extract_params method
         extracted_config = reporter.extract_params(
-            embedding_op=embedding_op,
+            feature_rows=embedding_op.rows_per_table,
+            feature_dims=embedding_op.feature_dims,
             indices=request.indices,
             offsets=request.offsets,
         )
@@ -125,4 +146,7 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
             and extracted_config.indices_params.offset_dtype
             == tbeconfig.indices_params.offset_dtype
         ), "Extracted config does not match the original TBEDataConfig"
-        # Attempt to reconstruct TBEDataConfig from extracted_json_config
+
+
+if __name__ == "__main__":
+    unittest.main()
