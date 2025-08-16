@@ -66,8 +66,8 @@ at::Tensor rope_qkv_varseq_prefill_meta(
     bool /* k_norm */,
     bool /* update_kv */,
     std::optional<at::Tensor> /* amax_qkv */,
-    std::optional<at::Tensor> /* kv_quant_scale_precomputed */,
-    bool /* symmetric_quant */) {
+    std::optional<at::Tensor> /* kv_quant_scale_precomputed */
+) {
   return at::empty_like(XQ);
 }
 
@@ -95,8 +95,8 @@ at::Tensor rope_qkv_decoding_meta(
     std::optional<at::Tensor> /* qparam_v */,
     bool /* k_norm */,
     bool /* update_kv */,
-    std::optional<at::Tensor> /* amax_qkv */,
-    bool /* symmetric_quant */) {
+    std::optional<at::Tensor> /* amax_qkv */
+) {
   return at::empty_like(XQ);
 }
 
@@ -233,8 +233,7 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache_meta(
     std::optional<at::Tensor> qparam_k,
     std::optional<at::Tensor> /* qparam_v */,
     std::optional<at::Tensor> /* block_tables */,
-    int64_t /* page_size */,
-    std::optional<bool> symmetric) {
+    int64_t /* page_size */) {
   const at::SymInt B_KV = cache_K.sym_size(0);
   const at::SymInt MAX_T = cache_K.sym_size(1);
   const at::SymInt N_KVH = cache_K.sym_size(2);
