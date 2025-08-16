@@ -49,7 +49,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  generate_build_matrix:
+  generate-build-matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
@@ -60,14 +60,14 @@ jobs:
       jobtype: build
 
   build:
-    needs: generate_build_matrix
+    needs: generate-build-matrix
     uses: ./.github/workflows/_fbgemm_gpu_cuda_build.yml
     with:
-      matrix: ${{ needs.generate_build_matrix.outputs.matrix }}
+      matrix: ${{ needs.generate-build-matrix.outputs.matrix }}
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
 
-  generate_test_matrix:
+  generate-test-matrix:
     needs: build
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
@@ -78,10 +78,10 @@ jobs:
       jobtype: test
 
   test:
-    needs: generate_test_matrix
+    needs: generate-test-matrix
     uses: ./.github/workflows/_fbgemm_gpu_cuda_test.yml
     with:
-      matrix: ${{ needs.generate_test_matrix.outputs.matrix }}
+      matrix: ${{ needs.generate-test-matrix.outputs.matrix }}
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
       publish-to-pypi: ${{ (github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-to-pypi == 'true') }}

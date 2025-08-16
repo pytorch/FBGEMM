@@ -26,9 +26,12 @@ ALL_TARGETS = [TARGET_DEFAULT, TARGET_GENAI, TARGET_HSTU]
 VARIANT_CPU = "cpu"
 VARIANT_CUDA = "cuda"
 VARIANT_ROCM = "rocm"
+ALL_VARIANTS = [VARIANT_CPU, VARIANT_CUDA, VARIANT_ROCM]
 
 JOBTYPE_BUILD = "build"
 JOBTYPE_TEST = "test"
+JOBTYPE_INSTALL = "install"
+ALL_JOB_TYPES = [JOBTYPE_BUILD, JOBTYPE_TEST, JOBTYPE_INSTALL]
 
 REPO_OWNER_PYTORCH = "pytorch"
 REPO_OWNER_FACEBOOKRESEARCH = "facebookresearch"
@@ -156,13 +159,13 @@ class BuildConfigScheme:
         parser.add_argument(
             "--variant",
             required=True,
-            choices=[VARIANT_CPU, VARIANT_CUDA, VARIANT_ROCM],
+            choices=ALL_VARIANTS,
             help="Build variant: cpu, cuda, or rocm",
         )
         parser.add_argument(
             "--jobtype",
             required=True,
-            choices=[JOBTYPE_BUILD, JOBTYPE_TEST],
+            choices=ALL_JOB_TYPES,
             help="Job type",
         )
         parser.add_argument(
@@ -241,9 +244,9 @@ class BuildConfigScheme:
         """
         if self.target not in ALL_TARGETS:
             raise ValueError(f"Invalid target: {self.target}")
-        if self.variant not in [VARIANT_CPU, VARIANT_CUDA, VARIANT_ROCM]:
+        if self.variant not in ALL_VARIANTS:
             raise ValueError(f"Invalid variant: {self.variant}")
-        if self.jobtype not in [JOBTYPE_BUILD, JOBTYPE_TEST]:
+        if self.jobtype not in ALL_JOB_TYPES:
             raise ValueError(f"Invalid job type: {self.jobtype}")
 
         if self.target == TARGET_GENAI and self.variant not in [
@@ -329,11 +332,14 @@ class BuildConfigScheme:
     def generate(self) -> List[Dict[str, Any]]:
         # Build a table of dimensions to values for each dimension
         table: Dict[str, List[Any]] = {
-            "compiler": self.compilers(),
             "python-version": self.python_versions(),
             "host-machine": self.host_machines(),
             "build-target": [self.target],
         }
+
+        if self.jobtype != JOBTYPE_INSTALL:
+            # The choice of compiler irrelevant for package installation tetss
+            table |= {"compiler": self.compilers()}
 
         if self.variant == VARIANT_CUDA:
             table |= {"cuda-version": self.cuda_versions()}
