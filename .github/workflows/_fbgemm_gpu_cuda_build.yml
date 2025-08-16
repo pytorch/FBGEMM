@@ -85,6 +85,7 @@ jobs:
         ref: ${{ inputs.repo-ref }}
 
     - name: Free Disk Space on Host
+      if: ${{ fromJson(inputs.container).image != null }}
       run: . $PRELUDE; free_disk_space_on_host
 
     - name: Display System Info
