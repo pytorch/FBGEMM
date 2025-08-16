@@ -93,6 +93,14 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->stream_cuda(indices, weights, count, blocking_tensor_copy);
   }
 
+  void set_feature_score_metadata_cuda(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const at::Tensor& engage_show_count) {
+    LOG(INFO) << "set_feature_score_metadata_cuda";
+    impl_->set_feature_score_metadata_cuda(indices, count, engage_show_count);
+  }
+
   void stream_sync_cuda() {
     return impl_->stream_sync_cuda();
   }

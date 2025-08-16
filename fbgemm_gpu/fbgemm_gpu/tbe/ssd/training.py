@@ -177,6 +177,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
         flushing_block_size: int = 2_000_000_000,  # 2GB
         table_names: Optional[List[str]] = None,
+        use_rowwise_bias_correction: bool = False,  # For Adam use
         optimizer_state_dtypes: Dict[str, SparseType] = {},  # noqa: B006
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
@@ -185,6 +186,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert optimizer in (
             OptimType.EXACT_ROWWISE_ADAGRAD,
             OptimType.PARTIAL_ROWWISE_ADAM,
+            OptimType.ADAM,
         ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
         self.optimizer = optimizer
 
@@ -675,18 +677,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if self.kv_zch_params.eviction_policy.eviction_mem_threshold_gb
                     else self.l2_cache_size
                 )
+                # Please refer to https://fburl.com/gdoc/nuupjwqq for the following eviction parameters.
                 eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
                     self.kv_zch_params.eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
-                    self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+                    self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter, 2: counter + timestamp, 3: feature l2 norm, 4: timestamp threshold 5: feature score
                     self.kv_zch_params.eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
                     eviction_mem_threshold_gb,  # mem_util_threshold_in_GB if trigger mode is mem_util
                     self.kv_zch_params.eviction_policy.ttls_in_mins,  # ttls_in_mins for each table if eviction strategy is timestamp
-                    self.kv_zch_params.eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is feature score
-                    self.kv_zch_params.eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is counter
+                    self.kv_zch_params.eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is counter
+                    self.kv_zch_params.eviction_policy.feature_score_counter_decay_rates,  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.max_training_id_num_per_table,  # max_training_id_num for each table
+                    self.kv_zch_params.eviction_policy.target_eviction_percent_per_table,  # target_eviction_percent for each table
                     self.kv_zch_params.eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
                     table_dims.tolist() if table_dims is not None else None,
+                    self.kv_zch_params.eviction_policy.threshold_calculation_bucket_stride,  # threshold_calculation_bucket_stride if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.threshold_calculation_bucket_num,  # threshold_calculation_bucket_num if eviction strategy is feature score
                     self.kv_zch_params.eviction_policy.interval_for_insufficient_eviction_s,
                     self.kv_zch_params.eviction_policy.interval_for_sufficient_eviction_s,
+                    self.kv_zch_params.eviction_policy.interval_for_feature_statistics_decay_s,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -848,7 +857,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             weight_norm_coefficient=cowclip_regularization.weight_norm_coefficient,
             lower_bound=cowclip_regularization.lower_bound,
             regularization_mode=weight_decay_mode.value,
-            use_rowwise_bias_correction=False,  # Unused, this is used in TBE's Adam
+            use_rowwise_bias_correction=use_rowwise_bias_correction,  # Used in Adam optimizer
         )
 
         table_embedding_dtype = weights_precision.as_dtype()
@@ -1010,6 +1019,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     f"eviction.feature_table.{t}.processed_counts"
                 )
                 self.stats_reporter.register_stats(
+                    f"eviction.feature_table.{t}.eviction_threshold_with_dry_run"
+                )
+                self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.evict_rate"
                 )
             self.stats_reporter.register_stats(
@@ -1017,6 +1029,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
             self.stats_reporter.register_stats(
                 "eviction.feature_table.exec_duration_ms"
+            )
+            self.stats_reporter.register_stats(
+                "eviction.feature_table.dry_run_exec_duration_ms"
             )
             self.stats_reporter.register_stats(
                 "eviction.feature_table.exec_div_full_duration_rate"
@@ -1605,6 +1620,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
+        weights: Optional[Tensor] = None,  # todo: need to update caller
         forward_stream: Optional[torch.cuda.Stream] = None,
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
     ) -> None:
@@ -1630,6 +1646,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._prefetch(
             indices,
             offsets,
+            weights,
             vbe_metadata,
             forward_stream,
         )
@@ -1638,6 +1655,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
+        weights: Optional[Tensor] = None,
         vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
         forward_stream: Optional[torch.cuda.Stream] = None,
     ) -> None:
@@ -1665,6 +1683,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
+            if self.backend_type == BackendType.DRAM and weights is not None:
+                # DRAM backend supports feature score eviction, if there is weights available
+                # in the prefetch call, we will set metadata for feature score eviction asynchronously
+                cloned_linear_cache_indices = linear_cache_indices.clone()
+            else:
+                cloned_linear_cache_indices = None
 
             # Lookup and virtually insert indices into L1. After this operator,
             # we know:
@@ -2022,6 +2046,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     is_bwd=False,
                 )
 
+            if self.backend_type == BackendType.DRAM and weights is not None:
+                # Write feature score metadata to DRAM
+                self.record_function_via_dummy_profile(
+                    "## ssd_write_feature_score_metadata ##",
+                    self.ssd_db.set_feature_score_metadata_cuda,
+                    cloned_linear_cache_indices.cpu(),
+                    torch.tensor([weights.shape[0]], device="cpu", dtype=torch.long),
+                    weights.cpu().view(torch.float32).view(-1, 2),
+                )
+
             # Generate row addresses (pointing to either L1 or the current
             # iteration's scratch pad)
             with record_function("## ssd_generate_row_addrs ##"):
@@ -2164,6 +2198,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
+        weights: Optional[Tensor] = None,
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
@@ -2185,7 +2220,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 context=self.step,
                 stream=self.ssd_eviction_stream,
             ):
-                self._prefetch(indices, offsets, vbe_metadata)
+                self._prefetch(indices, offsets, weights, vbe_metadata)
 
         assert len(self.ssd_prefetch_data) > 0
 
@@ -2258,11 +2293,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Increment the iteration (value is used for certain optimizers)
         iter_int = self._increment_iteration()
 
-        if self.optimizer == OptimType.EXACT_SGD:
-            raise AssertionError(
-                "SSDTableBatchedEmbeddingBags currently does not support SGD"
+        if self.optimizer in [OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM]:
+            momentum2 = invokers.lookup_args_ssd.Momentum(
+                # pyre-ignore[6]
+                dev=self.momentum2_dev,
+                # pyre-ignore[6]
+                host=self.momentum2_host,
+                # pyre-ignore[6]
+                uvm=self.momentum2_uvm,
+                # pyre-ignore[6]
+                offsets=self.momentum2_offsets,
+                # pyre-ignore[6]
+                placements=self.momentum2_placements,
             )
-            return invokers.lookup_sgd_ssd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args_ssd.Momentum(
             dev=self.momentum1_dev,
@@ -2278,21 +2321,37 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
 
         elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
-            momentum2 = invokers.lookup_args_ssd.Momentum(
-                # pyre-ignore[6]
-                dev=self.momentum2_dev,
-                # pyre-ignore[6]
-                host=self.momentum2_host,
-                # pyre-ignore[6]
-                uvm=self.momentum2_uvm,
-                # pyre-ignore[6]
-                offsets=self.momentum2_offsets,
-                # pyre-ignore[6]
-                placements=self.momentum2_placements,
+            return invokers.lookup_partial_rowwise_adam_ssd.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                # pyre-ignore[61]
+                momentum2,
+                iter_int,
             )
 
-            return invokers.lookup_partial_rowwise_adam_ssd.invoke(
-                common_args, self.optimizer_args, momentum1, momentum2, iter_int
+        elif self.optimizer == OptimType.ADAM:
+            row_counter = invokers.lookup_args_ssd.Momentum(
+                # pyre-fixme[6]
+                dev=self.row_counter_dev,
+                # pyre-fixme[6]
+                host=self.row_counter_host,
+                # pyre-fixme[6]
+                uvm=self.row_counter_uvm,
+                # pyre-fixme[6]
+                offsets=self.row_counter_offsets,
+                # pyre-fixme[6]
+                placements=self.row_counter_placements,
+            )
+
+            return invokers.lookup_adam_ssd.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                # pyre-ignore[61]
+                momentum2,
+                iter_int,
+                row_counter=row_counter,
             )
 
     @torch.jit.ignore
@@ -2355,6 +2414,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ]
                 for t, _ in enumerate(rows)
             ]
+
+        elif self.optimizer == OptimType.ADAM:
+            return [
+                [
+                    _slice(self.momentum1_dev, t, rowwise=False),
+                    # pyre-ignore[6]
+                    _slice(self.momentum2_dev, t, rowwise=False),
+                ]
+                for t, _ in enumerate(rows)
+            ]
+
         else:
             raise NotImplementedError(
                 f"Getting optimizer states is not supported for {self.optimizer}"
@@ -2431,6 +2501,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     _slice("momentum1", self.momentum1_dev, t, rowwise=False),
                     # pyre-ignore[6]
                     _slice("momentum2", self.momentum2_dev, t, rowwise=True),
+                ]
+                for t, _ in enumerate(rows)
+            ]
+
+        elif self.optimizer == OptimType.ADAM:
+            return [
+                [
+                    _slice("momentum1", self.momentum1_dev, t, rowwise=False),
+                    # pyre-ignore[6]
+                    _slice("momentum2", self.momentum2_dev, t, rowwise=False),
                 ]
                 for t, _ in enumerate(rows)
             ]
@@ -3140,7 +3220,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Set up the plan for copying optimizer states over
             if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
                 mapping = [(opt_states[0], self.momentum1_dev)]
-            elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
+            elif self.optimizer in [OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM]:
                 mapping = [
                     (opt_states[0], self.momentum1_dev),
                     (opt_states[1], self.momentum2_dev),
@@ -3743,21 +3823,30 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         T = len(set(self.feature_table_map))
         evicted_counts = torch.zeros(T, dtype=torch.int64)
         processed_counts = torch.zeros(T, dtype=torch.int64)
+        eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
         full_duration_ms = torch.tensor(0, dtype=torch.int64)
         exec_duration_ms = torch.tensor(0, dtype=torch.int64)
+        dry_run_exec_duration_ms = torch.tensor(0, dtype=torch.int64)
         self.ssd_db.get_feature_evict_metric(
-            evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+            evicted_counts,
+            processed_counts,
+            eviction_threshold_with_dry_run,
+            full_duration_ms,
+            exec_duration_ms,
+            dry_run_exec_duration_ms,
         )
 
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name=self.eviction_sum_evicted_counts_stats_name,
             data_bytes=int(evicted_counts.sum().item()),
+            enable_tb_metrics=True,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name=self.eviction_sum_processed_counts_stats_name,
             data_bytes=int(processed_counts.sum().item()),
+            enable_tb_metrics=True,
         )
         if processed_counts.sum().item() != 0:
             stats_reporter.report_data_amount(
@@ -3766,17 +3855,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 data_bytes=int(
                     evicted_counts.sum().item() * 100 / processed_counts.sum().item()
                 ),
+                enable_tb_metrics=True,
             )
         for t in self.feature_table_map:
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=f"eviction.feature_table.{t}.evicted_counts",
                 data_bytes=int(evicted_counts[t].item()),
+                enable_tb_metrics=True,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=f"eviction.feature_table.{t}.processed_counts",
                 data_bytes=int(processed_counts[t].item()),
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"eviction.feature_table.{t}.eviction_threshold_with_dry_run",
+                data_bytes=float(eviction_threshold_with_dry_run[t].item()),
             )
             if processed_counts[t].item() != 0:
                 stats_reporter.report_data_amount(
@@ -3785,17 +3882,26 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     data_bytes=int(
                         evicted_counts[t].item() * 100 / processed_counts[t].item()
                     ),
+                    enable_tb_metrics=True,
                 )
         stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="eviction.feature_table.full_duration_ms",
             duration_ms=full_duration_ms.item(),
             time_unit="ms",
+            enable_tb_metrics=True,
         )
         stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="eviction.feature_table.exec_duration_ms",
             duration_ms=exec_duration_ms.item(),
+            time_unit="ms",
+            enable_tb_metrics=True,
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="eviction.feature_table.dry_run_exec_duration_ms",
+            duration_ms=dry_run_exec_duration_ms.item(),
             time_unit="ms",
         )
         if full_duration_ms.item() != 0:
@@ -3803,6 +3909,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 iteration_step=self.step,
                 event_name="eviction.feature_table.exec_div_full_duration_rate",
                 data_bytes=int(exec_duration_ms.item() * 100 / full_duration_ms.item()),
+                enable_tb_metrics=True,
             )
 
     @torch.jit.ignore

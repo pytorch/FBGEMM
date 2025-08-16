@@ -119,12 +119,13 @@ const isa_descriptor<float>& getIsaHandlers(inst_set_t isa) {
 
   switch (isa) {
     case inst_set_t::sve:
-#ifdef FBGEMM_ENABLE_KLEIDIAI
-      return neon_descriptor;
-#endif
 #ifdef __aarch64__
     case inst_set_t::anyarch:
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+      return neon_descriptor;
+#else
       throw std::runtime_error("Unsupported uArch");
+#endif
 #else
     case inst_set_t::anyarch:
 #endif

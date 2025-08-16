@@ -96,7 +96,7 @@ class EmbOptimType(enum.Enum):
         """
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             return ["momentum1"]
-        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+        elif self in [EmbOptimType.PARTIAL_ROWWISE_ADAM, EmbOptimType.ADAM]:
             return ["momentum1", "momentum2"]
         else:
             return []
@@ -110,6 +110,8 @@ class EmbOptimType(enum.Enum):
             return {"momentum1": 1}
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             return {"momentum1": D, "momentum2": 1}
+        elif self == EmbOptimType.ADAM:
+            return {"momentum1": D, "momentum2": D}
         else:
             return {}
 
@@ -130,6 +132,9 @@ class EmbOptimType(enum.Enum):
 
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             return pad4(1 * momentum2_dtype.itemsize) + D * momentum1_dtype.itemsize
+
+        elif self == EmbOptimType.ADAM:
+            return (D * momentum1_dtype.itemsize) + (D * momentum2_dtype.itemsize)
 
         else:
             return 0
@@ -163,6 +168,15 @@ class EmbOptimType(enum.Enum):
                     p1,
                     p1 + D * momentum1_dtype.itemsize,
                 ),
+            }
+
+        elif self == EmbOptimType.ADAM:
+            # momentum2 lies after momentum1
+            p1 = p0 + (D * momentum1_dtype.itemsize)
+
+            return {
+                "momentum1": (p0, p1),
+                "momentum2": (p1, p1 + D * momentum2_dtype.itemsize),
             }
 
         else:
@@ -230,6 +244,12 @@ class EmbOptimType(enum.Enum):
             params = {"momentum1": row_count_cumsum}
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             params = {"momentum1": table_size_cumsum, "momentum2": row_count_cumsum}
+        elif self == EmbOptimType.ADAM:
+            params = {
+                "momentum1": table_size_cumsum,
+                "momentum2": table_size_cumsum,
+                "row_counter": row_count_cumsum,
+            }
         else:
             params = {}
 

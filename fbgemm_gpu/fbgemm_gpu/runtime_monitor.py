@@ -49,6 +49,7 @@ class TBEStatsReporter(abc.ABC):
         embedding_id: str = "",
         tbe_id: str = "",
         time_unit: str = "ms",
+        enable_tb_metrics: bool = False,
     ) -> None:
         """
         Report the duration of a timed event.
@@ -63,6 +64,7 @@ class TBEStatsReporter(abc.ABC):
         data_bytes: int,
         embedding_id: str = "",
         tbe_id: str = "",
+        enable_tb_metrics: bool = False,
     ) -> None:
         """
         Report the size of some data amount.
@@ -89,9 +91,10 @@ class StdLogStatsReporter(TBEStatsReporter):
         embedding_id: str = "",
         tbe_id: str = "",
         time_unit: str = "ms",
+        enable_tb_metrics: bool = False,
     ) -> None:
         logging.info(
-            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} {time_unit}"
+            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} {time_unit} with {enable_tb_metrics}"
         )
 
     def report_data_amount(
@@ -101,9 +104,10 @@ class StdLogStatsReporter(TBEStatsReporter):
         data_bytes: int,
         embedding_id: str = "",
         tbe_id: str = "",
+        enable_tb_metrics: bool = False,
     ) -> None:
         logging.info(
-            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} used {data_bytes} bytes"
+            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} used {data_bytes} bytes with {enable_tb_metrics}"
         )
 
     def __repr__(self) -> str:
