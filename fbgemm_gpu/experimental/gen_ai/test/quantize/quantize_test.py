@@ -289,7 +289,9 @@ class FP8Tests(unittest.TestCase):
             ["rowwise", "blockwise"]
             + (["tensorwise_broadcast", "tensorwise"] if torch.version.cuda else [])
         ),
-        QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
+        QType=(
+            st.sampled_from([fp8_e4m3, fp8_e5m2] if torch.version.cuda else [fp8_e4m3])
+        ),
         Bias=st.sampled_from([True, False]),
         CudaGraph=st.sampled_from([True, False]),
         UseTriton=st.sampled_from([False] + ([True] if torch.version.cuda else [])),
@@ -406,14 +408,10 @@ class FP8Tests(unittest.TestCase):
             def f(
                 x: torch.Tensor, w: torch.Tensor, bias: Optional[torch.Tensor]
             ) -> torch.Tensor:
-                if torch.version.cuda:
-                    xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
-                        x, output_dtype=QType
-                    )
-                    wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
-                else:
-                    xq, x_scale = quantize_fp8_row(x)
-                    wq, w_scale = quantize_fp8_row(w)
+                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                    x, output_dtype=QType
+                )
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
                 if UseTriton and torch.version.cuda:
                     zq = matmul_fp8_row(xq, wq, x_scale, w_scale)
                     if bias is not None:
