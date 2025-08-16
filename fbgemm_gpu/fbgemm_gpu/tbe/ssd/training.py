@@ -3840,11 +3840,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name=self.eviction_sum_evicted_counts_stats_name,
             data_bytes=int(evicted_counts.sum().item()),
+            enable_tb_metrics=True,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name=self.eviction_sum_processed_counts_stats_name,
             data_bytes=int(processed_counts.sum().item()),
+            enable_tb_metrics=True,
         )
         if processed_counts.sum().item() != 0:
             stats_reporter.report_data_amount(
@@ -3853,17 +3855,20 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 data_bytes=int(
                     evicted_counts.sum().item() * 100 / processed_counts.sum().item()
                 ),
+                enable_tb_metrics=True,
             )
         for t in self.feature_table_map:
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=f"eviction.feature_table.{t}.evicted_counts",
                 data_bytes=int(evicted_counts[t].item()),
+                enable_tb_metrics=True,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=f"eviction.feature_table.{t}.processed_counts",
                 data_bytes=int(processed_counts[t].item()),
+                enable_tb_metrics=True,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
@@ -3877,18 +3882,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     data_bytes=int(
                         evicted_counts[t].item() * 100 / processed_counts[t].item()
                     ),
+                    enable_tb_metrics=True,
                 )
         stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="eviction.feature_table.full_duration_ms",
             duration_ms=full_duration_ms.item(),
             time_unit="ms",
+            enable_tb_metrics=True,
         )
         stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="eviction.feature_table.exec_duration_ms",
             duration_ms=exec_duration_ms.item(),
             time_unit="ms",
+            enable_tb_metrics=True,
         )
         stats_reporter.report_duration(
             iteration_step=self.step,
@@ -3901,6 +3909,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 iteration_step=self.step,
                 event_name="eviction.feature_table.exec_div_full_duration_rate",
                 data_bytes=int(exec_duration_ms.item() * 100 / full_duration_ms.item()),
+                enable_tb_metrics=True,
             )
 
     @torch.jit.ignore
