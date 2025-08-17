@@ -31,7 +31,7 @@ namespace {
 // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
 // the restrictions of ymm register numbers (16).
 constexpr kernel_array_t<float> kernel_f32_avx2 = {
-#if !defined(__aarch64__) && !defined(_MSC_VER)
+#ifndef __aarch64__
     nullptr,
     gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp32_fA0fB0fC0,
@@ -44,7 +44,7 @@ constexpr kernel_array_t<float> kernel_f32_avx2 = {
 #endif
 
 constexpr kernel_array_t<float> kernel_f32_avx512 = {
-#if !defined(__aarch64__) && !defined(_MSC_VER)
+#ifndef __aarch64__
     nullptr,
     gemmkernel_1x2_Avx512_fp32_fA0fB0fC0,
     gemmkernel_2x2_Avx512_fp32_fA0fB0fC0,
@@ -66,7 +66,7 @@ constexpr kernel_array_t<float> kernel_f32_avx512 = {
 
 // clang-format on
 constexpr kernel_array_t<float> kernel_f32_avx512_256 = {
-#if !defined(__aarch64__) && !defined(_MSC_VER)
+#ifndef __aarch64__
     nullptr,
     gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp32_fA0fB0fC0,
@@ -179,7 +179,7 @@ FBGEMM_API void ref_kernel<float>(
 }
 #endif // FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
 
-template void cblas_gemm_compute(
+template FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
     const float* A,
