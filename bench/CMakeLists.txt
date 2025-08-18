@@ -47,6 +47,9 @@ function(add_benchmark BENCHNAME)
         -masm=intel)
     endif()
   endif()
+  if(APPLE)
+    target_compile_options(${BENCHNAME} PRIVATE "-Wno-deprecated-declarations")
+  endif()
 
   target_link_libraries(${BENCHNAME} fbgemm)
 
@@ -89,10 +92,13 @@ endfunction()
 ################################################################################
 
 if(FBGEMM_BUILD_BENCHMARKS)
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
-    set(BENCH_LIST FP16Benchmark.cc)
-  else()
-    file(GLOB BENCH_LIST "*Benchmark.cc")
+  file(GLOB BENCH_LIST "*Benchmark.cc")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "Depthwise")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "ConvUnifiedBenchmark")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "Quantize")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "GEMMsBenchmark")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "quantize")
   endif()
 
   if(MSVC)
