@@ -348,7 +348,8 @@ def _kernel_matmul_fp8_row(
     pid_n = 0
     offs_am = tl.arange(0, BLOCK_M)
     offs_bn = tl.arange(0, BLOCK_N)
-    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
+    acc_dtype = tl.float32 if allow_tf32 else dot_out_dtype
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=acc_dtype)
 
     for _ in range(0, k_tiles * tiles_per_SM):
         ki = tl.where(ki == k_tiles - 1, 0, ki + 1)
@@ -374,7 +375,7 @@ def _kernel_matmul_fp8_row(
 
         a = tl.load(A, mask=offs_k_for_mask[None, :] < K - ki * BLOCK_K, other=0.0)
         b = tl.load(B, mask=offs_k_for_mask[:, None] < K - ki * BLOCK_K, other=0.0)
-        acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+        acc = tl.dot(a, b, acc, out_dtype=acc_dtype, allow_tf32=allow_tf32)
 
         if ki == k_tiles - 1:
             # rematerialize rm and rn to save registers
@@ -402,7 +403,7 @@ def _kernel_matmul_fp8_row(
             mask = (rm < M)[:, None] & (rn < N)[None, :]
             # Handles write-back with reduction-splitting
             tl.store(C, acc, mask=mask)
-            acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
+            acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=acc_dtype)
 
 
 @triton.autotune(
@@ -4031,7 +4032,8 @@ def _kernel_matmul_fp8_row_non_persistent(
     # Pointers.
     A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
     B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
-    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
+    acc_dtype = tl.float32 if allow_tf32 else dot_out_dtype
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=acc_dtype)
 
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
         if EVEN_K:
@@ -4046,9 +4048,9 @@ def _kernel_matmul_fp8_row_non_persistent(
             a = a.to(C.dtype.element_ty)
             b = b.to(C.dtype.element_ty)
         if fp8_fast_accum:
-            acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+            acc = tl.dot(a, b, acc, out_dtype=acc_dtype, allow_tf32=allow_tf32)
         else:
-            acc += tl.dot(a, b, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+            acc += tl.dot(a, b, out_dtype=acc_dtype, allow_tf32=allow_tf32)
 
         A += BLOCK_K * SPLIT_K * stride_ak
         B += BLOCK_K * SPLIT_K * stride_bk
