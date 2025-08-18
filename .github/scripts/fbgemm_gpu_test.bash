@@ -15,6 +15,35 @@
 # FBGEMM_GPU Test Helper Functions
 ################################################################################
 
+install_fbgemm_gpu_deps () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install FBGEMM-GPU PIP dependencies"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  echo "[BUILD] Installing PIP dependencies ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run --no-capture-output ${env_prefix} python -m pip install -r requirements.txt) || return 1
+
+  # shellcheck disable=SC2086
+  (test_python_import_package "${env_name}" einops) || return 1
+  # shellcheck disable=SC2086
+  (test_python_import_package "${env_name}" numpy) || return 1
+}
+
 run_python_test () {
   local env_name="$1"
   local python_test_file="$2"
