@@ -132,7 +132,6 @@ torch::Tensor IndicesGenerator::generate() {
   // Now sort the indices by their tags. Use parallel sort for some extra speed
   // (vector is very large).
   std::sort(
-  //    std::execution::par,
       std::begin(indicesWithTags),
       std::end(indicesWithTags),
       [](const std::pair<int64_t, double>& lhs,

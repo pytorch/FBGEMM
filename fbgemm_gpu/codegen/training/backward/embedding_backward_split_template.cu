@@ -981,7 +981,11 @@ Tensor {{ embedding_cuda_op }}(
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
                 const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
-                const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
+                #ifdef USE_ROCM
+                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
+                #else
+                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 1024;
+                #endif
 
                 Tensor long_run_id_to_really_long_run_ids;
                 if (use_deterministic_algorithms) {
@@ -1054,7 +1058,11 @@ Tensor {{ embedding_cuda_op }}(
 
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
-                    int32_t num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
+                    #ifdef USE_ROCM
+                        int32_t num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
+                    #else
+                        int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                    #endif
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
                         [&] (int num_groups) {
@@ -1065,7 +1073,12 @@ Tensor {{ embedding_cuda_op }}(
                     );
 
                     const int32_t cta_per_row_grid_size = std::min(
-                        div_round_up(total_unique_indices, (kMaxThreads/4)),
+                        #ifdef USE_ROCM
+                            div_round_up(total_unique_indices, (kMaxThreads/4)),
+                        #else
+                            div_round_up(total_unique_indices, kMaxThreads),
+                        #endif
+                        
                         get_max_thread_blocks_());
 
                     FBGEMM_LAUNCH_KERNEL(
