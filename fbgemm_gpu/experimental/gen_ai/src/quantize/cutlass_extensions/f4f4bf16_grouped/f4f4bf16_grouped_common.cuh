@@ -160,15 +160,21 @@ __global__ void set_stacked_kernel_args_kernel(
       int64_t offset_M = 0;
       int64_t accumulated_x_scale = 0;
       int64_t accumulated_w_scale = 0;
+      int ele_per_quantize_group = 16;
+      if (global_scale == nullptr) {
+        ele_per_quantize_group = 32;
+      }
       for (int i = 0; i < group_index; i++) {
         offset_M += M_sizes[i];
         /* It's calculated this way since the scales are at least padded to
            multiples of (128, 4), and there is a group of 16 elements per scale.
         */
         accumulated_w_scale +=
-            (((N + 128 - 1) / 128) * 128 * ((K + 4 - 1) / 4) * 4 / 16);
+            (((N + 128 - 1) / 128) * 128 * ((K + 4 - 1) / 4) * 4 /
+             ele_per_quantize_group);
       }
-      accumulated_x_scale = starting_row_after_padding[group_index] * K / 16;
+      accumulated_x_scale =
+          starting_row_after_padding[group_index] * K / ele_per_quantize_group;
       // Set the problem shape for this group.
       problem_shape_ptr[non_zero_idx] = ProblemShape(N, M, K);
       // Set input pointers.
@@ -646,7 +652,7 @@ at::Tensor f4f4bf16_grouped_impl(
           layout_SFB,
           nullptr,
           nullptr,
-          nullptr);
+          starting_row_after_padding_ptr);
     }
     // Set the number of groups to the kernel to be at most the number of
     // non-zero rows.
