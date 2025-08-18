@@ -23,7 +23,10 @@ install_system_packages () {
 
   test_network_connection || return 1
 
-  if which sudo; then
+  if [[ "$DONT_USE_SUDO" == "1" ]]; then
+    local update_cmd=()
+    local install_cmd=()
+  elif which sudo; then
     local update_cmd=(sudo)
     local install_cmd=(sudo)
   else
@@ -135,7 +138,12 @@ print_gpu_info () {
     echo "[INFO] Printing general display info ..."
     install_system_packages hostname lshw
     print_exec hostname
-    print_exec sudo lshw -C display
+
+    if [[ "$DONT_USE_SUDO" == "1" ]]; then
+      print_exec lshw -C display
+    else
+      print_exec sudo lshw -C display
+    fi
   fi
 
   echo "################################################################################"
