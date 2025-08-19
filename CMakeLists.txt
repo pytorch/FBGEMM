@@ -474,9 +474,7 @@ if(FBGEMM_BUILD_TESTS)
 endif()
 
 if(FBGEMM_BUILD_BENCHMARKS)
-  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
-    add_subdirectory(bench)
-  endif()
+  add_subdirectory(bench)
 endif()
 
 if(FBGEMM_BUILD_DOCS)
