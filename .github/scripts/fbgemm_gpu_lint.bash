@@ -41,7 +41,7 @@ install_lint_tools () {
     flake8 \
     ufmt) || return 1
 
-  # Check binaries are visible in the PAATH
+  # Check binaries are visible in the PATH
   (test_binpath "${env_name}" flake8) || return 1
   (test_binpath "${env_name}" ufmt) || return 1
 
@@ -82,8 +82,9 @@ lint_fbgemm_gpu_flake8 () {
   # E501 = line too long
   # W503 = line break before binary operator (deprecated)
   # E203 = whitespace before ":"
+  # attention sources are temporarily disabled until the xFormers migration is finished
   # shellcheck disable=SC2086
-  (print_exec conda run ${env_prefix} flake8 --ignore=E501,W503,E203 .) || return 1
+  (print_exec conda run ${env_prefix} flake8 --ignore=E501,W503,E203 --extend-exclude fbgemm_gpu/experimental/gen_ai/gen_ai/attention,fbgemm_gpu/experimental/gen_ai/test/attention .) || return 1
 
   echo "[TEST] Finished running flake8 lint checks"
 }
