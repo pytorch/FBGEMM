@@ -59,7 +59,6 @@ struct IndexMetadata {
 torch::Tensor IndicesGenerator::generate() {
   using timer = std::chrono::high_resolution_clock;
   using us = std::chrono::microseconds;
-  using ns = std::chrono::nanoseconds;
 
   const auto t0 = timer::now();
   std::vector<std::pair<int64_t, double>> indicesWithTags(params_.numIndices);
