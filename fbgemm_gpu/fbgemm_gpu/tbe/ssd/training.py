@@ -20,6 +20,7 @@ from functools import cached_property
 from math import floor, log2
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
+from collections import defaultdict
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
@@ -375,6 +376,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         self.step = 0
         self.last_flush_step = -1
+        self.state_dict_seq_num = 0
+        # pyre-ignore [4]: Attribute `_step_to_ssd_checkpoint_handle` of class `SSDTableBatchedEmbeddingBags` has no type specified.
+        self._step_to_ssd_checkpoint_handle = defaultdict(set)
 
         # Set prefetch pipeline
         self.prefetch_pipeline: bool = prefetch_pipeline
@@ -3479,10 +3483,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         if self.backend_type == BackendType.SSD:
             self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
+            checkpoint_handle = self.ssd_db.get_active_checkpoint_uuid(self.step)
+            self._step_to_ssd_checkpoint_handle[self.step].add(checkpoint_handle)
         else:
             logging.warning(
                 "create_rocksdb_hard_link_snapshot is only supported for SSD backend"
             )
+
+    def clear_rocksdb_hard_link_snapshot(self) -> None:
+        if self.backend_type == BackendType.SSD:
+            self._step_to_ssd_checkpoint_handle.clear()
 
     def prepare_inputs(
         self,

@@ -218,15 +218,37 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     impl_->create_checkpoint(global_step);
   }
 
-  c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> get_active_checkpoint_uuid(
-      int64_t global_step) {
+  std::optional<c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>
+  get_active_checkpoint_uuid(int64_t global_step) {
     auto uuid_opt = impl_->get_active_checkpoint_uuid(global_step);
-    if (uuid_opt.has_value()) {
-      return c10::make_intrusive<RocksdbCheckpointHandleWrapper>(
-          uuid_opt.value(), impl_);
-    } else {
-      return nullptr;
+    if (!uuid_opt.has_value()) {
+      return std::nullopt;
     }
+    std::lock_guard<std::mutex> _lk(g_mu);
+    for (auto it = g_cache.begin(); it != g_cache.end();) {
+      if (impl_->query_checkpoint_by_uuid(it->first)) {
+        ++it;
+      } else {
+        // handle already destroyed, remove its entry from cache
+        g_cache.erase(it++);
+      }
+    }
+    if (auto it = g_cache.find(uuid_opt.value()); it != g_cache.end()) {
+      if (auto sp = it->second.lock()) {
+        return sp;
+      } else {
+        // reference count is 0, handle is scheduled for destruction.
+        return std::nullopt;
+      }
+    }
+
+    auto obj = c10::make_intrusive<RocksdbCheckpointHandleWrapper>(
+        uuid_opt.value(), impl_);
+    g_cache.emplace(
+        uuid_opt.value(),
+        c10::weak_intrusive_ptr<RocksdbCheckpointHandleWrapper>(obj));
+
+    return obj;
   }
 
   void set_backend_return_whole_row(bool backend_return_whole_row) {
@@ -238,6 +260,12 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
   // shared pointer since we use shared_from_this() in callbacks.
   std::shared_ptr<ssd::EmbeddingRocksDB> impl_;
+  // cache of RocksdbCheckpointHandleWrapper
+  std::unordered_map<
+      std::string,
+      c10::weak_intrusive_ptr<RocksdbCheckpointHandleWrapper>>
+      g_cache;
+  std::mutex g_mu;
 };
 
 } // namespace ssd
