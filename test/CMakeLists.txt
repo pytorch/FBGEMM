@@ -44,9 +44,7 @@ function(add_gtest TESTNAME)
     QuantizationHelpers.cc
     TestUtils.cc)
 
-    add_executable(
-      ${TESTNAME}
-      ${test_sources})
+  add_executable(${TESTNAME} ${test_sources})
 
   # To compile test files with AVX2 turned on
   if(MSVC)
