@@ -44,13 +44,9 @@ function(add_gtest TESTNAME)
     QuantizationHelpers.cc
     TestUtils.cc)
 
-    add_executable(
-      ${TESTNAME}
-      ${test_sources})
+  add_executable(${TESTNAME} ${test_sources})
 
   # To compile test files with AVX2 turned on
-  # For static build, defining FBGEMM_STATIC to avoid generating
-  # functions with _dllimport attributes.
   if(MSVC)
     target_compile_options(${TESTNAME} PRIVATE
       /arch:AVX2
@@ -58,11 +54,6 @@ function(add_gtest TESTNAME)
       /wd4267
       /wd4305
       /wd4309)
-
-    if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
-      target_compile_definitions(${TESTNAME} PRIVATE
-        FBGEMM_STATIC)
-    endif()
 
   else()
     if(COMPILER_SUPPORTS_AVX2)
