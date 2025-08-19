@@ -32,6 +32,14 @@
 
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and 
+                                                 optimizer == "rowwise_adagrad" and 
+                                                 not dense and
+                                                 not nobag and 
+                                                 not is_index_select and
+                                                 not is_gwd_kernel and 
+                                                 not vbe and 
+                                                 not ssd %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -538,7 +546,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 
 {%- endif %}
 
-{%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and not dense and not is_gwd_kernel and not vbe and not ssd %}
+{%- if is_optimized_hip_kernel_supported_mode %}
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
@@ -612,12 +620,8 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
     {%- endif %}
 ) {
-    {%- if not nobag %}
     int32_t T = D_offsets.size(0) - 1;
-    {%- else %}
-    int32_t T = weights_offsets.size(0);
-    {%- endif %}
-
+    
     auto p_output_grad = grad_output.data();
     auto p_emb_table = dev_weights.data();
     auto p_hash_size_cumsum = hash_size_cumsum.data();
@@ -632,8 +636,6 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     constexpr int32_t segment_prefetch = 2;
     constexpr int32_t segment_unroll = 8;
     constexpr int32_t segment_split = 0;
-    auto batch = grad_output.size(0);
-    auto num_rows = dev_weights.size(0) / T / max_D;
     {%- if weighted %}
     constexpr bool is_weighted = true;
     {%- else %}
@@ -646,22 +648,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     // weight_decay(_mode) is supplied as args.split_function_args_no_defaults
     opt_karg.weight_decay_mode = weight_decay_mode_v;
     opt_karg.weight_decay = weight_decay;
-    auto batch_mdiv = [](uint32_t d) -> rocm::magic_div_u32_t {
-        assert(d >= 1 && d <= INT32_MAX);
-        uint8_t shift;
-        for(shift = 0; shift < 32; shift++)
-            if((1U << shift) >= d)
-                break;
 
-        uint64_t one   = 1;
-        uint64_t magic = ((one << 32) * ((one << shift) - d)) / d + 1;
-        assert(magic <= 0xffffffffUL);
-
-        rocm::magic_div_u32_t result;
-        result.magic = magic;
-        result.shift = shift;
-        return result;
-    }(batch);
     rocm::split_tbe_backward_hip_kernel_{{kdesc}}<
         rocm::{{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, weight_decay_mode_v>,
         rocm::{{optimizer}}_kernel_arg_t,
@@ -680,16 +667,11 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
                p_sorted_linear_indices_run,
                p_sorted_linear_indices_cumulative_run_lengths,
                p_sorted_linear_indices_num_runs,
-               {%- if not nobag %}
                info_B_num_bits,
                info_B_mask,
-               {%- endif %}
                p_sorted_infos,
-               batch_mdiv,
                max_segment_length_per_warp,
                emb_dim,
-               batch,
-               num_rows,
                T,
                opt_karg
                {%- if weighted %}
