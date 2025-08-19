@@ -24,8 +24,13 @@ if torch.cuda.is_available():
         quantize_fp8_block,
         quantize_fp8_row,
         supports_float8_fnuz,
+        to_mxfp8,
     )
+
     from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
+
+    if torch.cuda.get_device_capability() >= (10, 0):
+        from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import _to_blocked
 
 from hypothesis import given, settings, strategies as st
 
@@ -52,7 +57,15 @@ def evaluate_platform_supports_fp8():
     return False
 
 
+def evaluate_platform_supports_mxfp8():
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_capability() >= (10, 0)
+    return False
+
+
 SUPPORTS_FP8 = evaluate_platform_supports_fp8()
+
+SUPPORTS_MXFP8 = evaluate_platform_supports_mxfp8()
 
 if torch.cuda.is_available() and supports_float8_fnuz(
     throw_on_hip_incompatibility=(not running_on_github)
@@ -1211,6 +1224,80 @@ class FP8Tests(unittest.TestCase):
 
         # BF16 loopover gemm reference
         self.bf16_loopover_validate(x_group, W, y_fp8_group, y_bf16_group)
+
+    @unittest.skipIf(not SUPPORTS_MXFP8, "MXFP8 not supported on this platform")
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([2048, 3584]),
+        N=st.sampled_from([256, 1024, 6144]),
+        K=st.sampled_from([256, 512, 3584]),
+    )
+    def test_mx_grouped_gemm(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        X = torch.randn((G, M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+        W = torch.randn((G, N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+
+        m_values = [i.shape[0] for i in X]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=X[0].device)
+
+        wq_list = []
+        w_scale_list = []
+        for i in range(m_sizes.shape[0]):
+            w_scale, wq = to_mxfp8(W[i])
+            w_scale = _to_blocked(w_scale)
+            wq_list.append(wq)
+            w_scale_list.append(w_scale)
+        wq = torch.stack(wq_list, dim=0).contiguous()
+        w_scale = torch.stack(w_scale_list, dim=0).contiguous()
+
+        starting_row_after_padding_list = [0]
+        xq_list = []
+        x_scale_list = []
+        for i in range(m_sizes.shape[0]):
+            scale_slice = X[i]
+            if m_sizes[i].item() != 0:
+                x_scale, xq = to_mxfp8(scale_slice)
+                x_scale = _to_blocked(x_scale)
+                xq_list.append(xq)
+                x_scale_list.append(x_scale)
+                starting_row_after_padding_list.append(
+                    starting_row_after_padding_list[i]
+                    + x_scale.numel() // (X[0].shape[1] // 32)
+                )
+            else:
+                starting_row_after_padding_list.append(
+                    starting_row_after_padding_list[i]
+                )
+        starting_row_after_padding = torch.tensor(
+            starting_row_after_padding_list, device=xq.device
+        )
+
+        xq = torch.cat(xq_list, dim=0).contiguous()
+        x_scale = torch.cat(x_scale_list, dim=0).contiguous()
+        x_scale = x_scale.reshape(-1, X[0].shape[-1] // 32)
+        xq = xq.view(-1, xq.shape[-1])
+
+        y_mxfp8 = torch.ops.fbgemm.mx8mx8bf16_grouped_stacked(
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            m_sizes,
+            starting_row_after_padding=starting_row_after_padding,
+        )
+
+        y_bf16_group = []
+        for i in range(G):
+            y_bf16_group.append(torch.matmul(X[i], W[i].t()))
+        y_bf16 = torch.cat(y_bf16_group, dim=0)
+
+        torch.testing.assert_close(y_mxfp8, y_bf16, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(
         not torch.version.hip,

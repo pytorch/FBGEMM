@@ -64,6 +64,13 @@ at::Tensor f4f4bf16_grouped_stacked(
     std::optional<at::Tensor> global_scale = std::nullopt,
     std::optional<at::Tensor> starting_row_after_padding = std::nullopt,
     bool use_mx = true);
+at::Tensor mx8mx8bf16_grouped_stacked(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt);
 at::Tensor f8f8bf16(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -313,6 +320,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f4f4bf16", f4f4bf16);
   m.impl("f4f4bf16_grouped", f4f4bf16_grouped);
   m.impl("f4f4bf16_grouped_stacked", f4f4bf16_grouped_stacked);
+  m.impl("mx8mx8bf16_grouped_stacked", mx8mx8bf16_grouped_stacked);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
@@ -368,6 +376,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f4f4bf16", f4f4bf16);
   m.impl("f4f4bf16_grouped", f4f4bf16_grouped);
   m.impl("f4f4bf16_grouped_stacked", f4f4bf16_grouped_stacked);
+  m.impl("mx8mx8bf16_grouped_stacked", mx8mx8bf16_grouped_stacked);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
