@@ -144,6 +144,9 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
             const int32_t d = threadIdx.x * VEC_WIDTH;
             {%- if not weighted and vbe %}
             for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; j += 8) {
+
+                {%- set d = "(((vec + vec_start) * kThreadGroupSize + threadIdx.x) * VEC_WIDTH)" %}
+                
                 const auto grad_offset_j0 = SHFL_SYNC(grad_offset, j);
                 const auto grad_offset_j1 = SHFL_SYNC(grad_offset, j + 1);
                 const auto grad_offset_j2 = SHFL_SYNC(grad_offset, j + 2);
@@ -152,24 +155,30 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
                 const auto grad_offset_j5 = SHFL_SYNC(grad_offset, j + 5);
                 const auto grad_offset_j6 = SHFL_SYNC(grad_offset, j + 6);
                 const auto grad_offset_j7 = SHFL_SYNC(grad_offset, j + 7);
-                if (threadIdx.x * VEC_WIDTH < D) {
-                    Vec4TAcc<grad_t> grad_out_vec0 = Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j0 + d]);
-                    Vec4TAcc<grad_t> grad_out_vec1 = sl + j + 1 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j1 + d]) : Vec4TAcc<grad_t>();
-                    Vec4TAcc<grad_t> grad_out_vec2 = sl + j + 2 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j2 + d]) : Vec4TAcc<grad_t>();
-                    Vec4TAcc<grad_t> grad_out_vec3 = sl + j + 3 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j3 + d]) : Vec4TAcc<grad_t>();
-                    Vec4TAcc<grad_t> grad_out_vec4 = sl + j + 4 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j4 + d]) : Vec4TAcc<grad_t>();
-                    Vec4TAcc<grad_t> grad_out_vec5 = sl + j + 5 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j5 + d]) : Vec4TAcc<grad_t>();
-                    Vec4TAcc<grad_t> grad_out_vec6 = sl + j + 6 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j6 + d]) : Vec4TAcc<grad_t>();
-                    Vec4TAcc<grad_t> grad_out_vec7 = sl + j + 7 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j7 + d]) : Vec4TAcc<grad_t>();
-                    grad_sum[0].add_(grad_out_vec0);
-                    grad_sum[0].add_(grad_out_vec1);
-                    grad_sum[0].add_(grad_out_vec2);
-                    grad_sum[0].add_(grad_out_vec3);
-                    grad_sum[0].add_(grad_out_vec4);
-                    grad_sum[0].add_(grad_out_vec5);
-                    grad_sum[0].add_(grad_out_vec6);
-                    grad_sum[0].add_(grad_out_vec7);
+
+                #pragma unroll kFixedMaxVecsPerThread
+                for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
+                    const int32_t d = {{ d }};
+                    if (threadIdx.x * VEC_WIDTH < D) {
+                        Vec4TAcc<grad_t> grad_out_vec0 = Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j0 + d]);
+                        Vec4TAcc<grad_t> grad_out_vec1 = sl + j + 1 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j1 + d]) : Vec4TAcc<grad_t>();
+                        Vec4TAcc<grad_t> grad_out_vec2 = sl + j + 2 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j2 + d]) : Vec4TAcc<grad_t>();
+                        Vec4TAcc<grad_t> grad_out_vec3 = sl + j + 3 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j3 + d]) : Vec4TAcc<grad_t>();
+                        Vec4TAcc<grad_t> grad_out_vec4 = sl + j + 4 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j4 + d]) : Vec4TAcc<grad_t>();
+                        Vec4TAcc<grad_t> grad_out_vec5 = sl + j + 5 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j5 + d]) : Vec4TAcc<grad_t>();
+                        Vec4TAcc<grad_t> grad_out_vec6 = sl + j + 6 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j6 + d]) : Vec4TAcc<grad_t>();
+                        Vec4TAcc<grad_t> grad_out_vec7 = sl + j + 7 < sl_end ? Vec4TAcc<grad_t>(&grad_output[0][grad_offset_j7 + d]) : Vec4TAcc<grad_t>();
+                        grad_sum[vec].add_(grad_out_vec0);
+                        grad_sum[vec].add_(grad_out_vec1);
+                        grad_sum[vec].add_(grad_out_vec2);
+                        grad_sum[vec].add_(grad_out_vec3);
+                        grad_sum[vec].add_(grad_out_vec4);
+                        grad_sum[vec].add_(grad_out_vec5);
+                        grad_sum[vec].add_(grad_out_vec6);
+                        grad_sum[vec].add_(grad_out_vec7);
+                    }
                 }
+                
             }
             {%- else %}
             for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; ++j) {
