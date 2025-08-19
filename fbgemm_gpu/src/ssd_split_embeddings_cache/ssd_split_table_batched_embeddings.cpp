@@ -262,6 +262,18 @@ void compact_indices_cuda(
 
 namespace ssd {
 
+// Inline method to replace first 8 bytes of weights with linearized_ids
+// when backend returns whole row
+inline void replace_weights_id(
+    at::Tensor& weights,
+    const at::Tensor& linearized_ids) {
+  // Calculate how many bytes we need to copy
+  auto weights_dtype_id_2d =
+      linearized_ids.view({-1, 1}).view(weights.dtype().toScalarType());
+  auto weights_first_cols = weights.slice(1, 0, weights_dtype_id_2d.size(1));
+  weights_first_cols.copy_(weights_dtype_id_2d);
+}
+
 SnapshotHandle::SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
   auto num_shards = db->num_shards();
   CHECK_GT(num_shards, 0);
@@ -504,7 +516,19 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
     } else {
       at::Tensor sliced_ids =
           sorted_indices_.value().slice(0, start, start + length);
-      return get_weights_by_ids(sliced_ids);
+      auto weights = get_weights_by_ids(sliced_ids);
+
+      if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
+        // backend returns whole row, so we need to replace the first 8 bytes
+        // with the sliced_ids
+        TORCH_CHECK(
+            sorted_indices_.has_value(),
+            "sorted_indices_ must be valid to narrow when backend returns whole row to get weights chunk");
+        at::Tensor sliced_ids =
+            sorted_indices_.value().slice(0, start, start + length);
+        replace_weights_id(weights, sliced_ids);
+      }
+      return weights;
     }
   } else {
     CHECK(readonly_db_)
@@ -525,7 +549,7 @@ void KVTensorWrapper::set_range(
     int64_t dim,
     const int64_t start,
     const int64_t length,
-    const at::Tensor& weights) {
+    at::Tensor& weights) {
   if (read_only_) {
     XLOG(INFO) << "KVTensorWrapper is read only, set_range() is no-op";
     return;
@@ -537,6 +561,19 @@ void KVTensorWrapper::set_range(
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+
+  if (db_->get_backend_return_whole_row()) {
+    // backend returns whole row, so we need to replace the first 8 bytes with
+    // the sliced_ids
+    TORCH_CHECK(
+        sorted_indices_.has_value(),
+        "sorted_indices_ must be valid to set range when backend returns whole row");
+    at::Tensor sliced_ids =
+        sorted_indices_.value().slice(0, start, start + length);
+    auto linearized_ids = sliced_ids + row_offset_;
+    replace_weights_id(weights, linearized_ids);
+  }
+
   int pad_right =
       db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
