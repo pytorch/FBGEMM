@@ -17,6 +17,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "                int? expert_index_start=None,      "
       "                int? expert_index_end=None,        "
       "                Tensor? valid_token_count=None,    "
+      "                int? D=None,                       "
       "                int top_k=1) ->                    "
       "(Tensor, Tensor, Tensor)");
 }
