@@ -1475,6 +1475,14 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
         .wait();
   }
 
+  void delete_rocksdb_checkpoint_dir() {
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      LOG(INFO) << "removing checkpoint directories: "
+                << rdb_shard_checkpoint_paths_[shard];
+      kv_db_utils::remove_dir(rdb_shard_checkpoint_paths_[shard]);
+    }
+  }
+
   int64_t get_max_D() {
     return max_D_;
   }
