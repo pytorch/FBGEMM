@@ -9,10 +9,9 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/core/ScalarTypeToTypeMeta.h>
-#include <torch/library.h>
-
 #include <nlohmann/json.hpp>
 #include <torch/custom_class.h>
+#include <torch/library.h>
 #include <mutex>
 #include "../dram_kv_embedding_cache/dram_kv_embedding_cache_wrapper.h"
 #include "./ssd_table_batched_embeddings.h"
@@ -1012,7 +1011,10 @@ static auto embedding_rocks_db_read_only_wrapper =
              torch::arg("cache_size") = 0})
         .def(
             "get_range_from_rdb_checkpoint",
-            &ReadOnlyEmbeddingKVDB::get_range_from_rdb_checkpoint);
+            &ReadOnlyEmbeddingKVDB::get_range_from_rdb_checkpoint)
+        .def(
+            "delete_rocksdb_checkpoint_dir",
+            &ReadOnlyEmbeddingKVDB::delete_rocksdb_checkpoint_dir);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
