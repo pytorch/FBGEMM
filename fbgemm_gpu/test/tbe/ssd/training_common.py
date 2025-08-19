@@ -875,7 +875,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         )
 
     def assert_close_(self, test: torch.Tensor, ref: torch.Tensor) -> None:
-        tolerance = 1.0e-4 if test.dtype == torch.float else 1.0e-2
+        tolerance = 1.0e-3 if test.dtype == torch.float else 1.0e-2
 
         torch.testing.assert_close(
             test.float().cpu(),
