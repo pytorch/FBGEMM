@@ -184,7 +184,7 @@ def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
         num_sm = driver.active.utils.get_device_properties(device)[
             "multiprocessor_count"
         ]
-        N_TILES = N // BLOCK_N
+        N_TILES = (N + BLOCK_N - 1) // BLOCK_N
         MIN_N_TILES = 32 if torch.version.hip else 64
         # 4. make sure we don't load N tiles that are too big
         if (
