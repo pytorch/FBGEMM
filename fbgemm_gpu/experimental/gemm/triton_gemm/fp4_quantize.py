@@ -41,6 +41,7 @@ def _kernel_quantize_mx4_unpack(
     FP4_EXP_BIAS: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
+    SCALE_K: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -64,21 +65,8 @@ def _kernel_quantize_mx4_unpack(
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
     """
     # Define Constant Expressions.
-    FP16_EXP_MASK: tl.constexpr = 0x7F80  # type: ignore[Incompatible variable type]
-    FP16_EXP_OFFSET: tl.constexpr = 7  # type: ignore[Incompatible variable type]
     FP16_EXP_BIAS: tl.constexpr = 127  # type: ignore[Incompatible variable type]
-    FP16_SIGN_OFFSET: tl.constexpr = 15  # type: ignore[Incompatible variable type]
-    SIGN_MASK: tl.constexpr = 0x1  # type: ignore[Incompatible variable type]
-    FP16_MANTISSA_MASK: tl.constexpr = 0x007F  # type: ignore[Incompatible variable type]
-    # FP4 has 2 mantissa bits, one explicit one implicit.
-    MBITS_IMPLICIT: tl.constexpr = MBITS + 1  # type: ignore[Incompatible variable type]
-    MAX_FP16_MANTISSA_BITS: tl.constexpr = 8  # type: ignore[Incompatible variable type]
-    IMPLIED_1_BIT: tl.constexpr = 1 << 7  # type: ignore[Incompatible variable type]
     BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
-    MANTISSA_OVERFLOW_THRESHOLD: tl.constexpr = (1 << MBITS_IMPLICIT) - 1  # type: ignore[Incompatible variable type]
-    EXPONENT_OVERFLOW_THRESHOLD: tl.constexpr = (1 << EBITS) - 1  # type: ignore[Incompatible variable type]
-    IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
-    RAND_MASK: tl.constexpr = (1 << (FP16_EXP_OFFSET - MBITS)) - 1  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
     pid = tl.program_id(0)
@@ -91,9 +79,9 @@ def _kernel_quantize_mx4_unpack(
 
     # Boundaries for writing to output tensor.
     NUM_GROUPS = M * GROUPS_PER_ROW
-    OUTPUT_CHUNK_SIZE = (GROUPS_PER_THREAD * GROUP_SIZE) // 2
+    OUTPUT_CHUNK_SIZE = (GROUPS_PER_THREAD * GROUP_SIZE) // 8
     SCALE_CHUNK_SIZE = GROUPS_PER_THREAD
-    OUTPUT_SIZE = (GROUP_SIZE * NUM_GROUPS) // 2
+    OUTPUT_SIZE = (GROUP_SIZE * NUM_GROUPS) // 8
     SCALE_SIZE = NUM_GROUPS
 
     # Find starting offsets for this thread. These are calculated before adjusting for padding.
@@ -102,13 +90,8 @@ def _kernel_quantize_mx4_unpack(
     exp_start = pid * SCALE_CHUNK_SIZE
     # Initiate offset ranges used in kernel.
     input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + input_start
-    output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 2)) + output_start
-    # Stochastic rounding loads chunks of random values.
-    if ROUNDING_MODE == 3:
-        rand_bits_offset = tl.arange(0, GROUP_LOAD) + pid * GROUPS_PER_THREAD
-    # Ceil rounding uses single values as a seed.
-    else:
-        rand_bits_offset = pid * GROUPS_PER_THREAD
+    output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 8)) + output_start
+    exp_offset = tl.arange(0, GROUP_LOAD) + exp_start
     # We need to shift output offsets to make space for shared exponent storage.
     # Now create offsets for writing the shared exponent.
     exp_offset = tl.arange(0, GROUP_LOAD) + exp_start
@@ -141,7 +124,7 @@ def _kernel_quantize_mx4_unpack(
         ##############
 
         # View the block in terms of groups.
-        a_groups = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE])
+        a_groups = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]).to(tl.float32)
         # Compute the shared exponent of each group.
         group_max = tl.max(tl.abs(a_groups), axis=1)
         # Prevent infinite values in log.
@@ -149,13 +132,6 @@ def _kernel_quantize_mx4_unpack(
         # Load relevant random values if doing stochastic rounding
         # or stochastic casting.
         group_rand_bits = None
-        if (ROUNDING_MODE) == 3 or STOCHASTIC_CASTING:
-            group_rand_bits = tl.load(
-                rand_bits + rand_bits_offset,
-                mask=rand_bits_offset < K // GROUP_SIZE,
-                other=0,
-            )
-            rand_bits_offset += GROUP_LOAD
         # Compute shared exponent using specified rounding mode.
         group_exp = _compute_exp(group_max, ROUNDING_MODE, group_rand_bits, MBITS)
         # Subtract largest exponent in target datatype and remove bias.
@@ -165,134 +141,83 @@ def _kernel_quantize_mx4_unpack(
 
         # Next we scale A in preparation for quantization.
         # TODO: We convert to float16 rather than bf16 due to numerical accuracy, but we might need to consider fp32
-        scale_ = tl.exp2(group_exp.to(tl.float64)).to(tl.float16)
+        scale_ = tl.exp2(group_exp.to(tl.float64)).to(tl.float32)
         # Apply scale_ to input. We do this by broadcasting scale.
-        scaled_a = (
-            tl.reshape(a, [GROUP_LOAD, GROUP_SIZE])
-            / tl.reshape(scale_, [GROUP_LOAD, 1])
-        ).to(tl.bfloat16)
+        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) / tl.reshape(
+            scale_, [GROUP_LOAD, 1]
+        )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
 
+        temp_l, temp_r = tl.split(
+            tl.reshape(scaled_a, [(GROUP_LOAD * GROUP_SIZE) // 2, 2])
+        )  # 0, 2, 4, 6, 8 || 1, 3, 5, 7, 9
+        t_one, t_two = tl.split(
+            tl.reshape(temp_l, [(GROUP_LOAD * GROUP_SIZE) // 4, 2])
+        )  # 0 4 8 || 2, 6, 10
+        t_three, t_four = tl.split(
+            tl.reshape(temp_r, [(GROUP_LOAD * GROUP_SIZE) // 4, 2])
+        )  # 1, 5, 9 || 3, 7, 11
+
+        f_one, f_two = tl.split(
+            tl.reshape(t_one, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 0, 8 || 4, 12
+        f_three, f_four = tl.split(
+            tl.reshape(t_two, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 2, 10 || 6, 14
+        f_five, f_six = tl.split(
+            tl.reshape(t_three, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 1, 9 || 5, 13
+        f_seven, f_eight = tl.split(
+            tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 3, 11 || 7, 15
+        packed_result = tl.inline_asm_elementwise(
+            asm="""
+            {
+                .reg .b8 byte0;
+                .reg .b8 byte1;
+                .reg .b8 byte2;
+                .reg .b8 byte3;
+                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
+                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
+                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
+                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
+                mov.b32 $0, {byte0, byte1, byte2, byte3};
+
+            }
+            """,
+            constraints="=r," "f, f, f, f, f, f, f, f",
+            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
+            dtype=tl.int32,
+            is_pure=True,
+            pack=1,
+        )
+
+        n_col_blocks = SCALE_K // 4
+        first_dim = exp_offset // (512 * n_col_blocks)
+        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = exp_offset % 4
+        actual_offset = (
+            first_dim * (512 * n_col_blocks)
+            + fourth_dim * (512)
+            + third_dim * (16)
+            + second_dim * (4)
+            + fifth_dim
+        )
         # We're done with group_exp now so we can write it out.
-        # We readd fp16_exp_bias for compatibility with cuda dequant.
         tl.store(
-            scale + exp_offset,
+            scale + actual_offset,
             (group_exp + FP16_EXP_BIAS).to(tl.int8),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
         )
-
-        # Quantization step
-        ###################
-
-        # During quantization, we're going to be doing a lot of bitwise operations.
-        # This is easier to work with in int32.
-        scaled_a = scaled_a.to(tl.int16, bitcast=True)
-
-        # When doing stochastic downcasting, generate random values for this block
-        # and apply it to the mantissa.
-        if STOCHASTIC_CASTING:
-            # We're going to generate 4 blocks at once so we only need
-            # one fourth of the input offsets.
-            # Start by splitting down to half of offsets.
-            philox_4x_offset = tl.split(
-                tl.reshape(
-                    input_offset,
-                    [GROUP_LOAD * GROUP_SIZE // 2, 2],
-                    can_reorder=True,
-                )
-            )
-            # Split down to fourth.
-            philox_4x_offset = tl.split(
-                tl.reshape(
-                    philox_4x_offset,
-                    [GROUP_LOAD * GROUP_SIZE // 4, 2],
-                    can_reorder=True,
-                )
-            )
-            # Generate 4 blocks of random bits for this block.
-            a_4x, b_4x, c_4x, d_4x = tl.randint4x(
-                group_rand_bits, philox_4x_offset, n_rounds=7
-            )
-            # Combine the 4 blocks into a single chunk of random values.
-            # This needs to be done incrementally.
-            stochastic_round_bits = tl.join(tl.join(a_4x, b_4x), tl.join(c_4x, d_4x))
-            # Flatten back to simple array.
-            stochastic_round_bits = tl.reshape(
-                stochastic_round_bits, [GROUP_LOAD * GROUP_SIZE]
-            ).to(tl.int16, bitcast=True)
-
-            # Mask off mantissa bits of random value and add to mantissa.
-            scaled_a = scaled_a + (stochastic_round_bits & RAND_MASK)
-
-        # Extract sign bit of value.
-        sign_bit = (scaled_a >> FP16_SIGN_OFFSET) & SIGN_MASK
-
-        # Extract exponent.
-        biased_exp = (scaled_a & FP16_EXP_MASK) >> FP16_EXP_OFFSET
-
-        # Extract mantissa.
-        trailing_mantissa = scaled_a & FP16_MANTISSA_MASK
-
-        # Adjust exponent bias for FP4.
-        new_biased_exp = biased_exp - FP16_EXP_BIAS + FP4_EXP_BIAS
-
-        # Compute difference between ideal exponent and what fp4 can represent.
-        exp_diff = tl.where(new_biased_exp <= 0, 1 - new_biased_exp, 0)
-
-        # Clip this difference to maximum number of fp32 mantissa bits.
-        exp_diff = tl.minimum(exp_diff, MAX_FP16_MANTISSA_BITS)
-
-        # Now we round our fp32 mantissa down to fp4.
-        is_subnorm = biased_exp == 0
-        # Add implied 1 bit to normal values.
-        mantissa = tl.where(
-            is_subnorm, trailing_mantissa, trailing_mantissa + IMPLIED_1_BIT
-        )
-        # Compute base number of bits corresponding to the mantissa, smaller for subnorms
-        # since implied one is included in exp_diff.
-        fp16_sig_bits = tl.where(is_subnorm, 7, 8).to(tl.int32)
-        # Now we're ready to shift down to target bitwidth (with an extra bit for rounding).
-        mantissa = mantissa >> (fp16_sig_bits + exp_diff - MBITS_IMPLICIT - 1)
-        # Perform rounding by adding 1 and shifting down.
-        mantissa = (mantissa + 1) >> 1
-
-        # Check for overflow and adjust exponent accordingly.
-        overflow = mantissa > MANTISSA_OVERFLOW_THRESHOLD
-        # Allow subnorms to overflow into normals, otherwise shift away overflow.
-        mantissa = tl.where(overflow and (not is_subnorm), mantissa >> 1, mantissa)
-        # Special case where a value is subnormal and has a large mantissa, overflow it.
-        new_biased_exp = tl.where(
-            (new_biased_exp <= 0) and (mantissa == 2), 1, new_biased_exp
-        )
-        # Remove implicit 1.
-        mantissa = mantissa & IMPLICIT_1_MASK
-        # Add overflow to exponent.
-        new_biased_exp = tl.where(overflow, new_biased_exp + 1, new_biased_exp)
-        # If exp overflows, set mantissa to maximum value (equivalent to clamping).
-        mantissa = tl.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
-
-        # Construct FP4 value from components.
-        new_biased_exp = tl.maximum(
-            tl.minimum(new_biased_exp, EXPONENT_OVERFLOW_THRESHOLD), 0
-        )
-
-        mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
-        mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value
-
-        # Extract low and high bits from values.
-        low_mx4, high_mx4 = tl.split(
-            tl.reshape(mx4_value, [(GROUP_LOAD * GROUP_SIZE) // 2, 2])
-        )
-        # Shift mx4 values together so they are packed into int8.
-        packed_mx4 = ((high_mx4 << 4) | (low_mx4)).to(tl.int8)
-
         # Write out packed values to output tensor.
         tl.store(
             out + output_offset,
-            packed_mx4,
+            packed_result,
             # Prevent writing outside this chunk or the main array.
             mask=(output_offset < OUTPUT_SIZE)
             & (output_offset < (OUTPUT_CHUNK_SIZE * (pid + 1))),
@@ -301,7 +226,7 @@ def _kernel_quantize_mx4_unpack(
         # Update offsets so we work on the next block.
         input_offset += GROUP_LOAD * GROUP_SIZE
         exp_offset += GROUP_LOAD
-        output_offset += GROUP_LOAD * GROUP_SIZE // 2
+        output_offset += GROUP_LOAD * GROUP_SIZE // 8
 
 
 def _to_blocked(x: torch.Tensor) -> torch.Tensor:
@@ -344,7 +269,7 @@ def _to_blocked(x: torch.Tensor) -> torch.Tensor:
 
 
 def triton_quantize_mx4_unpack(
-    a: torch.Tensor,
+    input: torch.Tensor,
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
@@ -368,23 +293,41 @@ def triton_quantize_mx4_unpack(
         torch.Tensor: [M / group_size] mx4 shared exponents into int8
 
         eg.
-        Input with shape [1, 8192] will be quantized to [1, 4096 + 256] as
+        Input with shape [1, 8192] will be quantized to [1, 4096 + 512] as
         each value contain two elements packed into an int8 and
-        there are 32 groups in each row.
+        there are 32 elements per group.
     """
-    # If given an empty shape, return an empty tensor.
-    if a.numel() == 0:
-        return torch.empty(a.shape, device=a.device, dtype=torch.uint8), torch.empty(
-            a.shape, device=a.device, dtype=torch.uint8
-        )
-    # Make sure input is continuous in memory.
-    assert a.is_contiguous(), "Inputs to mx4 quantize must be contiguous in memory."
 
-    orig_shape = a.shape
-    # For simplicity, view input as a 2D array.
-    a = a.view(-1, a.shape[-1])
-    # Extract rows and columns.
-    M, K = a.shape
+    orig_shape = input.shape
+    assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
+    other_dims = 1 if input.ndim == 1 else -1
+    input = input.reshape(other_dims, input.shape[-1])
+    M, K = input.shape
+    block_size = group_size
+    device = input.device
+
+    assert K % block_size == 0, f"last dim has to be multiple of 16, but got {K}."
+    assert input.dtype in (
+        torch.float16,
+        torch.bfloat16,
+    ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
+
+    # Two fp4 values will be packed into an uint8.
+    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
+
+    # We use the rounded values to store the swizzled values. Due to the
+    # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
+    # So, we first pad the scales to multiples of 128 and 4. Then, the scales
+    # (in float8_e4m3fn) int8. More:
+    # https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-mma-scale-factor-b-layout-4x
+    def round_up(x: int, y: int) -> int:
+        return (x + y - 1) // y * y
+
+    rounded_M = round_up(M, 128)
+    scale_K = K // block_size
+    rounded_K = round_up(scale_K, 4)
+    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
+
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
     # groups per row after padding.
@@ -392,7 +335,7 @@ def triton_quantize_mx4_unpack(
     num_groups = M * groups_per_row
     # Find how many groups each thread should process. We do this
     # by assuming that it is good to distribute work evenly over threads.
-    num_threads = math.ceil(math.sqrt(a.numel()))
+    num_threads = math.ceil(math.sqrt(input.numel()))
     # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
     # to ever fewer groups per thread than it.
     GROUP_LOAD = 64
@@ -403,12 +346,6 @@ def triton_quantize_mx4_unpack(
     else:
         padding = 0
 
-    # Create output tensor.
-    out_elems = (num_groups * group_size) // 2
-    scale_elems = num_groups
-    out = torch.empty([out_elems], device=a.device, dtype=torch.uint8)
-    scale = torch.empty([scale_elems], device=a.device, dtype=torch.uint8)
-
     # If using stochastic rounding, create random noise for each group.
     # We use the same random bits as seeds when doing stochastic downcasting.
     if rounding_mode == RoundingMode.stochastic or stochastic_casting:
@@ -418,7 +355,7 @@ def triton_quantize_mx4_unpack(
             high=2**31 - 1,
             size=(num_groups,),
             dtype=torch.int32,
-            device=a.device,
+            device=input.device,
         )
     else:
         rand_bits = None
@@ -426,9 +363,10 @@ def triton_quantize_mx4_unpack(
     # Check if we need to use int64 for indexing.
     use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
     # Invoke triton quantization kernel over rows.
+
     grid = (num_threads,)
     _kernel_quantize_mx4_unpack[grid](
-        a,
+        input,
         out,
         scale,
         rand_bits=rand_bits,
@@ -452,12 +390,12 @@ def triton_quantize_mx4_unpack(
         GROUP_LOAD=GROUP_LOAD,
         # pyre-ignore[6]
         USE_INT64=use_int64,
+        # pyre-ignore[6]
+        SCALE_K=rounded_K,
     )
-    scale = scale.view(torch.float8_e8m0fnu)
-    scale = scale.view(orig_shape[0], -1)
-    scale = _to_blocked(scale)
 
-    return out.view(list(orig_shape[:-1]) + [-1]), scale
+    scale = scale.flatten()
+    return out.view(list(orig_shape[:-1]) + [-1]).view(torch.uint8), scale
 
 
 @triton.jit
