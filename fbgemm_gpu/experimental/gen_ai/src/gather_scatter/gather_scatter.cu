@@ -76,7 +76,7 @@ __global__ static void gather_or_scatter_along_first_dim_kernel(
   SmemT& smem = *reinterpret_cast<SmemT*>(smem_raw);
 
   int indexing_dim = IsGather ? N : M;
-  const int n_or_m_offset = blockIdx.x * kBlkNOrM;
+  const int n_or_m_offset = static_cast<int>(blockIdx.x * kBlkNOrM);
   if (n_or_m_offset >= indexing_dim) {
     return;
   }
@@ -344,17 +344,17 @@ void scatter_add_along_first_dim(
     at::Tensor dst,
     at::Tensor src,
     at::Tensor index) {
+  const int M = src.size(0);
+  const int K = src.size(1);
+  const int N = index.size(0);
+  if (N == 0 || M == 0) {
+    assert(M == 0);
+    return;
+  }
   if (dst.is_contiguous() && dst.dim() == 2 && src.is_contiguous() &&
       src.dim() == 2 && index.is_contiguous() && index.dim() == 1) {
     using T = cutlass::bfloat16_t;
 
-    const int M = src.size(0);
-    const int K = src.size(1);
-    const int N = index.size(0);
-    if (N == 0) {
-      assert(M == 0);
-      return;
-    }
     assert(dst.size(1) == K);
     // TODO(shikaili): Make it supports more configurations.
     if (dst.dtype() == at::kBFloat16 && src.dtype() == at::kBFloat16 &&
@@ -377,7 +377,6 @@ void scatter_add_along_first_dim(
     }
   }
 
-  const int K = src.size(1);
   dst.scatter_add_(0, index.to(at::kLong).unsqueeze(1).expand({-1, K}), src);
 }
 
