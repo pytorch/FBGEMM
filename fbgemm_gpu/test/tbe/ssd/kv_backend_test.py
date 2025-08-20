@@ -394,6 +394,32 @@ class SSDCheckpointTest(unittest.TestCase):
 
         assert torch.equal(ids_in_range_ordered, id_tensor_ordered)
 
+    @given(**default_st)
+    @settings(**default_settings)
+    def test_ssd_rocksdb_checkpoint_handle(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+        emb, _, _ = self.generate_fbgemm_kv_tbe(
+            T, D, log_E, weights_precision, mixed, False, 8
+        )
+
+        # expect no checkpoint handle
+        checkpoint_handle = emb._ssd_db.get_active_checkpoint_uuid(0)
+        assert checkpoint_handle is None, f"{checkpoint_handle=}"
+        # create a checkpoint
+        emb.create_rocksdb_hard_link_snapshot()
+        checkpoint_handle = emb._ssd_db.get_active_checkpoint_uuid(0)
+        assert checkpoint_handle is not None, f"{checkpoint_handle=}"
+        # delete checkpoint_handle, handle should still exist because emb holds a reference
+        del checkpoint_handle
+        checkpoint_handle = emb._ssd_db.get_active_checkpoint_uuid(0)
+        assert checkpoint_handle is not None, f"{checkpoint_handle=}"
+
     @given(
         E=st.integers(min_value=1000, max_value=10000),
         num_buckets=st.integers(min_value=10, max_value=15),
