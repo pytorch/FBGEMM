@@ -18,6 +18,13 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+try:
+    from fbgemm_gpu.tbe.trace.fbgemm_kineto_trace_handler import (
+        FbgemmKinetoTraceHandler,
+    )
+except Exception:
+    pass
+
 import click
 import numpy as np
 
@@ -540,7 +547,7 @@ def nbit_device(  # noqa C901
     with context_factory(
         # pyre-ignore[6]
         lambda p: time_dict.update(kernel_time=kineto_trace_profiler(p, trace_info))
-    ):
+    ) as p_obj:
         # forward
         time_per_iter = benchmark_requests(
             requests,
@@ -565,6 +572,21 @@ def nbit_device(  # noqa C901
             f"Time: {kernel_time:.0f}us, "
             f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
         )
+        if p_obj is not None:
+            try:
+                FbgemmKinetoTraceHandler(p_obj).sync_log(
+                    run_id=str(
+                        trace_url.format(
+                            tbe_type=tbe_type, phase=trace_info[0], ospid=os.getpid()
+                        )
+                    ),
+                    test_phase="inference",
+                    test_name=str("tbe_inference"),
+                    benchmark_duration_us=float(time_per_iter * 1.0e6),
+                    achieved_bw_gbps=float(read_write_bytes / time_per_iter / 1.0e9),
+                )
+            except Exception as e:
+                logging.error(f"Failed to upload performance data to Scuba: {e}")
 
     # free up GPU memory
     del requests
