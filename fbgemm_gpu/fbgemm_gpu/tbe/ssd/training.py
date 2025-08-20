@@ -554,6 +554,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._cached_kvzch_data: Optional[KVZCHCachedData] = None
         # initial embedding rows on this rank per table, this is used for loading checkpoint
         self.local_weight_counts: List[int] = [0] * T_
+        # groundtruth global id on this rank per table, this is used for loading checkpoint
+        self.global_id_per_rank: List[torch.Tensor] = [torch.zeros(0)] * T_
         # loading checkpoint flag, set by checkpoint loader, and cleared after weight is applied to backend
         self.load_state_dict: bool = False
 
@@ -3074,16 +3076,26 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     logging.info(
                         f"before weight PMT loading, resetting id tensor with {self.local_weight_counts[i]}"
                     )
-                    bucket_ascending_id_tensor = torch.zeros(
-                        (self.local_weight_counts[i], 1),
-                        device=torch.device("cpu"),
-                        dtype=torch.int64,
-                    )
+                    if self.global_id_per_rank[i].numel() != 0:
+                        assert (
+                            self.local_weight_counts[i]
+                            == self.global_id_per_rank[i].numel()
+                        ), f"local weight count and global id per rank size mismatch, with {self.local_weight_counts[i]} and {self.global_id_per_rank[i].numel()}"
+                        bucket_ascending_id_tensor = self.global_id_per_rank[i].to(
+                            device=torch.device("cpu"), dtype=torch.int64
+                        )
+                    else:
+                        bucket_ascending_id_tensor = torch.zeros(
+                            (self.local_weight_counts[i], 1),
+                            device=torch.device("cpu"),
+                            dtype=torch.int64,
+                        )
                     metadata_tensor = torch.zeros(
                         (self.local_weight_counts[i], 1),
                         device=torch.device("cpu"),
                         dtype=torch.int64,
                     )
+
                     # self.local_weight_counts[i] = 0  # Reset the count
 
                 # pyre-ignore [16] bucket_sorted_id_splits is not None
@@ -4277,3 +4289,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.placeholder_autograd_tensor.register_hook(backward_hook)
         for hook in hooks:
             self.placeholder_autograd_tensor.register_hook(hook)
+
+    def set_local_weight_counts_for_table(
+        self, table_idx: int, weight_count: int
+    ) -> None:
+        self.local_weight_counts[table_idx] = weight_count
+
+    def set_global_id_per_rank_for_table(
+        self, table_idx: int, global_id: torch.Tensor
+    ) -> None:
+        self.global_id_per_rank[table_idx] = global_id
