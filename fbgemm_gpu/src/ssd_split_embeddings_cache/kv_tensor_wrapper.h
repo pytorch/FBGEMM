@@ -47,7 +47,7 @@ struct RocksdbCheckpointHandleWrapper : public torch::jit::CustomClassHolder {
       const std::string& checkpoint_uuid,
       std::shared_ptr<EmbeddingRocksDB> db);
 
-  ~RocksdbCheckpointHandleWrapper();
+  //   ~RocksdbCheckpointHandleWrapper();
 
   std::string uuid;
   std::shared_ptr<EmbeddingRocksDB> db;
