@@ -357,9 +357,12 @@ RocksdbCheckpointHandleWrapper::RocksdbCheckpointHandleWrapper(
     std::shared_ptr<EmbeddingRocksDB> db)
     : uuid(checkpoint_uuid), db(std::move(db)) {}
 
-RocksdbCheckpointHandleWrapper::~RocksdbCheckpointHandleWrapper() {
-  db->release_checkpoint(uuid);
-}
+// do not release uuid when RocksdbCheckpointHandleWrapper is destroyed
+// subsequent get_active_checkpoint_uuid() calls need to retrieve
+// the checkpoint uuid
+// RocksdbCheckpointHandleWrapper::~RocksdbCheckpointHandleWrapper() {
+//   db->release_checkpoint(uuid);
+// }
 
 KVTensorWrapper::KVTensorWrapper(
     std::vector<int64_t> shape,
