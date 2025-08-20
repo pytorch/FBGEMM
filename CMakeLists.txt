@@ -61,6 +61,10 @@ include(CheckCXXCompilerFlag)
 # Install libraries into correct locations on all platforms
 include(GNUInstallDirs)
 
+# Check AVX
+set(CHECK_AVX_COMPILE ON)
+include(${MODULE_PATH}/FindAVX.cmake)
+
 # Load Python
 find_package(Python)
 
@@ -98,12 +102,8 @@ endif()
 
 if(MSVC)
   set(MSVC_BOOL True)
-  check_cxx_compiler_flag(/arch:AVX2 COMPILER_SUPPORTS_AVX2)
-  check_cxx_compiler_flag(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
 else(MSVC)
   set(MSVC_BOOL False)
-  check_cxx_compiler_flag(-mavx2 COMPILER_SUPPORTS_AVX2)
-  check_cxx_compiler_flag(-mavx512f COMPILER_SUPPORTS_AVX512)
   check_cxx_compiler_flag(-march=armv8-a+sve COMPILER_SUPPORTS_SVE)
   check_cxx_compiler_flag(-march=armv8-a+sve2 COMPILER_SUPPORTS_SVE2)
   check_cxx_compiler_flag(-march=armv8-a+fp16fml COMPILER_SUPPORTS_FP16FML)
@@ -199,6 +199,8 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
+  MSVC_FLAGS
+    /wd4717 /bigobj
   SANITIZER_OPTIONS
     "${FBGEMM_USE_SANITIZER}"
   DEFINITIONS
@@ -215,9 +217,6 @@ set(fbgemm_targets)
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
-  if(NOT COMPILER_SUPPORTS_AVX2)
-    message(FATAL_ERROR "The current compiler does not support building AVX2 code")
-  endif()
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
 
@@ -233,9 +232,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
       ${FBGEMM_AVX2_SRCS}
       ${FBGEMM_AVX2_INLINE_SRCS}
     CC_FLAGS
-      -m64 -mavx2 -mf16c -mfma
+      -m64 -mf16c -mfma ${CXX_AVX2_FLAGS}
     MSVC_FLAGS
-      /arch:AVX2
+      ${CXX_AVX2_FLAGS}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
@@ -252,11 +251,7 @@ endif()
 # FBGEMM AVX512 Target
 ################################################################################
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
-  if(NOT COMPILER_SUPPORTS_AVX512)
-    message(FATAL_ERROR "The current compiler does not support building AVX512 code")
-  endif()
-
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
 
   get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
@@ -271,9 +266,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
       ${FBGEMM_AVX512_SRCS}
       ${FBGEMM_AVX512_INLINE_SRCS}
     CC_FLAGS
-      -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
+      -m64 -mfma ${CXX_AVX512_FLAGS} ${CXX_AVX2_FLAGS}
     MSVC_FLAGS
-      /arch:AVX512
+      ${CXX_AVX512_FLAGS} ${CXX_AVX2_FLAGS}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
@@ -281,7 +276,6 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
   )
 
   list(APPEND fbgemm_targets fbgemm_avx512)
-
 else()
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX512 target")
 endif()
@@ -442,6 +436,9 @@ if(NOT TARGET asmjit)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
+  if(MSVC)
+    target_compile_options(asmjit PRIVATE /wd5054)
+  endif()
 endif()
 
 ################################################################################

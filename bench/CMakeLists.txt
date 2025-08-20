@@ -42,9 +42,11 @@ function(add_benchmark BENCHNAME)
     if(COMPILER_SUPPORTS_AVX2)
       target_compile_options(${BENCHNAME} PRIVATE
         -m64
-        -mavx2
+        ${CXX_AVX2_FLAGS}
         -mfma
         -masm=intel)
+    else()
+      target_compile_options(${BENCHNAME} PRIVATE ${CXX_AVX2_FLAGS})
     endif()
   endif()
   if(APPLE)
