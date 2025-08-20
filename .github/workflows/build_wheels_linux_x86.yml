@@ -49,11 +49,14 @@ jobs:
       id: filter
       env:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
+      # Nova coordinate Filters:
+      # rocm/3.13t: causes segfaults at runtime
+      # 3.14: markupsafe is not available yet for python 3.14
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t' --filter 'python_version:3.14' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
