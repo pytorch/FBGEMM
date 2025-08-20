@@ -31,13 +31,13 @@ set(fbgemm_sources_avx512
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${fbgemm_sources_avx2}
     PROPERTIES COMPILE_OPTIONS
-    "${AVX2_FLAGS}")
+    "${CXX_AVX2_FLAGS}")
 endif()
 
 if(CXX_AVX512_FOUND)
   set_source_files_properties(${fbgemm_sources_avx512}
     PROPERTIES COMPILE_OPTIONS
-    "${AVX512_FLAGS}")
+    "${CXX_AVX512_FLAGS}")
 endif()
 
 set(fbgemm_sources ${fbgemm_sources_normal})
@@ -51,8 +51,6 @@ if((NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM) AND CXX_AVX512_FOUND)
     ${fbgemm_sources}
     ${fbgemm_sources_avx2}
     ${fbgemm_sources_avx512})
-else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNO_AVX512=1")
 endif()
 
 set_source_files_properties(${fbgemm_sources} PROPERTIES
