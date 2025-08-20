@@ -37,8 +37,24 @@ REPO_OWNER_PYTORCH = "pytorch"
 REPO_OWNER_FACEBOOKRESEARCH = "facebookresearch"
 ALL_REPO_OWNERS = [REPO_OWNER_PYTORCH, REPO_OWNER_FACEBOOKRESEARCH]
 
+REFS_MAIN = "refs/heads/main"
+
+EVENT_NAME_PUSH = "push"
+
 
 class GitRepo:
+    @classmethod
+    def ref(cls) -> str:
+        ref_ = os.getenv("GITHUB_REF") or ""
+        logging.debug(f"Fetched git ref: {ref_}")
+        return ref_
+
+    @classmethod
+    def event_name(cls) -> str:
+        event_name = os.getenv("GITHUB_EVENT_NAME") or ""
+        logging.debug(f"Fetched git event name: {event_name}")
+        return event_name
+
     @classmethod
     def is_pr_merge_ref(cls) -> bool:
         """
@@ -46,9 +62,7 @@ class GitRepo:
         """
 
         try:
-            ref = os.getenv("GITHUB_REF") or ""
-            logging.debug(f"Fetched git ref: {ref}")
-            return re.match(r"^refs/pull/\d+/merge$", ref) is not None
+            return re.match(r"^refs/pull/\d+/merge$", cls.ref()) is not None
 
         except Exception as e:
             logging.error(f"Error fetching git ref: {e}")
@@ -260,6 +274,8 @@ class BuildConfigScheme:
         return self
 
     def python_versions(self) -> List[str]:
+        if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
+            return ["3.13"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
             return ["3.13"]
         if self.target == TARGET_HSTU:
@@ -270,6 +286,8 @@ class BuildConfigScheme:
         return ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
     def compilers(self) -> List[str]:
+        if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
+            return ["gcc"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
             return ["gcc"]
         if self.target == TARGET_HSTU:
@@ -278,6 +296,8 @@ class BuildConfigScheme:
             return ["gcc", "clang"]
 
     def cuda_versions(self) -> List[str]:
+        if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
+            return ["12.9.1"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
             return ["12.9.1"]
         if self.target == TARGET_HSTU:
@@ -288,7 +308,10 @@ class BuildConfigScheme:
             return ["12.6.3", "12.8.1", "12.9.1"]
 
     def rocm_versions(self) -> List[str]:
-        return ["6.3", "6.4"]
+        if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
+            return ["6.4"]
+        else:
+            return ["6.3", "6.4"]
 
     def host_machines(self) -> List[Dict[str, str]]:
         # For the list of available instance types:
