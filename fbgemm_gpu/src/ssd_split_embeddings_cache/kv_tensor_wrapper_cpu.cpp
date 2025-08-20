@@ -67,7 +67,7 @@ void KVTensorWrapper::set_range(
     [[maybe_unused]] const int64_t start,
     [[maybe_unused]] const int64_t length,
     // @lint-ignore CLANGTIDY clang-diagnostic-missing-noreturn
-    [[maybe_unused]] const at::Tensor& weights) {
+    [[maybe_unused]] at::Tensor& weights) {
   FBEXCEPTION("Not implemented");
 }
 
