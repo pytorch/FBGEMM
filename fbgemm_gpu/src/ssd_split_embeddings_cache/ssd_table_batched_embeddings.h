@@ -617,6 +617,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return checkpoints_.at(ckpt_uuid)->get_shard_checkpoints();
   }
 
+  bool query_checkpoint_by_uuid(const std::string& ckpt_uuid) const {
+    return checkpoints_.find(ckpt_uuid) != checkpoints_.end();
+  }
+
   std::string get_tbe_uuid() const {
     return tbe_uuid_;
   }
