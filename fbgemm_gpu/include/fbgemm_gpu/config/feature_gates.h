@@ -61,7 +61,8 @@ namespace fbgemm_gpu::config {
   X(TBE_ANNOTATE_KINETO_TRACE)      \
   X(TBE_ROCM_INFERENCE_PACKED_BAGS) \
   X(TBE_ROCM_HIP_BACKWARD_KERNEL)   \
-  X(BOUNDS_CHECK_INDICES_V2)
+  X(BOUNDS_CHECK_INDICES_V2)        \
+  X(TBE_REPORT_INPUT_PARAMS)
 // X(EXAMPLE_FEATURE_FLAG)
 
 /// @ingroup fbgemm-gpu-config
