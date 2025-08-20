@@ -24,7 +24,6 @@ if torch.cuda.is_available():
         quantize_fp8_block,
         quantize_fp8_row,
         supports_float8_fnuz,
-        to_mxfp8,
     )
 
     from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
@@ -1240,6 +1239,8 @@ class FP8Tests(unittest.TestCase):
         N: int,
         K: int,
     ) -> None:
+        from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import to_mxfp8
+
         X = torch.randn((G, M, K), dtype=torch.bfloat16, device=self.device) * 0.1
         W = torch.randn((G, N, K), dtype=torch.bfloat16, device=self.device) * 0.01
 
