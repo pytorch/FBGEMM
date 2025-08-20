@@ -206,6 +206,22 @@ struct load_row_per_warp<half, 256, index_t> {
 };
 
 template <typename index_t>
+struct load_row_per_warp<half, 320, index_t> {
+  static __device__ void
+  run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
+    int32x4_t emb_res =
+        amdgcn_make_buffer_resource(p_emb_table + row_index * 320);
+    *reinterpret_cast<half2*>(&emb_data[0]) =
+        llvm_amdgcn_raw_buffer_load_fp16x2(
+            emb_res, lane_id * sizeof(half2), 0, 0);
+    *reinterpret_cast<half2*>(&emb_data[2]) =
+        llvm_amdgcn_raw_buffer_load_fp16x2(
+            emb_res, (lane_id + 64) * sizeof(half2), 0, 0);
+     emb_data[4] = p_emb_table[row_index * 320 + 256 + lane_id]; 
+  }
+};
+
+template <typename index_t>
 struct load_row_per_warp<half, 512, index_t> {
   static __device__ void
   run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
@@ -301,6 +317,16 @@ struct store_row_per_warp<c10::Half, 256, c10::Half> {
     auto out = reinterpret_cast<half2*>(p_output);
     out[lane_id] = *reinterpret_cast<half2*>(acc);
     out[lane_id + 64] = *reinterpret_cast<half2*>(&acc[2]);
+  }
+};
+
+template <>
+struct store_row_per_warp<c10::Half, 320, c10::Half> {
+  static __device__ void run(c10::Half* acc, c10::Half* p_output, int lane_id) {
+    auto out = reinterpret_cast<half2*>(p_output);
+    out[lane_id] = *reinterpret_cast<half2*>(acc);
+    out[lane_id + 64] = *reinterpret_cast<half2*>(&acc[2]);
+    p_output[lane_id + 256] = acc[4]; 
   }
 };
 
