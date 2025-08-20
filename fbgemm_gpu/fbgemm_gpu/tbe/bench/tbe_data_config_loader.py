@@ -14,8 +14,12 @@ import click
 import torch
 import yaml
 
-from .tbe_data_config import TBEDataConfig
-from .tbe_data_config_param_models import BatchParams, IndicesParams, PoolingParams
+from fbgemm_gpu.tbe.bench.tbe_data_config import (
+    BatchParams,
+    IndicesParams,
+    PoolingParams,
+    TBEDataConfig,
+)
 
 
 @dataclasses.dataclass(frozen=True)
