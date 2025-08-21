@@ -122,6 +122,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     auto* pool = kv_store_->pool_by(shard_id);
     auto* block = pool->allocate_t<float>();
     FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
     FixedBlockPool::set_feature_score_rate(block, i < 400 ? 0.5 : 0.8);
     wlock->insert({i, block});
   }
@@ -132,6 +133,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     auto* pool = kv_store_->pool_by(shard_id);
     auto* block = pool->allocate_t<float>();
     FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
     FixedBlockPool::set_feature_score_rate(block, i < 1500 ? 0.6 : 0.9);
     wlock->insert({i, block});
   }
@@ -154,7 +156,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
           10, // threshold_calculation_bucket_num
           0, // interval_for_insufficient_eviction_s
           0, // interval_for_sufficient_eviction_s
-          0); // interval_for_feature_statistics_decay_s
+          100000); // interval_for_feature_statistics_decay_s
 
   auto feature_evict = create_feature_evict(
       feature_evict_config,
@@ -166,11 +168,30 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   auto* feature_score_evict =
       dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
 
+  std::vector<std::size_t> block_cursors_;
+  std::vector<std::size_t> block_nums_snapshot_;
+  block_cursors_.resize(NUM_SHARDS);
+  block_nums_snapshot_.resize(NUM_SHARDS);
+  for (int i = 0; i < NUM_SHARDS; ++i) {
+    block_cursors_[i] = 0;
+    block_nums_snapshot_[i] = 0;
+  }
+
   // Initial validation
   size_t total_blocks = 0;
   for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
     auto rlock = kv_store_->by(shard_id).rlock();
-    total_blocks += rlock->size();
+    auto* pool = kv_store_->pool_by(shard_id);
+    block_nums_snapshot_[shard_id] =
+        pool->get_chunks().size() * pool->get_blocks_per_chunk();
+    while (block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
+      auto* block = pool->template get_block<float>(block_cursors_[shard_id]++);
+      if (block != nullptr && FixedBlockPool::get_used(block)) {
+        total_blocks++;
+        feature_score_evict->update_feature_score_statistics(
+            block, 0, shard_id, true);
+      }
+    }
   }
   ASSERT_EQ(total_blocks, 2000);
   // Perform eviction
@@ -511,7 +532,6 @@ TEST(FeatureEvictTest, PerformanceTest) {
         0,
         0,
         true, // is training
-        false, // dry run
         TestMode::NORMAL);
 
     auto start_time = std::chrono::high_resolution_clock::now();
