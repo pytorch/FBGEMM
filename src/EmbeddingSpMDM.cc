@@ -11,13 +11,10 @@
 #include <type_traits>
 #define FBGEMM_EXPORTS
 
-#include <asmjit/asmjit.h> // @manual
+#include <asmjit/x86.h> // @manual
 #include <cpuinfo.h>
-#include <cmath>
 #include <iostream>
-#include <map>
 #include <mutex>
-#include <string>
 #include <tuple>
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
@@ -120,12 +117,12 @@ class GenEmbeddingSpMDMLookup {
     return rt;
   }
 
-  static std::mutex rtMutex_; ///< Controll access to runtime;
+  inline static std::mutex rtMutex_; ///< Control access to runtime;
 
   // The hash depends on embedding dimension (block size), weighted sls,
-  // positional weights, normalize by lenths, prefetch distance, use_offsets,
+  // positional weights, normalize by lengths, prefetch distance, use_offsets,
   // output_stride, input_stride, and scale_bias_last
-  static CodeCache<
+  inline static CodeCache<
       std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
       typename ReturnFunctionSignature<
           inType,
@@ -136,49 +133,6 @@ class GenEmbeddingSpMDMLookup {
       THREAD_LOCAL>
       codeCache_; ///< JIT Code Cache for reuse.
 }; // GenEmbeddingSpmDMLookup
-
-template <
-    typename inType,
-    typename indxType,
-    typename offsetType,
-    typename outType,
-    inst_set_t instSet,
-    bool ROWWISE_SPARSE,
-    bool THREAD_LOCAL>
-std::mutex GenEmbeddingSpMDMLookup<
-    inType,
-    indxType,
-    offsetType,
-    outType,
-    instSet,
-    ROWWISE_SPARSE,
-    THREAD_LOCAL>::rtMutex_;
-
-template <
-    typename inType,
-    typename indxType,
-    typename offsetType,
-    typename outType,
-    inst_set_t instSet,
-    bool ROWWISE_SPARSE,
-    bool THREAD_LOCAL>
-CodeCache<
-    std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
-    typename ReturnFunctionSignature<
-        inType,
-        indxType,
-        offsetType,
-        outType,
-        ROWWISE_SPARSE>::jit_embedding_kernel,
-    THREAD_LOCAL>
-    GenEmbeddingSpMDMLookup<
-        inType,
-        indxType,
-        offsetType,
-        outType,
-        instSet,
-        ROWWISE_SPARSE,
-        THREAD_LOCAL>::codeCache_;
 
 template <
     typename inType,
@@ -278,7 +232,7 @@ GenEmbeddingSpMDMLookup<
         if (!use_offsets) {
           filename += "_use_lengths";
         }
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           filename += "_rowwise_sparse";
         }
         filename += "_out_stride_" + std::to_string(output_stride);
@@ -306,7 +260,7 @@ GenEmbeddingSpMDMLookup<
         x86::Gp out = a->gpz(reg_id); // 11
 
         x86::Gp compressed_indices_table;
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           ++reg_id;
           compressed_indices_table = a->gpz(reg_id); // 12
         }
@@ -314,15 +268,15 @@ GenEmbeddingSpMDMLookup<
         x86::Gp scratchReg1_ = a->gpz(reg_id); // 12 or 13, also for mask
 
         ++reg_id;
-        x86::Gpd lengths_R_ = a->gpz(reg_id).r32(); // 13 or 14
+        auto lengths_R_ = a->gpz(reg_id).r32(); // 13 or 14
         ++reg_id;
         x86::Gp scratchReg2_ = a->gpz(reg_id); // 14 or 15
 
         asmjit::FuncDetail func;
 
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           func.init(
-              asmjit::FuncSignatureT<
+              asmjit::FuncSignature::build<
                   bool,
                   int64_t, // output_size
                   int64_t, // index_size
@@ -333,11 +287,11 @@ GenEmbeddingSpMDMLookup<
                   const float*, // weights
                   outType*, // out
                   const int32_t*, // compressed_indices_table and then mask
-                  const int*>(asmjit::CallConvId::kHost),
+                  const int*>(),
               a->environment());
         } else {
           func.init(
-              asmjit::FuncSignatureT<
+              asmjit::FuncSignature::build<
                   bool,
                   int64_t, // output_size
                   int64_t, // index_size
@@ -347,7 +301,7 @@ GenEmbeddingSpMDMLookup<
                   const offsetType*, // offsets or lengths
                   const float*, // weights
                   outType*, // out and then mask
-                  const int*>(asmjit::CallConvId::kHost),
+                  const int*>(),
               a->environment());
         }
 
@@ -375,7 +329,7 @@ GenEmbeddingSpMDMLookup<
                 : asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           args.assignAll(
               output_size,
               index_size,
@@ -421,8 +375,8 @@ GenEmbeddingSpMDMLookup<
         vec_reg_t
             vlen_inv_vreg; // used for normalize by lengths -- 1/ lengths[i]
         vec_reg_t src_vreg; // for holding embedding value temporarily
-        x86::Ymm mask_vreg; // mask for avx2
-        x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
+        Ymm mask_vreg; // mask for avx2
+        Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
         vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
 
         if constexpr (is_8bit_in) {
@@ -603,7 +557,7 @@ GenEmbeddingSpMDMLookup<
           a->cmp(scratchReg1_, data_size);
           a->jae(error);
 
-          if (ROWWISE_SPARSE) {
+          if constexpr (ROWWISE_SPARSE) {
             a->mov(
                 scratchReg1_.r32(),
                 x86::dword_ptr(
@@ -645,7 +599,7 @@ GenEmbeddingSpMDMLookup<
             }
 
             a->bind(pref_dist_reset_end);
-            if (ROWWISE_SPARSE) {
+            if constexpr (ROWWISE_SPARSE) {
               asmjit::Label rowwise_sparse_pref_corner_case_begin =
                   a->newLabel();
               asmjit::Label rowwise_sparse_pref_corner_case_end = a->newLabel();
@@ -677,7 +631,7 @@ GenEmbeddingSpMDMLookup<
             a->add(weights, static_cast<asmjit::Imm>(sizeof(float)));
           }
 
-          if (ROWWISE_SPARSE) {
+          if constexpr (ROWWISE_SPARSE) {
             a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
             a->je(LoopDataIndexBegin);
           }
@@ -685,13 +639,12 @@ GenEmbeddingSpMDMLookup<
           a->imul(scratchReg1_, static_cast<asmjit::Imm>(fused_block_size));
 
           // broadcast the scale
-          x86::Mem scale_src, bias_src;
           constexpr unsigned int CACHE_LINE_LEN = 64;
           if constexpr (is_8bit_in) {
             if (scale_bias_last) {
-              scale_src = x86::dword_ptr(
+              auto scale_src = x86::dword_ptr(
                   input, scratchReg1_, 0, block_size * sizeof(uint8_t));
-              bias_src = x86::dword_ptr(
+              auto bias_src = x86::dword_ptr(
                   input,
                   scratchReg1_,
                   0,
@@ -699,8 +652,8 @@ GenEmbeddingSpMDMLookup<
               a->vbroadcastss(scale_vreg, scale_src);
               a->vbroadcastss(bias_vreg, bias_src);
             } else {
-              scale_src = x86::word_ptr(input, scratchReg1_);
-              bias_src =
+              auto scale_src = x86::word_ptr(input, scratchReg1_);
+              auto bias_src =
                   x86::word_ptr(input, scratchReg1_, 0, sizeof(uint16_t));
               a->vpbroadcastw(scale_vreg.half(), scale_src);
               a->vpbroadcastw(bias_vreg.half(), bias_src);
@@ -997,7 +950,7 @@ GenEmbeddingSpMDMLookup<
         }
 
         if (err) {
-          std::cout << "Error: in fn add" << std::endl;
+          std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 
@@ -1032,13 +985,13 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool no_bag /*=false*/,
         bool is_bf16_out /*=false*/,
         bool is_bf16_in /*=false*/) {
-#if defined(__APPLE__) || defined(_WIN32)
-  if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
-      std::is_same<outType, float>::value) {
-    throw std::runtime_error(
-        "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
+  bool use_avx [[maybe_unused]] = true;
+  if constexpr (
+      std::is_same_v<inType, uint16_t> && std::is_same_v<outType, float>) {
+    if (is_bf16_in) {
+      use_avx = false;
+    }
   }
-#endif
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1053,7 +1006,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   }
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-  if (!no_bag) {
+  if (!no_bag && use_avx) {
     if (!cpuinfo_initialize()) {
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
@@ -1345,9 +1298,9 @@ typename EmbeddingSpMDMRowWiseSparseKernelSignature<
     offsetType>::Type
 GenerateEmbeddingSpMDMRowWiseSparse(
     const int64_t block_size,
-    bool has_weight,
+    bool has_weight [[maybe_unused]],
     bool normalize_by_lengths,
-    int prefetch,
+    int prefetch [[maybe_unused]],
     bool is_weight_positional,
     bool use_offsets) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64

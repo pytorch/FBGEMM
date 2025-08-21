@@ -207,8 +207,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     }
 #endif
 
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
     assert(
         maxMRegs * maxNRegs <= numRegs - 4 &&
@@ -227,14 +226,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
-            void,
-            uint8_t*,
-            int8_t*,
-            int8_t*,
-            int32_t*,
-            int,
-            int>(asmjit::CallConvId::kHost),
+        asmjit::FuncSignature::
+            build<void, uint8_t*, int8_t*, int8_t*, int32_t*, int, int>(),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -408,7 +401,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 
@@ -634,8 +627,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     }
 #endif
 
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
     assert(
         maxMRegs * maxNRegs <= numRegs - 4 &&
@@ -652,15 +644,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
-            void,
-            uint8_t*,
-            int8_t*,
-            int32_t*,
-            int,
-            int,
-            int,
-            int>(asmjit::CallConvId::kHost),
+        asmjit::FuncSignature::
+            build<void, uint8_t*, int8_t*, int32_t*, int, int, int, int>(),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -777,7 +762,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 

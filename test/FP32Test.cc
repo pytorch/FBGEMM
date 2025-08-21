@@ -20,7 +20,7 @@
 
 using FBGemmFP32Test = fbgemm::FBGemmFPTest<float>;
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmFP32Test,
     ::testing::Values(

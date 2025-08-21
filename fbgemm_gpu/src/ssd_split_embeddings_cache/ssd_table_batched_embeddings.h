@@ -329,6 +329,20 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
+  std::vector<std::string> split_paths(const std::string& input) {
+    std::vector<std::string> result;
+    std::stringstream ss(input);
+    std::string item;
+
+    while (std::getline(ss, item, ',')) {
+      if (!item.empty()) {
+        result.push_back(item);
+      }
+    }
+
+    return result;
+  }
+
   void initialize_dbs(
       int64_t num_shards,
       std::string path,
@@ -344,15 +358,17 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
     tbe_uuid_ = facebook::strings::generateUUID();
     use_default_ssd_path_ = !use_passed_in_path;
-    if (!use_passed_in_path) {
-      path_ = std::move(ssd_mount_point);
+    if (use_passed_in_path) {
+      paths_ = split_paths(path);
     } else {
-      path_ = std::move(path);
+      paths_.push_back(ssd_mount_point);
     }
+    CHECK(paths_.size() > 0);
     db_paths_.reserve(num_shards);
     std::string all_shards_path;
 #endif
     for (auto i = 0; i < num_shards; ++i) {
+      path_ = paths_[i % paths_.size()];
 #ifdef FBGEMM_FBCODE
       auto rocksdb_path = kv_db_utils::get_rocksdb_path(
           path_, i, tbe_uuid_, !use_passed_in_path);
@@ -423,9 +439,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return;
   }
 
-  void resume_ongoing_eviction() override {
+  void resume_ongoing_eviction(bool force_pause = false) override {
     // no op for now
     return;
+  }
+
+  folly::SemiFuture<std::vector<folly::Unit>>
+  set_kv_zch_eviction_metadata_async(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_rates) override {
+    // no op for now
+    return folly::makeSemiFuture<std::vector<folly::Unit>>(
+        std::vector<folly::Unit>{});
   }
 
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
@@ -567,7 +593,29 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
              "removing the prev rdb ckpt, please make sure it has fullfilled "
              "its use case, e.g. checkpoint and publish";
     }
+
+    // remove old checkoint handler as they are likely not needed anymore
+    // this can not be done the same way as rdb snapshot, because we only
+    // create 1 rdb checkpoint per use cases(ckpt/publish), however publish
+    // calls state_dict multiple times, most of them to just get the fqn, they
+    // throw away pmt immediately if such state_dict is called at the beginning,
+    // it will destroy the checkpoint handler and when the real use case needs
+    // rdb ckpt, it is removed already
+    if (global_step - 10000 > 0) {
+      std::vector<std::string> ckpt_uuids_to_purge;
+      for (const auto& [glb_step, ckpt_uuid] : global_step_to_ckpt_uuid_) {
+        if (glb_step < global_step - 10000) {
+          ckpt_uuids_to_purge.push_back(ckpt_uuid);
+        }
+      }
+      for (auto& ckpt_uuid : ckpt_uuids_to_purge) {
+        release_checkpoint(ckpt_uuid);
+      }
+    }
+
     auto ckpt_uuid = facebook::strings::generateUUID();
+
+    LOG(INFO) << "creating new rocksdb checkpoint, uuid:" << ckpt_uuid;
     auto handle = std::make_unique<CheckpointHandle>(
         this, tbe_uuid_, ckpt_uuid, path_, use_default_ssd_path_);
     checkpoints_[ckpt_uuid] = std::move(handle);
@@ -696,6 +744,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       offset += keys.size();
     }
     return returned_keys;
+  }
+
+  at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const SnapshotHandle* snapshot_handle) {
+    // no op for ssd embedding now, default value is 0
+    return at::zeros_like(indices, at::kLong);
   }
 
   void get_range_from_snapshot(
@@ -1261,6 +1317,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::vector<int64_t> sub_table_hash_cumsum_;
   std::string tbe_uuid_;
   std::string path_;
+  std::vector<std::string> paths_;
   bool use_default_ssd_path_;
 
   // rocksdb checkpoint is used to create an on disk database to support
@@ -1438,6 +1495,14 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
     get_kv_db_async_impl</*use_iterator=*/true>(
         seq_indices, weights, count, width_offset)
         .wait();
+  }
+
+  void delete_rocksdb_checkpoint_dir() {
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      LOG(INFO) << "removing checkpoint directories: "
+                << rdb_shard_checkpoint_paths_[shard];
+      kv_db_utils::remove_dir(rdb_shard_checkpoint_paths_[shard]);
+    }
   }
 
   int64_t get_max_D() {

@@ -248,6 +248,8 @@ PackBMatrix<T, accT>::PackBMatrix(
         64,
         BaseType::numGroups() * BaseType::blockRows() * BaseType::brow_ *
             BaseType::blockCols() * BaseType::bcol_ * sizeof(T)));
+  } else if (!smat) {
+    return;
   }
   pack(block, params);
 }
@@ -368,18 +370,18 @@ void PackBMatrix<T, accT>::unpack(
 }
 
 template <typename T, typename accT>
-int32_t PackBMatrix<T, accT>::addr(int32_t r, int32_t c) const {
-  int32_t block_row_id = r / BaseType::blockRowSize();
+int32_t PackBMatrix<T, accT>::addr(int32_t i, int32_t j) const {
+  int32_t block_row_id = i / BaseType::blockRowSize();
   int32_t brow_offset = (block_row_id * BaseType::blockCols()) *
       (BaseType::blockRowSize() * BaseType::blockColSize());
 
-  int32_t block_col_id = c / BaseType::blockColSize();
+  int32_t block_col_id = j / BaseType::blockColSize();
   int32_t bcol_offset =
       block_col_id * BaseType::blockRowSize() * BaseType::blockColSize();
   int32_t block_offset = brow_offset + bcol_offset;
-  int32_t inblock_offset = (r % BaseType::blockRowSize() / row_interleave_) *
+  int32_t inblock_offset = (i % BaseType::blockRowSize() / row_interleave_) *
           BaseType::blockColSize() * row_interleave_ +
-      (c % BaseType::blockColSize()) * row_interleave_ + r % row_interleave_;
+      (j % BaseType::blockColSize()) * row_interleave_ + i % row_interleave_;
 
   int32_t index = block_offset + inblock_offset;
 
@@ -400,12 +402,12 @@ void PackBMatrix<T, accT>::printPackedMatrix(
         g *
             BaseType::packedBufferSize(
                 BaseType::numPackedRows(), BaseType::numPackedCols(), params);
-    std::cout << "group: " << g << std::endl;
+    std::cout << "group: " << g << '\n';
     for (auto nr = 0; nr < BaseType::blockRows(); ++nr) {
       auto rows = (nr == BaseType::blockRows() - 1) ? BaseType::lastBrow()
                                                     : BaseType::blockRowSize();
       for (auto nc = 0; nc < BaseType::blockCols(); ++nc) {
-        std::cout << "block:" << nr << ", " << nc << std::endl;
+        std::cout << "block:" << nr << ", " << nc << '\n';
         auto cols = (nc == BaseType::blockCols() - 1)
             ? BaseType::lastBcol()
             : BaseType::blockColSize();
@@ -424,9 +426,9 @@ void PackBMatrix<T, accT>::printPackedMatrix(
               std::cout << std::setw(5) << val << " ";
             }
           }
-          std::cout << std::endl;
+          std::cout << '\n';
         }
-        std::cout << std::endl;
+        std::cout << '\n';
       }
     }
   }

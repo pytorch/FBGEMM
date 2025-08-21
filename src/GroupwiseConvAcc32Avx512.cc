@@ -7,7 +7,6 @@
  */
 
 #define FBGEMM_EXPORTS
-#include <asmjit/asmjit.h> // @manual
 #include "./CodeGenHelpers.h" // @manual
 #include "./GroupwiseConv.h" // @manual
 
@@ -21,7 +20,7 @@ GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
 GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
   x86::Gp permute_const_reg_upper_half = a->gpz(12);
   x86::Gp permute_const_reg_lower_half = a->gpz(13);
-  x86::Xmm const_reg_xmm = x86::xmm11;
+  auto const_reg_xmm = x86::xmm11;
   if (this->C_per_G_ == 4) {
     // 4 group together
     // We have 1st group in position 0 and 4, 2nd group 1 and 5 and so on.
@@ -69,7 +68,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
 
 GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
 GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(x86::Emitter* a) {
-  using WRegs = x86::Zmm;
+  using WRegs = Zmm;
   int paddedICPerG = (this->C_per_G_ + 3) / 4 * 4;
   // load weights
   for (int r = 0; r < this->R_; ++r) {
@@ -95,36 +94,36 @@ GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
 GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(x86::Emitter* a) {
   if (GTogether_ > 1) {
     // store with permutation
-    a->vpermd(x86::Zmm(9), stPermReg_V_, x86::Zmm(9));
+    a->vpermd(Zmm(9), stPermReg_V_, Zmm(9));
     if (this->accum_) {
-      a->vpaddd(x86::Zmm(9), x86::Zmm(9), x86::zmmword_ptr(out_acts_R_));
+      a->vpaddd(Zmm(9), Zmm(9), x86::zmmword_ptr(out_acts_R_));
     }
-    a->vmovups(x86::zmmword_ptr(out_acts_R_), x86::Zmm(9));
+    a->vmovups(x86::zmmword_ptr(out_acts_R_), Zmm(9));
   } else {
     // horizontal add and store
     if (this->C_per_G_ == 8) {
-      a->vextracti32x8(tmpReg1_V_.ymm(), x86::Zmm(9), 1);
-      a->vphaddd(x86::Ymm(9), x86::Ymm(9), tmpReg1_V_.ymm());
-      a->vpermq(x86::Ymm(9), x86::Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      a->vextracti32x8(tmpReg1_V_.ymm(), Zmm(9), 1);
+      a->vphaddd(Ymm(9), Ymm(9), tmpReg1_V_.ymm());
+      a->vpermq(Ymm(9), Ymm(9), static_cast<asmjit::Imm>(0xd8));
       if (this->accum_) {
-        a->vpaddd(x86::Ymm(9), x86::Ymm(9), x86::ymmword_ptr(out_acts_R_));
+        a->vpaddd(Ymm(9), Ymm(9), x86::ymmword_ptr(out_acts_R_));
       }
-      a->vmovups(x86::ymmword_ptr(out_acts_R_), x86::Ymm(9));
+      a->vmovups(x86::ymmword_ptr(out_acts_R_), Ymm(9));
     } else if (this->K_per_G_ == 16) {
       // we have results in 4 Zmm registers, need to reduce them to 2 Ymm
       // register 2 * 8 * 32 where 16 is K_per_g
       // first reduce 4 * 16 * 32bits to 4 * 8 * 32bits
       for (int k = 0; k < kLoopIters_; ++k) {
-        auto source_reg = x86::Zmm(9 - k);
-        auto result_reg = x86::Ymm(9 - k);
-        a->vextracti32x8(x86::Ymm(0), source_reg, 1);
-        a->vphaddd(result_reg, result_reg, x86::Ymm(0));
+        auto source_reg = Zmm(9 - k);
+        auto result_reg = Ymm(9 - k);
+        a->vextracti32x8(Ymm(0), source_reg, 1);
+        a->vphaddd(result_reg, result_reg, Ymm(0));
         a->vpermq(result_reg, result_reg, static_cast<asmjit::Imm>(0xd8));
       }
       // secondly reduce 4 * 8 * 32  to 2 * 8 * 32 bits;
       for (int k = 0, i = 0; k < kLoopIters_; k += 2, i++) {
-        auto result_reg = x86::Ymm(9 - k);
-        auto adjacent_result_reg = x86::Ymm(9 - k - 1);
+        auto result_reg = Ymm(9 - k);
+        auto adjacent_result_reg = Ymm(9 - k - 1);
         a->vphaddd(result_reg, result_reg, adjacent_result_reg);
         a->vpermq(result_reg, result_reg, static_cast<asmjit::Imm>(0xd8));
         if (this->accum_) {
@@ -193,7 +192,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
     int s,
     int act_s,
     bool use_zero_reg) {
-  using WRegs = x86::Zmm;
+  using WRegs = Zmm;
 
   if (use_zero_reg) {
     a->vmovapd(actReg_V_, zeroPTReg_V_); // 64 * 8 bit zero points

@@ -9,6 +9,7 @@
 
 import dataclasses
 import json
+from enum import Enum
 from typing import Any, Dict, Optional
 
 import click
@@ -28,6 +29,8 @@ class TBEBenchmarkingConfig:
     export_trace: bool
     # The path for exporting the trace
     trace_url: Optional[str]
+    # If set and export_trace is true, the benchmark will upload performance data from the trace to Scuba
+    upload_perf_data: bool
 
     @classmethod
     # pyre-ignore [3]
@@ -56,6 +59,23 @@ class TBEBenchmarkingConfig:
         return self
 
 
+@dataclasses.dataclass(frozen=True)
+class TBEBenchmarkingHelperText(Enum):
+    BENCH_ITERATIONS = "Number of benchmark iterations to run"
+    BENCH_NUM_REQUESTS = "Number of input batches to generate. If the value is smaller than the number of benchmark iterations, input batches will be re-used"
+    BENCH_WARMUP_ITERATIONS = (
+        "Number of warmup iterations to run before making measurements"
+    )
+    BENCH_FLUSH_GPU_CACHE_SIZE = (
+        "Amount of memory to use for flushing the GPU cache after each iteration (MB)"
+    )
+    BENCH_EXPORT_TRACE = (
+        "If set, trace will be exported to the path specified in trace url"
+    )
+    BENCH_TRACE_URL = "The path for exporting the trace"
+    BENCH_UPLOAD_PERF_DATA = "If set and export_trace is true, the benchmark will upload performance data from the trace to Scuba"
+
+
 class TBEBenchmarkingConfigLoader:
     @classmethod
     # pyre-ignore [2]
@@ -65,38 +85,44 @@ class TBEBenchmarkingConfigLoader:
                 "--bench-iterations",
                 type=int,
                 default=100,
-                help="Number of benchmark iterations to run",
+                help=TBEBenchmarkingHelperText.BENCH_ITERATIONS.value,
             ),
             click.option(
                 "--bench-num-requests",
                 type=int,
                 default=-1,
-                help="Number of input batches to generate. If the value is smaller than the number of benchmark iterations, input batches will be re-used",
+                help=TBEBenchmarkingHelperText.BENCH_NUM_REQUESTS.value,
             ),
             click.option(
                 "--bench-warmup-iterations",
                 type=int,
                 default=0,
-                help="Number of warmup iterations to run before making measurements",
+                help=TBEBenchmarkingHelperText.BENCH_WARMUP_ITERATIONS.value,
             ),
             click.option(
                 "--bench-flush-gpu-cache-size",
                 type=int,
                 default=0,
-                help="Amount of memory to use for flushing the GPU cache after each iteration (MB)",
+                help=TBEBenchmarkingHelperText.BENCH_FLUSH_GPU_CACHE_SIZE.value,
             ),
             click.option(
                 "--bench-export-trace",
                 is_flag=True,
                 default=False,
-                help="If set, a trace will be exported",
+                help=TBEBenchmarkingHelperText.BENCH_EXPORT_TRACE.value,
             ),
             click.option(
                 "--bench-trace-url",
                 type=str,
                 required=False,
                 default="{emb_op_type}_tbe_{phase}_trace_{ospid}.json",
-                help="The path for exporting the trace",
+                help=TBEBenchmarkingHelperText.BENCH_TRACE_URL.value,
+            ),
+            click.option(
+                "--upload-perf-data",
+                is_flag=True,
+                default=False,
+                help=TBEBenchmarkingHelperText.BENCH_UPLOAD_PERF_DATA.value,
             ),
         ]
 
@@ -114,6 +140,7 @@ class TBEBenchmarkingConfigLoader:
         flush_gpu_cache_size = params["bench_flush_gpu_cache_size"]
         export_trace = params["bench_export_trace"]
         trace_url = params["bench_trace_url"]
+        upload_perf_data = params["upload_perf_data"]
 
         # Default the number of TBE requests to number of iterations specified
         num_requests = iterations if num_requests == -1 else num_requests
@@ -125,4 +152,5 @@ class TBEBenchmarkingConfigLoader:
             flush_gpu_cache_size,
             export_trace,
             trace_url,
+            upload_perf_data,
         ).validate()

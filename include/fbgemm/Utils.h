@@ -15,12 +15,13 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <iomanip>
+#include <iostream>
 #include <string>
 #include <type_traits>
 
 #ifndef HAVE_SVE
-#if defined(__aarch64__) && (__GNUC__ >= 8 || __clang_major__ >= 5) && \
-    __ARM_FEATURE_SVE
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
 #define HAVE_SVE 1
 #else
 #define HAVE_SVE 0
@@ -96,16 +97,38 @@ FBGEMM_API int compare_buffers(
     float atol = 1e-3);
 
 /**
- * @brief Debugging helper.
+ * @brief Print the matrix.
+ * @param op Transpose type of the matrix.
+ * @param R The height of the matrix.
+ * @param C The width of the matrix.
+ * @param ld The leading dimension of the matrix.
+ * @param name The prefix string before printing the matrix.
  */
 template <typename T>
 void printMatrix(
-    matrix_op_t trans,
+    matrix_op_t op,
     const T* inp,
     size_t R,
     size_t C,
     size_t ld,
-    std::string name);
+    const std::string& name) {
+  // R: number of rows in op(inp)
+  // C: number of cols in op(inp)
+  // ld: leading dimension in inp
+  std::cout << name << ":" << "[" << R << ", " << C << "]" << '\n';
+  bool tr = (op == matrix_op_t::Transpose);
+  for (size_t r = 0; r < R; ++r) {
+    for (size_t c = 0; c < C; ++c) {
+      T res = tr ? inp[c * ld + r] : inp[r * ld + c];
+      if constexpr (std::is_integral_v<T>) {
+        std::cout << std::setw(5) << static_cast<int64_t>(res) << " ";
+      } else {
+        std::cout << std::setw(5) << res << " ";
+      }
+    }
+    std::cout << '\n';
+  }
+}
 
 /**
  * @brief Transpose a matrix.
@@ -125,12 +148,12 @@ FBGEMM_API void transpose_simd(
 /**
  * @brief Explicitly set instruction set to be used
  */
-FBGEMM_API void fbgemmForceIsa(inst_set_t);
+FBGEMM_API void fbgemmForceIsa(inst_set_t /*isa*/);
 
 /**
  * @brief Enable AVX512-256 path for Intel(r) Xeon(r) D servers
  */
-FBGEMM_API void fbgemmEnableAvx512Ymm(bool);
+FBGEMM_API void fbgemmEnableAvx512Ymm(bool /*flag*/);
 
 /**
  * @brief Are we running on a Xeon-D cpu?
@@ -175,12 +198,12 @@ FBGEMM_API inst_set_t fbgemmInstructionSet();
 /**
  * @brief Is ISA is wide vector ZMM
  */
-FBGEMM_API bool isZmm(inst_set_t);
+FBGEMM_API bool isZmm(inst_set_t /*isa*/);
 
 /**
  * @brief Is ISA is wide vector ZMM
  */
-FBGEMM_API bool isYmm(inst_set_t);
+FBGEMM_API bool isYmm(inst_set_t /*isa*/);
 
 /**
  * @brief Helper struct to enable autotuning of FBGEMM packing and kernels.
@@ -212,7 +235,7 @@ struct FBGEMM_API thread_type_t {
   int n_thread_id;
 
   std::string toString() const {
-    std::string out = "";
+    std::string out;
     out += "g num threads: " + std::to_string(g_num_threads) + ", ";
     out += "m num threads: " + std::to_string(m_num_threads) + ", ";
     out += "n num threads: " + std::to_string(n_num_threads) + ", ";
@@ -247,8 +270,8 @@ FBGEMM_API thread_type_t fbgemmGetThreadPartition(
     int g,
     int m,
     int n,
-    int num_threads,
     int thread_id,
+    int num_threads,
     int n_align = 64);
 
 template <int SIZE, typename T = std::int32_t>
@@ -447,6 +470,7 @@ void nbit_embedding_sanity_check(
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
       "input_bit_rate must be 2 or 4");
+  // NOLINTNEXTLINE(bugprone-branch-clone)
   if constexpr (std::is_same_v<OutType, uint8_t>) {
     assert(
         (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&

@@ -7,11 +7,10 @@
  */
 
 #pragma once
-#include <asmjit/asmjit.h> // @manual
+#include <asmjit/x86.h> // @manual
 #include <cpuinfo.h>
 #include <cassert>
 #include <cstdint>
-#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -152,9 +151,9 @@ class GenConvKernelBase {
     oss << "_useRightPadding-" << std::get<6>(kernel_sig);
     oss << "_accum-" << std::get<7>(kernel_sig);
 
-    if (INST_SET == inst_set_t::avx512) {
+    if constexpr (INST_SET == inst_set_t::avx512) {
       oss << "_avx512";
-    } else if (INST_SET == inst_set_t::avx2) {
+    } else if constexpr (INST_SET == inst_set_t::avx2) {
       oss << "_avx2";
     } else {
       oss << "_unknown";
@@ -172,9 +171,9 @@ class GenConvKernelBase {
     return rt;
   }
 
-  static std::mutex rtMutex_; ///< Control access to runtime;
+  inline static std::mutex rtMutex_; ///< Control access to runtime;
 
-  static CodeCache<
+  inline static CodeCache<
       kernel_sig_t,
       jit_conv_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
@@ -325,12 +324,5 @@ class FBGEMM_API GenConvKernel
   x86::Gp scratchReg1_;
   x86::Gp scratchReg2_;
 };
-
-template <int SPATIAL_DIM, inst_set_t INST_SET>
-std::mutex GenConvKernelBase<SPATIAL_DIM, INST_SET>::rtMutex_;
-
-template <int SPATIAL_DIM, inst_set_t INST_SET>
-CodeCache<kernel_sig_t, jit_conv_kernel_fp>
-    GenConvKernelBase<SPATIAL_DIM, INST_SET>::codeCache_;
 
 } // namespace fbgemm

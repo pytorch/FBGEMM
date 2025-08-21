@@ -11,10 +11,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <cstring>
 #include <memory>
-#include <sstream>
 #include <vector>
 
 #include "fbgemm/Utils.h"
@@ -27,7 +25,7 @@ namespace fbgemm {
 template <typename T>
 FBGEMM_API std::unique_ptr<CSRMatrix<T>>
 fbgemmDenseToCSR(int R, int C, const T* inp, int ld) {
-  unique_ptr<CSRMatrix<T>> csr(new CSRMatrix<T>());
+  auto csr = std::make_unique<CSRMatrix<T>>();
   csr->rowPtr.push_back(0);
   int nnz = 0;
   for (int i = 0; i < R; ++i) {
@@ -61,7 +59,7 @@ fbgemmDenseToCSR(int R, int C, const float* inp, int ld);
 template <typename T, int RB, int CB>
 FBGEMM_API std::unique_ptr<BCSRMatrix<T, RB, CB>>
 fbgemmDenseToBCSR(int R, int C, const T* inp, int ld) {
-  unique_ptr<BCSRMatrix<T, RB, CB>> bcsr(new BCSRMatrix<T, RB, CB>(R, C));
+  auto bcsr = std::make_unique<BCSRMatrix<T, RB, CB>>(R, C);
   bcsr->pack(inp, ld);
   return bcsr;
 }
@@ -71,19 +69,6 @@ FBGEMM_API std::unique_ptr<BCSRMatrix<T, RB, CB>>
 fbgemmDenseToBCSR(int R, int C, const T* inp) {
   return fbgemmDenseToBCSR<T, RB, CB>(R, C, inp, C);
 }
-
-#if __cplusplus < 201703L
-
-template <typename T, int RB, int CB>
-constexpr int BCSRMatrix<T, RB, CB>::RB;
-
-template <typename T, int RB, int CB>
-constexpr int BCSRMatrix<T, RB, CB>::CB;
-
-template <typename T, int RB, int CB>
-constexpr int BCSRMatrix<T, RB, CB>::COLTILE;
-
-#endif
 
 template <typename T, int RB, int CB>
 void BCSRMatrix<T, RB, CB>::pack(const DTYPE* src, size_t ld) {
@@ -208,15 +193,19 @@ void SparseDenseMM(
     float* C,
     int ldc,
     bool accum) {
-  static const auto iset = fbgemmInstructionSet();
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   // Run time CPU detection
+  static const auto iset = fbgemmInstructionSet();
+
   if (isZmm(iset)) {
     internal::SparseDenseMMAvx512(
         M, N, row_ptr, col_idx, values, B, ldb, C, ldc, accum);
   } else if (isYmm(iset)) {
     internal::SparseDenseMMAvx2(
         M, N, row_ptr, col_idx, values, B, ldb, C, ldc, accum);
-  } else {
+  } else
+#endif
+  {
     sparseDenseMMRef(M, N, row_ptr, col_idx, values, B, ldb, C, ldc, accum);
   }
 }
@@ -234,14 +223,16 @@ FBGEMM_API void fbgemmSparseDenseInt8MM(
     bool accum,
     int thread_id,
     int num_threads) {
-  static const auto iset = fbgemmInstructionSet();
   // No parallelization currently
   // All work is done by thread 0
   if (thread_id > 0) {
     return;
   }
 
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   // Run time CPU detection
+  static const auto iset = fbgemmInstructionSet();
+
   if (isZmm(iset)) {
     internal::SparseDenseInt8MMAvx512<FUSE_RELU, Q_GRAN>(
         N,
@@ -268,7 +259,9 @@ FBGEMM_API void fbgemmSparseDenseInt8MM(
         accum,
         thread_id,
         num_threads);
-  } else {
+  } else
+#endif
+  {
     sparseDenseInt8MMRef<FUSE_RELU, Q_GRAN>(
         N,
         bcsr,

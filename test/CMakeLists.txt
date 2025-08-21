@@ -4,41 +4,31 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
+################################################################################
+# Find Packages
+################################################################################
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+find_package(GTest)
 
-if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
-  #Download Googletest framework from github if
-  #GOOGLETEST_SOURCE_DIR is not specified.
+if(NOT GTest_FOUND)
+  # Download Googletest framework from github if
+  # GOOGLETEST_SOURCE_DIR is not specified.
+  set(INSTALL_GTEST OFF)
+
   if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
     set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
       CACHE STRING "googletest source directory from submodules")
   endif()
 
   #build Googletest framework
-  #MSVC needs gtest_for_shared_crt to select right runtime lib
-  if (MSVC AND FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-    message(WARNING "gtest_force_shared_crt is ON")
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  else()
-    message(WARNING "gtest_force_shared_crt is OFF")
-  endif()
+  set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+  set(BUILD_SHARED_LIBS OFF)
   add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
-  # add flags required for mac build
-  if(NOT MSVC)
-    target_compile_options(gtest PRIVATE "-Wno-deprecated-copy")
-    target_compile_options(gmock PRIVATE "-Wno-deprecated-copy")
-  endif()
+  # Recover the build shared libs option.
+  set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS})
 endif()
 
-if (USE_SANITIZER)
+if(FBGEMM_USE_SANITIZER)
   message(WARNING "USING SANITIZER IN TEST")
 endif()
 
@@ -46,51 +36,87 @@ if(${OpenMP_FOUND})
   message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
 endif()
 
-macro(add_gtest TESTNAME)
-  add_executable(${TESTNAME} ${ARGN}
+function(add_gtest TESTNAME)
+  set(test_sources
+    ${ARGN}
     ../bench/BenchUtils.cc
     EmbeddingSpMDMTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
+
+  add_executable(${TESTNAME} ${test_sources})
+
   # To compile test files with AVX2 turned on
-  # For static build, defining FBGEMM_STATIC to avoid generating
-  # functions with _dllimport attributes.
   if(MSVC)
     target_compile_options(${TESTNAME} PRIVATE
-      "/arch:AVX2" "/wd4244" "/wd4267" "/wd4305" "/wd4309")
-    if (FBGEMM_LIBRARY_TYPE STREQUAL "static")
-      target_compile_definitions(${TESTNAME} PRIVATE FBGEMM_STATIC)
-    endif()
-  else(MSVC)
-    target_compile_options(${TESTNAME} PRIVATE
-     "-m64" "-mavx2" "-mfma" "-masm=intel")
-  endif(MSVC)
-  if (USE_SANITIZER)
-    target_compile_options(${TESTNAME} PRIVATE
-      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-    target_link_options(${TESTNAME} PRIVATE
-      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+      /wd4244
+      /wd4267
+      /wd4305
+      /wd4309)
   endif()
 
-  target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
+  if(CXX_AVX2_FOUND)
+    if(MSVC)
+      target_compile_options(${TESTNAME} PRIVATE ${CXX_AVX2_FLAGS})
+    else()
+      target_compile_options(${TESTNAME} PRIVATE
+      -m64
+      ${CXX_AVX2_FLAGS}
+      -mfma
+      -masm=intel)
+    endif()
+  endif()
+
+  if(FBGEMM_USE_SANITIZER)
+    target_compile_options(${TESTNAME} PRIVATE
+      "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
+    target_link_options(${TESTNAME} PRIVATE
+      "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
+  endif()
+
+  target_link_libraries(${TESTNAME} fbgemm)
+  if(TARGET GTest::gtest_main)
+    target_link_libraries(${TESTNAME} GTest::gmock GTest::gtest_main)
+  else()
+    target_link_libraries(${TESTNAME} gmock gtest_main)
+  endif()
 
   if(OpenMP_FOUND)
     target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)
   endif()
 
-  add_dependencies(${TESTNAME} gtest fbgemm)
   add_test(${TESTNAME} ${TESTNAME})
   set_target_properties(${TESTNAME} PROPERTIES FOLDER test)
-endmacro()
+
+  BLOCK_PRINT(
+    "Test Target: ${TESTNAME}"
+    " "
+    "SRCS:"
+    "${test_sources}")
+endfunction()
 
 
 file(GLOB TEST_LIST "*Test.cc")
-
 foreach(TEST_FILE ${TEST_LIST})
-  # NOTE: Skip FP32 test until FP32 is properly integrated into OSS builds
-  if(TEST_FILE MATCHES "FP32Test.cc$")
+  # NOTE: Skip tests on ARM for now until linking issues are fixed
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    if(TEST_FILE MATCHES "GConvTest"
+    OR TEST_FILE MATCHES "UniConvTest"
+    OR(TEST_FILE MATCHES "FP16Test.cc$" AND (NOT APPLE))
+    OR TEST_FILE MATCHES "I8DepthwiseTest.cc$"
+    OR TEST_FILE MATCHES "I8SpmdmTest.cc$"
+    OR TEST_FILE MATCHES "I8DirectconvTest.cc$"
+    OR TEST_FILE MATCHES "Requantize")
+      continue()
+    endif()
+  endif()
+
+  if(MSVC AND TEST_FILE MATCHES "FP32Test.cc$")
+    # NOTE: Skip FP32 test for MSVC until intrinsic kernels are implemented
     continue()
   endif()
+
+  message(STATUS "Processing: ${TEST_FILE}")
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
   get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)

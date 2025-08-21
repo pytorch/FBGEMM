@@ -58,15 +58,15 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
   if (timebreak) {
     cout
         << "WARNING: the timer may be inaccurate when used by multiple threads."
-        << endl;
+        << '\n';
     cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(18)
          << "Type, " << setw(18) << "Packing (us), " << setw(18)
          << "Kernel (us), " << setw(18) << "Postproc (us), " << setw(18)
          << "Computation (us)," << setw(18) << "Total (us), " << setw(5)
-         << "GOPs" << endl;
+         << "GOPs" << '\n';
   } else {
     cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(18)
-         << "Type, " << setw(5) << "GOPS" << endl;
+         << "Type, " << setw(5) << "GOPS" << '\n';
   }
 
   chrono::time_point<chrono::high_resolution_clock> start, end;
@@ -139,7 +139,7 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
     }
 
     cout << setw(5) << fixed << setw(5) << setprecision(1) << nops / ttot
-         << endl;
+         << '\n';
 
     for (size_t i = 0; i < Cfp32_mkl.size(); ++i) {
       Cint32_mkl[i] = (int32_t)Cfp32_mkl[i];
@@ -224,7 +224,7 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
       }
     }
     if (flush) {
-      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+      ((volatile char*)(llc.data()))[0] = llc[0] + 1;
     }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
@@ -243,7 +243,7 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
     }
 
     cout << ", " << setw(5) << fixed << setw(5) << setprecision(1)
-         << NITER * nops / ttot << endl;
+         << NITER * nops / ttot << '\n';
 
     compare_buffers(Cint32_ref.data(), Cint32_fb_acc32.data(), m, n, n, 5);
 
@@ -312,7 +312,7 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
       }
     }
     if (flush) {
-      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+      ((volatile char*)(llc.data()))[0] = llc[0] + 1;
     }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
@@ -333,8 +333,8 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
     }
 
     cout << ", " << setw(5) << fixed << setw(5) << setprecision(1)
-         << NITER * nops / ttot << endl;
-    cout << endl;
+         << NITER * nops / ttot << '\n';
+    cout << '\n';
 
     compare_buffers(Cint32_ref.data(), Cint32_fb_acc16.data(), m, n, n, 5);
   }

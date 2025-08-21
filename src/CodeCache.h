@@ -7,21 +7,9 @@
  */
 
 #pragma once
-#include <condition_variable>
 #include <future>
 #include <map>
-
-#if __cplusplus >= 201402L && !defined(__APPLE__)
-// For C++14, use shared_timed_mutex.
-// some macOS C++14 compilers don't support shared_timed_mutex.
-#define FBGEMM_USE_SHARED_TIMED_MUTEX
-#endif
-
-#ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
 #include <shared_mutex>
-#else
-#include <mutex>
-#endif
 
 #ifdef FBCODE_CAFFE2
 #include <folly/container/F14Map.h>
@@ -44,32 +32,27 @@ class CodeCache {
   std::map<KEY, std::shared_future<VALUE>> values_;
 #endif
 
-#ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
   std::shared_timed_mutex mutex_;
-#else
-  std::mutex mutex_;
-#endif
 
  public:
   CodeCache(const CodeCache&) = delete;
   CodeCache& operator=(const CodeCache&) = delete;
 
+  CodeCache(CodeCache&&) = default;
+  CodeCache& operator=(CodeCache&&) = default;
+
   CodeCache() = default;
+  ~CodeCache() = default;
 
   template <typename GENFUNC>
   VALUE getOrCreate(const KEY& key, GENFUNC generatorFunction) {
-#ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
     std::shared_lock<std::shared_timed_mutex> sharedLock(mutex_);
-#else
-    std::unique_lock<std::mutex> uniqueLock(mutex_);
-#endif
 
     // Check for existence of the key
     auto it = values_.find(key);
     if (it != values_.end()) {
       return it->second.get();
     } else {
-#ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
       sharedLock.unlock();
       std::unique_lock<std::shared_timed_mutex> uniqueLock(mutex_);
 
@@ -77,7 +60,6 @@ class CodeCache {
       // the time gap between sharedLock.unlock() and creating uniqueLock.
       it = values_.find(key);
       if (it == values_.end()) {
-#endif
         std::promise<VALUE> returnPromise;
         values_[key] = returnPromise.get_future().share();
 
@@ -86,11 +68,9 @@ class CodeCache {
         VALUE val = generatorFunction();
         returnPromise.set_value(val);
         return val;
-#ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
       } else {
         return it->second.get();
       }
-#endif
     }
   }
 };
@@ -116,7 +96,11 @@ class CodeCache<KEY, VALUE, /*THREAD_LOCAL=*/true> {
   CodeCache(const CodeCache&) = delete;
   CodeCache& operator=(const CodeCache&) = delete;
 
+  CodeCache(CodeCache&&) = default;
+  CodeCache& operator=(CodeCache&&) = default;
+
   CodeCache() = default;
+  ~CodeCache() = default;
 
   template <typename GENFUNC>
   VALUE getOrCreate(const KEY& key, GENFUNC generatorFunction) {

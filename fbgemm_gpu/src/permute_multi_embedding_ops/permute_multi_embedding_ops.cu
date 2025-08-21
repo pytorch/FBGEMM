@@ -17,6 +17,7 @@
 
 #include "fbgemm_gpu/permute_multi_embedding_function.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
@@ -279,27 +280,29 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       pooled_embs[0].scalar_type(), "permute_multi_embedding", [&] {
-        Tensor in_ptr = tensors_ptr<scalar_t>(inputs);
-        Tensor out_ptr = tensors_ptr<scalar_t>(outputs);
-        in_ptr = in_ptr.to(device, /*non_blocking=*/true);
-        out_ptr = out_ptr.to(device, /*non_blocking=*/true);
+        auto in_ptr =
+            tensors_ptr<scalar_t>(inputs).to(device, /*non_blocking=*/true);
+        auto out_ptr =
+            tensors_ptr<scalar_t>(outputs).to(device, /*non_blocking=*/true);
         const auto permute_kernel = reverse_permute
             ? permute_multi_embs_kernel<scalar_t, true>
             : permute_multi_embs_kernel<scalar_t, false>;
-        const auto stream = at::cuda::getCurrentCUDAStream();
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "permute_multi_embs_kernel";
-#endif
-        permute_kernel<<<grid_dim, block_dim, 0, stream>>>(
+
+        FBGEMM_LAUNCH_KERNEL(
+            permute_kernel,
+            grid_dim,
+            block_dim,
+            0,
+            at::cuda::getCurrentCUDAStream(),
             reinterpret_cast<const scalar_t**>(in_ptr.data_ptr()),
             reinterpret_cast<scalar_t**>(out_ptr.data_ptr()),
-            MAKE_PTA_WITH_NAME(func_name, permutes, int32_t, 2, 32),
-            MAKE_PTA_WITH_NAME(func_name, in_shapes, int32_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, out_shapes, int32_t, 1, 32),
+            PTA_B(permutes, int32_t, 2, 32),
+            PTA_B(in_shapes, int32_t, 1, 32),
+            PTA_B(out_shapes, int32_t, 1, 32),
             batch_size,
             permute_size);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
+
   return outputs;
 }
 std::vector<Tensor> permute_multi_embedding_gpu(

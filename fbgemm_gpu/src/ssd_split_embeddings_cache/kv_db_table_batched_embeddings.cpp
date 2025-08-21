@@ -140,7 +140,8 @@ EmbeddingKVDB::EmbeddingKVDB(
              << " shards, dimension:" << max_D_
              << ", enable_async_update_:" << enable_async_update_
              << ", enable_raw_embedding_streaming_:"
-             << enable_raw_embedding_streaming_;
+             << enable_raw_embedding_streaming_
+             << ", cache_size_gb:" << cache_size_gb;
 
   if (enable_async_update_) {
     cache_filling_thread_ = std::make_unique<std::thread>([=] {
@@ -374,7 +375,10 @@ void EmbeddingKVDB::update_cache_and_storage(
     //  prefetch: get() -> set()
     //  forward:
     // backward: set()
-    resume_ongoing_eviction();
+    if (mode == kv_db::RocksdbWriteMode::BWD_L1_CNFLCT_MISS_WRITE_BACK) {
+      // only resume eviction on the backward set cuda call
+      resume_ongoing_eviction();
+    }
   }
 }
 
@@ -445,6 +449,27 @@ void EmbeddingKVDB::set_cuda(
   std::function<void()>* functor = new std::function<void()>([=]() {
     self->set(indices, weights, count, is_bwd);
     self->flush_or_compact(timestep);
+  });
+  AT_CUDA_CHECK(cudaStreamAddCallback(
+      at::cuda::getCurrentCUDAStream(),
+      kv_db_utils::cuda_callback_func,
+      functor,
+      0));
+  rec->record.end();
+#endif
+}
+
+void EmbeddingKVDB::set_feature_score_metadata_cuda(
+    const at::Tensor& indices,
+    const at::Tensor& count,
+    const at::Tensor& engage_show_count) {
+#ifdef FBGEMM_USE_GPU
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::set_feature_score_metadata_cuda ##");
+  // take reference to self to avoid lifetime issues.
+  std::function<void()>* functor = new std::function<void()>([=]() {
+    set_kv_zch_eviction_metadata_async(
+        std::move(indices), std::move(count), std::move(engage_show_count));
   });
   AT_CUDA_CHECK(cudaStreamAddCallback(
       at::cuda::getCurrentCUDAStream(),
@@ -549,6 +574,11 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
 
 void EmbeddingKVDB::reset_l2_cache() {
   l2_cache_ = nullptr;
+}
+
+void EmbeddingKVDB::set_backend_return_whole_row(
+    const bool /*backend_return_whole_row*/) {
+  return;
 }
 
 void EmbeddingKVDB::set(

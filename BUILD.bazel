@@ -42,26 +42,28 @@ cc_library(
     name = "fbgemm",
     visibility = ["//visibility:public"],
     srcs = get_fbgemm_generic_srcs(),
-    hdrs = glob(["src/*.h"]),
+    hdrs = glob(["src/*.h", "src/fp32/*.h"]),
     includes = [
         "src",
+        "src/fp32",
     ],
     deps = [
         ":fbgemm_autovec",
+        ":fbgemm_base",
+        ":fbgemm_headers",
+    ]+ select({
+        ":linux-x86_64": [
         ":fbgemm_avx2",
         ":fbgemm_inline_avx2",
         ":fbgemm_avx512",
-        ":fbgemm_inline_avx512",
-        ":fbgemm_base",
-        ":fbgemm_headers",
-    ],
+        ":fbgemm_inline_avx512"]}),
     linkstatic = 1,
 )
 
 cc_library(
     name = "fbgemm_avx2",
     srcs = get_fbgemm_avx2_srcs(),
-    hdrs = glob(["src/*.h"]),
+    hdrs = glob(["src/*.h", "src/fp32/*.h"]),
     copts = [
         "-m64",
         "-mavx2",
@@ -78,7 +80,7 @@ cc_library(
 cc_library(
     name = "fbgemm_inline_avx2",
     srcs = get_fbgemm_inline_avx2_srcs(),
-    hdrs = glob(["src/*.h"]),
+    hdrs = glob(["src/*.h", "src/fp32/*.h"]),
     copts = [
         "-m64",
         "-mavx2",
@@ -96,7 +98,7 @@ cc_library(
 cc_library(
     name = "fbgemm_avx512",
     srcs = get_fbgemm_avx512_srcs(),
-    hdrs = glob(["src/*.h"]),
+    hdrs = glob(["src/*.h", "src/fp32/*.h"]),
     copts = [
         "-m64",
         "-mfma",
@@ -115,7 +117,7 @@ cc_library(
 cc_library(
     name = "fbgemm_inline_avx512",
     srcs = get_fbgemm_inline_avx512_srcs(),
-    hdrs = glob(["src/*.h"]),
+    hdrs = glob(["src/*.h", "src/fp32/*.h"]),
     copts = [
         "-m64",
         "-mfma",

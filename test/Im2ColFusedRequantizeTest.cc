@@ -6,8 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <cmath>
-#include <cstdio>
 #include <numeric>
 #include <random>
 
@@ -17,7 +15,6 @@
 
 #include <gtest/gtest.h>
 
-#include "./TestUtils.h" // @manual
 #include "bench/AlignedVec.h" // @manual
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
@@ -36,7 +33,7 @@ class fbgemmIm2colTest
     : public testing::TestWithParam<tuple<QuantizationGranularity, bool>> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmIm2colTest,
     ::testing::Combine(
@@ -236,7 +233,7 @@ static void Im2colTest(bool b_symmetric) {
 }
 
 TEST_P(fbgemmIm2colTest, Acc32Test) {
-  QuantizationGranularity q_granularity;
+  QuantizationGranularity q_granularity{};
   bool b_symmetric = false;
   tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {
@@ -249,7 +246,7 @@ TEST_P(fbgemmIm2colTest, Acc32Test) {
 }
 
 TEST_P(fbgemmIm2colTest, Acc16Test) {
-  QuantizationGranularity q_granularity;
+  QuantizationGranularity q_granularity{};
   bool b_symmetric = false;
   tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {
@@ -471,7 +468,7 @@ static void SConvTest() {
 }
 
 TEST_P(fbgemmIm2colTest, SConvTest) {
-  QuantizationGranularity q_granularity;
+  QuantizationGranularity q_granularity{};
   bool b_symmetric = false;
   tie(q_granularity, b_symmetric) = GetParam();
   // b_symmetric ignored for now
@@ -744,7 +741,7 @@ static void Im2col3DTest(bool b_symmetric) {
 }
 
 TEST_P(fbgemmIm2colTest, 3DAcc32Test) {
-  QuantizationGranularity q_granularity;
+  QuantizationGranularity q_granularity{};
   bool b_symmetric = false;
   tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {
@@ -757,7 +754,7 @@ TEST_P(fbgemmIm2colTest, 3DAcc32Test) {
 }
 
 TEST_P(fbgemmIm2colTest, 3DAcc16Test) {
-  QuantizationGranularity q_granularity;
+  QuantizationGranularity q_granularity{};
   bool b_symmetric = false;
   tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {

@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -60,7 +59,7 @@ int main() {
        << "Total (ms), " << "GB/s, " << "GOPs" << endl;
 #else
   cout << "M, " << "N, " << "K, " << "Density, " << "Accumulation, " << "GB/s, "
-       << "GOPs" << endl;
+       << "GOPs" << '\n';
 #endif
 
   for (const auto& shape : shapes) {
@@ -193,7 +192,7 @@ int main() {
              << total_run_time / (double)NITER / 1e6 << ", ";
 #endif
         // Report performance
-        cout << fixed << bytes / ttot / 1e9 << ", " << ops / ttot / 1e9 << endl;
+        cout << fixed << bytes / ttot / 1e9 << ", " << ops / ttot / 1e9 << '\n';
 
       } // accumulation
     } // for each density

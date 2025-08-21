@@ -130,7 +130,7 @@ Tensor _fusednbitrowwise_to_float_cpu(
       (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
 
   Tensor output;
-  if constexpr (std::is_same<output_t, float>::value) {
+  if constexpr (std::is_same_v<output_t, float>) {
     output = at::empty(
         {nrows, output_columns}, // 4 = sizeof(float)
         input.options().dtype(at::kFloat));
@@ -167,15 +167,15 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
       (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
 
   Tensor output;
-  if constexpr (std::is_same<output_t, float>::value) {
+  if constexpr (std::is_same_v<output_t, float>) {
     output = at::empty(
         {nrows, output_columns}, // 4 = sizeof(float)
         input.options().dtype(at::kFloat));
-  } else if constexpr (std::is_same<output_t, at::Half>::value) {
+  } else if constexpr (std::is_same_v<output_t, at::Half>) {
     output = at::empty(
         {nrows, output_columns}, // 2 = sizeof(half)
         input.options().dtype(at::kHalf));
-  } else if constexpr (std::is_same<output_t, at::BFloat16>::value) {
+  } else if constexpr (std::is_same_v<output_t, at::BFloat16>) {
     output = at::empty(
         {nrows, output_columns}, // 2 = sizeof(half)
         input.options().dtype(at::kBFloat16));
@@ -185,16 +185,14 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
         "Unsupported output dtype for _fusednbitrowwise_sbfront_to_float_or_half_cpu");
   }
 
-  using output_ty = std::conditional_t<
-      std::is_same<output_t, float>::value,
-      float,
-      fbgemm::float16>;
+  using output_ty = std::
+      conditional_t<std::is_same_v<output_t, float>, float, fbgemm::float16>;
   output_ty* output_data = static_cast<output_ty*>(
       output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
                           // unresolved data_ptr symbol.
 
   constexpr bool is_uint16_t_of_type_bf16 =
-      std::is_same<output_t, at::BFloat16>::value;
+      std::is_same_v<output_t, at::BFloat16>;
   fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<
       output_ty,
       is_uint16_t_of_type_bf16>(
@@ -258,7 +256,7 @@ Tensor float_or_half_to_fused8bitrowwise_cpu(const Tensor& input) {
       input.options().dtype(at::kByte)); // at::kBytes for uint8_t
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(), "float_or_half_to_fused8bitrowwise_cpu", [&] {
-        if constexpr (std::is_same<scalar_t, float>::value) {
+        if constexpr (std::is_same_v<scalar_t, float>) {
           _float_to_fused8bitrowwise_cpu_out(output, input);
         } else { // scalar_t = at::Half
           _half_to_fused8bitrowwise_cpu_out(output, input);
@@ -310,7 +308,7 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
 // dummy cpu code for gpu fp8_rowwise conversions
 /// @ingroup quantize-data-cpu
 ///
-Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool forward) {
+Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool /*forward*/) {
   TORCH_CHECK(false, "fp8 is not supported by CPU");
   return input;
 }
@@ -319,8 +317,8 @@ Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool forward) {
 ///
 Tensor FP8rowwise_to_float_cpu(
     const Tensor& input,
-    bool forward,
-    const int64_t output_dtype) {
+    bool /*forward*/,
+    const int64_t /*output_dtype*/) {
   TORCH_CHECK(false, "fp8 is not supported by CPU");
   return input;
 }
@@ -419,7 +417,7 @@ Tensor float_or_half_to_fusednbitrowwise_cpu(
   Tensor output;
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(), "float_or_half_to_fusednbitrowwise_cpu", [&] {
-        if constexpr (std::is_same<scalar_t, float>::value) {
+        if constexpr (std::is_same_v<scalar_t, float>) {
           output = _float_to_fusednbitrowwise_cpu<float>(input, bit_rate);
         } else { // scalar_t = at::Half
           output =

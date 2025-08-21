@@ -278,23 +278,23 @@ SPECIALIZE_FUSEDDQAVX2(int8_t)
 
 #undef SPECIALIZE_FUSEDDQAVX2
 
-void FindMinMax(const float* a, float* min, float* max, int64_t len) {
+void FindMinMax(const float* m, float* min, float* max, int64_t len) {
   if (len <= 0) {
     *min = 0.0f;
     *max = 0.0f;
     return;
   }
 
-  float temp_min = *a, temp_max = *a;
+  float temp_min = *m, temp_max = *m;
   int64_t i = 0;
 
 #ifdef __AVX__
-  __m256 min_v = _mm256_set1_ps(*a), max_v = _mm256_set1_ps(*a);
+  __m256 min_v = _mm256_set1_ps(*m), max_v = _mm256_set1_ps(*m);
   constexpr int VLEN = 8;
   if (len >= VLEN) {
     for (; i < len / VLEN * VLEN; i += VLEN) {
-      min_v = _mm256_min_ps(min_v, _mm256_loadu_ps(a + i));
-      max_v = _mm256_max_ps(max_v, _mm256_loadu_ps(a + i));
+      min_v = _mm256_min_ps(min_v, _mm256_loadu_ps(m + i));
+      max_v = _mm256_max_ps(max_v, _mm256_loadu_ps(m + i));
     }
 
     float min_buf[VLEN], max_buf[VLEN];
@@ -308,8 +308,8 @@ void FindMinMax(const float* a, float* min, float* max, int64_t len) {
 #endif
 
   for (; i < len; i++) {
-    temp_min = std::min(temp_min, a[i]);
-    temp_max = std::max(temp_max, a[i]);
+    temp_min = std::min(temp_min, m[i]);
+    temp_max = std::max(temp_max, m[i]);
   }
   *min = temp_min;
   *max = temp_max;
@@ -1265,8 +1265,6 @@ void requantizeOutputProcessingGConvAvx2(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 1]),
                 1);
-          } else if constexpr (C_PER_G == 8) {
-            B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
           } else {
             B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
           }
@@ -1343,8 +1341,6 @@ void requantizeOutputProcessingGConvAvx2(
                   _mm_set1_ps(r.C_multiplier[quant_param_idx])),
               _mm_set1_ps(r.C_multiplier[quant_param_idx + 1]),
               1);
-        } else if constexpr (C_PER_G == 8) {
-          multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
         } else {
           multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
         }
@@ -1413,8 +1409,8 @@ void requantizeOutputProcessingGConvAvx2(
           _mm256_castsi256_si128(x_clamped_v));
     } // j loop vectorized
 
-    const int64_t remainder = block.col_start + block.col_size - j;
-    (void)remainder; // Suppress unused variable warning
+    const int64_t remainder [[maybe_unused]] =
+        block.col_start + block.col_size - j;
     assert(remainder == 0);
   } // i loop
 }
@@ -1914,13 +1910,13 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
   constexpr int NUM_ELEM_PER_32BIT = 32 / BIT_RATE;
   // multiply by 4 because we're handling 4 vlen per iteration
   constexpr int NUM_OF_32BIT_PER_VLOAD = VLEN * 4 / NUM_ELEM_PER_32BIT;
-
-  int remainder_32bit_granularity = 0, remainder = 0;
+  int remainder = 0;
   __m128i vmask_load;
   __m256i vmask_store0, vmask_store1, vmask_store2, vmask_store3;
   if constexpr (BIT_RATE == 4 || BIT_RATE == 2) {
-    remainder_32bit_granularity = (output_columns + NUM_ELEM_PER_32BIT - 1) /
-        NUM_ELEM_PER_32BIT % NUM_OF_32BIT_PER_VLOAD;
+    int remainder_32bit_granularity =
+        (output_columns + NUM_ELEM_PER_32BIT - 1) / NUM_ELEM_PER_32BIT %
+        NUM_OF_32BIT_PER_VLOAD;
     vmask_load = _mm_lddqu_si128(reinterpret_cast<const __m128i*>(
         internal::avx2_ps_or_epi32_combined_mask + NUM_OF_32BIT_PER_VLOAD +
         (NUM_OF_32BIT_PER_VLOAD - remainder_32bit_granularity) %

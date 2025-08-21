@@ -1029,6 +1029,34 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
 
 def adam() -> Dict[str, Any]:
     split_precomputation = """
+    // Define the optimizer state (for use with optimizer offloading)
+    struct OptimizerState {
+        // momentum1 is an array of D values beginning at the optimizer state address
+        DEVICE_INLINE momentum1_ph_t* momentum1_ptr() {
+            return reinterpret_cast<momentum1_ph_t *>(this);
+        }
+
+        // momentum2 is an array of D values laid out immediately after the momentum1 array
+        DEVICE_INLINE momentum2_ph_t* momentum2_ptr(const int32_t D) {
+            // Cast to uintptr_t for pointer arithmetic
+            auto addr = reinterpret_cast<uintptr_t>(momentum1_ptr() + D);
+            
+            // Cast back to momentum2_ph_t* and return 
+            return reinterpret_cast<momentum2_ph_t *>(addr);
+        }
+    };
+
+    // Fetch the pointer to the optimizer state along the cache row
+    [[maybe_unused]] auto* optimizer = weight_row_template.template optimizer_state_ptr<OptimizerState>();
+
+    // Fetch the pointers to momentum1 and momentum2 buffers
+    auto* momentum1_start = enable_optimizer_offloading ?
+        (optimizer->momentum1_ptr()) :
+        (&momentum1[idx * D]);
+    auto* momentum2_start = enable_optimizer_offloading ?
+        (optimizer->momentum2_ptr(D)) :
+        (&momentum2[idx * D]);
+
     at::acc_type<cache_t, true>* __restrict__ row_counter;
     at::acc_type<cache_t, true> _row_counter = iter;
     if (use_rowwise_bias_correction) {
@@ -1052,20 +1080,37 @@ def adam() -> Dict[str, Any]:
     """
 
     split_weight_update = """
-      Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
-      m_t.mul_(beta1);
-      m_t.fma_(grad, 1.0 - beta1);
-      m_t.store(&momentum1[idx * D + d]);
+      // Determine the access pointers for momentum1 and momentum2
+      auto* momentum1_ptr = momentum1_start + d;
+      auto* momentum2_ptr = momentum2_start + d;
 
-      Vec4T<cache_t> v_t(&momentum2[idx * D + d]);
-      v_t.mul_(beta2);
+      Vec4T<momentum1_ph_t> m_t;
+      Vec4T<momentum2_ph_t> v_t;
 
-      grad.acc.x *= grad.acc.x;
-      grad.acc.y *= grad.acc.y;
-      grad.acc.z *= grad.acc.z;
-      grad.acc.w *= grad.acc.w;
-      v_t.fma_(grad, 1.0 - beta2);
-      v_t.store(&momentum2[idx * D + d]);
+      if (enable_optimizer_offloading) {
+        m_t = vec4_load_unaligned(momentum1_ptr);
+        m_t.mul_(beta1);
+        m_t.fma_(grad, 1.0 - beta1);
+        vec4_store_unaligned(m_t, momentum1_ptr);
+
+        v_t = vec4_load_unaligned(momentum2_ptr);
+        v_t.mul_(beta2);
+        grad.sq_();
+        v_t.fma_(grad, 1.0 - beta2);
+        vec4_store_unaligned(v_t, momentum2_ptr);
+
+      } else {
+        m_t = Vec4T<momentum1_ph_t>(momentum1_ptr);
+        m_t.mul_(beta1);
+        m_t.fma_(grad, 1.0 - beta1);
+        m_t.store(momentum1_ptr);
+
+        v_t = Vec4T<momentum2_ph_t>(momentum2_ptr);
+        v_t.mul_(beta2);
+        grad.sq_();
+        v_t.fma_(grad, 1.0 - beta2);
+        v_t.store(momentum2_ptr);
+      }
 
       weight_new.acc.x -= learning_rate * (m_t.acc.x / (1.0 - powf(beta1, _row_counter)) / (sqrtf((v_t.acc.x / (1.0 - powf(beta2, _row_counter)))) + eps) + weight_decay * weight_new.acc.x);
       weight_new.acc.y -= learning_rate * (m_t.acc.y / (1.0 - powf(beta1, _row_counter)) / (sqrtf((v_t.acc.y / (1.0 - powf(beta2, _row_counter)))) + eps) + weight_decay * weight_new.acc.y);
@@ -1079,8 +1124,16 @@ def adam() -> Dict[str, Any]:
         "is_experimental_optimizer": True,
         "args": OptimizerArgsSet.create(
             [
-                OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "momentum2"),
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum1",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum2",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
                 OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
                 OptimItem(ArgType.FLOAT, "beta1"),
@@ -1102,7 +1155,7 @@ def adam() -> Dict[str, Any]:
         "has_gpu_support": True,
         "has_vbe_support": True,
         "has_global_weight_decay_support": False,
-        "has_ssd_support": False,
+        "has_ssd_support": True,
     }
 
 
@@ -1119,26 +1172,83 @@ def partial_rowwise_adam() -> Dict[str, Any]:
             grad->w * grad->w;
     """
     )
+
     split_precomputation += """
+
+    // Define the optimizer state (for use with optimizer offloading)
+    struct OptimizerState {
+        // momentum2 is a single value placed at the beginning of the struct
+        momentum2_ph_t momentum2;
+        
+        // momentum1 is an array of values placed after momentum2, aligned to 4-byte boundary
+        // to support mixed state precision (e.g. FP32 momentum1 and FP16 momentum2)
+        alignas(4) momentum1_ph_t momentum1[1];
+        
+        // momentum2_ptr returns a pointer to the beginning of the struct
+        DEVICE_INLINE momentum2_ph_t* momentum2_ptr() {
+            return &momentum2;
+        }
+        
+        // momentum1_ptr returns a pointer to the beginning of the momentum1 array
+        DEVICE_INLINE momentum1_ph_t* momentum1_ptr() {
+            return momentum1;
+        }
+    };
+
+    // Fetch the pointer to the optimizer state along the cache row
+    [[maybe_unused]] auto* optimizer = weight_row_template.template optimizer_state_ptr<OptimizerState>();
+
+    // Fetch the pointer to the momentum1 value
+    // Define the fetch here instead of in split_weight_update to avoid conditionals inside a loop
+    // Use explicit type instead of auto* to avoid type deduction issues with alignas(16)
+    momentum1_ph_t* momentum1_start = enable_optimizer_offloading ?
+        (optimizer->momentum1_ptr()) :
+        (&momentum1[idx * D]);
+
     const at::acc_type<cache_t, true> g_avg_square =
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> v_hat_t;
     v_hat_t = 0.0;
     if (threadIdx.x == 0) {
-        at::acc_type<cache_t, true> v_t = momentum2[idx] * beta2 + g_avg_square * (1.0 - beta2);
-        momentum2[idx] = v_t;
+        auto v_t = g_avg_square * (1.0 - beta2);
+
+        if (enable_optimizer_offloading) {
+            auto *momentum2_ptr = optimizer->momentum2_ptr();
+            v_t += (*momentum2_ptr) * beta2;
+            (*momentum2_ptr) = v_t;
+        } else {
+            v_t += momentum2[idx] * beta2;
+            momentum2[idx] = v_t;
+        }
+
         v_hat_t = v_t / (1.0 - powf(beta2, iter));
     }
     v_hat_t = SHFL_SYNC(v_hat_t, 0);
     """
 
     split_weight_update = """
-      Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
-      m_t.mul_(beta1);
-      m_t.fma_(grad, 1.0 - beta1);
-      m_t.store(&momentum1[idx * D + d]);
+      // Create a Vec4T for momentum1 values - either directly from momentum1_start
+      // or from a temporary aligned buffer if optimizer offloading is enabled
+      Vec4T<momentum1_ph_t> m_t;
+      
+      if (enable_optimizer_offloading) {
+        // When offloading is enabled, we need to ensure proper alignment, so 
+        // first copy to a temporary aligned array before loading to Vec4T
+        m_t = vec4_load_unaligned(momentum1_start + d);        
+        m_t.mul_(beta1);
+        m_t.fma_(grad, 1.0 - beta1);
+        vec4_store_unaligned(m_t, momentum1_start + d);
 
+      } else {
+        // When offloading is not enabled, we can directly use momentum1_start
+        m_t = Vec4T<momentum1_ph_t>(&momentum1_start[d]);
+        m_t.mul_(beta1);
+        m_t.fma_(grad, 1.0 - beta1);
+        m_t.store(&momentum1_start[d]);
+      }
+      
+      // Update weights using the momentum values
       weight_new.acc.x -= learning_rate * (m_t.acc.x / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.x);
       weight_new.acc.y -= learning_rate * (m_t.acc.y / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.y);
       weight_new.acc.z -= learning_rate * (m_t.acc.z / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.z);
@@ -1179,7 +1289,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         "has_gpu_support": True,
         "has_vbe_support": False,
         "has_global_weight_decay_support": False,
-        "has_ssd_support": False,
+        "has_ssd_support": True,
     }
 
 

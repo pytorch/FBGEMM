@@ -7,9 +7,7 @@
  */
 
 #pragma once
-#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
-#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -140,22 +138,13 @@ class CodeGenBase {
     return rt;
   }
 
-  static std::mutex rtMutex_; ///< Controll access to runtime;
+  inline static std::mutex rtMutex_; ///< Controll access to runtime;
 
   // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr
-  static CodeCache<
+  inline static CodeCache<
       std::tuple<bool, int, int, int, int, int, int>,
       jit_micro_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
 };
-
-template <typename TA, typename TB, typename TC, typename accT>
-std::mutex CodeGenBase<TA, TB, TC, accT>::rtMutex_;
-
-template <typename TA, typename TB, typename TC, typename accT>
-CodeCache<
-    std::tuple<bool, int, int, int, int, int, int>,
-    typename CodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
-    CodeGenBase<TA, TB, TC, accT>::codeCache_;
 
 } // namespace fbgemm

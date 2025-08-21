@@ -27,12 +27,19 @@ at::Tensor dispatch_f4f4bf16_kernel(
     std::optional<at::Tensor> global_scale,
     bool use_mx = true) {
   auto M = XQ.size(0);
-  auto K = XQ.size(1);
   auto N = WQ.size(0);
+  auto K = XQ.size(1) * 2; // Since K is packed
   auto BLOCK_SIZE = 16;
   TORCH_CHECK(
       N % BLOCK_SIZE == 0 && K % BLOCK_SIZE == 0,
       "Weight dimensions N and K must be multiples of block size 16");
+
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
+  if (M == 0 || N == 0 || K == 0) {
+    // Use zeros instead of empty for special case where K=0.
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
 
   // MXFP4
   if (use_mx) {
@@ -45,6 +52,62 @@ at::Tensor dispatch_f4f4bf16_kernel(
         return f4f4bf16_128_128_4_1_1_t(XQ, WQ, x_scale, w_scale, global_scale);
       }
     } else if (M <= 2048) {
+      if (M <= 256) {
+        if (N == 896) {
+          return f4f4bf16_128_128_2_2_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5120) {
+          if (K == 640 || K == 5120) {
+            return f4f4bf16_128_128_4_1_1_t(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          } else if ((K == 8192) || (K == 16384)) {
+            return f4f4bf16_256_128_2_2_1_t(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          }
+        } else if (N == 5632) {
+          return f4f4bf16_128_192_2_2_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 8192) {
+          return f4f4bf16_256_128_2_2_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        }
+      } else if (M <= 512) {
+        if (N == 896) {
+          return f4f4bf16_128_128_2_2_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5120) {
+          return f4f4bf16_256_192_4_1_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5632) {
+          return f4f4bf16_256_128_2_4_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 8192) {
+          return f4f4bf16_256_128_2_2_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        }
+      } else if (M <= 1024) {
+        if (N == 896) {
+          return f4f4bf16_256_128_2_4_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5120) {
+          if (K == 640) {
+            return f4f4bf16_128_128_1_4_1_t(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          } else if (K == 5120) {
+            return f4f4bf16_128_192_4_2_1_t(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          } else if (K == 5120 || K == 16384) {
+            return f4f4bf16_256_128_2_4_1_t(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          }
+        } else if (N == 5632) {
+          return f4f4bf16_256_128_2_4_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 8192) {
+          return f4f4bf16_256_256_4_1_1_t(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        }
+      }
       if (N <= 2048) {
         return f4f4bf16_256_128_2_2_1_t(XQ, WQ, x_scale, w_scale, global_scale);
       } else if (N <= 8192) {
@@ -111,6 +174,62 @@ at::Tensor dispatch_f4f4bf16_kernel(
         return f4f4bf16_128_128_4_1_1_f(XQ, WQ, x_scale, w_scale, global_scale);
       }
     } else if (M <= 2048) {
+      if (M <= 256) {
+        if (N == 896) {
+          return f4f4bf16_128_128_2_2_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5120) {
+          if (K == 640 || K == 5120) {
+            return f4f4bf16_128_128_4_1_1_f(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          } else if ((K == 8192) || (K == 16384)) {
+            return f4f4bf16_256_128_2_2_1_f(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          }
+        } else if (N == 5632) {
+          return f4f4bf16_128_192_2_2_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 8192 || N == 16384) {
+          return f4f4bf16_256_128_2_2_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        }
+      } else if (M <= 512) {
+        if (N == 896) {
+          return f4f4bf16_128_128_2_2_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5120) {
+          return f4f4bf16_256_192_4_1_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5632) {
+          return f4f4bf16_256_128_2_4_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 8192) {
+          return f4f4bf16_256_128_2_2_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        }
+      } else if (M <= 1024) {
+        if (N == 896) {
+          return f4f4bf16_256_128_2_4_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 5120) {
+          if (K == 640) {
+            return f4f4bf16_128_128_1_4_1_f(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          } else if (K == 5120) {
+            return f4f4bf16_128_192_4_2_1_f(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          } else if (K == 5120 || K == 16384) {
+            return f4f4bf16_256_128_2_4_1_f(
+                XQ, WQ, x_scale, w_scale, global_scale);
+          }
+        } else if (N == 5632) {
+          return f4f4bf16_256_128_2_4_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        } else if (N == 8192) {
+          return f4f4bf16_256_256_4_1_1_f(
+              XQ, WQ, x_scale, w_scale, global_scale);
+        }
+      }
       if (N <= 2048) {
         return f4f4bf16_256_128_2_2_1_f(XQ, WQ, x_scale, w_scale, global_scale);
       } else if (N <= 8192) {

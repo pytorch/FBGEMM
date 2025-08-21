@@ -21,7 +21,7 @@ namespace {
 class FBGemmFloat16Test : public testing::TestWithParam<bool> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmFloat16Test,
     ::testing::Bool());
@@ -98,7 +98,7 @@ TEST_P(FBGemmFloat16Test, Conversion_simd2) {
     int m = s[0];
     int n = s[1];
 
-    cerr << "m = " << m << " n = " << n << endl;
+    cerr << "m = " << m << " n = " << n << '\n';
     aligned_vector<float> A_fp32_ref(m * n); // fp32 type
     aligned_vector<float16> A_float16(m * n); // float16 type
     aligned_vector<float> A_fp32_final(m * n); // fp32 type
@@ -150,7 +150,7 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
   for (auto s : shapes) {
     int m = s[0];
 
-    cerr << "m = " << m << endl;
+    cerr << "m = " << m << '\n';
     aligned_vector<float> A_fp32_ref(m); // fp32 type
     aligned_vector<float16> A_float16(m); // float16 type
     aligned_vector<float> A_fp32_final(m); // fp32 type

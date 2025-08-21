@@ -1,0 +1,92 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# This callable workflow is used for generating the build matrix for FBGEMM
+# GPU/GenAI/HSTU CPU, CUDA, and ROCm CI jobs.
+name: Generate CI Matrix
+
+on:
+  workflow_call:
+    inputs:
+      repo-owner:
+        description: Repository owner
+        type: string
+        required: true
+        default: ""
+      repo-ref:
+        description: Repository ref/sha
+        type: string
+        required: true
+        default: ""
+      targets:
+        description: Build Target(s) (comma-separated values)
+        type: string
+        required: true
+        default: ""
+      variant:
+        description: Build Variant
+        type: string
+        required: true
+        default: ""
+      jobtype:
+        description: Job Type
+        type: string
+        required: true
+        default: ""
+    outputs:
+      matrix:
+        value: ${{ jobs.generate_ci_matrix.outputs.matrix }}
+
+jobs:
+  generate_ci_matrix:
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    runs-on: ubuntu-latest
+    env:
+      GEN_TARGETS: ${{ inputs.targets }}
+      GEN_VARIANT: ${{ inputs.variant }}
+      GEN_JOBTYPE: ${{ inputs.jobtype }}
+      GEN_REPO_OWNER: ${{ inputs.repo-owner }}
+    steps:
+      - name: Checkout the Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.repo-ref }}
+          # Fetch main branch to compare file changes
+          fetch-depth: 0
+
+      - name: Generate CI Matrix
+        id: generate
+        run: |
+          set -eou pipefail
+
+          SCRIPT_PATH=.github/scripts/generate_ci_matrix.py
+
+          if [[ ! -f "$SCRIPT_PATH" ]]; then
+            echo "Error: Script $SCRIPT_PATH not found."
+            exit 1
+          fi
+
+          LOG_FILE=$(mktemp)
+
+          MATRIX_BLOB=$(python3 "$SCRIPT_PATH" \
+            --target "$GEN_TARGETS" \
+            --variant "$GEN_VARIANT" \
+            --jobtype "$GEN_JOBTYPE" \
+            --repo-owner "$GEN_REPO_OWNER" 2> $LOG_FILE)
+
+          cat $LOG_FILE
+
+          echo "$MATRIX_BLOB" | python3 -m json.tool > /dev/null 2>&1
+          if [[ $? -ne 0 ]]; then
+            echo "Error: Generated matrix is not valid JSON"
+            echo "$MATRIX_BLOB"
+            exit 1
+          fi
+
+          echo "Generated CI matrix:"
+          echo "$MATRIX_BLOB" | python3 -m json.tool
+
+          echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"

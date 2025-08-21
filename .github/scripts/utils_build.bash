@@ -354,11 +354,12 @@ install_build_tools () {
   #
   # - ncurses is needed to silence libtinfo6.so errors for ROCm+Clang builds
   # - rhash is needed bc newer versions of GXX package don't come packaged with this library anymore
+  # - FBGEMM bazel build is currently broken under Bazel 8.0+
   #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     auditwheel \
-    bazel \
+    'bazel<=7.6.1' \
     'cmake>=3.30' \
     hypothesis \
     jinja2 \
@@ -371,6 +372,7 @@ install_build_tools () {
     scikit-build \
     tbb \
     wheel \
+    xz \
     pyyaml) || return 1
 
   echo "[INSTALL] Adding symlink librhash.so.0, which is needed by CMake ..."
@@ -403,4 +405,57 @@ install_build_tools () {
   done
 
   echo "[INSTALL] Successfully installed all the build tools"
+}
+
+################################################################################
+# Print Build .SO Information
+################################################################################
+
+print_library_infos () {
+  # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
+  readarray -t built_so_files < <(
+    find . -name "*.so" | grep '\.cmake-build/' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+  )
+
+  # Check if array is empty
+  if [ ${#built_so_files[@]} -eq 0 ]; then
+    echo "[BUILD] No .so files found in cmake-build/, looking at . instead ..."
+    readarray -t built_so_files < <(
+      find . -name "*.so" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+    )
+  fi
+
+  for library in "${built_so_files[@]}"; do
+    echo "################################################################################"
+    echo "[CHECK] BUILT LIBRARY: ${library}"
+
+    echo "[CHECK] Listing out library size:"
+    print_exec "du -h --block-size=1M ${library}"
+
+    print_glibc_info "${library}"
+
+    # shellcheck disable=SC2155
+    local symbols_file=$(mktemp --suffix ".symbols.txt")
+    print_exec "nm -gDC ${library} > ${symbols_file}"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Total Number of symbols: $(wc -l ${symbols_file} | awk '{print $1}')"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm ${symbols_file})"
+
+    # shellcheck disable=SC2155
+    local usymbols_file=$(mktemp --suffix ".usymbols.txt")
+    print_exec "nm -gDCu ${library} > ${usymbols_file}"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Listing out undefined symbols ($(wc -l ${usymbols_file} | awk '{print $1}') total):"
+    cat "${usymbols_file}" | sort
+
+    echo "[CHECK] Listing out external shared libraries linked:"
+    print_exec ldd "${library}"
+
+    echo "[CHECK] Displaying ELF information:"
+    print_exec readelf -d "${library}"
+    echo "################################################################################"
+    echo ""
+    echo ""
+  done
 }

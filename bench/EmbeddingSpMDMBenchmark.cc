@@ -94,7 +94,7 @@ static void run_benchmark(
 
   // Compute the number of indices
   int lengths_sum = offsets[batch_size];
-  cout << "lengths_sum " << lengths_sum << endl;
+  cout << "lengths_sum " << lengths_sum << '\n';
 
   // Generate indices
   vector<int64_t> indices;
@@ -353,7 +353,7 @@ static void run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             assert(output[i] == output_ref[i]);
             if (output[i] != output_ref[i]) {
-              cout << i << " " << output[i] << " " << output_ref[i] << endl;
+              cout << i << " " << output[i] << " " << output_ref[i] << '\n';
             }
           }
         }
@@ -378,7 +378,7 @@ static void run_benchmark(
       cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / t << " GB/s"
            << setw(20) << "effective b/w: " << setw(16)
            << bytes_padded / 1e9 / t << "GB/s" << setw(8) << " time "
-           << setw(16) << t << endl;
+           << setw(16) << t << '\n';
     } // flush_cache
   } // has_weight
 }
@@ -396,7 +396,7 @@ int main() {
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
-         << endl;
+         << '\n';
 
     for (bool normalize_by_lengths : {false, true}) {
       for (std::string input_dtype : {"bf16", "fp16", "fp32"}) {
@@ -408,8 +408,8 @@ int main() {
               cout << "Mean ";
             }
             cout << input_dtype << " inputs";
-            bool use_fp16_inputs = input_dtype == "fp16" ? true : false;
-            bool use_bf16_inputs = input_dtype == "fp16" ? true : false;
+            bool use_fp16_inputs = input_dtype == "fp16";
+            bool use_bf16_inputs = input_dtype == "fp16";
             cout << (use_32_bit_indices ? " 32" : " 64") << " bit indices";
             if (prefetch) {
               cout << " with prefetching";

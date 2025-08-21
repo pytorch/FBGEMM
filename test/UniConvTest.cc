@@ -165,7 +165,7 @@ class UniConvQGranTest
 }; // namespace
 
 // Combine only allows at most 10 generators.
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     uniConvTest,
     ::testing::Combine(
@@ -180,7 +180,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn({1, 2}), // stride
         ::testing::ValuesIn({0, 1, 2}))); // pad
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     UniConvQGranTest,
     ::testing::Combine(
@@ -193,9 +193,7 @@ INSTANTIATE_TEST_CASE_P(
  * Test for conv packing
  */
 TEST_P(uniConvTest, packingTest) {
-  int MB = 0, IC = 0, OC = 0, IT = 0, IH = 0, IW = 0, G = 0, kernel = 0,
-      stride = 0, pad = 0;
-  tie(MB, IC, OC, IT, IH, IW, G, kernel, stride, pad) = GetParam();
+  auto [MB, IC, OC, IT, IH, IW, G, kernel, stride, pad] = GetParam();
 
   conv_param_t<1> conv_p_1d(
       MB, IC, OC, {IW}, G, {kernel}, {stride}, {pad, pad});
@@ -453,9 +451,7 @@ TEST_P(uniConvTest, packingTest) {
  * Test for packing/unpacking
  */
 TEST_P(uniConvTest, packUnpackTest) {
-  int MB = 0, IC = 0, OC = 0, IT = 0, IH = 0, IW = 0, G = 0, kernel = 0,
-      stride = 0, pad = 0;
-  tie(MB, IC, OC, IT, IH, IW, G, kernel, stride, pad) = GetParam();
+  auto [MB, IC, OC, IT, IH, IW, G, kernel, stride, pad] = GetParam();
 
   conv_param_t<1> conv_p_1d(
       MB, IC, OC, {IW}, G, {kernel}, {stride}, {pad, pad});
@@ -977,10 +973,7 @@ static void runRequantizeTest(
 }
 
 TEST_P(UniConvQGranTest, requantizeTest) {
-  QuantizationGranularity q_granularity;
-  bool a_symmetric = false, b_symmetric = false;
-  bool test_bias = false, test_float_bias = false;
-  tie(q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias) =
+  auto [q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias] =
       GetParam();
 
   runRequantizeTest<1>(

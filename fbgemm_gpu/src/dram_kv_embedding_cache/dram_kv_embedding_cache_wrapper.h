@@ -76,7 +76,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor count,
       int64_t timestep,
       bool is_bwd) {
-    return impl_->set_cuda(indices, weights, count, timestep);
+    return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
   }
 
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
@@ -108,6 +108,15 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->get_keys_in_range_impl(start_id, end_id, id_offset);
   }
 
+  at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const std::optional<
+          c10::intrusive_ptr<ssd::EmbeddingSnapshotHandleWrapper>>&
+      /*snapshot_handle*/) {
+    return impl_->get_kv_zch_eviction_metadata_impl(indices, count);
+  }
+
   void get(
       at::Tensor indices,
       at::Tensor weights,
@@ -137,23 +146,42 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   void get_feature_evict_metric(
       at::Tensor evicted_counts,
       at::Tensor processed_counts,
+      at::Tensor eviction_threshold_with_dry_run,
       at::Tensor full_duration_ms,
-      at::Tensor exec_duration_ms) {
+      at::Tensor exec_duration_ms,
+      at::Tensor dry_run_exec_duration_ms) {
     auto metrics = impl_->get_feature_evict_metric();
     if (metrics.has_value()) {
       evicted_counts.copy_(
           metrics.value().evicted_counts); // evicted_counts (Long)
       processed_counts.copy_(
           metrics.value().processed_counts); // processed_counts (Long)
+      eviction_threshold_with_dry_run.copy_(
+          metrics.value()
+              .eviction_threshold_with_dry_run); // eviction threshold with dry
+                                                 // run (float)
       full_duration_ms.copy_(
           metrics.value().full_duration_ms); // full duration (Long)
       exec_duration_ms.copy_(
           metrics.value().exec_duration_ms); // exec duration (Long)
+      dry_run_exec_duration_ms.copy_(
+          metrics.value().dry_run_exec_duration_ms); // dry run exec duration
     }
   }
 
   void wait_until_eviction_done() {
     impl_->wait_until_eviction_done();
+  }
+
+  void set_backend_return_whole_row(bool backend_return_whole_row) {
+    impl_->set_backend_return_whole_row(backend_return_whole_row);
+  }
+
+  void set_feature_score_metadata_cuda(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_show_count) {
+    impl_->set_feature_score_metadata_cuda(indices, count, engage_show_count);
   }
 
  private:

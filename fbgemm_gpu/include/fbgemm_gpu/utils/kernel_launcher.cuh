@@ -112,7 +112,7 @@ struct KernelLauncher {
         grid.x,
         " is not within the range (0, ",
         grid_limits[0],
-        ")");
+        "]");
 
     TORCH_CHECK(
         grid.y > 0 && grid.y <= grid_limits[1],
@@ -121,7 +121,7 @@ struct KernelLauncher {
         grid.y,
         " is not within the range (0, ",
         grid_limits[1],
-        ")");
+        "]");
 
     TORCH_CHECK(
         grid.z > 0 && grid.z <= grid_limits[2],
@@ -130,7 +130,7 @@ struct KernelLauncher {
         grid.z,
         " is not within the range (0, ",
         grid_limits[2],
-        ")");
+        "]");
   }
 
   constexpr inline void checkBlockSizesInRange(
@@ -145,7 +145,7 @@ struct KernelLauncher {
         block.x,
         " is not within the range (0, ",
         block_limits[0],
-        ")");
+        "]");
 
     TORCH_CHECK(
         block.y > 0 && block.y <= block_limits[1],
@@ -154,7 +154,7 @@ struct KernelLauncher {
         block.y,
         " is not within the range (0, ",
         block_limits[1],
-        ")");
+        "]");
 
     TORCH_CHECK(
         block.z > 0 && block.z <= block_limits[2],
@@ -163,7 +163,7 @@ struct KernelLauncher {
         block.z,
         " is not within the range (0, ",
         block_limits[2],
-        ")");
+        "]");
   }
 
   constexpr inline void checkThreadCountNotExceeded(
@@ -266,19 +266,16 @@ struct KernelLauncher {
         context.description(),
         " CUDA Error: ",
         cudaGetErrorString(cuda_error),
-#ifdef __HIPCC__
-        // c10::cuda::get_cuda_check_suffix has only been recently added to
-        // Torch HIPify mappings, so wrap with __HIPCC__ until the mapping land
-        // in PyTorch OSS.
-        //
-        // TODO: Remove when HIPify mappings are updated in PyTorch OSS
-        c10::hip::get_hip_check_suffix(),
-#else
+        // TODO: Re-enable when xformers is updated to use a more recent
+        // version of PyTorch
+        // c10::cuda::get_cuda_error_help(cuda_error),
         c10::cuda::get_cuda_check_suffix(),
 #endif
         "\n");
         //"\n",
         //c10::cuda::c10_retrieve_device_side_assertion_info());
+        "\n",
+        c10::cuda::c10_retrieve_device_side_assertion_info());
   }
 
   template <typename KernelFunc, typename... Args>

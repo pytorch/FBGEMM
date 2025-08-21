@@ -11,11 +11,7 @@
 
 #include <assert.h>
 #include <cpuinfo.h>
-#include <array>
-#include <memory>
 #include <stdexcept>
-#include <typeinfo>
-#include <vector>
 
 #include "SimdUtils.h" // @manual
 #include "Types.h" // @manual
@@ -130,6 +126,10 @@ class PackedGemmMatrixB {
     packed_ = true;
     pmat_passed_in = true;
   }
+  PackedGemmMatrixB(const PackedGemmMatrixB&) = delete;
+  PackedGemmMatrixB(PackedGemmMatrixB&&) = delete;
+  PackedGemmMatrixB& operator=(const PackedGemmMatrixB&) = delete;
+  PackedGemmMatrixB& operator=(PackedGemmMatrixB&&) = delete;
 
   void initializeParam() {
     if (!cpuinfo_initialize()) {
@@ -205,11 +205,11 @@ class PackedGemmMatrixB {
     uint64_t r = (uint64_t)r_;
     uint64_t c = (uint64_t)c_;
 
-    uint64_t block_row_id = r / blockRowSize(),
-             brow_offset =
-                 (block_row_id * nbcol_) * (blockRowSize() * blockColSize());
-    uint64_t block_col_id = c / blockColSize(),
-             bcol_offset = block_col_id *
+    uint64_t block_row_id = r / blockRowSize();
+    uint64_t brow_offset =
+        (block_row_id * nbcol_) * (blockRowSize() * blockColSize());
+    uint64_t block_col_id = c / blockColSize();
+    uint64_t bcol_offset = block_col_id *
         ((static_cast<int64_t>(block_row_id) != nbrow_ - 1)
              ? (blockRowSize() * blockColSize())
              : (last_brow_ * blockColSize()));
@@ -277,13 +277,13 @@ class PackedGemmMatrixB {
   T* pmat() const {
     return pmat_;
   }
-  inline int blockRowSize() const {
+  int blockRowSize() const {
     return brow_;
   }
-  inline int blockColSize() const {
+  int blockColSize() const {
     return bcol_;
   }
-  inline int kernelNumColBlocks() const {
+  int kernelNumColBlocks() const {
     return kernel_ncol_blocks_;
   }
 

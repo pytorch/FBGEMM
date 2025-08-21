@@ -15,7 +15,6 @@
 #include <immintrin.h>
 #endif
 #include <algorithm> // for min and max
-#include <cassert>
 #include <cstring>
 #include "./MaskAvx2.h" // @manual
 
@@ -69,8 +68,7 @@ void SparseDenseInt8MMAvx2(
   // Calcualtes accum ? C += A * B : C = A * B
   constexpr int VLEN_INT8 = 32;
   constexpr int VLEN_INT32 = 8;
-  constexpr int rowBlockSize = BCSRMatrix<>::RB;
-  (void)rowBlockSize; // Suppress unused variable warning
+  constexpr int rowBlockSize [[maybe_unused]] = BCSRMatrix<>::RB;
   constexpr int colBlockSize = BCSRMatrix<>::CB;
 
   constexpr int colTileSize = BCSRMatrix<>::COLTILE;

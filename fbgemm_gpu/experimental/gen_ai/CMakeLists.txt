@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
-set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/modules)
+set(CMAKEMODULES ${CMAKE_CURRENT_LIST_DIR}/../../../cmake/modules)
 include(${CMAKEMODULES}/Utilities.cmake)
 include(${CMAKEMODULES}/GpuCppLibrary.cmake)
 
@@ -27,36 +27,28 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 ################################################################################
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
-  src/attention/*.cpp
+  src/attention/cuda/*.cpp
   src/coalesce/*.cpp
+  src/comm/*.cpp
+  src/kv_cache/*.cpp
+  src/moe/*.cpp
   src/quantize/*.cpp
   src/quantize/common/*.cpp)
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
-  src/attention/*.cu
+  src/attention/cuda/*.cu
   src/coalesce/*.cu
+  src/comm/*.cu
+  src/kv_cache/*.cu
+  src/moe/*.cu
   src/quantize/*.cu)
 
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   glob_files_nohip(tmp_list_cpu
-    src/comm/*.cpp
-    src/gather_scatter/*.cpp
-    src/moe/*.cpp)
+    src/gather_scatter/*.cpp)
 
   glob_files_nohip(tmp_list_gpu
-    src/comm/*.cu
-    src/gather_scatter/*.cu
-    src/moe/*.cu)
-
-  # TODO: kv_cache sources need to be updated with proper CUDA_VERSION ifdef
-  # wrapping before this if-clause can be removed
-  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0)
-    glob_files_nohip(tmp_list_cpu2
-      src/kv_cache/*.cpp)
-
-    glob_files_nohip(tmp_list_gpu2
-      src/kv_cache/*.cu)
-  endif()
+    src/gather_scatter/*.cu)
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${tmp_list_cpu} ${tmp_list_cpu2})
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu} ${tmp_list_gpu2})
@@ -135,6 +127,7 @@ gpu_cpp_library(
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kv_cache
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
@@ -149,7 +142,18 @@ gpu_cpp_library(
     ${experimental_gen_ai_cpp_source_files_hip}
   TORCH_LIBS
     # Used when building as part of PyTorch
-    ${FBGEMM_GENAI_TORCH_LIBS})
+    ${FBGEMM_GENAI_TORCH_LIBS}
+  HIPCC_FLAGS
+    # Below flags are required for strong CK performance
+    # on certain kernel instances
+    -mllvm
+    # Reduce register spillage on certain kernels
+    -amdgpu-coerce-illegal-types=1
+    -mllvm
+    -enable-post-misched=0
+    -mllvm
+    -greedy-reverse-local-assignment=1
+    -fhip-new-launch-api)
 
 
 
@@ -163,7 +167,7 @@ add_to_package(
 
 install(
   DIRECTORY bench
-  DESTINATION fbgemm_gpu/experimental)
+  DESTINATION fbgemm_gpu/experimental/gen_ai)
 
 install(
   DIRECTORY gen_ai

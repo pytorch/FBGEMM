@@ -190,7 +190,7 @@ class PackSegmentsV2 : public torch::autograd::Function<PackSegmentsV2> {
 Tensor pack_segments_autograd(
     const Tensor& t_in,
     const Tensor& lengths,
-    const at::SymInt max_length
+    at::SymInt max_length
 
 ) {
   return PackSegments::apply(t_in, lengths, max_length)[0];
@@ -357,9 +357,9 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const Tensor& block_sizes,
     const std::optional<Tensor>& total_num_blocks,
     const int64_t my_size,
-    Tensor new_lengths,
-    Tensor new_indices,
-    std::optional<Tensor> new_weights,
+    const Tensor& new_lengths,
+    const Tensor& new_indices,
+    const std::optional<Tensor>& new_weights,
     std::optional<Tensor> new_pos,
     const std::optional<Tensor>& unbucketize_permute,
     const std::optional<Tensor>& batch_size_per_feature,
@@ -388,8 +388,8 @@ void _block_bucketize_sparse_features_cpu_kernel(
   const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
   offset_t* batch_sizes_data = nullptr;
   const auto variable_batch_size = batch_size_per_feature.has_value();
-  const auto variable_bucket_sizes = block_bucketize_pos.has_value() &&
-      block_bucketize_pos.value().size() != 0;
+  const auto variable_bucket_sizes =
+      block_bucketize_pos.has_value() && !block_bucketize_pos.value().empty();
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
   std::vector<int64_t> lower_bounds(indices.numel(), 0);
@@ -644,9 +644,9 @@ void _bucketize_sparse_features_cpu(
   const index_t* lengths_data = lengths.data_ptr<index_t>();
   index_t* offsets_data = offsets.data_ptr<index_t>();
   const index_t* indices_data = indices.data_ptr<index_t>();
-  scalar_t* weights_data;
-  scalar_t* new_weights_data;
-  index_t* new_pos_data;
+  scalar_t* weights_data = nullptr;
+  scalar_t* new_weights_data = nullptr;
+  index_t* new_pos_data = nullptr;
 
   index_t* const new_lengths_data = new_lengths.data_ptr<index_t>();
   index_t* const new_offsets_data = new_offsets.data_ptr<index_t>();
@@ -778,7 +778,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
         FBGEMM_DISPATCH_ALL_TYPES(
             indices.scalar_type(), "permute_2D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
-              FBGEMM_DISPATCH_FLOAT_ONLY(
+              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_2D_indices_weights_kernel_3",
@@ -1166,7 +1166,7 @@ _block_bucketize_sparse_features_cpu(
             indices.scalar_type(),                               \
             "block_bucketize_sparse_features_weights_cpu_2",     \
             [&] {                                                \
-              FBGEMM_DISPATCH_FLOAT_ONLY(                        \
+              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(                  \
                   weights_value.scalar_type(),                   \
                   "bucketize_sparse_features_weights_cpu_3",     \
                   [&] {                                          \
@@ -1446,7 +1446,7 @@ void reorder_batched_ad_lengths_(
     const int64_t max_batch_size = 0) {
   const int64_t nB = batch_offsets.numel() - 1;
   auto num_lengths = cat_ad_lengths.numel();
-  int64_t nT;
+  int64_t nT = 0;
   if (broadcast_lengths) {
     TORCH_CHECK(num_lengths % nB == 0);
     nT = num_lengths / nB;
@@ -2478,7 +2478,7 @@ Tensor& lengths_range_out(
 
   const auto t_in_contig = t_in.expect_contiguous();
   const auto num_seq = t_in_contig->numel();
-  int64_t output_size;
+  int64_t output_size = 0;
   if (shape.has_value()) {
     output_size = c10::multiply_integers(shape.value());
   } else {
@@ -3180,7 +3180,7 @@ torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
   auto indices_group = std::vector<Tensor>(
       all_inputs.cbegin() + group_size, all_inputs.cbegin() + 2 * group_size);
 
-  const Tensor fwd_input = all_inputs[2 * group_size + 2];
+  const Tensor& fwd_input = all_inputs[2 * group_size + 2];
   const int64_t output_dim = fwd_input.dim();
 
   std::vector<int64_t> output_shape_group;
@@ -3215,8 +3215,8 @@ torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
 
     // initialize grad input
     auto grad_input = at::zeros({grad_input_shape}, fwd_input.options());
-    const auto grad_output = grad_output_group[i];
-    const auto indices = indices_group[i];
+    const auto& grad_output = grad_output_group[i];
+    const auto& indices = indices_group[i];
 
     // add gradient for each index in the group
     for (const auto j : c10::irange(indices.numel())) {
@@ -3319,7 +3319,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   // op.call to make __torch_dispatch__ work for the backward op.
   std::fill(res.begin(), res.begin() + group_size, torch::autograd::Variable());
   // 3) Add 1 Variable() for group_size
-  res.push_back({});
+  res.emplace_back();
   return res;
 }
 

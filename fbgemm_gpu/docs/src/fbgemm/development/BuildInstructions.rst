@@ -134,7 +134,7 @@ process is straightforward:
 
   # Set CMake build arguments
   build_args=(
-    -DUSE_SANITIZER=address
+    -DFBGEMM_USE_SANITIZER=address
     -DFBGEMM_LIBRARY_TYPE=shared
     -DPYTHON_EXECUTABLE=`which python3`
 

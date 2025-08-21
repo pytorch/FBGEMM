@@ -30,7 +30,7 @@
 #endif
 #define FBGEMM_ENUM_CLASS_API
 #else
-#if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
+#if __clang__ || __GNUC__ || __INTEL_COMPILER
 #define FBGEMM_API __attribute__((__visibility__("default")))
 #else
 #define FBGEMM_API
@@ -46,7 +46,7 @@
 #endif
 
 // Use this to indicate to not inline functions
-#if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
+#if __clang__ || __GNUC__ || __INTEL_COMPILER
 #define NOINLINE __attribute__((noinline))
 #elif _MSC_VER
 #define NOINLINE __declspec(noinline)
@@ -55,7 +55,7 @@
 #endif
 
 // Use this to indicate always inline functions
-#if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
+#if __clang__ || __GNUC__ || __INTEL_COMPILER
 #define ALWAYS_INLINE inline __attribute__((__always_inline__))
 #elif _MSC_VER
 // commenting out because __forceinline takes too long time in MSVC
@@ -90,7 +90,7 @@
 #endif
 
 // Macro for silencing warnings
-#ifdef __clang__
+#if __clang__ || __GNUC__
 // clang-format off
 #define FBGEMM_PUSH_WARNING _Pragma("GCC diagnostic push")
 #define FBGEMM_DISABLE_WARNING_INTERNAL2(warningName) #warningName

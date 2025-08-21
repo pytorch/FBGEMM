@@ -31,6 +31,7 @@
             "'");                                                          \
     }                                                                      \
   }
+#if defined(USE_ROCM)
 
 #define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...)  \
   at::ScalarType _emb_t = emb_enum_type;                                      \
@@ -40,9 +41,37 @@
         at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
     PRIVATE_CASE_TYPE_EMB(                                                    \
         at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)          \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Float8_e4m3fnuz,                                      \
+        _cache_t,                                                             \
+        at::Float8_e4m3fnuz,                                                  \
+        NAME,                                                                 \
+        __VA_ARGS__)                                                          \
     default:                                                                  \
       AT_ERROR(#NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
   }
+
+#else
+
+#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...)  \
+  at::ScalarType _emb_t = emb_enum_type;                                      \
+  at::ScalarType _cache_t = cache_enum_type;                                  \
+  switch (_emb_t) {                                                           \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)          \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Float8_e4m3fn,                                        \
+        _cache_t,                                                             \
+        at::Float8_e4m3fn,                                                    \
+        NAME,                                                                 \
+        __VA_ARGS__)                                                          \
+    default:                                                                  \
+      AT_ERROR(#NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+  }
+
+#endif
 
 #define DISPATCH_EMB_CACHE_TYPES(EMB_TYPE, CACHE_TYPE, NAME, ...)      \
   [&] {                                                                \
@@ -151,6 +180,8 @@
 
 #endif
 
+#if defined(USE_ROCM)
+
 #define PRIVATE_CASE_TYPE_CACHE_EMB(                                       \
     grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)            \
   case grad_enum_type: {                                                   \
@@ -160,11 +191,42 @@
           at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)       \
       PRIVATE_CASE_TYPE_EMB(                                               \
           at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)     \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Float8_e4m3fnuz,                                 \
+          _cache_t,                                                        \
+          at::Float8_e4m3fnuz,                                             \
+          Name,                                                            \
+          __VA_ARGS__)                                                     \
       default:                                                             \
         AT_ERROR(                                                          \
             #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
     }                                                                      \
   }
+
+#else
+
+#define PRIVATE_CASE_TYPE_CACHE_EMB(                                       \
+    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)            \
+  case grad_enum_type: {                                                   \
+    using grad_t = grad_cxx_type;                                          \
+    switch (_emb_t) {                                                      \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)       \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)     \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Float8_e4m3fn,                                   \
+          _cache_t,                                                        \
+          at::Float8_e4m3fn,                                               \
+          Name,                                                            \
+          __VA_ARGS__)                                                     \
+      default:                                                             \
+        AT_ERROR(                                                          \
+            #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+    }                                                                      \
+  }
+
+#endif
 
 #define DISPATCH_EMB_GRAD_CACHE_TYPES(                                         \
     EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, ...)                                \
@@ -208,6 +270,22 @@
   AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
   AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__)
 
+#if defined(USE_ROCM)
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)   \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fnuz, __VA_ARGS__)
+
+#else
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)   \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fn, __VA_ARGS__)
+
+#endif
+
 #define FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(...)       \
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)
@@ -221,6 +299,10 @@
   AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
   FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__)
 
+#define FBGEMM_DISPATCH_FLOAT_AND_DOUBLE_CASE(...)     \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Double, __VA_ARGS__)
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Type Dispatch Macros
 ///
@@ -232,6 +314,10 @@
   AT_DISPATCH_SWITCH(                               \
       TYPE, NAME, AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__))
 
+#define FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                     \
+      TYPE, NAME, FBGEMM_DISPATCH_FLOAT_AND_DOUBLE_CASE(__VA_ARGS__))
+
 #define FBGEMM_DISPATCH_FLOAT_AND_HALF(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                   \
       TYPE, NAME, FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__))
@@ -241,6 +327,13 @@
       TYPE,                                                  \
       NAME,                                                  \
       FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__)       \
+          AT_DISPATCH_CASE(at::ScalarType::Byte, __VA_ARGS__))
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_FP8_AND_BYTE(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                            \
+      TYPE,                                                      \
+      NAME,                                                      \
+      FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(__VA_ARGS__)       \
           AT_DISPATCH_CASE(at::ScalarType::Byte, __VA_ARGS__))
 
 #define FBGEMM_DISPATCH_FLOATING_TYPES(TYPE, NAME, ...) \
@@ -264,6 +357,14 @@
       NAME,                                            \
       FBGEMM_DISPATCH_FLOATING_TYPES_CASE(__VA_ARGS__) \
           FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__))
+
+#define FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                         \
+      TYPE,                                                   \
+      NAME,                                                   \
+      FBGEMM_DISPATCH_FLOATING_TYPES_CASE(__VA_ARGS__)        \
+          FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__)    \
+              AT_DISPATCH_CASE(at::ScalarType::Double, __VA_ARGS__))
 
 // We can cleanup the following once fbgemm uses PyTorch 2.2 in January 2024.
 #ifndef PT2_COMPLIANT_TAG

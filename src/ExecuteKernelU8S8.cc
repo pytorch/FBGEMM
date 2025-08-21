@@ -213,9 +213,9 @@ void ExecuteKernel<
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-  std::chrono::time_point<std::chrono::high_resolution_clock> t_start, t_end;
+  std::chrono::time_point<std::chrono::high_resolution_clock> t_end;
   double dt;
-  t_start = std::chrono::high_resolution_clock::now();
+  auto t_start = std::chrono::high_resolution_clock::now();
 #endif
 
   for (int jb = jb_begin; jb < jb_end; ++jb) {
@@ -224,8 +224,9 @@ void ExecuteKernel<
       if (nc != nbSize_) {
         switch (isa) {
           case inst_set_t::avx512_vnni:
-            if (std::
-                    is_same_v<typename packingAMatrix::accType, std::int16_t>) {
+            if constexpr (std::is_same_v<
+                              typename packingAMatrix::accType,
+                              std::int16_t>) {
               // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
               CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
               fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
@@ -237,8 +238,9 @@ void ExecuteKernel<
             break;
 
           case inst_set_t::avx512_vnni_ymm:
-            if (std::
-                    is_same_v<typename packingAMatrix::accType, std::int16_t>) {
+            if constexpr (std::is_same_v<
+                              typename packingAMatrix::accType,
+                              std::int16_t>) {
               // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
               CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
               fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(

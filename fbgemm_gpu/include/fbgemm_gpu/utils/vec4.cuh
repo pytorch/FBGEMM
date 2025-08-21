@@ -124,6 +124,28 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     acc.w = p[3];
   }
 
+  DEVICE_INLINE void load(const at::Float8_e4m3fnuz* p) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    const __nv_fp8x4_e4m3* fp8_ptr =
+        reinterpret_cast<const __nv_fp8x4_e4m3*>(p);
+    acc = static_cast<float4>(fp8_ptr[0]);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
+  DEVICE_INLINE void load(const at::Float8_e4m3fn* p) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    const __nv_fp8x4_e4m3* fp8_ptr =
+        reinterpret_cast<const __nv_fp8x4_e4m3*>(p);
+    acc = static_cast<float4>(fp8_ptr[0]);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
   DEVICE_INLINE void load(const uint8_t* p) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -158,6 +180,26 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     p[3] = acc.w;
   }
 
+  DEVICE_INLINE void store(at::Float8_e4m3fn* p) const {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    __nv_fp8x4_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x4_e4m3*>(p);
+    fp8_ptr[0] = static_cast<__nv_fp8x4_e4m3>(acc);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
+  DEVICE_INLINE void store(at::Float8_e4m3fnuz* p) const {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+    __nv_fp8x4_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x4_e4m3*>(p);
+    fp8_ptr[0] = static_cast<__nv_fp8x4_e4m3>(acc);
+#else
+    CUDA_KERNEL_ASSERT(false);
+#endif
+  }
+
   DEVICE_INLINE void store(uint8_t* p) const {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -188,6 +230,13 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     acc.y *= scale;
     acc.z *= scale;
     acc.w *= scale;
+  }
+
+  DEVICE_INLINE void sq_() {
+    acc.x *= acc.x;
+    acc.y *= acc.y;
+    acc.z *= acc.z;
+    acc.w *= acc.w;
   }
 
   // this <- this element-wise mul a
@@ -384,6 +433,13 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     acc.z *= scale;
     acc.w *= scale;
   }
+
+  DEVICE_INLINE void sq_() {
+    acc.x *= acc.x;
+    acc.y *= acc.y;
+    acc.z *= acc.z;
+    acc.w *= acc.w;
+  }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -551,6 +607,13 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     acc.z *= scale;
     acc.w *= scale;
   }
+
+  DEVICE_INLINE void sq_() {
+    acc.x *= acc.x;
+    acc.y *= acc.y;
+    acc.z *= acc.z;
+    acc.w *= acc.w;
+  }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -567,6 +630,38 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
   s.acc.z = lhs.acc.z + rhs.acc.z;
   s.acc.w = lhs.acc.w + rhs.acc.w;
   return s;
+}
+
+template <typename T>
+DEVICE_INLINE Vec4T<T> vec4_load_unaligned(const T* src) {
+  // src is not guaranteed to have proper alignment.
+  // Create a temporary aligned array on the stack.
+  alignas(16) T temp[4];
+
+  // Load values from src into the byte-aligned array
+#pragma unroll
+  for (auto i = 0; i < 4; i++) {
+    temp[i] = src[i];
+  }
+
+  // Then load the aligned array values into Vec4T
+  return Vec4T<T>(temp);
+}
+
+template <typename T>
+DEVICE_INLINE void vec4_store_unaligned(const Vec4T<T>& vec, T* dst) {
+  // dst is not guaranteed to have proper alignment.
+  // Create a temporary aligned array on the stack.
+  alignas(16) T temp[4];
+
+  // Store Vec4T values into the byte-aligned array
+  vec.store(temp);
+
+  // Then store the aligned array values into dst
+#pragma unroll
+  for (auto i = 0; i < 4; i++) {
+    dst[i] = temp[i];
+  }
 }
 
 } // namespace fbgemm_gpu

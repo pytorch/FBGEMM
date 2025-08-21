@@ -149,11 +149,10 @@ def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
             config.num_consumer_groups,
             kw.get("USE_TMA_LOAD_ON_SCALES", False),
         )
-        G, M, N, K = (
+        G, M, N = (
             named_args["G"],
             named_args["M_BUCKET"],
             named_args["N"],
-            named_args["K"],
         )
 
         # 1. make sure we have enough smem
@@ -185,7 +184,7 @@ def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
         num_sm = driver.active.utils.get_device_properties(device)[
             "multiprocessor_count"
         ]
-        N_TILES = N // BLOCK_N
+        N_TILES = (N + BLOCK_N - 1) // BLOCK_N
         MIN_N_TILES = 32 if torch.version.hip else 64
         # 4. make sure we don't load N tiles that are too big
         if (
@@ -198,11 +197,7 @@ def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
         if BLOCK_N < 128 and M * N_TILES > 2 * num_sm:
             continue
 
-        # 6. make sure K can be evenly divided
-        if K % BLOCK_K != 0:
-            continue
-
-        # 7. make sure we can partition for ws
+        # 6. make sure we can partition for ws
         if use_warp_specialization:
             if num_warps != 4:
                 continue
@@ -302,8 +297,9 @@ def _fbgemm_grouped_gemm(
                 tile_n_idx = gidx // num_m_tiles
 
                 accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-                tl.static_assert(K % BLOCK_SIZE_K == 0)
+
                 if USE_TMA_LOAD:
+                    tl.static_assert(K % BLOCK_SIZE_K == 0)
                     m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
                     n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
                     for k_offset in range(0, K, BLOCK_SIZE_K):
@@ -338,8 +334,18 @@ def _fbgemm_grouped_gemm(
                         + offs_k[None, :]
                     )
                     for k_offset in range(0, K, BLOCK_SIZE_K):
-                        a = tl.load(a_ptrs, mask=offs_am[:, None] < m_size)
-                        b = tl.load(b_ptrs, mask=offs_bn[:, None] < n_size)
+                        updated_k_offset = k_offset + offs_k
+                        updated_k_offset_mask = updated_k_offset[None, :] < K  # type: ignore[16]
+                        a = tl.load(
+                            a_ptrs,
+                            mask=((offs_am[:, None] < m_size) & updated_k_offset_mask),
+                            other=0.0,
+                        )
+                        b = tl.load(
+                            b_ptrs,
+                            mask=((offs_bn[:, None] < n_size) & updated_k_offset_mask),
+                            other=0.0,
+                        )
                         accumulator += tl.dot(a, b.T)
                         a_ptrs += BLOCK_SIZE_K
                         b_ptrs += BLOCK_SIZE_K
@@ -445,7 +451,7 @@ def _fbgemm_grouped_gemm_ws(
             N_start_offset = g.to(tl.int64) * N
 
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
-            tl.static_assert(N % BLOCK_SIZE_N == 0)
+            tl.static_assert(N % BLOCK_SIZE_N == 0, f"{N=} {BLOCK_SIZE_N=}")
             NUM_N_TILES: tl.constexpr = N // BLOCK_SIZE_N
             num_tiles = num_m_tiles * NUM_N_TILES
 
@@ -960,20 +966,28 @@ def _grouped_gemm(
 
     if USE_TMA_LOAD and not utils.HAS_TMA_DESC:
         USE_TMA_LOAD = False
-        warnings.warn("TMA load is disabled as there is no TMA descriptor support!")
+        warnings.warn(
+            "TMA load is disabled as there is no TMA descriptor support!", stacklevel=2
+        )
 
     if USE_TMA_STORE and not utils.HAS_TMA_DESC:
         USE_TMA_STORE = False
-        warnings.warn("TMA store is disabled as there is no TMA descriptor support!")
+        warnings.warn(
+            "TMA store is disabled as there is no TMA descriptor support!", stacklevel=2
+        )
 
     # TODO(shikaili): Check the readniess of WS on ROCm side in Meta's Triton.
     if use_warp_specialization and torch.version.hip:
-        warnings.warn("Warp specialization is disabled as it is not supported on ROCm.")
+        warnings.warn(
+            "Warp specialization is disabled as it is not supported on ROCm.",
+            stacklevel=2,
+        )
         use_warp_specialization = False
 
     if use_warp_specialization and not _HAS_WS_SUPPORT:
         warnings.warn(
-            "Warp specialization is disabled as the Triton build in current environment doesn't have such support. Please build from https://github.com/facebookexperimental/triton/tree/ws-3.2.x to enable it for best performance on Nvidia's SM90 GPUs."
+            "Warp specialization is disabled as the Triton build in current environment doesn't have such support. Please build from https://github.com/facebookexperimental/triton/tree/ws-3.2.x to enable it for best performance on Nvidia's SM90 GPUs.",
+            stacklevel=2,
         )
         use_warp_specialization = False
 
@@ -990,6 +1004,22 @@ def _grouped_gemm(
     M, K = x.shape
     N = w.shape[0] // G
     assert K == w.shape[1]
+
+    if K % 8 != 0 or N % 8 != 0:
+        use_warp_specialization = False
+        USE_TMA_LOAD = False
+        USE_TMA_STORE = False
+        warnings.warn(
+            f"TMA load and warp specialization are disabled since K or N is not a multiple of 8: {K=}, {N=}.",
+            stacklevel=2,
+        )
+        assert (
+            x_scale is None
+        ), f"Quantisation is not supported yet when K or N is not a multiple of 8: {K=}, {N=}."
+
+        assert (
+            output_tensor is None
+        ), f"Fused scatter add has large rounding error when K or N is not a multiple of 8: {K=}, {N=}."
 
     if output_tensor is None:
         FUSE_SCATTER_ADD = False

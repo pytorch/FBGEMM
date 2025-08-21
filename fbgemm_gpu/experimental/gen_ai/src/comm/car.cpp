@@ -177,6 +177,54 @@ void nccl_alltoall(
   torch::cuda::nccl::all2all(dsts, srcs, *get_nccl_comm(comm_idx), stream);
 }
 
+void nccl_one2many(
+    const std::vector<int64_t>& dst_ranks,
+    std::vector<at::Tensor> srcs,
+    int64_t comm_idx) {
+  using namespace c10d;
+  auto stream = at::cuda::getCurrentCUDAStream();
+  auto& comm = *get_nccl_comm(comm_idx);
+
+  C10D_NCCL_CHECK(ncclGroupStart(), "ncclGroupStart");
+  for (const auto i : c10::irange(static_cast<int>(srcs.size()))) {
+    auto& src = srcs[i];
+    C10D_NCCL_CHECK(
+        ncclSend(
+            src.data_ptr(),
+            src.numel(),
+            to_nccl_data_type(src.scalar_type()),
+            dst_ranks[i],
+            comm,
+            stream.stream()),
+        "ncclSend");
+  }
+  C10D_NCCL_CHECK(ncclGroupEnd(), "ncclGroupEnd");
+}
+
+void nccl_many2one(
+    std::vector<at::Tensor> dsts,
+    const std::vector<int64_t>& src_ranks,
+    int64_t comm_idx) {
+  using namespace c10d;
+  auto stream = at::cuda::getCurrentCUDAStream();
+  auto& comm = *get_nccl_comm(comm_idx);
+
+  C10D_NCCL_CHECK(ncclGroupStart(), "ncclGroupStart");
+  for (const auto i : c10::irange(static_cast<int>(dsts.size()))) {
+    auto& dst = dsts[i];
+    C10D_NCCL_CHECK(
+        ncclRecv(
+            dst.data_ptr(),
+            dst.numel(),
+            to_nccl_data_type(dst.scalar_type()),
+            src_ranks[i],
+            comm,
+            stream.stream()),
+        "ncclRecv");
+  }
+  C10D_NCCL_CHECK(ncclGroupEnd(), "ncclGroupEnd");
+}
+
 void nccl_reducescatter(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
   TORCH_CHECK(src.is_contiguous());
@@ -224,7 +272,13 @@ void nccl_allreduce(
     default:
       TORCH_CHECK(false, "unsupported type: ", src.scalar_type());
   }
-#if defined(USE_ROCM)
+
+// ncclAllReduceWithBias landed in OSS RCCL only recently, so it won't be
+// available in public ROCm for a while.  As such, its use has to be guarded by
+// a far-off ROCm version check.
+//    https://github.com/ROCm/rccl/pull/1729
+#if (defined(FBGEMM_FBCODE) && defined(USE_ROCM)) || \
+    (!defined(FBGEMM_FBCODE) && defined(USE_ROCM) && (ROCM_VERSION >= 60600))
   if (bias) {
     C10D_NCCL_CHECK(
         ncclAllReduceWithBias(
@@ -316,6 +370,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "nccl_alltoall_single(Tensor(a!) dst, Tensor src, int world_size, int comm_idx=0) -> ()");
   m.def("nccl_alltoall(Tensor(a!)[] dst, Tensor[] src, int comm_idx=0) -> ()");
 
+  m.def("nccl_one2many(int[] dst_ranks, Tensor[] src, int comm_idx=0) -> ()");
+  m.def(
+      "nccl_many2one(Tensor(a!)[] dst, int[] src_ranks, int comm_idx=0) -> ()");
+
   m.def("nccl_reducescatter(Tensor(a!) dst, Tensor src, int comm_idx=0) -> ()");
 
   m.def(
@@ -346,6 +404,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("nccl_allgather", nccl_allgather);
   m.impl("nccl_alltoall_single", nccl_alltoall_single);
   m.impl("nccl_alltoall", nccl_alltoall);
+  m.impl("nccl_one2many", nccl_one2many);
+  m.impl("nccl_many2one", nccl_many2one);
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
@@ -359,6 +419,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("nccl_allgather", nccl_allgather);
   m.impl("nccl_alltoall_single", nccl_alltoall_single);
   m.impl("nccl_alltoall", nccl_alltoall);
+  m.impl("nccl_one2many", nccl_one2many);
+  m.impl("nccl_many2one", nccl_many2one);
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
@@ -392,6 +454,20 @@ void nccl_alltoall_single_meta(
 void nccl_alltoall_meta(
     std::vector<at::Tensor> /* dsts */,
     std::vector<at::Tensor> /* srcs */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void nccl_one2many_meta(
+    const std::vector<int64_t>& /* dst_ranks */,
+    std::vector<at::Tensor> /* srcs */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void nccl_many2one_meta(
+    std::vector<at::Tensor> /* dsts */,
+    const std::vector<int64_t>& /* src_ranks */,
     int64_t /* comm_idx */) {
   return;
 }
@@ -434,6 +510,8 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("nccl_allgather", nccl_allgather_meta);
   m.impl("nccl_alltoall_single", nccl_alltoall_single_meta);
   m.impl("nccl_alltoall", nccl_alltoall_meta);
+  m.impl("nccl_one2many", nccl_one2many_meta);
+  m.impl("nccl_many2one", nccl_many2one_meta);
   m.impl("nccl_reducescatter", nccl_reducescatter_meta);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce_meta);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce_meta);

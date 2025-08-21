@@ -108,8 +108,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     bool accum,
     int32_t mc,
     int32_t nc,
-    int32_t kc) {
-  (void)kc; // Suppress unused variable warning
+    int32_t kc [[maybe_unused]]) {
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
@@ -118,7 +117,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
   int nBlock = 0;
   int mRegBlockSize = 0;
   int nRegBlockSize = 0;
-  int nRegBlockSizeMin = 0;
+  int nRegBlockSizeMin [[maybe_unused]] = 0;
   int row_interleave = 0;
 
   if (blocking_params) {
@@ -136,7 +135,6 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     nRegBlockSizeMin = PackingTraits<uint8_t, int32_t, instSet>::NR_MIN;
     row_interleave = PackingTraits<uint8_t, int32_t, instSet>::ROW_INTERLEAVE;
   }
-  (void)nRegBlockSizeMin; // Suppress unused variable warning
 
   auto kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
@@ -162,8 +160,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     assert(
         kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
     assert(nc % nRegBlockSizeMin == 0 && "nc must be a multiple of NR_MIN");
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
     assert(
         maxMRegs * maxNRegs <= numRegs - 4 &&
@@ -182,14 +179,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
-            void,
-            uint8_t*,
-            int8_t*,
-            int8_t*,
-            int32_t*,
-            int,
-            int>(asmjit::CallConvId::kHost),
+        asmjit::FuncSignature::
+            build<void, uint8_t*, int8_t*, int8_t*, int32_t*, int, int>(),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -363,7 +354,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 

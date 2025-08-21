@@ -7,21 +7,59 @@ InheritParentConfig: true
 # @nolint
 Checks: '
 -*,
+clang-analyzer*,
+clang-diagnostic-missing-prototypes,
 cppcoreguidelines-init-variables,
-bugprone-argument-comment,
-misc-use-internal-linkage,
+cppcoreguidelines-special-member-functions,
+bugprone*,
+-bugprone-crtp-constructor-accessibility,
+-bugprone-easily-swappable-parameters,
+-bugprone-implicit*,
+-bugprone-macro-parentheses,
+-bugprone-narrowing-conversions,
+-bugprone-reserved-identifier,
+-bugprone-switch-missing-default-case,
+misc-*,
+-misc-confusable-identifiers,
+-misc-const-correctness,
+-misc-include-cleaner,
+-misc-non-private-member-variables-in-classes,
+-misc-use-anonymous-namespace,
 modernize*,
--modernize-use-auto,
--modernize-use-constraints,
--modernize-use-trailing-return-type,
 -modernize-avoid-c-arrays,
 -modernize-avoid-bind,
+-modernize-return-braced-init-list,
+-modernize-use-auto,
+-modernize-use-constraints,
 -modernize-use-designated-initializers,
--modernize-use-ranges,
--modernize-use-integer-sign-comparison
+-modernize-use-integer-sign-comparison,
 -modernize-use-nodiscard,
+-modernize-use-ranges,
+-modernize-use-trailing-return-type,
+-modernize-use-transparent-functors,
 performance*,
--performance-avoid-endl
+-performance-enum-size,
+readability*,
+-readability-avoid-nested-conditional-operator,
+-readability-avoid-const-params-in-decls,
+-readability-avoid-unconditional-preprocessor-if,
+-readability-braces-around-statements,
+-readability-container-contains,
+-readability-else-after-return,
+-readability-function-cognitive-complexity,
+-readability-identifier-length,
+-readability-implicit-bool-conversion,
+-readability-isolate-declaration,
+-readability-make-member-function-const,
+-readability-magic-numbers,
+-readability-math-missing-parentheses,
+-readability-non-const-parameter,
+-readability-qualified-auto,
+-readability-uppercase-literal-suffix,
+-readability-redundant-access-specifiers,
+-readability-redundant-control-flow,
+-readability-simplify-boolean-expr,
+-readability-suspicious-call-argument,
 '
 CheckOptions:
  - key: facebook-cuda-safe-api-call-check.HandlerName
@@ -30,4 +68,8 @@ CheckOptions:
  - key: facebook-cuda-safe-kernel-call-check.HandlerName
    # This is PyTorch's handler; you may need to define your own
    value: C10_CUDA_KERNEL_LAUNCH_CHECK
+ - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+   value: true
+ - key: cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove
+   value: true
 ...

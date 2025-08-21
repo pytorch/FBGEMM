@@ -9,6 +9,7 @@
 #pragma once
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <vector>
 
 #if defined(__x86_64__) || defined(__i386__) || \
@@ -217,11 +218,10 @@ void performance_test(
     int num_instances,
     bool flush,
     int repetitions,
-    bool is_mkl) {
+    bool is_mkl [[maybe_unused]]) {
 #ifdef USE_MKL
   mkl_set_xerbla((XerblaEntry)test_xerbla);
 #endif
-  (void)is_mkl; // Suppress unused variable warning
 
   float alpha = 1.f, beta = 1.f;
   matrix_op_t btran = matrix_op_t::Transpose;
@@ -380,7 +380,7 @@ void performance_test(
         if (std::abs(C_ref[0][i] - C_fb[0][i]) > 1e-3) {
           fprintf(
               stderr,
-              "Error: too high diff between fp32 ref %f and fp16 %f at %ld\n",
+              "Error: too high diff between fp32 ref %f and fp16 %f at %zu\n",
               C_ref[0][i],
               C_fb[0][i],
               i);

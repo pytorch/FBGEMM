@@ -242,6 +242,12 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& count,
       const RocksdbWriteMode w_mode = RocksdbWriteMode::FWD_ROCKSDB_READ) = 0;
 
+  virtual folly::SemiFuture<std::vector<folly::Unit>>
+  set_kv_zch_eviction_metadata_async(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_show_count) = 0;
+
   virtual void compact() = 0;
 
   /// Flush L2 cache into backend storage
@@ -266,6 +272,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& count,
       const int64_t timestep,
       const bool is_bwd = false);
+
+  void set_feature_score_metadata_cuda(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const at::Tensor& engage_show_count);
 
   void stream_cuda(
       const at::Tensor& indices,
@@ -297,7 +308,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /**
    * @brief pause any ongoing eviction, usually called before backend IO
    */
-  virtual void pause_ongoing_eviction() {
+  virtual void pause_ongoing_eviction(bool force_resume = false) {
     FBEXCEPTION("Not implemented");
   }
 
@@ -305,7 +316,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
    * @brief resume ongoing eviction, if any, usually called when there won't be
    * backend IO for a while
    */
-  virtual void resume_ongoing_eviction() {
+  virtual void resume_ongoing_eviction(bool force_pause = false) {
     FBEXCEPTION("Not implemented");
   }
 
@@ -317,6 +328,13 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   virtual void wait_until_eviction_done() {
     FBEXCEPTION("Not implemented");
   }
+
+  /**
+   * @brief need to support set backend_return_whole_row from frontend
+   * if one model changed from SSD to DRAM, or vice versa we need to
+   * support this API to change backend_return_whole_row
+   */
+  virtual void set_backend_return_whole_row(bool backend_return_whole_row);
 
   /// export internally collected L2 performance metrics out
   ///
@@ -342,6 +360,14 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       std::optional<int64_t> offset) {
     (void)start;
     (void)end;
+    FBEXCEPTION("Not implemented");
+  }
+
+  virtual at::Tensor get_kv_zch_eviction_metadata_impl(
+      const at::Tensor& indices,
+      const at::Tensor& count) {
+    (void)indices;
+    (void)count;
     FBEXCEPTION("Not implemented");
   }
 
@@ -379,9 +405,12 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
-  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
-    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
-    set_kv_db_async(ids, weights, count).wait();
+  virtual void set_kv_to_storage(
+      const at::Tensor& ids,
+      const at::Tensor& weights) {
+    (void)ids;
+    (void)weights;
+    FBEXCEPTION("Not implemented");
   }
 
   virtual void get_kv_from_storage_by_snapshot(

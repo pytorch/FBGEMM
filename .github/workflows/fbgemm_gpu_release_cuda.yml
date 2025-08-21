@@ -5,7 +5,7 @@
 
 # This workflow is used for building and publishing FBGEMM_GPU-CUDA release
 # builds against PyTorch-CUDA Release to public PyPI.
-name: FBGEMM_GPU-CUDA Release Build
+name: FBGEMM_GPU-CUDA/GenAI Release Build
 
 on:
   # PR Trigger (enabled for regression checks and debugging)
@@ -24,19 +24,19 @@ on:
   #
   workflow_dispatch:
     inputs:
-      pytorch_channel:
+      pytorch-channel:
         description: Package Channel to Use for PyTorch Installation
         type: choice
         required: false
         options: [ "nightly", "test", "release" ]
         default: "test"
-      cuda_version:
+      cuda-version-publish:
         description: CUDA Version to Use for Building Artifact
         type: choice
         required: false
         options: [ "12.6.3", "12.8.1", "12.9.1" ]
         default: "12.6.3"
-      publish_to_pypi:
+      publish-to-pypi:
         description: Publish Artifact to PyPI
         type: boolean
         required: false
@@ -48,160 +48,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Build on CPU hosts and upload to GHA
-  build_artifact:
+  generate-build-matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: ${{ matrix.host-machine.instance }}
-    container:
-      image: amazonlinux:2023
-      options: --user root
-    defaults:
-      run:
-        shell: bash
-    env:
-      PRELUDE: .github/scripts/setup_env.bash
-      BUILD_ENV: build_binary
-      BUILD_VARIANT: cuda
-      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
-    continue-on-error: true
-    strategy:
-      # Don't fast-fail all the other builds if one of the them fails
-      fail-fast: false
-      matrix:
-        host-machine: [
-          { arch: x86, instance: "linux.24xlarge" },
-        ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "12.6.3", "12.8.1", "12.9.1" ]
+    uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
+    with:
+      repo-owner: ${{ github.repository_owner }}
+      repo-ref: ${{ github.ref }}
+      targets: default,genai
+      variant: cuda
+      jobtype: build
 
-    steps:
-    - name: Setup Build Container
-      run: yum update -y; yum install -y binutils findutils git pciutils sudo tar wget which
+  build:
+    needs: generate-build-matrix
+    uses: ./.github/workflows/_fbgemm_gpu_cuda_build.yml
+    with:
+      matrix: ${{ needs.generate-build-matrix.outputs.matrix }}
+      repo-ref: ${{ github.ref }}
+      pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'release' }}
 
-    - name: Checkout the Repository
-      uses: actions/checkout@v4
+  generate-test-matrix:
+    needs: build
+    uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
+    with:
+      repo-owner: ${{ github.repository_owner }}
+      repo-ref: ${{ github.ref }}
+      targets: default,genai
+      variant: cuda
+      jobtype: test
 
-    - name: Display System Info
-      run: . $PRELUDE; print_system_info
-
-    - name: Display GPU Info
-      run: . $PRELUDE; print_gpu_info
-
-    - name: Setup Miniconda
-      run: . $PRELUDE; setup_miniconda $HOME/miniconda
-
-    - name: Create Conda Environment
-      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
-
-    - name: Install C/C++ Compilers
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
-
-    - name: Install Build Tools
-      run: . $PRELUDE; install_build_tools $BUILD_ENV
-
-    - name: Install CUDA
-      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
-
-    - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cuda/${{ matrix.cuda-version }}
-
-    - name: Collect PyTorch Environment Info
-      if: ${{ success() || failure() }}
-      run: if . $PRELUDE && which conda; then collect_pytorch_env_info $BUILD_ENV; fi
-
-    - name: Install cuDNN
-      run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
-
-    - name: Prepare FBGEMM_GPU Build
-      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
-
-    - name: Build FBGEMM_GPU
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV release cuda
-
-    - name: Upload Built Wheel as GHA Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: fbgemm_gpu_release_cuda_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
-        path: fbgemm_gpu/dist/*.whl
-        if-no-files-found: error
-
-
-  # Download the built artifact from GHA, test on GPU, and push to PyPI
-  test_and_publish_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: ${{ matrix.host-machine.instance }}
-    defaults:
-      run:
-        shell: bash
-    env:
-      PRELUDE: .github/scripts/setup_env.bash
-      BUILD_ENV: build_binary
-      BUILD_VARIANT: cuda
-      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
-      ENFORCE_CUDA_DEVICE: 1
-    strategy:
-      fail-fast: false
-      matrix:
-        host-machine: [
-          { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
-        ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "12.6.3", "12.8.1", "12.9.1" ]
-    needs: build_artifact
-
-    steps:
-    - name: Checkout the Repository
-      uses: actions/checkout@v4
-
-    - name: Download Wheel Artifact from GHA
-      uses: actions/download-artifact@v4
-      with:
-        name: fbgemm_gpu_release_cuda_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
-
-    - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
-      uses: pytorch/test-infra/.github/actions/setup-nvidia@main
-
-    - name: Display System Info
-      run: . $PRELUDE; print_system_info; print_ec2_info
-
-    - name: Display GPU Info
-      run: . $PRELUDE; print_gpu_info
-
-    - name: Setup Miniconda
-      run: . $PRELUDE; setup_miniconda $HOME/miniconda
-
-    - name: Create Conda Environment
-      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
-
-    - name: Install C/C++ Compilers for Updated LIBGCC
-      # NOTE: gcc is required for torch dynamo to work properly, as some of
-      # the compilation flags used by torch dynamo are gcc-specific:
-      #
-      #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
-
-    - name: Install CUDA
-      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
-
-    - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cuda/${{ matrix.cuda-version }}
-
-    - name: Collect PyTorch Environment Info
-      if: ${{ success() || failure() }}
-      run: if . $PRELUDE && which conda; then collect_pytorch_env_info $BUILD_ENV; fi
-
-    - name: Prepare FBGEMM_GPU Build
-      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
-
-    - name: Install FBGEMM_GPU
-      run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
-
-    - name: Test with PyTest
-      timeout-minutes: 60
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
-
-    - name: Push Wheel to PyPI
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == github.event.inputs.cuda_version }}
-      env:
-        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
+  test:
+    needs: generate-test-matrix
+    uses: ./.github/workflows/_fbgemm_gpu_cuda_test.yml
+    with:
+      matrix: ${{ needs.generate-test-matrix.outputs.matrix }}
+      repo-ref: ${{ github.ref }}
+      pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'release' }}
+      publish-to-pypi: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish-to-pypi == 'true' }}
+      cuda-version-publish: ${{ github.event.inputs.cuda-version-publish }}
+      extra-env: >-
+        {
+          "ENFORCE_CUDA_DEVICE": 1
+        }
+    secrets:
+      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}

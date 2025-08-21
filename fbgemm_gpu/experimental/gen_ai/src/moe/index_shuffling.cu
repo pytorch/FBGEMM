@@ -11,7 +11,11 @@
 #include <ATen/ATen.h>
 #include <ATen/Dispatch.h>
 #include <c10/cuda/CUDAStream.h>
+#ifdef USE_ROCM
+#include <hip/hip_fp16.h>
+#else
 #include <cuda_bf16.h>
+#endif
 #include <torch/torch.h>
 
 #define DISPATCH_CASE_FLOATING_TYPES(...)              \
@@ -27,8 +31,6 @@ constexpr int kNumThreadsPerWarp = 64;
 #else
 constexpr int kNumThreadsPerWarp = 32;
 #endif
-constexpr int kNumWarps = 4;
-constexpr int kNumThreads = kNumThreadsPerWarp * kNumWarps;
 
 __inline__ constexpr int ceil_of_ratio(int a, int b) {
   return (a + b - 1) / b;
@@ -72,10 +74,15 @@ __device__ __forceinline__ int load_aquire(int* addr) {
 };
 #endif
 
-template <class DataType, class IndexType, int NumExperts, int NumTokensPerTile>
+template <
+    class DataType,
+    class IndexType,
+    int NumExperts,
+    int NumTokensPerTile,
+    int TopK>
 struct SharedStorage {
-  DataType routing_scores[NumTokensPerTile * NumExperts];
-  IndexType expert_indices[NumTokensPerTile * NumExperts];
+  DataType routing_scores[NumTokensPerTile * NumExperts * TopK];
+  IndexType expert_indices[NumTokensPerTile * NumExperts * TopK];
   IndexType token_count_cumsums[NumExperts];
 };
 
@@ -104,15 +111,160 @@ struct Params {
   IndexType* shuffled_token_indices;
 };
 
-template <class DataType, class IndexType, int NumExperts, int NumTokensPerTile>
+template <class DataType, class IndexType>
+__device__ __forceinline__ void merge_top1(
+    DataType* routing_scores,
+    IndexType* expert_indices,
+    int lhs_smem_index,
+    int rhs_smem_index) {
+  auto lhs_score = routing_scores[lhs_smem_index];
+  auto rhs_score = routing_scores[rhs_smem_index];
+  auto lhs_expert_index = expert_indices[lhs_smem_index];
+  auto rhs_expert_index = expert_indices[rhs_smem_index];
+
+  bool lhs_larger = lhs_score >= rhs_score;
+  routing_scores[lhs_smem_index] = lhs_larger ? lhs_score : rhs_score;
+  expert_indices[lhs_smem_index] =
+      lhs_larger ? lhs_expert_index : rhs_expert_index;
+}
+
+template <class DataType, class IndexType>
+__device__ __forceinline__ void merge_top2(
+    DataType* routing_scores,
+    IndexType* expert_indices,
+    int lhs_smem_index,
+    int rhs_smem_index,
+    bool skip_duplicates) {
+  auto lhs_score0 = routing_scores[lhs_smem_index];
+  auto lhs_score1 = routing_scores[lhs_smem_index + 1];
+  auto rhs_score0 = routing_scores[rhs_smem_index];
+  auto rhs_score1 = routing_scores[rhs_smem_index + 1];
+  auto lhs_expert_index0 = expert_indices[lhs_smem_index];
+  auto lhs_expert_index1 = expert_indices[lhs_smem_index + 1];
+  auto rhs_expert_index0 = expert_indices[rhs_smem_index];
+  auto rhs_expert_index1 = expert_indices[rhs_smem_index + 1];
+
+  if (lhs_score0 >= rhs_score0) {
+    routing_scores[lhs_smem_index] = lhs_score0;
+    expert_indices[lhs_smem_index] = lhs_expert_index0;
+
+    if ((lhs_score1 >= rhs_score0) && !skip_duplicates) {
+      routing_scores[lhs_smem_index + 1] = lhs_score1;
+      expert_indices[lhs_smem_index + 1] = lhs_expert_index1;
+    } else {
+      routing_scores[lhs_smem_index + 1] = rhs_score0;
+      expert_indices[lhs_smem_index + 1] = rhs_expert_index0;
+    }
+  } else {
+    routing_scores[lhs_smem_index] = rhs_score0;
+    expert_indices[lhs_smem_index] = rhs_expert_index0;
+
+    if ((rhs_score1 > lhs_score0) && !skip_duplicates) {
+      routing_scores[lhs_smem_index + 1] = rhs_score1;
+      expert_indices[lhs_smem_index + 1] = rhs_expert_index1;
+    } else {
+      routing_scores[lhs_smem_index + 1] = lhs_score0;
+      expert_indices[lhs_smem_index + 1] = lhs_expert_index0;
+    }
+  }
+}
+
+template <class DataType, class IndexType, int K>
+__device__ __forceinline__ void merge_topk(
+    DataType* routing_scores,
+    IndexType* expert_indices,
+    int lhs_smem_index,
+    int rhs_smem_index,
+    int num_valid_values) {
+  /**
+  @param num_valid_values At first log2(K) calls to this function, both inputs
+  would only contain num_valid_values = 2 ** (step_number - 1) meaningful
+  values, the rest are duplicates. So the function should take exactly
+  num_valid_values elements from the first input and num_valid_values elements
+  from the second input. After the first log2(K) calls, all elements in the
+  inputs are meaningful, and num_valid_values doesn't have any effect (i.e.
+  num_valid_values >= K).
+  */
+  // Temporary arrays to store the merged result
+  DataType merged_scores[K];
+  IndexType merged_indices[K];
+
+  // Pointers to the left and right arrays
+  DataType* lhs_scores = &routing_scores[lhs_smem_index];
+  DataType* rhs_scores = &routing_scores[rhs_smem_index];
+  IndexType* lhs_indices = &expert_indices[lhs_smem_index];
+  IndexType* rhs_indices = &expert_indices[rhs_smem_index];
+
+  // Merge the two sorted arrays (assuming both are sorted in descending order)
+  int lhs_idx = 0;
+  int rhs_idx = 0;
+  int merged_idx = 0;
+
+  int max_from_one_array = std::min(num_valid_values, K);
+
+  // Get the top K elements from the two arrays
+  while (merged_idx < K) {
+    // If we've exhausted the left array, take from the right
+    if (lhs_idx >= max_from_one_array) {
+      merged_scores[merged_idx] = rhs_scores[rhs_idx];
+      merged_indices[merged_idx] = rhs_indices[rhs_idx];
+      rhs_idx++;
+      merged_idx++;
+      continue;
+    }
+
+    // If we've exhausted the right array, take from the left
+    if (rhs_idx >= max_from_one_array) {
+      merged_scores[merged_idx] = lhs_scores[lhs_idx];
+      merged_indices[merged_idx] = lhs_indices[lhs_idx];
+      lhs_idx++;
+      merged_idx++;
+      continue;
+    }
+
+    // Compare the current elements from both arrays and take the larger one
+    if (lhs_scores[lhs_idx] >= rhs_scores[rhs_idx]) {
+      merged_scores[merged_idx] = lhs_scores[lhs_idx];
+      merged_indices[merged_idx] = lhs_indices[lhs_idx];
+      lhs_idx++;
+    } else {
+      merged_scores[merged_idx] = rhs_scores[rhs_idx];
+      merged_indices[merged_idx] = rhs_indices[rhs_idx];
+      rhs_idx++;
+    }
+    merged_idx++;
+  }
+
+  // Write the merged result back to the left-hand side positions
+  for (int i = 0; i < K; i++) {
+    routing_scores[lhs_smem_index + i] = merged_scores[i];
+    expert_indices[lhs_smem_index + i] = merged_indices[i];
+  }
+}
+
+template <
+    class DataType,
+    class IndexType,
+    int NumExperts,
+    int NumTokensPerTile,
+    int TopK>
 __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   // scores: [num_tokens, num_experts]
   // counts: [num_experts]
   // expert_indices/shuffled_expert_indices: [num_tokens]
   // token_indices/shuffled_token_indices: [num_tokens]
 
-  __shared__ SharedStorage<DataType, IndexType, NumExperts, NumTokensPerTile>
-      smem;
+  // When the number of experts is large, increase the total number of threads
+  // to make the parallel reduction below work. Note that this logic is
+  // duplicated inside index_shuffling_torch, but for const instead of
+  // constexpr.
+  constexpr int kNumWarps = (NumExperts > 128) ? 8 : 4;
+  constexpr int kNumThreads = kNumThreadsPerWarp * kNumWarps;
+
+  extern __shared__ char shared_memory[];
+  auto& smem = *reinterpret_cast<
+      SharedStorage<DataType, IndexType, NumExperts, NumTokensPerTile, TopK>*>(
+      shared_memory);
 
   const auto tidx = threadIdx.x;
   const auto bidx = blockIdx.x;
@@ -134,7 +286,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   const int stride_t = params.stride_t;
   const int stride_e = params.stride_e;
 
-  const DataType zero = static_cast<DataType>(0.0f);
+  const DataType zero = static_cast<DataType>(-INFINITY);
   for (int token_index_offset = token_index_start;
        token_index_offset < token_index_end;
        token_index_offset += NumTokensPerTile) {
@@ -144,18 +296,24 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
     for (int i = tidx; i < NumTokensPerTile * NumExperts; i += kNumThreads) {
       const int token_index = token_index_offset + i / NumExperts;
       const int expert_index = i % NumExperts;
-
-      smem.routing_scores[i] = (token_index < num_valid_tokens)
-          ? params.routing_scores
-                [token_index * stride_t + expert_index * stride_e]
-          : zero;
-      smem.expert_indices[i] = expert_index;
+#pragma unroll
+      for (int j = 0; j < TopK; j++) {
+        smem.routing_scores[i * TopK + j] = (token_index < num_valid_tokens)
+            ? params.routing_scores
+                  [token_index * stride_t + expert_index * stride_e]
+            : zero;
+        smem.expert_indices[i * TopK + j] = expert_index;
+      }
     }
     __syncthreads();
 
     // 2. Top-1 Reduction
     static_assert(NumExperts % 2 == 0, "");
-    constexpr int kNumParallelReductionThreads = NumExperts / 2;
+    // When there are many experts, increase kNumParallelReductionThreads to
+    // make sure it's above NumExperts/2, so the parallel reduction covers all
+    // experts.
+    constexpr int kNumParallelReductionThreads =
+        (NumExperts > 128) ? 256 : (NumExperts / 2);
 
     static_assert(kNumThreads % kNumParallelReductionThreads == 0, "");
     constexpr int kNumParallelReductionGroups =
@@ -173,20 +331,37 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
         if (!(tidx & (num_reduced_threads - 1))) {
           int local_token_index =
               local_token_offset + tidx / kNumParallelReductionThreads;
-          int lhs_smem_index = local_token_index * NumExperts +
-              (tidx % kNumParallelReductionThreads) * 2;
-          int rhs_smem_index = lhs_smem_index + num_reduced_threads;
+          int lhs_expert_offset = (tidx % kNumParallelReductionThreads) * 2;
+          int lhs_smem_index =
+              (local_token_index * NumExperts + lhs_expert_offset) * TopK;
 
-          auto lhs_score = smem.routing_scores[lhs_smem_index];
-          auto rhs_score = smem.routing_scores[rhs_smem_index];
-          auto lhs_expert_index = smem.expert_indices[lhs_smem_index];
-          auto rhs_expert_index = smem.expert_indices[rhs_smem_index];
-
-          bool lhs_larger = lhs_score >= rhs_score;
-          smem.routing_scores[lhs_smem_index] =
-              lhs_larger ? lhs_score : rhs_score;
-          smem.expert_indices[lhs_smem_index] =
-              lhs_larger ? lhs_expert_index : rhs_expert_index;
+          int rhs_smem_index = lhs_smem_index + num_reduced_threads * TopK;
+          if (lhs_expert_offset + num_reduced_threads < NumExperts) {
+            if (TopK == 1) {
+              merge_top1(
+                  smem.routing_scores,
+                  smem.expert_indices,
+                  lhs_smem_index,
+                  rhs_smem_index);
+            } else if (TopK == 2) {
+              merge_top2(
+                  smem.routing_scores,
+                  smem.expert_indices,
+                  lhs_smem_index,
+                  rhs_smem_index,
+                  num_reduced_threads == 1);
+            } else {
+              merge_topk<DataType, IndexType, 4>(
+                  smem.routing_scores,
+                  smem.expert_indices,
+                  lhs_smem_index,
+                  rhs_smem_index,
+                  num_reduced_threads);
+            }
+          }
+        }
+        if (TopK > 1) {
+          __syncthreads();
         }
       }
 #ifdef USE_ROCM
@@ -209,13 +384,18 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       int local_token_index = i;
       int token_index = token_index_offset + i;
       if (token_index < num_valid_tokens) {
-        auto expert_index = smem.expert_indices[local_token_index * NumExperts];
-        params.buffered_expert_indices[token_index] = expert_index;
-        if (expert_index >= expert_index_start &&
-            expert_index < expert_index_end) {
-          auto token_index_in_expert = atomic_add_relaxed(
-              &params.token_count_per_expert[expert_index], 1);
-          params.buffered_token_indices[token_index] = token_index_in_expert;
+#pragma unroll
+        for (int j = 0; j < TopK; j++) {
+          auto expert_index =
+              smem.expert_indices[local_token_index * NumExperts * TopK + j];
+          params.buffered_expert_indices[token_index * TopK + j] = expert_index;
+          if (expert_index >= expert_index_start &&
+              expert_index < expert_index_end) {
+            auto token_index_in_expert = atomic_add_relaxed(
+                &params.token_count_per_expert[expert_index], 1);
+            params.buffered_token_indices[token_index * TopK + j] =
+                token_index_in_expert;
+          }
         }
       }
     }
@@ -236,9 +416,8 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   __syncthreads();
 
   // 4. Scan
-  static_assert(kNumThreads >= NumExperts, "");
-  if (tidx < NumExperts) {
-    smem.token_count_cumsums[tidx] = params.token_count_per_expert[tidx];
+  for (int i = tidx; i < NumExperts; i += kNumThreads) {
+    smem.token_count_cumsums[i] = params.token_count_per_expert[i];
   }
   __syncthreads();
 
@@ -252,7 +431,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   __syncthreads();
 
   // 5. Store
-  auto get_token_count_cumsum = [](int index) {
+  auto get_token_count_cumsum = [&smem](int index) {
     return index == 0 ? 0 : smem.token_count_cumsums[index - 1];
   };
 
@@ -267,16 +446,20 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
        global_token_offset += kNumThreads) {
     int token_index = global_token_offset + tidx;
     if (token_index < num_valid_tokens) {
-      int expert_index = params.buffered_expert_indices[token_index];
-      if (expert_index >= expert_index_start &&
-          expert_index < expert_index_end) {
-        int new_token_index_in_expert =
-            params.buffered_token_indices[token_index];
-        int new_token_index = get_token_count_cumsum(expert_index) -
-            token_count_cumsum_start + new_token_index_in_expert;
-        params.shuffled_expert_indices[new_token_index] =
-            expert_index - expert_index_start;
-        params.shuffled_token_indices[new_token_index] = token_index;
+#pragma unroll
+      for (int j = 0; j < TopK; j++) {
+        int expert_index =
+            params.buffered_expert_indices[token_index * TopK + j];
+        if (expert_index >= expert_index_start &&
+            expert_index < expert_index_end) {
+          int new_token_index_in_expert =
+              params.buffered_token_indices[token_index * TopK + j];
+          int new_token_index = get_token_count_cumsum(expert_index) -
+              token_count_cumsum_start + new_token_index_in_expert;
+          params.shuffled_expert_indices[new_token_index] =
+              expert_index - expert_index_start;
+          params.shuffled_token_indices[new_token_index] = token_index;
+        }
       }
     }
   }
@@ -291,7 +474,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     const at::Tensor& routing_scores,
     const std::optional<int64_t>& expert_index_start,
     const std::optional<int64_t>& expert_index_end,
-    const std::optional<at::Tensor>& valid_token_count) {
+    const std::optional<at::Tensor>& valid_token_count,
+    const int64_t top_k = 1) {
   TORCH_CHECK(
       routing_scores.dtype() == torch::kBFloat16 ||
           routing_scores.dtype() == torch::kFloat,
@@ -314,7 +498,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         TORCH_CHECK(routing_scores.dim() == 2);
         const int num_tokens = routing_scores.size(0);
         const int num_experts = routing_scores.size(1);
-        TORCH_CHECK(num_experts == 16 || num_experts == 128);
+        TORCH_CHECK(
+            num_experts == 16 || num_experts == 32 || num_experts == 128 ||
+            num_experts == 320);
+
+        TORCH_CHECK(top_k == 1 || top_k == 2 || top_k == 4);
 
         auto allocate_index_tensor = [&](int size) {
           return at::empty(
@@ -323,11 +511,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
                   routing_scores.device()));
         };
         token_count_per_expert = allocate_index_tensor(num_experts + 2);
-        shuffled_expert_indices = allocate_index_tensor(num_tokens);
-        shuffled_token_indices = allocate_index_tensor(num_tokens);
-        at::Tensor buffered_expert_indices = allocate_index_tensor(num_tokens);
-        at::Tensor buffered_token_indices = allocate_index_tensor(num_tokens);
-
+        shuffled_expert_indices = allocate_index_tensor(num_tokens * top_k);
+        shuffled_token_indices = allocate_index_tensor(num_tokens * top_k);
+        at::Tensor buffered_expert_indices =
+            allocate_index_tensor(num_tokens * top_k);
+        at::Tensor buffered_token_indices =
+            allocate_index_tensor(num_tokens * top_k);
 #ifdef USE_ROCM
         // TODO(shikaili): hipMetsetAsync is more expensive than ATen set zero.
         token_count_per_expert.zero_();
@@ -349,30 +538,80 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         }
 
 #ifdef USE_ROCM
-        constexpr int kNumTokensPerTile = 32;
+        constexpr int kNumTokensPerTileFewExperts = 32;
 #else
-        constexpr int kNumTokensPerTile = 16;
+        constexpr int kNumTokensPerTileFewExperts = 16;
 #endif
 
         void* kernel;
         int smem_size;
 
-#define DISPATCH(E, B)                                               \
-  kernel = (void*)index_shuffling_kernel<DataType, IndexType, E, B>; \
-  smem_size = sizeof(SharedStorage<DataType, IndexType, E, B>);
+// Reducing tile size as problem size increases to avoid
+// cudaErrorCooperativeLaunchTooLarge.
+// TopK > 1 is not supported on AMD yet.
+#ifndef USE_ROCM
+#define DISPATCH(E, B, K, S)          \
+  if (S <= 128) {                     \
+    DISPATCH_K(E, B, K);              \
+  } else if (storage_factor <= 256) { \
+    DISPATCH_K(E, B / 2, K);          \
+  } else if (storage_factor <= 512) { \
+    DISPATCH_K(E, B / 4, K);          \
+  } else {                            \
+    DISPATCH_K(E, B / 8, K);          \
+  }
+#else
+#define DISPATCH(E, B, K, S) \
+  TORCH_CHECK(K == 1);       \
+  DISPATCH_EB(E, 8, 1)
+#endif
+
+#define DISPATCH_K(E, B, K) \
+  if (K == 1) {             \
+    DISPATCH_EB(E, B, 1)    \
+  } else if (K == 2) {      \
+    DISPATCH_EB(E, B, 2)    \
+  } else {                  \
+    TORCH_CHECK(K == 4);    \
+    DISPATCH_EB(E, B, 4)    \
+  }
+#define DISPATCH_EB(E, B, K)                                            \
+  kernel = (void*)index_shuffling_kernel<DataType, IndexType, E, B, K>; \
+  smem_size = sizeof(SharedStorage<DataType, IndexType, E, B, K>);
+
+        int storage_factor = top_k * num_experts;
 
         if (num_experts == 16) {
-          DISPATCH(16, kNumTokensPerTile);
+          DISPATCH_K(16, kNumTokensPerTileFewExperts, top_k)
+        } else if (num_experts == 32) {
+          DISPATCH_K(32, kNumTokensPerTileFewExperts, top_k)
+        } else if (num_experts == 128) {
+          DISPATCH(128, kNumTokensPerTileFewExperts, top_k, storage_factor)
         } else {
-          TORCH_CHECK(num_experts == 128);
-          DISPATCH(128, kNumTokensPerTile);
+          TORCH_CHECK(num_experts == 320);
+          DISPATCH(320, kNumTokensPerTileFewExperts, top_k, storage_factor)
         }
+    // This is to avoid build errors (divisibility asserts and local memory
+    // overflow) on AMD.
+#ifndef USE_ROCM
+        const int num_tokens_per_tile = (storage_factor <= 128)
+            ? kNumTokensPerTileFewExperts
+            : ((storage_factor <= 256)
+                   ? kNumTokensPerTileFewExperts / 2
+                   : ((storage_factor <= 512)
+                          ? kNumTokensPerTileFewExperts / 4
+                          : kNumTokensPerTileFewExperts / 8));
+#else
+        const int num_tokens_per_tile = (num_experts <= 128)
+            ? kNumTokensPerTileFewExperts
+            : kNumTokensPerTileFewExperts / 4;
+#endif
 
-        const int num_tiles = ceil_of_ratio(num_tokens, kNumTokensPerTile);
+        const int num_tiles = ceil_of_ratio(num_tokens, num_tokens_per_tile);
         const int num_ctas = std::min(num_tiles, num_sms);
         const int num_tiles_per_cta = ceil_of_ratio(
-            ceil_of_ratio(num_tokens, num_ctas), kNumTokensPerTile);
-        const int num_tokens_per_cta = num_tiles_per_cta * kNumTokensPerTile;
+            ceil_of_ratio(num_tokens, num_ctas), num_tokens_per_tile);
+        const int num_tokens_per_cta = num_tiles_per_cta * num_tokens_per_tile;
 
         Params<DataType, IndexType> params = {
             // Inputs
@@ -402,9 +641,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
                 shuffled_expert_indices.data_ptr()),
             .shuffled_token_indices = reinterpret_cast<IndexType*>(
                 shuffled_token_indices.data_ptr())};
-
+        const int num_warps = (num_experts > 128) ? 8 : 4;
+        const int num_threads = kNumThreadsPerWarp * num_warps;
         dim3 grids(num_ctas);
-        dim3 blocks(kNumThreads);
+        dim3 blocks(num_threads);
         void* args[] = {(void*)&params};
         auto stream = at::cuda::getCurrentCUDAStream();
 
@@ -414,6 +654,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         C10_CUDA_CHECK(hipLaunchKernel(
             (void*)kernel, grids, blocks, args, smem_size, stream));
 #else
+        if (smem_size >= 48 * 1024) {
+          C10_CUDA_CHECK(cudaFuncSetAttribute(
+              kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+        }
         C10_CUDA_CHECK(cudaLaunchCooperativeKernel(
             (void*)kernel, grids, blocks, args, smem_size, stream));
 #endif

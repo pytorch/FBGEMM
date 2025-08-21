@@ -98,19 +98,19 @@ static void performance_test() {
 #else
   cout << setw(8) << "MB, " << "IC, " << "OC, " << "IH, " << "IW, " << "KH, "
        << "KW, " << "stride_h, " << "stride_w, " << "pad_h, " << "pad_w, "
-       << "Type, " << "M, " << "N, " << "K, " << setw(5) << "GOPS" << endl;
+       << "Type, " << "M, " << "N, " << "K, " << setw(5) << "GOPS" << '\n';
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
   for (auto conv_p : shapes) {
     if (conv_p.IC % conv_p.G != 0) {
       cout << "Error: Number of input channels " << conv_p.IC
-           << " is not a multiple of groups " << conv_p.G << endl;
+           << " is not a multiple of groups " << conv_p.G << '\n';
       continue;
     }
     if (conv_p.OC % conv_p.G != 0) {
       cout << "Error: Number of output channels " << conv_p.OC
-           << " is not a multiple of groups " << conv_p.G << endl;
+           << " is not a multiple of groups " << conv_p.G << '\n';
       continue;
     }
 
@@ -323,7 +323,7 @@ static void performance_test() {
          << total_run_time / (double)NITER / 1e6 << ", "
          << ttot / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setprecision(2) << nops / ttot << endl;
+    cout << setprecision(2) << nops / ttot << '\n';
 
     // correctness check
     for (int n = 0; n < conv_p.MB; ++n) {
@@ -341,7 +341,7 @@ static void performance_test() {
             if (expected != actual) {
               cout << "Im2Col fused results differ at (" << n << ", " << h
                    << ", " << w << ", " << k << ")." << " expected:" << expected
-                   << " actual:" << actual << endl;
+                   << " actual:" << actual << '\n';
             }
           }
         }
@@ -453,7 +453,7 @@ static void performance_test() {
     }
 
     if (flush) {
-      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+      ((volatile char*)(llc.data()))[0] = llc[0] + 1;
     }
 
     // packedB.printPackedMatrix("bench B Packed");
@@ -481,7 +481,7 @@ static void performance_test() {
          << total_run_time / (double)NITER / 1e6 << ", "
          << ttot / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setprecision(2) << nops / ttot << endl;
+    cout << setprecision(2) << nops / ttot << '\n';
 
     // correctness check
     for (int n = 0; n < conv_p.MB; ++n) {
@@ -499,7 +499,7 @@ static void performance_test() {
             if (expected != actual) {
               cout << "direct conv results differ at (" << n << ", " << h
                    << ", " << w << ", " << k << ")." << " expected:" << expected
-                   << " actual:" << actual << endl;
+                   << " actual:" << actual << '\n';
             }
           }
         }

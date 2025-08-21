@@ -73,7 +73,8 @@ jobs:
         ]
         container-image: [ "ubuntu:22.04" ]
         build-target: [ "default", "genai" ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        # NOTE: we test only a subset of Python versions to reduce CI expenses
+        python-version: [ "3.13" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
         rocm-version: [ "6.3", "6.4" ]
@@ -88,6 +89,8 @@ jobs:
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
+      with:
+        ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
@@ -173,6 +176,8 @@ jobs:
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
+      with:
+        ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
 
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v4

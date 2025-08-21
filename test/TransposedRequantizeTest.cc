@@ -35,7 +35,7 @@ class RequantizeTest
 
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     RequantizeTest,
     ::testing::Combine(
@@ -119,6 +119,14 @@ TEST_P(RequantizeTest, reqTest) {
       bias_data_ptr,
       act_times_w_scale.data()};
 
+#ifdef __aarch64__
+
+#define TESTCODE(FUSE_RELU, ACT_SYMMETRIC, WEIGHT_SYMMETRIC, HAS_BIAS, Q_GRAN) \
+  trRequantizeRef<FUSE_RELU, Q_GRAN>(                                          \
+      output_ref.data(), input.data(), block, cols, cols, reqParams);
+
+#else
+
 #define TESTCODE(FUSE_RELU, ACT_SYMMETRIC, WEIGHT_SYMMETRIC, HAS_BIAS, Q_GRAN) \
   trRequantizeRef<FUSE_RELU, Q_GRAN>(                                          \
       output_ref.data(), input.data(), block, cols, cols, reqParams);          \
@@ -128,6 +136,8 @@ TEST_P(RequantizeTest, reqTest) {
       WEIGHT_SYMMETRIC,                                                        \
       HAS_BIAS,                                                                \
       Q_GRAN>(output_test.data(), input.data(), block, cols, cols, reqParams);
+
+#endif
 
   if (fuse_relu) {
     if (q_gran == QuantizationGranularity::TENSOR) {

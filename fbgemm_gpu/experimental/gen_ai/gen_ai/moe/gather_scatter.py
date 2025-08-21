@@ -198,6 +198,8 @@ def scatter_add_dense_tokens(
     assert out_tokens.is_contiguous()
 
     a, D = in_tokens.shape
+    if a == 0:
+        return
     assert token_indices.shape == (a,)
     assert out_tokens.ndim == 2 and out_tokens.shape[1] == D
 
@@ -205,11 +207,14 @@ def scatter_add_dense_tokens(
     if a >= NUM_SMS:
         BLOCK_D_OUTER = D
         BLOCK_D_INNER = 1024
-        assert D % BLOCK_D_INNER == 0
     else:
         BLOCK_D_OUTER = 512
         BLOCK_D_INNER = 256
-        assert D % BLOCK_D_OUTER == 0
+    while D % BLOCK_D_OUTER != 0:
+        BLOCK_D_OUTER //= 2
+    while D % BLOCK_D_INNER != 0:
+        BLOCK_D_INNER //= 2
+
     grid = (a, D // BLOCK_D_OUTER)
     _fbgemm_scatter_add_dense_tokens[grid](
         out_tokens,
@@ -223,18 +228,18 @@ def scatter_add_dense_tokens(
 
 
 def scatter_add_padded_tokens(
-    in_tokens: torch.Tensor,  # [EP, T, D]
+    in_tokens: torch.Tensor,  # [EP, T_K, D]
     token_counts: torch.Tensor,  # [E]
-    token_indices: torch.Tensor,  # [T]
+    token_indices: torch.Tensor,  # [T_K]
     out_tokens: torch.Tensor,  # [T, D]
 ) -> None:
     """
     Scatter add valid tokens based on token counts metadata.
 
     Args:
-        in_tokens (torch.Tensor): input tensor of shape (EP, T, D)
+        in_tokens (torch.Tensor): input tensor of shape (EP, T_K, D)
         token_counts (torch.Tensor): token counts of shape (E,)
-        token_indices (torch.Tensor): token indices of shape (T,)
+        token_indices (torch.Tensor): token indices of shape (T_K,)
         out_tokens (torch.Tensor): output tensor of shape (T, D)
 
     Returns:
@@ -249,10 +254,10 @@ def scatter_add_padded_tokens(
     assert token_indices.is_contiguous()
     assert out_tokens.is_contiguous()
 
-    EP, T, D = in_tokens.shape
+    EP, T_K, D = in_tokens.shape
     E = token_counts.shape[0]
-    assert tuple(token_indices.shape) == (T,)
-    assert tuple(out_tokens.shape) == (T, D)
+    assert tuple(token_indices.shape) == (T_K,)
+    assert T_K % out_tokens.shape[0] == 0 and out_tokens.shape[1] == D
 
     def grid(META):
         return (
@@ -261,7 +266,8 @@ def scatter_add_padded_tokens(
         )
 
     T_BUCKET_CAP = 16384
-    T_BUCKET = min(triton.next_power_of_2(T), T_BUCKET_CAP)
+    T_BUCKET = min(triton.next_power_of_2(T_K), T_BUCKET_CAP)
+    BLOCK_E = max(triton.next_power_of_2(E), 8)
     _fbgemm_scatter_add_padded_tokens[grid](
         in_tokens,
         token_counts,
@@ -270,8 +276,9 @@ def scatter_add_padded_tokens(
         EP,
         E,
         T_BUCKET,
-        T,
+        T_K,
         D,
+        BLOCK_E,
     )
 
 
@@ -601,7 +608,7 @@ def _fbgemm_gather_scale_fp8_rowwise_quant_dense_tokens(
         input_ptr + input_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:]
     )
     out_2d_ptr = (
-        output_ptr + output_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:],
+        output_ptr + output_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:]
     )
     for _ in range(0, D, BLOCK_D):
         # Load from L2
@@ -677,13 +684,14 @@ def _fbgemm_scatter_add_padded_tokens(
     EP: tl.constexpr,
     E: tl.constexpr,
     T_BUCKET,
-    T,
+    T_K,
     D: tl.constexpr,
+    BLOCK_E: tl.constexpr,
     SPLIT_T: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     """
-    in_tokens: [EP, T, D]
+    in_tokens: [EP, T_K, D]
     token_counts: [E]
     out_tokens: [T, D]
     """
@@ -705,9 +713,10 @@ def _fbgemm_scatter_add_padded_tokens(
     EXPERT_PER_RANK: tl.constexpr = E // EP
     rank = expert // EXPERT_PER_RANK
 
-    token_counts = tl.load(token_counts_ptr + tl.arange(0, E))
+    offs_e = tl.arange(0, BLOCK_E)
+    token_counts = tl.load(token_counts_ptr + offs_e, mask=(offs_e < E), other=0)
     input_local_offset = (
-        tl.sum(tl.where(tl.arange(0, E) < expert, token_counts, 0)) + start_token
+        tl.sum(tl.where(offs_e < expert, token_counts, 0)) + start_token
     ).to(tl.int64)
 
     for _t in range(start_token, end_token):
@@ -717,7 +726,9 @@ def _fbgemm_scatter_add_padded_tokens(
         output_global_offset = output_local_offset * D
 
         d_ptr = tl.arange(0, BLOCK_D)
-        input_global_ptr = in_tokens_ptr + rank * T * D + input_local_offset * D + d_ptr
+        input_global_ptr = (
+            in_tokens_ptr + rank * T_K * D + input_local_offset * D + d_ptr
+        )
         output_global_ptr = out_tokens_ptr + output_global_offset + d_ptr
 
         for _d in range(NUM_D_BLOCKS):

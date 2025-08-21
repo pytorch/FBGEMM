@@ -132,7 +132,7 @@ static void pack_a_with_im2col_opt(
     int32_t* row_offset_buf,
     int COL_SIZE,
     int COL_P_SIZE,
-    bool row_offset_acc) {
+    bool row_offset_acc [[maybe_unused]]) {
   constexpr int IC = 3;
   int IN_DIM_H = conv_p.IN_DIM[0];
   int IN_DIM_W = conv_p.IN_DIM[1];
@@ -718,9 +718,9 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T, typename accT, int SPATIAL_DIM>

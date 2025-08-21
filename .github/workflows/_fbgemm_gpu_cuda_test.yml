@@ -1,0 +1,193 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# This callable workflow is used for testing FBGEMM GPU/GenAI/HSTU CUDA wheels
+# as well as optionally publish the wheels to PyPI after a successful test.
+name: FBGEMM GPU/GenAI/HSTU CUDA Test
+
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        required: true
+        type: string
+      container:
+        description: 'Container configuration for the job'
+        type: string
+        required: false
+        default: '{"image": null}'
+      repo-ref:
+        description: Repository ref/sha
+        type: string
+        required: true
+        default: ""
+      extra-env:
+        description: 'JSON string of extra environment variables, e.g. {"KEY1": "value1", "KEY2": "value2"}'
+        type: string
+        required: false
+        default: '{}'
+      pytorch-channel-version:
+        description: Package Channel + Version to Use for PyTorch Installation, in `<channel>[/<version>]` Format
+        type: string
+        required: false
+        default: ""
+      publish-to-pypi:
+        description: Publish Artifact to PyPI
+        type: boolean
+        required: false
+        default: false
+      cuda-version-publish:
+        description: CUDA Target Version for Artifact Publishing
+        type: string
+        required: false
+        default: ""
+      fbgemm-channel-version:
+        description: PIP channel + version to install FBGEMM (if not specified, the GitHub artifact will be used instead)
+        type: string
+        required: false
+        default: ""
+      run-target:
+        description: Run target (test, benchmark)
+        type: string
+        required: false
+        default: test
+    secrets:
+      PYPI_TOKEN:
+        # The PyPI token is only needed if publishing the artifact to PyPI is desired
+        required: false
+
+jobs:
+  # Download the built artifact from GHA, test on GPU, and push to PyPI
+  test_and_publish_artifact:
+    # runs-on: linux.4xlarge.nvidia.gpu
+    # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
+    runs-on: ${{ matrix.host-machine.instance }}
+    container: ${{ fromJson(inputs.container) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+      BUILD_TARGET: ${{ matrix.build-target }}
+      BUILD_VARIANT: cuda
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.matrix) }}
+
+    steps:
+    - name: Setup Build Container
+      if: ${{ fromJson(inputs.container).image != null }}
+      run: yum update -y; yum install -y binutils findutils git jq pciutils sudo tar wget which xz
+
+    - name: Merge Extra Environment Variables
+      run: |
+        ENV_JSON='${{ inputs.extra-env }}'
+
+        # Validate JSON
+        if ! echo "$ENV_JSON" | jq empty; then
+          echo "❌ Invalid JSON provided: $ENV_JSON" >&2
+          exit 1
+        fi
+
+        # Merge key-value pairs into GITHUB_ENV
+        echo "$ENV_JSON" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+
+        unset ENV_JSON
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+        ref: ${{ inputs.repo-ref }}
+
+    - name: Free Disk Space on Host
+      if: ${{ fromJson(inputs.container).image != null }}
+      run: . $PRELUDE; free_disk_space_on_host
+
+    # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
+    - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
+      if: ${{ fromJson(inputs.container).image == null }}
+      uses: pytorch/test-infra/.github/actions/setup-nvidia@main
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info; print_ec2_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers for Updated LIBGCC
+      # NOTE: gcc is required for torch dynamo to work properly, as some of
+      # the compilation flags used by torch dynamo are gcc-specific:
+      #
+      #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
+
+    - name: Install CUDA
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+
+    # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
+    - name: Install PyTorch (${{ inputs.pytorch-channel-version }})
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ inputs.pytorch-channel-version }} cuda/${{ matrix.cuda-version }}
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run: if . $PRELUDE && which conda; then collect_pytorch_env_info $BUILD_ENV; fi
+
+    - name: Install FBGEMM_GPU dependencies (pip)
+      run: . $PRELUDE; cd fbgemm_gpu; install_fbgemm_gpu_deps $BUILD_ENV
+
+    - name: Download Wheel Artifact from GHA
+      if: ${{ inputs.fbgemm-channel-version == '' }}
+      uses: actions/download-artifact@v4
+      with:
+        name: fbgemm_${{ matrix.build-target }}_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
+
+    - name: Install FBGEMM_GPU (local wheel)
+      if: ${{ inputs.fbgemm-channel-version == '' }}
+      run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
+
+    - name: Install FBGEMM_GPU (pip)
+      if: ${{ inputs.fbgemm-channel-version != '' }}
+      run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cuda/${{ matrix.cuda-version }}
+
+    - name: Test with PyTest
+      if: ${{ inputs.run-target == 'test' }}
+      timeout-minutes: 60
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
+
+    - name: Run FBGEMM_GPU Benchmark
+      if: ${{ inputs.run-target == 'benchmark' }}
+      timeout-minutes: 40
+      run: . $PRELUDE; run_tbe_microbench $BUILD_ENV
+
+    - name: Upload Benchmark Traces as GHA Artifacts
+      if: ${{ inputs.run-target == 'benchmark' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: fbgemm_gpu_traces_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.zip
+        path: fbgemm_gpu/bench/*.json
+        if-no-files-found: error
+
+    - name: Push Wheel to PyPI
+      if: ${{ inputs.publish-to-pypi && matrix.cuda-version == inputs.cuda-version-publish }}
+      env:
+        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      run: |
+        . $PRELUDE;
+
+        if [[ -z "$PYPI_TOKEN" ]]; then
+          echo "PYPI_TOKEN is not set!" >&2
+          exit 1
+        fi
+
+        publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl

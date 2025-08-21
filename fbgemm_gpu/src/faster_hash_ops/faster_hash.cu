@@ -20,6 +20,7 @@
 #define TORBOREC_CUDA
 #include "fbgemm_gpu/faster_hash_ops/common_utils.cuh" // @manual
 #include "fbgemm_gpu/faster_hash_ops/faster_hash_ops.cuh" // @manual
+#include "fbgemm_gpu/utils/kernel_launcher.cuh" // @manual
 
 namespace fbgemm_gpu {
 
@@ -84,7 +85,10 @@ __device__ __inline__ void update_metadata_lru<1>(
   atomicExch(process_lock + output_index, kDefaultTensor);
 }
 
-template <int32_t METADATA_COUNT, typename TIdentity>
+template <
+    int32_t METADATA_COUNT,
+    typename TIdentity,
+    std::enable_if_t<METADATA_COUNT == 0, int> = 0>
 __device__ __inline__ int64_t check_min(
     int32_t /* process_index */,
     int32_t* /* metadata */,
@@ -93,16 +97,21 @@ __device__ __inline__ int64_t check_min(
     int64_t /* offset */,
     int32_t& /* min_hours */,
     int32_t* /* process_lock */,
-    at::PackedTensorAccessor64<TIdentity, 2> /* identities */,
+    at::PackedTensorAccessor64<
+        TIdentity,
+        2,
+        at::RestrictPtrTraits> /* identities */,
     TIdentity& /* min_slot_identity */,
-    int32_t /* eviction_threshold */,
-    std::enable_if_t<METADATA_COUNT == 0>* = nullptr) {
+    int32_t /* eviction_threshold */) {
   static_assert(METADATA_COUNT == 0);
   // For inference, we keep the same min_index until the ID is found.
   return min_index;
 }
 
-template <int32_t METADATA_COUNT, typename TIdentity>
+template <
+    int32_t METADATA_COUNT,
+    typename TIdentity,
+    std::enable_if_t<METADATA_COUNT == 1, int> = 0>
 __device__ __inline__ int64_t check_min(
     int32_t process_index,
     int32_t* metadata,
@@ -111,10 +120,9 @@ __device__ __inline__ int64_t check_min(
     int64_t offset,
     int32_t& min_hours,
     int32_t* process_lock,
-    at::PackedTensorAccessor64<TIdentity, 2> identities,
+    at::PackedTensorAccessor64<TIdentity, 2, at::RestrictPtrTraits> identities,
     TIdentity& min_slot_identity,
-    int32_t eviction_threshold,
-    std::enable_if_t<METADATA_COUNT == 1>* = nullptr) {
+    int32_t eviction_threshold) {
   static_assert(METADATA_COUNT == 1);
   // There could be a case, one id has already occupy the slot,
   // and last update hour is not written yet, while the other id checking the
@@ -218,7 +226,7 @@ __device__ __inline__ bool check_and_maybe_update_slot(
 
 template <bool CIRCULAR_PROBE, typename TIdentity>
 __device__ __inline__ int64_t get_identity_slot(
-    at::PackedTensorAccessor64<TIdentity, 2> identities,
+    at::PackedTensorAccessor64<TIdentity, 2, at::RestrictPtrTraits> identities,
     TIdentity identity,
     int64_t output_index,
     int64_t offset,
@@ -251,12 +259,13 @@ template <
     bool CIRCULAR_PROBE,
     bool READONLY,
     typename TInput,
-    typename TIdentity>
+    typename TIdentity,
+    std::enable_if_t<EVICTION_POLICY == 0, int> = 0>
 __global__ void process_item_zch(
-    const at::PackedTensorAccessor64<TInput, 1> input,
-    at::PackedTensorAccessor64<int64_t, 1> output,
+    const pta::PackedTensorAccessor64<TInput, 1, at::RestrictPtrTraits> input,
+    at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> output,
     int64_t* evict_slots,
-    at::PackedTensorAccessor64<TIdentity, 2> identities,
+    at::PackedTensorAccessor64<TIdentity, 2, at::RestrictPtrTraits> identities,
     int64_t modulo,
     int64_t max_probe,
     int32_t cur_hour,
@@ -269,8 +278,7 @@ __global__ void process_item_zch(
     int64_t opt_in_prob,
     int64_t num_reserved_slots,
     const int32_t* const opt_in_rands,
-    TORCH_DSA_KERNEL_ARGS,
-    std::enable_if_t<EVICTION_POLICY == 0>* = nullptr) {
+    TORCH_DSA_KERNEL_ARGS) {
   static_assert(EVICTION_POLICY == 0);
 
   // Stride loop:
@@ -401,12 +409,13 @@ template <
     bool CIRCULAR_PROBE,
     bool READONLY,
     typename TInput,
-    typename TIdentity>
+    typename TIdentity,
+    std::enable_if_t<EVICTION_POLICY == 1, int> = 0>
 __global__ void process_item_zch(
-    const at::PackedTensorAccessor64<TInput, 1> input,
-    at::PackedTensorAccessor64<int64_t, 1> output,
+    const pta::PackedTensorAccessor64<TInput, 1, at::RestrictPtrTraits> input,
+    at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> output,
     int64_t* evict_slots,
-    at::PackedTensorAccessor64<TIdentity, 2> identities,
+    at::PackedTensorAccessor64<TIdentity, 2, at::RestrictPtrTraits> identities,
     int64_t modulo,
     int64_t max_probe,
     int32_t cur_hour,
@@ -419,8 +428,7 @@ __global__ void process_item_zch(
     int64_t /* opt_in_prob */,
     int64_t /* num_reserved_slots */,
     const int32_t* const /* opt_in_rands */,
-    TORCH_DSA_KERNEL_ARGS,
-    std::enable_if_t<EVICTION_POLICY == 1>* = nullptr) {
+    TORCH_DSA_KERNEL_ARGS) {
   static_assert(EVICTION_POLICY == 1);
 
   // Stride loop:
@@ -578,7 +586,7 @@ void _zero_collision_hash_cuda(
     CIRCULAR_PROBE,                                                           \
     READONLY)                                                                 \
   {                                                                           \
-    TORCH_DSA_KERNEL_LAUNCH(                                                  \
+    FBGEMM_LAUNCH_DSA_KERNEL(                                                 \
         (process_item_zch<                                                    \
             EVICTION_POLICY,                                                  \
             DISABLE_FALLBACK,                                                 \
@@ -592,10 +600,10 @@ void _zero_collision_hash_cuda(
         block_size,                                                           \
         0,                                                                    \
         at::cuda::getCurrentCUDAStream(),                                     \
-        input.packed_accessor64<TInput, 1>(),                                 \
-        output.packed_accessor64<int64_t, 1>(),                               \
+        PTA_B(input, TInput, 1, 64),                                          \
+        PTA_B(output, int64_t, 1, 64),                                        \
         support_evict ? evict_slots.data_ptr<int64_t>() : nullptr,            \
-        identities.packed_accessor64<TIdentity, 2>(),                         \
+        PTA_B(identities, TIdentity, 2, 64),                                  \
         modulo,                                                               \
         max_probe,                                                            \
         static_cast<int32_t>(cur_hour),                                       \

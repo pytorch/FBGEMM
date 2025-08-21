@@ -10,13 +10,16 @@
 #include <cpuinfo.h>
 #include <cassert>
 #include <cmath>
-#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
+
+#if !defined(__aarch64__)
+#include "fbgemm/QuantUtilsAvx2.h"
+#endif // __aarch64__
 #include "./OptimizedKernelsAvx2.h" // @manual
 #include "fbgemm/Fbgemm.h"
-#include "fbgemm/QuantUtilsAvx2.h"
+#include "fbgemm/QuantUtils.h"
 
 namespace fbgemm {
 
@@ -122,7 +125,8 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
 }
 
 template <typename T, typename accT>
-void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
+void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block
+                                            [[maybe_unused]]) {
   // assert(block.row_start % BaseType::blockRowSize() == 0);
   assert(block.row_size <= BaseType::blockRowSize());
   assert(block.col_size <= BaseType::blockColSize());
@@ -169,11 +173,20 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
   qparams.zero_point = zero_pt_;
 
   for (int i = 0; i < block.row_size; ++i) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     QuantizeAvx2(
         smat_temp + i * ld_temp,
         out + i * BaseType::blockColSize(),
         block.col_size,
         qparams);
+#else
+    Quantize(
+        smat_temp + i * ld_temp,
+        out + i * BaseType::blockColSize(),
+        block.col_size,
+        qparams);
+#endif
+
     int32_t row_sum = row_offset_acc ? row_offset_buf[i] : 0;
     row_sum += reduceAvx2(out + i * BaseType::blockColSize(), block.col_size);
     row_offset_buf[i] = row_sum;
@@ -190,18 +203,18 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
 }
 
 template <typename T, typename accT>
-int32_t PackAWithQuantRowOffset<T, accT>::addr(int32_t r, int32_t c) const {
-  int32_t block_row_id = r / BaseType::blockRowSize();
+int32_t PackAWithQuantRowOffset<T, accT>::addr(int32_t i, int32_t j) const {
+  int32_t block_row_id = i / BaseType::blockRowSize();
   int32_t brow_offset = (block_row_id * BaseType::blockCols()) *
       (BaseType::blockRowSize() * BaseType::blockColSize());
 
-  int32_t block_col_id = c / BaseType::blockColSize();
+  int32_t block_col_id = j / BaseType::blockColSize();
   int32_t bcol_offset =
       block_col_id * BaseType::blockRowSize() * BaseType::blockColSize();
   int32_t block_offset = brow_offset + bcol_offset;
   int32_t inblock_offset =
-      (r % BaseType::blockRowSize()) * BaseType::blockColSize() +
-      (c % BaseType::blockColSize());
+      (i % BaseType::blockRowSize()) * BaseType::blockColSize() +
+      (j % BaseType::blockColSize());
 
   int32_t index = block_offset + inblock_offset;
 
@@ -225,9 +238,9 @@ void PackAWithQuantRowOffset<T, accT>::printPackedMatrix(
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T, typename accT>

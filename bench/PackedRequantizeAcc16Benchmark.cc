@@ -90,7 +90,7 @@ static void performance_test() {
 #else
   cout << setw(7) << "M, " << setw(7) << "N, " << setw(7) << "K, " << setw(32)
        << "Output Processing, " << setw(18) << "Type, " << setw(5) << "GOPS"
-       << endl;
+       << '\n';
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
@@ -126,7 +126,6 @@ static void performance_test() {
 #ifdef USE_MKL
     const float alpha = 1.0f;
     const float beta = 0.0f;
-    ttot = 0.0;
     runType = "MKL_fp32";
     cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k
          << ", ";
@@ -161,10 +160,10 @@ static void performance_test() {
     ttot *= 1e9; // convert to ns
 
     if (flush) {
-      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+      ((volatile char*)(llc.data()))[0] = llc[0] + 1;
     }
     cout << setw(16) << runType << ", " << fixed << setw(5) << setprecision(1)
-         << nops / ttot << endl;
+         << nops / ttot << '\n';
 
     Cint32_mkl.assign(Cfp32_mkl.begin(), Cfp32_mkl.end());
 #endif
@@ -415,7 +414,7 @@ static void performance_test() {
       }
 
       if (flush) {
-        ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+        ((volatile char*)(llc.data()))[0] = llc[0] + 1;
       }
       // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
       // unpacked");
@@ -437,7 +436,7 @@ static void performance_test() {
            << total_run_time / (double)NITER / 1e6 << ", ";
 #endif
       cout << setw(16) << runType << ", " << fixed << setw(5) << setprecision(1)
-           << NITER * nops / ttot << endl;
+           << NITER * nops / ttot << '\n';
 
 #ifdef USE_MKL
       if (bench_type == BenchmarkType::BARE_BONE) {
@@ -447,7 +446,7 @@ static void performance_test() {
       }
 #endif
     } // test_outlier
-    cout << endl;
+    cout << '\n';
   } // shapes
 }
 

@@ -64,7 +64,7 @@ if("8.0" IN_LIST TORCH_CUDA_ARCH_LIST)
 endif()
 
 # Conditionally add Hopper sources if arch 9.0 is requested
-if("9.0" IN_LIST TORCH_CUDA_ARCH_LIST)
+if("9.0" IN_LIST TORCH_CUDA_ARCH_LIST OR "9.0a" IN_LIST TORCH_CUDA_ARCH_LIST)
   message(STATUS "HSTU: Selecting Hopper sources for arch 9.0")
   list(APPEND hstu_cpp_source_files ${hstu_hopper_cpp_source_files})
   list(APPEND hstu_cuda_source_files ${hstu_hopper_cuda_source_files})
@@ -111,4 +111,3 @@ add_to_package(
 install(
   DIRECTORY hstu
   DESTINATION fbgemm_gpu/experimental)
-

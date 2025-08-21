@@ -7,6 +7,8 @@
  */
 
 #include "indices_generator.h"
+
+#include <math.h>
 #include <chrono>
 #include <execution>
 
@@ -31,7 +33,7 @@ IndicesGenerator::IndicesGenerator(
 }
 
 // Helper function to convert a tagged indices vector to an ATen tensor.
-torch::Tensor convertVectorToTensor(
+static torch::Tensor convertVectorToTensor(
     const std::vector<std::pair<int64_t, double>>& indicesWithTags) {
   std::vector<int64_t> indices(indicesWithTags.size());
   std::transform(
@@ -57,7 +59,6 @@ struct IndexMetadata {
 torch::Tensor IndicesGenerator::generate() {
   using timer = std::chrono::high_resolution_clock;
   using us = std::chrono::microseconds;
-  using ns = std::chrono::nanoseconds;
 
   const auto t0 = timer::now();
   std::vector<std::pair<int64_t, double>> indicesWithTags(params_.numIndices);
@@ -79,14 +80,13 @@ torch::Tensor IndicesGenerator::generate() {
   random::bernoulli_distribution tagUniformSelector(1 - kTagClusterProbability);
 
   // First handle the index
-  for (int64_t i = 0; i < indicesWithTags.size(); ++i) {
+  for (auto& indicesWithTag : indicesWithTags) {
     if (heavyHitterSelectorDist_(rng_)) {
-      indicesWithTags[i].first = heavyHittersDist_(rng_);
+      indicesWithTag.first = heavyHittersDist_(rng_);
     } else {
-      indicesWithTags[i].first =
-          zipfianDist_(rng_) + params_.heavyHitters.size();
+      indicesWithTag.first = zipfianDist_(rng_) + params_.heavyHitters.size();
     }
-    auto curIdx = indicesWithTags[i].first;
+    auto curIdx = indicesWithTag.first;
     indicesMetadata[curIdx].freq++;
   }
 
@@ -97,12 +97,12 @@ torch::Tensor IndicesGenerator::generate() {
 
   // Now handle the tags
   random::exponential_distribution exponentialDist;
-  for (int64_t i = 0; i < indicesWithTags.size(); ++i) {
-    double tag;
+  for (auto& indicesWithTag : indicesWithTags) {
+    double tag = NAN;
 
     // In the case where the current metadata for the index is empty, simply
     // push in a U[0,1]
-    auto curIdx = indicesWithTags[i].first;
+    auto curIdx = indicesWithTag.first;
     if (indicesMetadata[curIdx].tags.empty()) {
       tag = tagUniformDist(rng_);
     }
@@ -124,7 +124,7 @@ torch::Tensor IndicesGenerator::generate() {
       }
     }
 
-    indicesWithTags[i].second = tag;
+    indicesWithTag.second = tag;
     indicesMetadata[curIdx].tags.push_back(tag);
   }
 

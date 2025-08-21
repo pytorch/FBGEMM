@@ -145,6 +145,37 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(masked_values, masked_values_ref)
         torch.testing.assert_close(masked_lengths, masked_lengths_ref)
 
+    def test_masked_select_jagged_1d_invalid_mask(
+        self,
+    ) -> None:
+        lengths = torch.randint(
+            low=0,
+            high=100,
+            size=(1,),
+            dtype=torch.int,
+            device="cpu",
+        )
+        N = int(lengths.sum().item())
+        values = torch.randint(
+            2**16,
+            (N,),
+            dtype=torch.int,
+            device="cpu",
+        )
+        # Use a broken mask that is greater than values.numel()
+        mask = torch.randint(2, (N + 10,)) > 0
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"mask and values should have the same numel, but got mask numel: .+ values numel: .+",
+        ):
+            torch.ops.fbgemm.masked_select_jagged_1d(
+                values,
+                lengths,
+                mask,
+                True,
+            )
+
     @given(
         B=st.integers(1, 512),
         max_L=st.integers(1, 1000),

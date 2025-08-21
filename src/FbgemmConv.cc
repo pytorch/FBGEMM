@@ -138,19 +138,26 @@ int fbgemmConv(
 
   switch (ConvFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     case optimized_conv_t::depthwise: {
+#if defined(__aarch64__)
+      throw std::runtime_error(
+          "fbgemmConv<processOutputType, SPATIAL_DIM, ACC_T>(): No fallback available for aarch64");
+#else
       // 2D and 3D depthwise fast path
       // std::cout << "Depthwise fast path" << std::endl;
-      const std::int32_t* B_zero_point = outProcess.getBZeroPoint();
-      const float* C_multiplier = outProcess.getCMultiplier();
-      const float* act_times_w_scale = outProcess.getActWScale();
       if constexpr (SPATIAL_DIM == 3) {
         static_assert(
             std::is_same_v<typename processOutputType::outType, std::uint8_t>,
             "For depthwise, only requantized output is supported");
 
         if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
-          depthwise_3d_same_pad<QuantizationGranularity::TENSOR>(
+            processOutputType::QGRANType == QuantizationGranularity::TENSOR ||
+            processOutputType::QGRANType == QuantizationGranularity::GROUP ||
+            processOutputType::QGRANType ==
+                QuantizationGranularity::OUT_CHANNEL) {
+          const std::int32_t* B_zero_point = outProcess.getBZeroPoint();
+          const float* C_multiplier = outProcess.getCMultiplier();
+          const float* act_times_w_scale = outProcess.getActWScale();
+          depthwise_3d_same_pad<processOutputType::QGRANType>(
               *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
               outProcess.getAZeroPoint(),
               activations,
@@ -163,41 +170,6 @@ int fbgemmConv(
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
               act_times_w_scale,
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::GROUP) {
-          depthwise_3d_same_pad<QuantizationGranularity::GROUP>(
-              *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType ==
-            QuantizationGranularity::OUT_CHANNEL) {
-          depthwise_3d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
-              *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
@@ -208,8 +180,14 @@ int fbgemmConv(
         }
       } else if constexpr (SPATIAL_DIM == 2) {
         if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
-          depthwise_2d_same_pad<QuantizationGranularity::TENSOR>(
+            processOutputType::QGRANType == QuantizationGranularity::TENSOR ||
+            processOutputType::QGRANType == QuantizationGranularity::GROUP ||
+            processOutputType::QGRANType ==
+                QuantizationGranularity::OUT_CHANNEL) {
+          const std::int32_t* B_zero_point = outProcess.getBZeroPoint();
+          const float* C_multiplier = outProcess.getCMultiplier();
+          const float* act_times_w_scale = outProcess.getActWScale();
+          depthwise_2d_same_pad<processOutputType::QGRANType>(
               conv_p.MB, // mini batch
               conv_p.IN_DIM[0], // H
               conv_p.IN_DIM[1], // W
@@ -228,54 +206,6 @@ int fbgemmConv(
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
               act_times_w_scale,
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::GROUP) {
-          depthwise_2d_same_pad<QuantizationGranularity::GROUP>(
-              conv_p.MB, // mini batch
-              conv_p.IN_DIM[0], // H
-              conv_p.IN_DIM[1], // W
-              conv_p.IC, // input channels
-              conv_p.OC, // output channels
-              conv_p.stride[0], // stride_h
-              conv_p.stride[1], // stride_w
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType ==
-            QuantizationGranularity::OUT_CHANNEL) {
-          // The number of input channels == groups for depthwise convolutions
-          depthwise_2d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
-              conv_p.MB, // mini batch
-              conv_p.IN_DIM[0], // H
-              conv_p.IN_DIM[1], // W
-              conv_p.IC, // input channels
-              conv_p.OC, // output channels
-              conv_p.stride[0], // stride_h
-              conv_p.stride[1], // stride_w
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
@@ -290,6 +220,7 @@ int fbgemmConv(
         throw std::runtime_error(msg);
       }
       break;
+#endif // __aarch64__
     }
     case optimized_conv_t::groupwise: {
       // optimized groupwise convolution
@@ -345,17 +276,26 @@ int fbgemmConv(
     case optimized_conv_t::directconv: {
       // specialized direct convolution path
       // std::cout << "Directconv fast path" << std::endl;
-      fbgemmDirectConv<SPATIAL_DIM, processOutputType::QGRANType>(
-          conv_p,
-          // Aint8,
-          activations,
-          *(packed_weights.getPackedWForDirectconv()),
-          out,
-          outBuffer,
-          outProcess,
-          outProcess.getBias(),
-          thread_id,
-          num_threads);
+      if constexpr (SPATIAL_DIM == 2) {
+#if defined(__aarch64__)
+        throw std::runtime_error(
+            "fbgemmConv<processOutputType, SPATIAL_DIM, ACC_T>(): No fallback available for aarch64");
+#else
+        fbgemmDirectConv<SPATIAL_DIM, processOutputType::QGRANType>(
+            conv_p,
+            // Aint8,
+            activations,
+            *(packed_weights.getPackedWForDirectconv()),
+            out,
+            outBuffer,
+            outProcess,
+            outProcess.getBias(),
+            thread_id,
+            num_threads);
+#endif
+      } else {
+        assert(false && "1d/3d direct conv not supported");
+      }
       break;
     }
     case optimized_conv_t::fastpath1d: {

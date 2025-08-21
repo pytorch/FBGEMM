@@ -49,14 +49,14 @@ class fbgemmGConvAcc32WithQuantGranularityTest
 class fbgemmGConvPackTest : public testing::TestWithParam<matrix_op_t> {};
 }; // namespace
 
-// INSTANTIATE_TEST_CASE_P(
+// INSTANTIATE_TEST_SUITE_P(
 //     InstantiationName,
 //     fbgemmGConvAcc32Test,
 //     ::testing::Combine(
 //         ::testing::Values(matrix_op_t::NoTranspose),
 //         ::testing::ValuesIn(transposeVals)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmGConvAcc32WithQuantGranularityTest,
     ::testing::Combine(
@@ -66,7 +66,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // A symmetric
         ::testing::Bool())); // B symmetric
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmGConvPackTest,
     ::testing::ValuesIn(transposeVals));
@@ -622,10 +622,10 @@ static void runPackUnpackTest(matrix_op_t btrans) {
 
     // Sanity check
     for (int i = 0; i < weight_len; ++i) {
-      EXPECT_EQ(unpack_buf.data()[i], Bint8.data()[i])
+      EXPECT_EQ(unpack_buf[i], Bint8[i])
         << "Pack/Unpack results differ at index " << i
-        << ", Reference: " << static_cast<int>(Bint8.data()[i])
-        << ", Pack-Unpacked: " << static_cast<int>(unpack_buf.data()[i]);
+        << ", Reference: " << static_cast<int>(Bint8[i])
+        << ", Pack-Unpacked: " << static_cast<int>(unpack_buf[i]);
     }
   } // for each shape
 }

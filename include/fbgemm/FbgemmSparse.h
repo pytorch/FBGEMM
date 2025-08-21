@@ -9,7 +9,6 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <vector>
 
@@ -167,6 +166,7 @@ void SparseDenseMMAvx2(
     int ldc,
     bool accum = false);
 
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 void SparseDenseMMAvx512(
     int M,
     int N,
@@ -218,6 +218,7 @@ void SparseDenseInt8MVAvx512(
     bool accum = false,
     int thread_id = 0,
     int num_threads = 1);
+#endif
 
 } // namespace internal
 

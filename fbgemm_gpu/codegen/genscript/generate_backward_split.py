@@ -33,7 +33,7 @@ except ImportError:
     from common import CodeTemplate
 
     # pyre-ignore[21]
-    from optimizer_args import annotation_dict, OptimizerArgsSet
+    from optimizer_args import annotation_dict
 
     # pyre-ignore[21]
     from scripts_argsparse import args

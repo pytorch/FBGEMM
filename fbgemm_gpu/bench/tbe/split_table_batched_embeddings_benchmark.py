@@ -37,6 +37,7 @@ from fbgemm_gpu.tbe.bench import (
     benchmark_requests,
     benchmark_vbe,
     EmbeddingOpsCommonConfigLoader,
+    TbeBenchClickInterface,
     TBEBenchmarkingConfigLoader,
 )
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
@@ -61,39 +62,57 @@ def cli() -> None:
 
 
 @cli.command()
-# recommended value: alpha=1.15 for training and alpha=1.09 for inference
-@click.option("--alpha", default=1.0)
-@click.option("--bag-size", default=20)
-@click.option("--batch-size", default=512)
-@click.option("--embedding-dim", default=128)
-@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
-@click.option("--cache-precision", type=SparseType, default=None)
-@click.option("--stoc", is_flag=True, default=False)
-@click.option("--iters", default=100)
-@click.option("--warmup-runs", default=0)
+@TbeBenchClickInterface.common_options
+@TbeBenchClickInterface.device_options
+@TbeBenchClickInterface.table_options
 @click.option(
-    "--managed",
-    default="device",
-    type=click.Choice(["device", "managed", "managed_caching"], case_sensitive=False),
+    "--weighted-num-requires-grad",
+    type=int,
+    default=None,
+    help="Number of tables requiring gradient computation for weighted embeddings. Default is None.",
 )
-@click.option("--mixed", is_flag=True, default=False)
-@click.option("--num-embeddings", default=int(1e5))
-@click.option("--num-tables", default=32)
-@click.option("--reuse", default=0.0)
-@click.option("--row-wise/--no-row-wise", default=True)
-@click.option("--weighted", is_flag=True, default=False)
-@click.option("--pooling", type=str, default="sum")
-@click.option("--weighted-num-requires-grad", type=int, default=None)
-@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
-@click.option("--flush-gpu-cache-size-mb", default=0)
-@click.option("--dense", is_flag=True, default=False)
-@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
-@click.option("--indices-dtype", type=click.Choice(["32", "64"]), default="64")
-@click.option("--requests_data_file", type=str, default=None)
-@click.option("--indices-file", type=str, default=None, help="Path to the indices file")
-@click.option("--offsets-file", type=str, default=None, help="Path to the offsets file")
-@click.option("--tables", type=str, default=None)
-@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--dense",
+    is_flag=True,
+    default=False,
+    help="Use dense embedding tables. Default is False.",
+)
+@click.option(
+    "--output-dtype",
+    type=SparseType,
+    default=SparseType.FP32,
+    help="Data type of the output embeddings. Default is FP32.",
+)
+@click.option(
+    "--indices-dtype",
+    type=click.Choice(["32", "64"]),
+    default="64",
+    help="Data type for indices, either 32-bit or 64-bit. Default is 64.",
+)
+@click.option(
+    "--requests_data_file",
+    type=str,
+    default=None,
+    help="File path for requests data. Default is None.",
+)
+@click.option(
+    "--indices-file",
+    type=str,
+    default=None,
+    help="Path to the indices file. Default is None.",
+)
+@click.option(
+    "--offsets-file",
+    type=str,
+    default=None,
+    help="Path to the offsets file. Default is None.",
+)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
 @click.option(
     "--trace-url",
     type=str,
@@ -271,7 +290,7 @@ def device(  # noqa C901
         )
     emb = emb.to(get_device())
 
-    if weights_precision == SparseType.INT8:
+    if weights_precision in [SparseType.INT8, SparseType.NFP8]:
         # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
         #  min_val: float, max_val: float) -> None, (self:
         #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
@@ -385,24 +404,12 @@ def device(  # noqa C901
 
 
 @cli.command()
-@click.option("--alpha", default=1.0)
-@click.option("--bag-size", default=20)
-@click.option("--batch-size", default=512)
-@click.option("--embedding-dim", default=128)
-@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
-@click.option("--stoc", is_flag=True, default=False)
-@click.option("--iters", default=100)
-@click.option("--warmup-runs", default=0)
-@click.option("--mixed", is_flag=True, default=False)
-@click.option("--num-embeddings", default=int(1e5))
-@click.option("--num-tables", default=32)
-@click.option("--reuse", default=0.1)
+@TbeBenchClickInterface.common_options
+@TbeBenchClickInterface.table_options
 @click.option("--uvm-tables", default=1)
 @click.option("--uvm-bag-size", default=1)
 @click.option("--weighted", is_flag=True, default=False)
-@click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
-@click.option("--tables", type=str, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
 @click.option("--use-cache", is_flag=True, default=False)
 @click.option("--cache-algorithm", default="lru")
@@ -726,25 +733,19 @@ def uvm(
 
 
 @cli.command()
-@click.option("--alpha", default=1.0)
-@click.option("--bag-size", default=20)
-@click.option("--batch-size", default=512)
+@TbeBenchClickInterface.common_options
+@TbeBenchClickInterface.table_options
 @click.option("--cache-algorithm", default="lru")
 @click.option("--cache-load-factor", default=0.2)
-@click.option("--embedding-dim", default=128)
-@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
-@click.option("--stoc", is_flag=True, default=False)
 @click.option("--long-index", is_flag=True, default=False)
-@click.option("--iters", default=100)
-@click.option("--warmup-runs", default=0)
-@click.option("--mixed", is_flag=True, default=False)
-@click.option("--num-embeddings", default=int(1e5))
-@click.option("--num-tables", default=32)
-@click.option("--reuse", default=0.1)
+@click.option(
+    "--reuse",
+    default=0.1,  # Overriding the default value to 0.1, @TbeBenchClickInterface.common_options has default value 0.0
+    help="The inter-batch indices reuse rate for the benchmark, default is 0.1.",
+)
 @click.option("--weighted", is_flag=True, default=False)
-@click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
-@click.option("--tables", type=str, default=None)
+@click.option("--cache-precision", type=SparseType, default=None)
 @click.option(
     "--uvm-host-mapped",
     is_flag=True,
@@ -772,6 +773,7 @@ def cache(  # noqa C901
     requests_data_file: Optional[str],
     tables: Optional[str],
     uvm_host_mapped: bool,
+    cache_precision: SparseType,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -805,6 +807,7 @@ def cache(  # noqa C901
         ],
         optimizer=optimizer,
         weights_precision=weights_precision,
+        cache_precision=cache_precision,
         stochastic_rounding=stoc,
         uvm_host_mapped=uvm_host_mapped,
     ).cuda()
@@ -938,36 +941,27 @@ def cache(  # noqa C901
 
 
 @cli.command()
-@click.option("--alpha", default=1.0)
 @click.option(
-    "--bag-size-list",
+    "--embedding-dim-list",
     type=str,
-    default="20",
+    default="128",
+    help="A comma-separated list of embedding dimensions for each table. Default is '128'. The number of embedding dimensions will determine the number of tables.",
 )
 @click.option(
-    "--bag-size-sigma-list",
+    "--num-embeddings-list",
     type=str,
-    default="None",
-    help="A list of bag size standard deviations for generating bag sizes "
-    "(one std per table). If set, the benchmark will treat --bag-size-list as a "
-    "list of bag size means.",
+    default="100000",
+    help="A comma-separated list of number of embeddings for each table, default is '100000'.",
 )
-@click.option("--batch-size", default=512)
-@click.option("--embedding-dim-list", type=str, default="128")
-@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
-@click.option("--cache-precision", type=SparseType, default=None)
-@click.option("--stoc", is_flag=True, default=False)
-@click.option("--iters", default=100)
-@click.option("--warmup-runs", default=0)
-@click.option("--managed", default="device")
-@click.option("--num-embeddings-list", type=str, default="100000")
-@click.option("--reuse", default=0.0)
-@click.option("--row-wise/--no-row-wise", default=True)
-@click.option("--weighted", is_flag=True, default=False)
-@click.option("--pooling", type=str, default="sum")
-@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
-@click.option("--flush-gpu-cache-size-mb", default=0)
-@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
+@click.option(
+    "--output-dtype",
+    type=SparseType,
+    default=SparseType.FP32,
+    help="The output data type, default is FP32.",
+)
+@TbeBenchClickInterface.common_options
+@TbeBenchClickInterface.device_options
+@TbeBenchClickInterface.vbe_options
 def device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -1260,6 +1254,16 @@ def device_with_spec(  # noqa C901
     default=False,
     help="Whether the table is weighted or not",
 )
+@click.option(
+    "--print-kernel-summary",
+    is_flag=True,
+    default=False,
+    help="Whether the table is weighted or not",
+)
+@click.option("--ssd", is_flag=True, default=False)
+@click.option(
+    "--ssd-prefix", type=str, default="/tmp/ssd_benchmark", help="SSD directory prefix"
+)
 @TBEBenchmarkingConfigLoader.options
 @EmbeddingOpsCommonConfigLoader.options
 @click.pass_context
@@ -1273,6 +1277,9 @@ def vbe(
     alpha_list: str,
     num_tables: int,
     weighted: bool,
+    print_kernel_summary: bool,
+    ssd: bool,
+    ssd_prefix: str,
     # pyre-ignore[2]
     **kwargs,
 ) -> None:
@@ -1291,9 +1298,6 @@ def vbe(
 
     if benchconfig.flush_gpu_cache_size_mb != 0:
         raise ValueError("--bench-flush-gpu-cache-size is not supported.")
-
-    if benchconfig.export_trace:
-        raise ValueError("--bench-export-trace is not supported.")
 
     # Load common embedding op configuration from cli arguments
     embconfig = EmbeddingOpsCommonConfigLoader.load(context)
@@ -1331,28 +1335,44 @@ def vbe(
         else EmbeddingLocation.HOST
     )
 
-    emb = SplitTableBatchedEmbeddingBagsCodegen(
-        [
-            (
-                E,
-                D,
-                managed_option,
-                get_available_compute_device(),
-            )
-            for E, D in zip(Es, Ds)
-        ],
-        optimizer=optimizer,
-        learning_rate=0.1,
-        eps=0.1,
-        cache_precision=embconfig.cache_dtype,
-        weights_precision=embconfig.weights_dtype,
-        stochastic_rounding=embconfig.stochastic_rounding,
-        output_dtype=embconfig.output_dtype,
-        pooling_mode=embconfig.pooling_mode,
-        bounds_check_mode=embconfig.bounds_check_mode,
-        device=get_device(),
-    ).to(get_device())
+    common_split_args: Dict[str, Any] = {
+        "weights_precision": embconfig.weights_dtype,
+        "stochastic_rounding": embconfig.stochastic_rounding,
+        "output_dtype": embconfig.output_dtype,
+        "pooling_mode": embconfig.pooling_mode,
+        "bounds_check_mode": embconfig.bounds_check_mode,
+        "optimizer": optimizer,
+        "learning_rate": 0.1,
+        "eps": 0.1,
+        "feature_table_map": list(range(T)),
+    }
 
+    if ssd:
+        cache_set = max(T * max(Bs), 1)
+        tempdir = tempfile.mkdtemp(prefix=ssd_prefix)
+        emb = SSDTableBatchedEmbeddingBags(
+            [(E, D) for E, D in zip(Es, Ds)],
+            cache_sets=cache_set,
+            ssd_storage_directory=tempdir,
+            ssd_cache_location=EmbeddingLocation.DEVICE,
+            ssd_rocksdb_shards=8,
+            **common_split_args,
+        )
+    else:
+        emb = SplitTableBatchedEmbeddingBagsCodegen(
+            [
+                (
+                    E,
+                    D,
+                    managed_option,
+                    get_available_compute_device(),
+                )
+                for E, D in zip(Es, Ds)
+            ],
+            cache_precision=embconfig.cache_dtype,
+            **common_split_args,
+        )
+    emb = emb.to(get_device())
     all_requests = {
         "indices": [[] for _ in range(benchconfig.iterations)],
         "offsets": [[] for _ in range(benchconfig.iterations)],
@@ -1385,6 +1405,26 @@ def vbe(
             all_requests["offsets"][i].append(offsets)
             all_requests["weights"][i].append(weights)
 
+    # pyre-ignore[53]
+    def _kineto_trace_handler(
+        p: profile, emb_op_type: str = "vbe", print_summary: bool = False
+    ) -> None:
+        p.export_chrome_trace(
+            benchconfig.trace_url.format(emb_op_type=emb_op_type, ospid=os.getpid())
+        )
+        if print_summary:
+            print(p.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+
+    emb_op_type = "vbe"
+
+    # pyre-ignore[3, 53]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return (
+            profile(on_trace_ready=on_trace_ready)
+            if benchconfig.export_trace
+            else nullcontext()
+        )
+
     # Combine the requests for all tables by
     requests = [
         (
@@ -1397,16 +1437,19 @@ def vbe(
 
     del all_requests
 
-    fwd_time_sec, bwd_time_sec = benchmark_vbe(
-        requests,
-        func=lambda indices, offsets, per_sample_weights: emb.forward(
-            indices,
-            offsets,
-            per_sample_weights,
-            batch_size_per_feature_per_rank=[[B] for B in Bs],
-        ),
-        num_warmups=benchconfig.warmup_iterations,
-    )
+    with context_factory(
+        lambda p: _kineto_trace_handler(p, emb_op_type, print_kernel_summary)
+    ):
+        fwd_time_sec, bwd_time_sec = benchmark_vbe(
+            requests,
+            func=lambda indices, offsets, per_sample_weights: emb.forward(
+                indices,
+                offsets,
+                per_sample_weights,
+                batch_size_per_feature_per_rank=[[B] for B in Bs],
+            ),
+            num_warmups=benchconfig.warmup_iterations,
+        )
     logging.info(
         f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}\n"
         f"fwd: {fwd_time_sec * 1.0e6:.0f}us, bwd: {bwd_time_sec * 1.0e6:.0f}us"

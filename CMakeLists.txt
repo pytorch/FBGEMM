@@ -12,7 +12,19 @@
 # standard versions
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+# Set up paths
+set(MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules")
+list(APPEND CMAKE_MODULE_PATH "${MODULE_PATH}")
+set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
+include(${MODULE_PATH}/Utilities.cmake)
+
+# C++ Compiler Setup - must be set BEFORE project declaration
+include(${MODULE_PATH}/CxxCompilerSetup.cmake)
+
+# Load cpp_library()
+include(${MODULE_PATH}/CppLibrary.cmake)
 
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
@@ -34,64 +46,24 @@ endfunction()
 
 
 ################################################################################
-# FBGEMM C++ Setup
-################################################################################
-
-# Set the default C++ standard to C++20
-# Individual targets can have this value overridden; see
-# https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-
-# Set the default C standard to C17
-# Individual targets can have this value overridden; see
-# https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-
-# Check if given flag is supported and append it to provided outputvar
-# Also define HAS_UPPER_CASE_FLAG_NAME variable
-# From: https://github.com/pytorch/pytorch/blob/62c8d30f9f6715d0b60d78fb5f5913a2f3bd185b/cmake/public/utils.cmake#L579
-# Usage:
-#   append_cxx_flag_if_supported("-Werror" CMAKE_CXX_FLAGS)
-function(append_cxx_flag_if_supported flag outputvar)
-    string(TOUPPER "HAS${flag}" _FLAG_NAME)
-    string(REGEX REPLACE "[=-]" "_" _FLAG_NAME "${_FLAG_NAME}")
-
-    # GCC silents unknown -Wno-XXX flags, so we detect the corresponding -WXXX.
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      string(REGEX REPLACE "Wno-" "W" new_flag "${flag}")
-    else()
-      set(new_flag ${flag})
-    endif()
-
-    check_cxx_compiler_flag("${new_flag}" ${_FLAG_NAME})
-    if(${_FLAG_NAME})
-        string(APPEND ${outputvar} " ${flag}")
-        set(${outputvar} "${${outputvar}}" PARENT_SCOPE)
-    endif()
-endfunction()
-
-function(target_compile_options_if_supported target flag)
-  set(_compile_options "")
-  append_cxx_flag_if_supported("${flag}" _compile_options)
-  if(NOT "${_compile_options}" STREQUAL "")
-    target_compile_options(${target} PRIVATE ${flag})
-  endif()
-endfunction()
-
-
-################################################################################
 # FBGEMM Build Kickstart
 ################################################################################
 
-project(fbgemm VERSION 0.1 LANGUAGES CXX C)
+# Declare CMake project
+project(
+  fbgemm
+  VERSION 1.3.0
+  LANGUAGES CXX)
+
+# Add C++ compiler flag detection
+include(CheckCXXCompilerFlag)
 
 # Install libraries into correct locations on all platforms
 include(GNUInstallDirs)
+
+# Check AVX
+set(CHECK_AVX_COMPILE ON)
+include(${MODULE_PATH}/FindAVX.cmake)
 
 # Load Python
 find_package(Python)
@@ -100,132 +72,85 @@ set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
   "Type of library (shared, static, or default) to build")
 
-set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS default static shared)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
-option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
+option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
-if(FBGEMM_BUILD_TESTS)
-  enable_testing()
+set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
+string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
+if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
+  if(BUILD_SHARED_LIB)
+    set(FBGEMM_LIBRARY_TYPE "SHARED")
+  else()
+    set(FBGEMM_LIBRARY_TYPE "STATIC")
+  endif()
 endif()
-
-set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/external)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Add address sanitizer
-set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
-
-# Check if compiler supports AVX512
-include(CheckCXXCompilerFlag)
-if(MSVC)
-  CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
-  set(MSVC_BOOL True)
-else(MSVC)
-  CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
-  set(MSVC_BOOL False)
-endif(MSVC)
-if(NOT COMPILER_SUPPORTS_AVX512)
-  message(FATAL_ERROR "A compiler with AVX512 support is required.")
-endif()
-
-# Check if compiler supports __gnu_f2h_ieee
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
+set(FBGEMM_USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
 # We should default to a Release build
 if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 
 if(DISABLE_FBGEMM_AUTOVEC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DISABLE_FBGEMM_AUTOVEC")
+  add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
 
-# Check if compiler supports OpenMP
+if(MSVC)
+  set(MSVC_BOOL True)
+else(MSVC)
+  set(MSVC_BOOL False)
+  check_cxx_compiler_flag(-march=armv8-a+sve COMPILER_SUPPORTS_SVE)
+  check_cxx_compiler_flag(-march=armv8-a+sve2 COMPILER_SUPPORTS_SVE2)
+  check_cxx_compiler_flag(-march=armv8-a+fp16fml COMPILER_SUPPORTS_FP16FML)
+endif(MSVC)
+
+################################################################################
+# GNU F2H_IEEE Support
+################################################################################
+
+# Check if compiler supports __gnu_f2h_ieee
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
+
+if(NOT HAVE_GNU_F2H_IEEE)
+  add_definitions(-DMISSING_GNU_F2H_IEEE)
+endif()
+
+################################################################################
+# Setup OpenMP Flags
+################################################################################
+
 find_package(OpenMP)
+
 if(OpenMP_FOUND)
-  message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
+  message(STATUS "OpenMP found: OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
 else()
   message(WARNING "OpenMP is not supported by the compiler")
 endif()
 
-# Define file lists
-get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
-get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
-get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})"
-  FBGEMM_AVX2_INLINE_SRCS)
-get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
-get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})"
-  FBGEMM_AVX512_INLINE_SRCS)
-get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
-get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
+if(FBGEMM_USE_IPO)
+  include(CheckIPOSupported)
+  check_ipo_supported()
+endif()
 
-add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
-add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
-add_library(fbgemm_avx512 OBJECT
-  ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
-add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
+################################################################################
+# Prepare Sources
+################################################################################
 
-# Make libraries depend on defs.bzl
-add_custom_target(defs.bzl DEPENDS defs.bzl)
-add_dependencies(fbgemm_generic defs.bzl)
-add_dependencies(fbgemm_avx2 defs.bzl)
-add_dependencies(fbgemm_avx512 defs.bzl)
-add_dependencies(fbgemm_autovec defs.bzl)
-
-# On Windows:
-# 1)  Adding definition of ASMJIT_STATIC to avoid generating asmjit function
-#     calls with _dllimport attribute
-# 2)  MSVC uses /MD in default cxx compiling flags,
-# Need to change it to /MT in static case
-if(MSVC)
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
-  if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
-    target_compile_definitions(fbgemm_generic PRIVATE ASMJIT_STATIC)
-    target_compile_definitions(fbgemm_avx2 PRIVATE ASMJIT_STATIC)
-    target_compile_definitions(fbgemm_avx512 PRIVATE ASMJIT_STATIC)
-    foreach(flag_var
-      CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-      CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-      if(${flag_var} MATCHES "/MD")
-        string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
-      endif(${flag_var} MATCHES "/MD")
-    endforeach(flag_var)
-  endif()
-  target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
-  target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
-  if(OpenMP_FOUND)
-    target_compile_options(fbgemm_autovec PRIVATE "/openmp:experimental")
-  endif()
-else(MSVC)
-  string(APPEND CMAKE_CXX_FLAGS " -Wall")
-  string(APPEND CMAKE_CXX_FLAGS " -Wextra")
-  string(APPEND CMAKE_CXX_FLAGS " -Werror")
-  string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
-  string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
-  string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
-  string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
-  string(APPEND CMAKE_CXX_FLAGS " -Wunused-variable")
-  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-    string(APPEND CMAKE_CXX_FLAGS " -Wno-vla-cxx-extension")
-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
-  endif()
-  target_compile_options(fbgemm_avx2 PRIVATE
-    "-m64" "-mavx2" "-mf16c" "-mfma")
-  target_compile_options(fbgemm_avx512 PRIVATE
-    "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
-    "-mavx512vl")
+if(NOT MSVC)
   set_source_files_properties(
     src/FbgemmFP16UKernelsAvx2.cc
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
+    src/fp32/FbgemmFP32UKernelsAvx2.cc
+    src/fp32/FbgemmFP32UKernelsAvx512.cc
+    src/fp32/FbgemmFP32UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(src/PackMatrix.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
+
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
   if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
     set_source_files_properties(
@@ -233,23 +158,270 @@ else(MSVC)
       src/GenerateKernelDirectConvU8S8S32ACC32.cc
       PROPERTIES COMPILE_FLAGS "-Wno-attributes")
   endif()
-
-endif(MSVC)
-
-if(USE_SANITIZER)
-  target_compile_options(fbgemm_generic PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-  target_compile_options(fbgemm_avx2 PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-  target_compile_options(fbgemm_avx512 PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
 endif()
 
-message(STATUS "==========")
-message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
-message(STATUS "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
-message(STATUS "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
-message(STATUS "==========")
+set(fbgemm_arm_defs)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  set(fbgemm_arm_defs
+      FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+      FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
+  if(NOT APPLE)
+    list(APPEND fbgemm_arm_defs FBGEMM_ENABLE_KLEIDIAI)
+  endif()
+endif()
+
+################################################################################
+# FBGEMM Generic Target
+################################################################################
+
+get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
+if(MSVC)
+  list(FILTER FBGEMM_GENERIC_SRCS EXCLUDE REGEX "src/fp32/.*\\.cc$")
+endif()
+
+set(fbgemm_generic_defs "${fbgemm_arm_defs}")
+if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
+  list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  set(fbgemm_generic_defs ${fbgemm_generic_defs} FBGEMM_ENABLE_KLEIDIAI)
+endif()
+
+cpp_library(
+  PREFIX
+    fbgemm_generic
+  TYPE
+    OBJECT
+  SRCS
+    ${FBGEMM_GENERIC_SRCS}
+  INCLUDE_DIRS
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
+  MSVC_FLAGS
+    /wd4717 /bigobj
+  SANITIZER_OPTIONS
+    "${FBGEMM_USE_SANITIZER}"
+  DEFINITIONS
+    ${fbgemm_generic_defs}
+  DEPS
+    $<BUILD_INTERFACE:cpuinfo>
+    $<BUILD_INTERFACE:asmjit>
+)
+
+set(fbgemm_targets)
+
+################################################################################
+# FBGEMM AVX2 Target
+################################################################################
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
+
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
+
+  get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
+  get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_avx2
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_AVX2_SRCS}
+      ${FBGEMM_AVX2_INLINE_SRCS}
+    CC_FLAGS
+      -m64 -mf16c -mfma ${CXX_AVX2_FLAGS}
+    MSVC_FLAGS
+      ${CXX_AVX2_FLAGS}
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_avx2)
+
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX2 target")
+endif()
+
+################################################################################
+# FBGEMM AVX512 Target
+################################################################################
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
+
+  get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+  get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_avx512
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_AVX512_SRCS}
+      ${FBGEMM_AVX512_INLINE_SRCS}
+    CC_FLAGS
+      -m64 -mfma ${CXX_AVX512_FLAGS} ${CXX_AVX2_FLAGS}
+    MSVC_FLAGS
+      ${CXX_AVX512_FLAGS} ${CXX_AVX2_FLAGS}
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_avx512)
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX512 target")
+endif()
+
+################################################################################
+# FBGEMM Neon Target
+################################################################################
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  if(NOT COMPILER_SUPPORTS_FP16FML)
+    message(FATAL_ERROR "The current compiler does not support building FP16FML code")
+  endif()
+
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")
+
+  get_filelist("get_fbgemm_inline_neon_srcs(msvc=${MSVC_BOOL})" FBGEMM_NEON_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_neon
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_NEON_SRCS}
+    CC_FLAGS
+      -ftree-vectorize
+      -fno-trapping-math
+      -Wignored-qualifiers
+      -march=armv8-a+fp16fml
+    DEFINITIONS
+      ${fbgemm_arm_defs}
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_neon)
+
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build Neon target")
+endif()
+
+################################################################################
+# FBGEMM SVE Target
+################################################################################
+
+set(FBGEMM_BUILD_SVE False)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+  if(COMPILER_SUPPORTS_SVE2)
+    set(FBGEMM_BUILD_SVE True)
+    set(fbgemm_sve_flags "-march=armv8-a+sve2")
+  elseif(COMPILER_SUPPORTS_SVE)
+    set(FBGEMM_BUILD_SVE True)
+    set(fbgemm_sve_flags "-march=armv8-a+sve")
+  endif()
+endif()
+
+if(FBGEMM_BUILD_SVE)
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build SVE target")
+
+  get_filelist("get_fbgemm_inline_sve_srcs(msvc=${MSVC_BOOL})" FBGEMM_SVE_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_sve
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_SVE_SRCS}
+    CC_FLAGS
+      -ftree-vectorize
+      -fno-trapping-math
+      -Wignored-qualifiers
+      -Wno-inline-asm
+      -Wno-asm-operand-widths
+      ${fbgemm_sve_flags}
+    DEFINITIONS
+      ${fbgemm_arm_defs}
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_sve)
+
+else()
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build SVE target")
+endif()
+
+################################################################################
+# FBGEMM Autovec Target
+################################################################################
+
+if(NOT DISABLE_FBGEMM_AUTOVEC)
+  message(STATUS "Will build autovec target")
+
+  get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_autovec
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_AUTOVEC_SRCS}
+    ENABLE_IPO
+      ${FBGEMM_USE_IPO}
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_autovec)
+endif()
+
+################################################################################
+# FBGEMM Library Target
+################################################################################
+
+cpp_library(
+  PREFIX
+    fbgemm
+  TYPE
+    ${FBGEMM_LIBRARY_TYPE}
+  DEPS
+    fbgemm_generic
+    ${fbgemm_targets}
+)
+
+get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
+
+install(
+  FILES ${FBGEMM_PUBLIC_HEADERS}
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fbgemm")
+
+install(
+  EXPORT fbgemmLibraryConfig
+  DESTINATION share/cmake/fbgemm
+  FILE fbgemmLibraryConfig.cmake)
+
+################################################################################
+# Asmjit Target
+################################################################################
 
 if(NOT TARGET asmjit)
   # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
@@ -259,30 +431,19 @@ if(NOT TARGET asmjit)
   endif()
 
   # Build asmjit
-  # For MSVC shared build, asmjit needs to be shared also.
-  if(MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
-    set(ASMJIT_STATIC OFF)
-  else()
-    set(ASMJIT_STATIC ON)
-  endif()
+  set(ASMJIT_STATIC ON)
+  set(ASMJIT_NO_INSTALL ON)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
-  # Add a flag required for mac build
-  if(NOT MSVC)
-    target_compile_options(asmjit PRIVATE "-Wno-sign-conversion")
-  endif()
-
-  target_compile_options_if_supported(asmjit -Wno-deprecated-enum-enum-conversion)
-  target_compile_options_if_supported(asmjit -Wno-deprecated-anon-enum-enum-conversion)
-  target_compile_options_if_supported(asmjit -Wno-error=deprecated-enum-enum-conversion)
-
-  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
-    # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
-    target_compile_options_if_supported(asmjit -Wno-deprecated-copy)
-    target_compile_options_if_supported(asmjit -Wno-unused-but-set-variable)
+  if(MSVC)
+    target_compile_options(asmjit PRIVATE /wd5054)
   endif()
 endif()
+
+################################################################################
+# Cpuinfo Target
+################################################################################
 
 if(NOT TARGET cpuinfo)
   #Download cpuinfo from github if CPUINFO_SOURCE_DIR is not specified.
@@ -296,112 +457,16 @@ if(NOT TARGET cpuinfo)
   set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Do not build cpuinfo mock tests")
   set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Do not build cpuinfo benchmarks")
   set(CPUINFO_LIBRARY_TYPE static CACHE STRING "Set lib type to static")
-  #Select static runtime, needed for static build for MSVC
-  set(CPUINFO_RUNTIME_TYPE static CACHE STRING "Set runtime to static")
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-target_include_directories(fbgemm_generic BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-target_include_directories(fbgemm_avx2 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-target_include_directories(fbgemm_avx512 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-target_include_directories(fbgemm_autovec BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-if((FBGEMM_LIBRARY_TYPE STREQUAL "default" AND BUILD_SHARED_LIB) OR FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-  add_library(fbgemm SHARED
-    $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>
-    $<TARGET_OBJECTS:fbgemm_autovec>)
-  set_property(TARGET fbgemm PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
-elseif((FBGEMM_LIBRARY_TYPE STREQUAL "default" AND NOT BUILD_SHARED_LIB) OR FBGEMM_LIBRARY_TYPE STREQUAL "static")
-  add_library(fbgemm STATIC
-    $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>
-    $<TARGET_OBJECTS:fbgemm_autovec>)
-  #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
-  #avoid generating _dllimport functions.
-  target_compile_definitions(fbgemm_generic PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_autovec PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
-else()
-  message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
-endif()
-
-if(USE_SANITIZER)
-  target_link_options(fbgemm PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-endif()
-
-target_include_directories(fbgemm BEFORE
-    PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-    PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
-
-target_link_libraries(fbgemm PUBLIC
-  $<BUILD_INTERFACE:asmjit>
-  $<BUILD_INTERFACE:cpuinfo>)
-
-if(OpenMP_FOUND)
-  target_link_libraries(fbgemm PUBLIC OpenMP::OpenMP_CXX)
-  target_link_libraries(fbgemm_generic PUBLIC OpenMP::OpenMP_CXX)
-endif()
-
-install(
-  TARGETS fbgemm
-  EXPORT fbgemmLibraryConfig
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) #For windows
-
-install(
-  FILES ${FBGEMM_PUBLIC_HEADERS}
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fbgemm")
-
-install(
-  EXPORT fbgemmLibraryConfig
-  DESTINATION share/cmake/fbgemm
-  FILE fbgemmLibraryConfig.cmake)
-
-if(MSVC)
-  if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-    install(
-      FILES $<TARGET_PDB_FILE:fbgemm> $<TARGET_PDB_FILE:asmjit>
-      DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
-  endif()
-  install(TARGETS fbgemm DESTINATION ${CMAKE_INSTALL_LIBDIR})
-  install(TARGETS asmjit DESTINATION ${CMAKE_INSTALL_LIBDIR})
-endif()
-
-#Make project importable from the build directory
-#export(TARGETS fbgemm asmjit FILE fbgemmLibraryConfig.cmake)
+################################################################################
+# Optional Targets
+################################################################################
 
 if(FBGEMM_BUILD_TESTS)
+  enable_testing()
   add_subdirectory(test)
 endif()
 
@@ -411,12 +476,4 @@ endif()
 
 if(FBGEMM_BUILD_DOCS)
   add_subdirectory(docs)
-endif()
-
-if(FBGEMM_BUILD_FBGEMM_GPU)
-  add_subdirectory(fbgemm_gpu)
-endif()
-
-if(NOT HAVE_GNU_F2H_IEEE)
-  add_definitions(-DMISSING_GNU_F2H_IEEE)
 endif()

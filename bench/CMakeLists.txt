@@ -4,94 +4,118 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+
+################################################################################
+# Find Packages
+################################################################################
 
 find_package(MKL)
-if (NOT ${MKL_FOUND})
+if(NOT ${MKL_FOUND})
   find_package(BLAS)
 endif()
 
-if (USE_SANITIZER)
-    message(WARNING "USING SANITIZER IN TEST")
-endif()
-
-if (${OpenMP_FOUND})
-  message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
-endif()
-
-if (${MKL_FOUND})
+if(${MKL_FOUND})
   message(STATUS "MKL_LIBRARIES= ${MKL_LIBRARIES}")
 endif()
 
-if (${BLAS_FOUND})
+if(${BLAS_FOUND})
   message(STATUS "BLAS_LIBRARIES= ${BLAS_LIBRARIES}")
 endif()
 
-# Benchmarks
-macro(add_benchmark BENCHNAME)
-  add_executable(
-    ${BENCHNAME}
+################################################################################
+# Function to Create Benchmark Targets
+################################################################################
+
+function(add_benchmark BENCHNAME)
+  set(bench_sources
     ${ARGN}
     BenchUtils.cc
     ../test/QuantizationHelpers.cc
-    ../test/EmbeddingSpMDMTestUtils.cc
-  )
+    ../test/EmbeddingSpMDMTestUtils.cc)
 
-  target_compile_options(
+  add_executable(
     ${BENCHNAME}
-    PRIVATE
-    "-m64" "-mavx2" "-mfma" "-masm=intel"
-  )
+    ${bench_sources})
+
+  if(NOT MSVC)
+    if(COMPILER_SUPPORTS_AVX2)
+      target_compile_options(${BENCHNAME} PRIVATE
+        -m64
+        ${CXX_AVX2_FLAGS}
+        -mfma
+        -masm=intel)
+    else()
+      target_compile_options(${BENCHNAME} PRIVATE ${CXX_AVX2_FLAGS})
+    endif()
+  endif()
+  if(APPLE)
+    target_compile_options(${BENCHNAME} PRIVATE "-Wno-deprecated-declarations")
+  endif()
 
   target_link_libraries(${BENCHNAME} fbgemm)
-  add_dependencies(${BENCHNAME} fbgemm)
-
-  if (USE_SANITIZER)
-    target_compile_options(${BENCHNAME} PRIVATE
-      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-    target_link_options(${BENCHNAME} PRIVATE "-fsanitize=${USE_SANITIZER}")
-  endif()
-
-  if(OpenMP_FOUND)
-    target_link_libraries(${BENCHNAME} OpenMP::OpenMP_CXX)
-  endif()
 
   if(${MKL_FOUND})
-    target_include_directories(${BENCHNAME} PRIVATE "${MKL_INCLUDE_DIR}")
-    target_link_libraries(${BENCHNAME} "${MKL_LIBRARIES}")
-    target_compile_options(${BENCHNAME} PRIVATE
-      "-DUSE_MKL")
-  endif()
-  if (${BLAS_FOUND})
-    target_compile_options(${BENCHNAME} PRIVATE "-DUSE_BLAS")
-    target_link_libraries(${BENCHNAME} "${BLAS_LIBRARIES}")
+    target_include_directories(${BENCHNAME} PRIVATE
+      ${MKL_INCLUDE_DIR})
+
+    target_link_libraries(${BENCHNAME}
+      ${MKL_LIBRARIES})
+
+    target_compile_definitions(${BENCHNAME} PRIVATE
+      -DUSE_MKL)
   endif()
 
-  set_target_properties(${BENCHNAME} PROPERTIES FOLDER test)
-endmacro()
+  if(${BLAS_FOUND})
+    target_link_libraries(${BENCHNAME}
+      ${BLAS_LIBRARIES})
+
+    target_compile_definitions(${BENCHNAME} PRIVATE
+      -DUSE_BLAS)
+  endif()
+
+  set_target_properties(${BENCHNAME} PROPERTIES
+    FOLDER test)
+
+  ##############################################################################
+  # Debug Summary
+  ##############################################################################
+
+  BLOCK_PRINT(
+    "Benchmark Target: ${BENCHNAME}"
+    " "
+    "SRCS:"
+    "${bench_sources}")
+
+endfunction()
+
+################################################################################
+# Create Benchmark Targets
+################################################################################
 
 if(FBGEMM_BUILD_BENCHMARKS)
-  set(BENCHMARKS "")
-
   file(GLOB BENCH_LIST "*Benchmark.cc")
-  foreach(BENCH_FILE ${BENCH_LIST})
-    # NOTE: Skip FP32 benchmark until FP32 is properly integrated into OSS builds
-    if(BENCH_FILE MATCHES "FP32Benchmark.cc$")
-      continue()
-    endif()
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "Depthwise")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "ConvUnifiedBenchmark")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "Quantize")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "GEMMsBenchmark")
+    list(FILTER BENCH_LIST EXCLUDE REGEX "quantize")
+  endif()
 
-    get_filename_component(BENCH_NAME "${BENCH_FILE}" NAME_WE)
-    get_filename_component(BENCH_FILE_ONLY "${BENCH_FILE}" NAME)
-    add_benchmark("${BENCH_NAME}" "${BENCH_FILE_ONLY}")
-    list(APPEND BENCHMARKS "${BENCH_NAME}")
+  if(MSVC)
+    # NOTE: Skip FP32 benchmark for MSVC until intrinsic kernels are implemented
+    list(FILTER BENCH_LIST EXCLUDE REGEX "FP32Benchmark\\.cc$")
+  endif()
+
+  foreach(BENCH_FILE ${BENCH_LIST})
+    get_filename_component(BENCH_NAME ${BENCH_FILE} NAME_WE)
+    get_filename_component(BENCH_FILENAME ${BENCH_FILE} NAME)
+
+    # Create benchmark target
+    add_benchmark(${BENCH_NAME} ${BENCH_FILENAME})
+    # Add benchmark to list of benchmarks
+    list(APPEND BENCHMARKS ${BENCH_NAME})
   endforeach()
 
   add_custom_target(run_benchmarks
@@ -99,9 +123,4 @@ if(FBGEMM_BUILD_BENCHMARKS)
 
   add_dependencies(run_benchmarks
     ${BENCHMARKS})
-
-  set_source_files_properties(
-    bench/GEMMsBenchmark.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable")
-
 endif()

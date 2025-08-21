@@ -7,12 +7,10 @@
  */
 
 #include <gtest/gtest.h>
-#include <math.h>
-#include <iostream>
+#include <cmath>
 
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmSparse.h"
-#include "fbgemm/Utils.h"
 #include "fbgemm/spmmUtils.h"
 #include "src/RefImplementations.h" // @manual
 
@@ -28,7 +26,7 @@ class SPMMInt8Test
     : public testing::TestWithParam<
           tuple<int, int, int, float, bool, QuantizationGranularity>> {};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     SPMMInt8Test,
     ::testing::Combine(
@@ -44,11 +42,7 @@ INSTANTIATE_TEST_CASE_P(
  * Test for sparse-dense matrix-matrix multiplication (int8)
  */
 TEST_P(SPMMInt8Test, spInt8) {
-  int M = 0, N = 0, K = 0;
-  float fnz = NAN;
-  bool fuse_relu = false;
-  QuantizationGranularity qGran;
-  tie(M, N, K, fnz, fuse_relu, qGran) = GetParam();
+  auto [M, N, K, fnz, fuse_relu, qGran] = GetParam();
 
   auto aData = getRandomBlockSparseMatrix<uint8_t>(
       M, K, 1.0, 1 /* rowBlockSize */, 1 /* colBlockSize */);

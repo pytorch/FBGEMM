@@ -47,7 +47,7 @@ struct RocksdbCheckpointHandleWrapper : public torch::jit::CustomClassHolder {
       const std::string& checkpoint_uuid,
       std::shared_ptr<EmbeddingRocksDB> db);
 
-  ~RocksdbCheckpointHandleWrapper();
+  //   ~RocksdbCheckpointHandleWrapper();
 
   std::string uuid;
   std::shared_ptr<EmbeddingRocksDB> db;
@@ -91,7 +91,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       int64_t dim,
       const int64_t start,
       const int64_t length,
-      const at::Tensor& weights);
+      at::Tensor& weights);
 
   void set_weights_and_ids(const at::Tensor& weights, const at::Tensor& ids);
 

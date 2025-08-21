@@ -8,22 +8,7 @@
 
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
-
-#include "./RefImplementations.h" // @manual
-
-#ifdef USE_MKL
-#include <mkl.h>
-#endif
-
-#ifdef USE_BLAS
-#if __APPLE__
-// not sure whether need to differentiate TARGET_OS_MAC or TARGET_OS_IPHONE,
-// etc.
-#include <Accelerate/Accelerate.h> // @manual
-#else
-#include <cblas.h> // @manual
-#endif
-#endif
+#include "fbgemm/Utils.h"
 
 #include <cpuinfo.h>
 #include <memory>
@@ -38,11 +23,14 @@ void FloatToFloat16_simd(
     bool do_clip) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     if (fbgemmHasAvx512Support()) {
       FloatToFloat16_avx512(src, dst, size, do_clip);
     } else if (fbgemmHasAvx2Support()) {
       FloatToFloat16_avx2(src, dst, size, do_clip);
-    } else {
+    } else
+#endif
+    {
       FloatToFloat16_ref(src, dst, size, do_clip);
       return;
     }
@@ -54,11 +42,14 @@ void FloatToFloat16_simd(
 void Float16ToFloat_simd(const float16* src, float* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     if (fbgemmHasAvx512Support()) {
       Float16ToFloat_avx512(src, dst, size);
     } else if (fbgemmHasAvx2Support()) {
       Float16ToFloat_avx2(src, dst, size);
-    } else {
+    } else
+#endif
+    {
       Float16ToFloat_ref(src, dst, size);
       return;
     }
@@ -74,8 +65,8 @@ void RoundToFloat16(
     bool clamp,
     bool clamp_denorms) {
   std::vector<fbgemm::float16> data_fp16(size);
-  FloatToFloat16_simd(input, &(data_fp16[0]), size, /*do_clip=*/clamp);
-  Float16ToFloat_simd(&(data_fp16[0]), output, size);
+  FloatToFloat16_simd(input, data_fp16.data(), size, /*do_clip=*/clamp);
+  Float16ToFloat_simd(data_fp16.data(), output, size);
   if (clamp_denorms) {
     // FloatToFloat16_simd always preserve fp16 denorm, so we need to manually
     // clamp.

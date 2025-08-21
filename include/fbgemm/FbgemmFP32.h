@@ -6,15 +6,9 @@
 // upgraded to match with new fbgemm interface.
 
 #include <cpuinfo.h>
-#include <cassert>
-#include <cstdlib>
-#include <memory>
-#include <stdexcept>
-#include <vector>
 
 #include "fbgemm/FbgemmFPCommon.h"
 #include "fbgemm/FbgemmPackMatrixB.h"
-#include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
@@ -50,6 +44,6 @@ extern template void cblas_gemm_compute(
     int num_threads);
 
 template <>
-const isa_descriptor<float>& getIsaHandlers(inst_set_t isa, float);
+const isa_descriptor<float>& getIsaHandlers(inst_set_t isa);
 
 } // namespace fbgemm

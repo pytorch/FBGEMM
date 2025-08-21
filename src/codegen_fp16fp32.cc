@@ -11,23 +11,20 @@
  * --fp32         - generate code for FBGEMM32 (SGEMM)
  */
 
-#include <assert.h>
 #include <cpuid.h>
-#include <stdlib.h>
-#include <string.h>
-#include <algorithm>
 #include <array>
+#include <cassert>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
-#include <functional>
 #include <iostream>
-#include <map>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 using namespace std;
 
-void addi(ofstream& of, string i, bool disable = false) {
+static void addi(ofstream& of, const string& i, bool disable = false) {
   if (disable == false)
     of << "      \"" + i + "\\t\\n\"" + "\n";
 }
@@ -41,14 +38,14 @@ struct ISA {
 
 enum class DataType { Float32, Float16, BFloat16 };
 
-std::array<std::pair<DataType, std::string>, 2> types_to_gen = {
+constexpr std::array<std::pair<DataType, std::string>, 2> types_to_gen = {
     std::make_pair(DataType::Float32, "FP32"),
     std::make_pair(DataType::Float16, "FP16")};
 
 constexpr int cache_line_size = 64;
 constexpr int prefetch_len_default = cache_line_size * 12;
 
-int parseArgumentInt(
+static int parseArgumentInt(
     int argc,
     const char* argv[],
     const char* arg,
@@ -66,11 +63,8 @@ int parseArgumentInt(
   return val;
 }
 
-bool parseArgumentBool(
-    int argc,
-    const char* argv[],
-    const char* arg,
-    bool def_val) {
+static bool
+parseArgumentBool(int argc, const char* argv[], const char* arg, bool def_val) {
   for (auto i = 1; i < argc; ++i) {
     const char* ptr = strstr(argv[i], arg);
     if (ptr) {
@@ -101,7 +95,7 @@ int main(int argc, const char* argv[]) {
   const int prefetch_c_len =
       parseArgumentInt(argc, argv, "--prefetch-c", 0, 1024);
 
-  int eax, ebx, ecx, edx;
+  int eax = 0, ebx = 0, ecx = 0, edx = 0;
   __cpuid(1 /* ecx = vendor string */, eax, ebx, ecx, edx);
   printf("FC16 is %s supported\n", ((ecx & bit_F16C) ? " " : "not"));
 
@@ -112,8 +106,6 @@ int main(int argc, const char* argv[]) {
       " * This source code is licensed under the BSD-style license found in the\n"
       " * LICENSE file in the root directory of this source tree.\n"
       " */\n";
-
-  string comma = ",";
 
   enum class mult_type { fma, mul };
 
@@ -240,8 +232,6 @@ int main(int argc, const char* argv[]) {
       hdrfile << "using GemmParams" << d_type.second << " = GemmParams<float"
               << (isFp16 ? "16" : "") << ">;\n\n";
 
-      unsigned labelId = 0;
-
       bool fixedA = false, fixedB = false, fixedC = false;
 
       vector<vector<unsigned>>& ukernel_shape = s.shapes;
@@ -280,8 +270,8 @@ int main(int argc, const char* argv[]) {
         unsigned last_free_vecreg = 0;
         // produce register block of C
         vector<vector<string>> vCtile(ukernel_shape[k][0]);
-        for (auto r = 0; r < ukernel_shape[k][0]; r++)
-          for (auto c = 0; c < ukernel_shape[k][1]; c++) {
+        for (size_t r = 0; r < ukernel_shape[k][0]; r++)
+          for (size_t c = 0; c < ukernel_shape[k][1]; c++) {
             vCtile[r].push_back(vec_reg_prefix + to_string(last_free_vecreg));
             last_free_vecreg++;
           }
@@ -291,7 +281,7 @@ int main(int argc, const char* argv[]) {
         // produce register block of B col
         vector<string> vBcol(ukernel_shape[k][1]);
 
-        for (auto c = 0; c < ukernel_shape[k][1]; c++) {
+        for (size_t c = 0; c < ukernel_shape[k][1]; c++) {
           vBcol[c] = (vec_reg_prefix + to_string(last_free_vecreg));
           last_free_vecreg++;
         }
@@ -311,7 +301,7 @@ int main(int argc, const char* argv[]) {
               srcfile,
               "vbroadcastss " + vAtmp + ",DWORD PTR [r9+" + to_string(4 * r) +
                   "]");
-          for (int c = 0; c < vCtile[0].size(); c++) {
+          for (size_t c = 0; c < vCtile[0].size(); c++) {
             addi(
                 srcfile,
                 mul + " " + vCtile[r][c] + "," + vBcol[c] + "," + vAtmp);
@@ -344,7 +334,7 @@ int main(int argc, const char* argv[]) {
         };
 
         auto const C_prefetch = [&](int r) {
-          for (auto c = 0; prefetch_c_len && (c < vCtile[r].size()); c++) {
+          for (size_t c = 0; prefetch_c_len && (c < vCtile[r].size()); c++) {
             if ((vec_len_in_bytes * c) % cache_line_size == 0) {
               addi(
                   srcfile,
@@ -360,7 +350,7 @@ int main(int argc, const char* argv[]) {
 
         // Generate Loads from Matrix C
         auto const C_load = [&](int r) {
-          for (auto c = 0; c < vCtile[r].size(); ++c) {
+          for (size_t c = 0; c < vCtile[r].size(); ++c) {
             switch (s.iset) {
               case ISA::isaType::avx:
               case ISA::isaType::avx2:
@@ -437,7 +427,7 @@ int main(int argc, const char* argv[]) {
             fixedC);
         // Generate first iteration which loads values from C  and interleavs
         // With loads from B and multiplication
-        for (auto c = 0; c < vCtile[0].size(); ++c) {
+        for (size_t c = 0; c < vCtile[0].size(); ++c) {
           B_load(c, vBcol[c], prefetch_b_len);
         }
         addi(srcfile, "vxorps xmm0, xmm0, xmm0");
@@ -446,8 +436,7 @@ int main(int argc, const char* argv[]) {
 
         srcfile << "\n";
         srcfile << "      // Setup values with beta multiplication\n";
-        string r_last = vec_reg_prefix + to_string(num_vec_regs - 1);
-        for (auto r = 0; r < vCtile.size(); r++) {
+        for (size_t r = 0; r < vCtile.size(); r++) {
           if (r > 0) {
             addi(srcfile, "add r12, r13", fixedC); // move C ptr
           }
@@ -459,7 +448,7 @@ int main(int argc, const char* argv[]) {
         // Preload B index and prefetch with the next iteration
         B_load(vCtile[0].size(), r_spare, prefetch_b_len);
         addi(srcfile, "skip_preload%=:");
-        for (auto r = 0; r < vCtile.size(); r++) {
+        for (size_t r = 0; r < vCtile.size(); r++) {
           A_load_mult(r, mult_type::fma);
         }
         if (vCtile.size() > 1) {
@@ -483,7 +472,7 @@ int main(int argc, const char* argv[]) {
         B_load(vCtile[0].size(), r_spare, prefetch_b_len);
         addi(srcfile, "skip_preload_b_zero%=:");
         // Consider all vCtile regs as zeros, do direct MUL into
-        for (auto r = 0; r < vCtile.size(); r++) {
+        for (size_t r = 0; r < vCtile.size(); r++) {
           if (r > 0) {
             addi(srcfile, "add r12, r13", fixedC); // move C ptr
           }
@@ -513,12 +502,12 @@ int main(int argc, const char* argv[]) {
 
         // Store preloaded value
         addi(srcfile, "vmovaps " + vBcol[0] + "," + r_spare);
-        for (int c = 1; c < vCtile[0].size(); c++) {
+        for (size_t c = 1; c < vCtile[0].size(); c++) {
           B_load(c, vBcol[c], prefetch_b_len);
         }
         // Preload for next iteration
         B_load(vCtile[0].size(), r_spare, prefetch_b_len);
-        for (int r = 0; r < vCtile.size(); r++) {
+        for (size_t r = 0; r < vCtile.size(); r++) {
           A_load_mult(r, mult_type::fma);
         }
 
@@ -540,10 +529,10 @@ int main(int argc, const char* argv[]) {
         // Perform last iteration without preloading B values
         // Store preloaded value
         addi(srcfile, "vmovaps " + vBcol[0] + "," + r_spare);
-        for (int c = 1; c < vCtile[0].size(); c++) {
+        for (size_t c = 1; c < vCtile[0].size(); c++) {
           B_load(c, vBcol[c], 0); // no prefetch
         }
-        for (int r = 0; r < vCtile.size(); r++) {
+        for (size_t r = 0; r < vCtile.size(); r++) {
           A_load_mult(r, mult_type::fma);
         }
         addi(srcfile, "add r9," + A_stride, fixedA); // A stride
@@ -551,11 +540,11 @@ int main(int argc, const char* argv[]) {
 
         srcfile << "      // Dump C\n";
         addi(srcfile, label_dump_C + ":");
-        for (auto r = 0; r < vCtile.size(); r++) {
+        for (size_t r = 0; r < vCtile.size(); r++) {
           if (r > 0) {
             addi(srcfile, "add r12, r13", fixedC); // move C ptr
           }
-          for (auto c = 0; c < vCtile[r].size(); c++) {
+          for (size_t c = 0; c < vCtile[r].size(); c++) {
             addi(
                 srcfile,
                 "vmovups " + vec_reg_prefix + "word PTR [r12 + " +

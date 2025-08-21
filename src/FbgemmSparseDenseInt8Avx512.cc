@@ -38,7 +38,7 @@ requantizeForMM(__m512i x[], int rowIdx, trRequantizationParams_t& rParams) {
       0x0C, 0x08, 0x04, 0x00);
   // clang-format on
   int32_t row_offset = 0;
-  if (!ACT_ZP_0) {
+  if constexpr (!ACT_ZP_0) {
     row_offset = rParams.act_zero_point * rParams.weight_row_offsets[rowIdx];
   }
   __m512i row_offset_v = _mm512_set1_epi32(row_offset);
@@ -49,7 +49,7 @@ requantizeForMM(__m512i x[], int rowIdx, trRequantizationParams_t& rParams) {
   }
 
   __m512 bias_v;
-  if (HAS_BIAS) {
+  if constexpr (HAS_BIAS) {
     float bias =
         rParams.bias[rowIdx] / rParams.act_times_w_scale[weight_zeropoint_idx];
     bias_v = _mm512_set1_ps(bias);
@@ -63,7 +63,7 @@ requantizeForMM(__m512i x[], int rowIdx, trRequantizationParams_t& rParams) {
     act_times_w_div_c_v = _mm512_set1_ps(
         rParams.act_times_w_scale[weight_zeropoint_idx] / rParams.C_scale);
   }
-  if (!ACT_ZP_0) {
+  if constexpr (!ACT_ZP_0) {
     x[0] = _mm512_sub_epi32(x[0], row_offset_v);
     x[1] = _mm512_sub_epi32(x[1], row_offset_v);
     x[2] = _mm512_sub_epi32(x[2], row_offset_v);
@@ -71,7 +71,7 @@ requantizeForMM(__m512i x[], int rowIdx, trRequantizationParams_t& rParams) {
   }
 
   __m512 xf_v, yf_v, zf_v, wf_v;
-  if (HAS_BIAS) {
+  if constexpr (HAS_BIAS) {
     xf_v = _mm512_add_ps(_mm512_cvtepi32_ps(x[0]), bias_v);
     yf_v = _mm512_add_ps(_mm512_cvtepi32_ps(x[1]), bias_v);
     zf_v = _mm512_add_ps(_mm512_cvtepi32_ps(x[2]), bias_v);
@@ -101,7 +101,7 @@ requantizeForMM(__m512i x[], int rowIdx, trRequantizationParams_t& rParams) {
       _mm512_packs_epi32(z_rounded_v, w_rounded_v), C_zero_point_epi16_v);
   // _mm512_packus_epi16 takes care of saturating to uint8 range
   __m512i xyzw_clamped_v = _mm512_packus_epi16(xy_packed_v, zw_packed_v);
-  if (FUSE_RELU) {
+  if constexpr (FUSE_RELU) {
     xyzw_clamped_v = _mm512_max_epu8(C_zero_point_epi8_v, xyzw_clamped_v);
   }
 
@@ -225,7 +225,7 @@ static inline void loadBRows(
     __mmask64 mask_int8_v = 0) {
   int idx = 0;
   for (; idx < ROWSIZE; ++idx) {
-    if (MASKLOAD) {
+    if constexpr (MASKLOAD) {
       br_v[idx] = _mm512_maskz_loadu_epi8(mask_int8_v, B_start + idx * ld);
     } else {
       br_v[idx] = _mm512_loadu_si512(B_start + idx * ld);
@@ -257,7 +257,6 @@ static inline void interleave4RowsTile(
     const int col_start) {
   constexpr int VLEN_INT8 = 64;
   constexpr int colBlockSize = 4;
-  assert(colBlockSize == 4 && "column block size should be 4");
   const int kBlocks = kSize / colBlockSize;
   if (col_start < N / VLEN_INT8 * VLEN_INT8) {
     __m512i br_v[4];

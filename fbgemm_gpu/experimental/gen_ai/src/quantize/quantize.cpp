@@ -6,18 +6,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/ATen.h>
-#include <torch/library.h>
-
-#include "c10/core/ScalarType.h"
-
-#include <ATen/cuda/CUDAEvent.h>
-#include <algorithm>
-#include <atomic>
-#include <cassert>
-#include <cmath>
-#include <string>
 #include <vector>
+
+#include <ATen/ATen.h>
+#include <ATen/cuda/CUDAEvent.h>
+#include <fbgemm_gpu/torch_ops.h>
+#include <torch/library.h>
+#include "c10/core/ScalarType.h"
 #include "c10/util/Exception.h"
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
@@ -31,6 +26,7 @@ namespace fbgemm_gpu {
 #ifdef USE_ROCM
 // flush icache
 void flush_icache_ck();
+
 #endif
 
 // SmoothQuant kernels
@@ -66,7 +62,15 @@ at::Tensor f4f4bf16_grouped_stacked(
     at::Tensor w_scale,
     at::Tensor M_sizes,
     std::optional<at::Tensor> global_scale = std::nullopt,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt,
     bool use_mx = true);
+at::Tensor mx8mx8bf16_grouped_stacked(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt);
 at::Tensor f8f8bf16(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -102,6 +106,11 @@ at::Tensor f8f8f16_rowwise(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true);
+at::Tensor f8f8bf16_groupwise(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale);
 at::Tensor f8f8bf16_rowwise_preshuffle(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -155,6 +164,12 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor w_scale,
     at::Tensor zero_start_index_M,
     bool zeroing_output_tensor = true);
+at::Tensor f8f8bf16_groupwise_grouped(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor M_sizes);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -299,10 +314,13 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       quantize_fp8_per_tensor_fixed_scale);
 
 #ifndef USE_ROCM
+  m.impl("f8f8bf16_groupwise", f8f8bf16_groupwise);
+  m.impl("f8f8bf16_groupwise_grouped", f8f8bf16_groupwise_grouped);
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f4f4bf16", f4f4bf16);
   m.impl("f4f4bf16_grouped", f4f4bf16_grouped);
   m.impl("f4f4bf16_grouped_stacked", f4f4bf16_grouped_stacked);
+  m.impl("mx8mx8bf16_grouped_stacked", mx8mx8bf16_grouped_stacked);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
@@ -325,6 +343,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 
 #ifdef USE_ROCM
   m.impl("flush_icache_hip", flush_icache_ck);
+  m.impl("f8f8bf16_rowwise_grouped_mm", f8f8bf16_rowwise_grouped_mm);
 #endif
 #ifdef USE_ROCM
   m.impl("f8f8f16_rowwise", f8f8f16_rowwise);
@@ -351,10 +370,13 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("bf16bf16bf16_grouped_dyanmic", bf16bf16bf16_grouped_dynamic);
   m.impl("bf16bf16bf16_grouped_stacked", bf16bf16bf16_grouped_stacked);
 #ifndef USE_ROCM
+  m.impl("f8f8bf16_groupwise", f8f8bf16_groupwise);
+  m.impl("f8f8bf16_groupwise_grouped", f8f8bf16_groupwise_grouped);
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f4f4bf16", f4f4bf16);
   m.impl("f4f4bf16_grouped", f4f4bf16_grouped);
   m.impl("f4f4bf16_grouped_stacked", f4f4bf16_grouped_stacked);
+  m.impl("mx8mx8bf16_grouped_stacked", mx8mx8bf16_grouped_stacked);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
@@ -473,9 +495,22 @@ at::Tensor f8f8bf16_blockwise_meta(
     int64_t /* block_m = 128*/,
     int64_t /* block_n = 128*/,
     int64_t /* block_k = 128*/) {
-  const at::SymInt M = XQ.sym_size(0);
-  const at::SymInt N = WQ.sym_size(0);
-  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  int64_t x_dims = XQ.dim();
+  int64_t w_dims = WQ.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of XQ must be 2 or 3, and dim of WQ must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = XQ.sym_size(0);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = XQ.sym_size(0);
+    const at::SymInt M = XQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
@@ -559,13 +594,26 @@ at::Tensor fp8fp8bf16_fast_gemv_meta(
 }
 
 at::Tensor f8f8bf16_tensorwise_meta(
-    at::Tensor X,
-    at::Tensor W,
-    double scale,
-    bool use_fast_accum = true) {
-  const at::SymInt M = X.sym_size(0);
-  const at::SymInt N = W.sym_size(0);
-  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+    at::Tensor XQ,
+    at::Tensor WQ,
+    double /* scale */,
+    bool /* use_fast_accum = true */) {
+  int64_t x_dims = XQ.dim();
+  int64_t w_dims = WQ.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of XQ must be 2 or 3, and dim of WQ must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = XQ.sym_size(0);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = XQ.sym_size(0);
+    const at::SymInt M = XQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
@@ -579,12 +627,25 @@ at::Tensor f8f8bf16_lite_meta(at::Tensor X, at::Tensor W, at::Tensor scale) {
 at::Tensor f8i4bf16_rowwise_meta(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // INT4
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    at::Tensor w_zp) {
-  const at::SymInt M = XQ.sym_size(0);
-  const at::SymInt N = WQ.sym_size(0);
-  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    at::Tensor /* w_zp */) {
+  int64_t x_dims = XQ.dim();
+  int64_t w_dims = WQ.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of X must be 2 or 3, and dim of W must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = XQ.sym_size(0);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = XQ.sym_size(0);
+    const at::SymInt M = XQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
@@ -616,9 +677,22 @@ at::Tensor bf16i4bf16_rowwise_meta(
     at::Tensor /*  w_scale_group */,
     at::Tensor /* w_zero_group */
 ) {
-  const at::SymInt M = X.sym_size(0);
-  const at::SymInt N = W.sym_size(0);
-  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+  int64_t x_dims = X.dim();
+  int64_t w_dims = W.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of XQ must be 2 or 3, and dim of WQ must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = X.sym_size(0);
+    const at::SymInt N = W.sym_size(0);
+    Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = X.sym_size(0);
+    const at::SymInt M = X.sym_size(1);
+    const at::SymInt N = W.sym_size(0);
+    Y = at::empty_symint({B, M, N}, X.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 

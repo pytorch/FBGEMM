@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
-set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules)
+set(CMAKEMODULES ${CMAKE_CURRENT_LIST_DIR}/../cmake/modules)
 set(FBGEMM_GPU ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/external)
@@ -95,7 +95,7 @@ BLOCK_PRINT(
   "AMDGPU_TARGETS         : ${AMDGPU_TARGETS}"
   "PYTORCH_ROCM_ARCH      : ${PYTORCH_ROCM_ARCH}")
 
-set(project_languages CXX C)
+set(project_languages CXX)
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   list(APPEND project_languages CUDA)
 endif()

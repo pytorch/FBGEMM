@@ -158,8 +158,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
     }
 #endif
 
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize / vectorLen;
     assert(
         maxMRegs * maxNRegs <= 30 &&
@@ -179,14 +178,8 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
-            void,
-            int64_t*,
-            int64_t*,
-            int64_t*,
-            int64_t*,
-            int,
-            int>(asmjit::CallConvId::kHost),
+        asmjit::FuncSignature::
+            build<void, int64_t*, int64_t*, int64_t*, int64_t*, int, int>(),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -382,7 +375,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      cout << "Error: in fn add" << endl;
+      cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 
@@ -444,8 +437,8 @@ void cblas_gemm_i64_i64acc(
         false /* accum */, MCB, NCB, KCB);
   }
 
-  vector<int64_t> At, Bt;
   // TODO: handle transpose during packing
+  vector<int64_t> At;
   if (transa == matrix_op_t::Transpose) {
     At.resize(M * K);
     for (int i = 0; i < M; ++i) {
@@ -456,6 +449,7 @@ void cblas_gemm_i64_i64acc(
     A = At.data();
     lda = K;
   }
+  vector<int64_t> Bt;
   if (transb == matrix_op_t::Transpose) {
     Bt.resize(K * N);
     for (int k = 0; k < K; ++k) {

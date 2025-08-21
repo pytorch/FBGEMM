@@ -7,7 +7,11 @@
  */
 
 #define FBGEMM_EXPORTS
+
+#ifndef __aarch64__
 #include "./OptimizedKernelsAvx2.h" // @manual
+#endif // __aarch64__
+
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
@@ -17,7 +21,6 @@ namespace fbgemm {
 
 int32_t reduceAvx2(const uint8_t* A, int len) {
   int32_t row_sum = 0;
-#if defined(__AVX2__)
   __m256i sum_v = _mm256_setzero_si256();
   __m256i one_epi16_v = _mm256_set1_epi16(1);
   __m256i one_epi8_v = _mm256_set1_epi8(1);
@@ -42,12 +45,6 @@ int32_t reduceAvx2(const uint8_t* A, int len) {
   for (; i < len; ++i) {
     row_sum += A[i];
   }
-
-#else
-  for (int i = 0; i < len; ++i) {
-    row_sum += A[i];
-  }
-#endif
   return row_sum;
 }
 

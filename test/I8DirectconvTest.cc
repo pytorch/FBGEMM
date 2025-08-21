@@ -6,13 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <cstdio>
-#include <iomanip>
 #include <numeric>
-#include <random>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -248,7 +242,7 @@ static void QuantizeDirectConv_ref(
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDirectConvTest,
     ::testing::Combine(
@@ -418,7 +412,7 @@ TEST_P(FBGemmDirectConvTest, Test2D) {
 */
 
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDirectConvTransTest,
     ::testing::Combine(
@@ -547,8 +541,6 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
           conv_p.OC);
     }
 
-    string runType;
-
     PackedDirectConvMatrix packedB(conv_p.IC, conv_p.OC, kernel_dim, Bint8.data());
 
     DoNothing<> doNothingObj{};
@@ -608,7 +600,7 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
 }
 
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDirectConvTransFbgemmTest,
     ::testing::Combine(
@@ -729,7 +721,7 @@ TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
     PackWeightsForConv<2> packedB_2D(conv_p, Bint8.data());
 
     if (packedB_2D.getPackedWForDirectconv().get()) {
-      packedB_2D.getPackedWForDirectconv().get()->col_offsets_with_zero_pt_s8acc32_DirectConvT(
+      packedB_2D.getPackedWForDirectconv()->col_offsets_with_zero_pt_s8acc32_DirectConvT(
           conv_p,
           Bint8_zero_point.data(),
           col_offsets,

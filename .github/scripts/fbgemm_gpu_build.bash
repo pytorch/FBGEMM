@@ -8,6 +8,7 @@
 
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
+. "$( dirname -- "$BASH_SOURCE"; )/utils_build.bash"
 
 ################################################################################
 # FBGEMM_GPU Build Auxiliary Functions
@@ -98,12 +99,41 @@ __configure_fbgemm_gpu_build_nvcc () {
   else
     local cppstd_ver=20
   fi
+  echo "[BUILD] Setting C++ version to ${cppstd_ver} ..."
+
+  # Certain warnings are suppressed to avoid overly verbose output coming from
+  # building CUTLASS
+  local nvcc_prepend_flags=(
+    "-std=c++${cppstd_ver}"
+    -Xcompiler "-std=c++${cppstd_ver}"
+    -ccbin "${cxx_path}"
+    -allow-unsupported-compiler
+    # warn: variable "nUpdates" was declared but never referenced
+    -diag-suppress 177
+    # warn: argument is incompatible with corresponding format string conversion
+    -diag-suppress 181
+    # warn: the implicit by-copy capture of "this" is deprecated
+    -diag-suppress 2908
+    # warn: __device__ annotation is ignored on a function that is explicitly defaulted on its first declaration
+    -diag-suppress 20012
+  )
+
+  # NOTE: This check covers both Nova and non-Nova builds, as we set
+  # BUILD_CUDA_VERSION to be CU_VERSION in the Nova build case
+  if ! [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] && [[ "$BUILD_CUDA_VERSION" != "cu126" ]]; then
+    # NOTE: This flag is only supported in NVCC 12.8+
+    nvcc_prepend_flags+=(
+      # warn: in whole program compilation mode ("-rdc=false"), a __global__ function template instantiation or specialization will be required to have a definition in the current translation unit, when "-static-global-template-stub" will be set to "true" by default in the future. To resolve this issue, either use "-rdc=true", or explicitly set "-static-global-template-stub=false" (but see nvcc documentation about downsides of turning it off)
+      -diag-suppress 20281
+    )
+  fi
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
-    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
-  else
+    echo "[BUILD] Host compiler is clang; setting stdlib to libstdc++..."
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
-    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
+    nvcc_prepend_flags+=(
+      -Xcompiler "-stdlib=libstdc++"
+    )
   fi
 
   # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
@@ -113,9 +143,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
   #   https://github.com/ROCm/HIP/issues/931
   #
-  echo "[BUILD] Setting NVCC flags ..."
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags}\"
+  # shellcheck disable=SC2086,SC2145,SC2068
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags[*]}\"
   # shellcheck disable=SC2086
   print_exec conda run ${env_prefix} printenv NVCC_PREPEND_FLAGS
 
@@ -128,6 +157,8 @@ __configure_fbgemm_gpu_build_nvcc () {
 }
 
 __configure_fbgemm_gpu_cuda_home () {
+  # NOTE: This only matches for non-Nova builds, as CUDA versions in Nova builds
+  # are formatted as `cu12x“
   if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
       [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
       [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
@@ -255,23 +286,28 @@ __configure_fbgemm_gpu_build_cuda () {
     # appending 7.0/7.5 to the back of the list mysteriously results in
     # undefined symbol errors on .SO loads
     if [[ $fbgemm_build_target == "hstu" ]]; then
-      # HSTU requires sm_75 or higher
-      local arch_list="7.5"
-    else
-      local arch_list="7.0"
-    fi
+      if  [[ $cuda_version_nvcc == *"V12"* ]]; then
+        # NOTE: Compiling 9.0a code will fail if sm_80 output is also is also
+        # enabled, bc the code relies on the following function that is not
+        # supported in sm_80:
+        #   float4 atomicAdd(float4* address, float4 val);
+        local arch_list="9.0a;10.0a;12.0a"
+      else
+        # NOTE: HSTU requires sm_75 or higher
+        local arch_list="7.5;8.0"
+      fi
 
-    if    [[ $cuda_version_nvcc == *"V12.9"* ]] ||
+    elif  [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="${arch_list};8.0;9.0a;10.0a;12.0a"
+      local arch_list="7.5;8.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
           [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="${arch_list};8.0;9.0a"
+      local arch_list="7.5;8.0;9.0a"
 
     else
-      local arch_list="${arch_list};8.0;9.0"
+      local arch_list="7.5;8.0;9.0"
       echo "[BUILD] Unknown NVCC version $cuda_version_nvcc - setting TORCH_CUDA_ARCH_LIST to: ${arch_list}"
     fi
   fi
@@ -361,7 +397,7 @@ __configure_fbgemm_gpu_build () {
   fi
 
   # Set debugging options
-  if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
+  if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" == "1" ]; then
     echo "[BUILD] Enabling debug features in the build ..."
     build_args+=(
       --debug=1
@@ -369,7 +405,7 @@ __configure_fbgemm_gpu_build () {
   fi
 
   # Set FB-only options
-  if [ "$BUILD_INCLUDE_FB_ONLY" -eq 1 ]; then
+  if [ "$BUILD_INCLUDE_FB_ONLY" == "1" ]; then
     echo "[BUILD] Enabling build of FB-only code ..."
     build_args+=(
       --use_fb_only
@@ -526,46 +562,6 @@ __build_fbgemm_gpu_common_pre_steps () {
   print_exec git diff
 }
 
-__print_library_infos () {
-  # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
-  local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
-  readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
-
-  for library in "${fbgemm_gpu_so_files[@]}"; do
-    echo "################################################################################"
-    echo "[CHECK] BUILT LIBRARY: ${library}"
-
-    echo "[CHECK] Listing out library size:"
-    print_exec "du -h --block-size=1M ${library}"
-
-    print_glibc_info "${library}"
-
-    # shellcheck disable=SC2155
-    local symbols_file=$(mktemp --suffix ".symbols.txt")
-    print_exec "nm -gDC ${library} > ${symbols_file}"
-    # shellcheck disable=SC2086
-    echo "[CHECK] Total Number of symbols: $(wc -l ${symbols_file} | awk '{print $1}')"
-    # shellcheck disable=SC2086
-    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm ${symbols_file})"
-
-    # shellcheck disable=SC2155
-    local usymbols_file=$(mktemp --suffix ".usymbols.txt")
-    print_exec "nm -gDCu ${library} > ${usymbols_file}"
-    # shellcheck disable=SC2086
-    echo "[CHECK] Listing out undefined symbols ($(wc -l ${usymbols_file} | awk '{print $1}') total):"
-    cat "${usymbols_file}" | sort
-
-    echo "[CHECK] Listing out external shared libraries linked:"
-    print_exec ldd "${library}"
-
-    echo "[CHECK] Displaying ELF information:"
-    print_exec readelf -d "${library}"
-    echo "################################################################################"
-    echo ""
-    echo ""
-  done
-}
-
 __verify_library_symbols () {
   __test_one_symbol () {
     local symbol="$1"
@@ -640,7 +636,7 @@ __run_fbgemm_gpu_postbuild_checks () {
     return 1
   fi
 
-  __print_library_infos     || return 1
+  print_library_infos       || return 1
   __verify_library_symbols  || return 1
 }
 

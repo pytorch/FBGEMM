@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -334,7 +335,7 @@ int main() {
             if (expected != actual) {
               cerr << "Depthwise 3x3 results differ at (" << n << ", " << h
                    << ", " << w << ", " << k << "). expected " << (int)expected
-                   << " actual " << (int)actual << endl;
+                   << " actual " << (int)actual << '\n';
               return -1;
             }
             assert(expected == actual);

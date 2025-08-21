@@ -12,7 +12,6 @@
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
 #endif
-#include <cassert>
 #include <cstdint>
 
 #include "./MaskAvx2.h" // @manual
@@ -549,7 +548,7 @@ inline static void transpose_kernel_8x16_avx2(
   // f : f0 f1 f2 f3 f4 f5 f6 f7 ... f15
   // g : g0 g1 g2 g3 g4 g5 g6 g7 ... g15
   // h : h0 h1 h2 h3 h4 h5 h6 h7 ... h15
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     load_with_remainders_i16(src, ld_src, r, mrem, nrem);
   } else {
     r[0] = _mm256_loadu_si256(
@@ -659,7 +658,7 @@ inline static void transpose_kernel_8x16_avx2(
   r[7] = _mm256_unpackhi_epi64(__t3, __t7); // 7, 15
 
   // stores back 16 rows:
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     store_with_remainders_i16(dst, ld_dst, r, mrem, nrem);
   } else {
     _mm_storeu_si128(

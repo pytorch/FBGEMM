@@ -8,7 +8,6 @@
 
 #include "./GenerateI8Depthwise.h" // @manual
 
-#include <asmjit/asmjit.h> // @manual
 #include <cassert>
 #include <iostream>
 #include <numeric>
@@ -53,19 +52,19 @@ namespace x86 = asmjit::x86;
 // c3_v: c[12:16], c[28:32]
 static void genMaddEpi16xNPacked(
     x86::Emitter* e,
-    x86::Ymm a[4],
+    Ymm a[4],
     const x86::Gp& b,
-    x86::Ymm c[4],
-    x86::Ymm* a_sum,
+    Ymm c[4],
+    Ymm* a_sum,
     int n,
     int remainder,
     bool accumulation,
-    const x86::Ymm& one_epi8,
-    const x86::Ymm& one_epi16,
-    const x86::Ymm& zero) {
+    const Ymm& one_epi8,
+    const Ymm& one_epi16,
+    const Ymm& zero) {
   // Interleave inputs corresponding to 4 filter positions.
   // Reuse a[1] and a[3] to save registers
-  x86::Ymm a01_lo(0), a01_hi(1), a23_lo(a[1]), a23_hi(a[3]);
+  Ymm a01_lo(0), a01_hi(1), a23_lo(a[1]), a23_hi(a[3]);
   e->vpunpcklbw(a01_lo, a[0], n == 1 ? zero : a[1]);
   if (remainder >= 8) {
     e->vpunpckhbw(a01_hi, a[0], n == 1 ? zero : a[1]);
@@ -262,7 +261,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
+        asmjit::FuncSignature::build<
             void,
             const std::uint8_t*,
             const std::int8_t*,
@@ -273,7 +272,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
             int,
             const int*,
             int,
-            const std::int32_t*>(asmjit::CallConvId::kHost),
+            const std::int32_t*>(),
         e->environment());
 
     asmjit::FuncFrame frame;
@@ -307,24 +306,24 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     e->emitArgsAssignment(frame, args);
 
     // Assign vector registers
-    x86::Ymm a[4];
-    x86::Ymm c[4];
-    x86::Ymm a_sum[2];
+    Ymm a[4];
+    Ymm c[4];
+    Ymm a_sum[2];
 
     int vreg_id = 2; // reserve 2 for temp vreg
     for (int i = 0; i < 4; ++i, ++vreg_id) {
-      a[i] = x86::Ymm(vreg_id);
+      a[i] = Ymm(vreg_id);
     }
     for (int i = 0; i < 4; ++i, ++vreg_id) {
-      c[i] = x86::Ymm(vreg_id);
+      c[i] = Ymm(vreg_id);
     }
     if (compute_a_sum) {
-      a_sum[0] = x86::Ymm(vreg_id);
+      a_sum[0] = Ymm(vreg_id);
       ++vreg_id;
-      a_sum[1] = x86::Ymm(vreg_id);
+      a_sum[1] = Ymm(vreg_id);
       ++vreg_id;
     }
-    x86::Ymm mask_vreg(vreg_id);
+    Ymm mask_vreg(vreg_id);
     constexpr int vlen = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
     if (remainder != simd_info<inst_set_t::avx2>::WIDTH_BYTES) {
       ++vreg_id;
@@ -334,17 +333,17 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
               mask_addr,
               (vlen - remainder / 4 / oc_per_g) % vlen * sizeof(int32_t)));
     }
-    x86::Ymm one_epi8(vreg_id);
+    Ymm one_epi8(vreg_id);
     if (compute_a_sum) {
       ++vreg_id;
       gen8BitVectorOne(e, one_epi8);
     }
 
     int K = std::accumulate(F.begin(), F.end(), 1, std::multiplies<int>());
-    x86::Ymm one_epi16(vreg_id);
+    Ymm one_epi16(vreg_id);
     if (K > 2) {
       ++vreg_id;
-      gen16BitVectorOne<inst_set_t::avx2, x86::Ymm>(e, one_epi16);
+      gen16BitVectorOne<inst_set_t::avx2, Ymm>(e, one_epi16);
     }
 
     bool has_pad = prev_skip || next_skip || top_skip || bottom_skip ||
@@ -353,7 +352,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     // When out of registers, zero and A_zero_point_vreg need to share.
     bool recompute_zero = vreg_id == 15 && need_zero;
 
-    x86::Ymm a_zero_point_vreg(vreg_id);
+    Ymm a_zero_point_vreg(vreg_id);
     if (!recompute_zero && has_pad) {
       e->movq(a_zero_point_vreg.half(), a_zero_point);
       e->vpbroadcastb(a_zero_point_vreg, a_zero_point_vreg.half());
@@ -361,7 +360,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     if (vreg_id < 15) {
       ++vreg_id;
     }
-    x86::Ymm zero(vreg_id);
+    Ymm zero(vreg_id);
     if (need_zero && (!recompute_zero || !has_pad)) {
       e->vpxor(zero.xmm(), zero.xmm(), zero.xmm());
     }
@@ -564,7 +563,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 

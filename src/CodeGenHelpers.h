@@ -7,7 +7,7 @@
  */
 
 #pragma once
-#include <asmjit/asmjit.h> // @manual
+#include <asmjit/x86.h> // @manual
 #include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 
@@ -17,7 +17,7 @@ namespace x86 = asmjit::x86;
 
 /**
  * @brief Create instruction sequence to generate 16-bit 1s
- * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm
+ * @tparam T Register type of destination, e.g., Ymm or Zmm
  *
  * @param dest Once the instruction sequence is executed,
  *             dest[0:15] will have 0x0001, dest[16:31]
@@ -48,7 +48,7 @@ void gen16BitVectorOne(x86::Emitter* a, T dest) {
 /**
  * @brief Emit instruction do load 32-bit integer. AVX512 has
  *        different instrunction to load registers with index >= 16
- * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm
+ * @tparam T Register type of destination, e.g., Ymm or Zmm
  *
  * @param dest Destination vector register
  */
@@ -91,8 +91,8 @@ template <
         int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
-    const x86::Ymm& half,
-    const x86::Zmm& vec,
+    const Ymm& half,
+    const Zmm& vec,
     int idx) {
   a->vextracti32x8(half, vec, idx);
 }
@@ -107,8 +107,8 @@ template <
         int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
-    const x86::Xmm& half,
-    const x86::Ymm& vec,
+    const Xmm& half,
+    const Ymm& vec,
     int idx) {
   a->vextracti32x4(half, vec, idx);
 }
@@ -119,27 +119,27 @@ template <
     std::enable_if_t<instSet == inst_set_t::avx2, int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
-    const x86::Xmm& half,
-    const x86::Ymm& vec,
+    const Xmm& half,
+    const Ymm& vec,
     int idx) {
   a->vextracti128(half, vec, idx);
 }
 
 /**
  * @brief Create instruction sequence to generate 8-bit 1s
- * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm
+ * @tparam T Register type of destination, e.g., Ymm or Zmm
  *
  * @param dest Once the instruction sequence is executed,
  *             dest[0:7] will have 0x01, dest[8:15]
  *             will have 0x01 and so on
  */
-template <typename T, std::enable_if_t<std::is_same_v<T, x86::Ymm>, int> = 0>
+template <typename T, std::enable_if_t<std::is_same_v<T, Ymm>, int> = 0>
 void gen8BitVectorOne(x86::Emitter* a, T dest) {
   a->vpcmpeqw(dest, dest, dest);
   a->vpabsb(dest, dest);
 }
 
-template <typename T, std::enable_if_t<std::is_same_v<T, x86::Zmm>, int> = 0>
+template <typename T, std::enable_if_t<std::is_same_v<T, Zmm>, int> = 0>
 void gen8BitVectorOne(x86::Emitter* a, T dest) {
   a->vpternlogd(dest, dest, dest, 0xff);
   a->vpabsb(dest, dest);
@@ -147,7 +147,7 @@ void gen8BitVectorOne(x86::Emitter* a, T dest) {
 
 /**
  * @brief Generates instruction sequence to compute s32 += U8 * I8
- * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm
+ * @tparam T Register type of destination, e.g., Ymm or Zmm
  *
  * @param cReg contains result
  *
@@ -188,7 +188,7 @@ void genU8I8S32FMA(
  *        and emit their sum as 32-bit numbers.
  *        i.e., dest[0:31] contains
  *        src[0:7] + src[8:15] + src[16:23] + src[24:31]
- * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm
+ * @tparam T Register type of destination, e.g., Ymm or Zmm
  *
  * @param dest contains result
  *
@@ -243,7 +243,7 @@ void genU8Sum4(
  *
  *        so on
  *
- * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm
+ * @tparam T Register type of destination, e.g., Ymm or Zmm
  *
  * @param dest contains result
  *

@@ -15,17 +15,13 @@
 #include <cassert>
 
 #include "./DirectConv.h" // @manual
-#include "./ExecuteKernel.h" // @manual
-#include "./MaskAvx2.h" // @manual
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/UtilsAvx2.h"
 
-#include "./CodeGenHelpers.h" // @manual
 #include "./OptimizedKernelsAvx2.h" // @manual
-#include "./RefImplementations.h" // @manual
-#include "./TransposeUtils.h" // @manual
+
 namespace fbgemm {
 
 PackedDirectConvMatrix::PackedDirectConvMatrix(
@@ -82,7 +78,7 @@ void PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT(
   // at initialization stage like other quantized conv implementation.
   // Thus the col_offsets computation will be invoked at forward pass,
   // and only the first pass will prepare the col_offsets.
-  if (first_call == false) {
+  if (!first_call) {
     return;
   }
   int IC = conv_p.IC;
@@ -243,8 +239,13 @@ void fbgemmDirectConv(
     return;
   }
 
-  if (SPATIAL_DIM != 2) {
-    assert(false && "1d/3d direct conv not supported");
+#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
+  throw std::runtime_error(
+      "fbgemmDirectConv<SPATIAL_DIM, Q_GRAN, FUSE_RELU, BIAS_TYPE>(): No fallback available for aarch64");
+#else
+
+  if constexpr (SPATIAL_DIM != 2) {
+    static_assert(false && SPATIAL_DIM, "1d/3d direct conv not supported");
   } else {
     if (conv_p.transposed) {
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
@@ -457,6 +458,8 @@ void fbgemmDirectConv(
       assert(false && "non-transposed direct conv not integrated yet.");
     }
   } // else SPATIAL_DIM
+
+#endif // defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 }
 
 #define INSTANTIATE_REQUANTIZE_SPATIAL_DIM(                        \
@@ -474,9 +477,7 @@ void fbgemmDirectConv(
       int num_threads);
 
 #define INSTANTIATE_REQUANTIZE_BIAS_TYPE(Q_GRAN, RELU, BIAS_TYPE) \
-  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(1, Q_GRAN, RELU, BIAS_TYPE)  \
-  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(2, Q_GRAN, RELU, BIAS_TYPE)  \
-  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(3, Q_GRAN, RELU, BIAS_TYPE)
+  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(2, Q_GRAN, RELU, BIAS_TYPE)
 
 #define INSTANTIATE_REQUANTIZE(Q_GRAN, RELU)            \
   INSTANTIATE_REQUANTIZE_BIAS_TYPE(Q_GRAN, RELU, float) \
@@ -494,4 +495,5 @@ INSTANTIATE_Q_GRANS(false)
 #undef INSTANTIATE_REQUANTIZE_BIAS_TYPE
 #undef INSTANTIATE_REQUANTIZE
 #undef INSTANTIATE_Q_GRANS
+
 } // namespace fbgemm

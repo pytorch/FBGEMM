@@ -13,11 +13,10 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
 
-#include <math.h>
+#include <cmath>
 
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <numeric>
@@ -1456,7 +1455,7 @@ bool EmbeddingSpMDMNBit_ref(
     // We currently only support int4 to int4 for sequential TBE in this nbit
     // kernel. Note that assert() will be ignored in release mode, so we check
     // here to double check and also avoid "unused variable" warning
-    if (!(input_bit_rate == 4 && output_bit_rate == 4)) {
+    if (input_bit_rate != 4 || output_bit_rate != 4) {
       WARN_ONCE("no_bag is only supported for int4 to int4");
       return false;
     }
@@ -1949,7 +1948,7 @@ int rowwise_sparse_adagrad_fused_ref(
   int vlen = emu_vector_size;
   if (vlen != 8 && vlen != 16) {
     // Raise error as it may cause buffer overflow
-    cerr << "Not supported emu_vector_size: " << emu_vector_size << endl;
+    cerr << "Not supported emu_vector_size: " << emu_vector_size << '\n';
     return 0;
   }
 

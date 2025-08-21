@@ -9,10 +9,9 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/core/ScalarTypeToTypeMeta.h>
-#include <torch/library.h>
-
 #include <nlohmann/json.hpp>
 #include <torch/custom_class.h>
+#include <torch/library.h>
 #include <mutex>
 #include "../dram_kv_embedding_cache/dram_kv_embedding_cache_wrapper.h"
 #include "./ssd_table_batched_embeddings.h"
@@ -263,6 +262,18 @@ void compact_indices_cuda(
 
 namespace ssd {
 
+// Inline method to replace first 8 bytes of weights with linearized_ids
+// when backend returns whole row
+inline void replace_weights_id(
+    at::Tensor& weights,
+    const at::Tensor& linearized_ids) {
+  // Calculate how many bytes we need to copy
+  auto weights_dtype_id_2d =
+      linearized_ids.view({-1, 1}).view(weights.dtype().toScalarType());
+  auto weights_first_cols = weights.slice(1, 0, weights_dtype_id_2d.size(1));
+  weights_first_cols.copy_(weights_dtype_id_2d);
+}
+
 SnapshotHandle::SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
   auto num_shards = db->num_shards();
   CHECK_GT(num_shards, 0);
@@ -305,8 +316,9 @@ CheckpointHandle::CheckpointHandle(
   CHECK_GT(num_shards, 0);
   shard_checkpoints_.reserve(num_shards);
   for (auto shard = 0; shard < num_shards; ++shard) {
+    std::string curr_base_path = db->paths_[shard % db->paths_.size()];
     auto rocksdb_path = kv_db_utils::get_rocksdb_path(
-        base_path, shard, tbe_uuid, use_default_ssd_path);
+        curr_base_path, shard, tbe_uuid, use_default_ssd_path);
     auto checkpoint_shard_dir =
         kv_db_utils::get_rocksdb_checkpoint_dir(shard, rocksdb_path);
     kv_db_utils::create_dir(checkpoint_shard_dir);
@@ -323,6 +335,8 @@ CheckpointHandle::CheckpointHandle(
                   << s.ToString();
     shard_checkpoints_.push_back(checkpoint_shard_path);
   }
+
+  XLOG(INFO) << "rocksdb checkpoint shards paths: " << shard_checkpoints_;
 }
 
 std::vector<std::string> CheckpointHandle::get_shard_checkpoints() const {
@@ -343,9 +357,12 @@ RocksdbCheckpointHandleWrapper::RocksdbCheckpointHandleWrapper(
     std::shared_ptr<EmbeddingRocksDB> db)
     : uuid(checkpoint_uuid), db(std::move(db)) {}
 
-RocksdbCheckpointHandleWrapper::~RocksdbCheckpointHandleWrapper() {
-  db->release_checkpoint(uuid);
-}
+// do not release uuid when RocksdbCheckpointHandleWrapper is destroyed
+// subsequent get_active_checkpoint_uuid() calls need to retrieve
+// the checkpoint uuid
+// RocksdbCheckpointHandleWrapper::~RocksdbCheckpointHandleWrapper() {
+//   db->release_checkpoint(uuid);
+// }
 
 KVTensorWrapper::KVTensorWrapper(
     std::vector<int64_t> shape,
@@ -502,7 +519,19 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
     } else {
       at::Tensor sliced_ids =
           sorted_indices_.value().slice(0, start, start + length);
-      return get_weights_by_ids(sliced_ids);
+      auto weights = get_weights_by_ids(sliced_ids);
+
+      if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
+        // backend returns whole row, so we need to replace the first 8 bytes
+        // with the sliced_ids
+        TORCH_CHECK(
+            sorted_indices_.has_value(),
+            "sorted_indices_ must be valid to narrow when backend returns whole row to get weights chunk");
+        at::Tensor sliced_ids =
+            sorted_indices_.value().slice(0, start, start + length);
+        replace_weights_id(weights, sliced_ids);
+      }
+      return weights;
     }
   } else {
     CHECK(readonly_db_)
@@ -523,7 +552,7 @@ void KVTensorWrapper::set_range(
     int64_t dim,
     const int64_t start,
     const int64_t length,
-    const at::Tensor& weights) {
+    at::Tensor& weights) {
   if (read_only_) {
     XLOG(INFO) << "KVTensorWrapper is read only, set_range() is no-op";
     return;
@@ -535,6 +564,19 @@ void KVTensorWrapper::set_range(
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+
+  if (db_->get_backend_return_whole_row()) {
+    // backend returns whole row, so we need to replace the first 8 bytes with
+    // the sliced_ids
+    TORCH_CHECK(
+        sorted_indices_.has_value(),
+        "sorted_indices_ must be valid to set range when backend returns whole row");
+    at::Tensor sliced_ids =
+        sorted_indices_.value().slice(0, start, start + length);
+    auto linearized_ids = sliced_ids + row_offset_;
+    replace_weights_id(weights, linearized_ids);
+  }
+
   int pad_right =
       db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
@@ -542,7 +584,9 @@ void KVTensorWrapper::set_range(
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
-    CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+    CHECK_EQ(
+        db_->get_max_D() + db_->get_metaheader_width_in_front(),
+        padded_weights.size(1));
     db_->set_range_to_storage(padded_weights, start + row_offset_, length);
   }
 }
@@ -559,15 +603,18 @@ void KVTensorWrapper::set_weights_and_ids(
   CHECK_TRUE(db_ != nullptr);
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
-  CHECK_GE(db_->get_max_D(), shape_[1]);
+  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
   auto linearized_ids = ids + row_offset_;
-  int pad_right = db_->get_max_D() - weights.size(1);
+  int pad_right =
+      db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
     db_->set_kv_to_storage(linearized_ids, weights);
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
-    CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+    CHECK_EQ(
+        db_->get_max_D() + db_->get_metaheader_width_in_front(),
+        padded_weights.size(1));
     db_->set_kv_to_storage(linearized_ids, padded_weights);
   }
 }
@@ -694,6 +741,12 @@ static auto feature_evict_config =
                 std::optional<std::vector<double>>,
                 std::optional<std::vector<double>>,
                 std::optional<std::vector<int64_t>>,
+                std::optional<std::vector<double>>,
+                std::optional<std::vector<double>>,
+                std::optional<std::vector<int64_t>>,
+                std::optional<double>,
+                std::optional<int64_t>,
+                int64_t,
                 int64_t,
                 int64_t>(),
             "",
@@ -705,10 +758,17 @@ static auto feature_evict_config =
                 torch::arg("ttls_in_mins") = std::nullopt,
                 torch::arg("counter_thresholds") = std::nullopt,
                 torch::arg("counter_decay_rates") = std::nullopt,
+                torch::arg("feature_score_counter_decay_rates") = std::nullopt,
+                torch::arg("max_training_id_num_per_table") = std::nullopt,
+                torch::arg("target_eviction_percent_per_table") = std::nullopt,
                 torch::arg("l2_weight_thresholds") = std::nullopt,
                 torch::arg("embedding_dims") = std::nullopt,
+                torch::arg("threshold_calculation_bucket_stride") = 0.2,
+                torch::arg("threshold_calculation_bucket_num") = 1000000,
                 torch::arg("interval_for_insufficient_eviction_s") = 600,
                 torch::arg("interval_for_sufficient_eviction_s") = 60,
+                torch::arg("interval_for_feature_statistics_decay_s") =
+                    24 * 3600,
             });
 
 static auto embedding_snapshot_handle_wrapper =
@@ -798,6 +858,15 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("is_bwd") = false,
             })
         .def(
+            "set_feature_score_metadata_cuda",
+            &EmbeddingRocksDBWrapper::set_feature_score_metadata_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("count"),
+                torch::arg("engage_rates"),
+            })
+        .def(
             "stream_cuda",
             &EmbeddingRocksDBWrapper::stream_cuda,
             "",
@@ -806,6 +875,13 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("weights"),
                 torch::arg("count"),
                 torch::arg("blocking_tensor_copy"),
+            })
+        .def(
+            "set_backend_return_whole_row",
+            &EmbeddingRocksDBWrapper::set_backend_return_whole_row,
+            "",
+            {
+                torch::arg("backend_return_whole_row"),
             })
         .def("stream_sync_cuda", &EmbeddingRocksDBWrapper::stream_sync_cuda)
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
@@ -817,6 +893,7 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::get_rocksdb_io_duration)
         .def("get_l2cache_perf", &EmbeddingRocksDBWrapper::get_l2cache_perf)
         .def("set", &EmbeddingRocksDBWrapper::set)
+        .def("set_kv_to_storage", &EmbeddingRocksDBWrapper::set_kv_to_storage)
         .def(
             "set_range_to_storage",
             &EmbeddingRocksDBWrapper::set_range_to_storage)
@@ -844,6 +921,9 @@ static auto embedding_rocks_db_wrapper =
         .def(
             "get_keys_in_range_by_snapshot",
             &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot)
+        .def(
+            "get_kv_zch_eviction_metadata_by_snapshot",
+            &EmbeddingRocksDBWrapper::get_kv_zch_eviction_metadata_by_snapshot)
         .def(
             "create_rocksdb_hard_link_snapshot",
             &EmbeddingRocksDBWrapper::create_rocksdb_hard_link_snapshot)
@@ -894,6 +974,13 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("is_bwd") = false,
             })
         .def("get_cuda", &DramKVEmbeddingCacheWrapper::get_cuda)
+        .def(
+            "set_backend_return_whole_row",
+            &DramKVEmbeddingCacheWrapper::set_backend_return_whole_row,
+            "",
+            {
+                torch::arg("backend_return_whole_row"),
+            })
         .def("set", &DramKVEmbeddingCacheWrapper::set)
         .def(
             "set_range_to_storage",
@@ -922,10 +1009,23 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("start"),
                 torch::arg("end"),
             })
+        .def(
+            "set_feature_score_metadata_cuda",
+            &DramKVEmbeddingCacheWrapper::set_feature_score_metadata_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("count"),
+                torch::arg("engage_rates"),
+            })
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",
             &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot)
+        .def(
+            "get_kv_zch_eviction_metadata_by_snapshot",
+            &DramKVEmbeddingCacheWrapper::
+                get_kv_zch_eviction_metadata_by_snapshot)
         .def(
             "get_feature_evict_metric",
             &DramKVEmbeddingCacheWrapper::get_feature_evict_metric)
@@ -951,7 +1051,10 @@ static auto embedding_rocks_db_read_only_wrapper =
              torch::arg("cache_size") = 0})
         .def(
             "get_range_from_rdb_checkpoint",
-            &ReadOnlyEmbeddingKVDB::get_range_from_rdb_checkpoint);
+            &ReadOnlyEmbeddingKVDB::get_range_from_rdb_checkpoint)
+        .def(
+            "delete_rocksdb_checkpoint_dir",
+            &ReadOnlyEmbeddingKVDB::delete_rocksdb_checkpoint_dir);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")

@@ -160,7 +160,7 @@ static void performance_test(
     }
   }
   if (flush) {
-    ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+    ((volatile char*)(llc.data()))[0] = llc[0] + 1;
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -182,18 +182,18 @@ static void performance_test(
   } else {
     cout << setw(5) << "MCB, " << setw(5) << "NCB, " << setw(5) << "KCB, "
          << setw(5) << "MR, " << setw(5) << "NR, " << setw(5) << "ROW INT."
-         << endl;
+         << '\n';
     cout << setw(5) << tuning_params->MCB << setw(5) << tuning_params->NCB
          << setw(5) << tuning_params->KCB << setw(5) << tuning_params->MR
          << setw(5) << tuning_params->NR << setw(5)
-         << tuning_params->ROW_INTERLEAVE << endl;
+         << tuning_params->ROW_INTERLEAVE << '\n';
 
     cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(18)
-         << "Type, " << setw(5) << "GOPS" << endl;
+         << "Type, " << setw(5) << "GOPS" << '\n';
     cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
          << setw(16) << runType;
     cout << ", " << setw(5) << fixed << setw(5) << setprecision(1)
-         << nops / ttot << endl;
+         << nops / ttot << '\n';
     if ((nops / ttot) > giga_ops) {
       giga_ops = nops / ttot;
       best_config = {
@@ -319,23 +319,23 @@ int main(int /* unused */, char** /* unused */) {
         }
       }
     }
-    cout << endl << "This is the Best Config!" << endl;
+    cout << '\n' << "This is the Best Config!" << '\n';
     cout << setw(5) << "MCB, " << setw(5) << "NCB, " << setw(5) << "KCB, "
          << setw(5) << "MR, " << setw(5) << "NR, " << setw(5) << "ROW INT."
-         << setw(5) << "GOPS" << endl;
+         << setw(5) << "GOPS" << '\n';
     cout << setw(5) << best_config[0] << setw(5) << best_config[1] << setw(5)
          << best_config[2] << setw(5) << best_config[3] << setw(5)
-         << best_config[4] << setw(5) << best_config[5] << giga_ops << endl;
+         << best_config[4] << setw(5) << best_config[5] << giga_ops << '\n';
   } // end shapes
 
-  cout << endl << "Warning there are configs that didn't work!" << endl;
+  cout << '\n' << "Warning there are configs that didn't work!" << '\n';
   for (auto const& entry : incorrect_configs) {
     cout << setw(5) << "MCB, " << setw(5) << "NCB, " << setw(5) << "KCB, "
          << setw(5) << "MR, " << setw(5) << "NR, " << setw(5) << "ROW INT."
-         << endl;
+         << '\n';
     cout << setw(5) << entry[0] << setw(5) << entry[1] << setw(5) << entry[2]
          << setw(5) << entry[3] << setw(5) << entry[4] << setw(5) << entry[5]
-         << endl;
+         << '\n';
   }
   return 0;
 }

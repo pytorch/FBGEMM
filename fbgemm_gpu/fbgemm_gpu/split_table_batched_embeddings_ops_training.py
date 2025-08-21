@@ -2701,6 +2701,28 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 tmp_emb.uniform_(min_val, max_val)
                 tmp_emb_i8 = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(tmp_emb)
                 emb.data.copy_(tmp_emb_i8)
+        # Torch doesnt implement direct fp8 distribution functions, so we need to start in higher precision.
+        elif self.weights_precision == SparseType.NFP8:
+            assert (
+                self.current_device.type == "cuda"
+            ), "NFP8 is currently only supportd on GPU."
+            assert self.optimizer in [
+                OptimType.EXACT_ADAGRAD,
+                OptimType.ROWWISE_ADAGRAD,
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+            ], "NFP8 is currently only supportd with adagrad optimizers."
+            for param in splits:
+                tmp_param = torch.zeros(param.shape, device=self.current_device)
+                # Create initialized weights and cast to fp8.
+                fp8_dtype = (
+                    torch.float8_e4m3fnuz
+                    if torch.version.hip is not None
+                    else torch.float8_e4m3fn
+                )
+                tmp_param.uniform_(min_val, max_val).to(fp8_dtype)
+                param.data.copy_(tmp_param)
         else:
             for param in splits:
                 param.uniform_(min_val, max_val)
@@ -3153,6 +3175,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if cache_precision == SparseType.FP32:
             dtype = torch.float32
         elif cache_precision == SparseType.FP16:
+            dtype = torch.float16
+        elif cache_precision == SparseType.NFP8:
+            # NFP8 weights use floating point cache.
             dtype = torch.float16
         else:
             dtype = torch.float32  # not relevant, but setting it to keep linter happy

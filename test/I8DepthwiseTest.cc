@@ -107,7 +107,7 @@ class FBGemmDepthWisePackUnpackTest
 
 } // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDepthWiseTest,
     ::testing::Combine(
@@ -115,12 +115,12 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // b_symmetric
         ::testing::Values(1, 2))); // oc_per_g
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDepthWisePerChannelQuantizationTest,
     ::testing::Values(1, 2));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDepthWisePackUnpackTest,
     ::testing::Combine(
@@ -128,9 +128,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(1, 2, 3, 4, 5, 9, 10, 11, 27)));
 
 TEST_P(FBGemmDepthWiseTest, Test2D) {
-  bool a_symmetric = false, b_symmetric = false;
-  int oc_per_g = 0;
-  tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
+  auto [a_symmetric, b_symmetric, oc_per_g] = GetParam();
 
   for (auto shape : shapes) {
     int N = shape[0];
@@ -265,9 +263,7 @@ TEST_P(FBGemmDepthWiseTest, Test2D) {
 } // Test3x3
 
 TEST_P(FBGemmDepthWiseTest, Test3D) {
-  bool a_symmetric = false, b_symmetric = false;
-  int oc_per_g = 0;
-  tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
+  auto [a_symmetric, b_symmetric, oc_per_g] = GetParam();
 
   // 3D tests take a long time so for a symmetric quantization, we only
   // test with 2 shapes.
@@ -690,8 +686,7 @@ TEST_P(
 } // Test3DPerChannelQuantization
 
 TEST_P(FBGemmDepthWisePackUnpackTest, TestPackUnpack) {
-  int K = 0, kernel_prod = 0;
-  tie(K, kernel_prod) = GetParam();
+  auto [K, kernel_prod] = GetParam();
 
   ASSERT_EQ(K % 8, 0)
       << "output channels (== groups) should be a multiple of 8";

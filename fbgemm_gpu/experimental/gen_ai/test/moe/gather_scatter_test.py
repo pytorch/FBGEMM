@@ -8,6 +8,7 @@
 # pyre-ignore-all-errors[16,21,53,56]
 
 import logging
+import random
 import unittest
 from typing import Optional, Tuple
 
@@ -217,10 +218,11 @@ class GatherScatterTests(unittest.TestCase):
         )
 
     @given(
-        num_tokens=st.sampled_from([1, 128, 2048, 4096, 16384]),
-        dim=st.sampled_from([5120]),
+        num_tokens=st.sampled_from([0, 1, 128, 2048, 4096, 16384]),
+        dim=st.sampled_from([1280, 5120]),
         partial=st.sampled_from([True, False]),
         compiled=st.sampled_from([True, False]),
+        k=st.sampled_from([1, 4]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_scatter_add_dense_tokens(
@@ -229,31 +231,40 @@ class GatherScatterTests(unittest.TestCase):
         dim: int,
         partial: bool,
         compiled: bool,
+        k: int,
     ) -> None:
         torch.manual_seed(0)
-
-        in_tokens: torch.Tensor = torch.randn(
-            num_tokens, dim, device="cuda", dtype=torch.bfloat16
+        random.seed(0)
+        num_in_tokens = num_tokens * k
+        dtype = torch.bfloat16
+        device = torch.accelerator.current_accelerator()
+        # Floating point addition is not associative, thus will not generate deterministic results
+        # Which can fail torch.testing.assert_close test.
+        # Therefore, for testing correctness, we use int32 instead.
+        if k > 1:
+            dtype = torch.int32
+        in_tokens: torch.Tensor = torch.randn(num_in_tokens, dim, device=device).to(
+            dtype
         )
-        out_tokens: torch.Tensor = torch.randn(
-            num_tokens, dim, device="cuda", dtype=torch.bfloat16
-        )
-
-        token_indices: torch.Tensor = torch.randperm(num_tokens, device="cuda").to(
-            torch.int32
-        )
+        out_tokens: torch.Tensor = torch.randn(num_tokens, dim, device=device).to(dtype)
 
         num_valid_tokens: int = num_tokens
         valid_token_count: Optional[torch.Tensor] = None
-        partial_token_indices: torch.Tensor = token_indices
         if partial:
-            num_valid_tokens = num_tokens // 2
+            if num_tokens == 0:
+                return
+            num_valid_tokens = random.randint(0, num_tokens - 1)
             valid_token_count = torch.tensor(
-                [num_valid_tokens], dtype=torch.int32, device="cuda"
+                [num_valid_tokens * k], dtype=torch.int32, device=device
             )
-            partial_token_indices = torch.where(
-                torch.arange(num_tokens).cuda() < num_valid_tokens, token_indices, -1
-            )
+
+        token_indices: torch.Tensor = -1 * torch.ones(
+            num_in_tokens, device=device, dtype=torch.int32
+        )
+        if num_valid_tokens > 0:
+            token_indices[: num_valid_tokens * k] = (
+                torch.randperm(num_valid_tokens * k, device=device) % num_valid_tokens
+            ).to(torch.int32)
 
         test_out_tokens: torch.Tensor = out_tokens.clone()
         ref_out_tokens: torch.Tensor = out_tokens.clone()
@@ -265,13 +276,13 @@ class GatherScatterTests(unittest.TestCase):
             op(
                 test_out_tokens,
                 in_tokens,
-                partial_token_indices,
+                token_indices,
                 valid_token_count,
             )
 
         fn()
 
-        token_indices: torch.Tensor = token_indices[:num_valid_tokens].to(torch.int64)
+        token_indices = token_indices[: num_valid_tokens * k]
 
         def ref_fn() -> None:
             ref_out_tokens.scatter_add_(
@@ -280,22 +291,29 @@ class GatherScatterTests(unittest.TestCase):
                 src=in_tokens.view(-1, dim),
             )
 
-        ref_fn()
+        if token_indices.numel() > 0:
+            ref_fn()
 
-        torch.testing.assert_close(
-            test_out_tokens[:num_valid_tokens],
-            ref_out_tokens[:num_valid_tokens],
-            atol=1e-3,
-            rtol=1.6e-2,
-        )
+        if dtype == torch.bfloat16:
+            torch.testing.assert_close(
+                test_out_tokens[:num_valid_tokens],
+                ref_out_tokens[:num_valid_tokens],
+                atol=1e-3,
+                rtol=1.6e-2,
+            )
+        else:
+            assert torch.equal(
+                test_out_tokens[:num_valid_tokens], ref_out_tokens[:num_valid_tokens]
+            )
 
     @given(
         num_tokens=st.sampled_from([64, 128, 256]),
-        num_experts=st.sampled_from([16, 128]),
+        num_experts=st.sampled_from([16, 80, 128]),
         ep_size=st.sampled_from([2, 4, 8, 16]),
         dim=st.sampled_from([5120]),
         balanced=st.sampled_from([True, False]),
         compiled=st.sampled_from([True, False]),
+        k=st.sampled_from([1, 2, 4]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_scatter_add_padded_tokens(
@@ -306,33 +324,42 @@ class GatherScatterTests(unittest.TestCase):
         dim: int,
         balanced: bool,
         compiled: bool,
+        k: int,
     ) -> None:
         torch.manual_seed(0)
 
+        device = torch.accelerator.current_accelerator()
+        dtype = torch.bfloat16
+        # Floating point addition is not associative, thus will not generate deterministic results
+        # Which can fail torch.testing.assert_close test.
+        # Therefore, for testing correctness, we use int32 instead.
+        if k > 1:
+            dtype = torch.int32
+        num_in_tokens = num_tokens * k
         in_tokens: torch.Tensor = torch.randn(
-            ep_size, num_tokens, dim, device="cuda", dtype=torch.bfloat16
-        )
-        out_tokens: torch.Tensor = torch.randn(
-            num_tokens, dim, device="cuda", dtype=torch.bfloat16
-        )
+            ep_size, num_in_tokens, dim, device=device
+        ).to(dtype)
+        out_tokens: torch.Tensor = torch.randn(num_tokens, dim, device=device).to(dtype)
 
         if balanced:
-            if num_tokens < num_experts:
-                logger.info("Skipping test as num_tokens must be >= num_experts")
+            if num_in_tokens < num_experts:
+                logger.info("Skipping test as num_tokens * k must be >= num_experts")
                 return
-            num_tokens_per_expert = num_tokens // num_experts
+            num_tokens_per_expert = num_in_tokens // num_experts
             token_counts: torch.Tensor = torch.tensor(
-                [num_tokens_per_expert] * num_experts, device="cuda"
+                [num_tokens_per_expert] * num_experts, device=device
             ).to(torch.int32)
         else:
-            token_choices = torch.randint(0, num_experts, (num_tokens,), device="cuda")
+            token_choices = torch.randint(
+                0, num_experts, (num_in_tokens,), device=device
+            )
             token_counts = torch.bincount(token_choices, minlength=num_experts)
 
         token_cumsums = torch.cumsum(token_counts, dim=0)
 
-        token_indices: torch.Tensor = torch.randperm(num_tokens, device="cuda").to(
-            torch.int32
-        )
+        token_indices: torch.Tensor = (
+            torch.randperm(num_in_tokens, device=device) % num_tokens
+        ).to(torch.int32)
 
         test_out_tokens: torch.Tensor = out_tokens.clone()
         ref_out_tokens: torch.Tensor = out_tokens.clone()
@@ -370,9 +397,12 @@ class GatherScatterTests(unittest.TestCase):
 
         ref_fn()
 
-        torch.testing.assert_close(
-            test_out_tokens, ref_out_tokens, atol=1e-3, rtol=1.6e-2
-        )
+        if dtype == torch.bfloat16:
+            torch.testing.assert_close(
+                test_out_tokens, ref_out_tokens, atol=1e-3, rtol=1.6e-2
+            )
+        else:
+            assert torch.equal(test_out_tokens, ref_out_tokens)
 
 
 if __name__ == "__main__":

@@ -7,10 +7,8 @@
  */
 
 #define FBGEMM_EXPORTS
-#include <asmjit/asmjit.h> // @manual
 #include "./CodeGenHelpers.h" // @manual
 #include "./GroupwiseConv.h" // @manual
-#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
@@ -22,7 +20,7 @@ GCONV_INST_DEF_AVX2_HEADER
 GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
   if (this->C_per_G_ == 4) {
     x86::Gp permute_const_reg = a->gpz(12);
-    x86::Xmm const_reg_xmm = x86::xmm11;
+    auto const_reg_xmm = x86::xmm11;
     // We have 1st group in even lanes and 2nd group in odd lanes.
     // Permute to put 1st group to lower 128-bit and 2nd group in upper
     // 128-bit.
@@ -35,7 +33,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
   } else {
     // this->C_per_G_ == 2
     x86::Gp permute_const_reg = a->gpz(12);
-    x86::Xmm const_reg_xmm = x86::xmm11;
+    auto const_reg_xmm = x86::xmm11;
     // We have 1st group in position 0 and 4, 2nd group 1 and 5 and so on.
     // Permute to put 1st group to lower 64-bit and 2nd group to next
     // 64-bit and so on.
@@ -48,7 +46,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
 
 GCONV_INST_DEF_AVX2_HEADER
 GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(x86::Emitter* a) {
-  using WRegs = x86::Ymm;
+  using WRegs = Ymm;
   int paddedICPerG = (this->C_per_G_ + 3) / 4 * 4;
   // load weights
   for (int r = 0; r < this->R_; ++r) {
@@ -71,45 +69,45 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(
     x86::Emitter* a) {
   if (GTogether_ > 1) {
     // store with permutation
-    a->vpermd(x86::Ymm(9), stPermReg_V_, x86::Ymm(9));
+    a->vpermd(Ymm(9), stPermReg_V_, Ymm(9));
     if (this->accum_) {
-      a->vpaddd(x86::Ymm(9), x86::Ymm(9), x86::dword_ptr(out_acts_R_));
+      a->vpaddd(Ymm(9), Ymm(9), x86::dword_ptr(out_acts_R_));
     }
-    a->vmovups(x86::dword_ptr(out_acts_R_), x86::Ymm(9));
+    a->vmovups(x86::dword_ptr(out_acts_R_), Ymm(9));
   } else {
     // horizontal add and store
     if (this->C_per_G_ == 8) {
-      a->vphaddd(x86::Ymm(9), x86::Ymm(9), x86::Ymm(8));
-      a->vpermq(x86::Ymm(9), x86::Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(Ymm(9), Ymm(9), Ymm(8));
+      a->vpermq(Ymm(9), Ymm(9), static_cast<asmjit::Imm>(0xd8));
       if (this->accum_) {
-        a->vpaddd(x86::Ymm(9), x86::Ymm(9), x86::dword_ptr(out_acts_R_));
+        a->vpaddd(Ymm(9), Ymm(9), x86::dword_ptr(out_acts_R_));
       }
-      a->vmovups(x86::dword_ptr(out_acts_R_), x86::Ymm(9));
+      a->vmovups(x86::dword_ptr(out_acts_R_), Ymm(9));
     } else if (this->K_per_G_ == 16) {
-      a->vphaddd(x86::Ymm(9), x86::Ymm(9), x86::Ymm(8));
-      a->vpermq(x86::Ymm(9), x86::Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(Ymm(9), Ymm(9), Ymm(8));
+      a->vpermq(Ymm(9), Ymm(9), static_cast<asmjit::Imm>(0xd8));
 
-      a->vphaddd(x86::Ymm(7), x86::Ymm(7), x86::Ymm(6));
-      a->vpermq(x86::Ymm(7), x86::Ymm(7), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(Ymm(7), Ymm(7), Ymm(6));
+      a->vpermq(Ymm(7), Ymm(7), static_cast<asmjit::Imm>(0xd8));
 
-      a->vphaddd(x86::Ymm(5), x86::Ymm(5), x86::Ymm(4));
-      a->vpermq(x86::Ymm(5), x86::Ymm(5), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(Ymm(5), Ymm(5), Ymm(4));
+      a->vpermq(Ymm(5), Ymm(5), static_cast<asmjit::Imm>(0xd8));
 
-      a->vphaddd(x86::Ymm(3), x86::Ymm(3), x86::Ymm(2));
-      a->vpermq(x86::Ymm(3), x86::Ymm(3), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(Ymm(3), Ymm(3), Ymm(2));
+      a->vpermq(Ymm(3), Ymm(3), static_cast<asmjit::Imm>(0xd8));
 
-      a->vphaddd(x86::Ymm(9), x86::Ymm(9), x86::Ymm(7));
-      a->vpermq(x86::Ymm(9), x86::Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(Ymm(9), Ymm(9), Ymm(7));
+      a->vpermq(Ymm(9), Ymm(9), static_cast<asmjit::Imm>(0xd8));
 
-      a->vphaddd(x86::Ymm(5), x86::Ymm(5), x86::Ymm(3));
-      a->vpermq(x86::Ymm(5), x86::Ymm(5), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(Ymm(5), Ymm(5), Ymm(3));
+      a->vpermq(Ymm(5), Ymm(5), static_cast<asmjit::Imm>(0xd8));
 
       if (this->accum_) {
-        a->vpaddd(x86::Ymm(9), x86::Ymm(9), x86::dword_ptr(out_acts_R_));
-        a->vpaddd(x86::Ymm(5), x86::Ymm(5), x86::dword_ptr(out_acts_R_, 32));
+        a->vpaddd(Ymm(9), Ymm(9), x86::dword_ptr(out_acts_R_));
+        a->vpaddd(Ymm(5), Ymm(5), x86::dword_ptr(out_acts_R_, 32));
       }
-      a->vmovups(x86::dword_ptr(out_acts_R_), x86::Ymm(9));
-      a->vmovups(x86::dword_ptr(out_acts_R_, 32), x86::Ymm(5));
+      a->vmovups(x86::dword_ptr(out_acts_R_), Ymm(9));
+      a->vmovups(x86::dword_ptr(out_acts_R_, 32), Ymm(5));
     }
   }
 }
@@ -163,7 +161,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
     int s,
     int act_s,
     bool use_zero_reg) {
-  using WRegs = x86::Ymm;
+  using WRegs = Ymm;
 
   if (GTogether_ > 1) {
     if (this->C_per_G_ == 2) { // group together = 4
@@ -199,7 +197,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
         a,
         actReg_V_,
         WRegs(r * this->S_ + s),
-        x86::Ymm(9),
+        Ymm(9),
         oneReg16Bit_V_,
         tmpReg1_V_);
   } else {
@@ -237,7 +235,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
       // which consectutive 2 elements if summedforms one final output over
       // K_Per_G dimension
       genU8I8S32FMA<INST_SET>(
-          a, actReg_V_, WRegs(0), x86::Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
+          a, actReg_V_, WRegs(0), Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
     }
   }
 }

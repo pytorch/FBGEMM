@@ -65,6 +65,94 @@ DEVICE_INLINE Vec4T<dst_t> dequantize_load(
   }
 }
 
+template <>
+DEVICE_INLINE Vec4T<float> dequantize_load(
+    const at::Float8_e4m3fn* value,
+    const float2 /* currently unused */) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+  Vec4T<float> out;
+  const __nv_fp8x4_e4m3* fp8_ptr =
+      reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
+  out.acc = static_cast<float4>(fp8_ptr[0]);
+  return out;
+#else
+  CUDA_KERNEL_ASSERT(false);
+#endif
+}
+
+template <>
+DEVICE_INLINE Vec4T<float> dequantize_load(
+    const at::Float8_e4m3fnuz* value,
+    const float2 /* currently unused */) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+  Vec4T<float> out;
+  const __nv_fp8x4_e4m3* fp8_ptr =
+      reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
+  out.acc = static_cast<float4>(fp8_ptr[0]);
+  return out;
+#else
+  CUDA_KERNEL_ASSERT(false);
+#endif
+}
+
+template <>
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(
+    const at::Float8_e4m3fn* value,
+    const float2 /* currently unused */) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+  Vec4T<at::Half> out;
+  const __nv_fp8x4_e4m3* fp8_ptr =
+      reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
+  out.acc = static_cast<float4>(fp8_ptr[0]);
+  return out;
+#else
+  CUDA_KERNEL_ASSERT(false);
+#endif
+}
+
+template <>
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(
+    const at::Float8_e4m3fnuz* value,
+    const float2 /* currently unused */) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+  Vec4T<at::Half> out;
+  const __nv_fp8x4_e4m3* fp8_ptr =
+      reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
+  out.acc = static_cast<float4>(fp8_ptr[0]);
+  return out;
+#else
+  CUDA_KERNEL_ASSERT(false);
+#endif
+}
+
+template <>
+DEVICE_INLINE Vec4T<float> dequantize_load(
+    const uint8_t* value,
+    const float2 qparams) {
+  Vec4T<float> out;
+  out.acc.x = value[0] * qparams.x + qparams.y;
+  out.acc.y = value[1] * qparams.x + qparams.y;
+  out.acc.z = value[2] * qparams.x + qparams.y;
+  out.acc.w = value[3] * qparams.x + qparams.y;
+  return out;
+}
+
+template <>
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(
+    const uint8_t* value,
+    const float2 qparams) {
+  Vec4T<at::Half> out;
+  out.acc.x = value[0] * qparams.x + qparams.y;
+  out.acc.y = value[1] * qparams.x + qparams.y;
+  out.acc.z = value[2] * qparams.x + qparams.y;
+  out.acc.w = value[3] * qparams.x + qparams.y;
+  return out;
+}
+
 template <typename emb_t>
 DEVICE_INLINE float2 load_qparams_from_row(emb_t* qparam_ptr) {
   float2 qparams;
@@ -279,7 +367,7 @@ class WeightRow {
   }
 
   //////////////////////////////////////////////////////////////////////////////
-  // Copy the row from the embedding table into the cache
+  // Copy the row from the cache into embedding table
   //////////////////////////////////////////////////////////////////////////////
 
   DEVICE_INLINE void evict_cache(const uint32_t d, const float2 qparams) {

@@ -9,9 +9,8 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/Fbgemm.h"
 #include <cpuinfo.h>
-#include <functional>
 #include <stdexcept>
-#include "./ExecuteKernel.h" // @manual
+#include "./ExecuteKernelU8S8.h" // @manual
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double packing_time = 0.0;
@@ -129,15 +128,10 @@ void fbgemmPacked(
   // remainders
   int _kc = KDimPerGroup % KCB;
 
-  int kc = 0, mc = 0;
-
-  block_type_t blockA{0, 0, 0, 0};
-
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-  std::chrono::time_point<std::chrono::high_resolution_clock> t_very_start,
-      t_start, t_end;
+  std::chrono::time_point<std::chrono::high_resolution_clock> t_end;
   double dt;
-  t_start = std::chrono::high_resolution_clock::now();
+  auto t_start = std::chrono::high_resolution_clock::now();
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
@@ -167,11 +161,11 @@ void fbgemmPacked(
             th_info,
             blocking_params);
     for (int i = i_begin; i < i_end; i += MCB) { // i is the element index
-      mc = std::min(i_end - i, MCB);
+      int mc = std::min(i_end - i, MCB);
       for (int kb = 0; kb < kBlocks; ++kb) { // kb is the block index
-        kc = (kb != kBlocks - 1 || _kc == 0) ? KCB : _kc;
+        int kc = (kb != kBlocks - 1 || _kc == 0) ? KCB : _kc;
         // pack A matrix
-        blockA = {i, mc, g * KDimPerGroup + kb * KCB, kc};
+        block_type_t blockA = {i, mc, g * KDimPerGroup + kb * KCB, kc};
         packA.pack(blockA);
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -227,17 +221,23 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
       std::all_of(
              conv_p.K.begin(),
              conv_p.K.end(),
-             std::bind(areEqual, std::placeholders::_1, 3)) &&
+             [areEqual](auto&& PH1) {
+               return areEqual(std::forward<decltype(PH1)>(PH1), 3);
+             }) &&
 
       std::all_of(
              conv_p.pad.begin(),
              conv_p.pad.end(),
-             std::bind(areEqual, std::placeholders::_1, 1)) &&
+             [areEqual](auto&& PH1) {
+               return areEqual(std::forward<decltype(PH1)>(PH1), 1);
+             }) &&
 
       std::all_of(
              conv_p.dilation.begin(),
              conv_p.dilation.end(),
-             std::bind(areEqual, std::placeholders::_1, 1)) &&
+             [areEqual](auto&& PH1) {
+               return areEqual(std::forward<decltype(PH1)>(PH1), 1);
+             }) &&
 
       // Height/Width strides should be the same and
       // should be either 1 or 2
@@ -245,11 +245,15 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
       (std::all_of(
            conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           std::bind(areEqual, std::placeholders::_1, 1)) ||
+           [areEqual](auto&& PH1) {
+             return areEqual(std::forward<decltype(PH1)>(PH1), 1);
+           }) ||
        std::all_of(
            conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           std::bind(areEqual, std::placeholders::_1, 2))) &&
+           [areEqual](auto&& PH1) {
+             return areEqual(std::forward<decltype(PH1)>(PH1), 2);
+           })) &&
       !conv_p.transposed;
 }
 

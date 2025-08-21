@@ -11,6 +11,7 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <random>
 
 using namespace std;
 
@@ -170,11 +171,11 @@ vector<vector<int>> getSparseMatrixShapes() {
       {51, 1024, 4096},
     };
     shapes.insert(shapes.end(), roberta_shapes.begin(), roberta_shapes.end() );
-    cout << "RoBERTa shapes included." << endl;
+    cout << "RoBERTa shapes included." << '\n';
   }
   else {
     cout << "RoBERTa shapes not included. " <<
-      "To include, add \"INCLUDE_ROBERTA=1\" as an env variable." << endl;
+      "To include, add \"INCLUDE_ROBERTA=1\" as an env variable." << '\n';
   }
 
   // LSTM shapes
@@ -189,11 +190,11 @@ vector<vector<int>> getSparseMatrixShapes() {
       {18, 2560, 720},
     };
     shapes.insert(shapes.end(), lstm_shapes.begin(), lstm_shapes.end() );
-    cout << "LSTM shapes included." << endl;
+    cout << "LSTM shapes included." << '\n';
   }
   else {
     cout << "LSTM shapes not included. " <<
-      "To include, add \"INCLUDE_LSTM=1\" as an env variable." << endl;
+      "To include, add \"INCLUDE_LSTM=1\" as an env variable." << '\n';
   }
 
   // RNNT shapes
@@ -241,11 +242,11 @@ vector<vector<int>> getSparseMatrixShapes() {
       {64, 256, 4500},
     };
     shapes.insert(shapes.end(), rnnt_shapes.begin(), rnnt_shapes.end() );
-    cout << "rnnt shapes included." << endl;
+    cout << "rnnt shapes included." << '\n';
   }
   else {
     cout << "RNNT shapes not included. " <<
-      "To include, add \"INCLUDE_RNNT=1\" as an env variable." << endl;
+      "To include, add \"INCLUDE_RNNT=1\" as an env variable." << '\n';
   }
   // clang-format on
   return shapes;
@@ -264,7 +265,7 @@ void sparseDenseInt8MMRef(
     bool accum,
     int /*thread_id*/,
     int /*num_threads*/) {
-  // Calcualtes accum ? C += A * B : C = A * B
+  // Calculates accum ? C += A * B : C = A * B
   constexpr int rowBlockSize = BCSRMatrix<>::RB;
   constexpr int colBlockSize = BCSRMatrix<>::CB;
   constexpr int colTileSize = BCSRMatrix<>::COLTILE;
@@ -278,6 +279,7 @@ void sparseDenseInt8MMRef(
   for (int j = 0; j < N; ++j) {
     for (int kt = 0; kt < kTiles; ++kt) {
       int* rowBPtr_start = bcsr->rowBPtr.data() + kt * M;
+      auto curKSize = std::min(K - kt * colTileSize, colTileSize);
       for (int i = 0; i < M / rowBlockSize; i += rowBlockSize) {
         // only initialize to 0 for the first ktile
         if (!accum && !kt) {
@@ -288,7 +290,9 @@ void sparseDenseInt8MMRef(
           const int8_t* blockValues =
               bcsr->values.data() + r * rowBlockSize * colBlockSize;
           for (int i_b = 0; i_b < rowBlockSize; ++i_b) {
-            for (int k_b = 0; k_b < colBlockSize; ++k_b) {
+            for (int k_b = 0; k_b <
+                 std::min(colBlockSize, curKSize - acbr_block * colBlockSize);
+                 ++k_b) {
               C_i32[(i * rowBlockSize + i_b) * ldc + j] +=
                   static_cast<int32_t>(blockValues[i_b * colBlockSize + k_b]) *
                   static_cast<int32_t>(

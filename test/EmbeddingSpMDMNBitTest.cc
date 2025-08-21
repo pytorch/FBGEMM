@@ -6,11 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <algorithm>
-#include <numeric>
-#include <ostream>
 #include <random>
-#include <stdexcept>
 
 #include <gtest/gtest.h>
 
@@ -61,7 +57,7 @@ class FusedNBitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
                                                 EmbeddingSpMDMDtypeChoice>> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FusedNBitRowwiseEmbeddingLookupTest,
     ::testing::Combine(
@@ -92,9 +88,9 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   bool scale_bias_last = bool_dist(generator);
   bool test_thread_local = bool_dist(generator);
   int bit_rate = 0, prefetch = 0;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMDtypeChoice out_type;
+  EmbeddingSpMDMWeightChoice weight_choice{};
+  EmbeddingSpMDMCornerCase corner_case{};
+  EmbeddingSpMDMDtypeChoice out_type{};
   tie(bit_rate, prefetch, weight_choice, corner_case, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
@@ -395,9 +391,9 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   bool scale_bias_last = bool_dist(generator);
 
   int bit_rate = 0, prefetch = 0;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMDtypeChoice out_type;
+  EmbeddingSpMDMWeightChoice weight_choice{};
+  EmbeddingSpMDMCornerCase corner_case{};
+  EmbeddingSpMDMDtypeChoice out_type{};
   tie(bit_rate, prefetch, weight_choice, corner_case, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;

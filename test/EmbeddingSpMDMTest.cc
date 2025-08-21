@@ -6,14 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <algorithm>
-#include <numeric> // for accumulate and iota
-#include <ostream>
 #include <random>
-#include <stdexcept>
 
 #include <gtest/gtest.h>
-#include <math.h>
+#include <cmath>
 
 #include "./EmbeddingSpMDMTestUtils.h"
 #include "fbgemm/Fbgemm.h"
@@ -67,7 +63,7 @@ class IndexRemapTest
 
 static vector<int> prefetch_distances = {0, 16, 1000000};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     EmbeddingSpMDMTest,
     ::testing::Combine(
@@ -84,7 +80,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(FLOAT, FLOAT16, BFLOAT16),
         ::testing::Values(FLOAT, FLOAT16, BFLOAT16)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     rowwiseSparseEmbeddingSpMDMTest,
     ::testing::Combine(
@@ -99,7 +95,7 @@ INSTANTIATE_TEST_CASE_P(
             OUT_OF_BOUND_INDICES,
             UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     IndexRemapTest,
     ::testing::Combine(
@@ -122,12 +118,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool use_output_input_stride = bool_dist(generator);
   bool test_thread_local = bool_dist(generator);
-  int prefetch = 0;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMInputDtypeChoice in_type;
-  EmbeddingSpMDMOutputDtypeChoice out_type;
-  tie(prefetch, weight_choice, corner_case, in_type, out_type) = GetParam();
+  auto [prefetch, weight_choice, corner_case, in_type, out_type] = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
   bool isFp16 = in_type == FLOAT16;
@@ -146,12 +137,6 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     // weight positional only makes sense when use_weight is true
     return;
   }
-
-#if defined(__APPLE__) || defined(_WIN32)
-  if (in_type == BFLOAT16 && out_type == FLOAT) {
-    return;
-  }
-#endif
 
   for (auto input : inputs) {
     int batch_size = input[0];
@@ -461,10 +446,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
   bool normalize_by_lengths = bool_dist(generator);
   bool use_offsets = bool_dist(generator);
   bool is_output_float = bool_dist(generator);
-  int prefetch = 0;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  tie(prefetch, weight_choice, corner_case) = GetParam();
+  auto [prefetch, weight_choice, corner_case] = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 
@@ -829,9 +811,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
 }
 
 TEST_P(IndexRemapTest, basicTest) {
-  int batch_size = 0, num_rows = 0, avg_len = 0;
-  bool isIndex64b = false, per_sample_weights = false;
-  tie(batch_size, num_rows, avg_len, isIndex64b, per_sample_weights) =
+  auto [batch_size, num_rows, avg_len, isIndex64b, per_sample_weights] =
       GetParam();
   constexpr float sparsity = 0.5;
 

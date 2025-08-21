@@ -62,18 +62,27 @@ template <
 at::Tensor
 f8f8bf16_tensorwise_impl(at::Tensor XQ, at::Tensor WQ, double scale) {
   // Get input information.
-  int M = XQ.size(0);
-  int N = WQ.size(0);
-  int K = XQ.size(1);
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
 
   int StrideA = K;
   int StrideB = K;
   int StrideC = N;
 
+  // Handle case where inputs are empty.
+  if (M == 0 || N == 0 || K == 0) {
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
+
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
 
   using ADataType = ck::f8_t;
   using BDataType = ck::f8_t;
@@ -185,9 +194,9 @@ f8f8bf16_tensorwise_impl(at::Tensor XQ, at::Tensor WQ, double scale) {
 enum class KernelMode { Small, Large, Default };
 
 std::tuple<KernelMode, bool> get_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
-  auto M = XQ.size(0);
-  auto K = XQ.size(1);
-  auto N = WQ.size(0);
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
   // Use small kernel when input matrices are small.
   bool use_small_kernel = (M <= 512 && N <= 512) || (M <= 128) || (N <= 128);
   // For larger workloads, specialize to large gemm.

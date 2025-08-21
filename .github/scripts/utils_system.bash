@@ -23,7 +23,10 @@ install_system_packages () {
 
   test_network_connection || return 1
 
-  if which sudo; then
+  if [[ "$DONT_USE_SUDO" == "1" ]]; then
+    local update_cmd=()
+    local install_cmd=()
+  elif which sudo; then
     local update_cmd=(sudo)
     local install_cmd=(sudo)
   else
@@ -135,7 +138,12 @@ print_gpu_info () {
     echo "[INFO] Printing general display info ..."
     install_system_packages hostname lshw
     print_exec hostname
-    print_exec sudo lshw -C display
+
+    if [[ "$DONT_USE_SUDO" == "1" ]]; then
+      print_exec lshw -C display
+    else
+      print_exec sudo lshw -C display
+    fi
   fi
 
   echo "################################################################################"
@@ -152,6 +160,7 @@ print_gpu_info () {
   else
     if which nvidia-smi; then
       # If nvidia-smi is installed on a machine without GPUs, this will return error
+      echo "[CHECK] nvidia-smi found; printing info ..."
       (print_exec nvidia-smi) || true
     else
       echo "[CHECK] nvidia-smi not found"
@@ -169,8 +178,10 @@ print_gpu_info () {
       echo "[CHECK] ROCm drivers and ROCm device(s) are required for this workflow, but does not appear to be installed or available!"
       return 1
     fi
+
   else
     if which rocm-smi; then
+      echo "[CHECK] rocm-smi found; printing info ..."
       # If the program is installed on a machine without GPUs, invoking it will return error
       (print_exec rocm-smi --showproductname) || true
     else
@@ -178,6 +189,7 @@ print_gpu_info () {
     fi
 
     if which rocminfo; then
+      echo "[CHECK] rocminfo found; printing info ..."
       (print_exec rocminfo) || true
     else
       echo "[CHECK] rocminfo not found"

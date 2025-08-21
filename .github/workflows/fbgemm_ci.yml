@@ -42,9 +42,23 @@ jobs:
       matrix:
         host-machine: [
           { arch: x86, instance: "linux.12xlarge" },
+          { arch: arm, instance: "linux.arm64.m7g.4xlarge" },
         ]
         library-type: [ static, shared ]
-        compiler: [ "gcc", "clang" ]
+        compiler: [
+          # NOTE: GCC 9 is still used when building FBGEMM as part of PyTorch
+          { name: gcc, version: 9.5.0 },
+          { name: gcc, version: 14.1.0 },
+          { name: clang, version: 16.0.6 }
+        ]
+        exclude:
+          # ARM SVE support doesn't exist in GCC 9
+          - host-machine:
+              arch: arm
+              instance: linux.arm64.m7g.4xlarge
+            compiler:
+              name: gcc
+              version: 9.5.0
 
     steps:
     - name: Setup Build Container
@@ -64,8 +78,16 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.13
 
+    - name: Set GCC version
+      if: matrix.compiler.name == 'gcc'
+      run: echo "GCC_VERSION=${{ matrix.compiler.version }}" >> $GITHUB_ENV
+
+    - name: Set LLVM version
+      if: matrix.compiler.name == 'clang'
+      run: echo "LLVM_VERSION=${{ matrix.compiler.version }}" >> $GITHUB_ENV
+
     - name: Install C/C++ Compilers
-      run: . $PRELUDE; GCC_VERSION=14.1.0 install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler.name }}
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
@@ -106,7 +128,7 @@ jobs:
         set -e
         mkdir $BUILD_DIR; cd $BUILD_DIR
         cmake --version
-        cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} ..
+        cmake -DFBGEMM_USE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} ..
         make -j VERBOSE=1
 
 

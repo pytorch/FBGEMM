@@ -49,7 +49,7 @@ void transpose_simd(
   }
 
 #ifdef __aarch64__
-  if constexpr (std::is_same<T, float>::value) {
+  if constexpr (std::is_same_v<T, float>) {
     internal::transpose_neon<T>(M, N, src, ld_src, dst, ld_dst);
   } else {
     transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);
@@ -57,11 +57,14 @@ void transpose_simd(
 #else
   static const auto iset = fbgemmInstructionSet();
   // Run time CPU detection
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   if (isZmm(iset)) {
     internal::transpose_avx512<T>(M, N, src, ld_src, dst, ld_dst);
   } else if (isYmm(iset)) {
     internal::transpose_avx2<T>(M, N, src, ld_src, dst, ld_dst);
-  } else {
+  } else
+#endif
+  {
     transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);
   }
 
@@ -115,4 +118,5 @@ template FBGEMM_API void transpose_simd<uint16_t>(
     int64_t ld_src,
     uint16_t* dst,
     int64_t ld_dst);
+
 } // namespace fbgemm

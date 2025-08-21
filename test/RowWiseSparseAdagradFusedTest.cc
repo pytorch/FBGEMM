@@ -68,7 +68,7 @@ class RowWiseSparseAdagradFusedTest : public testing::TestWithParam<tuple<
 
 constexpr float DEFAULT_TOL = 1.0e-6;
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     RowWiseSparseAdagradFusedTest,
     ::testing::Combine(
@@ -87,18 +87,15 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isWeightFp16 = false, useStochasticRounding = false, isIndex64b = false,
-       isOffset64b = false, use_offsets = false, use_grad_stride = false;
-  int prefetch = 0;
-  EmbeddingSpMDMCornerCase corner_case;
-  tie(isWeightFp16,
-      useStochasticRounding,
-      isIndex64b,
-      isOffset64b,
-      prefetch,
-      use_offsets,
-      corner_case,
-      use_grad_stride) = GetParam();
+  auto
+      [isWeightFp16,
+       useStochasticRounding,
+       isIndex64b,
+       isOffset64b,
+       prefetch,
+       use_offsets,
+       corner_case,
+       use_grad_stride] = GetParam();
 
   if (!isWeightFp16 && useStochasticRounding) {
     // stochastic rounding makes sense only for fp16 weight

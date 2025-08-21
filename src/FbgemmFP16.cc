@@ -35,7 +35,7 @@ namespace {
 // the restrictions of ymm register numbers (16).
 constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
     nullptr,
-#ifndef __aarch64__
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
@@ -45,24 +45,21 @@ constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
 #endif
 };
 
-#ifndef FBGEMM_ENABLE_KLEIDIAI
+#if defined(__aarch64__) && defined(FBGEMM_ENABLE_FP16_SVE128)
 constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
     nullptr,
-#ifdef __aarch64__
     gemmkernel_1x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_2x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_3x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_4x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_5x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_6x2_Sve128_fp16_fA0fB0fC0,
-#else
     nullptr,
     nullptr,
     nullptr,
     nullptr,
     nullptr,
     nullptr,
-#endif
 };
 #endif
 
@@ -82,7 +79,7 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
-#ifndef __aarch64__
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
@@ -101,8 +98,8 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
 };
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
-#ifndef __aarch64__
     nullptr,
+#if !defined(__aarch64__)
     gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
@@ -117,37 +114,45 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
     gemmkernel_12x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_13x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_14x2_Avx512_fp16_fA0fB0fC0
-#else
-    nullptr
 #endif
 };
 
 } // namespace
 
 template <>
-const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa, float16) {
+const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa) {
   static isa_descriptor<float16> avx2_descriptor =
       std::make_tuple(kernel_fp16_avx2, partition_avx2);
   static isa_descriptor<float16> avx512_descriptor =
       std::make_tuple(kernel_fp16_avx512, partition_avx512);
   static isa_descriptor<float16> avx512_256_descriptor =
       std::make_tuple(kernel_fp16_avx512_256, partition_avx512);
+#ifdef __aarch64__
 #ifdef FBGEMM_ENABLE_KLEIDIAI
   static isa_descriptor<float16> neon_descriptor =
       std::make_tuple(kernel_fp16_neon, partition_neon);
-#else
+#endif
+#ifdef FBGEMM_ENABLE_FP16_SVE128
   static isa_descriptor<float16> sve128_descriptor =
       std::make_tuple(kernel_fp16_sve128, partition_sve128);
+#endif
 #endif
 
   switch (isa) {
     case inst_set_t::sve:
-#ifdef FBGEMM_ENABLE_KLEIDIAI
-      return neon_descriptor;
-#else
+#ifdef __aarch64__
+#ifdef FBGEMM_ENABLE_FP16_SVE128
       return sve128_descriptor;
 #endif
     case inst_set_t::anyarch:
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+      return neon_descriptor;
+#else
+      throw std::runtime_error("Unsupported uArch");
+#endif
+#else
+    case inst_set_t::anyarch:
+#endif
     case inst_set_t::avx2:
       return avx2_descriptor;
 

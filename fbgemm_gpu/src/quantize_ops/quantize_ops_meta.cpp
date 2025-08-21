@@ -30,7 +30,7 @@ Tensor FP8rowwise_to_float_meta(
   const at::SymIntArrayRef input_sizes = input.sym_sizes();
 
   const auto last_dim = input_sizes.size() - 1;
-  const at::SymInt ncols = input_sizes[last_dim];
+  const at::SymInt& ncols = input_sizes[last_dim];
   const at::SymInt ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const at::SymInt output_columns = ncols_aligned - 2 * sizeof(float);
 
@@ -52,13 +52,13 @@ Tensor FP8rowwise_to_float_meta(
 
 /// @ingroup quantize-data-meta
 ///
-Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool forward) {
+Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool /*forward*/) {
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
   const at::SymIntArrayRef input_sizes = input.sym_sizes();
 
   const auto last_dim = input_sizes.size() - 1;
-  const at::SymInt ncols = input_sizes[last_dim];
+  const at::SymInt& ncols = input_sizes[last_dim];
   const at::SymInt ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const at::SymInt output_columns = ncols_aligned + 2 * sizeof(float);
 
@@ -75,7 +75,7 @@ Tensor fusednbitrowwise_to_float_or_half_meta(
     const int64_t output_dtype,
     [[maybe_unused]] const bool scale_bias_last) {
   const at::SymIntArrayRef input_sizes = input.sym_sizes();
-  const at::SymInt nrows = input_sizes[0];
+  const at::SymInt& nrows = input_sizes[0];
   // Here we want the number of bytes in a row
   const at::SymInt ncols = nbit_elems_to_bytes_meta(input);
   const at::SymInt num_elem_per_byte = 8 / bit_rate;

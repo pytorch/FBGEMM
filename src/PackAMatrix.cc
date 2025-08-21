@@ -170,18 +170,18 @@ void PackAMatrix<T, accT>::pack(const block_type_t& block) {
 }
 
 template <typename T, typename accT>
-int32_t PackAMatrix<T, accT>::addr(int32_t r, int32_t c) const {
-  int32_t block_row_id = r / BaseType::blockRowSize();
+int32_t PackAMatrix<T, accT>::addr(int32_t i, int32_t j) const {
+  int32_t block_row_id = i / BaseType::blockRowSize();
   int32_t brow_offset = (block_row_id * BaseType::blockCols()) *
       (BaseType::blockRowSize() * BaseType::blockColSize());
 
-  int32_t block_col_id = c / BaseType::blockColSize();
+  int32_t block_col_id = j / BaseType::blockColSize();
   int32_t bcol_offset =
       block_col_id * BaseType::blockRowSize() * BaseType::blockColSize();
   int32_t block_offset = brow_offset + bcol_offset;
   int32_t inblock_offset =
-      (r % BaseType::blockRowSize()) * BaseType::blockColSize() +
-      (c % BaseType::blockColSize());
+      (i % BaseType::blockRowSize()) * BaseType::blockColSize() +
+      (j % BaseType::blockColSize());
 
   int32_t index = block_offset + inblock_offset;
 
@@ -204,9 +204,9 @@ void PackAMatrix<T, accT>::printPackedMatrix(const std::string& name) {
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template class PackAMatrix<uint8_t, int32_t>;

@@ -18,6 +18,7 @@
 #include "fbgemm_gpu/utils/binary_search_range.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 namespace fbgemm_gpu {
@@ -689,10 +690,10 @@ jagged_dense_elementwise_add_jagged_output_cpu(
 
 template <typename index_t, typename scalar_t>
 void dense_vec_jagged_2d_bmm(
-    const at::TensorAccessor<scalar_t, 2>& v,
-    const at::TensorAccessor<scalar_t, 2>& a_values,
-    const at::TensorAccessor<index_t, 1>& a_offsets,
-    at::TensorAccessor<scalar_t, 2> output) {
+    const pta::TensorAccessor<scalar_t, 2>& v,
+    const pta::TensorAccessor<scalar_t, 2>& a_values,
+    const pta::TensorAccessor<index_t, 1>& a_offsets,
+    pta::TensorAccessor<scalar_t, 2> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = v.size(1);
@@ -726,10 +727,10 @@ void dense_vec_jagged_2d_bmm(
 
 template <typename index_t, typename scalar_t>
 void dense_vec_jagged_2d_transposed_bmm(
-    const at::TensorAccessor<scalar_t, 2>& v,
-    const at::TensorAccessor<scalar_t, 2>& a_values,
-    const at::TensorAccessor<index_t, 1>& a_offsets,
-    at::TensorAccessor<scalar_t, 2> output) {
+    const pta::TensorAccessor<scalar_t, 2>& v,
+    const pta::TensorAccessor<scalar_t, 2>& a_values,
+    const pta::TensorAccessor<index_t, 1>& a_offsets,
+    pta::TensorAccessor<scalar_t, 2> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = output.size(1);
@@ -747,7 +748,7 @@ void dense_vec_jagged_2d_transposed_bmm(
       }
     } else {
       for (const auto h : c10::irange(H)) {
-        int l;
+        int l = 0;
         for (l = 0; l < length; ++l) {
           at::acc_type<scalar_t, true> acc =
               v[b * H + h][0] * a_values[row_start + l][h * D];
@@ -766,10 +767,10 @@ void dense_vec_jagged_2d_transposed_bmm(
 
 template <typename index_t, typename scalar_t>
 void outer_prod_jagged_2d_output(
-    const at::TensorAccessor<scalar_t, 2>& x,
-    const at::TensorAccessor<scalar_t, 2>& y,
-    const at::TensorAccessor<index_t, 1>& offsets,
-    at::TensorAccessor<scalar_t, 2> output_values) {
+    const pta::TensorAccessor<scalar_t, 2>& x,
+    const pta::TensorAccessor<scalar_t, 2>& y,
+    const pta::TensorAccessor<index_t, 1>& offsets,
+    pta::TensorAccessor<scalar_t, 2> output_values) {
   const int B = offsets.size(0) - 1;
   const int H = x.size(0) / B;
   const int max_L = x.size(1);
@@ -809,15 +810,17 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
   auto output = at::empty({B * H, D}, v.options());
 
   if (B > 0 && D > 0) {
+    const auto func_name = "batched_dense_vec_jagged_2d_mul_forward";
+
     AT_DISPATCH_INDEX_TYPES(
         a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
           FBGEMM_DISPATCH_FLOATING_TYPES(
               a_values.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_2", [&] {
                 dense_vec_jagged_2d_bmm<index_t, scalar_t>(
-                    v.accessor<scalar_t, 2>(),
-                    a_values.accessor<scalar_t, 2>(),
-                    a_offsets.accessor<index_t, 1>(),
-                    output.accessor<scalar_t, 2>());
+                    TA_B(v, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_values, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_offsets, index_t, 1, 64).build(func_name),
+                    TA_B(output, scalar_t, 2, 64).build(func_name));
               });
         });
   }
@@ -838,6 +841,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
   const int D = grad_output.size(-1);
 
   if (B > 0 && D > 0) {
+    const auto func_name = "batched_dense_vec_jagged_2d_mul_backward";
     AT_DISPATCH_INDEX_TYPES(
         a_offsets.scalar_type(),
         "dense_vec_jagged_2d_bmm_backward_kernel_1",
@@ -847,16 +851,16 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
               "dense_vec_jagged_2d_bmm_backward_kernel_2",
               [&] {
                 dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>(
-                    grad_output.accessor<scalar_t, 2>(),
-                    a_values.accessor<scalar_t, 2>(),
-                    a_offsets.accessor<index_t, 1>(),
-                    v_grad.accessor<scalar_t, 2>());
+                    TA_B(grad_output, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_values, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_offsets, index_t, 1, 64).build(func_name),
+                    TA_B(v_grad, scalar_t, 2, 64).build(func_name));
 
                 outer_prod_jagged_2d_output<index_t, scalar_t>(
-                    v.accessor<scalar_t, 2>(),
-                    grad_output.accessor<scalar_t, 2>(),
-                    a_offsets.accessor<index_t, 1>(),
-                    a_values_grad.accessor<scalar_t, 2>());
+                    TA_B(v, scalar_t, 2, 64).build(func_name),
+                    TA_B(grad_output, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_offsets, index_t, 1, 64).build(func_name),
+                    TA_B(a_values_grad, scalar_t, 2, 64).build(func_name));
               });
         });
   } else {
@@ -905,14 +909,76 @@ Tensor jagged_1d_to_truncated_values_cpu(
   return truncated_values;
 }
 
+// CPU implementation for 1D weight accumulation
+template <typename index_t, typename scalar_t>
+void jagged_acc_weights_and_counts_cpu_kernel(
+    const at::TensorAccessor<scalar_t, 1>& weights,
+    const at::TensorAccessor<index_t, 1>& reverse_indices,
+    at::TensorAccessor<float, 2> accumulated_data) {
+  const auto total_elements = weights.size(0);
+
+  for (const auto i : c10::irange(total_elements)) {
+    const index_t unique_idx = reverse_indices[i];
+    const scalar_t weight_val = weights[i];
+
+    // Accumulate weight in dimension 0
+    accumulated_data[unique_idx][0] += static_cast<float>(weight_val);
+    // Accumulate count in dimension 1
+    accumulated_data[unique_idx][1] += 1.0f;
+  }
+}
+
+Tensor jagged_acc_weights_and_counts_cpu(
+    const Tensor& weights,
+    const Tensor& reverse_indices,
+    int64_t num_unique_indices) {
+  TENSOR_ON_CPU(weights);
+  TENSOR_ON_CPU(reverse_indices);
+
+  // Create 2D tensor: [num_unique_indices, 2] where dim 0 = accumulated
+  // weights, dim 1 = counts
+  Tensor accumulated_data = at::zeros(
+      {num_unique_indices, 2},
+      at::TensorOptions().dtype(at::kFloat).device(weights.device()));
+
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      weights.scalar_type(), "jagged_acc_weights_and_counts_cpu", [&] {
+        AT_DISPATCH_INDEX_TYPES(
+            reverse_indices.scalar_type(),
+            "jagged_acc_weights_and_counts_cpu_idx",
+            [&] {
+              jagged_acc_weights_and_counts_cpu_kernel<index_t, scalar_t>(
+                  weights.accessor<scalar_t, 1>(),
+                  reverse_indices.accessor<index_t, 1>(),
+                  accumulated_data.accessor<float, 2>());
+            });
+      });
+
+  return accumulated_data;
+}
+
 } // namespace
 
 std::tuple<Tensor, Tensor> masked_select_jagged_1d(
     const Tensor& values,
     const Tensor& lengths,
-    const Tensor& mask) {
+    const Tensor& mask,
+    const std::optional<bool> check_length) {
   TORCH_CHECK(values.dim() == 1);
   TORCH_CHECK(lengths.dim() == 1);
+  TORCH_CHECK(mask.dim() == 1);
+
+  // TODO: We keep this check optional for backward compatibility,
+  // will need to make it default enabled once we are confident
+  // all callsites are fixed.
+  if (check_length.has_value() && check_length.value()) {
+    TORCH_CHECK(
+        mask.numel() == values.numel(),
+        "mask and values should have the same numel, but got mask numel: ",
+        mask.numel(),
+        " values numel: ",
+        values.numel());
+  }
 
   auto values_contiguous = values.expect_contiguous();
   auto lengths_contiguous = lengths.expect_contiguous();
@@ -1061,10 +1127,10 @@ void jagged_index_select_2d_kernel(
   at::parallel_for(
       0, num_dense_output_rows, 0, [&](int64_t start, int64_t end) {
         for (const auto dense_output_offset : c10::irange(start, end)) {
-          int index_pos;
+          int index_pos = 0;
           binary_search_range_cpu(
               &index_pos,
-              reinterpret_cast<const offset_t*>(&output_offsets[0]),
+              reinterpret_cast<const offset_t*>(output_offsets.data()),
               static_cast<offset_t>(dense_output_offset),
               num_output_rows);
           const offset_t rel_index = dense_output_offset -
@@ -1195,20 +1261,24 @@ void jagged_index_add_2d_kernel(
   const auto num_dense_input_rows = input.size(0);
   const auto num_cols = input.size(1);
   // Allocate one lock per row
-  std::atomic_flag* locks = new std::atomic_flag[output.size(0)];
+  std::vector<std::atomic_flag> locks(output.size(0));
+  // C++20 supports value initialization of std::atomic_flag, but old C++20
+  // compilers may not implement it.
+#ifndef __cpp_lib_atomic_value_initialization
   // Initialize all locks since before c++20 std::atomic_flag is initialized to
   // an unspecified state.
   // https://en.cppreference.com/w/cpp/atomic/atomic_flag/atomic_flag
-  for (auto i = 0; i < output.size(0); i++) {
-    locks[i].clear();
+  for (auto& lock : locks) {
+    lock.clear();
   }
+#endif
 
   at::parallel_for(0, num_dense_input_rows, 0, [&](int64_t start, int64_t end) {
     for (const auto dense_input_offset : c10::irange(start, end)) {
-      int index_pos;
+      int index_pos = 0;
       binary_search_range_cpu(
           &index_pos,
-          reinterpret_cast<const offset_t*>(&input_offsets[0]),
+          reinterpret_cast<const offset_t*>(input_offsets.data()),
           static_cast<offset_t>(dense_input_offset),
           num_input_rows);
       const offset_t rel_index = dense_input_offset -
@@ -1253,7 +1323,7 @@ Tensor jagged_index_add_2d_forward_cpu(
     const Tensor& indices,
     const Tensor& input_offsets,
     const Tensor& output_offsets,
-    const int64_t num_dense_input_rows,
+    const int64_t /*num_dense_input_rows*/,
     const int64_t num_output_rows) {
   TORCH_CHECK(
       values.dim() == 2,
@@ -1704,7 +1774,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
   m.def(
-      "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)",
+      "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask, bool? check_length = False) -> (Tensor, Tensor)",
       {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_softmax(Tensor values, Tensor x_offsets, int max_L) -> (Tensor, Tensor)",
@@ -1732,6 +1802,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_unique_indices(Tensor hash_size_cumsum, Tensor hash_size_offsets, Tensor offsets, Tensor indices) -> (Tensor, Tensor, Tensor, Tensor)");
   m.def(
       "jagged_hash_size_cumsum(Tensor offsets, Tensor indices, int batch_size) -> (Tensor, Tensor)");
+  m.def(
+      "jagged_acc_weights_and_counts(Tensor weights, Tensor reverse_indices, int num_unique_indices) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1801,6 +1873,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "jagged_dense_bmm_forward", fbgemm_gpu::jagged_dense_bmm_forward);
   DISPATCH_TO_CPU("jagged_slice_forward", fbgemm_gpu::jagged_slice_forward_cpu);
+  DISPATCH_TO_CPU(
+      "jagged_acc_weights_and_counts",
+      fbgemm_gpu::jagged_acc_weights_and_counts_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CompositeExplicitAutograd, m) {

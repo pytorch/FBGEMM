@@ -14,6 +14,13 @@ import tempfile
 from contextlib import nullcontext
 from typing import Any, Callable, Dict, Optional
 
+try:
+    from fbgemm_gpu.tbe.trace.fbgemm_kineto_trace_handler import (
+        FbgemmKinetoTraceHandler,
+    )
+except Exception:
+    pass
+
 import click
 import numpy as np
 import torch
@@ -32,6 +39,11 @@ from fbgemm_gpu.tbe.bench import (
     EmbeddingOpsCommonConfigLoader,
     TBEBenchmarkingConfigLoader,
     TBEDataConfigLoader,
+)
+from fbgemm_gpu.tbe.bench.tbe_data_config_bench_helper import (
+    generate_embedding_dims,
+    generate_feature_requires_grad,
+    generate_requests,
 )
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import get_device
@@ -102,13 +114,13 @@ def device(  # noqa C901
 
     # Generate feature_requires_grad
     feature_requires_grad = (
-        tbeconfig.generate_feature_requires_grad(weighted_num_requires_grad)
+        generate_feature_requires_grad(tbeconfig, weighted_num_requires_grad)
         if weighted_num_requires_grad
         else None
     )
 
     # Generate embedding dims
-    effective_D, Ds = tbeconfig.generate_embedding_dims()
+    effective_D, Ds = generate_embedding_dims(tbeconfig)
 
     # Determine the optimizer
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
@@ -212,25 +224,40 @@ def device(  # noqa C901
         f"Accessed weights per batch: {tbeconfig.batch_params.B * sum(Ds) * tbeconfig.pooling_params.L * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
-    requests = tbeconfig.generate_requests(benchconfig.num_requests)
+    requests = generate_requests(tbeconfig, benchconfig.num_requests)
 
     # pyre-ignore[53]
     def _kineto_trace_handler(p: profile, phase: str) -> None:
-        p.export_chrome_trace(
-            benchconfig.trace_url.format(
+        if benchconfig.trace_url is not None:
+            trace_path = benchconfig.trace_url.format(
                 emb_op_type=emb_op_type, phase=phase, ospid=os.getpid()
             )
-        )
+            p.export_chrome_trace(trace_path)
+        else:
+            logger.warning("Cannot export trace: trace_url is None")
 
-    # pyre-ignore[3,53]
-    def _context_factory(on_trace_ready: Callable[[profile], None]):
-        return (
-            profile(on_trace_ready=on_trace_ready)
-            if benchconfig.export_trace
-            else nullcontext()
-        )
+    # pyre-ignore[53]
+    def _context_factory(
+        on_trace_ready: Callable[[profile], None],
+    ) -> tuple[Any, Optional[profile]]:
+        """
+        Creates a context manager for profiling based on configuration.
 
-    with _context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        Args:
+            on_trace_ready: Callback function to be called when profiling is complete
+
+        Returns:
+            A tuple containing:
+            - A context manager (either profile or nullcontext)
+            - The profile object if profiling is enabled, otherwise None
+        """
+        if benchconfig.export_trace:
+            prof = profile(on_trace_ready=on_trace_ready)
+            return prof, prof
+        else:
+            return nullcontext(), None
+
+    with _context_factory(lambda p: _kineto_trace_handler(p, "fwd"))[0] as p_obj:
         # forward
         time_per_iter = benchmark_requests(
             requests,
@@ -244,6 +271,26 @@ def device(  # noqa C901
             num_warmups=benchconfig.warmup_iterations,
             iters=benchconfig.iterations,
         )
+
+    if benchconfig.upload_perf_data:
+        if (
+            benchconfig.export_trace
+            and p_obj is not None
+            and benchconfig.trace_url is not None
+        ):
+            try:
+                trace_url = benchconfig.trace_url.format(
+                    emb_op_type=emb_op_type, phase="fwd", ospid=os.getpid()
+                )
+                FbgemmKinetoTraceHandler(p_obj).sync_log(
+                    run_id=str(trace_url),
+                    test_phase="fwd",
+                    test_name=str("tbe_training"),
+                    benchmark_duration_us=float(time_per_iter * 1.0e6),
+                    achieved_bw_gbps=float(read_write_bytes / time_per_iter / 1.0e9),
+                )
+            except Exception as e:
+                logging.error(f"Failed to upload performance data to Scuba: {e}")
 
     logging.info(
         f"Forward, B: {tbeconfig.batch_params.B}, "
@@ -264,7 +311,7 @@ def device(  # noqa C901
             effective_D,
         ).to(get_device())
 
-    with _context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
+    with _context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd"))[0] as p_obj:
         # backward
         time_per_iter = benchmark_requests(
             requests,
@@ -280,6 +327,29 @@ def device(  # noqa C901
             num_warmups=benchconfig.warmup_iterations,
             iters=benchconfig.iterations,
         )
+
+    # Upload performance data for backward pass if enabled
+    if benchconfig.upload_perf_data:
+        if (
+            benchconfig.export_trace
+            and p_obj is not None
+            and benchconfig.trace_url is not None
+        ):
+            try:
+                trace_url = benchconfig.trace_url.format(
+                    emb_op_type=emb_op_type, phase="fwd_bwd", ospid=os.getpid()
+                )
+                FbgemmKinetoTraceHandler(p_obj).sync_log(
+                    run_id=str(trace_url),
+                    test_phase="fwd_bwd",
+                    test_name=str("tbe_training"),
+                    benchmark_duration_us=float(time_per_iter * 1.0e6),
+                    achieved_bw_gbps=float(
+                        2 * read_write_bytes / time_per_iter / 1.0e9
+                    ),
+                )
+            except Exception as e:
+                logging.error(f"Failed to upload performance data to Scuba: {e}")
 
     logging.info(
         f"Backward, B: {tbeconfig.batch_params.B}, E: {tbeconfig.E}, T: {tbeconfig.T}, D: {effective_D}, L: {tbeconfig.pooling_params.L}, "

@@ -8,8 +8,6 @@
 
 #define FBGEMM_EXPORTS
 #include <algorithm>
-#include <iterator>
-#include <numeric>
 #include <type_traits>
 
 #include "fbgemm/QuantUtils.h"
@@ -360,23 +358,24 @@ FBGEMM_API void QuantizeGroupwise<uint8_t, layout_t::KCX>(
   int C_per_G = C / G;
   fbgemm::TensorQuantizationParams qparams;
   qparams.precision = 8 * sizeof(uint8_t);
-  bool takeFastPath =
+  bool takeFastPath [[maybe_unused]] =
       cpuinfo_initialize() && fbgemmHasAvx2Support() && cpuinfo_has_x86_fma3();
 
   for (int64_t i = 0; i < K; ++i) {
     for (int64_t g = 0; g < G; ++g) {
       qparams.scale = scales[g];
       qparams.zero_point = zero_points[g];
-      if (takeFastPath) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+      if (takeFastPath) {
         const int64_t offset = (i * C + g * C_per_G) * X;
         QuantizeAvx2(
             src + offset,
             dst + offset,
             static_cast<int64_t>(C_per_G) * X,
             qparams);
+      } else
 #endif
-      } else {
+      {
         for (int64_t c = 0; c < C / G; ++c) {
           for (int64_t x = 0; x < X; ++x) {
             const int64_t idx = (i * C + g * C_per_G + c) * X + x;

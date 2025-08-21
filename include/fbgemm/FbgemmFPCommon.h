@@ -10,14 +10,16 @@
 #pragma once
 
 #include <fbgemm/FbgemmPackMatrixB.h>
-#include <fbgemm/SimdUtils.h>
 #include <fbgemm/Types.h>
 #include <fbgemm/Utils.h>
 #include <array>
+#include <memory>
 
 #if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
     defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
+#if defined(__APPLE__) && defined(__aarch64__)
 #define FBGEMM_USE_REF_KERNEL
+#endif
 #endif
 
 namespace fbgemm {
@@ -82,13 +84,13 @@ template <typename T>
 using isa_descriptor = std::tuple<kernel_array_t<T>, partition_array_t>;
 
 template <typename T>
-extern const isa_descriptor<T>& getIsaHandlers(inst_set_t isa, T);
+extern const isa_descriptor<T>& getIsaHandlers(inst_set_t isa);
 
 void PackA(int nrow, int ncol, const float* from, int ldim, float* to);
 
-// define this to debug fp16 kernel using a reference C implementation
-// #define FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-#ifdef FBGEMM_USE_REF_KERNEL
+// define fp16/fp32 kernels using a reference C implementation
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
+    defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
 template <typename T>
 FBGEMM_API void ref_kernel(
     int kernel_nrows,
@@ -114,7 +116,7 @@ FBGEMM_API void cblas_gemm_compute(
 // autotuned kernel splits for various cases m = 1:mb_max
 template <typename T>
 void cblas_gemm_compute(
-    const matrix_op_t transa,
+    const matrix_op_t transa [[maybe_unused]],
     const int m,
     const float* A,
     const PackedGemmMatrixB<T>& Bp,
@@ -129,39 +131,38 @@ void cblas_gemm_compute(
   assert(cpuinfo_has_x86_f16c());
 #endif
   assert(transa == matrix_op_t::NoTranspose);
-  (void)transa; // Suppress unused variable warning
 
-  const auto iset = fbgemmInstructionSet();
   // private scratchpad storage
   static thread_local std::unique_ptr<std::array<float, 256 * 1024>> scratchpad(
       new std::array<float, 256 * 1024>());
 
-  const auto& isaHandlers = getIsaHandlers<T>(iset, T());
-
-  const auto& kernels = std::get<0>(isaHandlers);
-  const auto& partition = std::get<1>(isaHandlers);
-
   // constants
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
   const int mb_max = 120;
+
+#if defined(FBGEMM_USE_REF_KERNEL) && defined(__APPLE__)
+  const auto& [_, partition] = getIsaHandlers<float16>(inst_set_t::sve);
+#else
+  const auto iset = fbgemmInstructionSet();
+  const auto& [kernels, partition] = getIsaHandlers<T>(iset);
+#endif
+
 #ifdef FBGEMM_USE_REF_KERNEL
-  const int kernel_ncol_blocks = Bp.kernelNumColBlocks();
   // By some reason, if packed B is using packing layout for avx2, we just use
   // avx2 even if avx512 is available.
   const int simd_width =
 #ifndef __aarch64__
       (iset == inst_set_t::avx512 || iset == inst_set_t::avx512_vnni) &&
-          (Bp.blockColSize() == 16 * kernel_ncol_blocks)
+          (Bp.blockColSize() == 16 * Bp.kernelNumColBlocks())
       ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
       : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
 #else
       simd_info<inst_set_t::sve>::WIDTH_32BIT_ELEMS;
-  (void)kernel_ncol_blocks;
-  (void)kernels;
 #endif
 #endif
+
   GemmParams<T> gp;
-  int i_begin, i_end;
+  int i_begin = 0, i_end = 0;
   i_begin = 0;
   i_end = m;
   for (auto m0 = i_begin; m0 < i_end; m0 += mb_max) {
@@ -169,12 +170,10 @@ void cblas_gemm_compute(
     assert(mb < static_cast<int64_t>(partition.size()));
     for (auto k_ind = 0; k_ind < k; k_ind += Bp.blockRowSize()) {
       // set up proper accumulation to avoid "Nan" problem
-      float beta_;
-      if (k_ind == 0) {
-        // accumulate of beta != 0.0
-        // do not!!! accumulate otherwise
-        beta_ = beta;
-      } else {
+      // accumulate of beta != 0.0
+      // do not!!! accumulate otherwise
+      float beta_ = beta;
+      if (k_ind != 0) {
         // always accumulate with beta_ = 1.0f
         beta_ = 1.0f;
       }
@@ -231,7 +230,7 @@ void cblas_gemm_compute(
           }
 #endif
           if ((n % Bp.blockColSize()) == 0) {
-            int64_t jb_begin, jb_end;
+            int64_t jb_begin = 0, jb_end = 0;
             fbgemmPartition1D(
                 thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
             gp.B += gp.k * Bp.blockColSize() * jb_begin;
@@ -239,13 +238,7 @@ void cblas_gemm_compute(
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (
-                  std::is_same<T, float16>::value ||
-                  std::is_same<T, float>::value) {
-                kernels[kernel_nrows](&gp);
-              } else {
-                ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
-              }
+              ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
 #else
               kernels[kernel_nrows](&gp);
 #endif
@@ -253,7 +246,7 @@ void cblas_gemm_compute(
           } else {
             int last_blk_col = nbcol * Bp.blockColSize();
             if (nbcol) {
-              int64_t jb_begin, jb_end;
+              int64_t jb_begin = 0, jb_end = 0;
               fbgemmPartition1D(
                   thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
               gp.B += gp.k * Bp.blockColSize() * jb_begin;
@@ -261,13 +254,7 @@ void cblas_gemm_compute(
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-                if constexpr (
-                    std::is_same<T, float16>::value ||
-                    std::is_same<T, float>::value) {
-                  kernels[kernel_nrows](&gp);
-                } else {
-                  ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
-                }
+                ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
 #else
                 kernels[kernel_nrows](&gp);
 #endif
@@ -277,8 +264,7 @@ void cblas_gemm_compute(
             // use one thread to handle the fringe cases
             if (thread_id == num_threads - 1) {
               // leftover
-              const int rem = n - last_blk_col;
-              (void)rem; // Suppress unused variable warning
+              const int rem [[maybe_unused]] = n - last_blk_col;
               assert(rem < Bp.blockColSize());
 
               // small temporary buffer: the size should be larger than the
@@ -294,14 +280,8 @@ void cblas_gemm_compute(
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (
-                  std::is_same<T, float16>::value ||
-                  std::is_same<T, float>::value) {
-                kernels[kernel_nrows](&gp);
-              } else {
-                ref_kernel<T>(
-                    kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
-              }
+              ref_kernel<T>(
+                  kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
 #else
               kernels[kernel_nrows](&gp);
 #endif

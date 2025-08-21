@@ -52,7 +52,7 @@ class SparseAdagradTest
 constexpr float DEFAULT_TOL = 1.0e-6;
 
 // Test:
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     SparseAdagradTest,
     ::testing::Combine(
@@ -64,14 +64,12 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(SparseAdagradTest, basicTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b = false, out_of_bounds = false, use_weight_decay = false,
-       adjust_weight_decay = false;
-  int prefetch = 0;
-  tie(isIndex64b,
-      prefetch,
-      out_of_bounds,
-      use_weight_decay,
-      adjust_weight_decay) = GetParam();
+  auto
+      [isIndex64b,
+       prefetch,
+       out_of_bounds,
+       use_weight_decay,
+       adjust_weight_decay] = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -199,14 +197,12 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
 
 TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b = false, out_of_bounds = false, use_weight_decay = false,
-       adjust_weight_decay = false;
-  int prefetch = 0;
-  tie(isIndex64b,
-      prefetch,
-      out_of_bounds,
-      use_weight_decay,
-      adjust_weight_decay) = GetParam();
+  auto
+      [isIndex64b,
+       prefetch,
+       out_of_bounds,
+       use_weight_decay,
+       adjust_weight_decay] = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];

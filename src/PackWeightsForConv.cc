@@ -25,12 +25,17 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
   // FbgemmConv.cc
   switch (ConvFastPath<SPATIAL_DIM, accT>(conv_p)) {
     case optimized_conv_t::depthwise: {
+#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
+      throw std::runtime_error(
+          "PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(): No fallback available for aarch64");
+#else
       const int kernel_d = SPATIAL_DIM <= 2 ? 1 : conv_p.K[0];
       const int kernel_h = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
       const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
       W_dw_packed_ = std::make_shared<PackedDepthWiseConvMatrix>(
           conv_p.OC, kernel_d * kernel_h * kernel_w, sdata);
       break;
+#endif // __aarch64__
     }
     case optimized_conv_t::groupwise: {
       W_gconv_packed_ =
@@ -56,12 +61,17 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
       break;
     }
     case optimized_conv_t::directconv: {
+#if defined(__aarch64__)
+      throw std::runtime_error(
+          "PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(): No fallback available for aarch64");
+#else
       const int kernel_h = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
       const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
       const int K = kernel_h * kernel_w;
       W_dc_packed_ = std::make_shared<PackedDirectConvMatrix>(
           conv_p.IC, conv_p.OC, K, sdata);
       break;
+#endif
     }
     case optimized_conv_t::fastpath1d: {
       break;
@@ -88,17 +98,20 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
 
 template <int SPATIAL_DIM, typename T, typename accT>
 void PackWeightsForConv<SPATIAL_DIM, T, accT>::unpack(T* origin_buf) {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   if (W_dw_packed_) {
     W_dw_packed_->unpack(origin_buf);
-  } else if (W_gconv_packed_) {
-    W_gconv_packed_->unpack(origin_buf);
-  } else if (W_im2col_packed_) {
-    W_im2col_packed_->unpack(origin_buf);
-  } else if (W_pointwise_packed_) {
-    W_pointwise_packed_->unpack(origin_buf);
-  } else {
-    assert(false && "At least one packed weights object should exist");
-  }
+  } else
+#endif // __aarch64__
+    if (W_gconv_packed_) {
+      W_gconv_packed_->unpack(origin_buf);
+    } else if (W_im2col_packed_) {
+      W_im2col_packed_->unpack(origin_buf);
+    } else if (W_pointwise_packed_) {
+      W_pointwise_packed_->unpack(origin_buf);
+    } else {
+      assert(false && "At least one packed weights object should exist");
+    }
 }
 
 template <int SPATIAL_DIM, typename T, typename accT>
@@ -127,7 +140,7 @@ bool PackWeightsForConv<SPATIAL_DIM, T, accT>::isPackingCompliant(
 template <int SPATIAL_DIM, typename T, typename accT>
 std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
     const conv_param_t<SPATIAL_DIM>& test_conv_p) {
-  std::string msg = "";
+  std::string msg;
 
   auto combineStr = [](const std::string& id,
                        const std::string& str1,
@@ -139,7 +152,7 @@ std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
     return out;
   };
 
-  auto combineInt = [&combineStr](std::string id, int int1, int int2) {
+  auto combineInt = [&combineStr](const std::string& id, int int1, int int2) {
     return combineStr(
         std::move(id), std::to_string(int1), std::to_string(int2));
   };

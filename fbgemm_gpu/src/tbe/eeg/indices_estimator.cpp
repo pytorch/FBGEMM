@@ -39,8 +39,8 @@ void IndicesEstimator::populateIndexFreqs_(const torch::Tensor& indices) {
 void IndicesEstimator::populateLogTable_() {
   logTable_.resize((maxIndex() + kMaxQ + 1) * kLevels_);
   double cur = 1.0;
-  for (int64_t i = 0; i < logTable_.size(); ++i) {
-    logTable_[i] = log(cur);
+  for (double& entry : logTable_) {
+    entry = log(cur);
     cur += 1.0 / kLevels_;
   }
 }

@@ -15,12 +15,11 @@
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
 
-#include <math.h>
+#include <cmath>
 
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cmath>
 #include <cstring>
 #include <memory>
 
@@ -341,7 +340,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     // We currently only support int4 to int4 for sequential TBE in this nbit
     // kernel. Note that assert() will be ignored in release mode, so we check
     // here to double check and also avoid "unused variable" warning
-    if (!(input_bit_rate == 4 && output_bit_rate == 4)) {
+    if (input_bit_rate != 4 || output_bit_rate != 4) {
       WARN_ONCE("no_bag is only supported for int4 to int4");
       return false;
     }
@@ -1110,10 +1109,10 @@ template <typename T>
 ALWAYS_INLINE constexpr FixedParameter<T> fixed(T value) {
   return FixedParameter<T>{value};
 }
-static constexpr VariableParameter var = VariableParameter();
+constexpr VariableParameter var = VariableParameter();
 
 template <typename T>
-ALWAYS_INLINE bool match(VariableParameter, T) {
+ALWAYS_INLINE bool match(VariableParameter /*unused*/, T /*unused*/) {
   return true;
 }
 template <typename T>
@@ -1122,11 +1121,11 @@ ALWAYS_INLINE bool match(FixedParameter<T> fixed_parameter, T value) {
 }
 
 template <typename T>
-ALWAYS_INLINE T specialize(VariableParameter, T value) {
+ALWAYS_INLINE T specialize(VariableParameter /*unused*/, T value) {
   return value;
 }
 template <typename T>
-ALWAYS_INLINE T specialize(FixedParameter<T> fixed_parameter, T) {
+ALWAYS_INLINE T specialize(FixedParameter<T> fixed_parameter, T /*unused*/) {
   return fixed_parameter.value;
 }
 } // namespace specialization_helper

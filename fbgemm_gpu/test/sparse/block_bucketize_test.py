@@ -1664,6 +1664,176 @@ class BlockBucketizeTest(unittest.TestCase):
                     new_pos_cpu, new_pos_gpu.cpu(), new_lengths_cpu
                 )
 
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        bucketize_pos=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_float64_weights(
+        self,
+        index_type: Type[torch.dtype],
+        bucketize_pos: bool,
+        sequence: bool,
+    ) -> None:
+        """Test block bucketize sparse features with float64 weights.
+
+        Tests both CPU and GPU implementations for float64 weights.
+        """
+        B = 2
+        # pyre-ignore [6]
+        lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=index_type)
+        indices = torch.tensor(
+            [3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20],
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        # Use float64 weights
+        weights = torch.tensor(
+            [
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+                5.0,
+                6.0,
+                7.0,
+                8.0,
+                9.0,
+                10.0,
+                11.0,
+                12.0,
+                13.0,
+                14.0,
+                15.0,
+            ],
+            dtype=torch.float64,
+        )
+        # pyre-ignore [6]
+        block_sizes = torch.tensor([5, 15, 10, 20], dtype=index_type)
+        my_size = 2
+
+        new_lengths_ref = torch.tensor(
+            [0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1],
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [3, 4, 11, 1, 11, 0, 13, 14, 0, 1, 2, 3, 2, 0, 0],
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        new_weights_ref = torch.tensor(
+            [
+                1.0,
+                2.0,
+                4.0,
+                7.0,
+                12.0,
+                3.0,
+                5.0,
+                6.0,
+                8.0,
+                9.0,
+                10.0,
+                11.0,
+                13.0,
+                14.0,
+                15.0,
+            ],
+            dtype=torch.float64,
+        )
+        new_pos_ref = torch.tensor(
+            [0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 1, 2, 1, 2, 0],
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        (
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths, indices, bucketize_pos, sequence, block_sizes, my_size, weights
+        )
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
+        # Verify weights are float64
+        self.assertEqual(new_weights_cpu.dtype, torch.float64)
+        torch.testing.assert_close(new_weights_cpu, new_weights_ref)
+        if bucketize_pos:
+            torch.testing.assert_close(new_pos_cpu, new_pos_ref)
+        if sequence:
+            value_unbucketized_indices = unbucketize_indices_value(
+                new_indices_cpu, new_lengths_cpu, block_sizes, my_size, B
+            )
+            unbucketized_indices = torch.index_select(
+                value_unbucketized_indices, 0, unbucketize_permute
+            )
+            torch.testing.assert_close(unbucketized_indices, indices, rtol=0, atol=0)
+
+        # Test GPU implementation only if GPU is available
+        if gpu_available:
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                new_weights_gpu,
+                new_pos_gpu,
+                unbucketize_permute_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+                lengths.cuda(),
+                indices.cuda(),
+                bucketize_pos,
+                sequence,
+                block_sizes.cuda(),
+                my_size,
+                weights.cuda(),
+            )
+
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+
+            # Verify weights are float64
+            self.assertEqual(new_weights_gpu.dtype, torch.float64)
+
+            if sequence:
+                value_unbucketized_indices = unbucketize_indices_value(
+                    new_indices_gpu.cpu(),
+                    new_lengths_gpu.cpu(),
+                    block_sizes,
+                    my_size,
+                    B,
+                )
+                unbucketized_indices = torch.index_select(
+                    value_unbucketized_indices, 0, unbucketize_permute_gpu.cpu()
+                )
+                torch.testing.assert_close(
+                    unbucketized_indices, indices, rtol=0, atol=0
+                )
+                torch.testing.assert_close(
+                    new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+                )
+                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_ref)
+                if bucketize_pos:
+                    torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_ref)
+            else:
+                self.validate_out_of_order_output(
+                    new_indices_ref, new_indices_gpu.cpu(), new_lengths_ref
+                )
+                self.validate_out_of_order_output(
+                    new_weights_ref,
+                    new_weights_gpu.cpu(),
+                    new_lengths_ref,
+                    is_int=False,
+                )
+                if bucketize_pos:
+                    self.validate_out_of_order_output(
+                        new_pos_ref, new_pos_gpu.cpu(), new_lengths_ref
+                    )
+
 
 extend_test_class(BlockBucketizeTest)
 

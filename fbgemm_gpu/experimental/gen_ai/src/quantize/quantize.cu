@@ -89,7 +89,7 @@ namespace fbgemm_gpu {
 // outputs are of size float[D]
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-#if HIP_FP8_TYPE_OCP
+#if HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ
 using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3;
 using __nv_fp8x2_e4m3 = __hip_fp8x2_e4m3;
 using __nv_fp8_e4m3 = __hip_fp8_e4m3;
@@ -1075,7 +1075,11 @@ void invokeComputeScalesAndQuantizeMatrix(
     bool stochastic_rounding,
     cudaStream_t stream) {
   dim3 grid(numel / lda);
+#ifdef USE_ROCM
   bool use_shmem = true;
+#else
+  bool use_shmem = false;
+#endif
   auto const shmem_size = lda * sizeof(T_IN);
   if (shmem_size >= (48 << 10)) {
     cudaError_t ret;
@@ -1287,7 +1291,8 @@ std::vector<at::Tensor> quantize_fp8_per_col(
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 // Convert 8 float32 values into 8 e2m1 values (represented as one uint32_t).
 inline __device__ uint32_t fp32_vec_to_e2m1(float (&array)[8]) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    defined(__CUDA_ARCH_FEAT_SM100_ALL)
   uint32_t val;
   asm volatile(
       "{\n"
@@ -1318,7 +1323,8 @@ inline __device__ uint32_t fp32_vec_to_e2m1(float (&array)[8]) {
 
 // Convert 4 float2 values into 8 e2m1 values (represented as one uint32_t).
 inline __device__ uint32_t fp32_vec_to_e2m1(float2 (&array)[4]) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    defined(__CUDA_ARCH_FEAT_SM100_ALL)
   uint32_t val;
   asm volatile(
       "{\n"
@@ -1360,7 +1366,8 @@ __device__ uint8_t* cvt_quant_to_fp4_get_sf_out_offset(
     int colIdx,
     int numCols,
     SFType* SFout) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    defined(__CUDA_ARCH_FEAT_SM100_ALL)
   static_assert(
       CVT_FP4_NUM_THREADS_PER_SF == 1 || CVT_FP4_NUM_THREADS_PER_SF == 2);
 
@@ -1420,7 +1427,8 @@ struct PackedVec<__nv_fp8_e4m3> {
 template <class Type, bool UE8M0_SF = false>
 __device__ uint32_t
 cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    defined(__CUDA_ARCH_FEAT_SM100_ALL)
   // Get absolute maximum values among the local 8 values.
   auto localMax = __habs2(vec.elts[0]);
 
@@ -1496,7 +1504,8 @@ cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
 // Use UE4M3 by default.
 template <class Type, bool UE8M0_SF = false>
 __global__ void
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    defined(__CUDA_ARCH_FEAT_SM100_ALL)
 __launch_bounds__(512, 4) cvt_fp16_to_fp4(
 #else
 cvt_fp16_to_fp4(
@@ -1507,7 +1516,8 @@ cvt_fp16_to_fp4(
     float const* SFScale,
     uint32_t* out,
     uint32_t* SFout) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    defined(__CUDA_ARCH_FEAT_SM100_ALL)
   using PackedVec = PackedVec<Type>;
   static constexpr int CVT_FP4_NUM_THREADS_PER_SF =
       (CVT_FP4_SF_VEC_SIZE / CVT_FP4_ELTS_PER_THREAD);
