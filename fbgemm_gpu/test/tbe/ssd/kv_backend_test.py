@@ -943,6 +943,12 @@ class SSDCheckpointTest(unittest.TestCase):
                 0.1,
                 0.1,
             ],
+            ttls_in_mins=[
+                0,
+                0,
+                0,
+                0,
+            ],
             threshold_calculation_bucket_stride=0.2,
             threshold_calculation_bucket_num=1000000,
             interval_for_insufficient_eviction_s=0,

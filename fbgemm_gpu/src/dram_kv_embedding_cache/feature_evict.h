@@ -182,6 +182,7 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         CHECK(target_eviction_percent_per_table_.has_value());
         CHECK(threshold_calculation_bucket_stride_.has_value());
         CHECK(threshold_calculation_bucket_num_.has_value());
+        CHECK(ttls_in_mins_.has_value());
         LOG(INFO) << "eviction config, trigger mode:"
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
@@ -189,6 +190,7 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << max_training_id_num_per_table_.value()
                   << ", target_eviction_percent_per_table:"
                   << target_eviction_percent_per_table_.value()
+                  << ", ttls_in_mins: " << ttls_in_mins_.value()
                   << ", threshold_calculation_bucket_stride: "
                   << threshold_calculation_bucket_stride_.value()
                   << ", threshold_calculation_bucket_num: "
@@ -953,6 +955,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       const std::vector<double>& decay_rates,
       const std::vector<int64_t>& max_training_id_num_per_table,
       const std::vector<double>& target_eviction_percent_per_table,
+      const std::vector<int64_t>& ttls_in_mins,
       const double threshold_calculation_bucket_stride,
       const int64_t threshold_calculation_bucket_num,
       int64_t interval_for_insufficient_eviction_s,
@@ -971,6 +974,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         decay_rates_(decay_rates),
         max_training_id_num_per_table_(max_training_id_num_per_table),
         target_eviction_percent_per_table_(target_eviction_percent_per_table),
+        ttls_in_mins_(ttls_in_mins),
         threshold_calculation_bucket_stride_(
             threshold_calculation_bucket_stride),
         num_buckets_(threshold_calculation_bucket_num),
@@ -1032,6 +1036,12 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
  protected:
   bool evict_block(weight_type* block, int sub_table_id, int shard_id)
       override {
+    double ttls_threshold = ttls_in_mins_[sub_table_id];
+    if (ttls_threshold > 0) {
+      auto current_time = FixedBlockPool::current_timestamp();
+      return current_time - FixedBlockPool::get_timestamp(block) >
+          ttls_threshold * 60;
+    }
     double threshold = thresholds_[sub_table_id];
 
     if (this->should_decay_) {
@@ -1101,6 +1111,13 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
   void compute_thresholds_from_buckets() {
     for (size_t table_id = 0; table_id < num_tables_; ++table_id) {
       int64_t total = 0;
+
+      if (ttls_in_mins_[table_id] > 0) {
+        LOG(INFO)
+            << "[Dry Run Result]table " << table_id
+            << " id enabled ttl eviction skip feature score threshold calculation";
+        continue;
+      }
 
       for (int shard_id = 0; shard_id < this->num_shards_; ++shard_id) {
         total +=
@@ -1189,6 +1206,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
   const std::vector<double>&
       target_eviction_percent_per_table_; // target eviction percent for
                                           // each table
+  const std::vector<int64_t>& ttls_in_mins_; // Time-to-live for eviction.
   std::vector<std::vector<std::vector<size_t>>>
       local_buckets_per_shard_per_table_;
   std::vector<std::vector<size_t>> local_blocks_num_per_shard_per_table_;
@@ -1437,6 +1455,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->feature_score_counter_decay_rates_.value(),
           config->max_training_id_num_per_table_.value(),
           config->target_eviction_percent_per_table_.value(),
+          config->ttls_in_mins_.value(),
           config->threshold_calculation_bucket_stride_.value(),
           config->threshold_calculation_bucket_num_.value(),
           config->interval_for_insufficient_eviction_s_,
