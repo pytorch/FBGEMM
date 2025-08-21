@@ -2387,10 +2387,7 @@ __global__ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel(
     at::PackedTensorAccessor64<uint8_t, 5, at::RestrictPtrTraits>
         cache_V, // [N_H_L][B][MAX_T][N_KVH][D_H]
     at::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_K,
-    at::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_V,
-    int* errorFlag,
-    half* beforeVal,
-    half* afterVal) {
+    at::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_V) {
   auto N_KVH = cache_K.size(3);
   auto MAX_T = cache_K.size(2);
   auto D_H = cache_K.size(4);
@@ -2449,13 +2446,6 @@ __global__ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel(
 
       __half new_scale = __hmul(scale, __float2half(2.0f));
       *shift_scale = __half2(new_scale, shift);
-
-      if (__half2float(scale) * 2.0f > 65504.0f) {
-        // Record error if scale overflows.
-        *beforeVal = scale;
-        *afterVal = new_scale;
-        *errorFlag = 1;
-      }
     }
   }
 }
@@ -2478,21 +2468,6 @@ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
   dim3 blocks(N_H_L, B, std::max<int32_t>(1, kMaxBlocks / (B * N_H_L)));
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
 
-  int* d_errorFlag;
-  int h_errorFlag = 0;
-  cudaMalloc(&d_errorFlag, sizeof(int));
-  cudaMemcpy(d_errorFlag, &h_errorFlag, sizeof(int), cudaMemcpyHostToDevice);
-
-  half* d_beforeVal;
-  half h_beforeVal = __float2half(0.0f);
-  cudaMalloc(&d_beforeVal, sizeof(__half));
-  cudaMemcpy(d_beforeVal, &h_beforeVal, sizeof(__half), cudaMemcpyHostToDevice);
-
-  half* d_afterVal;
-  half h_afterVal = __float2half(0.0f);
-  cudaMalloc(&d_afterVal, sizeof(__half));
-  cudaMemcpy(d_afterVal, &h_afterVal, sizeof(__half), cudaMemcpyHostToDevice);
-
   convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel<<<
       blocks,
       threads,
@@ -2501,32 +2476,9 @@ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
       cache_K.packed_accessor64<uint8_t, 5, at::RestrictPtrTraits>(),
       cache_V.packed_accessor64<uint8_t, 5, at::RestrictPtrTraits>(),
       qparam_K.packed_accessor64<int32_t, 5, at::RestrictPtrTraits>(),
-      qparam_V.packed_accessor64<int32_t, 5, at::RestrictPtrTraits>(),
-      d_errorFlag,
-      d_beforeVal,
-      d_afterVal);
+      qparam_V.packed_accessor64<int32_t, 5, at::RestrictPtrTraits>());
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
-
-  cudaMemcpy(&h_errorFlag, d_errorFlag, sizeof(int), cudaMemcpyDeviceToHost);
-  cudaMemcpy(&h_beforeVal, d_beforeVal, sizeof(__half), cudaMemcpyDeviceToHost);
-  cudaMemcpy(&h_afterVal, d_afterVal, sizeof(__half), cudaMemcpyDeviceToHost);
-  // Check the error flag
-  if (h_errorFlag != 0) {
-    std::stringstream ss;
-    ss << "Error detected in convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace execution! ["
-       << h_errorFlag << "] scale before: ";
-    uint16_t h_beforeVal_u16 = std::bit_cast<uint16_t>(h_beforeVal);
-    for (int i = 15; i >= 0; --i) {
-      ss << ((h_beforeVal_u16 >> i) & 1);
-    }
-    ss << " scale after: ";
-    uint16_t h_afterVal_u16 = std::bit_cast<uint16_t>(h_afterVal);
-    for (int i = 15; i >= 0; --i) {
-      ss << ((h_afterVal_u16 >> i) & 1);
-    }
-    LOG(ERROR) << ss.str() << std::endl;
-  }
 }
 #else
 void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(

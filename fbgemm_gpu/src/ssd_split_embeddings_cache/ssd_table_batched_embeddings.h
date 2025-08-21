@@ -593,7 +593,29 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
              "removing the prev rdb ckpt, please make sure it has fullfilled "
              "its use case, e.g. checkpoint and publish";
     }
+
+    // remove old checkoint handler as they are likely not needed anymore
+    // this can not be done the same way as rdb snapshot, because we only
+    // create 1 rdb checkpoint per use cases(ckpt/publish), however publish
+    // calls state_dict multiple times, most of them to just get the fqn, they
+    // throw away pmt immediately if such state_dict is called at the beginning,
+    // it will destroy the checkpoint handler and when the real use case needs
+    // rdb ckpt, it is removed already
+    if (global_step - 10000 > 0) {
+      std::vector<std::string> ckpt_uuids_to_purge;
+      for (const auto& [glb_step, ckpt_uuid] : global_step_to_ckpt_uuid_) {
+        if (glb_step < global_step - 10000) {
+          ckpt_uuids_to_purge.push_back(ckpt_uuid);
+        }
+      }
+      for (auto& ckpt_uuid : ckpt_uuids_to_purge) {
+        release_checkpoint(ckpt_uuid);
+      }
+    }
+
     auto ckpt_uuid = facebook::strings::generateUUID();
+
+    LOG(INFO) << "creating new rocksdb checkpoint, uuid:" << ckpt_uuid;
     auto handle = std::make_unique<CheckpointHandle>(
         this, tbe_uuid_, ckpt_uuid, path_, use_default_ssd_path_);
     checkpoints_[ckpt_uuid] = std::move(handle);
