@@ -384,6 +384,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             local_write_allocate_total_duration +=
                                 facebook::WallClockUtil::NowInUsecFast() -
                                 before_alloc_ts;
+                            if (feature_evict_config_.has_value() &&
+                                feature_evict_config_.value()->trigger_mode_ !=
+                                    EvictTriggerMode::DISABLED &&
+                                feature_evict_) {
+                              auto* feature_score_evict = dynamic_cast<
+                                  FeatureScoreBasedEvict<weight_type>*>(
+                                  feature_evict_.get());
+                              if (feature_score_evict) {
+                                feature_score_evict
+                                    ->update_feature_score_statistics(
+                                        block, 0, shard_id, true);
+                              }
+                            }
                           }
                           if (feature_evict_config_.has_value() &&
                               feature_evict_config_.value()->trigger_mode_ !=
@@ -705,16 +718,21 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           auto it = wlmap->find(id);
                           if (it != wlmap->end()) {
                             block = it->second;
+                            feature_score_evict
+                                ->update_feature_score_statistics(
+                                    block, engege_rate, shard_id, false);
                           } else {
                             // Key doesn't exist, allocate new block and
                             // insert.
                             block = pool->template allocate_t<weight_type>();
                             FixedBlockPool::set_key(block, id);
+                            FixedBlockPool::set_feature_score_rate(
+                                block, engege_rate);
                             wlmap->insert({id, block});
+                            feature_score_evict
+                                ->update_feature_score_statistics(
+                                    block, 0, shard_id, true);
                           }
-
-                          feature_score_evict->update_feature_score_statistics(
-                              block, engege_rate);
                           updated_id_count++;
                         }
                       }
@@ -1489,61 +1507,75 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const auto indexes = iter->second;
       auto f =
           folly::via(executor_.get())
-              .thenValue(
-                  [this, shard_id, indexes, &indices, &weights_with_metaheader](
-                      folly::Unit) {
-                    FBGEMM_DISPATCH_INTEGRAL_TYPES(
-                        indices.scalar_type(),
-                        "dram_kv_set_with_metaheader",
-                        [this,
-                         shard_id,
-                         indexes,
-                         &indices,
-                         &weights_with_metaheader] {
-                          using index_t = scalar_t;
-                          CHECK(indices.is_contiguous());
-                          CHECK(weights_with_metaheader.is_contiguous());
-                          CHECK_EQ(
-                              indices.size(0), weights_with_metaheader.size(0));
-                          {
-                            auto wlmap = kv_store_.by(shard_id).wlock();
-                            auto* pool = kv_store_.pool_by(shard_id);
-                            int64_t stride = weights_with_metaheader.size(1);
-                            auto indices_data_ptr = indices.data_ptr<index_t>();
-                            auto weights_data_ptr =
-                                weights_with_metaheader.data_ptr<weight_type>();
-                            for (auto index_iter = indexes.begin();
-                                 index_iter != indexes.end();
-                                 index_iter++) {
-                              const auto& id_index = *index_iter;
-                              auto id = int64_t(indices_data_ptr[id_index]);
-                              // Defensive programming
-                              // used is false shouldn't occur under normal
-                              // circumstances
-                              FixedBlockPool::set_used(
-                                  weights_data_ptr + id_index * stride, true);
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          &indices,
+                          &weights_with_metaheader](folly::Unit) {
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(),
+                    "dram_kv_set_with_metaheader",
+                    [this,
+                     shard_id,
+                     indexes,
+                     &indices,
+                     &weights_with_metaheader] {
+                      using index_t = scalar_t;
+                      CHECK(indices.is_contiguous());
+                      CHECK(weights_with_metaheader.is_contiguous());
+                      CHECK_EQ(
+                          indices.size(0), weights_with_metaheader.size(0));
+                      {
+                        auto wlmap = kv_store_.by(shard_id).wlock();
+                        auto* pool = kv_store_.pool_by(shard_id);
+                        int64_t stride = weights_with_metaheader.size(1);
+                        auto indices_data_ptr = indices.data_ptr<index_t>();
+                        auto weights_data_ptr =
+                            weights_with_metaheader.data_ptr<weight_type>();
+                        for (auto index_iter = indexes.begin();
+                             index_iter != indexes.end();
+                             index_iter++) {
+                          const auto& id_index = *index_iter;
+                          auto id = int64_t(indices_data_ptr[id_index]);
+                          // Defensive programming
+                          // used is false shouldn't occur under normal
+                          // circumstances
+                          FixedBlockPool::set_used(
+                              weights_data_ptr + id_index * stride, true);
 
-                              // use mempool
-                              weight_type* block = nullptr;
-                              // First check if the key already exists
-                              auto it = wlmap->find(id);
-                              if (it != wlmap->end()) {
-                                block = it->second;
-                              } else {
-                                // Key doesn't exist, allocate new block and
-                                // insert.
-                                block =
-                                    pool->template allocate_t<weight_type>();
-                                wlmap->insert({id, block});
+                          // use mempool
+                          weight_type* block = nullptr;
+                          // First check if the key already exists
+                          auto it = wlmap->find(id);
+                          if (it != wlmap->end()) {
+                            block = it->second;
+                          } else {
+                            // Key doesn't exist, allocate new block and
+                            // insert.
+                            block = pool->template allocate_t<weight_type>();
+                            wlmap->insert({id, block});
+                            if (feature_evict_config_.has_value() &&
+                                feature_evict_config_.value()->trigger_mode_ !=
+                                    EvictTriggerMode::DISABLED &&
+                                feature_evict_) {
+                              auto* feature_score_evict = dynamic_cast<
+                                  FeatureScoreBasedEvict<weight_type>*>(
+                                  feature_evict_.get());
+                              if (feature_score_evict) {
+                                feature_score_evict
+                                    ->update_feature_score_statistics(
+                                        block, 0, shard_id, true);
                               }
-                              std::copy(
-                                  weights_data_ptr + id_index * stride,
-                                  weights_data_ptr + (id_index + 1) * stride,
-                                  block);
                             }
                           }
-                        });
-                  });
+                          std::copy(
+                              weights_data_ptr + id_index * stride,
+                              weights_data_ptr + (id_index + 1) * stride,
+                              block);
+                        }
+                      }
+                    });
+              });
       futures.push_back(std::move(f));
     }
     return folly::collect(futures);
