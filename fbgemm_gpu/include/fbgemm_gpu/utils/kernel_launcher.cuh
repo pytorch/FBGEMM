@@ -274,8 +274,6 @@ struct KernelLauncher {
         "\n");
         //"\n",
         //c10::cuda::c10_retrieve_device_side_assertion_info());
-        "\n",
-        c10::cuda::c10_retrieve_device_side_assertion_info());
   }
 
   template <typename KernelFunc, typename... Args>
