@@ -15,6 +15,7 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+#include <ATen/hip/HIPContext.h>
 #include <c10/hip/HIPStream.h>
 
 #include "kernels/fp8fp8bf16_rowwise_kernel_manifest.h"
@@ -496,6 +497,17 @@ RowwiseKernel rowwise_dispatch(int M, int N, int K) {
   return rowwise_heuristic_dispatch(M, N, K);
 }
 
+static std::pair<at::ScalarType, std::string> get_float8_e4m3_dtype() {
+  if (at::detail::getCUDAHooks().isGPUArch({"gfx942"})) {
+    return std::make_pair(at::kFloat8_e4m3fnuz, "float8_e4m3fnuz");
+  } else if (at::detail::getCUDAHooks().isGPUArch({"gfx950"})) {
+    return std::make_pair(at::kFloat8_e4m3fn, "float8_e4m3fn");
+  } else {
+    std::string gcn_arch_name = at::cuda::getCurrentDeviceProperties()->gcnArchName;
+    TORCH_CHECK(false, "Unsupported GPU architecture for FP8: ", gcn_arch_name);
+  }
+}
+
 at::Tensor f8f8_rowwise_wrapper(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -504,11 +516,12 @@ at::Tensor f8f8_rowwise_wrapper(
     std::optional<at::Tensor> bias,
     bool use_fast_accum,
     std::optional<at::Tensor> output = std::nullopt) {
+  static auto float8_dtype = get_float8_e4m3_dtype();
   // Check that input datatypes are valid.
   TORCH_CHECK(
-      (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
-          (WQ.dtype() == at::kFloat8_e4m3fnuz),
-      "Inputs must be type float8_e4m3fnuz.");
+      (XQ.dtype() == float8_dtype.first) &&
+          (WQ.dtype() == float8_dtype.first),
+      "Inputs must be type ", float8_dtype.second);
   TORCH_CHECK(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");
