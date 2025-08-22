@@ -22,6 +22,7 @@ gpu_cpp_library(
     ${FBGEMM_GPU}/src/split_embeddings_cache/lru_cache_populate_byte.cpp
     ${FBGEMM_GPU}/src/split_embeddings_cache/lxu_cache.cpp
     ${FBGEMM_GPU}/src/split_embeddings_cache/split_embeddings_cache_ops.cpp
+    ${FBGEMM_GPU}/src/split_embeddings_cache/raw_embedding_streamer.cpp
   GPU_SRCS
     ${FBGEMM_GPU}/src/split_embeddings_cache/lfu_cache_find.cu
     ${FBGEMM_GPU}/src/split_embeddings_cache/lfu_cache_populate.cu
