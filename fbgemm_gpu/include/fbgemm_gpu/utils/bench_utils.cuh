@@ -15,32 +15,10 @@
 #include <vector>
 
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/device_cache_flusher.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
 namespace fbgemm_gpu {
-
-__global__ __launch_bounds__(
-    kMaxThreads) void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  char val = d_flush[idx];
-  if (do_write * val) {
-    d_flush2[idx] = val;
-  }
-}
-
-void flush_cache(int cache_size_mb = 40, bool do_write = false) {
-  const int cache_size = cache_size_mb * 1024 * 1024; // A100 40MB L2 cache
-  std::vector<char> flush(cache_size, (char)255);
-  char* d_flush;
-  char* d_flush2;
-  C10_CUDA_CHECK(cudaMalloc(&d_flush, cache_size));
-  C10_CUDA_CHECK(cudaMalloc(&d_flush2, cache_size));
-  C10_CUDA_CHECK(
-      cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice));
-  flush_gpu<<<cache_size / 512, 512>>>(d_flush, d_flush2, do_write);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-  C10_CUDA_CHECK(cudaFree(d_flush));
-  C10_CUDA_CHECK(cudaFree(d_flush2));
-}
 
 void generate_random_table(float* d_f32_table, unsigned size) {
   curandGenerator_t gen;
@@ -53,13 +31,14 @@ void generate_random_table(float* d_f32_table, unsigned size) {
 
 template <typename Lambda>
 float benchmark_function(int iters, Lambda&& f) {
+  const auto flusher = utils::DeviceCacheFlusher();
   float elapsed = 0;
   cudaEvent_t start, stop;
   C10_CUDA_CHECK(cudaEventCreate(&start));
   C10_CUDA_CHECK(cudaEventCreate(&stop));
   for (int i = 0; i < iters; i++) {
     float local_elapsed = 0;
-    flush_cache(40); // A100 40MB L2 cache
+    flusher.flush(); // Flush L1 cache
     C10_CUDA_CHECK(cudaGetLastError());
     C10_CUDA_CHECK(cudaEventRecord(start, 0));
 
