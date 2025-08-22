@@ -6,8 +6,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#pragma once
+
 #include <c10/cuda/CUDAException.h>
 #include <cuda.h>
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
 namespace fbgemm_gpu::utils {
 
@@ -29,7 +32,7 @@ flush_gpu_cache(char* d_flush, char* d_flush2, bool do_write) {
 }
 
 class DeviceCacheFlusher {
-  size_t cache_size = 0;
+  size_t cache_size = 40; // A100 40MB L2 cache
 
   std::vector<char> h_flush;
   char* d_flush1 = nullptr;
@@ -54,10 +57,17 @@ class DeviceCacheFlusher {
 
     // Force a copy from host to data1, and from data1 to data2 buffer, in order
     // to flush the L2 cache
-    cudaMemcpy(d_flush1, h_flush.data(), cache_size, cudaMemcpyHostToDevice);
-    flush_gpu_cache<<<num_blocks, 512>>>(d_flush1, d_flush2, do_write);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-    cudaDeviceSynchronize();
+    C10_CUDA_CHECK(cudaMemcpy(
+        d_flush1, h_flush.data(), cache_size, cudaMemcpyHostToDevice));
+    FBGEMM_LAUNCH_KERNEL(
+        (flush_gpu_cache),
+        num_blocks,
+        512,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        d_flush1,
+        d_flush2,
+        do_write);
   }
 
   ~DeviceCacheFlusher() {
