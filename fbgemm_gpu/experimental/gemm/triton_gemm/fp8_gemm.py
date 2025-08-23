@@ -1280,7 +1280,7 @@ def matmul_fp8_row(
         )
 
     if no_use_persistent:
-        logger.info("Using non-persistent kernel")
+        logger.debug("Using non-persistent kernel")
         # pyre-ignore
         torch._library.capture_triton(_kernel_matmul_fp8_row_non_persistent)[grid](
             a,

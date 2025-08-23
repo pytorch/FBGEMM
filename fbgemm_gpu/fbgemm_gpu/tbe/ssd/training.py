@@ -1033,9 +1033,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "eviction.feature_table.exec_duration_ms"
             )
             self.stats_reporter.register_stats(
-                "eviction.feature_table.dry_run_exec_duration_ms"
-            )
-            self.stats_reporter.register_stats(
                 "eviction.feature_table.exec_div_full_duration_rate"
             )
 
@@ -1352,12 +1349,63 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.record_function_via_dummy_profile(
                     f"## ssd_set_{name} ##",
                     self.ssd_db.set_cuda,
-                    indices_cpu.cpu(),
+                    indices_cpu,
                     rows_cpu,
                     actions_count_cpu,
                     self.timestep,
                     is_bwd,
                 )
+
+                if post_event is not None:
+                    stream.record_event(post_event)
+
+    def update_feature_score_metadata(
+        self,
+        linear_cache_indices: Tensor,
+        weights: Tensor,
+        stream: torch.cuda.Stream,
+        pre_event: Optional[torch.cuda.Event],
+        post_event: Optional[torch.cuda.Event],
+    ) -> None:
+        """
+        Write feature score to SSD to DRAM
+        Args:
+            stream (Stream): The CUDA stream that cudaStreamAddCallback will
+                             synchronize the host function with.  Moreover, the
+                             asynchronous D->H memory copies will operate on
+                             this stream
+            pre_event (Event): The CUDA event that the stream has to wait on
+            post_event (Event): The CUDA event that the current will record on
+                                when the eviction is done
+        Returns:
+            None
+        """
+        with record_function("## ssd_write_feature_score ##"):
+            with torch.cuda.stream(stream):
+                if pre_event is not None:
+                    stream.wait_event(pre_event)
+
+                    cpu_pinned_linear_cache_indices = torch.empty_like(
+                        linear_cache_indices, device="cpu", pin_memory=True
+                    )
+                    cpu_pinned_linear_cache_indices.copy_(
+                        linear_cache_indices, non_blocking=True
+                    )
+
+                    cpu_pinned_weights = torch.empty_like(
+                        weights, device="cpu", pin_memory=True
+                    )
+                    cpu_pinned_weights.copy_(weights, non_blocking=True)
+
+                    self.record_function_via_dummy_profile(
+                        "## ssd_write_feature_score_metadata ##",
+                        self.ssd_db.set_feature_score_metadata_cuda,
+                        cpu_pinned_linear_cache_indices,
+                        torch.tensor(
+                            [weights.shape[0]], device="cpu", dtype=torch.long
+                        ),
+                        cpu_pinned_weights.view(torch.float32).view(-1, 2),
+                    )
 
                 if post_event is not None:
                     stream.record_event(post_event)
@@ -1685,12 +1733,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
-            if self.backend_type == BackendType.DRAM and weights is not None:
-                # DRAM backend supports feature score eviction, if there is weights available
-                # in the prefetch call, we will set metadata for feature score eviction asynchronously
-                cloned_linear_cache_indices = linear_cache_indices.clone()
-            else:
-                cloned_linear_cache_indices = None
 
             # Lookup and virtually insert indices into L1. After this operator,
             # we know:
@@ -2050,13 +2092,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             if self.backend_type == BackendType.DRAM and weights is not None:
                 # Write feature score metadata to DRAM
-                self.record_function_via_dummy_profile(
-                    "## ssd_write_feature_score_metadata ##",
-                    self.ssd_db.set_feature_score_metadata_cuda,
-                    cloned_linear_cache_indices.cpu(),
-                    torch.tensor([weights.shape[0]], device="cpu", dtype=torch.long),
-                    weights.cpu().view(torch.float32).view(-1, 2),
-                )
+                if weights is not None:
+                    self.update_feature_score_metadata(
+                        linear_cache_indices=linear_cache_indices,
+                        weights=weights,
+                        stream=self.ssd_memcpy_stream,
+                        pre_event=self.ssd_event_cache_evict,
+                    )
 
             # Generate row addresses (pointing to either L1 or the current
             # iteration's scratch pad)
@@ -3838,14 +3880,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
         full_duration_ms = torch.tensor(0, dtype=torch.int64)
         exec_duration_ms = torch.tensor(0, dtype=torch.int64)
-        dry_run_exec_duration_ms = torch.tensor(0, dtype=torch.int64)
         self.ssd_db.get_feature_evict_metric(
             evicted_counts,
             processed_counts,
             eviction_threshold_with_dry_run,
             full_duration_ms,
             exec_duration_ms,
-            dry_run_exec_duration_ms,
         )
 
         stats_reporter.report_data_amount(
@@ -3909,12 +3949,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             duration_ms=exec_duration_ms.item(),
             time_unit="ms",
             enable_tb_metrics=True,
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="eviction.feature_table.dry_run_exec_duration_ms",
-            duration_ms=dry_run_exec_duration_ms.item(),
-            time_unit="ms",
         )
         if full_duration_ms.item() != 0:
             stats_reporter.report_data_amount(

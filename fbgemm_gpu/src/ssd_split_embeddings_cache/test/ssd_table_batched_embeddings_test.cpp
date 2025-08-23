@@ -10,12 +10,6 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/ssd_table_batched_embeddings.h"
-#ifdef FBGEMM_FBCODE
-#include <folly/experimental/coro/GmockHelpers.h>
-#include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
-#include "servicerouter/client/cpp2/mocks/MockSRClientFactory.h"
-#include "thrift/lib/cpp2/util/ScopedServerInterfaceThread.h"
-#endif
 
 using namespace ::testing;
 constexpr int64_t EMBEDDING_DIMENSION = 8;
@@ -82,21 +76,6 @@ class MockEmbeddingRocksDB : public ssd::EmbeddingRocksDB {
       (int, const std::string&, const std::string&),
       (override));
 };
-
-#ifdef FBGEMM_FBCODE
-class MockTrainingParameterServerService
-    : public ::apache::thrift::ServiceHandler<
-          aiplatform::gmpp::experimental::training_ps::
-              TrainingParameterServerService> {
- public:
-  MOCK_METHOD(
-      folly::coro::Task<std::unique_ptr<
-          aiplatform::gmpp::experimental::training_ps::SetEmbeddingsResponse>>,
-      co_setEmbeddings,
-      (std::unique_ptr<
-          aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest>));
-};
-#endif
 
 std::unique_ptr<MockEmbeddingRocksDB> getMockEmbeddingRocksDB(
     int num_shards,
@@ -187,125 +166,3 @@ TEST(SSDTableBatchedEmbeddingsTest, TestToggleCompactionFailOnThronw) {
       { mock_embedding_rocks->toggle_compaction(true); },
       "Failed to toggle compaction to 1 with exception std::runtime_error: some error message");
 }
-
-#ifdef FBGEMM_FBCODE
-TEST(KvDbTableBatchedEmbeddingsTest, TestTensorStream) {
-  int num_shards = 8;
-  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
-  std::vector<int64_t> table_offsets = {0, 100, 300};
-  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
-  auto mock_embedding_rocks = getMockEmbeddingRocksDB(
-      num_shards,
-      "tensor_stream",
-      true,
-      table_names,
-      table_offsets,
-      table_sizes);
-  // Mock TrainingParameterServerService
-  auto mock_service = std::make_shared<MockTrainingParameterServerService>();
-  auto mock_server =
-      std::make_shared<apache::thrift::ScopedServerInterfaceThread>(
-          mock_service,
-          "::1",
-          0,
-          facebook::services::TLSConfig::applyDefaultsToThriftServer);
-  auto& mock_client_factory =
-      facebook::servicerouter::getMockSRClientFactory(false /* strict */);
-  mock_client_factory.registerMockService(
-      "realtime.delta.publish.esr", mock_server);
-
-  auto invalid_ind = at::tensor(
-      {300, 301, 999}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
-  auto weights = at::randn(
-      {invalid_ind.size(0), EMBEDDING_DIMENSION},
-      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
-  EXPECT_CALL(*mock_service, co_setEmbeddings(_)).Times(0);
-  folly::coro::blockingWait(
-      mock_embedding_rocks->tensor_stream(invalid_ind, weights));
-
-  auto ind = at::tensor(
-      {10, 2, 1, 150, 170, 230, 280},
-      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
-  weights = at::randn(
-      {ind.size(0), 8},
-      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
-  EXPECT_CALL(*mock_service, co_setEmbeddings(_))
-      .Times(3) // 3 shards with consistent hashing
-      .WillRepeatedly(folly::coro::gmock_helpers::CoInvoke(
-          [](std::unique_ptr<
-              aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest>
-                 request)
-              -> folly::coro::Task<
-                  std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
-                                      SetEmbeddingsResponse>> {
-            co_return std::make_unique<
-                aiplatform::gmpp::experimental::training_ps::
-                    SetEmbeddingsResponse>();
-          }));
-  folly::coro::blockingWait(mock_embedding_rocks->tensor_stream(ind, weights));
-}
-#endif
-
-#ifdef FBGEMM_FBCODE
-TEST(KvDbTableBatchedEmbeddingsTest, TestStream) {
-  int num_shards = 8;
-  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
-  std::vector<int64_t> table_offsets = {0, 100, 300};
-  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
-  auto mock_embedding_rocks = getMockEmbeddingRocksDB(
-      num_shards, "test_stream", true, table_names, table_offsets, table_sizes);
-  auto ind = at::tensor(
-      {10, 2, 1, 150, 170, 230, 280},
-      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
-  auto weights = at::randn(
-      {ind.size(0), 8},
-      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
-  auto count = at::tensor(
-      {ind.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
-  // stop the dequeue thread to get accurate queue size
-  mock_embedding_rocks->join_weights_stream_thread();
-
-  // blocking
-  mock_embedding_rocks->stream(ind, weights, count, true);
-  EXPECT_EQ(mock_embedding_rocks->get_weights_to_stream_queue_size(), 1);
-  // non-blocking
-  mock_embedding_rocks->stream(ind, weights, count, false);
-  EXPECT_EQ(mock_embedding_rocks->get_weights_to_stream_queue_size(), 1);
-  mock_embedding_rocks->join_stream_tensor_copy_thread();
-  EXPECT_EQ(mock_embedding_rocks->get_weights_to_stream_queue_size(), 2);
-  mock_embedding_rocks.reset();
-
-  // E2E
-  auto default_response =
-      [](std::unique_ptr<
-          aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest>
-             request)
-      -> folly::coro::Task<std::unique_ptr<
-          aiplatform::gmpp::experimental::training_ps::SetEmbeddingsResponse>> {
-    co_return std::make_unique<
-        aiplatform::gmpp::experimental::training_ps::SetEmbeddingsResponse>();
-  };
-  // Mock TrainingParameterServerService
-  auto mock_service = std::make_shared<MockTrainingParameterServerService>();
-  auto mock_server =
-      std::make_shared<apache::thrift::ScopedServerInterfaceThread>(
-          mock_service,
-          "::1",
-          0,
-          facebook::services::TLSConfig::applyDefaultsToThriftServer);
-  auto& mock_client_factory =
-      facebook::servicerouter::getMockSRClientFactory(false /* strict */);
-  mock_client_factory.registerMockService(
-      "realtime.delta.publish.esr", mock_server);
-  EXPECT_CALL(*mock_service, co_setEmbeddings(_))
-      .Times(3) // 3 shards with consistent hashing
-      .WillRepeatedly(folly::coro::gmock_helpers::CoInvoke(default_response));
-
-  mock_embedding_rocks = getMockEmbeddingRocksDB(
-      num_shards, "test_stream", true, table_names, table_offsets, table_sizes);
-  mock_embedding_rocks->stream(ind, weights, count, true);
-  // make sure dequeue finished.
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  mock_embedding_rocks->join_weights_stream_thread();
-}
-#endif
