@@ -215,8 +215,8 @@ void lxu_cache_locking_counter_decrement_cuda(
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream(),
-      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, count, int32_t, 2, 32),
+      PTA_B(lxu_cache_locations, int32_t, 1, 32),
+      PTA_B(count, int32_t, 2, 32),
       fd);
 
   FBGEMM_LAUNCH_KERNEL(
@@ -227,8 +227,8 @@ void lxu_cache_locking_counter_decrement_cuda(
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream(),
-      MAKE_PTA_WITH_NAME(func_name2, lxu_cache_locking_counter, int32_t, 2, 32),
-      MAKE_PTA_WITH_NAME(func_name2, count, int32_t, 2, 32));
+      PTA_B(lxu_cache_locking_counter, int32_t, 2, 32),
+      PTA_B(count, int32_t, 2, 32));
 }
 
 namespace {
@@ -441,12 +441,12 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
             threads,
             0,
             at::cuda::getCurrentCUDAStream(),
-            MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+            PTA_B(linear_cache_indices, index_t, 1, 32),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
             invalid_index,
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+            PTA_B(lxu_cache_locations, int32_t, 1, 32),
             gather_cache_stats,
-            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats_, int32_t, 1, 32),
+            PTA_B(uvm_cache_stats_, int32_t, 1, 32),
             num_uniq_cache_indices.has_value()
                 ? num_uniq_cache_indices.value().data_ptr<int32_t>()
                 : nullptr);
@@ -549,8 +549,8 @@ DLL_PUBLIC void lxu_cache_locations_update_cuda(
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream(),
-      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations_new, int32_t, 1, 32),
+      PTA_B(lxu_cache_locations, int32_t, 1, 32),
+      PTA_B(lxu_cache_locations_new, int32_t, 1, 32),
       num_uniq_cache_indices.has_value()
           ? num_uniq_cache_indices.value().data_ptr<int32_t>()
           : nullptr);
