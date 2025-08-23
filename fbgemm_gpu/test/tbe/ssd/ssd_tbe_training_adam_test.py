@@ -21,7 +21,6 @@ from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
-
 from .training_common import (
     default_strategies,
     MAX_EXAMPLES,
