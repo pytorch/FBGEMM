@@ -10,10 +10,7 @@
 
 import unittest
 
-from typing import Any, Dict
-
 import hypothesis.strategies as st
-
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
@@ -22,12 +19,10 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
-
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
-
 from .training_common import (
     default_strategies,
     MAX_EXAMPLES,
@@ -36,14 +31,12 @@ from .training_common import (
 )
 
 
-default_st: Dict[str, Any] = default_strategies
-
-
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
-class SSDSplitTBEAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
+class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
     @given(
-        **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
+        **default_strategies,
+        backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_backward_adagrad(
@@ -301,7 +294,7 @@ class SSDSplitTBEAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             )
 
     @given(
-        **default_st,
+        **default_strategies,
         num_buckets=st.integers(min_value=10, max_value=15),
         enable_optimizer_offloading=st.booleans(),
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
@@ -517,7 +510,7 @@ class SSDSplitTBEAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             self.assertTrue(len(metadata_list[table_index].size()) == 2)
 
     @given(
-        **default_st,
+        **default_strategies,
         num_buckets=st.integers(min_value=10, max_value=15),
         enable_optimizer_offloading=st.booleans(),
     )
@@ -746,7 +739,7 @@ class SSDSplitTBEAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             )
 
     @given(
-        **default_st,
+        **default_strategies,
         num_buckets=st.integers(min_value=10, max_value=15),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -1012,7 +1005,7 @@ class SSDSplitTBEAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
 
             table_offset += VIRTUAL_TABLE_ROWS
 
-    @given(**default_st)
+    @given(**default_strategies)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_fetch_from_l1_sp_w_row_ids_weight(
         self,
@@ -1177,7 +1170,7 @@ class SSDSplitTBEAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
                 rtol=tolerance,
             )
 
-    @given(**default_st)
+    @given(**default_strategies)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_fetch_from_l1_sp_w_row_ids_opt_only(
         self,
