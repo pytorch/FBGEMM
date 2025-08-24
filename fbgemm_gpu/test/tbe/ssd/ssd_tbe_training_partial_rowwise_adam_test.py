@@ -369,7 +369,7 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
     @given(
         **default_st,
         enable_optimizer_offloading=st.booleans(),
-        backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
+        backend_type=st.just(BackendType.DRAM),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_emb_state_dict_partial_rowwise_adam(
@@ -392,9 +392,7 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
         num_buckets: int,
         enable_optimizer_offloading: bool,
         backend_type: BackendType,
-        **kwargs: Any,
     ) -> None:
-        assume(enable_optimizer_offloading is True and backend_type == BackendType.DRAM)
         assume(not weighted or pooling_mode == PoolingMode.SUM)
         # VBE is currently not supported for PARTIAL_ROWWISE_ADAM optimizer
         assume(not mixed_B)
