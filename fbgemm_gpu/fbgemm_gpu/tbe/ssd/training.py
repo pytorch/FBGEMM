@@ -1337,6 +1337,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Returns:
             None
         """
+        if not self.training:  # if not training, freeze the embedding
+            return
         with record_function(f"## ssd_evict_{name} ##"):
             with torch.cuda.stream(stream):
                 if pre_event is not None:
@@ -2074,31 +2076,32 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 use_pipeline=self.prefetch_pipeline,
             )
 
-            if linear_cache_indices.numel() > 0:
-                # Evict rows from cache to SSD
-                self.evict(
-                    rows=self.lxu_cache_evicted_weights,
-                    indices_cpu=self.lxu_cache_evicted_indices,
-                    actions_count_cpu=self.lxu_cache_evicted_count,
-                    stream=self.ssd_eviction_stream,
-                    pre_event=self.ssd_event_get,
-                    # Record completion event after scratch pad eviction
-                    # instead since that happens after L1 eviction
-                    post_event=self.ssd_event_cache_evict,
-                    is_rows_uvm=True,
-                    name="cache",
-                    is_bwd=False,
-                )
-
-            if self.backend_type == BackendType.DRAM and weights is not None:
-                # Write feature score metadata to DRAM
-                if weights is not None:
-                    self.update_feature_score_metadata(
-                        linear_cache_indices=linear_cache_indices,
-                        weights=weights,
-                        stream=self.ssd_memcpy_stream,
-                        pre_event=self.ssd_event_cache_evict,
+            if self.training:
+                if linear_cache_indices.numel() > 0:
+                    # Evict rows from cache to SSD
+                    self.evict(
+                        rows=self.lxu_cache_evicted_weights,
+                        indices_cpu=self.lxu_cache_evicted_indices,
+                        actions_count_cpu=self.lxu_cache_evicted_count,
+                        stream=self.ssd_eviction_stream,
+                        pre_event=self.ssd_event_get,
+                        # Record completion event after scratch pad eviction
+                        # instead since that happens after L1 eviction
+                        post_event=self.ssd_event_cache_evict,
+                        is_rows_uvm=True,
+                        name="cache",
+                        is_bwd=False,
                     )
+
+                if self.backend_type == BackendType.DRAM and weights is not None:
+                    # Write feature score metadata to DRAM
+                    if weights is not None:
+                        self.update_feature_score_metadata(
+                            linear_cache_indices=linear_cache_indices,
+                            weights=weights,
+                            stream=self.ssd_memcpy_stream,
+                            pre_event=self.ssd_event_cache_evict,
+                        )
 
             # Generate row addresses (pointing to either L1 or the current
             # iteration's scratch pad)
