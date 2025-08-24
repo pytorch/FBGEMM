@@ -283,39 +283,27 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
       lxu_cache_weights.scalar_type(),
       "reset_weight_momentum_kernel",
       ([&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name2 = "get_cache_indices_kernel";
-#endif
-        reset_weight_momentum_kernel<emb_t, cache_t>
-            <<<num_pruned_tables * blocks_per_table,
-               kMaxThreads,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                blocks_per_table,
-                MAKE_PTA_WITH_NAME(func_name2, dev_weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(func_name2, uvm_weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(
-                    func_name2, lxu_cache_weights, cache_t, 2, 64),
-                MAKE_PTA_WITH_NAME(
-                    func_name2, weights_placements, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name2, weights_offsets, int64_t, 1, 32),
-                MAKE_PTA_ACC_WITH_NAME(
-                    func_name2, momentum1_dev, cache_t, 1, 64),
-                MAKE_PTA_ACC_WITH_NAME(
-                    func_name2, momentum1_uvm, cache_t, 1, 64),
-                MAKE_PTA_WITH_NAME(
-                    func_name2, momentum1_placements, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name2, momentum1_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name2, D_offsets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name2, pruned_indices, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name2, pruned_indices_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name2, logical_table_ids, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name2, buffer_ids, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name2, lxu_cache_locations, int32_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (reset_weight_momentum_kernel<emb_t, cache_t>),
+            num_pruned_tables * blocks_per_table,
+            kMaxThreads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            blocks_per_table,
+            PTA_B(dev_weights, emb_t, 1, 64),
+            PTA_B(uvm_weights, emb_t, 1, 64),
+            PTA_B(lxu_cache_weights, cache_t, 2, 64),
+            PTA_B(weights_placements, int32_t, 1, 32),
+            PTA_B(weights_offsets, int64_t, 1, 32),
+            PTA_ACC_B(momentum1_dev, cache_t, 1, 64),
+            PTA_ACC_B(momentum1_uvm, cache_t, 1, 64),
+            PTA_B(momentum1_placements, int32_t, 1, 32),
+            PTA_B(momentum1_offsets, int64_t, 1, 32),
+            PTA_B(D_offsets, int32_t, 1, 32),
+            PTA_B(pruned_indices, int64_t, 1, 32),
+            PTA_B(pruned_indices_offsets, int64_t, 1, 32),
+            PTA_B(logical_table_ids, int32_t, 1, 32),
+            PTA_B(buffer_ids, int32_t, 1, 32),
+            PTA_B(lxu_cache_locations, int32_t, 1, 32));
       }));
 }
