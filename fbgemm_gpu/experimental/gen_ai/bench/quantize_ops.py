@@ -1263,6 +1263,7 @@ class FP8StackedGroupedGemmTorch(FP8StackedGroupedGemm):
         out = torch.empty(
             (xq.shape[0], wq.shape[1]), dtype=torch.bfloat16, device=xq.device
         )
+        x_scale = x_scale.view(x_scale.shape[0])
         return xq, wq, x_scale, w_scale, offsets, out
 
     def compute(self, xq, wq, x_scale, w_scale, offsets, out):
@@ -1285,6 +1286,48 @@ class FP8StackedGroupedGemmTorch(FP8StackedGroupedGemm):
     @property
     def cuda(self) -> bool:
         return False
+
+
+@register_quantize_op
+class ScaledGroupedMMRowwise(FP8StackedGroupedGemmTorch):
+    def __init__(self):
+        self.fast_accum = True
+        self.torch_compile = False
+
+    def compute(self, xq, wq, x_scale, w_scale, offsets, _):
+        if self.torch_compile:
+            f = torch.compile(
+                torch._scaled_grouped_mm,
+                options={
+                    "max_autotune": True,
+                    "max_autotune_gemm_backends": "TRITON,CK,CUTLASS,ATEN",
+                },
+            )
+        else:
+            f = torch._scaled_grouped_mm
+
+        return f(
+            xq,
+            wq.transpose(-2, -1),
+            offs=offsets,
+            out_dtype=torch.bfloat16,
+            scale_a=x_scale,
+            scale_b=w_scale,
+            scale_result=None,
+            use_fast_accum=self.fast_accum,
+        )
+
+    @property
+    def name(self) -> str:
+        return "scaled_grouped_mm_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
 
 
 @register_quantize_op
