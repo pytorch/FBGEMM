@@ -75,7 +75,7 @@ jobs:
           { arch: arm, instance: "linux.arm64.m7g.4xlarge" },
         ]
         build-target: [ "default" ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -149,7 +149,7 @@ jobs:
           { arch: arm, instance: "linux.arm64.m7g.4xlarge", timeout: 30 },
         ]
         build-target: [ "default" ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
