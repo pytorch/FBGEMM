@@ -1245,6 +1245,8 @@ def matmul_fp8_row(
     a = a.view(-1, a.size(-1))
     # View inputs into proper torch fp8 dtype.
     if torch.version.cuda:
+        # Enable tf32 tensor core to accelerate CUDA
+        torch.set_float32_matmul_precision("high")
         assert a.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
     else:
         assert a.dtype in (torch.float8_e4m3fnuz, torch.float8_e5m2fnuz)
