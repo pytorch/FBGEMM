@@ -1280,7 +1280,7 @@ def matmul_fp8_row(
         )
 
     if no_use_persistent:
-        logger.info("Using non-persistent kernel")
+        logger.debug("Using non-persistent kernel")
         # pyre-ignore
         torch._library.capture_triton(_kernel_matmul_fp8_row_non_persistent)[grid](
             a,
@@ -3898,6 +3898,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
             "kpack": 2,
         },
         num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 256,
+            "BLOCK_N": 128,
+            "BLOCK_K": 128,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 1,
+        },
+        num_warps=8,
         num_stages=2,
     ),
 ]

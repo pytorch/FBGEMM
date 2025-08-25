@@ -122,6 +122,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     auto* pool = kv_store_->pool_by(shard_id);
     auto* block = pool->allocate_t<float>();
     FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
     FixedBlockPool::set_feature_score_rate(block, i < 400 ? 0.5 : 0.8);
     wlock->insert({i, block});
   }
@@ -132,6 +133,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     auto* pool = kv_store_->pool_by(shard_id);
     auto* block = pool->allocate_t<float>();
     FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
     FixedBlockPool::set_feature_score_rate(block, i < 1500 ? 0.6 : 0.9);
     wlock->insert({i, block});
   }
@@ -142,7 +144,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
           2, // trigger_step_interval, not needed since no scheduler in this UT
           std::nullopt, // mem_util_threshold_in_GB, not needed since no
                         // scheduler in this UT
-          std::nullopt, // ttls_in_mins
+          std::vector<int64_t>({0, 0}), // ttls_in_mins
           std::nullopt, // counter_thresholds
           std::nullopt, // counter_decay_rates
           std::vector<double>({0.9, 0.6}), // feature_score_counter_decay_rates
@@ -154,7 +156,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
           10, // threshold_calculation_bucket_num
           0, // interval_for_insufficient_eviction_s
           0, // interval_for_sufficient_eviction_s
-          0); // interval_for_feature_statistics_decay_s
+          100000); // interval_for_feature_statistics_decay_s
 
   auto feature_evict = create_feature_evict(
       feature_evict_config,
@@ -166,11 +168,30 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   auto* feature_score_evict =
       dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
 
+  std::vector<std::size_t> block_cursors_;
+  std::vector<std::size_t> block_nums_snapshot_;
+  block_cursors_.resize(NUM_SHARDS);
+  block_nums_snapshot_.resize(NUM_SHARDS);
+  for (int i = 0; i < NUM_SHARDS; ++i) {
+    block_cursors_[i] = 0;
+    block_nums_snapshot_[i] = 0;
+  }
+
   // Initial validation
   size_t total_blocks = 0;
   for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
     auto rlock = kv_store_->by(shard_id).rlock();
-    total_blocks += rlock->size();
+    auto* pool = kv_store_->pool_by(shard_id);
+    block_nums_snapshot_[shard_id] =
+        pool->get_chunks().size() * pool->get_blocks_per_chunk();
+    while (block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
+      auto* block = pool->template get_block<float>(block_cursors_[shard_id]++);
+      if (block != nullptr && FixedBlockPool::get_used(block)) {
+        total_blocks++;
+        feature_score_evict->update_feature_score_statistics(
+            block, 0, shard_id, true);
+      }
+    }
   }
   ASSERT_EQ(total_blocks, 2000);
   // Perform eviction
@@ -192,6 +213,94 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   LOG(INFO) << feature_score_evict->get_thresholds();
   LOG(INFO) << "remaining: " << remaining;
   ASSERT_EQ(remaining, 1100);
+
+  // Test feature score based eviction for ttl
+  auto kv_store_with_ttl_ =
+      std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+          NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum_ttl = {1000, 2000};
+  uint32_t current_time = FixedBlockPool::current_timestamp();
+  // Insert test data table 1
+  for (int i = 0; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_with_ttl_->by(shard_id).wlock();
+    auto* pool = kv_store_with_ttl_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_feature_score_rate(block, i < 400 ? 0.5 : 0.8);
+    FixedBlockPool::set_timestamp(
+        block, i < 400 ? current_time - 7200 : current_time); // Initial score
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+  // Insert test data table 2
+  for (int i = 1000; i < 2000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_with_ttl_->by(shard_id).wlock();
+    auto* pool = kv_store_with_ttl_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_feature_score_rate(block, i < 1500 ? 0.6 : 0.9);
+    FixedBlockPool::set_timestamp(block, current_time); // Initial score
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+
+  std::vector<int64_t> ttls = {1, std::numeric_limits<int64_t>::max() / 1000};
+  c10::intrusive_ptr<FeatureEvictConfig> feature_evict_config_with_ttl =
+      c10::make_intrusive<FeatureEvictConfig>(
+          1, // evict_trigger_mode, not needed since no scheduler in this UT
+          5, // evict_trigger_strategy, not needed since no scheduler in this UT
+          2, // trigger_step_interval, not needed since no scheduler in this UT
+          std::nullopt, // mem_util_threshold_in_GB, not needed since no
+                        // scheduler in this UT
+          ttls, // ttls_in_mins
+          std::nullopt, // counter_thresholds
+          std::nullopt, // counter_decay_rates
+          std::vector<double>({0.9, 0.6}), // feature_score_counter_decay_rates
+          std::vector<int64_t>({0, 0}), // max_training_id_num_per_table
+          std::vector<double>({0, 0}), // target_eviction_percent_per_table
+          std::nullopt, // l2_weigh100t_thresholds
+          std::nullopt, // embedding_dims
+          0.2, // threshold_calculation_bucket_stride
+          10, // threshold_calculation_bucket_num
+          0, // interval_for_insufficient_eviction_s
+          0, // interval_for_sufficient_eviction_s
+          100000); // interval_for_feature_statistics_decay_s
+
+  auto feature_evict_with_ttl = create_feature_evict(
+      feature_evict_config_with_ttl,
+      *kv_store_with_ttl_.get(),
+      sub_table_hash_cumsum_ttl,
+      true // is training
+  );
+
+  // Initial validation
+  size_t total_blocks_with_ttl = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_with_ttl_->by(shard_id).rlock();
+    total_blocks_with_ttl += rlock->size();
+  }
+  ASSERT_EQ(total_blocks_with_ttl, 2000);
+
+  // Perform eviction
+  feature_evict_with_ttl->trigger_evict();
+
+  // Validate eviction process
+  while (feature_evict_with_ttl->is_evicting()) {
+    feature_evict_with_ttl->resume();
+    std::this_thread::sleep_for(std::chrono::microseconds(5));
+    feature_evict_with_ttl->pause();
+  }
+
+  // Validate results
+  size_t remaining_with_ttl = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_with_ttl_->by(shard_id).rlock();
+    remaining_with_ttl += rlock->size();
+  }
+  LOG(INFO) << "remaining with ttl: " << remaining_with_ttl;
+  ASSERT_EQ(remaining_with_ttl, 1600);
 }
 
 TEST(FeatureEvictTest, TimeBasedEviction) {
@@ -511,7 +620,6 @@ TEST(FeatureEvictTest, PerformanceTest) {
         0,
         0,
         true, // is training
-        false, // dry run
         TestMode::NORMAL);
 
     auto start_time = std::chrono::high_resolution_clock::now();
