@@ -1345,6 +1345,7 @@ def vbe(
         "learning_rate": 0.1,
         "eps": 0.1,
         "feature_table_map": list(range(T)),
+        "device": get_device(),
     }
 
     if ssd:
