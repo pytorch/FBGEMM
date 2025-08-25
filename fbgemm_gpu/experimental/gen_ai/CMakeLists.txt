@@ -26,7 +26,7 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 # Target Sources
 ################################################################################
 
-glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
+glob_files(experimental_gen_ai_cpp_source_files_cpu
   src/attention/cuda/*.cpp
   src/coalesce/*.cpp
   src/comm/*.cpp
@@ -35,7 +35,7 @@ glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
   src/quantize/*.cpp
   src/quantize/common/*.cpp)
 
-glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
+glob_files(experimental_gen_ai_cpp_source_files_gpu
   src/attention/cuda/*.cu
   src/coalesce/*.cu
   src/comm/*.cu
