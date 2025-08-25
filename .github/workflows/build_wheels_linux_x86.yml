@@ -49,9 +49,9 @@ jobs:
       id: filter
       env:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
-      # Nova coordinate Filters:
+      # Nova Coordinate Filters:
       # rocm/3.13t: causes segfaults at runtime
-      # 3.14: markupsafe is not available yet for python 3.14
+      # 3.14: markupsafe is not available yet for python 3.14, so codegen breaks
       run: |
         set -ex
         pwd
