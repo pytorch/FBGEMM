@@ -149,6 +149,16 @@ def get_configs_io_bound() -> List[Config]:
     return configs
 
 
+def dummy_prune_configs(configs, named_args, **kwargs):
+
+    M = named_args["M"]
+    N = named_args["N"]
+    K = named_args["K"]
+
+    logger.info(f"{len(configs)=} {len(configs)=} for {M=} {N=} {K=}")
+    return configs
+
+
 MATMUL_CONFIGS: List[Config] = [
     # basic configs for compute-bound matmuls
     Config(
@@ -173,6 +183,11 @@ MATMUL_CONFIGS: List[Config] = [
     ),
     Config(
         {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
+        num_stages=4,
+        num_warps=4,
+    ),
+    Config(
+        {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 256, "SPLIT_K": 1},
         num_stages=4,
         num_warps=4,
     ),
@@ -252,6 +267,9 @@ MATMUL_CONFIGS: List[Config] = [
 
 @triton.autotune(
     configs=MATMUL_CONFIGS,
+    prune_configs_by={
+        "early_config_prune": dummy_prune_configs,
+    },
     key=[
         "m_key",
         "n_key",
