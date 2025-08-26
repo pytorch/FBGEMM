@@ -12,7 +12,6 @@
 #include <tuple>
 
 #include <ATen/core/Tensor.h>
-#include <ATen/hip/HIPContext.h>
 #include <c10/hip/HIPStream.h>
 
 #include "ck/ck.hpp"
