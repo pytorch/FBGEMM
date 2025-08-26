@@ -524,11 +524,6 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
         // backend returns whole row, so we need to replace the first 8 bytes
         // with the sliced_ids
-        TORCH_CHECK(
-            sorted_indices_.has_value(),
-            "sorted_indices_ must be valid to narrow when backend returns whole row to get weights chunk");
-        at::Tensor sliced_ids =
-            sorted_indices_.value().slice(0, start, start + length);
         replace_weights_id(weights, sliced_ids);
       }
       return weights;
