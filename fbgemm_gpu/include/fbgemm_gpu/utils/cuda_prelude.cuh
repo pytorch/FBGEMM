@@ -21,7 +21,7 @@
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 #endif
 #include <cassert>
-
+#include "fbgemm_gpu/rocm/split_embeddings_common.h"
 namespace {
 
 inline int get_device_sm_cnt_() {
@@ -138,11 +138,11 @@ template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T warpReduceAllSum(
     T val,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-#pragma unroll
-  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
-    val += shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
-  }
-  return val;
+return rocm::wave_reduce<
+        rocm::reduce_op::sum,  // Sum reduction
+        T,                                 // Data type
+        ReduceWidth                        // Wave/Warp size
+    >(val);
 }
 
 DEVICE_INLINE void syncwarp() {

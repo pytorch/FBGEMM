@@ -808,7 +808,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert (
                 self.pooling_mode != PoolingMode.NONE
             ), "Mixed dimension tables only supported for pooling tables."
-
+        self.mixed_D = mixed_D
         assert all(
             cd == compute_devices[0] for cd in compute_devices
         ), "Heterogenous compute_devices are NOT supported!"
@@ -2262,6 +2262,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         row_counter,
                         iter_int,
                         self.max_counter.item(),
+                        mixed_D=self.mixed_D,
                     ),
                 )
             elif self._used_rowwise_adagrad_with_global_weight_decay:
@@ -2280,6 +2281,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         #  `Optional[Tensor]` but got `Union[Module, Tensor]`.
                         prev_iter_dev=self.prev_iter_dev,
                         gwd_lower_bound=self.gwd_lower_bound,
+                        mixed_D=self.mixed_D,
                     ),
                 )
             else:
@@ -2289,6 +2291,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         common_args,
                         self.optimizer_args,
                         momentum1,
+                        mixed_D=self.mixed_D,
                     ),
                 )
 

@@ -60,7 +60,12 @@ __device__ half llvm_amdgcn_raw_buffer_load_fp16(
     int32x4_t srsrc,
     int32_t voffset,
     int32_t soffset,
-    int32_t glc_slc) __asm("llvm.amdgcn.raw.buffer.load.f16");
+    int32_t glc_slc)
+#if defined(__gfx950__)
+      __asm("llvm.amdgcn.raw.buffer.load.i16");
+#else
+      __asm("llvm.amdgcn.raw.buffer.load.f16");
+#endif
 
 __device__ float llvm_amdgcn_raw_buffer_load_fp32(
     int32x4_t srsrc,
@@ -72,7 +77,12 @@ __device__ half2 llvm_amdgcn_raw_buffer_load_fp16x2(
     int32x4_t srsrc,
     int32_t voffset,
     int32_t soffset,
-    int32_t glc_slc) __asm("llvm.amdgcn.raw.buffer.load.v2f16");
+    int32_t glc_slc)
+#if defined(__gfx950__)
+      __asm("llvm.amdgcn.raw.buffer.load.i32");
+#else
+      __asm("llvm.amdgcn.raw.buffer.load.v2f16");
+#endif
 
 __device__ void llvm_amdgcn_raw_buffer_store_fp32(
     float vdata,
@@ -215,6 +225,24 @@ struct load_row_per_warp<half, 512, index_t> {
   }
 };
 
+template <int32_t embedding_dim, typename index_t>
+struct load_row_per_warp<c10::Half, embedding_dim, index_t> {
+  static __device__ void run(
+      c10::Half* emb_data,
+      index_t row_index,
+      const c10::Half* p_emb_table,
+      int lane_id) {
+        load_row_per_warp<half, embedding_dim, index_t>::run(
+          reinterpret_cast<half*>(emb_data),
+          row_index,
+          reinterpret_cast<const half*>(p_emb_table),
+          lane_id
+        );
+      }
+
+};
+
+
 template <
     typename emb_t,
     int32_t embedding_dim,
@@ -233,7 +261,14 @@ struct accumulate_row_per_warp {
     } else {
 #pragma unroll
       for (int i = 0; i < dword_per_row; i++) {
-        acc[i] += static_cast<output_t>((float)emb_data[i] * row_weight);
+        if constexpr (std::is_same_v<emb_t, c10::Half>)
+        {
+          acc[i] += static_cast<output_t>(__half2float(emb_data[i]) * row_weight);
+        }
+        else
+        {
+          acc[i] += static_cast<output_t>(static_cast<float>(emb_data[i]) * row_weight);
+        }
       }
     }
   }
@@ -258,6 +293,16 @@ struct store_row_per_warp {
     }
   }
 };
+
+template <>
+struct store_row_per_warp<c10::Half, 256, c10::Half> {
+  static __device__ void run(c10::Half* acc, c10::Half* p_output, int lane_id) {
+    auto out = reinterpret_cast<half2*>(p_output);
+    out[lane_id] = *reinterpret_cast<half2*>(acc);
+    out[lane_id + 64] = *reinterpret_cast<half2*>(&acc[2]);
+  }
+};
+
 
 template <>
 struct store_row_per_warp<half, 128, float> {
@@ -471,7 +516,7 @@ __device__ __forceinline__ void generic_dpp_reduction(data_t& result) {
 // of trivial operation with an option to use custom operation
 template <typename data_t, typename reduce_op_t, int wave_size = 64>
 __device__ __forceinline__ void dpp_reduction(data_t& result) {
-#if defined(__gfx942__) || defined(__gfx90a__)
+#if defined(__gfx942__) || defined(__gfx90a__) || defined(__gfx950__)
   if constexpr (std::is_same_v<reduce_op_t, reduce_op::sum>) {
     DPP_REDUCE_F16_F32(add);
     return;
