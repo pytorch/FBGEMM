@@ -19,13 +19,16 @@ namespace fbgemm_gpu {
 struct StreamQueueItem {
   at::Tensor indices;
   at::Tensor weights;
+  std::optional<at::Tensor> identities;
   at::Tensor count;
   StreamQueueItem(
       at::Tensor src_indices,
       at::Tensor src_weights,
+      std::optional<at::Tensor> src_identities,
       at::Tensor src_count) {
     indices = std::move(src_indices);
     weights = std::move(src_weights);
+    identities = std::move(src_identities);
     count = std::move(src_count);
   }
 };
@@ -67,6 +70,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   void stream(
       const at::Tensor& indices,
       const at::Tensor& weights,
+      std::optional<at::Tensor> identities,
       const at::Tensor& count,
       bool require_tensor_copy,
       bool blocking_tensor_copy = true);
@@ -74,7 +78,8 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
 #ifdef FBGEMM_FBCODE
   folly::coro::Task<void> tensor_stream(
       const at::Tensor& indices,
-      const at::Tensor& weights);
+      const at::Tensor& weights,
+      std::optional<at::Tensor> identities);
   /*
    * Copy the indices, weights and count tensors and enqueue them for
    * asynchronous stream.
@@ -82,6 +87,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   void copy_and_enqueue_stream_tensors(
       const at::Tensor& indices,
       const at::Tensor& weights,
+      std::optional<at::Tensor> identities,
       const at::Tensor& count);
 
   /*

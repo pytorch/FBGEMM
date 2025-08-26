@@ -35,8 +35,9 @@ std::unique_ptr<
                                TrainingParameterServerService>>
 get_res_client(int64_t res_server_port) {
   auto& factory = facebook::servicerouter::cpp2::getClientFactory();
-  auto& params = facebook::servicerouter::ClientParams().setSingleHost(
-      "::", res_server_port);
+  auto params =
+      folly::copy(facebook::servicerouter::ClientParams().setSingleHost(
+          "::", res_server_port));
   return factory.getSRClientUnique<
       apache::thrift::Client<aiplatform::gmpp::experimental::training_ps::
                                  TrainingParameterServerService>>(
@@ -56,6 +57,7 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
 fbgemm_gpu::StreamQueueItem tensor_copy(
     const at::Tensor& indices,
     const at::Tensor& weights,
+    std::optional<at::Tensor> identities,
     const at::Tensor& count) {
   auto num_sets = get_maybe_uvm_scalar(count);
   auto new_indices = at::empty(
@@ -63,6 +65,12 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
   auto new_weights = at::empty(
       {num_sets, weights.size(1)},
       at::TensorOptions().device(at::kCPU).dtype(weights.dtype()));
+  std::optional<at::Tensor> new_identities = std::nullopt;
+  if (identities.has_value()) {
+    new_identities = at::empty(
+        num_sets,
+        at::TensorOptions().device(at::kCPU).dtype(identities->dtype()));
+  }
   auto new_count =
       at::empty({1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
@@ -79,15 +87,30 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
                   new_indices_addr); // dst_start
 
               auto weights_addr = weights.data_ptr<value_t>();
-              auto new_weightss_addr = new_weights.data_ptr<value_t>();
+              auto new_weights_addr = new_weights.data_ptr<value_t>();
               std::copy(
                   weights_addr,
                   weights_addr + num_sets * weights.size(1),
-                  new_weightss_addr); // dst_start
+                  new_weights_addr); // dst_start
+              if (identities.has_value()) {
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    identities->scalar_type(), "tensor_copy", [&] {
+                      using identities_t = scalar_t;
+                      auto identities_addr =
+                          identities->data_ptr<identities_t>();
+                      auto new_identities_addr =
+                          new_identities->data_ptr<identities_t>();
+                      std::copy(
+                          identities_addr,
+                          identities_addr + num_sets,
+                          new_identities_addr); // dst_start
+                    });
+              }
             });
       });
   *new_count.data_ptr<int64_t>() = num_sets;
-  return fbgemm_gpu::StreamQueueItem{new_indices, new_weights, new_count};
+  return fbgemm_gpu::StreamQueueItem{
+      new_indices, new_weights, new_identities, new_count};
 }
 
 } // namespace
@@ -127,8 +150,9 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
         }
         auto& indices = stream_item_ptr->indices;
         auto& weights = stream_item_ptr->weights;
+        auto& identities = stream_item_ptr->identities;
         folly::stop_watch<std::chrono::milliseconds> stop_watch;
-        folly::coro::blockingWait(tensor_stream(indices, weights));
+        folly::coro::blockingWait(tensor_stream(indices, weights, identities));
 
         weights_to_stream_queue_.dequeue();
         XLOG_EVERY_MS(INFO, 60000)
@@ -154,6 +178,7 @@ RawEmbeddingStreamer::~RawEmbeddingStreamer() {
 void RawEmbeddingStreamer::stream(
     const at::Tensor& indices,
     const at::Tensor& weights,
+    std::optional<at::Tensor> identities,
     const at::Tensor& count,
     bool require_tensor_copy,
     bool blocking_tensor_copy) {
@@ -164,12 +189,13 @@ void RawEmbeddingStreamer::stream(
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## RawEmbeddingStreamer::stream_callback ##");
   if (!require_tensor_copy) {
-    StreamQueueItem stream_item(indices, weights, count);
+    StreamQueueItem stream_item(indices, weights, std::move(identities), count);
     weights_to_stream_queue_.enqueue(stream_item);
     return;
   }
   if (blocking_tensor_copy) {
-    copy_and_enqueue_stream_tensors(indices, weights, count);
+    copy_and_enqueue_stream_tensors(
+        indices, weights, std::move(identities), count);
     return;
   }
   // Make sure the previous thread is done before starting a new one
@@ -179,7 +205,7 @@ void RawEmbeddingStreamer::stream(
   // So, We need to spin up a new thread to unblock the CUDA stream, so the CUDA
   // can continue executing other host callbacks, eg. get/evict.
   stream_tensor_copy_thread_ = std::make_unique<std::thread>([=, this]() {
-    copy_and_enqueue_stream_tensors(indices, weights, count);
+    copy_and_enqueue_stream_tensors(indices, weights, identities, count);
   });
   rec->record.end();
 #endif
@@ -188,7 +214,8 @@ void RawEmbeddingStreamer::stream(
 #ifdef FBGEMM_FBCODE
 folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
     const at::Tensor& indices,
-    const at::Tensor& weights) {
+    const at::Tensor& weights,
+    std::optional<at::Tensor> identities) {
   using namespace ::aiplatform::gmpp::experimental::training_ps;
   if (indices.size(0) != weights.size(0)) {
     XLOG(ERR) << "[TBE_ID" << unique_id_
@@ -200,13 +227,19 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
   XLOG_EVERY_MS(INFO, 60000)
       << "[TBE_ID" << unique_id_
       << "] send streaming request: indices = " << indices.size(0)
-      << ", weights = " << weights.size(0);
+      << ", weights = " << weights.size(0) << ", identities =  "
+      << (identities.has_value() ? std::to_string(identities->size(0))
+                                 : "none");
 
   auto biggest_idx = table_sizes_.index({table_sizes_.size(0) - 1});
   auto mask =
       at::logical_and(indices >= 0, indices < biggest_idx).nonzero().squeeze();
   auto filtered_indices = indices.index_select(0, mask);
   auto filtered_weights = weights.index_select(0, mask);
+  std::optional<at::Tensor> filtered_identities = std::nullopt;
+  if (identities.has_value()) {
+    filtered_identities = identities->index_select(0, mask);
+  }
   auto num_invalid_indices = indices.size(0) - filtered_indices.size(0);
   if (num_invalid_indices > 0) {
     XLOG(INFO) << "[TBE_ID" << unique_id_
@@ -273,6 +306,10 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
     req.rowIndices() =
         torch::distributed::wireDumpTensor(global_indices_masked);
     req.weights() = torch::distributed::wireDumpTensor(weights_masked);
+    if (filtered_identities.has_value()) {
+      auto identities_masked = filtered_identities->index_select(0, shrad_mask);
+      req.identities() = torch::distributed::wireDumpTensor(identities_masked);
+    }
     co_await res_client->co_setEmbeddings(req);
   }
   co_return;
@@ -281,10 +318,12 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
 void RawEmbeddingStreamer::copy_and_enqueue_stream_tensors(
     const at::Tensor& indices,
     const at::Tensor& weights,
+    std::optional<at::Tensor> identities,
     const at::Tensor& count) {
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## RawEmbeddingStreamer::copy_and_enqueue_stream_tensors ##");
-  auto stream_item = tensor_copy(indices, weights, count);
+  auto stream_item =
+      tensor_copy(indices, weights, std::move(identities), count);
   weights_to_stream_queue_.enqueue(stream_item);
   rec->record.end();
 }

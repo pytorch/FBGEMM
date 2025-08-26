@@ -301,6 +301,7 @@ void EmbeddingKVDB::stream_cuda(
     self->raw_embedding_streamer_->stream(
         indices,
         weights,
+        std::nullopt, /*identities*/
         count,
         true, /*require_tensor_copy*/
         blocking_tensor_copy);
