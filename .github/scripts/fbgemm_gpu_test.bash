@@ -536,11 +536,11 @@ test_fbgemm_gpu_setup_and_pip_install () {
   }
 
   local python_versions=(
-    3.9
     3.10
     3.11
     3.12
     3.13
+    3.14
   )
 
   if [ "$variant_type" == "cuda" ] || [ "$variant_type" == "genai" ]; then
