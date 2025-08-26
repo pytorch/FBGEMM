@@ -25,6 +25,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
     int32_t B,
     const indices_t* __restrict__ indices,
     const weights_t* __restrict__ weights,
+    const int32_t weights_columns,
     const int32_t* __restrict__ permute,
     const offsets_t* __restrict__ input_offsets,
     const offsets_t* __restrict__ output_offsets,
@@ -46,7 +47,10 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
     for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
-        permuted_weights[output_start + i] = weights[input_start + i];
+        for (auto w_col = 0; w_col < weights_columns; ++w_col) {
+          permuted_weights[(output_start + i) * weights_columns + w_col] =
+              weights[(input_start + i) * weights_columns + w_col];
+        }
       }
     }
   }
@@ -146,8 +150,16 @@ permute_2D_sparse_data_cuda(
               if (weights.has_value()) {
                 const Tensor weights_value = weights.value();
                 const auto weights_value_contig = weights_value.contiguous();
-                permuted_weights =
-                    at::empty(permuted_indices_size, weights_value.options());
+                int32_t weights_columns = 1;
+                if (weights_value.dense_dim() > 1) {
+                  weights_columns = weights_value.size(1);
+                  permuted_weights = at::empty(
+                      {permuted_indices_size, weights_columns},
+                      weights_value.options());
+                } else {
+                  permuted_weights =
+                      at::empty(permuted_indices_size, weights_value.options());
+                }
                 FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
                     weights_value.scalar_type(),
                     "permute_2D_data_kernel_3",
@@ -168,6 +180,7 @@ permute_2D_sparse_data_cuda(
                           B,
                           indices_contig.data_ptr<indices_t>(),
                           weights_value_contig.data_ptr<weights_t>(),
+                          weights_columns,
                           permute_contig.data_ptr<int32_t>(),
                           input_offsets.data_ptr<offsets_t>(),
                           output_offsets.data_ptr<offsets_t>(),
@@ -190,6 +203,7 @@ permute_2D_sparse_data_cuda(
                     B,
                     indices_contig.data_ptr<indices_t>(),
                     nullptr,
+                    0,
                     permute_contig.data_ptr<int32_t>(),
                     input_offsets.data_ptr<offsets_t>(),
                     output_offsets.data_ptr<offsets_t>(),
