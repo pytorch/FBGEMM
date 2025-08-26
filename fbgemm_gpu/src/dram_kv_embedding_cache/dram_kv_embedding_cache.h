@@ -1547,6 +1547,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           weight_type* block = nullptr;
                           // First check if the key already exists
                           auto it = wlmap->find(id);
+                          bool new_block = false;
                           if (it != wlmap->end()) {
                             block = it->second;
                           } else {
@@ -1554,6 +1555,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             // insert.
                             block = pool->template allocate_t<weight_type>();
                             wlmap->insert({id, block});
+                            new_block = true;
+                          }
+                          std::copy(
+                              weights_data_ptr + id_index * stride,
+                              weights_data_ptr + (id_index + 1) * stride,
+                              block);
+
+                          if (new_block) {
                             if (feature_evict_config_.has_value() &&
                                 feature_evict_config_.value()->trigger_mode_ !=
                                     EvictTriggerMode::DISABLED &&
@@ -1568,10 +1577,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               }
                             }
                           }
-                          std::copy(
-                              weights_data_ptr + id_index * stride,
-                              weights_data_ptr + (id_index + 1) * stride,
-                              block);
                         }
                       }
                     });
