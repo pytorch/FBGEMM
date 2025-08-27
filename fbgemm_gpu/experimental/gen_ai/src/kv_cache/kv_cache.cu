@@ -2719,8 +2719,8 @@ __global__ void dequantize_fp8_cache_kernel_paged(
   auto max_t = kv_seqlen[b];
 
   // one warp per T/H
-  for (auto t_h = threadIdx.y + blockIdx.y * blockDim.y; t_h < max_t * N_KVH;
-       t_h += blockDim.y * gridDim.y) {
+  auto t_h = threadIdx.y + blockIdx.y * blockDim.y;
+  for (; t_h < max_t * N_KVH; t_h += blockDim.y * gridDim.y) {
     auto h = t_h % N_KVH;
     auto t = t_h / N_KVH;
 
@@ -2773,6 +2773,29 @@ __global__ void dequantize_fp8_cache_kernel_paged(
         *reinterpret_cast<uint2*>(&kv_dq.vals[0]);
     *reinterpret_cast<uint2*>(&row_v_dq[4 * threadIdx.x]) =
         *reinterpret_cast<uint2*>(&kv_dq.vals[2]);
+  }
+
+  // zero out the rest of the page, because FA3 can be affected by
+  // NaN values beyond the sequence length.
+  max_t = (max_t + page_size - 1) / page_size * page_size;
+  for (; t_h < max_t * N_KVH; t_h += blockDim.y * gridDim.y) {
+    if (4 * threadIdx.x >= D_H) {
+      continue;
+    }
+    auto h = t_h % N_KVH;
+    auto t = t_h / N_KVH;
+
+    int page_logical_idx = t / page_size;
+    int page_offset = t % page_size;
+    int page_physical_idx =
+        block_tables[b * block_tables_b_stride + page_logical_idx];
+    int physical_t = page_physical_idx * page_size + page_offset;
+
+    auto* row_k_dq = &cache_K_dq[0][physical_t][h][0];
+    auto* row_v_dq = &cache_V_dq[0][physical_t][h][0];
+
+    memset(&row_k_dq[4 * threadIdx.x], 0, sizeof(uint2));
+    memset(&row_v_dq[4 * threadIdx.x], 0, sizeof(uint2));
   }
 }
 #endif
