@@ -423,6 +423,17 @@ def device(  # noqa C901
     default=False,
     help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
 )
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
 def uvm(
     alpha: bool,
     bag_size: int,
@@ -452,6 +463,8 @@ def uvm(
     # Simulate a UVM cache with a cache conflict miss rate of 100%
     all_conflict_misses: bool,
     uvm_host_mapped: bool,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -654,15 +667,25 @@ def uvm(
             per_sample_weights,
         )
 
-    time_per_iter = benchmark_requests(
-        requests_uvm,
-        # pyre-fixme[6]: For 2nd argument expected `(Tensor, Tensor,
-        #  Optional[Tensor]) -> Tensor` but got `(indices: Tensor, offsets: Tensor,
-        #  per_sample_weights: Tensor) -> None`.
-        run_bench,
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        num_warmups=warmup_runs,
-    )
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type="uvm", phase=phase, ospid=os.getpid())
+        )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        time_per_iter = benchmark_requests(
+            requests_uvm,
+            # pyre-fixme[6]: For 2nd argument expected `(Tensor, Tensor,
+            #  Optional[Tensor]) -> Tensor` but got `(indices: Tensor, offsets: Tensor,
+            #  per_sample_weights: Tensor) -> None`.
+            run_bench,
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            num_warmups=warmup_runs,
+        )
     logging.info(
         f"UVM Forward, B: {B}, "
         f"E: {E}, T: {T_uvm}, D: {D}, L: {L_uvm}, W: {weighted}, "
@@ -692,16 +715,17 @@ def uvm(
             requests.append(TBERequest(indices, offsets, per_sample_weights))
 
         # forward
-        time_per_iter = benchmark_requests(
-            requests_gpu,
-            lambda indices, offsets, per_sample_weights: emb_gpu.forward(
-                indices,
-                offsets,
-                per_sample_weights,
-            ),
-            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-            num_warmups=warmup_runs,
-        )
+        with context_factory(lambda p: _kineto_trace_handler(p, "gpu_fwd")):
+            time_per_iter = benchmark_requests(
+                requests_gpu,
+                lambda indices, offsets, per_sample_weights: emb_gpu.forward(
+                    indices,
+                    offsets,
+                    per_sample_weights,
+                ),
+                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                num_warmups=warmup_runs,
+            )
         read_write_bytes_hbm = (
             output_size_multiplier * B * sum(Ds[T_uvm:])
             + param_size_multiplier * B * sum(Ds[T_uvm:]) * L
@@ -713,16 +737,17 @@ def uvm(
             f"T: {time_per_iter * 1.0e6:.0f}us"
         )
 
-        time_per_iter = benchmark_requests(
-            requests,
-            lambda indices, offsets, per_sample_weights: emb_mixed.forward(
-                indices,
-                offsets,
-                per_sample_weights,
-            ),
-            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-            num_warmups=warmup_runs,
-        )
+        with context_factory(lambda p: _kineto_trace_handler(p, "mixed_fwd")):
+            time_per_iter = benchmark_requests(
+                requests,
+                lambda indices, offsets, per_sample_weights: emb_mixed.forward(
+                    indices,
+                    offsets,
+                    per_sample_weights,
+                ),
+                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                num_warmups=warmup_runs,
+            )
         read_write_bytes_total = read_write_bytes_uvm + read_write_bytes_hbm
         logging.info(
             f"Mixed Forward, B: {B}, "
@@ -752,6 +777,17 @@ def uvm(
     default=False,
     help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
 )
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
 def cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -774,6 +810,8 @@ def cache(  # noqa C901
     tables: Optional[str],
     uvm_host_mapped: bool,
     cache_precision: SparseType,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -866,14 +904,24 @@ def cache(  # noqa C901
     warmup_requests, requests = requests[:iters], requests[iters:]
     grad_output = torch.randn(B, sum(Ds)).cuda()
 
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb_nc(
-            indices, offsets, per_sample_weights
-        ).backward(grad_output),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        num_warmups=warmup_runs,
-    )
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type="cache", phase=phase, ospid=os.getpid())
+        )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb_nc(
+                indices, offsets, per_sample_weights
+            ).backward(grad_output),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            num_warmups=warmup_runs,
+        )
     logging.info(
         f"ForwardBackward (UVM), B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
         f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f} GB/s, "
@@ -918,14 +966,15 @@ def cache(  # noqa C901
         indices, offsets = req.unpack_2()
         emb.forward(indices, offsets)
     # TODO: Add warmup_runs
-    prefetch_time, forward_backward_time = benchmark_pipelined_requests(
-        requests,
-        lambda indices, offsets, indices_weights: emb.prefetch(indices, offsets),
-        lambda indices, offsets, indices_weights: emb.forward(
-            indices, offsets, indices_weights
-        ).backward(grad_output),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-    )
+    with context_factory(lambda p: _kineto_trace_handler(p, "prefetch")):
+        prefetch_time, forward_backward_time = benchmark_pipelined_requests(
+            requests,
+            lambda indices, offsets, indices_weights: emb.prefetch(indices, offsets),
+            lambda indices, offsets, indices_weights: emb.forward(
+                indices, offsets, indices_weights
+            ).backward(grad_output),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        )
     e2e_time = prefetch_time + forward_backward_time
 
     logging.info(
@@ -1345,7 +1394,6 @@ def vbe(
         "learning_rate": 0.1,
         "eps": 0.1,
         "feature_table_map": list(range(T)),
-        "device": get_device(),
     }
 
     if ssd:
