@@ -18,9 +18,9 @@ __set_cuda_symlinks_envvars () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
 
-  if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
+  if  !(  [[ "$BUILD_CUDA_VERSION" =~ ^11.*$ ]] ||
+          [[ "$BUILD_CUDA_VERSION" =~ ^12.1.*$ ]] ||
+          [[ "$BUILD_CUDA_VERSION" =~ ^12.4.*$ ]] ); then
     # CUDA 12.6 installation has a very different package layout than previous
     # CUDA versions - notably, NVTX has been moved elsewhere, which causes
     # PyTorch CMake scripts to complain.
@@ -91,9 +91,9 @@ __set_nvcc_prepend_flags () {
   # which overrides whatever `-ccbin` flag we set manually, so remove this
   # unwanted hook
   print_exec ls -la "${conda_prefix}/etc/conda/activate.d"
-  if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
+  if  !(  [[ "$BUILD_CUDA_VERSION" =~ ^11.*$ ]] ||
+          [[ "$BUILD_CUDA_VERSION" =~ ^12.1.*$ ]] ||
+          [[ "$BUILD_CUDA_VERSION" =~ ^12.4.*$ ]] ); then
     echo "[INSTALL] Removing the -ccbin=CXX hook from NVCC activation scripts ..."
     print_exec sed -i '/-ccbin=/d' "${conda_prefix}/etc/conda/activate.d/*cuda-nvcc_activate.sh"
   fi
