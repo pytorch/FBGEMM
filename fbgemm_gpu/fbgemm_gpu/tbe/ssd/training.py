@@ -2139,15 +2139,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     )
                 )
 
-            # Store scratch pad info for post backward eviction
-            self.ssd_scratch_pad_eviction_data.append(
-                (
-                    inserted_rows,
-                    post_bwd_evicted_indices_cpu,
-                    actions_count_cpu,
-                    linear_cache_indices.numel() > 0,
+            # Store scratch pad info for post backward eviction only for training
+            # for eval job, no backward pass, so no need to store this info
+            if self.training:
+                self.ssd_scratch_pad_eviction_data.append(
+                    (
+                        inserted_rows,
+                        post_bwd_evicted_indices_cpu,
+                        actions_count_cpu,
+                        linear_cache_indices.numel() > 0,
+                    )
                 )
-            )
 
             # Store data for forward
             self.ssd_prefetch_data.append(prefetch_data)
