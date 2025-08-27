@@ -1361,57 +1361,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 if post_event is not None:
                     stream.record_event(post_event)
 
-    def update_feature_score_metadata(
-        self,
-        linear_cache_indices: Tensor,
-        weights: Tensor,
-        stream: torch.cuda.Stream,
-        pre_event: Optional[torch.cuda.Event],
-        post_event: Optional[torch.cuda.Event],
-    ) -> None:
-        """
-        Write feature score to SSD to DRAM
-        Args:
-            stream (Stream): The CUDA stream that cudaStreamAddCallback will
-                             synchronize the host function with.  Moreover, the
-                             asynchronous D->H memory copies will operate on
-                             this stream
-            pre_event (Event): The CUDA event that the stream has to wait on
-            post_event (Event): The CUDA event that the current will record on
-                                when the eviction is done
-        Returns:
-            None
-        """
-        with record_function("## ssd_write_feature_score ##"):
-            with torch.cuda.stream(stream):
-                if pre_event is not None:
-                    stream.wait_event(pre_event)
-
-                    cpu_pinned_linear_cache_indices = torch.empty_like(
-                        linear_cache_indices, device="cpu", pin_memory=True
-                    )
-                    cpu_pinned_linear_cache_indices.copy_(
-                        linear_cache_indices, non_blocking=True
-                    )
-
-                    cpu_pinned_weights = torch.empty_like(
-                        weights, device="cpu", pin_memory=True
-                    )
-                    cpu_pinned_weights.copy_(weights, non_blocking=True)
-
-                    self.record_function_via_dummy_profile(
-                        "## ssd_write_feature_score_metadata ##",
-                        self.ssd_db.set_feature_score_metadata_cuda,
-                        cpu_pinned_linear_cache_indices,
-                        torch.tensor(
-                            [weights.shape[0]], device="cpu", dtype=torch.long
-                        ),
-                        cpu_pinned_weights.view(torch.float32).view(-1, 2),
-                    )
-
-                if post_event is not None:
-                    stream.record_event(post_event)
-
     def raw_embedding_stream_sync(
         self,
         stream: torch.cuda.Stream,
@@ -1735,6 +1684,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
+            if self.backend_type == BackendType.DRAM and weights is not None:
+                # DRAM backend supports feature score eviction, if there is weights available
+                # in the prefetch call, we will set metadata for feature score eviction asynchronously
+                cloned_linear_cache_indices = linear_cache_indices.clone()
+            else:
+                cloned_linear_cache_indices = None
 
             # Lookup and virtually insert indices into L1. After this operator,
             # we know:
@@ -2092,16 +2047,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         name="cache",
                         is_bwd=False,
                     )
-
                 if self.backend_type == BackendType.DRAM and weights is not None:
                     # Write feature score metadata to DRAM
-                    if weights is not None:
-                        self.update_feature_score_metadata(
-                            linear_cache_indices=linear_cache_indices,
-                            weights=weights,
-                            stream=self.ssd_memcpy_stream,
-                            pre_event=self.ssd_event_cache_evict,
-                        )
+                    self.record_function_via_dummy_profile(
+                        "## ssd_write_feature_score_metadata ##",
+                        self.ssd_db.set_feature_score_metadata_cuda,
+                        cloned_linear_cache_indices.cpu(),
+                        torch.tensor(
+                            [weights.shape[0]], device="cpu", dtype=torch.long
+                        ),
+                        weights.cpu().view(torch.float32).view(-1, 2),
+                    )
 
             # Generate row addresses (pointing to either L1 or the current
             # iteration's scratch pad)
@@ -2183,15 +2139,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     )
                 )
 
-            # Store scratch pad info for post backward eviction
-            self.ssd_scratch_pad_eviction_data.append(
-                (
-                    inserted_rows,
-                    post_bwd_evicted_indices_cpu,
-                    actions_count_cpu,
-                    linear_cache_indices.numel() > 0,
+            # Store scratch pad info for post backward eviction only for training
+            # for eval job, no backward pass, so no need to store this info
+            if self.training:
+                self.ssd_scratch_pad_eviction_data.append(
+                    (
+                        inserted_rows,
+                        post_bwd_evicted_indices_cpu,
+                        actions_count_cpu,
+                        linear_cache_indices.numel() > 0,
+                    )
                 )
-            )
 
             # Store data for forward
             self.ssd_prefetch_data.append(prefetch_data)
