@@ -305,7 +305,7 @@ class BuildConfigScheme:
             return ["12.9.1"]
         else:
             # GenAI is unable to support 11.8.0 anymore as of https://github.com/pytorch/FBGEMM/pull/4138
-            return ["12.6.3", "12.8.1", "12.9.1"]
+            return ["12.6.3", "12.8.1", "12.9.1", "13.0.0"]
 
     def rocm_versions(self) -> List[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
