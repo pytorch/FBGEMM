@@ -1058,10 +1058,21 @@ Tensor {{ embedding_cuda_op }}(
 
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
+                    int32_t total_L = indices.numel();
                     #ifdef USE_ROCM
-                        int32_t num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
+                        int32_t num_cta_per_row_groups;
+                        int32_t work_group_size;
+                        if (total_L/total_B > 1){
+                            num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
+                            work_group_size = (kMaxThreads/4);
+                        }
+                        else{
+                            num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                            work_group_size = kMaxThreads;
+                        }
                     #else
                         int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                        int32_t work_group_size = kMaxThreads;
                     #endif
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
@@ -1073,17 +1084,13 @@ Tensor {{ embedding_cuda_op }}(
                     );
 
                     const int32_t cta_per_row_grid_size = std::min(
-                        #ifdef USE_ROCM
-                            div_round_up(total_unique_indices, (kMaxThreads/4)),
-                        #else
-                            div_round_up(total_unique_indices, kMaxThreads),
-                        #endif
-                        
+                        div_round_up(total_unique_indices, work_group_size),
                         get_max_thread_blocks_());
 
                     FBGEMM_LAUNCH_KERNEL(
                         backward_cta_per_row_kernel,
                         cta_per_row_grid_size,
+                        // (64, 2)
                         dim3(kThreadGroupSize, num_cta_per_row_groups),
                         cta_per_row_smem_bytes,
                         at::cuda::getCurrentCUDAStream(),
@@ -1187,7 +1194,18 @@ Tensor {{ embedding_cuda_op }}(
                              kUseVecBlocking>;
 
                     // Compute shared memory size for warp_per_row
-                    int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                    #ifdef USE_ROCM
+                        int32_t num_warp_per_row_groups;
+                        
+                        if (total_L/total_B > 1){
+                            num_warp_per_row_groups = (kBackwardMaxThreads/2) / kThreadGroupSize;
+                        }
+                        else{
+                            num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                        }
+                    #else
+                        int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                    #endif
                     int32_t warp_per_row_smem_bytes = 0;
 
                     if constexpr (kUseVecBlocking) {
