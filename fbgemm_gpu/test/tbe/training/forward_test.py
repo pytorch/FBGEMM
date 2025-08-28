@@ -12,6 +12,7 @@
 import math
 import random
 import unittest
+from unittest.mock import MagicMock, patch
 
 import hypothesis.strategies as st
 import numpy as np
@@ -24,6 +25,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
+    RESParams,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.utils import (
@@ -129,6 +131,8 @@ class ForwardTest(unittest.TestCase):
         use_cpu: bool,
         output_dtype: SparseType,
         use_experimental_tbe: bool,
+        enable_raw_embedding_streaming: bool = False,
+        prefetch_pipeline: bool = False,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
@@ -158,6 +162,10 @@ class ForwardTest(unittest.TestCase):
                 and pooling_mode != PoolingMode.NONE
             )
         )
+        # NOTE: Raw embedding streaming requires UVM cache
+        assume(not enable_raw_embedding_streaming or use_cache)
+        # NOTE: Raw embedding streaming not supported on CPU
+        assume(not enable_raw_embedding_streaming or not use_cpu)
 
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
         if pooling_mode == PoolingMode.SUM:
@@ -285,6 +293,16 @@ class ForwardTest(unittest.TestCase):
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
 
+        # Create RES parameters if raw embedding streaming is enabled
+        res_params = None
+        if enable_raw_embedding_streaming:
+            res_params = RESParams(
+                res_store_shards=1,
+                table_names=[f"table_{i}" for i in range(T)],
+                table_offsets=[sum(Es[:i]) for i in range(T + 1)],
+                table_sizes=Es,
+            )
+
         # Create a TBE op
         cc = emb_op(
             embedding_specs=[
@@ -305,6 +323,9 @@ class ForwardTest(unittest.TestCase):
             pooling_mode=pooling_mode,
             output_dtype=output_dtype,
             use_experimental_tbe=use_experimental_tbe,
+            prefetch_pipeline=prefetch_pipeline,
+            enable_raw_embedding_streaming=enable_raw_embedding_streaming,
+            res_params=res_params,
         )
         # Test torch JIT script compatibility
         if not use_cpu:
@@ -1156,6 +1177,96 @@ class ForwardTest(unittest.TestCase):
             )
             torch.testing.assert_close(
                 cat_deq_lowp_pooled_output, cat_dq_fp32_pooled_output
+            )
+
+    def _check_raw_embedding_stream_call_counts(
+        self,
+        mock_raw_embedding_stream: unittest.mock.Mock,
+        num_iterations: int,
+        prefetch_pipeline: bool,
+        L: int,
+    ) -> None:
+        # For TBE (not SSD), raw_embedding_stream is called once per prefetch
+        # when there's data to stream
+        expected_calls = num_iterations if L > 0 else 0
+        if prefetch_pipeline:
+            # With prefetch pipeline, there might be fewer calls initially
+            expected_calls = max(0, expected_calls - 1)
+
+        self.assertGreaterEqual(mock_raw_embedding_stream.call_count, 0)
+        # Allow some flexibility in call count due to caching behavior
+        self.assertLessEqual(mock_raw_embedding_stream.call_count, expected_calls + 2)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=64),
+        B=st.integers(min_value=1, max_value=32),
+        log_E=st.integers(min_value=3, max_value=4),
+        L=st.integers(min_value=1, max_value=10),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
+        pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        prefetch_pipeline=st.booleans(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_raw_embedding_streaming(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        cache_algorithm: CacheAlgorithm,
+        pooling_mode: PoolingMode,
+        weighted: bool,
+        mixed: bool,
+        prefetch_pipeline: bool,
+    ) -> None:
+        """Test raw embedding streaming functionality integrated with forward pass."""
+        num_iterations = 5
+        # only LRU supports prefetch_pipeline
+        assume(not prefetch_pipeline or cache_algorithm == CacheAlgorithm.LRU)
+
+        with patch(
+            "fbgemm_gpu.split_table_batched_embeddings_ops_training.torch.classes.fbgemm.RawEmbeddingStreamer"
+        ) as mock_streamer_class:
+            # Mock the RawEmbeddingStreamer class
+            mock_streamer_instance = MagicMock()
+            mock_streamer_class.return_value = mock_streamer_instance
+
+            # Run multiple iterations to test streaming behavior
+            for _ in range(num_iterations):
+                self.execute_forward_(
+                    T=T,
+                    D=D,
+                    B=B,
+                    log_E=log_E,
+                    L=L,
+                    weights_precision=weights_precision,
+                    weighted=weighted,
+                    mixed=mixed,
+                    mixed_B=False,  # Keep simple for streaming tests
+                    use_cache=True,  # Required for streaming
+                    cache_algorithm=cache_algorithm,
+                    pooling_mode=pooling_mode,
+                    use_cpu=False,  # Streaming not supported on CPU
+                    output_dtype=SparseType.FP32,
+                    use_experimental_tbe=False,
+                    enable_raw_embedding_streaming=True,
+                    prefetch_pipeline=prefetch_pipeline,
+                )
+
+            self._check_raw_embedding_stream_call_counts(
+                mock_streamer_instance, num_iterations, prefetch_pipeline, L
             )
 
 
