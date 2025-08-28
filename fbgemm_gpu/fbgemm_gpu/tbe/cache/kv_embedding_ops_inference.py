@@ -355,9 +355,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         if not self.kv_embedding_cache_initialized:
             self.initialize_logical_weights_placements_and_offsets()
 
-            self.row_alignment = (
-                8 if self.use_cpu else self.row_alignment
-            )  # in order to use mempool implementation for kv embedding it needs to be divisible by 8
+            self.row_alignment = 8  # in order to use mempool implementation for kv embedding it needs to be divisible by 8
 
             hash_size_cumsum = self.construct_hash_size_cumsum()
             self.hash_size_cumsum = torch.tensor(
