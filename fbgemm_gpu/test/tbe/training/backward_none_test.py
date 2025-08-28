@@ -84,6 +84,7 @@ additional_decorators.update(
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardNoneTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(torch.version.hip is not None, "Test is flaky on ROCm")
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),

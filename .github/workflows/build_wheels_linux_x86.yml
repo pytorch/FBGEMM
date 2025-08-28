@@ -56,7 +56,7 @@ jobs:
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t' --filter 'python_version:3.14' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:13.0 --filter 'gpu_arch_type:rocm;python_version:3.13t' --filter 'python_version:3.14' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
