@@ -27,7 +27,6 @@ from .training_common import (
     default_strategies,
     MAX_EXAMPLES,
     SSDSplitTableBatchedEmbeddingsTestCommon,
-    VIRTUAL_TABLE_ROWS,
 )
 
 
