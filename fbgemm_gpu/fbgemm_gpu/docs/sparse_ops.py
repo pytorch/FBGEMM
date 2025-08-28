@@ -496,3 +496,121 @@ Return:
      None)
    """,
 )
+
+add_docs(
+    torch.ops.fbgemm.block_bucketize_sparse_features_2d_weights,
+    """
+block_bucketize_sparse_features_2d_weights(lengths, indices, bucketize_pos, sequence, block_sizes, my_size, weights, weights_dim=1, batch_size_per_feature=None, max_B= -1, block_bucketize_pos=None, keep_orig_idx=False, total_num_blocks=None, keep_orig_idx_per_feature=None) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor]]
+
+Preprocess sparse features by partitioning sparse features into multiple
+buckets with support for 2D weights. Every feature is split into the same number of buckets, but the bucket
+sizes (widths) for the different features can be different. Moreover, the
+bucket sizes within each feature can be different.
+
+This function is similar to block_bucketize_sparse_features but supports 2D weights,
+where each index can have multiple weight values associated with it.
+
+Args:
+    lengths (Tensor): The lengths of the sparse features. The tensor contains
+        the lengths of each sample in a batch and each feature. Shape is `B *
+        T` where `B` is the batch size and `T` is the number of features
+
+    indices (Tensor): The sparse data. Only support integer types. Shape is the
+        sum of `lengths`
+
+    bucketize_pos (bool): If True, return the original relative indices within
+        a sample. For example, `indices = [9, 8, 2, 1, 0, 8, 9]` and `lengths =
+        [3, 4]`. The original relative indices within a sample for the indices
+        are `[0, 1, 2, 0, 1, 2, 3]`
+
+    sequence (bool): If True, return the new indices positions in the original
+        indices positions (the tensor is called `unbucketize_permute_data`).
+
+    block_sizes (Tensor): This tensor is used for the case where the bucket
+        size within a feature is uniform (i.e., when
+        `block_bucketize_pos=None`).  The tensor contains bucket sizes (i.e.,
+        bucket widths) for each feature.  `block_sizes[t]` represents the
+        bucket size of feature `t`.  Shape is the number of features.
+
+    my_size (int): The number of buckets for each feature. Note that every
+        feature has the same number of buckets.
+
+    weights (Tensor): A float tensor that will be bucketized the same way as
+        `indices`. This tensor must have shape `[indices.size(0), weights_dim]`
+        where `weights_dim` is the dimension of the weight values for each index.
+
+    weights_dim (int = 1): The dimension of the weight values for each index.
+        This parameter is only used when `weights` is not None.
+
+    batch_size_per_feature (Optional[Tensor] = None): An optional tensor that
+        contains batch sizes for different features. If not None, batch sizes
+        are not uniform among features. Otherwise, the operator will assume
+        that the batch size is uniform and infer it from the `lengths` and
+        `block_sizes` tensors
+
+    max_B (int = -1): The max batch size. Must be set if
+        `batch_size_per_feature` is not None
+
+    block_bucketize_pos (Optional[List[Tensor]] = None): The input is used for
+        non-uniform bucket sizes within a feature. `block_bucketize_pos` is a
+        list of tensors. Each tensor contains the range offsets of buckets for
+        each feature. These range offsets are equivalent to the complete
+        cumulative sum of the bucket sizes. For example, `[0, 4, 20]` represents
+        two buckets. The first bucket size is `(4 - 0) = 4`, and the second
+        bucket size is `(20 - 4) = 16`. The length of `block_bucketize_pos`
+        must be equal to the number of features.
+
+    keep_orig_idx (bool = False): If True, return original indices instead of
+        the relative indices within each bucket
+
+    total_num_blocks (Optional[torch.Tensor] = None): An optional tensor that
+        contains then number of logical buckets (aka blocks) within a given
+        feature.  This is useful for applications where the number of buckets
+        is more than the number of physical GPUs, which is common in cases
+        where we scale up/down the number of GPUs but want to maintain
+        same numerical behavior.
+
+    keep_orig_idx_per_feature (Optional[Tensor] = None): An optional tensor that
+        contains whether to keep original indices for each feature. If not None,
+        the operator will use this tensor to determine whether to keep original
+        indices for each feature. if None, will fallback to `keep_orig_idx`
+
+Return:
+    A tuple of tensors containing
+
+    (1) Bucketized lengths. Shape is `lengths.num() * my_size`.
+
+    (2) Bucketized indices. Same shape as `indices`.
+
+    (3) Bucketized weights or None if `weights` is None. Shape is
+        `[indices.size(0), weights_dim]`.
+
+    (4) Bucketized positions or None if `bucketize_pos=False`. Same shape as
+        `indices`.
+
+    (5) `unbucketize_permute` or None if `sequence=False`. Same shape as
+        `indices`
+
+**Example**:
+
+    >>> # Generate input example. Batch size = 2. Number of features = 4
+    >>> lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=torch.int, device="cuda")
+    >>> indices = torch.tensor([3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20], dtype=torch.int, device="cuda")
+    >>> block_sizes = torch.tensor([[5, 15, 10, 20]], dtype=torch.int, device="cuda")
+    >>> my_size = 2 # Number of buckets
+    >>> weights_dim = 3 # Dimension of weight values for each index
+    >>> weights = torch.randn(indices.size(0), weights_dim, dtype=torch.float, device="cuda")
+    >>> # Invoke with keep_orig_idx=False, bucketize_pos=False, and
+    >>> # sequence=False
+    >>> torch.ops.fbgemm.block_bucketize_sparse_features_2d_weights(
+    >>>     lengths,
+    >>>     indices,
+    >>>     bucketize_pos=False,
+    >>>     sequence=False,
+    >>>     block_sizes=block_sizes,
+    >>>     my_size=my_size,
+    >>>     weights=weights,
+    >>>     weights_dim=weights_dim,
+    >>>     keep_orig_idx=False)
+   """,
+)

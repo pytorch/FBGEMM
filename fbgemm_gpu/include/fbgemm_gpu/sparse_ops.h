@@ -273,6 +273,54 @@ block_bucketize_sparse_features_inference_cpu(
     const std::optional<at::Tensor>& total_num_blocks,
     const std::optional<at::Tensor>& keep_orig_idx_per_feature);
 
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
+
+///@ingroup sparse-data-cuda
+block_bucketize_sparse_features_2d_weights_cuda(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const at::Tensor& weights,
+    const int64_t weights_dim,
+    const std::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx,
+    const std::optional<at::Tensor>& total_num_blocks,
+    const std::optional<at::Tensor>& keep_orig_idx_per_feature);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
+
+///@ingroup sparse-data-cpu
+block_bucketize_sparse_features_2d_weights_cpu(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const at::Tensor& weights,
+    const int64_t weights_dim,
+    const std::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx,
+    const std::optional<at::Tensor>& total_num_blocks,
+    const std::optional<at::Tensor>& keep_orig_idx_per_feature);
+
 ///@ingroup sparse-data-cpu
 at::Tensor populate_bucketized_permute_cpu(
     const at::Tensor& length,
