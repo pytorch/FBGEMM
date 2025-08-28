@@ -22,17 +22,6 @@ struct TypeConverter<float> {
 using GemmParamsFP32 = GemmParams<float>;
 using PackedGemmMatrixFP32 = PackedGemmMatrixB<float>;
 
-template <typename T, int _kernel_ncol_blocks, int _brow>
-void cblas_gemm_compute(
-    const matrix_op_t transa,
-    const int m,
-    const float* A,
-    const PackedGemmMatrixB<T>& Bp,
-    const float beta,
-    float* C,
-    int thread_id = 0,
-    int num_threads = 1);
-
 extern template void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
