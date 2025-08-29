@@ -2990,10 +2990,11 @@ __global__ void quantizeQKVPerHead(
     }
 
     for (auto hh = 0; hh < maxHH; hh++) {
+      float val_h = 0;
       {
         at::BFloat16* src_row = &xqkv[(b_t * HH + hh + 0) * D_H];
         buffer = *reinterpret_cast<uint2*>(&src_row[d]);
-        val = (hh < N_H) ? val : xqkv_amax_head[b * HH + hh];
+        val_h = (hh < N_H) ? val : xqkv_amax_head[b * HH + hh];
       }
 
       {
@@ -3002,25 +3003,25 @@ __global__ void quantizeQKVPerHead(
           h = hh;
           qparam = scale_q + b * N_KVH + hh / (N_H / N_KVH);
           dst_row_q = &XQ_O[b_t][h][0];
-          val = val * 8;
+          // val_h = val_h * 8;
         } else if (hh < N_H + N_KVH) {
           h = hh - N_H;
 
           qparam = scale_k + b * N_KVH + h;
           dst_row_q = &cache_K[b][seqpos_t][h][0];
-          val = kv_multiplier * val;
+          val_h = kv_multiplier * val_h;
         } else {
           h = hh - N_H - N_KVH;
 
           qparam = scale_v + b * N_KVH + h;
           dst_row_q = &cache_V[b][seqpos_t][h][0];
-          val = kv_multiplier * val;
+          val_h = kv_multiplier * val_h;
         }
       }
       {
         float scale = 0;
-        val = fminf(val, 12000);
-        scale = fmaxf(val / FP8_E4M3_MAX::value, min_scaling_factor);
+        val_h = fminf(val_h, 12000);
+        scale = fmaxf(val_h / FP8_E4M3_MAX::value, min_scaling_factor);
         bool is_first_token = b != last_b;
         if (threadIdx.x == 0 && h == 0 && is_first_token) {
           *qparam = scale;
