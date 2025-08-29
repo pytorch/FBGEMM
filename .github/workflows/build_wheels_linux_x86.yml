@@ -50,8 +50,9 @@ jobs:
       env:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
       # Nova Coordinate Filters:
+      # cuda/13.0: Not supported in FBGEMM CI yet
       # rocm/3.13t: causes segfaults at runtime
-      # 3.14: markupsafe is not available yet for python 3.14, so codegen breaks
+      # python/3.14: markupsafe is not available yet for python 3.14, so codegen breaks
       run: |
         set -ex
         pwd
