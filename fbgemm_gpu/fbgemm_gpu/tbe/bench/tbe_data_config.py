@@ -9,7 +9,7 @@
 
 import dataclasses
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -45,6 +45,19 @@ class TBEDataConfig:
     pooling_params: PoolingParams
     # Force generated tensors to be on CPU
     use_cpu: bool = False
+    # Number of embeddings in each embedding features (number of rows)
+    Es: Optional[List[int]] = None
+    # Target embedding dimension for each features (number of columns)
+    Ds: Optional[List[int]] = None
+    # Maximum number of indices
+    max_indices: Optional[int] = None  # Maximum number of indices
+
+    def __post_init__(self) -> None:
+        if isinstance(self.D, list):
+            object.__setattr__(self, "mixed_dim", len(set(self.D)) > 1)
+        if isinstance(self.E, list) and self.max_indices is None:
+            object.__setattr__(self, "max_indices", sum(self.E) - 1)
+        self.validate()
 
     @staticmethod
     def complex_fields() -> Dict[str, Any]:
@@ -81,7 +94,19 @@ class TBEDataConfig:
         # NOTE: Add validation logic here
         assert self.T > 0, "T must be positive"
         assert self.E > 0, "E must be positive"
+        if self.Es is not None:
+            assert all(e > 0 for e in self.Es), "All elements in Es must be positive"
         assert self.D > 0, "D must be positive"
+        if self.Ds is not None:
+            assert all(d > 0 for d in self.Ds), "All elements in Ds must be positive"
+        if isinstance(self.E, list) and isinstance(self.D, list):
+            assert (
+                len(self.E) == len(self.D) == self.T
+            ), "Lengths of Es, Lengths of Ds, and T must be equal"
+            if self.max_indices is not None:
+                assert self.max_indices == (
+                    sum(self.Es) - 1
+                ), "max_indices must be equal to sum(Es) - 1"
         self.batch_params.validate()
         self.indices_params.validate()
         self.pooling_params.validate()

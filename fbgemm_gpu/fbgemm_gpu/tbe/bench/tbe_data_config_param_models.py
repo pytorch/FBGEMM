@@ -9,7 +9,7 @@
 
 import dataclasses
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -98,6 +98,8 @@ class BatchParams:
     vbe_distribution: Optional[str] = "normal"
     # Number of ranks for variable batch size generation
     vbe_num_ranks: Optional[int] = None
+    # List of target batch sizes, i.e. number of batch lookups per table
+    Bs: Optional[List[int]] = None
 
     @classmethod
     # pyre-ignore [3]
@@ -117,7 +119,10 @@ class BatchParams:
 
     # pyre-ignore [3]
     def validate(self):
-        assert self.B > 0, "B must be positive"
+        if self.Bs is not None:
+            assert all(b > 0 for b in self.Bs), "All elements in Bs must be positive"
+        else:
+            assert self.B > 0, "B must be positive"
         assert not self.sigma_B or self.sigma_B > 0, "sigma_B must be positive"
         assert (
             self.vbe_num_ranks is None or self.vbe_num_ranks > 0

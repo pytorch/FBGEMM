@@ -9,6 +9,7 @@
 
 from typing import List, Optional, Tuple
 
+import numpy as np
 import torch
 
 from fbgemm_gpu.tbe.bench.tbe_data_config import TBEDataConfig
@@ -174,9 +175,16 @@ def _build_requests_dense(
 def generate_requests(
     tbe_data_config: TBEDataConfig,
     iters: int = 1,
+    batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
 ) -> List[TBERequest]:
+
     # Generate batch sizes
-    Bs, Bs_feature_rank = _generate_batch_sizes(tbe_data_config)
+    if batch_size_per_feature_per_rank:
+        Bs = tbe_data_config.batch_params.Bs
+    else:
+        Bs, _ = _generate_batch_sizes(tbe_data_config)
+
+    assert Bs is not None, "Batch sizes (Bs) must be set"
 
     # Generate pooling info
     L_offsets = _generate_pooling_info(tbe_data_config, iters, Bs)
@@ -186,8 +194,90 @@ def generate_requests(
 
     # Build TBE requests
     if tbe_data_config.variable_B() or tbe_data_config.variable_L():
+        if batch_size_per_feature_per_rank:
+            return _build_requests_jagged(
+                tbe_data_config,
+                iters,
+                Bs,
+                batch_size_per_feature_per_rank,
+                L_offsets,
+                all_indices,
+            )
+        else:
+            return _build_requests_jagged(
+                tbe_data_config,
+                iters,
+                Bs,
+                batch_size_per_feature_per_rank,
+                L_offsets,
+                all_indices,
+            )
+    else:
+        return _build_requests_dense(tbe_data_config, iters, all_indices)
+
+
+def generate_requests_with_Llist(
+    tbe_data_config: TBEDataConfig,
+    L_list: torch.Tensor,
+    iters: int = 1,
+    batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+) -> List[TBERequest]:
+    """
+    Generate a list of TBERequest objects based on the provided TBE data configuration and L_list
+    This function generates batch sizes and pooling information from the input L_list,
+    simulates L distributions with Gaussian noise, and creates indices for embedding lookups.
+    It supports both variable batch sizes and sequence lengths, building either jagged or dense requests accordingly.
+    Args:
+        tbe_data_config (TBEDataConfig): Configuration object containing batch parameters and pooling parameters.
+        L_list (torch.Tensor): Tensor of base sequence lengths for each batch.
+        iters (int, optional): Number of iterations to repeat the generated requests. Defaults to 1.
+        batch_size_per_feature_per_rank (Optional[List[List[int]]], optional): Optional batch size specification per feature per rank. Defaults to None.
+    Returns:
+        List[TBERequest]: A list of TBERequest objects constructed according to the configuration and input parameters.
+    Raises:
+        AssertionError: If batch sizes (Bs) are not set in the tbe_data_config.
+    Example:
+        >>> requests = generate_requests_with_Llist(tbe_data_config, L_list=torch.tensor([10, 20]), iters=2)
+        >>> len(requests)
+        2
+    """
+
+    # Generate batch sizes
+    Bs = tbe_data_config.batch_params.Bs
+    assert (
+        Bs is not None
+    ), "Batch sizes (Bs) must be set for generate_requests_with_Llist"
+
+    # Generate pooling info from L list
+    Ls_list = []
+    for i in range(len(Bs)):
+        L = L_list[i]
+        B = Bs[i]
+        Ls_iter = np.random.normal(
+            loc=L, scale=tbe_data_config.pooling_params.sigma_L, size=B
+        ).astype(int)
+        Ls_list.append(Ls_iter)
+    Ls = np.concatenate(Ls_list)
+    Ls[Ls < 0] = 0
+    # Use the same L distribution across iters
+    Ls = np.tile(Ls, iters)
+    L = Ls.max()
+    # Make it exclusive cumsum
+    L_offsets = torch.from_numpy(np.insert(Ls.cumsum(), 0, 0)).to(torch.long)
+
+    # Generate indices
+    all_indices = _generate_indices(tbe_data_config, iters, Bs, L_offsets)
+    all_indices = all_indices.to(get_device())
+
+    # Build TBE requests
+    if tbe_data_config.variable_B() or tbe_data_config.variable_L():
         return _build_requests_jagged(
-            tbe_data_config, iters, Bs, Bs_feature_rank, L_offsets, all_indices
+            tbe_data_config,
+            iters,
+            Bs,
+            batch_size_per_feature_per_rank,
+            L_offsets,
+            all_indices,
         )
     else:
         return _build_requests_dense(tbe_data_config, iters, all_indices)

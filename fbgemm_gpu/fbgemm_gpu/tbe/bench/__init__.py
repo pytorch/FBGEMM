@@ -21,6 +21,7 @@ from .bench_runs import (  # noqa F401
     benchmark_pipelined_requests,
     benchmark_requests,
     benchmark_requests_refer,
+    benchmark_requests_with_spec,
     benchmark_vbe,
 )
 from .benchmark_click_interface import TbeBenchClickInterface  # noqa F401
