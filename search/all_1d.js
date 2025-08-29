@@ -1,6 +1,5 @@
 var searchData=
 [
-  ['zero_5fcollision_5fhash_5fcpu_0',['zero_collision_hash_cpu',['../group__faster-hash-ops-cpu.html#ga19e86bdf016d17679b40f6003a7f22f7',1,'fbgemm_gpu']]],
-  ['zero_5fcollision_5fhash_5fmeta_1',['zero_collision_hash_meta',['../group__faster-hash-ops-cpu.html#ga13166c5b04012d8e12c76ee2a09d80ef',1,'fbgemm_gpu']]],
-  ['zmm_2',['Zmm',['../classfbgemm_1_1_zmm.html',1,'fbgemm']]]
+  ['xmm_0',['Xmm',['../classfbgemm_1_1_xmm.html',1,'fbgemm']]],
+  ['xor128_1',['Xor128',['../group__fbgemm-quant-utils-avx2.html#ga53e986441f4188a7a412761b20737e8d',1,'fbgemm']]]
 ];

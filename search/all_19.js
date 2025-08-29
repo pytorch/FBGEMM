@@ -1,14 +1,20 @@
 var searchData=
 [
-  ['unpack_0',['unpack',['../classfbgemm_1_1_pack_b_matrix.html#ac8f794c5364686a01f4da2d63577c936',1,'fbgemm::PackBMatrix::unpack()'],['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html#a0e595cb06818cbfc4c664bf4a543d6de',1,'fbgemm::PackWeightMatrixForGConv::unpack()'],['../classfbgemm_1_1_pack_weights_for_conv.html#a0e595cb06818cbfc4c664bf4a543d6de',1,'fbgemm::PackWeightsForConv::unpack()'],['../structfbgemm_1_1_b_c_s_r_matrix.html#a90f1c4d7dcaa5d19eb8ac45ecf623fb0',1,'fbgemm::BCSRMatrix::unpack()']]],
-  ['utilities_20avx2_1',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
-  ['utilities_20avx512_2',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]],
-  ['utilities_20generic_3',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]],
-  ['uvm_5fcuda_5fmem_5fadvise_4',['uvm_cuda_mem_advise',['../group__cumem-utils.html#gae8c724e90d31245756fc4b0d975f9370',1,'fbgemm_gpu']]],
-  ['uvm_5fcuda_5fmem_5fprefetch_5fasync_5',['uvm_cuda_mem_prefetch_async',['../group__cumem-utils.html#ga6bc25db5211698851a7664c945aeffa5',1,'fbgemm_gpu']]],
-  ['uvm_5fmem_5fadvice_5fdont_5ffork_6',['uvm_mem_advice_dont_fork',['../group__cumem-utils.html#ga01301ad686f7570c21e81c122d2c7af8',1,'fbgemm_gpu']]],
-  ['uvm_5fstorage_7',['uvm_storage',['../group__cumem-utils.html#ga05bf2c435c434904ca454c6992861cb6',1,'fbgemm_gpu']]],
-  ['uvm_5fto_5fcpu_8',['uvm_to_cpu',['../group__cumem-utils.html#gab5a3dab831988b1ce368ccc545b75b48',1,'fbgemm_gpu']]],
-  ['uvm_5fto_5fcpu_5fclone_9',['uvm_to_cpu_clone',['../group__cumem-utils.html#ga161495e682d9eac3701dca87469930db',1,'fbgemm_gpu']]],
-  ['uvm_5fto_5fdevice_10',['uvm_to_device',['../group__cumem-utils.html#gaebfedcf8e6017a6d4f6fb16b52c4c04e',1,'fbgemm_gpu']]]
+  ['takedepthwisefastpath_0',['takeDepthWiseFastPath',['../namespacefbgemm.html#a523727ffa987158ac9021cc0d9b97e0b',1,'fbgemm']]],
+  ['takepointwisefastpath_1',['takePointWiseFastPath',['../namespacefbgemm.html#affb3e7487c8a1c6c7d1549eb7090aee1',1,'fbgemm']]],
+  ['tbe_20cpu_20autovectorization_20fp8_2016_2032_2',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
+  ['tensor_20cuda_20operators_3',['Jagged Tensor CUDA Operators',['../group__jagged-tensor-ops-cuda.html',1,'']]],
+  ['tensor_20operators_4',['Jagged Tensor Operators',['../group__jagged-tensor-ops-cpu.html',1,'']]],
+  ['tensoraccessorbuilder_5',['TensorAccessorBuilder',['../structfbgemm__gpu_1_1utils_1_1_tensor_accessor_builder.html',1,'fbgemm_gpu::utils']]],
+  ['tensorquantizationparams_6',['TensorQuantizationParams',['../structfbgemm_1_1_tensor_quantization_params.html',1,'fbgemm']]],
+  ['thread_5ftype_5ft_7',['thread_type_t',['../structfbgemm_1_1thread__type__t.html',1,'fbgemm']]],
+  ['to_5fstring_8',['to_string',['../group__fbgemm-gpu-config.html#gae8605afa4af87f4c3ce9aedd5a7c9453',1,'fbgemm_gpu::config']]],
+  ['tostring_9',['toString',['../structfbgemm_1_1conv__param__t.html#a1fe5121d6528fdea3f243321b3fa3a49',1,'fbgemm::conv_param_t']]],
+  ['training_20forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_10',['43 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['transformation_20cpu_20operators_11',['Layout Transformation CPU Operators',['../group__layout-transform-cpu.html',1,'']]],
+  ['transformation_20cuda_20operators_12',['Layout Transformation CUDA Operators',['../group__layout-transform-cuda.html',1,'']]],
+  ['transpose_5f8rows_13',['transpose_8rows',['../namespacefbgemm.html#a9ee41553113b6cd89e0e336022acf250',1,'fbgemm']]],
+  ['transpose_5fref_14',['transpose_ref',['../namespacefbgemm.html#a18832d0507cb6d8bce78371b97f66479',1,'fbgemm']]],
+  ['transpose_5fsimd_15',['transpose_simd',['../namespacefbgemm.html#a75b4ad78ae16c6e6782f82e1ff4012a8',1,'fbgemm']]],
+  ['tuningcache_16',['TuningCache',['../class_tuning_cache.html',1,'']]]
 ];

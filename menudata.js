@@ -79,4 +79,9 @@ var menudata={children:[
 {text:"n",url:"functions_vars.html#index_n"},
 {text:"o",url:"functions_vars.html#index_o"},
 {text:"r",url:"functions_vars.html#index_r"}]},
-{text:"Enumerations",url:"functions_enum.html"}]}]}]}
+{text:"Enumerations",url:"functions_enum.html"}]}]},
+{text:"Files",url:"files.html",children:[
+{text:"File List",url:"files.html"},
+{text:"File Members",url:"globals.html",children:[
+{text:"All",url:"globals.html"},
+{text:"Functions",url:"globals_func.html"}]}]}]}
