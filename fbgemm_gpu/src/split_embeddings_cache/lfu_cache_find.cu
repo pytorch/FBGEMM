@@ -40,7 +40,7 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
         lfu_state) {
   const int32_t C = lxu_cache_state.size(0);
 
-  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (uint32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     const int64_t idx = unique_indices[n];
     if (idx == max_indices) {
@@ -87,21 +87,18 @@ void lfu_update_counts_cuda(
   const int32_t N = unique_indices.size(0);
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lfu_update_counts_cuda", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lfu_update_counts_kernel";
-#endif
-        lfu_update_counts_kernel<<<
+        FBGEMM_LAUNCH_KERNEL(
+            (lfu_update_counts_kernel<index_t>),
             std::min(
                 div_round_up(N, kMaxThreads),
                 get_max_thread_blocks_for_cache_kernels_()),
             kMaxThreads,
             0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32),
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
-            MAKE_PTA_WITH_NAME(func_name, unique_indices_count, int32_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+            PTA_B(unique_indices_count, int32_t, 1, 32),
+            PTA_B(lfu_state, int64_t, 1, 64));
       });
 }
 
@@ -127,24 +124,22 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lfu_cache_find_uncached_kernel";
-#endif
         // Find uncached indices
-        lfu_cache_find_uncached_kernel<<<
+        FBGEMM_LAUNCH_KERNEL(
+            (lfu_cache_find_uncached_kernel<index_t>),
             std::min(
                 div_round_up(N, kMaxThreads / kWarpSize),
                 get_max_thread_blocks_for_cache_kernels_()),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32),
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
             max_indices,
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
             (uint64_t*)cache_sets.data_ptr<int64_t>(),
-            MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+            PTA_B(lfu_state, int64_t, 1, 64));
+
         // Sort the cache sets and ids
         size_t temp_storage_bytes = 0;
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
