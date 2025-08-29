@@ -469,6 +469,8 @@ struct LocalMask : NoMask {
     //      where we only compute the next row and use cache for the rest
     //    - if you'd like this, you only need to set kIsQBegin=false
 
+    const int K = get<1>(problem_size);
+
     if constexpr (IsQBegin) {
       CUTLASS_PRAGMA_UNROLL
       for (int i = 0; i < size(acc_qk); i++) {
@@ -476,10 +478,12 @@ struct LocalMask : NoMask {
         const int pos_i = get<0>(pos);
         const int pos_j = get<1>(pos);
 
-        bool masked = (pos_i - window_size_left > pos_j) || (pos_i + window_size_right < pos_j) || !elem_less(pos, problem_size);
-        if (masked) {
-          acc_qk(i) = -INFINITY;
-        }
+        const int window_left_bound = pos_i - window_size_left;
+        const int window_right_bound = pos_i + window_size_right;
+
+        bool masked = (pos_j < window_left_bound) || (pos_j > window_right_bound) || (pos_j >= K);
+
+        acc_qk(i) = masked ? -INFINITY : acc_qk(i);
       }
     } else {
       const auto offset_q = get<1>(problem_size) - get<0>(problem_size);
@@ -489,10 +493,14 @@ struct LocalMask : NoMask {
         const int pos_i = get<0>(pos);
         const int pos_j = get<1>(pos);
 
-        bool masked = (pos_i + offset_q - window_size_left > pos_j) || (pos_i + offset_q + window_size_right < pos_j) || (pos_j >= get<1>(problem_size));
-        if (masked) {
-          acc_qk(i) = -INFINITY;
-        }
+        const int offset_pos_i = pos_i + offset_q;
+
+        const int window_left_bound = offset_pos_i - window_size_left;
+        const int window_right_bound = offset_pos_i + window_size_right;
+
+        bool masked = (pos_j < window_left_bound) || (pos_j > window_right_bound) || (pos_j >= K);
+
+        acc_qk(i) = masked ? -INFINITY : acc_qk(i);
       }
     }
   }
