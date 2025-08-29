@@ -600,7 +600,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         causal=st.booleans(),
         is_varlen=st.booleans(),
         is_gqa=st.booleans(),
-        window_size=st.sampled_from([(-1, -1)]),
+        window_size=st.sampled_from(
+            [(-1, -1), (128, 0), (256, 0), (128, 128), (512, 0)]
+        ),
     )
     @settings(**common_settings)
     def test_backward(

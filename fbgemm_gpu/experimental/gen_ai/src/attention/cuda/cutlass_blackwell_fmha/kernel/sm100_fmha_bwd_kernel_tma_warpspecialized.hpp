@@ -304,6 +304,9 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     TensorStride stride_dq_acc;
 
     ElementAcc softmax_scale = 1.0f / sqrtf(TileShapeDQK{});
+
+    int window_size_left = -1;
+    int window_size_right = -1;
   };
 
   using TMA_K = typename CollectiveMmaKQ::Params::TMA_A;
@@ -322,6 +325,9 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     TMA_Q tma_load_q;
     TMA_DO tma_load_do;
     TMA_DQ tma_red_dq;
+
+    int window_size_left;
+    int window_size_right;
   };
 
   struct EpilogueArguments {
@@ -406,7 +412,9 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
         params_vdo.tma_load_a,
         params_kq.tma_load_b,
         params_vdo.tma_load_b,
-        tma_red_dq
+        tma_red_dq,
+        args.mainloop.window_size_left,
+        args.mainloop.window_size_right
       },
       args.epilogue,
       args.hw_info
@@ -1274,14 +1282,20 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       if constexpr (std::is_base_of_v<cutlass::fmha::collective::ResidualMaskForBackward, Mask>) {
         trailing_residual_masking = warp_uniform((iter_index == iter_end - 1) || is_residual_k);
       }
+      bool local_masking = false;
+      if constexpr (std::is_base_of_v<cutlass::fmha::collective::LocalMaskForBackward<true>, Mask>) {
+        local_masking = true;
+      } else if constexpr (std::is_base_of_v<cutlass::fmha::collective::LocalMaskForBackward<false>, Mask>) {
+        local_masking = true;
+      }
 
-      dispatch_bool(leading_causal_masking || trailing_residual_masking, [&](auto is_masked_tile) {
+      dispatch_bool(local_masking || leading_causal_masking || trailing_residual_masking, [&](auto is_masked_tile) {
 
         // compute P = softmax(S, LSE)
         cute::copy(tiled_t2r, tTR_tST, tTR_rST);
 
         if constexpr (decltype(is_masked_tile)::value) {
-          Mask{}.apply_mask(tTR_rST, [&](int i) {
+          Mask(mainloop_args.window_size_left, mainloop_args.window_size_right).apply_mask(tTR_rST, [&](int i) {
             auto c_transpose = tTR_cST(i);
             return make_coord(get<1>(c_transpose) + iter_index * TileShapeQ{}, get<0>(c_transpose) + get<1>(blk_coord) * TileShapeK{});
           }, problem_shape);
@@ -1717,6 +1731,16 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     } else if constexpr (std::is_base_of_v<cutlass::fmha::collective::CausalMask<false>, Mask>) {
       int offset = get<1>(problem_shape) - get<0>(problem_shape);
       iter_start = max(0, (int(get<1>(blk_coord) * TileShapeK{}) - offset) / (int)TileShapeQ{});
+    } else if constexpr (std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask>) {
+      int offset = get<1>(problem_shape) - get<0>(problem_shape);
+
+      int k_max = (get<1>(blk_coord) + 1) * TileShapeK{};
+      int q_max = min(get<0>(problem_shape), k_max - offset + params.mainloop_params.window_size_left);
+      iter_end = ceil_div(q_max, TileShapeQ{});
+
+      int k_min = get<1>(blk_coord) * TileShapeK{};
+      int q_min = max(0, k_min - offset - params.mainloop_params.window_size_right);
+      iter_start = q_min / (int)TileShapeQ{};
     }
     if (get<1>(blk_coord) * TileShapeK{} >= get<1>(problem_shape)) {
       return;
