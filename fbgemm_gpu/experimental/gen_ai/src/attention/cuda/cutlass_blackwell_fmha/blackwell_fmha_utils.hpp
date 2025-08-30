@@ -82,7 +82,11 @@ struct TensorWrapper {
     if (offset_ == 0) {
       return tensor_.view(shape);
     }
-    return tensor_.narrow(0, offset_, size_).view(shape);
+    auto t = tensor_.narrow(0, offset_, size_).view(shape);
+    TORCH_CHECK(
+        t.is_contiguous(),
+        "The underlying tensor in TensorWrapper must be contiguous");
+    return t;
   }
 
   void copy_from_device(const at::Tensor& tensor) {
