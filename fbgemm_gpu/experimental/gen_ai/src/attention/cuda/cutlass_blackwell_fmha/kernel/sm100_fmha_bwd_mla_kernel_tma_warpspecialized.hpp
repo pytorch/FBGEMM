@@ -954,7 +954,7 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
       TensorC const& coord,
       TensorShape const& tensor_shape) {
 
-    Tensor preds = cute::lazy::transform(coord, [&](auto const& c) { return elem_less(c, tensor_shape); });
+    Tensor preds = cute::transform(coord, [&](auto const& c) { return elem_less(c, tensor_shape); });
 
     auto copy_op = make_cotiled_copy(
         Copy_Atom<UniversalCopy<uint128_t>, Element>{},
