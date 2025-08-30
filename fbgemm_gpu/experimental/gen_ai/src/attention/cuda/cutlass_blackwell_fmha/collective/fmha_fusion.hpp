@@ -166,6 +166,9 @@ struct ResidualMaskForBackward : NoMask {
 
   using Base = NoMask;
 
+  CUTLASS_DEVICE
+  ResidualMaskForBackward(int left = -1, int right = -1) {}
+
   template <class BlkCoord, class TileShape, class ProblemSize>
   CUTLASS_DEVICE int get_masked_trip_count(
       BlkCoord const& blk_coord,
@@ -330,6 +333,9 @@ template<bool kIsQBegin = true>
 struct CausalForBackwardMask : CausalMask<kIsQBegin>, ResidualMaskForBackward {
 
   using Base = CausalMask<kIsQBegin>;
+
+  CUTLASS_DEVICE
+  CausalForBackwardMask(int left = -1, int right = -1) {}
 
   template<class AccQK, class IndexQK, class ProblemSize>
   CUTLASS_DEVICE
@@ -499,6 +505,62 @@ struct LocalMask : NoMask {
         const int window_right_bound = offset_pos_i + window_size_right;
 
         bool masked = (pos_j < window_left_bound) || (pos_j > window_right_bound) || (pos_j >= K);
+
+        acc_qk(i) = masked ? -INFINITY : acc_qk(i);
+      }
+    }
+  }
+};
+
+template<bool kIsQBegin = true>
+struct LocalMaskForBackward : LocalMask<kIsQBegin> {
+
+  using Base = LocalMask<kIsQBegin>;
+
+  static constexpr bool IsQBegin = kIsQBegin;
+
+  int window_size_left;
+  int window_size_right;
+
+  CUTLASS_DEVICE
+  LocalMaskForBackward(int left = -1, int right = -1)
+      : window_size_left(left), window_size_right(right) {}
+
+  template<class AccQK, class IndexQK, class ProblemSize>
+  CUTLASS_DEVICE
+  void apply_mask(
+      AccQK& acc_qk,
+      IndexQK const& index_qk,
+      ProblemSize const& problem_size) {
+
+    if constexpr (IsQBegin) {
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < size(acc_qk); i++) {
+        auto pos = index_qk(i);
+        const int pos_i = get<0>(pos);
+        const int pos_j = get<1>(pos);
+
+        const int window_left_bound = pos_i - window_size_left;
+        const int window_right_bound = pos_i + window_size_right;
+
+        bool masked = (pos_j < window_left_bound) || (pos_j > window_right_bound) || !elem_less(pos, problem_size);
+
+        acc_qk(i) = masked ? -INFINITY : acc_qk(i);
+      }
+    } else {
+      const auto offset_q = get<1>(problem_size) - get<0>(problem_size);
+
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < size(acc_qk); i++) {
+        auto pos = index_qk(i);
+        const int pos_i = get<0>(pos);
+        const int pos_j = get<1>(pos);
+
+        const int offset_pos_i = pos_i + offset_q;
+        const int window_left_bound = offset_pos_i - window_size_left;
+        const int window_right_bound = offset_pos_i + window_size_right;
+
+        bool masked = (pos_j < window_left_bound) || (pos_j > window_right_bound) || !elem_less(pos, problem_size);
 
         acc_qk(i) = masked ? -INFINITY : acc_qk(i);
       }

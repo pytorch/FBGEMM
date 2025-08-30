@@ -18,8 +18,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     const std::optional<const at::Tensor>& cu_seqlens_k,
     std::optional<int> max_seq_len_q,
     std::optional<int> max_seq_len_k,
-    int64_t window_size_left,
-    int64_t window_size_right
+    const int window_size_left,
+    const int window_size_right
 ) {
   const auto device = q.device();
   at::cuda::CUDAGuard device_guard(device);
@@ -202,6 +202,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     static_cast<Element*>(dV.data_ptr()),
     stride_dV,
     softmax_scale,
+    window_size_left,
+    window_size_right,
     hw_info};
   launch_fmha_op<Operation>(arguments);
 
@@ -301,6 +303,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
   auto dispatch_mask = [&](auto varlen) {
     if (causal) {
       return dispatch_type(varlen, CausalForBackwardMask</*kIsQBegin=*/false>{});
+    }
+    else if (local) {
+      return dispatch_type(varlen, LocalMaskForBackward</*kIsQBegin=*/false>{});
     }
     else if (varlen || key.size(1) % 128 != 0) {
       // Use the residual mask for varlen or when K seqlen is not multiple of
