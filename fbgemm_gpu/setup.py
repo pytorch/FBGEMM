@@ -106,9 +106,9 @@ class FbgemmGpuBuild:
         return FbgemmGpuBuild(setup_py_args, other_args)
 
     def is_fbpkg_build(self) -> bool:
-        # UNIFIED_FBPKG_NAME is set in build scripts for internal FBPKG build
+        # FB_INTERNAL_BUILD is set in build scripts for internal FBPKG build
         # environments
-        return os.environ.get("UNIFIED_FBPKG_NAME") is not None
+        return os.environ.get("FB_INTERNAL_BUILD") is not None
 
     def nova_flag(self) -> Optional[int]:
         if "BUILD_FROM_NOVA" in os.environ:

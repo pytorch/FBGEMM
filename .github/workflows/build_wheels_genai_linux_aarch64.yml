@@ -32,9 +32,35 @@ jobs:
       with-cuda: enable
       with-cpu: disable
 
-  build:
+  filter-matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
     needs: generate-matrix
+    runs-on: linux.24_04.4x
+    outputs:
+      matrix: ${{ steps.filter.outputs.matrix }}
+    steps:
+    - uses: actions/setup-python@v4
+    - name: Checkout FBGEMM repository
+      uses: actions/checkout@v4
+      with:
+        repository: pytorch/fbgemm
+    - name: Filter Generated Built Matrix
+      id: filter
+      env:
+        MAT: ${{ needs.generate-matrix.outputs.matrix }}
+      # Nova Coordinate Filters:
+      # cuda/13.0-aarch64: Not supported in FBGEMM CI yet
+      run: |
+        set -ex
+        pwd
+        ls
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_version:13.0-aarch64' )"
+        echo "${MATRIX_BLOB}"
+        echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: filter-matrix
     strategy:
       fail-fast: false
       matrix:
@@ -52,7 +78,7 @@ jobs:
       ref: ""
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
-      build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
+      build-matrix: ${{ needs.filter-matrix.outputs.matrix }}
       pre-script: ${{ matrix.pre-script }}
       post-script: ${{ matrix.post-script }}
       package-name: ${{ matrix.package-name }}
