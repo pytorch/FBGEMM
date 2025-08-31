@@ -41,7 +41,6 @@
 #include "cute/numeric/arithmetic_tuple.hpp"
 #include "cute/numeric/integral_constant.hpp"
 #include "cute/tensor.hpp"
-#include "cute/tensor_predicate.hpp"
 #include "cutlass/arch/arch.h"
 #include "cutlass/arch/mma_sm90.h"
 #include "cutlass/arch/reg_reconfig.h"
