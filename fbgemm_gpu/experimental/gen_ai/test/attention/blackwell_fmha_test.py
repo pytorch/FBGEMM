@@ -594,7 +594,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     @skip_rocm
     @given(
         batch_size=st.integers(min_value=1, max_value=128),
-        seqlen_factor=st.integers(min_value=1, max_value=128),
+        seqlen=st.integers(min_value=8, max_value=1024),
         kv_heads=st.integers(min_value=1, max_value=4),
         dtype=st.sampled_from([torch.bfloat16]),
         causal=st.booleans(),
@@ -608,7 +608,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     def test_backward(
         self,
         batch_size: int,
-        seqlen_factor: int,
+        seqlen: int,
         kv_heads: int,
         dtype: torch.dtype,
         causal: bool,
@@ -616,9 +616,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_gqa: bool,
         window_size: tuple[int, int],
     ) -> None:
-        # Currently only support seqlen that is multiple of 8
-        seqlen = seqlen_factor * 8
-
         test_func = (
             self._execute_cutlass_blackwell_attn_varlen
             if is_varlen
