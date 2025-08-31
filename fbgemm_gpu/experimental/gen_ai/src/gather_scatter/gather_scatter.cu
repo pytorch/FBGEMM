@@ -19,7 +19,6 @@
 #include "cute/numeric/arithmetic_tuple.hpp"
 #include "cute/numeric/integral_constant.hpp"
 #include "cute/tensor.hpp"
-#include "cute/tensor_predicate.hpp"
 #include "cutlass/cluster_launch.hpp"
 #include "cutlass/device_kernel.h"
 
