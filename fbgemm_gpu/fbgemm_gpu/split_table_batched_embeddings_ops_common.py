@@ -223,6 +223,7 @@ class KVZCHParams(NamedTuple):
     # can only be enabled when enable_optimizer_offloading is enabled
     backend_return_whole_row: bool = False
     eviction_policy: EvictionPolicy = EvictionPolicy()
+    embedding_cache_mode: bool = False
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
