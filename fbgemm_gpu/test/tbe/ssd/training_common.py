@@ -357,6 +357,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         enable_optimizer_offloading: bool = False,
         backend_return_whole_row: bool = False,
         optimizer_state_dtypes: Dict[OptimType, SparseType] = {},  # noqa: B006
+        embedding_cache_mode: bool = False,
     ) -> Tuple[
         SSDTableBatchedEmbeddingBags,
         List[torch.nn.EmbeddingBag],
@@ -409,6 +410,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
             eviction_policy=EvictionPolicy(
                 meta_header_lens=([16 // (weights_precision.bit_rate() // 8)] * T)
             ),
+            embedding_cache_mode=embedding_cache_mode,
         )
 
         E = min(E, (bucket_offsets[0][1] - bucket_offsets[0][0]) * bucket_sizes[0])

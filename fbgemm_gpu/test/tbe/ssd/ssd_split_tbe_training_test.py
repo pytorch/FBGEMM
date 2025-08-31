@@ -997,3 +997,301 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
                 prefetch_pipeline=prefetch_pipeline,
                 L=kwargs["L"],
             )
+
+    @given(
+        **default_strategies,
+        num_buckets=st.integers(min_value=10, max_value=15),
+        backend_type=st.sampled_from([BackendType.DRAM]),
+        enable_optimizer_offloading=st.booleans(),
+        prefetch_pipeline=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_direct_write_embedding(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        cache_set_scale: float,
+        pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
+        share_table: bool,
+        trigger_bounds_check: bool,
+        mixed_B: bool,
+        num_buckets: int,
+        backend_type: BackendType,
+        enable_optimizer_offloading: bool,
+        prefetch_pipeline: bool,
+    ) -> None:
+        """
+        Test the direct_write_embedding function which writes weights directly to L1 cache,
+        scratch pad, and backend without relying on auto-gradient.
+        """
+
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+
+        trigger_bounds_check = False  # don't stimulate boundary check cases
+        assume(not weighted or pooling_mode == PoolingMode.SUM)
+        assume(not mixed_B or pooling_mode != PoolingMode.NONE)
+
+        (
+            emb,
+            emb_ref,
+            Es,
+            _,
+            bucket_offsets,
+            bucket_sizes,
+        ) = self.generate_kvzch_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            lr=lr,
+            eps=eps,
+            ssd_shards=ssd_shards,
+            cache_set_scale=cache_set_scale,
+            pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=share_table,
+            prefetch_pipeline=prefetch_pipeline,
+            backend_type=backend_type,
+            num_buckets=num_buckets,
+            enable_optimizer_offloading=enable_optimizer_offloading,
+            embedding_cache_mode=True,
+        )
+
+        # Generate inputs
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
+            mixed_B=mixed_B,
+            bucket_offsets=bucket_offsets,
+            bucket_sizes=bucket_sizes,
+            is_kv_tbes=True,
+        )
+
+        # Call prefetch explicitly if prefetch_pipeline is enabled
+        if prefetch_pipeline:
+            # For prefetch, we need to ensure the offsets match the expected format
+            # The format should be B * T + 1 where B is batch size and T is number of tables
+            # For mixed batch sizes, use the batch_size_per_feature_per_rank
+            emb.prefetch(
+                indices,
+                offsets,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
+            torch.cuda.synchronize()
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            weighted,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
+
+        # Create custom weights to write
+        # First, create a mapping from linearized indices to weights
+        # This ensures that the same index gets the same weight
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+            emb.hash_size_cumsum,
+            indices,
+            offsets,
+            None,  # B_offsets
+            -1,  # max_B
+        )
+
+        # Get unique indices
+        unique_indices, inverse_indices = torch.unique(
+            linear_cache_indices, return_inverse=True, sorted=True
+        )
+
+        # Create random weights for each unique index
+        unique_weights = torch.randn(
+            unique_indices.numel(),
+            emb.cache_row_dim,
+            device=emb.current_device,
+            dtype=emb.weights_precision.as_dtype(),
+        )
+
+        # Map the unique weights back to the original indices
+        custom_weights = unique_weights[inverse_indices]
+
+        # Call direct_write_embedding
+        emb.direct_write_embedding(
+            indices=indices,
+            offsets=offsets,
+            weights=custom_weights,
+        )
+        torch.cuda.synchronize()
+
+        # Verify weights were written correctly
+
+        # 1. Check L1 cache
+        # Get the cache locations for the indices
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+            emb.hash_size_cumsum,
+            indices,
+            offsets,
+            None,  # B_offsets
+            -1,  # max_B
+        )
+
+        lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices,
+            emb.lxu_cache_state,
+            emb.total_hash_size,
+        )
+        cache_location_mask = lxu_cache_locations >= 0
+
+        # Get the cache locations and corresponding weights
+        cache_locations = lxu_cache_locations[cache_location_mask]
+        cache_weights = custom_weights[cache_location_mask]
+
+        # Check that weights in L1 cache match the custom weights
+        if cache_locations.numel() > 0:
+            actual_cache_weights = emb.lxu_cache_weights[cache_locations]
+            torch.testing.assert_close(
+                actual_cache_weights,
+                cache_weights,
+                rtol=1e-2 if weights_precision == SparseType.FP16 else 1e-4,
+                atol=1e-2 if weights_precision == SparseType.FP16 else 1e-4,
+            )
+
+        # 2. Check backend (SSD/DRAM)
+        # Flush to ensure all weights are written to backend
+        # emb.flush()
+
+        # For indices not in L1 cache, verify they were written to backend
+        # Directly get indices not in the cache
+        non_cache_indices = linear_cache_indices[~cache_location_mask]
+        non_cache_weights = custom_weights[~cache_location_mask]
+
+        # Only proceed if there are indices not in the cache
+        if non_cache_indices.numel() > 0:
+
+            # Create a tensor to hold weights fetched from backend
+            output_weights = torch.empty_like(non_cache_weights).cpu()
+
+            # Fetch weights from backend using the same ssd_eviction_stream
+            count = torch.tensor(
+                [non_cache_indices.numel()], dtype=torch.int64, device="cpu"
+            )
+
+            # Use the ssd_eviction_stream for get_cuda to ensure proper synchronization with set_cuda
+            with torch.cuda.stream(emb.ssd_eviction_stream):
+                emb.ssd_db.get_cuda(non_cache_indices.cpu(), output_weights, count)
+
+            # Synchronize to ensure the get_cuda operation is complete before comparing
+            torch.cuda.synchronize()
+
+            fetched_weights = output_weights.cuda()
+
+            # Check that weights in backend match the custom weights
+            torch.testing.assert_close(
+                fetched_weights,
+                non_cache_weights,
+                rtol=1e-2 if weights_precision == SparseType.FP16 else 1e-4,
+                atol=1e-2 if weights_precision == SparseType.FP16 else 1e-4,
+            )
+
+        # 3. Check scratch pad updates when prefetch_pipeline is enabled
+        if prefetch_pipeline:
+            # If prefetch_pipeline is enabled, direct_write_embedding should have:
+            # 1. Called _update_cache_counter_and_pointers to run backward hooks for prefetch
+            # 2. Popped the current scratch pad
+            # 3. If there's a next batch scratch pad, written to it
+
+            # Check if the scratch pad data is available in the SSD TBE implementation
+            if (
+                hasattr(emb, "ssd_scratch_pad_eviction_data")
+                and len(emb.ssd_scratch_pad_eviction_data) > 0
+            ):
+                # Get the scratch pad data structure
+                # The structure is a list of tuples, where each tuple contains:
+                # - [0]: The sparse tensor (sp)
+                # - [1]: The indices tensor (sp_idx)
+                # - [2]: The actions count tensor
+                sp_data = emb.ssd_scratch_pad_eviction_data[0]
+
+                # Check if we have indices in the scratch pad
+                if len(sp_data) >= 2 and sp_data[1] is not None:
+                    # Get the indices in the scratch pad
+                    sp_indices = sp_data[1].to(emb.current_device)
+
+                    if sp_indices.numel() > 0:
+                        # Create a set of linearized indices for easier comparison
+                        linear_indices_set = set(
+                            linear_cache_indices.detach().cpu().numpy().tolist()
+                        )
+                        sp_indices_set = set(sp_indices.detach().cpu().numpy().tolist())
+
+                        # Check that all indices in the scratch pad are from our custom weights
+                        # Note: The scratch pad might not contain all indices, as some might be in L1 cache
+                        self.assertTrue(
+                            sp_indices_set.issubset(linear_indices_set),
+                            "Scratch pad indices should be a subset of the linearized indices",
+                        )
+
+                        # Check that the weights in the scratch pad match the custom weights
+                        # Get the sparse tensor from the scratch pad data
+                        sp = sp_data[0]
+
+                        # For each index in the scratch pad, find its position in the linearized indices
+                        # and check that the weight matches
+                        for i, idx in enumerate(sp_indices):
+                            idx_val = idx.item()
+                            if idx_val in linear_indices_set:
+                                # Find the position of this index in the linearized indices
+                                pos = (linear_cache_indices == idx_val).nonzero(
+                                    as_tuple=True
+                                )[0][0]
+
+                                # Get the weight from the scratch pad
+                                sp_weight = sp[i]
+
+                                # Get the corresponding custom weight
+                                custom_weight = custom_weights[pos]
+
+                                # Check that the weights match
+                                torch.testing.assert_close(
+                                    sp_weight,
+                                    custom_weight,
+                                    rtol=(
+                                        1e-2
+                                        if weights_precision == SparseType.FP16
+                                        else 1e-4
+                                    ),
+                                    atol=(
+                                        1e-2
+                                        if weights_precision == SparseType.FP16
+                                        else 1e-4
+                                    ),
+                                )
