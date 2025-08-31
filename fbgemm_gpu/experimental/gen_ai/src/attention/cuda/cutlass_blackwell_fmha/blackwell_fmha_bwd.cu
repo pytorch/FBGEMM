@@ -249,7 +249,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
     std::optional<int64_t> max_seq_len_k,
     bool causal,
     int64_t window_size_left,
-    int64_t window_size_right
+    int64_t window_size_right,
+    bool bottom_right
 ) {
   // This workaround initializes the CUDA context to prevent the 201 error
   // (invalid context).  When this function is invoked through PyTorch
@@ -317,10 +318,20 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
 
   auto dispatch_mask = [&](auto varlen) {
     if (causal) {
-      return dispatch_type(varlen, CausalForBackwardMask</*kIsQBegin=*/false>{});
+      if (bottom_right) {
+        return dispatch_type(varlen, CausalForBackwardMask</*kIsQBegin=*/false>{});
+      }
+      else {
+        return dispatch_type(varlen, CausalForBackwardMask</*kIsQBegin=*/true>{});
+      }
     }
     else if (local) {
-      return dispatch_type(varlen, LocalMaskForBackward</*kIsQBegin=*/false>{});
+      if (bottom_right) {
+        return dispatch_type(varlen, LocalMaskForBackward</*kIsQBegin=*/false>{});
+      }
+      else {
+        return dispatch_type(varlen, LocalMaskForBackward</*kIsQBegin=*/true>{});
+      }
     }
     else if (varlen || key.size(1) % 128 != 0) {
       // Use the residual mask for varlen or when K seqlen is not multiple of
@@ -357,7 +368,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int? max_seq_len_k=None, "
         "    bool causal=False, "
         "    int window_size_left=-1, "
-        "    int window_size_right=-1"
+        "    int window_size_right=-1, "
+        "    bool bottom_right=True"
         ") -> (Tensor, Tensor, Tensor)"
   );
 }

@@ -258,7 +258,8 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
     bool causal,
     const std::optional<at::Tensor>& seqlen_kv,
     int64_t window_size_left,
-    int64_t window_size_right
+    int64_t window_size_right,
+    bool bottom_right
   ) {
   // Handle local attention parameters
   bool local = (window_size_left >= 0 || window_size_right >= 0);
@@ -326,10 +327,20 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
 
   auto dispatch_mask = [&](auto varlen) {
     if (causal) {
-      return dispatch_head_dim(varlen, CausalMask</*kIsQBegin=*/false>{});
+      if (bottom_right) {
+        return dispatch_head_dim(varlen, CausalMask</*kIsQBegin=*/false>{});
+      }
+      else {
+        return dispatch_head_dim(varlen, CausalMask</*kIsQBegin=*/true>{});
+      }
     }
     else if (local) {
-      return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/false>{});
+      if (bottom_right) {
+        return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/false>{});
+      }
+      else {
+        return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/true>{});
+      }
     }
     else if (varlen || k.size(1) % 128 != 0) {
       // Use the residual mask for varlen or when K seqlen is not multiple of
@@ -365,7 +376,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    bool causal=False, "
         "    Tensor? seqlen_kv=None, "
         "    int window_size_left=-1, "
-        "    int window_size_right=-1"
+        "    int window_size_right=-1, "
+        "    bool bottom_right=True"
         ") -> (Tensor, Tensor)"
   );
 }

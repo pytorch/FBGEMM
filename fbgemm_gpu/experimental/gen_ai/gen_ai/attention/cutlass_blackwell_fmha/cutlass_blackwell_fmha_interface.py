@@ -63,6 +63,7 @@ def _cutlass_blackwell_fmha_forward(
     seqlen_kv: torch.Tensor | None = None,
     window_left: int = -1,
     window_right: int = -1,
+    bottom_right: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     q = maybe_contiguous(q)
     k = maybe_contiguous(k)
@@ -80,6 +81,7 @@ def _cutlass_blackwell_fmha_forward(
         seqlen_kv=seqlen_kv,
         window_size_left=window_left,
         window_size_right=window_right,
+        bottom_right=bottom_right,
     )
 
 
@@ -97,6 +99,7 @@ def _cutlass_blackwell_fmha_backward(
     causal: bool = False,
     window_left: int = -1,
     window_right: int = -1,
+    bottom_right: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     q = maybe_contiguous(q)
     k = maybe_contiguous(k)
@@ -115,6 +118,7 @@ def _cutlass_blackwell_fmha_backward(
         causal=causal,
         window_size_left=window_left,
         window_size_right=window_right,
+        bottom_right=bottom_right,
     )
 
 
@@ -161,6 +165,7 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
         max_seq_len_k: Optional[int] = None,
         seqlen_kv: Optional[torch.Tensor] = None,
         window_size: Tuple[int, int] = (-1, -1),
+        bottom_right: bool = True,
     ) -> torch.Tensor:
         # Check if this is generation phase (sq = 1)
         sq = q.shape[1]
@@ -209,6 +214,7 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
                 seqlen_kv,
                 window_left,
                 window_right,
+                bottom_right,
             )
             ctx.save_for_backward(q, k, v, out, softmax_lse)
             ctx.softmax_scale = softmax_scale
@@ -219,6 +225,7 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
             ctx.cu_seqlens_q = cu_seqlens_q
             ctx.cu_seqlens_k = cu_seqlens_k
             ctx.is_gen = False
+            ctx.bottom_right = bottom_right
             return out
 
     @staticmethod
@@ -226,6 +233,7 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        None,
         None,
         None,
         None,
@@ -257,8 +265,9 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
             ctx.causal,
             window_left,
             window_right,
+            bottom_right=ctx.bottom_right,
         )
-        return dq, dk, dv, None, None, None, None, None, None, None, None
+        return dq, dk, dv, None, None, None, None, None, None, None, None, None
 
 
 def cutlass_blackwell_fmha_func(
@@ -273,6 +282,7 @@ def cutlass_blackwell_fmha_func(
     max_seq_len_k: int | None = None,
     seqlen_kv: torch.Tensor | None = None,
     window_size: tuple[int, int] | None = (-1, -1),
+    bottom_right: bool = True,
 ):
     return CutlassBlackwellFmhaFunc.apply(
         q,
@@ -286,4 +296,5 @@ def cutlass_blackwell_fmha_func(
         max_seq_len_k,
         seqlen_kv,
         window_size,
+        bottom_right,
     )
