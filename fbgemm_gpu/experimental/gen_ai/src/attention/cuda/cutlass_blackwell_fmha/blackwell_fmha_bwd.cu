@@ -121,12 +121,14 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
   // Reshape to get strides
   auto B_ = kIsVarlen ? 1 : B;
   auto q_ = q.reshape({B_, Q, H_K, H_R, D});
+  auto o_ = o.reshape({B_, Q, H_K, H_R, D});
   auto k_ = k.reshape({B_, K, H_K, 1, D}).expand({B_, K, H_K, H_R, D});
   auto lse_ = softmax_lse.reshape({B_, H_K, H_R, Q});
   auto ndim = q_.dim();
 
   TORCH_CHECK(q_.stride(ndim - 1) == 1, "The head dim in Q must be contiguous");
   TORCH_CHECK(k_.stride(ndim - 1) == 1, "The head dim in KV must be contiguous");
+  TORCH_CHECK(lse_.stride(lse_.dim() - 1) == 1, "The seqlen dim in LSE must be contiguous");
   if (H_R != 1) {
     TORCH_CHECK(k_.stride(3) == 0, "The shared KV head stride must be zero");
   }
@@ -136,7 +138,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
   StrideQ stride_Q = make_stride(
       static_cast<int>(q_.stride(1)), _1{},
       make_stride(
-        make_stride(static_cast<int>(q_.stride(3)), static_cast<int>(q_.stride(2))),
+        make_stride(
+          static_cast<int>(q_.stride(3)),
+          static_cast<int>(q_.stride(2))),
         static_cast<int>(q_.stride(0))));
 
   // K shape = (B, K, H_K, 1, D)
@@ -150,10 +154,30 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
   StrideLSE stride_LSE = make_stride(
       _1{},
       make_stride(
-        make_stride(static_cast<int>(lse_.stride(2)), static_cast<int>(lse_.stride(1))),
+        make_stride(
+          static_cast<int>(lse_.stride(2)),
+          static_cast<int>(lse_.stride(1))),
         static_cast<int>(lse_.stride(0))));
   StrideV stride_V = stride_K;
-  StrideO stride_O = stride_Q;
+
+  // O shape = (B, Q, H_K, H_R, D)
+  StrideO stride_O = make_stride(
+      static_cast<int>(o_.stride(1)), _1{},
+      make_stride(
+        make_stride(
+          static_cast<int>(o_.stride(3)),
+          static_cast<int>(o_.stride(2))),
+        static_cast<int>(o_.stride(0))));
+
+  // Outputs are always contiguous
+  StrideDQ stride_dQ = make_stride(
+      H_Q * D, _1{},
+      make_stride(make_stride(D, H_R * D), D * Q * H_Q));
+  StrideDK stride_dK = make_stride(
+      H_K * D, _1{},
+      make_stride(make_stride(_0{}, D), D * K * H_K));
+  StrideDV stride_dV = stride_dK;
+  StrideDO stride_dO = stride_dQ;
 
   if constexpr (kIsVarlen) {
     get<2, 1>(stride_Q) = 0;
@@ -161,12 +185,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     get<2, 1>(stride_V) = 0;
     get<2, 1>(stride_O) = 0;
     get<1, 1>(stride_LSE) = 0;
-  }
 
-  StrideDQ stride_dQ = stride_Q;
-  StrideDK stride_dK = stride_K;
-  StrideDV stride_dV = stride_V;
-  StrideDO stride_dO = stride_O;
+    get<2, 1>(stride_dQ) = 0;
+    get<2, 1>(stride_dK) = 0;
+    get<2, 1>(stride_dV) = 0;
+    get<2, 1>(stride_dO) = 0;
+  }
 
   // TODO: pass in softmax_scale?
   ElementAccumulator softmax_scale = 1.0f / sqrtf(D);
@@ -227,14 +251,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
     int64_t window_size_left,
     int64_t window_size_right
 ) {
-
-  TORCH_CHECK(dOutput.is_contiguous());
-  TORCH_CHECK(query.is_contiguous());
-  TORCH_CHECK(key.is_contiguous());
-  TORCH_CHECK(value.is_contiguous());
-  TORCH_CHECK(output.is_contiguous());
-  TORCH_CHECK(softmax_lse.is_contiguous());
-
   // This workaround initializes the CUDA context to prevent the 201 error
   // (invalid context).  When this function is invoked through PyTorch
   // autograd, it runs on a new thread that hasn't been associated with a CUDA
@@ -261,7 +277,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
       window_size_right = max_seq_len_k.value();
     }
   }
-
 
   auto dispatch_fmha =
     [&](auto element, auto element_out, auto varlen, auto mask, auto... kernel_options) {

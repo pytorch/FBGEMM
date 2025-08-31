@@ -171,7 +171,6 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
       make_stride(
         make_stride(static_cast<int>(q_.stride(3)), static_cast<int>(q_.stride(2))),
         static_cast<int>(q_.stride(0))));
-  StrideO stride_O = stride_Q;
 
   // K shape = (B, K, H_K, 1, D)
   StrideK stride_K = make_stride(
@@ -181,6 +180,11 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
         make_stride(_0{}, static_cast<int>(k_.stride(2))),
         static_cast<int>(k_.stride(0))));
   StrideV stride_V = stride_K;
+
+  // O shape = (B, Q, H_K, H_R, D)
+  // O is always contiguous
+  StrideO stride_O = make_stride(
+      H_Q * D, _1{}, make_stride(make_stride(D, H_R * D), H_Q * D * SQ));
 
   // LSE shape = (B, H_K, H_R, Q)
   StrideLSE stride_LSE =
