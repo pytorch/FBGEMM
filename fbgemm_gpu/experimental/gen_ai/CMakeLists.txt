@@ -37,6 +37,7 @@ glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
   src/attention/cuda/*.cu
+  src/attention/cuda/cutlass_blackwell_fmha/blackwell_*.cu
   src/coalesce/*.cu
   src/comm/*.cu
   src/kv_cache/*.cu
@@ -126,6 +127,7 @@ gpu_cpp_library(
     ${KEEP_PREFIX}
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/attention/cuda/cutlass_blackwell_fmha
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/common/include

@@ -79,8 +79,6 @@ struct InputShape {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum class KernelType { UMMA_I = 0, UMMA_P = 1 };
-
 template <
     typename Element,
     KernelType kKernelType,
