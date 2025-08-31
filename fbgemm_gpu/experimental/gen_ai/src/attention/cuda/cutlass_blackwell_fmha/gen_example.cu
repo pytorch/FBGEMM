@@ -158,7 +158,7 @@ int main(int argc, char const** args) {
   auto input_dtype = cutlass::float_e4m3_t{};
   //auto input_dtype = cutlass::bfloat16_t{};
   // Test with different kernel types
-  std::string kernel_type = "UMMA_I"; // Can be "UMMA_I" or "UMMA_P"
+  const auto kernel_type = static_cast<int>(KernelType::UMMA_I); // Can be "UMMA_I" or "UMMA_P"
 
   // Use helper method to create and initialize tensors
   auto tensor_result = init_tensors<decltype(input_dtype)>(B, H, Hk, D, Sk);

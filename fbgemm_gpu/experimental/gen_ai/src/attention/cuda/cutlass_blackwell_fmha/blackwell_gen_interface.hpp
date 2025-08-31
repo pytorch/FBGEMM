@@ -18,6 +18,9 @@
 #include <torch/torch.h>
 
 using namespace cutlass;
+
+enum class KernelType { UMMA_I = 0, UMMA_P = 1 };
+
 // Template function definition for type conversion
 template <typename T>
 at::ScalarType to_torch_type() {
