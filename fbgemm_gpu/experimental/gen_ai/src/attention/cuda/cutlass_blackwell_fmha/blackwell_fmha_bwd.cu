@@ -115,7 +115,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
 
   TORCH_CHECK(D % 8 == 0); // Alignment
   if constexpr (!kIsVarlen) {
-    TORCH_CHECK(Q % 8 == 0); // Alignment
+    // TODO: support Q < 8
+    TORCH_CHECK(Q >= 8);
   }
 
   // Reshape to get strides
