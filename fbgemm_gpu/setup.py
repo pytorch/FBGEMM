@@ -9,6 +9,7 @@
 import argparse
 import logging
 import os
+import pprint
 import re
 import subprocess
 import sys
@@ -335,8 +336,11 @@ class FbgemmGpuBuild:
         if self.is_fbpkg_build():
             # NOTE: Some FB-internal code explicitly require an FB-internal
             # environment to build, such as code that depends on NCCLX
-            print("[SETUP.PY] Setting FBPKG build flag ...")
-            cmake_args.append("-DFBGEMM_FBPKG_BUILD=ON")
+            print("[SETUP.PY] Currently inside FBPKG build ...")
+            cmake_args.append("-DFBGEMM_FBPKG_BUILD=1")
+        else:
+            print("[SETUP.PY] Currently NOT inside FBPKG build ...")
+            cmake_args.append("-DFBGEMM_FBPKG_BUILD=0")
 
         if self.args.cxxprefix:
             logging.debug("[SETUP.PY] Setting CMake flags ...")
@@ -600,6 +604,9 @@ def main(argv: List[str]) -> None:
     # Set the CUDA environment variables if needed
     if build.variant() == "cuda":
         CudaUtils.set_cuda_environment_variables()
+
+    # Print the environment variables
+    pprint.pprint(dict(os.environ))
 
     # Extract the package name
     package_name = build.package_name()
