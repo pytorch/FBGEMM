@@ -109,7 +109,12 @@ class FbgemmGpuBuild:
     def is_fbpkg_build(self) -> bool:
         # FB_INTERNAL_BUILD is set in build scripts for internal FBPKG build
         # environments
-        return os.environ.get("FB_INTERNAL_BUILD") is not None
+        return any(
+            [
+                os.environ.get(key) is not None
+                for key in ["FB_INTERNAL_BUILD", "UNIFIED_FBPKG_NAME"]
+            ]
+        )
 
     def nova_flag(self) -> Optional[int]:
         if "BUILD_FROM_NOVA" in os.environ:
@@ -606,7 +611,7 @@ def main(argv: List[str]) -> None:
         CudaUtils.set_cuda_environment_variables()
 
     # Print the environment variables
-    pprint.pprint(dict(os.environ))
+    print(f"[SETUP.PY] Environment variables: {pprint.pformat(dict(os.environ))}")
 
     # Extract the package name
     package_name = build.package_name()
