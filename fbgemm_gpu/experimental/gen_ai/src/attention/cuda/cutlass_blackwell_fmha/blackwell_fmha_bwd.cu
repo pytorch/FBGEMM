@@ -123,12 +123,15 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
   auto B_ = kIsVarlen ? 1 : B;
   auto q_ = q.reshape({B_, Q, H_K, H_R, D});
   auto o_ = o.reshape({B_, Q, H_K, H_R, D});
+  auto dO_ = dO.reshape({B_, Q, H_K, H_R, D});
   auto k_ = k.reshape({B_, K, H_K, 1, D}).expand({B_, K, H_K, H_R, D});
   auto lse_ = softmax_lse.reshape({B_, H_K, H_R, Q});
   auto ndim = q_.dim();
 
   TORCH_CHECK(q_.stride(ndim - 1) == 1, "The head dim in Q must be contiguous");
   TORCH_CHECK(k_.stride(ndim - 1) == 1, "The head dim in KV must be contiguous");
+  TORCH_CHECK(o_.stride(ndim - 1) == 1, "The head dim in O must be contiguous");
+  TORCH_CHECK(dO_.stride(ndim - 1) == 1, "The head dim in dO must be contiguous");
   TORCH_CHECK(lse_.stride(lse_.dim() - 1) == 1, "The seqlen dim in LSE must be contiguous");
   if (H_R != 1) {
     TORCH_CHECK(k_.stride(3) == 0, "The shared KV head stride must be zero");
@@ -151,6 +154,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
         make_stride(_0{}, static_cast<int>(k_.stride(2))),
         static_cast<int>(k_.stride(0))));
 
+  StrideV stride_V = stride_K;
+
   // LSE shape = (B, H_K, H_R, Q)
   StrideLSE stride_LSE = make_stride(
       _1{},
@@ -159,7 +164,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
           static_cast<int>(lse_.stride(2)),
           static_cast<int>(lse_.stride(1))),
         static_cast<int>(lse_.stride(0))));
-  StrideV stride_V = stride_K;
 
   // O shape = (B, Q, H_K, H_R, D)
   StrideO stride_O = make_stride(
@@ -170,6 +174,15 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
           static_cast<int>(o_.stride(2))),
         static_cast<int>(o_.stride(0))));
 
+  // dO shape = (B, Q, H_K, H_R, D)
+  StrideDO stride_dO = make_stride(
+      static_cast<int>(dO_.stride(1)), _1{},
+      make_stride(
+        make_stride(
+          static_cast<int>(dO_.stride(3)),
+          static_cast<int>(dO_.stride(2))),
+        static_cast<int>(dO_.stride(0))));
+
   // Outputs are always contiguous
   StrideDQ stride_dQ = make_stride(
       H_Q * D, _1{},
@@ -178,19 +191,19 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
       H_K * D, _1{},
       make_stride(make_stride(_0{}, D), D * K * H_K));
   StrideDV stride_dV = stride_dK;
-  StrideDO stride_dO = stride_dQ;
 
   if constexpr (kIsVarlen) {
     get<2, 1>(stride_Q) = 0;
     get<2, 1>(stride_K) = 0;
     get<2, 1>(stride_V) = 0;
     get<2, 1>(stride_O) = 0;
+    get<2, 1>(stride_dO) = 0;
+
     get<1, 1>(stride_LSE) = 0;
 
     get<2, 1>(stride_dQ) = 0;
     get<2, 1>(stride_dK) = 0;
     get<2, 1>(stride_dV) = 0;
-    get<2, 1>(stride_dO) = 0;
   }
 
   // TODO: pass in softmax_scale?

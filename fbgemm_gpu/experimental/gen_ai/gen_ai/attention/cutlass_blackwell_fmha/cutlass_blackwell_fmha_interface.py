@@ -47,7 +47,11 @@ def maybe_contiguous(x: torch.Tensor) -> torch.Tensor:
     """
     We only require the head dim to be contiguous
     """
-    return x.contiguous() if x is not None and x.stride(-1) != 1 else x
+    return (
+        x.contiguous()
+        if x is not None and (x.stride(-1) != 1 or x.stride(-2) % 8 != 0)
+        else x
+    )
 
 
 def _cutlass_blackwell_fmha_forward(
@@ -101,9 +105,11 @@ def _cutlass_blackwell_fmha_backward(
     window_right: int = -1,
     bottom_right: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    dout = maybe_contiguous(dout)
     q = maybe_contiguous(q)
     k = maybe_contiguous(k)
     v = maybe_contiguous(v)
+    out = maybe_contiguous(out)
     return torch.ops.fbgemm.fmha_bwd(
         dout,
         q,
