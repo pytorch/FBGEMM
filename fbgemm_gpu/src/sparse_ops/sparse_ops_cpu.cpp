@@ -1371,6 +1371,358 @@ block_bucketize_sparse_features_inference_cpu(
       keep_orig_idx_per_feature);
 }
 
+template <
+    bool sequence,
+    bool return_bucket_mapping,
+    typename offset_t,
+    typename index_t,
+    typename scalar_t>
+void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
+    const Tensor& lengths,
+    const Tensor& indices,
+    const Tensor& weights,
+    const bool bucketize_pos,
+    const Tensor& block_sizes,
+    const std::optional<Tensor>& total_num_blocks,
+    const int64_t my_size,
+    const int64_t weights_dim,
+    Tensor new_lengths,
+    Tensor new_indices,
+    Tensor new_weights,
+    std::optional<Tensor> new_pos,
+    const std::optional<Tensor>& unbucketize_permute,
+    const std::optional<Tensor>& batch_size_per_feature,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const std::optional<Tensor>& bucket_mapping,
+    const bool keep_orig_idx,
+    const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
+  // allocate tensors and buffers
+  const auto lengths_size = lengths.numel();
+  const auto new_lengths_size = lengths_size * my_size;
+  const int32_t T = block_sizes.numel();
+  const int32_t B = lengths_size / T;
+  auto offsets = at::empty({lengths_size + 1}, lengths.options());
+  auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
+  const offset_t* lengths_data = lengths.data_ptr<offset_t>();
+  offset_t* offsets_data = offsets.data_ptr<offset_t>();
+  const index_t* indices_data = indices.data_ptr<index_t>();
+  scalar_t* weights_data = weights.data_ptr<scalar_t>();
+  scalar_t* new_weights_data = new_weights.data_ptr<scalar_t>();
+  index_t* new_pos_data = nullptr;
+  index_t* unbucketize_permute_data = nullptr;
+  index_t* bag_mapping_data = nullptr;
+  offset_t* const new_lengths_data = new_lengths.data_ptr<offset_t>();
+  offset_t* const new_offsets_data = new_offsets.data_ptr<offset_t>();
+  index_t* const new_indices_data = new_indices.data_ptr<index_t>();
+  const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
+  offset_t* batch_sizes_data = nullptr;
+  const auto variable_batch_size = batch_size_per_feature.has_value();
+  const auto variable_bucket_sizes = block_bucketize_pos.has_value() &&
+      block_bucketize_pos.value().size() != 0;
+  using uindex_t = std::make_unsigned_t<index_t>;
+  using uoffset_t = std::make_unsigned_t<offset_t>;
+  std::vector<int64_t> lower_bounds(indices.numel(), 0);
+
+  if constexpr (sequence) {
+    unbucketize_permute_data = unbucketize_permute.value().data_ptr<index_t>();
+    if constexpr (return_bucket_mapping) {
+      bag_mapping_data = bucket_mapping.value().data_ptr<index_t>();
+    }
+  }
+  if (bucketize_pos) {
+    new_pos_data = new_pos.value().data_ptr<index_t>();
+  }
+
+  if (variable_batch_size) {
+    batch_sizes_data = batch_size_per_feature.value().data_ptr<offset_t>();
+  }
+
+  // count nonzeros
+  prefix_sum(lengths_size, lengths_data, offsets_data);
+  assert(offsets_data[lengths_size] == indices.numel());
+  int64_t cur_offset = 0;
+  for (const auto t : c10::irange(T)) {
+    const auto blk_size = block_sizes_data[t];
+    const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
+    const index_t* bucketize_offset = nullptr;
+    const index_t local_num_blks = total_num_blocks.has_value()
+        ? (total_num_blocks.value().data_ptr<index_t>()[t] / my_size)
+        : 1;
+    const index_t global_num_blks = total_num_blocks.has_value()
+        ? (total_num_blocks.value().data_ptr<index_t>()[t])
+        : my_size;
+    const index_t global_idx_size = blk_size * global_num_blks;
+    const index_t local_idx_size = blk_size * local_num_blks;
+    int64_t bucket_size = 0;
+    if (variable_bucket_sizes) {
+      bucketize_offset = block_bucketize_pos.value()[t].data_ptr<index_t>();
+      bucket_size = block_bucketize_pos.value()[t].numel();
+    }
+    for (const auto b : c10::irange(cur_batch_size)) {
+      const auto b_t = (variable_batch_size ? cur_offset : t * B) + b;
+      const offset_t rowstart = offsets_data[b_t];
+      const offset_t rowend = offsets_data[b_t + 1];
+      for (const auto i : c10::irange(rowstart, rowend)) {
+        // We have use cases using none-hashed raw indices that can be either
+        // negative or larger than embedding table hash_size (blk_size *
+        // my_size). In cases of none-hashed indices we need to ensure
+        // bucketization can distribute them into different ranks and within
+        // range of blk_size, we expect the later embedding module to take care
+        // of hashing indices calculation.
+        uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        if (variable_bucket_sizes) {
+          if (blk_size == 0) {
+            idx = (idx % global_num_blks) * bucketize_offset[bucket_size - 1] /
+                global_num_blks;
+          }
+          int64_t lb = std::upper_bound(
+                           bucketize_offset,
+                           bucketize_offset + static_cast<index_t>(bucket_size),
+                           idx) -
+              bucketize_offset - 1;
+          lower_bounds[i] = lb;
+          uindex_t p = lb < my_size ? lb : idx % my_size;
+          new_lengths_data[p * lengths_size + b_t]++;
+        } else {
+          uindex_t p = idx < static_cast<uindex_t>(global_idx_size)
+              ? idx / local_idx_size
+              : (idx % global_num_blks) / local_num_blks;
+          new_lengths_data[p * lengths_size + b_t]++;
+        }
+      }
+    }
+    cur_offset += cur_batch_size;
+  }
+
+  // bucketize nonzeros
+  prefix_sum(new_lengths_size, new_lengths_data, new_offsets_data);
+  assert(new_offsets_data[new_lengths_size] == new_indices.numel());
+  cur_offset = 0;
+  for (const auto t : c10::irange(T)) {
+    const auto blk_size = block_sizes_data[t];
+    const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
+    const index_t* bucketize_offset = nullptr;
+    if (variable_bucket_sizes) {
+      bucketize_offset = block_bucketize_pos.value()[t].data_ptr<index_t>();
+    }
+    const index_t local_num_blks = total_num_blocks.has_value()
+        ? (total_num_blocks.value().data_ptr<index_t>()[t] / my_size)
+        : 1;
+    const index_t global_num_blks = total_num_blocks.has_value()
+        ? (total_num_blocks.value().data_ptr<index_t>()[t])
+        : my_size;
+    const index_t global_idx_size = blk_size * global_num_blks;
+    const index_t local_idx_size = blk_size * local_num_blks;
+    auto keep_idx = keep_orig_idx;
+    if (keep_orig_idx_per_feature.has_value()) {
+      // When keep_orig_idx_per_feature is set, override global
+      // keep_orig_idx settings
+      keep_idx = keep_orig_idx_per_feature.value().data_ptr<bool>()[t];
+    }
+
+    for (const auto b : c10::irange(cur_batch_size)) {
+      const auto b_t = (variable_batch_size ? cur_offset : t * B) + b;
+      const offset_t rowstart = offsets_data[b_t];
+      const offset_t rowend = offsets_data[b_t + 1];
+      for (const auto i : c10::irange(rowstart, rowend)) {
+        // We have use cases using none-hashed raw indices that can be either
+        // negative or larger than embedding table hash_size (blk_size *
+        // my_size). In cases of none-hashed indices we need to ensure
+        // bucketization can distribute them into different ranks and within
+        // range of blk_size, we expect the later embedding module to take care
+        // of hashing indices calculation.
+        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        uindex_t p, new_idx;
+        if (variable_bucket_sizes) {
+          int64_t lb = lower_bounds[i];
+          p = lb < my_size ? lb : idx % my_size;
+          if (keep_idx) {
+            new_idx = idx;
+          } else if (blk_size == 0) {
+            new_idx = idx / global_num_blks;
+          } else if (lb < my_size) {
+            new_idx = idx - bucketize_offset[lb];
+          } else {
+            new_idx = idx / my_size;
+          }
+        } else { // uniform bucket size
+
+          const uindex_t ub = static_cast<uindex_t>(global_idx_size);
+          p = idx < ub ? idx / local_idx_size
+                       : (idx % global_num_blks) / local_num_blks;
+          if (keep_idx) {
+            new_idx = idx;
+          } else if (idx < ub) {
+            new_idx = idx % local_idx_size;
+          } else {
+            new_idx = idx / global_num_blks;
+          }
+        }
+        const uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
+        new_indices_data[pos] = new_idx;
+        if (sequence) {
+          unbucketize_permute_data[i] = pos;
+          if constexpr (return_bucket_mapping) {
+            bag_mapping_data[i] = p;
+          }
+        }
+        new_offsets_data[p * lengths_size + b_t]++;
+
+        // Copy all dimensions of the weights
+        for (const auto d : c10::irange(weights_dim)) {
+          new_weights_data[pos * weights_dim + d] =
+              weights_data[i * weights_dim + d];
+        }
+
+        if (bucketize_pos) {
+          new_pos_data[pos] = i - rowstart;
+        }
+      }
+    }
+    cur_offset += cur_batch_size;
+  }
+}
+
+std::tuple<Tensor, Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
+_block_bucketize_sparse_features_2d_weights_cpu(
+    const Tensor& lengths,
+    const Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const Tensor& block_sizes,
+    const std::optional<Tensor>& total_num_blocks,
+    const int64_t my_size,
+    const Tensor& weights,
+    const int64_t weights_dim,
+    const std::optional<Tensor>& batch_size_per_feature,
+    const int64_t /* max_batch_size */, // Only used in GPU variant
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx,
+    const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
+  const auto lengths_size = lengths.numel();
+  const auto new_lengths_size = lengths_size * my_size;
+  auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
+  auto new_indices = native_empty_like(indices);
+  std::optional<Tensor> new_pos;
+  std::optional<Tensor> unbucketize_permute;
+  std::optional<Tensor> bucket_mapping;
+
+  // Create new_weights tensor with the correct shape
+  auto new_weights =
+      at::empty({indices.numel(), weights_dim}, weights.options());
+
+  if (bucketize_pos) {
+    new_pos = native_empty_like(indices);
+  }
+
+#define LAUNCH_BLOCK_BUCKETIZE_SPARSE_FEATURES_2D_WEIGHTS(                  \
+    sequence, return_bucket_mapping)                                        \
+  AT_DISPATCH_INDEX_TYPES(                                                  \
+      lengths.scalar_type(),                                                \
+      "block_bucketize_sparse_features_2d_weights_cpu_1",                   \
+      [&] {                                                                 \
+        using offset_t = index_t;                                           \
+        AT_DISPATCH_INDEX_TYPES(                                            \
+            indices.scalar_type(),                                          \
+            "block_bucketize_sparse_features_2d_weights_cpu_2",             \
+            [&] {                                                           \
+              FBGEMM_DISPATCH_FLOATING_TYPES_AND(                           \
+                  at::ScalarType::Double,                                   \
+                  weights.scalar_type(),                                    \
+                  "block_bucketize_sparse_features_2d_weights_cpu_3",       \
+                  [&] {                                                     \
+                    _block_bucketize_sparse_features_2d_weights_cpu_kernel< \
+                        sequence,                                           \
+                        return_bucket_mapping,                              \
+                        offset_t,                                           \
+                        index_t,                                            \
+                        scalar_t>(                                          \
+                        lengths,                                            \
+                        indices,                                            \
+                        weights,                                            \
+                        bucketize_pos,                                      \
+                        block_sizes,                                        \
+                        total_num_blocks,                                   \
+                        my_size,                                            \
+                        weights_dim,                                        \
+                        new_lengths,                                        \
+                        new_indices,                                        \
+                        new_weights,                                        \
+                        new_pos,                                            \
+                        unbucketize_permute,                                \
+                        batch_size_per_feature,                             \
+                        block_bucketize_pos,                                \
+                        bucket_mapping,                                     \
+                        keep_orig_idx,                                      \
+                        keep_orig_idx_per_feature);                         \
+                  });                                                       \
+            });                                                             \
+      });
+
+  const auto lengths_sum = indices.numel();
+  if (sequence) {
+    unbucketize_permute = at::empty({lengths_sum}, indices.options());
+    if (return_bucket_mapping) {
+      bucket_mapping = at::empty({lengths_sum}, indices.options());
+      LAUNCH_BLOCK_BUCKETIZE_SPARSE_FEATURES_2D_WEIGHTS(true, true)
+    } else {
+      LAUNCH_BLOCK_BUCKETIZE_SPARSE_FEATURES_2D_WEIGHTS(true, false)
+    }
+  } else {
+    if (return_bucket_mapping) {
+      bucket_mapping = at::empty({lengths_sum}, indices.options());
+      LAUNCH_BLOCK_BUCKETIZE_SPARSE_FEATURES_2D_WEIGHTS(false, true)
+    } else {
+      LAUNCH_BLOCK_BUCKETIZE_SPARSE_FEATURES_2D_WEIGHTS(false, false)
+    }
+  }
+#undef LAUNCH_BLOCK_BUCKETIZE_SPARSE_FEATURES_2D_WEIGHTS
+  return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
+}
+
+std::tuple<Tensor, Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
+block_bucketize_sparse_features_2d_weights_cpu(
+    const Tensor& lengths,
+    const Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const Tensor& block_sizes,
+    const int64_t my_size,
+    const Tensor& weights,
+    const int64_t weights_dim,
+    const std::optional<Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size, // Only used in GPU variant
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx,
+    const std::optional<Tensor>& total_num_blocks = std::nullopt,
+    const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
+  Tensor new_lengths;
+  Tensor new_indices;
+  Tensor new_weights;
+  std::optional<Tensor> new_pos;
+  std::optional<Tensor> unbucketize_permute;
+  std::tie(
+      new_lengths, new_indices, new_weights, new_pos, unbucketize_permute) =
+      _block_bucketize_sparse_features_2d_weights_cpu(
+          lengths,
+          indices,
+          bucketize_pos,
+          sequence,
+          block_sizes,
+          total_num_blocks,
+          my_size,
+          weights,
+          weights_dim,
+          batch_size_per_feature,
+          max_batch_size,
+          block_bucketize_pos,
+          false,
+          keep_orig_idx,
+          keep_orig_idx_per_feature);
+  return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
+}
+
 // This function partitions sparse features
 // cyclically along the sparse dimension into my_size blocks
 std::tuple<
@@ -3426,6 +3778,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "block_bucketize_sparse_features_inference(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool return_bucket_mapping=False, bool keep_orig_idx=False, Tensor? total_num_blocks=None, Tensor? keep_orig_idx_per_feature=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?)");
   m.def(
+      "block_bucketize_sparse_features_2d_weights(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor weights, SymInt weights_dim=1, Tensor? batch_size_per_feature=None, SymInt max_B=-1, Tensor[]? block_bucketize_pos=None, bool keep_orig_idx=False, Tensor? total_num_blocks=None, Tensor? keep_orig_idx_per_feature=None) -> (Tensor, Tensor, Tensor, Tensor?, Tensor?)");
+  m.def(
       "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, SymInt my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
   m.def(
       "reorder_batched_sequence_embeddings(Tensor cat_sequence_embeddings_offsets, Tensor cat_sequence_embeddings, Tensor reordered_cat_sequence_embeddings_offsets, Tensor batch_offsets, SymInt num_items_in_batch) -> Tensor");
@@ -3565,6 +3919,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("lengths_range_out", fbgemm_gpu::lengths_range_out);
   DISPATCH_TO_CPU(
       "permute_sparse_features", fbgemm_gpu::permute_sparse_features_cpu);
+  DISPATCH_TO_CPU(
+      "block_bucketize_sparse_features_2d_weights",
+      fbgemm_gpu::block_bucketize_sparse_features_2d_weights_cpu);
   DISPATCH_TO_CPU(
       "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_cpu);
   DISPATCH_TO_CPU(

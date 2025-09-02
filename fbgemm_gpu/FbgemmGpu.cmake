@@ -126,7 +126,8 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/sparse_ops/sparse_range.cu
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
-      src/sparse_ops/sparse_zipf.cu)
+      src/sparse_ops/sparse_zipf.cu
+      src/sparse_ops/sparse_block_bucketize_features_2d_weights.cu)
 
   if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     list(APPEND fbgemm_gpu_sources_gpu_static
