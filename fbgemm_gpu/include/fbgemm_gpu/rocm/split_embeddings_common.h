@@ -24,6 +24,7 @@
 #include <c10/util/Half.h>
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime.h>
+#include <rocm-core/rocm_version.h>
 
 /******************************************************************************/
 typedef int32_t int32x4_t __attribute__((ext_vector_type(4)));
@@ -61,7 +62,7 @@ __device__ half llvm_amdgcn_raw_buffer_load_fp16(
     int32_t voffset,
     int32_t soffset,
     int32_t glc_slc)
-#if defined(__gfx950__)
+#if ROCM_VERSION_MAJOR >= 7
       __asm("llvm.amdgcn.raw.buffer.load.i16");
 #else
       __asm("llvm.amdgcn.raw.buffer.load.f16");
@@ -78,7 +79,7 @@ __device__ half2 llvm_amdgcn_raw_buffer_load_fp16x2(
     int32_t voffset,
     int32_t soffset,
     int32_t glc_slc)
-#if defined(__gfx950__)
+#if ROCM_VERSION_MAJOR >= 7
       __asm("llvm.amdgcn.raw.buffer.load.i32");
 #else
       __asm("llvm.amdgcn.raw.buffer.load.v2f16");
