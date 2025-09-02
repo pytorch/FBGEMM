@@ -151,7 +151,8 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     const InputType* input,
     size_t input_rows,
     int input_columns,
-    std::uint8_t* output);
+    std::uint8_t* output,
+    const InputType* rowwise_min_max = nullptr);
 
 template <typename OutputType, int BIT_RATE>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
