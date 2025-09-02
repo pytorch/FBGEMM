@@ -485,6 +485,41 @@ def block_bucketize_sparse_features_meta(
     )
 
 
+def block_bucketize_sparse_features_2d_weights_meta(
+    lengths: torch.Tensor,
+    indices: torch.Tensor,
+    bucketize_pos: bool,
+    sequence: bool,
+    block_sizes: torch.Tensor,
+    my_size: int,
+    weights: torch.Tensor,
+    weights_dim: int = 1,
+    batch_size_per_feature: Optional[torch.Tensor] = None,
+    max_B: int = -1,
+    block_bucketize_pos: Optional[torch.Tensor] = None,
+    keep_orig_idx: bool = False,
+    total_num_blocks: Optional[torch.Tensor] = None,
+    keep_orig_idx_per_feature: Optional[torch.Tensor] = None,
+) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    Optional[torch.Tensor],
+    Optional[torch.Tensor],
+]:
+    # Output: lengths, indices, weights", pos?, unbucketize_permute?
+    num_buckets = my_size
+    num_features = lengths.size(0)
+    num_values = indices.size(0)
+    return (
+        lengths.new_empty([num_buckets * num_features]),
+        indices.new_empty([num_values]),
+        weights.new_empty([num_values, weights_dim]),
+        indices.new_empty([num_values]) if bucketize_pos else None,
+        indices.new_empty([num_values]),
+    )
+
+
 def merge_pooled_embeddings(
     pooled_embeddings: List[torch.Tensor],
     uncat_dim_size: int,
@@ -1233,6 +1268,10 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::block_bucketize_sparse_features",
             block_bucketize_sparse_features_meta,
+        )
+        impl_abstract(
+            "fbgemm::block_bucketize_sparse_features_2d_weights",
+            block_bucketize_sparse_features_2d_weights_meta,
         )
         impl_abstract("fbgemm::merge_pooled_embeddings", merge_pooled_embeddings)
         impl_abstract(
