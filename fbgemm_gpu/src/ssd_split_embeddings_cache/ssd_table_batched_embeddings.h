@@ -120,7 +120,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const std::vector<int64_t>& table_sizes = {},
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
-      int64_t flushing_block_size = 2000000000 /*2GB*/)
+      int64_t flushing_block_size = 2000000000 /*2GB*/,
+      bool disable_random_init = false)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -264,7 +265,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         max_D,
         uniform_init_lower,
         uniform_init_upper,
-        row_storage_bitwidth);
+        row_storage_bitwidth,
+        disable_random_init);
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards);
     ro_.verify_checksums = false;
     ro_.async_io = true;
@@ -418,7 +420,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t max_D,
       float uniform_init_lower,
       float uniform_init_upper,
-      int64_t row_storage_bitwidth) {
+      int64_t row_storage_bitwidth,
+      bool disable_random_init) {
     for (auto i = 0; i < num_shards; ++i) {
       auto* gen = at::check_generator<at::CPUGeneratorImpl>(
           at::detail::getDefaultCPUGenerator());
@@ -432,6 +435,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             row_storage_bitwidth));
       }
     }
+    disable_random_init_ = disable_random_init;
   }
 
   void maybe_evict() override {
@@ -995,8 +999,16 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t copied_width) {
     CHECK_GE(row_width, copied_width);
     CHECK_GE(max_D_, row_width);
-    int64_t storage_row_bytes = elem_size_ * max_D_;
     int64_t row_bytes = row_width * elem_size_;
+
+    if (disable_random_init_) {
+      // Skip data copy and leave values empty (zero-initialized)
+      std::memset(
+          &(weights_data_ptr[weights_row_index * row_bytes]), 0, row_bytes);
+      return;
+    }
+
+    int64_t storage_row_bytes = elem_size_ * max_D_;
     auto copied_bytes = elem_size_ * copied_width;
     int64_t start_offset_bytes = elem_size_ * width_offset;
     int64_t row_index;
@@ -1347,6 +1359,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::unordered_map<int64_t, std::string> global_step_to_ckpt_uuid_;
   int64_t num_threads_;
   std::vector<std::string> db_paths_;
+
+  bool disable_random_init_;
 }; // class EmbeddingRocksDB
 
 /// @ingroup embedding-ssd

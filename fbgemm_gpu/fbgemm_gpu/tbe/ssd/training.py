@@ -639,6 +639,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     else None
                 ),
                 flushing_block_size,
+                self._embedding_cache_mode,  # disable_random_init
             )
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
@@ -722,6 +723,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     else None
                 ),  # hash_size_cumsum
                 self.backend_return_whole_row,  # backend_return_whole_row
+                False,  # enable_async_update
+                self._embedding_cache_mode,  # disable_random_init
             )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")

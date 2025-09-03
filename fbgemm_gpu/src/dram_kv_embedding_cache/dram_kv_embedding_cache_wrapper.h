@@ -38,7 +38,8 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       const std::optional<at::Tensor>& table_dims = std::nullopt,
       const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
       bool backend_return_whole_row = false,
-      bool enable_async_update = false) {
+      bool enable_async_update = false,
+      bool disable_random_init = false) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -51,7 +52,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           backend_return_whole_row,
           enable_async_update,
           table_dims,
-          hash_size_cumsum);
+          hash_size_cumsum,
+          true, // is_training
+          disable_random_init);
     } else if (row_storage_bitwidth == 32) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
           max_D,
@@ -64,7 +67,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           backend_return_whole_row,
           enable_async_update,
           table_dims,
-          hash_size_cumsum);
+          hash_size_cumsum,
+          true, // is_training
+          disable_random_init);
     } else {
       throw std::runtime_error("Failed to create recording device");
     }
