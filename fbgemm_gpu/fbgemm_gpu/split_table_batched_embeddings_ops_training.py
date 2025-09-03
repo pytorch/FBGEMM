@@ -1446,6 +1446,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self._debug_print_input_stats_factory()
         )
 
+        # Get a reporter function pointer
+        self._report_input_params: Callable[..., None] = (
+            self.__report_input_params_factory()
+        )
+
         if optimizer == OptimType.EXACT_SGD and self.use_writeback_bwd_prehook:
             # Register writeback hook for Exact_SGD optimizer
             self.log(
@@ -1981,6 +1986,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # Print input stats if enable (for debugging purpose only)
         self._debug_print_input_stats(indices, offsets, per_sample_weights)
+
+        # Extract and Write input stats if enable
+        if self._report_input_params is not None:
+            self._report_input_params(
+                feature_rows=self.rows_per_table,
+                feature_dims=self.feature_dims,
+                iteration=self.iter_cpu.item() if hasattr(self, "iter_cpu") else 0,
+                indices=indices,
+                offsets=offsets,
+                op_id=self.uuid,
+                per_sample_weights=per_sample_weights,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
 
         if not is_torchdynamo_compiling():
             # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
@@ -3970,6 +3988,30 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         ),
                     )
                 )
+
+    @torch.jit.ignore
+    def __report_input_params_factory(
+        self,
+    ) -> Optional[Callable[..., None]]:
+        """
+        This function returns a function pointer based on the environment variable `FBGEMM_REPORT_INPUT_PARAMS_INTERVAL`.
+
+        If `FBGEMM_REPORT_INPUT_PARAMS_INTERVAL` is set to a value greater than 0, it returns a function pointer that:
+        - Reports input parameters (TBEDataConfig).
+        - Writes the output as a JSON file.
+
+        If `FBGEMM_REPORT_INPUT_PARAMS_INTERVAL` is not set or is set to 0, it returns a dummy function pointer that performs no action.
+        """
+        try:
+            if self._feature_is_enabled(FeatureGateName.TBE_REPORT_INPUT_PARAMS):
+                from fbgemm_gpu.tbe.stats import TBEBenchmarkParamsReporter
+
+                reporter = TBEBenchmarkParamsReporter.create()
+                return reporter.report_stats
+        except Exception:
+            return None
+
+        return None
 
 
 class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):

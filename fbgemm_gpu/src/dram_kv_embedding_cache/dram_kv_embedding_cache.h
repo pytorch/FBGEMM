@@ -109,7 +109,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       bool enable_async_update = false,
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
-      bool is_training = true)
+      bool is_training = true,
+      bool disable_random_init = false)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -138,7 +139,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         max_D,
         uniform_init_lower,
         uniform_init_upper,
-        row_storage_bitwidth);
+        row_storage_bitwidth,
+        disable_random_init);
     if (table_dims.has_value()) {
       TORCH_CHECK_TENSOR_PROPERTIES(table_dims, at::ScalarType::Long);
       TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
@@ -167,13 +169,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t max_D,
       double uniform_init_lower,
       double uniform_init_upper,
-      int64_t row_storage_bitwidth) {
+      int64_t row_storage_bitwidth,
+      bool disable_random_init) {
     for (auto i = 0; i < num_shards; ++i) {
       auto* gen = at::check_generator<at::CPUGeneratorImpl>(
           at::detail::getDefaultCPUGenerator());
       {
         std::lock_guard<std::mutex> lock(gen->mutex_);
-        initializers_.push_back(std::make_unique<ssd ::Initializer>(
+        initializers_.push_back(std::make_unique<ssd::Initializer>(
             gen->random64(),
             max_D,
             uniform_init_lower,
@@ -181,6 +184,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             row_storage_bitwidth));
       }
     }
+    disable_random_init_ = disable_random_init;
   }
 
   /// get all ids in the kvstore
@@ -1219,8 +1223,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t copied_width) {
     CHECK_GE(row_width, copied_width);
     CHECK_GE(max_D_, row_width);
-    int64_t storage_row_bytes = elem_size_ * max_D_;
     int64_t row_bytes = row_width * elem_size_;
+
+    if (disable_random_init_) {
+      // Skip data copy and leave values empty (zero-initialized)
+      std::memset(
+          &(weights_data_ptr[weights_row_index * row_bytes]), 0, row_bytes);
+      return;
+    }
+
+    int64_t storage_row_bytes = elem_size_ * max_D_;
     auto copied_bytes = elem_size_ * copied_width;
     int64_t start_offset_bytes = elem_size_ * width_offset;
     int64_t row_index = 0;
@@ -1632,6 +1644,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   std::atomic<int64_t> inplace_update_hit_cnt_{0};
   std::atomic<int64_t> inplace_update_miss_cnt_{0};
+
+  bool disable_random_init_;
 }; // class DramKVEmbeddingCache
 
 } // namespace kv_mem
