@@ -53,7 +53,7 @@ def gather_scale_dense_tokens(
     # a = K * T
     a = token_indices.shape[0]
 
-    out = torch.empty((a, D), device="cuda", dtype=torch.bfloat16)
+    out = torch.empty((a, D), device=x.device, dtype=x.dtype)
     if a == 0 or D == 0:
         return out
 
