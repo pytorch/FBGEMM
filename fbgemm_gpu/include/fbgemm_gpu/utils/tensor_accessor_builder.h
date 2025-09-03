@@ -266,9 +266,11 @@ struct TensorAccessorBuilder {
 //  ```
 ////////////////////////////////////////////////////////////////////////////////
 
-#define TA_B(TENSOR, T, N, INDEX_NBITS)                                      \
-  fbgemm_gpu::utils::                                                        \
-      TensorAccessorBuilder<T, N, INDEX_NBITS, false, at::DefaultPtrTraits>( \
+// Default to pta::DefaultPtrTraits here since the rest of the codebase declares
+// pta::TensorAccessor without specifying the PtrTraits template argument.
+#define TA_B(TENSOR, T, N, INDEX_NBITS)                                       \
+  fbgemm_gpu::utils::                                                         \
+      TensorAccessorBuilder<T, N, INDEX_NBITS, false, pta::DefaultPtrTraits>( \
           #TENSOR, TENSOR)
 
 #define PTA_B(TENSOR, T, N, INDEX_NBITS)                                     \
