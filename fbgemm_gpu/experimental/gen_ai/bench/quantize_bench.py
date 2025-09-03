@@ -4,14 +4,14 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import argparse
 import itertools
-
 import os
 
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
+import click
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -262,7 +262,8 @@ def benchmark_grouped(
         metrics.ms /= num_iters
         metrics.tflops /= num_iters
         metrics.gbps /= num_iters
-        print(f"Average metrics over {num_iters} iterations: \n{metrics}")
+        print(f"Average metrics over {num_iters} iterations:")
+        print(metrics)
 
         # Save results for this operator.
         results[f"{quantize_op.name}_sim"] = metrics.sim
@@ -353,7 +354,8 @@ def benchmark(
         metrics.ms /= num_iters
         metrics.tflops /= num_iters
         metrics.gbps /= num_iters
-        print(f"Average metrics over {num_iters} iterations: \n{metrics}")
+        print(f"Average metrics over {num_iters} iterations:")
+        print(metrics)
 
         # Save results for this operator.
         results[f"{quantize_op.name}_sim"] = metrics.sim
@@ -399,32 +401,169 @@ def collect_kernels_to_profile(kernels: Optional[List[str]]) -> List[QuantizeOpB
     return [op for op in quantize_ops if op.name in kernels]
 
 
-def main(args: Any):
-    if args.enable_amd_env_vars:
+@click.command()
+@click.option(
+    "--output-dir",
+    default="/tmp",
+    help="Directory to save plots and csvs to",
+)
+@click.option(
+    "--num-iters",
+    default=1,
+    type=int,
+    help="Number of iterations to repeat each benchmark.",
+)
+@click.option(
+    "--export-csv",
+    is_flag=True,
+    help="Export results to a CSV file.",
+)
+@click.option(
+    "--plot",
+    is_flag=True,
+    help="Create a plot of the benchmark measurements.",
+)
+@click.option(
+    "--enable-amd-env-vars",
+    is_flag=True,
+    help="Enable a set of environment variables for AMD GPU performance",
+)
+@click.option(
+    "--bench-quantize",
+    is_flag=True,
+    help="If set, include quantization cost in benchmark.",
+)
+@click.option(
+    "--kernels",
+    default=None,
+    help="Comma separated list of kernels to benchmark. Defaults to all kernels.",
+)
+@click.option(
+    "--B",
+    default=None,
+    help="Comma separated list of batches to benchmark.",
+)
+@click.option(
+    "--M",
+    default=None,
+    help="Comma separated list of M values to benchmark.",
+)
+@click.option(
+    "--N",
+    default=None,
+    help="Comma separated list of N values to benchmark",
+)
+@click.option(
+    "--K",
+    default=None,
+    help="Comma separated list of K values to benchmark.",
+)
+@click.option(
+    "--pair-NK",
+    is_flag=True,
+    help="If set, instead of benchmarking cartesian product of N * K, benchmark consecutive NK pairs together.",
+)
+@click.option(
+    "--grouped",
+    is_flag=True,
+    help="If set, do grouped gemm. In this mode, M, N, and K are interpreted "
+    "as the size of groups. The length of each must be the same.",
+)
+@click.option(
+    "--groups",
+    default=None,
+    help="If set with grouped mode, repeat input shapes this many times. Comma separated list of groups to benchmark",
+)
+@click.option(
+    "--total-M",
+    default=None,
+    help="If set, Adjusts the M values to sum to this number. "
+    "This can help simulate real grouped workloads.",
+)
+@click.option(
+    "--no-cuda-graph",
+    is_flag=True,
+    help="If set, do not use cuda graph for benchmarking.",
+)
+@click.option(
+    "--use-rotating-buffer-bench",
+    is_flag=True,
+    help="If set, use rotating buffer to benchmark.",
+)
+@click.option(
+    "--use-llama-shapes",
+    is_flag=True,
+    help="If set, benchmark using fixed shapes relevant to llama workloads.",
+)
+@click.option(
+    "--use-ldm-shapes",
+    is_flag=True,
+    help="If set, benchmark using fixed shapes relevant to ldm workloads.",
+)
+@click.option(
+    "--trace",
+    is_flag=True,
+    help="If set, produce a performance trace of the benchmark.",
+)
+@click.option(
+    "--disable-fast-accum",
+    is_flag=True,
+    help="If set, disable fast accumulation for FP8 implementations.",
+)
+@click.option(
+    "--torch-compile",
+    is_flag=True,
+    help="If set, torch.compile will be used for scaled_mm backed ops.",
+)
+def invoke_main(
+    output_dir: str,
+    num_iters: int,
+    export_csv: bool,
+    plot: bool,
+    enable_amd_env_vars: bool,
+    bench_quantize: bool,
+    kernels: Optional[str],
+    b: Optional[str],
+    m: Optional[str],
+    n: Optional[str],
+    k: Optional[str],
+    pair_nk: bool,
+    grouped: bool,
+    groups: Optional[str],
+    total_m: Optional[str],
+    no_cuda_graph: bool,
+    use_rotating_buffer_bench: bool,
+    use_llama_shapes: bool,
+    use_ldm_shapes: bool,
+    trace: bool,
+    disable_fast_accum: bool,
+    torch_compile: bool,
+):
+    if enable_amd_env_vars:
         set_amd_env_vars()
     # If kernel filter is provided, parse it. Else, benchmark all kernels.
     quantize_ops = collect_kernels_to_profile(
-        args.kernels.strip().split(",") if args.kernels else None
+        kernels.strip().split(",") if kernels else None
     )
 
     if len(quantize_ops) == 0:
         raise Exception("No valid kernels to benchmark.")
 
-    if args.num_iters < 1:
-        print("Number of iterations must be at least 1.")
-        args.num_iters = 1
+    if num_iters < 1:
+        print("Warning: Number of iterations must be at least 1.")
+        num_iters = 1
 
     # Enumerate shapes to benchmark.
-    if args.grouped and not args.groups:
+    if grouped and not groups:
         # In grouped mode, M, N, and K represent the groups of a single gemm.
-        assert args.M is not None and args.N is not None and args.K is not None
-        M = [int(m) for m in args.M.strip().split(",")]
-        N = [int(n) for n in args.N.strip().split(",")]
-        K = [int(k) for k in args.K.strip().split(",")]
-        if args.B is None:
+        assert m is not None and n is not None and k is not None
+        M = [int(m_val) for m_val in m.strip().split(",")]
+        N = [int(n_val) for n_val in n.strip().split(",")]
+        K = [int(k_val) for k_val in k.strip().split(",")]
+        if b is None:
             B = [1] * len(M)
         else:
-            B = [int(b) for b in args.B.strip().split(",")]
+            B = [int(b_val) for b_val in b.strip().split(",")]
         assert (
             len(M) == len(N) == len(K) == len(B)
         ), "B, M, N, and K must be the same length in grouped mode."
@@ -432,29 +571,29 @@ def main(args: Any):
         # Note this is a single grouped gemm.
         MNK = [[B, M, N, K]]
     else:
-        if args.B is None:
+        if b is None:
             B = [1]
         else:
-            B = [int(b) for b in args.B.strip().split(",")]
-        if args.use_llama_shapes:
+            B = [int(b_val) for b_val in b.strip().split(",")]
+        if use_llama_shapes:
             MNK = get_llama_shapes()
-        elif args.use_ldm_shapes:
+        elif use_ldm_shapes:
             MNK = get_ldm_shapes()
         else:
-            if args.M is None:
+            if m is None:
                 M = [1, 4, 8, 16, 32, 64, 128, 2048, 4096, 8192, 16384]
             else:
-                M = [int(m) for m in args.M.strip().split(",")]
-            if args.N is None:
+                M = [int(m_val) for m_val in m.strip().split(",")]
+            if n is None:
                 N = [1280, 2304, 7168, 8192, 16384]
             else:
-                N = [int(n) for n in args.N.strip().split(",")]
-            if args.K is None:
+                N = [int(n_val) for n_val in n.strip().split(",")]
+            if k is None:
                 K = [1024, 3584, 8192, 16384]
             else:
-                K = [int(k) for k in args.K.strip().split(",")]
+                K = [int(k_val) for k_val in k.strip().split(",")]
             # List all shapes for simplicity.
-            if args.pair_NK:
+            if pair_nk:
                 if len(N) != len(K):
                     raise Exception("N and K must be the same length in pair_NK mode.")
                 NK = zip(N, K)
@@ -464,23 +603,23 @@ def main(args: Any):
             else:
                 MNK = list(itertools.product(B, M, N, K))
     # When groups is provided transform shapes into grouped format.
-    if args.groups:
-        groups = [int(g) for g in args.groups.strip().split(",")]
-        if args.total_M:
+    if groups:
+        groups_list = [int(g) for g in groups.strip().split(",")]
+        if total_m:
             MNK = [
                 [
                     [b] * g,
-                    generate_group_tensor(g, int(args.total_M)),
+                    generate_group_tensor(g, int(total_m)),
                     [n] * g,
                     [k] * g,
                 ]
-                for g in groups
+                for g in groups_list
                 for b, _, n, k in MNK
             ]
         else:
             MNK = [
                 [[b] * g, [m] * g, [n] * g, [k] * g]
-                for g in groups
+                for g in groups_list
                 for b, m, n, k in MNK
             ]
 
@@ -488,159 +627,35 @@ def main(args: Any):
     benchmark_results = []
     for b, m, n, k in MNK:
         print(f"Benchmarking B={b}, M={m}, N={n}, K={k}.")
-        benchmark_func = benchmark_grouped if args.grouped else benchmark
+        benchmark_func = benchmark_grouped if grouped else benchmark
         quantize_measurements = benchmark_func(
             quantize_ops,
             b,  # pyre-ignore[6]: Incompatible parameter type [6]
             m,  # pyre-ignore[6]: Incompatible parameter type [6]
             n,  # pyre-ignore[6]: Incompatible parameter type [6]
             k,  # pyre-ignore[6]: Incompatible parameter type [6]
-            args.bench_quantize,
-            args.use_rotating_buffer_bench,
-            not args.no_cuda_graph,
-            args.trace,
-            args.num_iters,
-            not args.disable_fast_accum,
-            args.torch_compile,
+            bench_quantize,
+            use_rotating_buffer_bench,
+            not no_cuda_graph,
+            trace,
+            num_iters,
+            not disable_fast_accum,
+            torch_compile,
         )
         benchmark_results.append(quantize_measurements)
-    if args.export_csv or args.plot:
-        os.makedirs(args.output_dir, exist_ok=True)
-    if args.export_csv:
+    if export_csv or plot:
+        os.makedirs(output_dir, exist_ok=True)
+    if export_csv:
         datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_file = os.path.join(
-            args.output_dir, f"quantize_ops_benchmark_{datetime_str}.csv"
+            output_dir, f"quantize_ops_benchmark_{datetime_str}.csv"
         )
         print(f"CSV saved to {csv_file}")
         # Export results to a CSV file.
         df = pd.DataFrame(benchmark_results)
         df.to_csv(csv_file, index=False)
-    if args.plot:
-        plot_benchmark(benchmark_results, args.output_dir)
-
-
-def invoke_main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--output_dir", default="/tmp", help="Directory to save plots and csvs to"
-    )
-    parser.add_argument(
-        "--num_iters",
-        default=1,
-        type=int,
-        help="Number of iterations to repeat each benchmark.",
-    )
-    parser.add_argument(
-        "--export_csv",
-        action="store_true",
-        help="Export results to a CSV file.",
-    )
-    parser.add_argument(
-        "--plot",
-        default=False,
-        action="store_true",
-        help="Create a plot of the benchmark measurements.",
-    )
-    parser.add_argument(
-        "--enable_amd_env_vars",
-        default=False,
-        action="store_true",
-        help="Enable a set of environment variables for AMD GPU performance",
-    )
-    parser.add_argument(
-        "--bench_quantize",
-        default=False,
-        action="store_true",
-        help="If set, include quantization cost in benchmark.",
-    )
-    parser.add_argument(
-        "--kernels",
-        default=None,
-        help="Comma separated list of kernels to benchmark. Defaults to all kernels.",
-    )
-    parser.add_argument(
-        "--B", default=None, help="Comma separated list of batches to benchmark."
-    )
-    parser.add_argument(
-        "--M", default=None, help="Comma separated list of M values to benchmark."
-    )
-    parser.add_argument(
-        "--N",
-        default=None,
-        help="Comma separated list of N values to benchmark",
-    )
-    parser.add_argument(
-        "--K", default=None, help="Comma separated list of K values to benchmark."
-    )
-    parser.add_argument(
-        "--pair_NK",
-        default=False,
-        action="store_true",
-        help="If set, instead of benchmarking cartesian product of N * K, benchmark consecutive NK pairs together.",
-    )
-    parser.add_argument(
-        "--grouped",
-        default=False,
-        action="store_true",
-        help="If set, do grouped gemm. In this mode, M, N, and K are interpreted "
-        "as the size of groups. The length of each must be the same.",
-    )
-    parser.add_argument(
-        "--groups",
-        default=None,
-        help="If set with grouped mode, repeat input shapes this many times. Comma separated list of groups to benchmark",
-    )
-    parser.add_argument(
-        "--total_M",
-        default=None,
-        help="If set, Adjusts the M values to sum to this number. "
-        "This can help simulate real grouped workloads.",
-    )
-    parser.add_argument(
-        "--no_cuda_graph",
-        default=False,
-        action="store_true",
-        help="If set, do not use cuda graph for benchmarking.",
-    )
-    parser.add_argument(
-        "--use_rotating_buffer_bench",
-        default=False,
-        action="store_true",
-        help="If set, use rotating buffer to benchmark.",
-    )
-    parser.add_argument(
-        "--use_llama_shapes",
-        default=False,
-        action="store_true",
-        help="If set, benchmark using fixed shapes relevant to llama workloads.",
-    )
-    parser.add_argument(
-        "--use_ldm_shapes",
-        default=False,
-        action="store_true",
-        help="If set, benchmark using fixed shapes relevant to ldm workloads.",
-    )
-    parser.add_argument(
-        "--trace",
-        default=False,
-        action="store_true",
-        help="If set, produce a performance trace of the benchmark.",
-    )
-    parser.add_argument(
-        "--disable_fast_accum",
-        default=False,
-        action="store_true",
-        help="If set, disable fast accumulation for FP8 implementations.",
-    )
-    parser.add_argument(
-        "--torch_compile",
-        default=False,
-        action="store_true",
-        help="If set, torch.compile will be used for scaled_mm backed ops.",
-    )
-
-    args = parser.parse_args()
-    main(args)
+    if plot:
+        plot_benchmark(benchmark_results, output_dir)
 
 
 if __name__ == "__main__":
