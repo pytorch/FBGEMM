@@ -78,10 +78,24 @@ class TBEDataConfigLoader:
                 help=TBEDataConfigHelperText.TBE_NUM_EMBEDDINGS.value,
             ),
             click.option(
+                "--tbe-num-embeddings-list",
+                type=str,
+                required=False,
+                default=None,
+                help="Comma-separated list of number of embeddings (Es)",
+            ),
+            click.option(
                 "--tbe-embedding-dim",
                 type=int,
                 default=128,
                 help=TBEDataConfigHelperText.TBE_EMBEDDING_DIM.value,
+            ),
+            click.option(
+                "--tbe-embedding-dim-list",
+                type=str,
+                required=False,
+                default=None,
+                help="Comma-separated list of number of Embedding dimensions (D)",
             ),
             click.option(
                 "--tbe-mixed-dim",
@@ -95,12 +109,26 @@ class TBEDataConfigLoader:
                 default=False,
                 help=TBEDataConfigHelperText.TBE_WEIGHTED.value,
             ),
+            click.option(
+                "--tbe-max-indices",
+                type=int,
+                required=False,
+                default=None,
+                help="(Optional) Maximum number of indices, will be calculated if not provided",
+            ),
             # Batch Parameters
             click.option(
                 "--tbe-batch-size",
                 type=int,
                 default=512,
                 help=TBEDataConfigHelperText.TBE_BATCH_SIZE.value,
+            ),
+            click.option(
+                "--tbe-batch-sizes-list",
+                type=str,
+                required=False,
+                default=None,
+                help="List Batch sizes per feature (Bs)",
             ),
             click.option(
                 "--tbe-batch-vbe-sigma",
@@ -186,16 +214,33 @@ class TBEDataConfigLoader:
         # Read table parameters
         T = params["tbe_num_tables"]
         E = params["tbe_num_embeddings"]
+        if params["tbe_num_embeddings_list"] is not None:
+            Es = [int(x) for x in params["tbe_num_embeddings_list"].split(",")]
+        else:
+            Es = None
         D = params["tbe_embedding_dim"]
+        if params["tbe_embedding_dim_list"] is not None:
+            Ds = [int(x) for x in params["tbe_embedding_dim_list"].split(",")]
+        else:
+            Ds = None
+
         mixed_dim = params["tbe_mixed_dim"]
         weighted = params["tbe_weighted"]
+        if params["tbe_max_indices"] is not None:
+            max_indices = params["tbe_max_indices"]
+        else:
+            max_indices = None
 
         # Read batch parameters
         B = params["tbe_batch_size"]
         sigma_B = params["tbe_batch_vbe_sigma"]
         vbe_distribution = params["tbe_batch_vbe_dist"]
         vbe_num_ranks = params["tbe_batch_vbe_ranks"]
-        batch_params = BatchParams(B, sigma_B, vbe_distribution, vbe_num_ranks)
+        if params["tbe_batch_sizes_list"] is not None:
+            Bs = [int(x) for x in params["tbe_batch_sizes_list"].split(",")]
+        else:
+            Bs = None
+        batch_params = BatchParams(B, sigma_B, vbe_distribution, vbe_num_ranks, Bs)
 
         # Read indices parameters
         heavy_hitters = (
@@ -230,6 +275,9 @@ class TBEDataConfigLoader:
             indices_params,
             pooling_params,
             not torch.cuda.is_available(),
+            Es,
+            Ds,
+            max_indices,
         ).validate()
 
     @classmethod

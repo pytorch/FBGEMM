@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
@@ -16,7 +17,7 @@ from typing import Callable, List, Optional, Tuple
 import torch
 
 from fbgemm_gpu.tbe.utils import b_indices, TBERequest
-
+from fbgemm_gpu.tbe.utils.common import get_device
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -39,6 +40,31 @@ def bench_warmup(
     else:
         for _ in range(warmup_runs):
             out = func(indices, offsets, weights)
+            if bwd_only:
+                out.backward(grad)
+
+
+def bench_warmup_with_spec(
+    request: TBERequest,
+    warmup_ms: int,
+    warmup_runs: int,
+    func: Callable[
+        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[List[List[int]]]],
+        torch.Tensor,
+    ],
+    bwd_only: bool = False,
+    grad: Optional[torch.Tensor] = None,
+) -> None:
+    indices, offsets, weights, batch_size_per_feature_per_rank = request.unpack_4()
+    if warmup_ms:
+        start_time_ms = time.time() * 1000
+        while time.time() * 1000 - start_time_ms < warmup_ms:
+            out = func(indices, offsets, weights, batch_size_per_feature_per_rank)
+            if bwd_only:
+                out.backward(grad)
+    else:
+        for _ in range(warmup_runs):
+            out = func(indices, offsets, weights, batch_size_per_feature_per_rank)
             if bwd_only:
                 out.backward(grad)
 
@@ -266,7 +292,7 @@ def benchmark_requests(  # noqa: C901
                 _ = torch.rand(
                     flush_gpu_cache_size_mb * 1024 * 1024 // 4,
                     dtype=torch.float,
-                    device="cuda",
+                    device=get_device(),
                 )
             start_events[it].record()
 
@@ -277,6 +303,121 @@ def benchmark_requests(  # noqa: C901
             out.backward(grad)
         else:
             func(indices, offsets, weights)
+
+        if nvtx_range:
+            torch.cuda.nvtx.range_pop()
+
+        if torch.cuda.is_available():
+            end_events[it].record()
+        else:
+            it_time = time.time() - start_time
+            times.append(it_time)
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        times = [
+            start.elapsed_time(end) * 1.0e-3
+            for start, end in zip(start_events, end_events)
+        ]
+
+    if periodic_logs:
+        for it in range(100, iters + 1, 100):
+            times_ = times[0:it]
+            avg_time = sum(times_) / len(times_) * 1.0e6
+            last_100_avg = sum(times_[-100:]) / 100 * 1.0e6
+            logging.info(
+                f"Iteration [{it}/{len(requests)}]: Last 100: {last_100_avg:.2f} us, Running avg: {avg_time:.2f} us"
+            )
+
+    avg_time = sum(times) / iters
+    median_time = statistics.median(times)
+    return median_time if check_median else avg_time
+
+
+def benchmark_requests_with_spec(  # noqa: C901
+    requests: List[TBERequest],
+    func: Callable[
+        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[List[List[int]]]],
+        torch.Tensor,
+    ],
+    flush_gpu_cache_size_mb: int = 0,
+    check_median: bool = False,
+    num_warmups: int = 0,
+    bwd_only: bool = False,
+    grad: Optional[torch.Tensor] = None,
+    # Used to label benchmark iterations differently in nsys profile result
+    # so that we can compare performance of two different models for example.
+    # If empty string is provided, it won't have any effect.
+    nvtx_range: str = "",
+    # Can be used to clear model's stats after warmup for example.
+    callback_after_warmup: Optional[Callable[[], None]] = None,
+    periodic_logs: bool = False,
+    warmup_ms: Optional[int] = None,
+    iters: int = -1,
+) -> float:
+    times = []
+    # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
+    # for the first kernel if warmup_ms > 0
+    # warmup_ms is prioritized over num_warmups
+
+    if warmup_ms is None:
+        num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
+
+    # warm-up the GPU before profiling
+    bench_warmup_with_spec(
+        requests[0],
+        # pyre-ignore[6]
+        warmup_ms,
+        num_warmups,
+        lambda indices, offsets, per_sample_weights, batch_size_per_feature_per_rank: func(
+            indices, offsets, per_sample_weights, batch_size_per_feature_per_rank
+        ),
+        bwd_only=bwd_only,
+        grad=grad,
+    )
+
+    if callback_after_warmup is not None:
+        callback_after_warmup()
+
+    num_reqs = len(requests)
+    iters = num_reqs if iters == -1 else iters
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+    else:
+        start_events = []
+        end_events = []
+
+    for it in range(iters):
+        req = requests[it % num_reqs]
+
+        indices, offsets, weights, batch_size_per_feature_per_rank = req.unpack_4()
+        # logging.info(
+        #     f"[Benchmark Request] batch_size_per_feature_per_rank {batch_size_per_feature_per_rank} {indices.device}"
+        # )
+
+        if bwd_only:
+            # Run forward before profiling if does backward only
+            out = func(indices, offsets, weights, batch_size_per_feature_per_rank)
+        start_time = time.time()
+        if torch.cuda.is_available():
+            if flush_gpu_cache_size_mb:
+                _ = torch.rand(
+                    flush_gpu_cache_size_mb * 1024 * 1024 // 4,
+                    dtype=torch.float,
+                    device=get_device(),
+                )
+            start_events[it].record()
+
+        if nvtx_range:
+            torch.cuda.nvtx.range_push(f"{nvtx_range}-{it}")
+
+        if bwd_only:
+            out.backward(grad)
+        else:
+            func(indices, offsets, weights, batch_size_per_feature_per_rank)
 
         if nvtx_range:
             torch.cuda.nvtx.range_pop()
@@ -348,7 +489,7 @@ def benchmark_requests_refer(
                 _ = torch.rand(
                     flush_gpu_cache_size_mb * 1024 * 1024 // 4,
                     dtype=torch.float,
-                    device="cuda",
+                    device=get_device(),
                 )
                 torch.cuda.synchronize()
             start_event.record()
@@ -422,7 +563,7 @@ def benchmark_pipelined_requests(
             _ = torch.rand(
                 flush_gpu_cache_size_mb * 1024 * 1024 // 4,
                 dtype=torch.float,
-                device="cuda",
+                device=get_device(),
             )
             torch.cuda.synchronize()
         start_event[0].record()
