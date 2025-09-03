@@ -70,6 +70,7 @@ class SSDCheckpointTest(unittest.TestCase):
         flushing_block_size: int = 1000,
         ssd_directory: Optional[str] = None,
         eviction_policy: Optional[EvictionPolicy] = None,
+        disable_random_init: bool = False,
     ) -> object:
         if backend_type == BackendType.SSD:
             assert ssd_directory
@@ -91,11 +92,12 @@ class SSDCheckpointTest(unittest.TestCase):
                 weight_precision.bit_rate(),  # row_storage_bitwidth
                 0,  # ssd_block_cache_size_per_tbe
                 True,  # use_passed_in_path
-                l2_cache_size=1 if enable_l2 else 0,
+                l2_cache_size_gb=1 if enable_l2 else 0,
                 enable_async_update=False,
                 table_dims=feature_dims,
                 hash_size_cumsum=hash_size_cumsum,
                 flushing_block_size=flushing_block_size,
+                disable_random_init=disable_random_init,
             )
         elif backend_type == BackendType.DRAM:
             eviction_config = None
@@ -129,6 +131,7 @@ class SSDCheckpointTest(unittest.TestCase):
                 weight_precision.bit_rate(),  # row_storage_bitwidth
                 table_dims=feature_dims,
                 hash_size_cumsum=hash_size_cumsum,
+                disable_random_init=disable_random_init,
             )
 
     def generate_fbgemm_kv_tbe(
@@ -1242,3 +1245,143 @@ class SSDCheckpointTest(unittest.TestCase):
                 torch.zeros(N, opt_dim, dtype=dtype),
             )
             row_offset += E
+
+    @given(
+        **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
+    )
+    @settings(**default_settings)
+    def test_disable_random_init_functionality(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+        backend_type: BackendType,
+    ) -> None:
+        """
+        Test that disable_random_init=True results in zero-initialized embeddings
+        for missing indices, instead of random values.
+        """
+        E = int(10**log_E)
+        max_D = D * 4
+
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            # Create backend with disable_random_init=True using the helper method
+            backend_disabled = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weights_precision,
+                enable_l2=False,
+                backend_type=backend_type,
+                ssd_directory=(
+                    ssd_directory if backend_type == BackendType.SSD else None
+                ),
+                disable_random_init=True,  # This is the key parameter we're testing
+            )
+
+            # Generate some random indices that don't exist in the backend
+            missing_indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(5,)), dtype=torch.int64
+            )
+
+            # Create output tensor
+            output_weights = torch.empty(5, max_D, dtype=weights_precision.as_dtype())
+            count = torch.tensor([5], dtype=torch.int64)
+
+            # Get weights for missing indices (should be zero-initialized)
+            backend_disabled.get(missing_indices, output_weights, count)  # pyre-ignore
+            torch.cuda.synchronize()
+
+            # All values should be zero since disable_random_init=True
+            # and these indices don't exist in the backend
+            expected_zeros = torch.zeros_like(output_weights)
+            torch.testing.assert_close(
+                output_weights,
+                expected_zeros,
+                atol=1e-8,
+                rtol=1e-8,
+            )
+
+    @given(
+        **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
+    )
+    @settings(**default_settings)
+    def test_disable_random_init_vs_enable_random_init(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+        backend_type: BackendType,
+    ) -> None:
+        """
+        Test that disable_random_init=False (default) produces different values
+        than disable_random_init=True for missing indices.
+        """
+        E = int(10**log_E)
+        max_D = D * 4
+
+        with tempfile.TemporaryDirectory() as ssd_directory1, tempfile.TemporaryDirectory() as ssd_directory2:
+            # Create backend with disable_random_init=False (default behavior) using the helper method
+            backend_enabled = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weights_precision,
+                enable_l2=False,
+                backend_type=backend_type,
+                ssd_directory=(
+                    ssd_directory1 if backend_type == BackendType.SSD else None
+                ),
+                disable_random_init=False,  # Default behavior (random init enabled)
+            )
+
+            # Create backend with disable_random_init=True using the helper method
+            backend_disabled = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weights_precision,
+                enable_l2=False,
+                backend_type=backend_type,
+                ssd_directory=(
+                    ssd_directory2 if backend_type == BackendType.SSD else None
+                ),
+                disable_random_init=True,  # Disable random init
+            )
+
+            # Generate some random indices that don't exist in either backend
+            missing_indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(5,)), dtype=torch.int64
+            )
+
+            # Create output tensors
+            output_enabled = torch.empty(5, max_D, dtype=weights_precision.as_dtype())
+            output_disabled = torch.empty(5, max_D, dtype=weights_precision.as_dtype())
+            count = torch.tensor([5], dtype=torch.int64)
+
+            # Get weights for missing indices from both backends
+            backend_enabled.get(missing_indices, output_enabled, count)  # pyre-ignore
+            backend_disabled.get(missing_indices, output_disabled, count)  # pyre-ignore
+            torch.cuda.synchronize()
+
+            # The disabled backend should produce all zeros
+            expected_zeros = torch.zeros_like(output_disabled)
+            torch.testing.assert_close(
+                output_disabled,
+                expected_zeros,
+                atol=1e-8,
+                rtol=1e-8,
+            )
+
+            # The enabled backend should produce random values within the init range
+            # Check that values are within the expected range [-0.01, 0.01]
+            self.assertTrue(torch.all(output_enabled >= -0.01))
+            self.assertTrue(torch.all(output_enabled <= 0.01))
+
+            # The two outputs should be different (random vs zeros)
+            # We check that they are NOT equal (with some tolerance for numerical precision)
+            with self.assertRaises(AssertionError):
+                torch.testing.assert_close(
+                    output_enabled,
+                    output_disabled,
+                    atol=1e-6,
+                    rtol=1e-6,
+                )
