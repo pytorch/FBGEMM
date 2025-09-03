@@ -108,8 +108,8 @@ Inheritance diagram for DramKVEmbeddingCache&lt; weight_type &gt;:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:ac80881ef680e7c1cb0c28e19c7578464" id="r_ac80881ef680e7c1cb0c28e19c7578464"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac80881ef680e7c1cb0c28e19c7578464">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt; feature_evict_config, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool backend_return_whole_row=false, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt, bool is_training=true)</td></tr>
-<tr class="separator:ac80881ef680e7c1cb0c28e19c7578464"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a42c7d60fb88afb9e873bf3f3a9fac091" id="r_a42c7d60fb88afb9e873bf3f3a9fac091"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a42c7d60fb88afb9e873bf3f3a9fac091">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt; feature_evict_config, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool backend_return_whole_row=false, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt, bool is_training=true, bool disable_random_init=false)</td></tr>
+<tr class="separator:a42c7d60fb88afb9e873bf3f3a9fac091"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3ec3ec693cdf42996def471797fcbba9" id="r_a3ec3ec693cdf42996def471797fcbba9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ec3ec693cdf42996def471797fcbba9">get_keys_in_range_impl</a> (int64_t start, int64_t end, std::optional&lt; int64_t &gt; offset=std::nullopt) override</td></tr>
 <tr class="separator:a3ec3ec693cdf42996def471797fcbba9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab197c34bb53bdad19a2521898a341ffc" id="r_ab197c34bb53bdad19a2521898a341ffc"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab197c34bb53bdad19a2521898a341ffc">set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const <a class="el" href="group__embedding-ssd.html#gaf1ce371b1e598c817791f840612cc1a3">kv_db::RocksdbWriteMode</a> w_mode=kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override</td></tr>
@@ -131,8 +131,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a52afc11e0dda55903f95469edb66ab6c inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="ac80881ef680e7c1cb0c28e19c7578464" name="ac80881ef680e7c1cb0c28e19c7578464"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac80881ef680e7c1cb0c28e19c7578464">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
+<a id="a42c7d60fb88afb9e873bf3f3a9fac091" name="a42c7d60fb88afb9e873bf3f3a9fac091"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a42c7d60fb88afb9e873bf3f3a9fac091">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -200,7 +200,12 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_training</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_training</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>disable_random_init</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
   </td>
