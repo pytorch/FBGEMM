@@ -286,9 +286,9 @@ Functions</h2></td></tr>
 <tr class="memitem:a512483b4cf064a2938fdaa4067a476ac" id="r_a512483b4cf064a2938fdaa4067a476ac"><td class="memTemplParams" colspan="2">template&lt;typename OutputType&gt; </td></tr>
 <tr class="memitem:a512483b4cf064a2938fdaa4067a476ac"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a512483b4cf064a2938fdaa4067a476ac">FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf</a> (int bit_rate, const uint8_t *input, size_t input_rows, int input_columns, OutputType *output, bool scale_bias_last=true)</td></tr>
 <tr class="separator:a512483b4cf064a2938fdaa4067a476ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:afafa94e239d016cf273ad0597152b86c" id="r_afafa94e239d016cf273ad0597152b86c"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
-<tr class="memitem:afafa94e239d016cf273ad0597152b86c"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#afafa94e239d016cf273ad0597152b86c">FloatOrHalfToFused8BitRowwiseQuantizedSBFloat</a> (const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output)</td></tr>
-<tr class="separator:afafa94e239d016cf273ad0597152b86c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad1305a78156aed040eec4b75fd07683c" id="r_ad1305a78156aed040eec4b75fd07683c"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
+<tr class="memitem:ad1305a78156aed040eec4b75fd07683c"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ad1305a78156aed040eec4b75fd07683c">FloatOrHalfToFused8BitRowwiseQuantizedSBFloat</a> (const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output, const InputType *rowwise_min_max=nullptr)</td></tr>
+<tr class="separator:ad1305a78156aed040eec4b75fd07683c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a42aefaaf238d065625a64a757f998eef" id="r_a42aefaaf238d065625a64a757f998eef"><td class="memTemplParams" colspan="2">template&lt;typename OutputType&gt; </td></tr>
 <tr class="memitem:a42aefaaf238d065625a64a757f998eef"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a42aefaaf238d065625a64a757f998eef">Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf</a> (const uint8_t *input, size_t input_rows, int input_columns, OutputType *output)</td></tr>
 <tr class="separator:a42aefaaf238d065625a64a757f998eef"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -1383,8 +1383,8 @@ template&lt;typename packingAMatrix, typename packingBMatrix, typename cT, typen
 
 </div>
 </div>
-<a id="afafa94e239d016cf273ad0597152b86c" name="afafa94e239d016cf273ad0597152b86c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afafa94e239d016cf273ad0597152b86c">&#9670;&#160;</a></span>FloatOrHalfToFused8BitRowwiseQuantizedSBFloat()</h2>
+<a id="ad1305a78156aed040eec4b75fd07683c" name="ad1305a78156aed040eec4b75fd07683c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad1305a78156aed040eec4b75fd07683c">&#9670;&#160;</a></span>FloatOrHalfToFused8BitRowwiseQuantizedSBFloat()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1409,7 +1409,12 @@ template&lt;typename InputType&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::uint8_t *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>&#160;)</td>
+          <td class="paramtype">std::uint8_t *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const InputType *</td>          <td class="paramname"><span class="paramname"><em>rowwise_min_max</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
