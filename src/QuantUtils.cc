@@ -711,11 +711,12 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
     const InputType* input,
     size_t input_rows,
     int input_columns,
-    std::uint8_t* output) {
+    std::uint8_t* output,
+    const InputType* rowwise_min_max) {
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<InputType>(
-        input, input_rows, input_columns, output);
+        input, input_rows, input_columns, output, rowwise_min_max);
 #endif
   } else {
     FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<InputType>(
@@ -900,7 +901,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
       const type* input,                                                       \
       size_t input_rows,                                                       \
       int input_columns,                                                       \
-      std::uint8_t* output);                                                   \
+      std::uint8_t* output,                                                    \
+      const type* rowwise_min_max);                                            \
   template FBGEMM_API void                                                     \
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<type>(                      \
       const uint8_t* input,                                                    \
