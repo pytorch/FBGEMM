@@ -19,6 +19,11 @@
 #include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
+#include <immintrin.h>
+#endif
+
 namespace fbgemm {
 
 using namespace std;
@@ -195,6 +200,43 @@ void ChooseRequantizationMultiplier(
 
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
+
+void FindMinMax(const float* m, float* min, float* max, int64_t len) {
+  if (len <= 0) {
+    *min = 0.0f;
+    *max = 0.0f;
+    return;
+  }
+
+  float temp_min = *m, temp_max = *m;
+  int64_t i = 0;
+
+#ifdef __AVX__
+  __m256 min_v = _mm256_set1_ps(*m), max_v = _mm256_set1_ps(*m);
+  constexpr int VLEN = 8;
+  if (len >= VLEN) {
+    for (; i < len / VLEN * VLEN; i += VLEN) {
+      min_v = _mm256_min_ps(min_v, _mm256_loadu_ps(m + i));
+      max_v = _mm256_max_ps(max_v, _mm256_loadu_ps(m + i));
+    }
+
+    float min_buf[VLEN], max_buf[VLEN];
+    _mm256_storeu_ps(min_buf, min_v);
+    _mm256_storeu_ps(max_buf, max_v);
+    for (int j = 0; j < VLEN; ++j) {
+      temp_min = std::min(temp_min, min_buf[j]);
+      temp_max = std::max(temp_max, max_buf[j]);
+    }
+  }
+#endif
+
+  for (; i < len; i++) {
+    temp_min = std::min(temp_min, m[i]);
+    temp_max = std::max(temp_max, m[i]);
+  }
+  *min = temp_min;
+  *max = temp_max;
+}
 
 #define FBGEMM_SPECIALIZED_QUANTIZE(T, LEGACY)                      \
   template <>                                                       \
