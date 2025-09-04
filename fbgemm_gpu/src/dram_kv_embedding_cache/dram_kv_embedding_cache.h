@@ -1121,6 +1121,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return kv_store_.getActualUsedChunkInBytes();
   }
 
+  size_t get_num_rows() const {
+    return kv_store_.getNumRows();
+  }
+
   void resume_ongoing_eviction(bool force_resume = false) override {
     if (!is_training_ && !force_resume) {
       return;
@@ -1318,7 +1322,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<double> get_dram_kv_perf(
       const int64_t step,
       const int64_t interval) {
-    std::vector<double> ret(22, 0); // num metrics
+    std::vector<double> ret(23, 0); // num metrics
     if (step > 0 && step % interval == 0) {
       int reset_val = 0;
 
@@ -1390,6 +1394,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
       ret[20] = get_map_used_memsize_in_bytes();
       ret[21] = get_map_actual_used_chunk_in_bytes();
+
+      ret[22] = get_num_rows();
     }
     return ret;
   }
