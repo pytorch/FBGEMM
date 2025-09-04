@@ -88,4 +88,4 @@ jobs:
       trigger-event: ${{ github.event_name }}
       architecture: aarch64
       setup-miniconda: false
-      timeout: 150
+      timeout: 210
