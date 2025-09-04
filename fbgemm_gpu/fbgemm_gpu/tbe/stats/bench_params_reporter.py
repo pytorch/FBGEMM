@@ -305,6 +305,26 @@ class TBEBenchmarkParamsReporter:
                     for f in range(len(adhoc_config["Es"]))
                 ]
 
+            bag_sizes = (offsets[1:] - offsets[:-1]).tolist()
+            adhoc_config["Ls"] = []
+            pointer_counter = 0
+            if batch_size_per_feature_per_rank:
+                for batchs_size in adhoc_config["Bs"]:
+                    current_L = 0
+                    for _i in range(batchs_size):
+                        current_L += bag_sizes[pointer_counter]
+                        pointer_counter += 1
+                    adhoc_config["Ls"].append(current_L / batchs_size)
+            else:
+                batch_size = int(len(bag_sizes) // len(adhoc_config["Es"]))
+
+                for _j in range(len(adhoc_config["Es"])):
+                    current_L = 0
+                    for _i in range(batch_size):
+                        current_L += bag_sizes[pointer_counter]
+                        pointer_counter += 1
+                    adhoc_config["Ls"].append(current_L / batch_size)
+
             # Write the TBE config to FileStore
             self.filestore.write(
                 f"{self.path_prefix}/tbe-{op_id}-config-estimation-{iteration}.json",
