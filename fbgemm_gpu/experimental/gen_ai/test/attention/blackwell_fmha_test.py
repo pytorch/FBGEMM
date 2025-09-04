@@ -338,7 +338,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for seqlen_k in [64, 128, 256, 1024]
             for batch_size in [1, 2]
             for is_mqa in [True]
-            for window_size in [(-1, -1)]
+            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
         ]
     )
     def test_decode(
@@ -381,7 +381,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for kv_padding in [128, 256, 512, 1024]
             for batch_size in [2, 8]
             for causal in [True, False]
-            for window_size in [(-1, -1)]
+            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
         ]
     )
     def test_jagged_vs_padded_kv(

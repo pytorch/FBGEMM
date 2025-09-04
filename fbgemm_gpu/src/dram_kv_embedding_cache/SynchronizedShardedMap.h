@@ -80,6 +80,15 @@ class SynchronizedShardedMap {
     return used_mem_size;
   }
 
+  auto getNumRows() const {
+    size_t num_rows = 0;
+    for (size_t i = 0; i < shards_.size(); ++i) {
+      auto rlmap = shards_[i].rlock();
+      num_rows += rlmap->size();
+    }
+    return num_rows;
+  }
+
  private:
   std::vector<folly::Synchronized<folly::F14FastMap<K, V>, M>> shards_;
   std::vector<std::unique_ptr<FixedBlockPool>> mempools_;
