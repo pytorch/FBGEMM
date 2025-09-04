@@ -19,19 +19,9 @@ at::Tensor mx8mx8bf16_grouped_256_256_256_2_1_1(
     at::Tensor w_scale,
     at::Tensor output,
     int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::Tensor> starting_row_after_padding) {
+    at::Tensor offsets) {
   return mx8mx8bf16_grouped_impl<at::Tensor, 256, 256, 256, 2, 1, 1>(
-      XQ,
-      WQ,
-      x_scale,
-      w_scale,
-      output,
-      G,
-      zero_start_index_M,
-      M_sizes,
-      starting_row_after_padding);
+      XQ, WQ, x_scale, w_scale, output, G, offsets);
 }
 
 #endif

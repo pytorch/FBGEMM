@@ -19,9 +19,7 @@ at::Tensor mx8mx8bf16_grouped_128_64_256_1_1_1(
     at::Tensor w_scale,
     at::Tensor output,
     int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::Tensor> starting_row_after_padding);
+    at::Tensor offsets);
 
 at::Tensor mx8mx8bf16_grouped_128_128_256_1_1_1(
     at::Tensor XQ, // FP8
@@ -30,9 +28,7 @@ at::Tensor mx8mx8bf16_grouped_128_128_256_1_1_1(
     at::Tensor w_scale,
     at::Tensor output,
     int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::Tensor> starting_row_after_padding);
+    at::Tensor offsets);
 
 at::Tensor mx8mx8bf16_grouped_256_64_256_2_1_1(
     at::Tensor XQ, // FP8
@@ -41,9 +37,7 @@ at::Tensor mx8mx8bf16_grouped_256_64_256_2_1_1(
     at::Tensor w_scale,
     at::Tensor output,
     int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::Tensor> starting_row_after_padding);
+    at::Tensor offsets);
 
 at::Tensor mx8mx8bf16_grouped_256_128_256_2_1_1(
     at::Tensor XQ, // FP8
@@ -52,9 +46,7 @@ at::Tensor mx8mx8bf16_grouped_256_128_256_2_1_1(
     at::Tensor w_scale,
     at::Tensor output,
     int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::Tensor> starting_row_after_padding);
+    at::Tensor offsets);
 
 at::Tensor mx8mx8bf16_grouped_256_256_256_2_1_1(
     at::Tensor XQ, // FP8
@@ -63,21 +55,17 @@ at::Tensor mx8mx8bf16_grouped_256_256_256_2_1_1(
     at::Tensor w_scale,
     at::Tensor output,
     int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::Tensor> starting_row_after_padding);
+    at::Tensor offsets);
 
 template <typename InputType>
 using Kernel_mx8mx8bf16_grouped = at::Tensor (*)(
-    InputType,
-    InputType,
-    InputType,
-    InputType,
-    at::Tensor,
-    int64_t,
-    std::optional<at::Tensor>,
-    std::optional<at::Tensor>,
-    std::optional<at::Tensor>);
+    InputType, // XQ
+    InputType, // WQ
+    InputType, // x_scale
+    InputType, // w_scale
+    at::Tensor, // output
+    int64_t, // G
+    at::Tensor); // offsets
 
 template <typename InputType>
 const std::unordered_map<std::string, Kernel_mx8mx8bf16_grouped<InputType>>&
