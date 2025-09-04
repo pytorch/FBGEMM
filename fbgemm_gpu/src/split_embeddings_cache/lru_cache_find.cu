@@ -59,20 +59,17 @@ DLL_PUBLIC Tensor emulate_cache_miss(
       div_round_up(N, kMaxThreads),
       get_max_thread_blocks_for_cache_kernels_()));
 
-#ifdef FBGEMM_GPU_MEMCHECK
-  const char* func_name = "emulate_cache_miss_kernel";
-#endif
-
-  emulate_cache_miss_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (emulate_cache_miss_kernel),
       blocks,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(lxu_cache_locations, int32_t, 1, 32),
       enforced_misses_per_256,
       gather_cache_stats,
-      MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+      PTA_B(uvm_cache_stats, int32_t, 1, 32));
+
   return lxu_cache_locations;
 }
 
@@ -110,7 +107,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
   const int32_t C = lxu_cache_state.size(0);
   int32_t n_misses = 0;
 
-  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (uint32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     int64_t idx = unique_indices[n];
     if (idx == max_indices) {
@@ -214,9 +211,6 @@ lru_cache_find_uncached_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lru_cache_find_uncached_kernel";
-#endif
         // During concurrent prefetch, cache lines are locked and we use less
         // SMs for some of the prefetch kernels to leave SMs for main stream to
         // overlap
@@ -228,24 +222,24 @@ lru_cache_find_uncached_cuda(
                             : get_max_thread_blocks_for_cache_kernels_());
 
         // Find uncached indices
-        lru_cache_find_uncached_kernel<<<
+        FBGEMM_LAUNCH_KERNEL(
+            (lru_cache_find_uncached_kernel<index_t>),
             grid_size,
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32),
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
             max_indices,
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
-            MAKE_PTA_WITH_NAME(func_name, cache_sets, int32_t, 1, 32),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
+            PTA_B(cache_sets, int32_t, 1, 32),
             time_stamp,
-            MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
+            PTA_B(lru_state, int64_t, 2, 32),
             gather_cache_stats,
-            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
+            PTA_B(uvm_cache_stats, int32_t, 1, 32),
             lock_cache_line,
-            MAKE_PTA_WITH_NAME(
-                func_name, lxu_cache_locking_counter, int32_t, 2, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+            PTA_B(lxu_cache_locking_counter, int32_t, 2, 32));
+
         // Sort the cache sets and ids
         size_t temp_storage_bytes = 0;
         INVOKE_CUB_SORT_PAIRS(

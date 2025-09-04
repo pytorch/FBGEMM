@@ -149,6 +149,16 @@ def get_configs_io_bound() -> List[Config]:
     return configs
 
 
+def dummy_prune_configs(configs, named_args, **kwargs):
+
+    M = named_args["M"]
+    N = named_args["N"]
+    K = named_args["K"]
+
+    logger.info(f"{len(configs)=} {len(configs)=} for {M=} {N=} {K=}")
+    return configs
+
+
 MATMUL_CONFIGS: List[Config] = [
     # basic configs for compute-bound matmuls
     Config(
@@ -173,6 +183,11 @@ MATMUL_CONFIGS: List[Config] = [
     ),
     Config(
         {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
+        num_stages=4,
+        num_warps=4,
+    ),
+    Config(
+        {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 256, "SPLIT_K": 1},
         num_stages=4,
         num_warps=4,
     ),
@@ -252,6 +267,9 @@ MATMUL_CONFIGS: List[Config] = [
 
 @triton.autotune(
     configs=MATMUL_CONFIGS,
+    prune_configs_by={
+        "early_config_prune": dummy_prune_configs,
+    },
     key=[
         "m_key",
         "n_key",
@@ -1281,33 +1299,33 @@ def matmul_fp8_row(
 
     if no_use_persistent:
         logger.debug("Using non-persistent kernel")
-        # pyre-ignore
-        torch._library.capture_triton(_kernel_matmul_fp8_row_non_persistent)[grid](
-            a,
-            b,
-            c,
-            M,
-            N,
-            K,
-            m_key,
-            n_key,
-            k_key,
-            a_scale,
-            b_scale,
-            bias,
-            a.stride(0),
-            a.stride(1),
-            b.stride(0),
-            b.stride(1),
-            c.stride(0),
-            c.stride(1),
-            dot_out_dtype=dot_out_dtype_triton,
-            allow_tf32=allow_tf32,
-            fp8_fast_accum=fp8_fast_accum,
-            # GROUP_M=8,
-            USE_BIAS=bias is not None,
-            AB_DTYPE=False,
-        )
+        with torch.cuda.device(a.device.index):
+            torch._library.capture_triton(_kernel_matmul_fp8_row_non_persistent)[grid](
+                a,
+                b,
+                c,
+                M,
+                N,
+                K,
+                m_key,
+                n_key,
+                k_key,
+                a_scale,
+                b_scale,
+                bias,
+                a.stride(0),
+                a.stride(1),
+                b.stride(0),
+                b.stride(1),
+                c.stride(0),
+                c.stride(1),
+                dot_out_dtype=dot_out_dtype_triton,
+                allow_tf32=allow_tf32,
+                fp8_fast_accum=fp8_fast_accum,
+                # GROUP_M=8,
+                USE_BIAS=bias is not None,
+                AB_DTYPE=False,
+            )
     elif use_warp_specialization:
         assert has_warp_specialization
         # used by TMA warp specialization kernel
@@ -1534,32 +1552,33 @@ def matmul_fp8_row(
             USE_BIAS=bias is not None,
         )
     elif imprecise_acc:
-        torch._library.capture_triton(_kernel_matmul_fp8_row_imprecise_acc)[grid](
-            a,
-            b,
-            c,
-            M,
-            N,
-            K,
-            m_key,
-            n_key,
-            k_key,
-            a_scale,
-            b_scale,
-            bias,
-            a.stride(0),
-            a.stride(1),
-            b.stride(0),
-            b.stride(1),
-            c.stride(0),
-            c.stride(1),
-            dot_out_dtype=dot_out_dtype_triton,
-            allow_tf32=allow_tf32,
-            fp8_fast_accum=fp8_fast_accum,
-            GROUP_M=8,
-            USE_BIAS=bias is not None,
-            AB_DTYPE=False,
-        )
+        with torch.cuda.device(a.device.index):
+            torch._library.capture_triton(_kernel_matmul_fp8_row_imprecise_acc)[grid](
+                a,
+                b,
+                c,
+                M,
+                N,
+                K,
+                m_key,
+                n_key,
+                k_key,
+                a_scale,
+                b_scale,
+                bias,
+                a.stride(0),
+                a.stride(1),
+                b.stride(0),
+                b.stride(1),
+                c.stride(0),
+                c.stride(1),
+                dot_out_dtype=dot_out_dtype_triton,
+                allow_tf32=allow_tf32,
+                fp8_fast_accum=fp8_fast_accum,
+                GROUP_M=8,
+                USE_BIAS=bias is not None,
+                AB_DTYPE=False,
+            )
     elif fp8_fast_accum:
         skip_scaling_a = a_scale is None
         torch._library.capture_triton(_kernel_matmul_fp8_row)[persistent_grid](
@@ -2084,6 +2103,13 @@ def matmul_fp8_block(
         "cpu"
     ), "Blockwise matmul not supported on cpu, please use row-wise instead."
 
+    if b.device != a.device:
+        raise Exception("'b' must be on the same device as 'a'")
+    if a_scale.device != a.device:
+        raise Exception("'a_scale' must be on the same device as 'a'")
+    if b_scale.device != a.device:
+        raise Exception("'b_scale' must be on the same device as 'a'")
+
     # noqa: E731:
     def grid(META):
         return (
@@ -2092,67 +2118,69 @@ def matmul_fp8_block(
         )
 
     if fp8_fast_accum:
-        _kernel_matmul_fp8_block_fastacc[grid](
-            a_tl,
-            b_tl,
-            c,
-            M,
-            N,
-            K,
-            m_key,
-            n_key,
-            k_key,
-            a_scale,
-            b_scale,
-            scale_block_m,
-            scale_block_n,
-            scale_block_k,
-            a.stride(0),
-            a.stride(1),
-            b.stride(0),
-            b.stride(1),
-            c.stride(0),
-            c.stride(1),
-            a_scale.stride(0),
-            a_scale.stride(1),
-            b_scale.stride(0),
-            b_scale.stride(1),
-            dot_out_dtype=dot_out_dtype_triton,
-            allow_tf32=allow_tf32,
-            GROUP_M=8,
-            AB_DTYPE=False,
-        )
+        with torch.cuda.device(a_tl.device.index):
+            _kernel_matmul_fp8_block_fastacc[grid](
+                a_tl,
+                b_tl,
+                c,
+                M,
+                N,
+                K,
+                m_key,
+                n_key,
+                k_key,
+                a_scale,
+                b_scale,
+                scale_block_m,
+                scale_block_n,
+                scale_block_k,
+                a.stride(0),
+                a.stride(1),
+                b.stride(0),
+                b.stride(1),
+                c.stride(0),
+                c.stride(1),
+                a_scale.stride(0),
+                a_scale.stride(1),
+                b_scale.stride(0),
+                b_scale.stride(1),
+                dot_out_dtype=dot_out_dtype_triton,
+                allow_tf32=allow_tf32,
+                GROUP_M=8,
+                AB_DTYPE=False,
+            )
     else:
-        _kernel_matmul_fp8_block_slowacc[grid](
-            a_tl,
-            b_tl,
-            c,
-            M,
-            N,
-            K,
-            m_key,
-            n_key,
-            k_key,
-            a_scale,
-            b_scale,
-            scale_block_m,
-            scale_block_n,
-            scale_block_k,
-            a.stride(0),
-            a.stride(1),
-            b.stride(0),
-            b.stride(1),
-            c.stride(0),
-            c.stride(1),
-            a_scale.stride(0),
-            a_scale.stride(1),
-            b_scale.stride(0),
-            b_scale.stride(1),
-            dot_out_dtype=dot_out_dtype_triton,
-            allow_tf32=allow_tf32,
-            GROUP_M=8,
-            AB_DTYPE=False,
-        )
+        with torch.cuda.device(a_tl.device.index):
+            _kernel_matmul_fp8_block_slowacc[grid](
+                a_tl,
+                b_tl,
+                c,
+                M,
+                N,
+                K,
+                m_key,
+                n_key,
+                k_key,
+                a_scale,
+                b_scale,
+                scale_block_m,
+                scale_block_n,
+                scale_block_k,
+                a.stride(0),
+                a.stride(1),
+                b.stride(0),
+                b.stride(1),
+                c.stride(0),
+                c.stride(1),
+                a_scale.stride(0),
+                a_scale.stride(1),
+                b_scale.stride(0),
+                b_scale.stride(1),
+                dot_out_dtype=dot_out_dtype_triton,
+                allow_tf32=allow_tf32,
+                GROUP_M=8,
+                AB_DTYPE=False,
+            )
     return c.view(output_shape)
 
 
@@ -2439,6 +2467,11 @@ def triton_quantize_fp8_row(
         torch.Tensor: fp8 scaled tensor.
         torch.Tensor: reciprocal scale tensor per row.
     """
+    if scale_ub is not None and scale_ub.device != a.device:
+        raise Exception("'scale_ub' must be on the same device as 'a'")
+    if zero_start_index_M is not None and zero_start_index_M.device != a.device:
+        raise Exception("'zero_start_index_M' must be on the same device as 'a'")
+
     assert a.dim() <= 4, "Triton only supports up to 4 dimension input tensor."
     a_shape = a.shape
     while a.dim() < 4:
@@ -2458,33 +2491,42 @@ def triton_quantize_fp8_row(
     # Pick a conservative value for inference shapes for disabling BufferOps.
     should_disable_bufferops = torch.version.hip is not None and a_shape[0] < 32
     with disable_bufferops(should_disable_bufferops):
-        _kernel_quantize_fp8_row[grid](
-            a,
-            a_scale,
-            a_fp8,
-            scale_ub,
-            zero_start_index_M,
-            a.shape[0],
-            a.shape[1],
-            a.shape[2],
-            a.shape[3],
-            a.stride(0),
-            a.stride(1),
-            a.stride(2),
-            a.stride(3),
-            a_fp8.stride(0),
-            a_fp8.stride(1),
-            a_fp8.stride(2),
-            a_fp8.stride(3),
-            zero_start_index_M.stride(0) if zero_start_index_M is not None else None,
-            zero_start_index_M.stride(1) if zero_start_index_M is not None else None,
-            TL_FP8_DTYPE=tl_dtype,
-            MAX_FP8=max_fp8,
-            EPS=eps,
-            CLAMP_MAX=scale_ub is not None,
-            JAGGED=zero_start_index_M is not None,
-            USE_INT64=use_int64,
-        )
+        with torch.cuda.device(a.device.index):
+            _kernel_quantize_fp8_row[grid](
+                a,
+                a_scale,
+                a_fp8,
+                scale_ub,
+                zero_start_index_M,
+                a.shape[0],
+                a.shape[1],
+                a.shape[2],
+                a.shape[3],
+                a.stride(0),
+                a.stride(1),
+                a.stride(2),
+                a.stride(3),
+                a_fp8.stride(0),
+                a_fp8.stride(1),
+                a_fp8.stride(2),
+                a_fp8.stride(3),
+                (
+                    zero_start_index_M.stride(0)
+                    if zero_start_index_M is not None
+                    else None
+                ),
+                (
+                    zero_start_index_M.stride(1)
+                    if zero_start_index_M is not None
+                    else None
+                ),
+                TL_FP8_DTYPE=tl_dtype,
+                MAX_FP8=max_fp8,
+                EPS=eps,
+                CLAMP_MAX=scale_ub is not None,
+                JAGGED=zero_start_index_M is not None,
+                USE_INT64=use_int64,
+            )
 
     return a_fp8.view(a_shape), a_scale.view(a_shape[:-1])
 
@@ -2690,6 +2732,11 @@ def triton_quantize_fp8_packed_row(
         torch.Tensor: reciprocal scale tensor per row.
         torch.Tensor: The packed FP8 scaled tensor, with the scale at the end of each row.
     """
+    if scale_ub is not None and scale_ub.device != a.device:
+        raise Exception("'scale_ub' must be on the same device as 'a'")
+    if zero_start_index_M is not None and zero_start_index_M.device != a.device:
+        raise Exception("'zero_start_index_M' must be on the same device as 'a'")
+
     assert a.dim() <= 4, "Triton only supports up to 4 dimension input tensor."
     a_shape = a.shape
     while a.dim() < 4:
@@ -2713,34 +2760,35 @@ def triton_quantize_fp8_packed_row(
     use_int64 = a.numel() > (2**31 - 1)
     grid = (num_rows,)
 
-    _kernel_quantize_fp8_packed_row[grid](
-        a,
-        a_fp8,
-        packed_scale,
-        scale_ub,
-        zero_start_index_M,
-        a.shape[0],
-        a.shape[1],
-        a.shape[2],
-        a.shape[3],
-        a.stride(0),
-        a.stride(1),
-        a.stride(2),
-        a.stride(3),
-        a_fp8.stride(0),
-        a_fp8.stride(1),
-        a_fp8.stride(2),
-        a_fp8.stride(3),
-        packed_scale.stride(2),  # this is the stride that matters
-        zero_start_index_M.stride(0) if zero_start_index_M is not None else None,
-        zero_start_index_M.stride(1) if zero_start_index_M is not None else None,
-        TL_FP8_DTYPE=tl_dtype,
-        MAX_FP8=max_fp8,
-        EPS=eps,
-        CLAMP_MAX=scale_ub is not None,
-        JAGGED=zero_start_index_M is not None,
-        USE_INT64=use_int64,
-    )
+    with torch.cuda.device(a.device.index):
+        _kernel_quantize_fp8_packed_row[grid](
+            a,
+            a_fp8,
+            packed_scale,
+            scale_ub,
+            zero_start_index_M,
+            a.shape[0],
+            a.shape[1],
+            a.shape[2],
+            a.shape[3],
+            a.stride(0),
+            a.stride(1),
+            a.stride(2),
+            a.stride(3),
+            a_fp8.stride(0),
+            a_fp8.stride(1),
+            a_fp8.stride(2),
+            a_fp8.stride(3),
+            packed_scale.stride(2),  # this is the stride that matters
+            zero_start_index_M.stride(0) if zero_start_index_M is not None else None,
+            zero_start_index_M.stride(1) if zero_start_index_M is not None else None,
+            TL_FP8_DTYPE=tl_dtype,
+            MAX_FP8=max_fp8,
+            EPS=eps,
+            CLAMP_MAX=scale_ub is not None,
+            JAGGED=zero_start_index_M is not None,
+            USE_INT64=use_int64,
+        )
     if return_only_packed:
         return None, None, a_fp8.view((*a_shape[:-1], a_shape[-1] + 4))
 
@@ -3000,23 +3048,29 @@ def scale_fp8_row(
         # On CPU we'll just use native pytorch to scale.
         return a * x_scale[:, None] * w_scale[None, :]
 
+    if x_scale.device != a.device:
+        raise Exception("'x_scale' must be on the same device as 'a'")
+    if w_scale.device != a.device:
+        raise Exception("'w_scale' must be on the same device as 'a'")
+
     # Otherwise, use a fast triton kernel to implement.
     # We'll parallelize over rows.
     num_rows = a.shape[0]
     scaled_out = torch.empty(a.shape, device=a.device, dtype=a.dtype)
     grid = (num_rows,)
-    _kernel_scale_fp8_row[grid](
-        a,
-        x_scale,
-        w_scale,
-        scaled_out,
-        a.shape[0],
-        a.shape[1],
-        a.stride(0),
-        a.stride(1),
-        scaled_out.stride(0),
-        scaled_out.stride(1),
-    )
+    with torch.cuda.device(a.device.index):
+        _kernel_scale_fp8_row[grid](
+            a,
+            x_scale,
+            w_scale,
+            scaled_out,
+            a.shape[0],
+            a.shape[1],
+            a.stride(0),
+            a.stride(1),
+            scaled_out.stride(0),
+            scaled_out.stride(1),
+        )
 
     return scaled_out
 
@@ -3135,6 +3189,10 @@ def triton_quantize_fp8_block(
     assert x.device != torch.device(
         "cpu"
     ), "Blockwise quantization not support on cpu, please use row-wise quantization instead."
+
+    if scale_ub is not None and scale_ub.device != x.device:
+        raise Exception("'scale_ub' must be on the same device as 'a'")
+
     x_shape = x.shape
     x = x.view(-1, x.size(-1))
     # Get constant values.
@@ -3441,6 +3499,12 @@ def triton_quantize_fp8_group(
     assert x.device != torch.device(
         "cpu"
     ), "Triton groupwise quantization not supported on cpu."
+
+    if scale_ub is not None and scale_ub.device != x.device:
+        raise Exception("'scale_ub' must be on the same device as 'a'")
+    if m_sizes is not None and m_sizes.device != x.device:
+        raise Exception("'m_sizes' must be on the same device as 'a'")
+
     x_shape = x.shape
     x = x.view(-1, x.size(-1))
     pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
@@ -4179,18 +4243,19 @@ def dequantize_fp8_row(
     def grid(meta):
         return (triton.cdiv(M, meta["BLOCK_M"]),)
 
-    _kernel_dequantize_fp8_row[grid](
-        xq,
-        x_scale,
-        x_dequant,
-        M,
-        K,
-        xq.stride(0),
-        xq.stride(1),
-        xq.stride(0),  # Use squashed stride.
-        xq.stride(1),
-        USE_INT64=use_int64,
-    )
+    with torch.cuda.device(xq.device.index):
+        _kernel_dequantize_fp8_row[grid](
+            xq,
+            x_scale,
+            x_dequant,
+            M,
+            K,
+            xq.stride(0),
+            xq.stride(1),
+            xq.stride(0),  # Use squashed stride.
+            xq.stride(1),
+            USE_INT64=use_int64,
+        )
     return x_dequant
 
 
@@ -4289,18 +4354,19 @@ def dequantize_fp8_packed_row(
     def grid(meta):
         return (triton.cdiv(M, meta["BLOCK_M"]),)
 
-    _kernel_dequantize_fp8_packed_row[grid](
-        actual_xq,
-        scale_view,
-        x_dequant,
-        M,
-        K,
-        actual_xq.stride(0),
-        actual_xq.stride(1),
-        x_dequant.stride(-2),  # Use squashed stride.
-        x_dequant.stride(-1),
-        USE_INT64=use_int64,
-    )
+    with torch.cuda.device(actual_xq.device.index):
+        _kernel_dequantize_fp8_packed_row[grid](
+            actual_xq,
+            scale_view,
+            x_dequant,
+            M,
+            K,
+            actual_xq.stride(0),
+            actual_xq.stride(1),
+            x_dequant.stride(-2),  # Use squashed stride.
+            x_dequant.stride(-1),
+            USE_INT64=use_int64,
+        )
 
     return x_dequant
 
@@ -4371,9 +4437,10 @@ def dequantize_fp8_block(
             triton.cdiv(K, meta["BLOCK_K"]),
         )
 
-    _kernel_dequantize_fp8_block[grid](
-        xq, x_scale, x_dequant, M, K, BLOCK_M=block_m, BLOCK_K=block_k  # pyre-ignore[6]
-    )
+    with torch.cuda.device(xq.device.index):
+        _kernel_dequantize_fp8_block[grid](
+            xq, x_scale, x_dequant, M, K, BLOCK_M=block_m, BLOCK_K=block_k  # pyre-ignore[6]
+        )
     return x_dequant
 
 

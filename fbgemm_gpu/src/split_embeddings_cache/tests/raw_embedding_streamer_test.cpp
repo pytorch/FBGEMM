@@ -80,7 +80,7 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithoutStreaming) {
       {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
 
   // Should not crash when streaming is disabled
-  streamer->stream(indices, weights, count, true, true);
+  streamer->stream(indices, weights, std::nullopt, count, true, true);
 }
 
 #ifdef FBGEMM_FBCODE
@@ -112,7 +112,8 @@ TEST(RawEmbeddingStreamerTest, TestTensorStream) {
       {invalid_indices.size(0), EMBEDDING_DIMENSION},
       at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
   EXPECT_CALL(*mock_service, co_setEmbeddings(_)).Times(0);
-  folly::coro::blockingWait(streamer->tensor_stream(invalid_indices, weights));
+  folly::coro::blockingWait(
+      streamer->tensor_stream(invalid_indices, weights, std::nullopt));
 
   // Test with valid indices - should call service
   auto valid_indices = at::tensor(
@@ -134,7 +135,8 @@ TEST(RawEmbeddingStreamerTest, TestTensorStream) {
                 aiplatform::gmpp::experimental::training_ps::
                     SetEmbeddingsResponse>();
           }));
-  folly::coro::blockingWait(streamer->tensor_stream(valid_indices, weights));
+  folly::coro::blockingWait(
+      streamer->tensor_stream(valid_indices, weights, std::nullopt));
 }
 
 TEST(RawEmbeddingStreamerTest, TestStreamWithCopy) {
@@ -171,11 +173,11 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithCopy) {
   streamer->join_weights_stream_thread();
 
   // Test blocking tensor copy
-  streamer->stream(indices, weights, count, true, true);
+  streamer->stream(indices, weights, std::nullopt, count, true, true);
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
 
   // Test non-blocking tensor copy
-  streamer->stream(indices, weights, count, true, false);
+  streamer->stream(indices, weights, std::nullopt, count, true, false);
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
   streamer->join_stream_tensor_copy_thread();
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 2);
@@ -225,7 +227,7 @@ TEST(RawEmbeddingStreamerTest, TestStreamE2E) {
   auto count = at::tensor(
       {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
 
-  streamer->stream(indices, weights, count, true, true);
+  streamer->stream(indices, weights, std::nullopt, count, true, true);
   // Make sure dequeue finished
   std::this_thread::sleep_for(std::chrono::seconds(1));
   streamer->join_weights_stream_thread();
@@ -260,6 +262,65 @@ TEST(RawEmbeddingStreamerTest, TestMismatchedIndicesWeights) {
       at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
 
   EXPECT_CALL(*mock_service, co_setEmbeddings(_)).Times(0);
-  folly::coro::blockingWait(streamer->tensor_stream(indices, weights));
+  folly::coro::blockingWait(
+      streamer->tensor_stream(indices, weights, std::nullopt));
+}
+
+TEST(RawEmbeddingStreamerTest, TestStreamWithIdentities) {
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_stream_identities", true, table_names, table_offsets, table_sizes);
+
+  // Mock TrainingParameterServerService
+  auto mock_service = std::make_shared<MockTrainingParameterServerService>();
+  auto mock_server =
+      std::make_shared<apache::thrift::ScopedServerInterfaceThread>(
+          mock_service,
+          "::1",
+          0,
+          facebook::services::TLSConfig::applyDefaultsToThriftServer);
+  auto& mock_client_factory =
+      facebook::servicerouter::getMockSRClientFactory(false /* strict */);
+  mock_client_factory.registerMockService(
+      "realtime.delta.publish.esr", mock_server);
+
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto identities = at::tensor(
+      {1001, 1002, 1003, 1004, 1005, 1006, 1007},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  // Test that identities are properly handled in tensor_stream
+  EXPECT_CALL(*mock_service, co_setEmbeddings(_))
+      .Times(3) // 3 shards with consistent hashing
+      .WillRepeatedly(folly::coro::gmock_helpers::CoInvoke(
+          [](std::unique_ptr<
+              aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest>
+                 request)
+              -> folly::coro::Task<
+                  std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
+                                      SetEmbeddingsResponse>> {
+            // Verify that the request is properly formed
+            EXPECT_GT(request->fqns()->size(), 0);
+            co_return std::make_unique<
+                aiplatform::gmpp::experimental::training_ps::
+                    SetEmbeddingsResponse>();
+          }));
+  folly::coro::blockingWait(
+      streamer->tensor_stream(indices, weights, identities));
+
+  // Test streaming with identities using the stream method
+  streamer->join_weights_stream_thread(); // Stop dequeue thread for testing
+  streamer->stream(indices, weights, identities, count, true, true);
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
 }
 #endif

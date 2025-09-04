@@ -50,14 +50,14 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch_meta(
     const std::optional<int64_t>& expert_index_end,
     const std::optional<at::Tensor>& valid_token_count,
     const int64_t top_k = 1) {
-  int T = routing_scores.size(0);
-  int E = routing_scores.size(1);
+  auto T = routing_scores.sym_size(0);
+  auto E = routing_scores.sym_size(1);
   at::Tensor token_counts_per_expert =
-      at::empty({E + 2}, routing_scores.options().dtype(at::kInt));
+      at::empty_symint({E + 2}, routing_scores.options().dtype(at::kInt));
   at::Tensor expert_indices =
-      at::empty({T * top_k}, routing_scores.options().dtype(at::kInt));
+      at::empty_symint({T * top_k}, routing_scores.options().dtype(at::kInt));
   at::Tensor token_indices =
-      at::empty({T * top_k}, routing_scores.options().dtype(at::kInt));
+      at::empty_symint({T * top_k}, routing_scores.options().dtype(at::kInt));
   return {token_counts_per_expert, expert_indices, token_indices};
 }
 

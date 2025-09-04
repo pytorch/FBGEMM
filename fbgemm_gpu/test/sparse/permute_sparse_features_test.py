@@ -15,16 +15,17 @@ from typing import cast, Optional, Tuple
 
 import hypothesis.strategies as st
 import torch
+
 from hypothesis import given, settings
 
 from .common import extend_test_class, open_source, permute_indices_ref_
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, on_oss_clang
+    from test_utils import gpu_available, gpu_unavailable, on_oss_clang
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available, on_oss_clang
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, on_oss_clang
 
 
 class PermuteSparseFeaturesTest(unittest.TestCase):
@@ -190,6 +191,46 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
                 )
             else:
                 assert permuted_weights_cpu is None
+
+
+class Permute2DSparseFeaturesTest(unittest.TestCase):
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_sparse_data(self) -> None:
+        lengths = torch.tensor(
+            [[0, 0, 1], [0, 1, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1]],
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator(),
+        )
+        indices = torch.tensor(
+            [500, 1000, 1999],
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator(),
+        )
+        permute = torch.tensor(
+            [0, 3, 1, 4, 2, 5],
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator(),
+        )
+        weights = torch.rand((3, 64), device=torch.accelerator.current_accelerator())
+        (
+            lengths_actual,
+            values_actual,
+            weights_actual,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, indices.numel()
+        )
+        self.assertTrue(
+            torch.equal(
+                lengths_actual,
+                torch.tensor(
+                    [[0, 0, 1], [0, 0, 0], [0, 1, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1]],
+                    dtype=torch.int32,
+                    device=torch.accelerator.current_accelerator(),
+                ),
+            )
+        )
+        self.assertTrue(torch.equal(values_actual, indices))
+        self.assertTrue(torch.equal(weights_actual, weights))
 
 
 extend_test_class(PermuteSparseFeaturesTest)

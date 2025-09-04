@@ -588,6 +588,12 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
       0, 0, 0, 0,       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3f,   // Scale: 0, bias: 1
       0, 61, 126, 255,  0x00, 0x00, 0x80, 0x3f, 0x00, 0x00, 0x80, 0xc2,   // Scale: 1, bias: -64
     };
+
+    // Min and max values for each row in the input.
+    float_test_input_rowwise_min_max = {
+      1, 1,
+      -64, 191,
+    };
   }
   // clang-format on
 
@@ -600,6 +606,7 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
   std::map</*bit_rate*/ int, /*output*/ std::vector<uint8_t>>
       expected_output_half;
   std::vector<uint8_t> expected_output_float;
+  std::vector<float> float_test_input_rowwise_min_max;
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -801,4 +808,56 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
       dequantOutHalfTest,
       1e-3,
       pow(2, NumberOfFP16Matissa)));
+}
+
+TEST_P(
+    EmbeddingQuantizeFixedNumberTest,
+    embeddingFloatWithRowwiseMinMaxToQuantizedSBHalfTest) {
+  vector<uint8_t> outVecFloatTest(row * out_cols_float);
+
+  // Confirm that quantization with rowwise_min_max produces expected results.
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
+      float_test_input.data(),
+      row,
+      col,
+      outVecFloatTest.data(),
+      float_test_input_rowwise_min_max.data());
+  EXPECT_TRUE(isQEmbeddingClose<float>(
+      expected_output_float, outVecFloatTest, row, col));
+
+  // Confirm that quantization with and without rowwise_min_max produces similar
+  // results.
+  vector<uint8_t> outVecFloatTestNoRowwiseMinMax(row * out_cols_float);
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
+      float_test_input.data(), row, col, outVecFloatTestNoRowwiseMinMax.data());
+  EXPECT_TRUE(isQEmbeddingClose<float>(
+      expected_output_float, outVecFloatTestNoRowwiseMinMax, row, col));
+  EXPECT_TRUE(isQEmbeddingClose<float>(
+      outVecFloatTest, outVecFloatTestNoRowwiseMinMax, row, col));
+
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  // Confirm that incorrect min and max values for each row in the input
+  // of rowwise_min_max produces different results.
+  // Since Windows & ARM are not yet supported, only run this test on x86_64.
+  float_test_input_rowwise_min_max = {
+      10,
+      15,
+      -14,
+      1,
+  };
+  vector<uint8_t> outVecFloatTestIncorrectRowwiseMinMax(row * out_cols_float);
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
+      float_test_input.data(),
+      row,
+      col,
+      outVecFloatTestIncorrectRowwiseMinMax.data(),
+      float_test_input_rowwise_min_max.data());
+  EXPECT_FALSE(isQEmbeddingClose<float>(
+      expected_output_float, outVecFloatTestIncorrectRowwiseMinMax, row, col));
+  EXPECT_FALSE(isQEmbeddingClose<float>(
+      outVecFloatTestIncorrectRowwiseMinMax,
+      outVecFloatTestNoRowwiseMinMax,
+      row,
+      col));
+#endif
 }

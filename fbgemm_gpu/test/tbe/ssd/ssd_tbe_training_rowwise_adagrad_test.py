@@ -27,7 +27,6 @@ from .training_common import (
     default_strategies,
     MAX_EXAMPLES,
     SSDSplitTableBatchedEmbeddingsTestCommon,
-    VIRTUAL_TABLE_ROWS,
 )
 
 
@@ -908,7 +907,6 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
                 rtol=tolerance,
             )
 
-        table_offset = 0
         for feature_index, table_index in self.get_physical_table_arg_indices_(
             emb.feature_table_map
         ):
@@ -990,7 +988,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             )
             torch.testing.assert_close(
                 id_extracted_from_emb_w,
-                bucket_asc_ids_list[table_index].view(-1) + table_offset,
+                bucket_asc_ids_list[table_index].view(-1),
                 atol=tolerance,
                 rtol=tolerance,
             )
@@ -1002,8 +1000,6 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
                 atol=tolerance,
                 rtol=tolerance,
             )
-
-            table_offset += VIRTUAL_TABLE_ROWS
 
     @given(**default_strategies)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)

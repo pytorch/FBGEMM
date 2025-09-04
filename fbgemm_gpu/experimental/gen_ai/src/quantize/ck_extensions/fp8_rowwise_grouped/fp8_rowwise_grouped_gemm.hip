@@ -12,7 +12,6 @@
 #include <tuple>
 
 #include <ATen/core/Tensor.h>
-#include <ATen/hip/HIPContext.h>
 #include <c10/hip/HIPStream.h>
 
 #include "ck/ck.hpp"
@@ -262,6 +261,8 @@ __global__ void set_kernel_args(
         output_offset = thread_idx * M * N;
       }
     }
+
+    CUDA_KERNEL_ASSERT_MSG(N_group % 8 == 0, "N must be divisible by 8");
 
     // Only write actual group information if this group is nonzero.
     if (M_group > 0 && N_group > 0 && K_group > 0) {
@@ -789,6 +790,12 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
     TORCH_CHECK(out.dim() == 3 && out.size(0) == G && out.size(1) == M && out.size(2) == N, "out shape must be (G, M, N).");
   } else {
     TORCH_CHECK(false, "Invalid input shapes. Must be one of 2D-2D, 3D-3D, 2D-3D, 3D-2D.");
+  }
+
+  // Enforce CK CShuffleBlockTransferScalarPerVector_NPerBlock divisibility
+  // Technically, 8 is more strict than required, but otherwise this validation becomes more complex.
+  if (inputType != GroupedGemmInputType::_3D2D) {
+    TORCH_CHECK(N % 8 == 0, "N must be divisible by 8.");
   }
 
   // Early exit for empty input.

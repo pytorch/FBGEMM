@@ -37,6 +37,7 @@ glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
   src/attention/cuda/*.cu
+  src/attention/cuda/cutlass_blackwell_fmha/blackwell_*.cu
   src/coalesce/*.cu
   src/comm/*.cu
   src/kv_cache/*.cu
@@ -50,21 +51,34 @@ if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   glob_files_nohip(tmp_list_gpu
     src/gather_scatter/*.cu)
 
-  list(APPEND experimental_gen_ai_cpp_source_files_cpu ${tmp_list_cpu} ${tmp_list_cpu2})
-  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu} ${tmp_list_gpu2})
+  list(APPEND experimental_gen_ai_cpp_source_files_cpu
+    ${tmp_list_cpu} ${tmp_list_cpu2})
+  list(APPEND experimental_gen_ai_cpp_source_files_gpu
+    ${tmp_list_gpu} ${tmp_list_gpu2})
 endif()
 
 # Include FB-internal code into the build
 if(USE_FB_ONLY
   AND (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   AND (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0))
+  BLOCK_PRINT(
+    "[FBPKG] USE_FB_ONLY is set, "
+    "will be INCLUDING FB-internal sources.")
+
   glob_files_nohip(fb_only_sources_cpu
       fb/src/*/*.cpp)
 
   glob_files_nohip(fb_only_sources_gpu
       fb/src/*/*.cu)
 
-  if(NOT FBGEMM_FBPKG_BUILD)
+  if(FBGEMM_FBPKG_BUILD)
+    BLOCK_PRINT("[FBPKG] FBGEMM_FBPKG_BUILD is set.")
+
+  else()
+    BLOCK_PRINT(
+      "[FBPKG] FBGEMM_FBPKG_BUILD is NOT set,"
+      "certain FB-internal sources will be excluded from the build.")
+
     # NOTE: Some FB-internal code explicitly require an FB-internal
     # environment to build, such as code that depends on NCCLX
     list(FILTER fb_only_sources_cpu
@@ -76,6 +90,11 @@ if(USE_FB_ONLY
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_sources_gpu})
+
+else()
+  BLOCK_PRINT(
+    "[FBPKG] USE_FB_ONLY is NOT set, "
+    "will be EXCLUDING FB-internal sources.")
 endif()
 
 # CUDA-specific sources
@@ -126,6 +145,7 @@ gpu_cpp_library(
     ${KEEP_PREFIX}
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/attention/cuda/cutlass_blackwell_fmha
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/common/include

@@ -4,11 +4,11 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import argparse
 import functools
 import itertools
 from typing import List, Optional, Tuple
 
+import click
 import torch
 import triton  # noqa: F401
 from fbgemm_gpu.experimental.gen_ai.moe import (
@@ -281,6 +281,12 @@ def bench_combine_or_split_shuffling(
     )
 
 
+@click.command()
+@click.option(
+    "--kernels",
+    default=None,
+    help="Comma separated list of kernels to benchmark. Defaults to all kernels.",
+)
 def main(kernels: Optional[str]):
     if kernels is not None:
         kernels = kernels.split(",")
@@ -339,11 +345,4 @@ def main(kernels: Optional[str]):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--kernels",
-        default=None,
-        help="Comma separated list of kernels to benchmark. Defaults to all kernels.",
-    )
-    args = parser.parse_args()
-    main(args.kernels)
+    main()
