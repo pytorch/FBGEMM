@@ -94,7 +94,7 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
     const uint32_t sorted_slot = slots[0];
     const int64_t sorted_lfu_cost = costs[0];
 
-    for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+    for (auto l = 0; l < min(SL, kWarpSize); ++l) {
       const int32_t insert_slot = shfl_sync(sorted_slot, l);
       const int64_t insert_current_lfu_cost = shfl_sync(sorted_lfu_cost, l);
       const index_t insert_idx = cache_set_sorted_indices[n + l];
