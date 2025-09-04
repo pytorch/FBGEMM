@@ -27,6 +27,17 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
     std::optional<at::Tensor> offsets,
     at::Tensor& output);
 
+#else
+
+// Torch compliant MXFP8 grouped GEMM only on CUDA for now.
+at::Tensor mx8mx8bf16_grouped_mm(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor offsets,
+    std::optional<at::Tensor> output = std::nullopt);
+
 #endif
 
 } // namespace fbgemm_gpu
