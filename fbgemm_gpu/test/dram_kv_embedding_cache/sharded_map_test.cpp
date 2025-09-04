@@ -166,12 +166,14 @@ void memPoolEmbeddingMemSize(int dimension, size_t numInserts) {
   }
   size_t totalMemory = embeddingMap.getUsedMemSizeInBytes();
   size_t actualUsedChunkInBytes = embeddingMap.getActualUsedChunkInBytes();
+  size_t numRows = embeddingMap.getNumRows();
   fmt::print(
-      "{:<20}{:<20}{:<20.2f}{:<20.2f}\n",
+      "{:<20}{:<20}{:<20.2f}{:<20.2f}{:<20}\n",
       dimension,
       numInserts,
       static_cast<double>(totalMemory) / (1024 * 1024),
-      static_cast<double>(actualUsedChunkInBytes) / (1024 * 1024)); // MB
+      static_cast<double>(actualUsedChunkInBytes) / (1024 * 1024), // MB
+      numRows);
 }
 
 int benchmark() {
@@ -215,11 +217,12 @@ int benchmark() {
       "======================= memory usage statistics "
       "====================================\n");
   fmt::print(
-      "{:<20}{:<20}{:<20}{:<20}\n",
+      "{:<20}{:<20}{:<20}{:<20}{:<20}\n",
       "dim",
       "numInserts",
       "total memory (MB)",
-      "actual used chunk (MB))");
+      "actual used chunk (MB))",
+      "numRows");
   for (int dim : dimensions) {
     memPoolEmbeddingMemSize(dim, numInserts);
   }
