@@ -6,6 +6,7 @@
 
 import itertools
 import os
+import sys
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +20,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
+from tabulate import tabulate
 
 try:
     from accelerators.utils.torch_profiler import profiler_or_nullcontext
@@ -401,6 +403,16 @@ def collect_kernels_to_profile(kernels: Optional[List[str]]) -> List[QuantizeOpB
     return [op for op in quantize_ops if op.name in kernels]
 
 
+def print_kernels(kernels: Optional[List[str]]) -> List[QuantizeOpBase]:
+    data = sorted(
+        [
+            (op.name, "Yes" if op.cuda else "No", "Yes" if op.hip else "No")
+            for op in get_quantize_ops()
+        ]
+    )
+    print(tabulate(data, headers=["Name", "CUDA", "ROCm"], tablefmt="orgtbl"))
+
+
 @click.command()
 @click.option(
     "--output-dir",
@@ -542,12 +554,13 @@ def invoke_main(
     if enable_amd_env_vars:
         set_amd_env_vars()
     # If kernel filter is provided, parse it. Else, benchmark all kernels.
-    quantize_ops = collect_kernels_to_profile(
-        kernels.strip().split(",") if kernels else None
-    )
+    all_kernels = kernels.strip().split(",") if kernels else None
+    quantize_ops = collect_kernels_to_profile(all_kernels)
 
     if len(quantize_ops) == 0:
-        raise Exception("No valid kernels to benchmark.")
+        print("No valid kernels to benchmark. Available kernels:")
+        print_kernels(all_kernels)
+        sys.exit(1)
 
     if num_iters < 1:
         print("Warning: Number of iterations must be at least 1.")
