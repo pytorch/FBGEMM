@@ -2916,6 +2916,50 @@ class NVFP4StackedGroupedGemmPackUnpack(QuantizeOpBase):
 
 
 @register_quantize_op
+class BF16GroupedGemm2d3d(QuantizeOpBase):
+    """
+    Torch BF16 grouped GEMM with 2D inputs and 3D weights.
+    """
+
+    def preprocess(self, x, w):
+        assert isinstance(x, list)
+        assert isinstance(w, list)
+        offs = torch.tensor(
+            [i.shape[0] for i in x], dtype=torch.int32, device=x[0].device
+        )
+        offs = torch.cumsum(offs, dim=0).to(torch.int32)
+        x = torch.cat(x, dim=0).contiguous()  # (G * M, K)
+        w = torch.stack(w, dim=0).contiguous()  # (G, N, K)
+        return x, w, offs
+
+    def quantize(self, x, w, offs):
+        return x, w, offs
+
+    def compute(self, x, w, offs):
+        return torch._grouped_mm(
+            x,
+            w.transpose(-2, -1),
+            offs=offs,
+        )
+
+    def quantize_and_compute(self, x, w, offs):
+        x, w, offs = self.quantize(x, w)
+        return self.compute(x, w, offs)
+
+    @property
+    def name(self) -> str:
+        return "bf16_baseline_grouped_2d_3d"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class MXFP8GroupedGemm2d3d(QuantizeOpBase):
     """
     MXFP8 grouped GEMM with 2D inputs and 3D weights.
