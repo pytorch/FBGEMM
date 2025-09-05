@@ -66,8 +66,8 @@ TEST(FeatureEvictTest, CounterBasedEviction) {
           std::vector<int64_t>({1, 0}), // counter_thresholds
           std::vector<double>({0.5, 0.6}), // counter_decay_rates
           std::nullopt, // feature_score_counter_decay_rates
-          std::nullopt, // max_training_id_num_per_table
-          std::nullopt, // target_eviction_percent_per_table
+          std::nullopt, // training_id_eviction_trigger_count
+          std::nullopt, // training_id_keep_count
           std::nullopt, // l2_weight_thresholds
           std::nullopt, // embedding_dims
           std::nullopt, // threshold_calculation_bucket_stride
@@ -139,7 +139,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   }
   c10::intrusive_ptr<FeatureEvictConfig> feature_evict_config =
       c10::make_intrusive<FeatureEvictConfig>(
-          1, // evict_trigger_mode, not needed since no scheduler in this UT
+          4, // evict_trigger_mode, not needed since no scheduler in this UT
           5, // evict_trigger_strategy, not needed since no scheduler in this UT
           2, // trigger_step_interval, not needed since no scheduler in this UT
           std::nullopt, // mem_util_threshold_in_GB, not needed since no
@@ -148,8 +148,9 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
           std::nullopt, // counter_thresholds
           std::nullopt, // counter_decay_rates
           std::vector<double>({0.9, 0.6}), // feature_score_counter_decay_rates
-          std::vector<int64_t>({1000, 1000}), // max_training_id_num_per_table
-          std::vector<double>({0.1, 0.2}), // target_eviction_percent_per_table
+          std::vector<int64_t>(
+              {1000, 900}), // training_id_eviction_trigger_count
+          std::vector<int64_t>({900, 800}), // training_id_keep_count
           std::nullopt, // l2_weigh100t_thresholds
           std::nullopt, // embedding_dims
           0.2, // threshold_calculation_bucket_stride
@@ -227,7 +228,6 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     auto* pool = kv_store_with_ttl_->pool_by(shard_id);
     auto* block = pool->allocate_t<float>();
     FixedBlockPool::set_key(block, i);
-    FixedBlockPool::set_feature_score_rate(block, i < 400 ? 0.5 : 0.8);
     FixedBlockPool::set_timestamp(
         block, i < 400 ? current_time - 7200 : current_time); // Initial score
     FixedBlockPool::set_used(block, true);
@@ -240,7 +240,6 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     auto* pool = kv_store_with_ttl_->pool_by(shard_id);
     auto* block = pool->allocate_t<float>();
     FixedBlockPool::set_key(block, i);
-    FixedBlockPool::set_feature_score_rate(block, i < 1500 ? 0.6 : 0.9);
     FixedBlockPool::set_timestamp(block, current_time); // Initial score
     FixedBlockPool::set_used(block, true);
     wlock->insert({i, block});
@@ -249,7 +248,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   std::vector<int64_t> ttls = {1, std::numeric_limits<int64_t>::max() / 1000};
   c10::intrusive_ptr<FeatureEvictConfig> feature_evict_config_with_ttl =
       c10::make_intrusive<FeatureEvictConfig>(
-          1, // evict_trigger_mode, not needed since no scheduler in this UT
+          4, // evict_trigger_mode, not needed since no scheduler in this UT
           5, // evict_trigger_strategy, not needed since no scheduler in this UT
           2, // trigger_step_interval, not needed since no scheduler in this UT
           std::nullopt, // mem_util_threshold_in_GB, not needed since no
@@ -258,8 +257,8 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
           std::nullopt, // counter_thresholds
           std::nullopt, // counter_decay_rates
           std::vector<double>({0.9, 0.6}), // feature_score_counter_decay_rates
-          std::vector<int64_t>({0, 0}), // max_training_id_num_per_table
-          std::vector<double>({0, 0}), // target_eviction_percent_per_table
+          std::vector<int64_t>({1000, 900}), // max_training_id_num_per_table
+          std::vector<int64_t>({900, 800}), // training_id_keep_count
           std::nullopt, // l2_weigh100t_thresholds
           std::nullopt, // embedding_dims
           0.2, // threshold_calculation_bucket_stride
@@ -275,11 +274,26 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
       true // is training
   );
 
+  auto* feature_score_evict_with_ttl =
+      dynamic_cast<FeatureScoreBasedEvict<float>*>(
+          feature_evict_with_ttl.get());
+
   // Initial validation
   size_t total_blocks_with_ttl = 0;
   for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    block_cursors_[shard_id] = 0;
     auto rlock = kv_store_with_ttl_->by(shard_id).rlock();
-    total_blocks_with_ttl += rlock->size();
+    auto* pool = kv_store_with_ttl_->pool_by(shard_id);
+    block_nums_snapshot_[shard_id] =
+        pool->get_chunks().size() * pool->get_blocks_per_chunk();
+    while (block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
+      auto* block = pool->template get_block<float>(block_cursors_[shard_id]++);
+      if (block != nullptr && FixedBlockPool::get_used(block)) {
+        total_blocks_with_ttl++;
+        feature_score_evict_with_ttl->update_feature_score_statistics(
+            block, 0, shard_id, true);
+      }
+    }
   }
   ASSERT_EQ(total_blocks_with_ttl, 2000);
 
@@ -347,8 +361,8 @@ TEST(FeatureEvictTest, TimeBasedEviction) {
           std::nullopt, // counter_thresholds
           std::nullopt, // counter_decay_rates
           std::nullopt, // feature_score_counter_decay_rates
-          std::nullopt, // max_training_id_num_per_table
-          std::nullopt, // target_eviction_percent_per_table
+          std::nullopt, // training_id_eviction_trigger_count
+          std::nullopt, // training_id_keep_count
           std::nullopt, // l2_weight_thresholds
           std::nullopt, // embedding_dims
           std::nullopt, // threshold_calculation_bucket_stride
@@ -442,8 +456,8 @@ TEST(FeatureEvictTest, TimeCounterBasedEviction) {
           counter_thresholds, // counter_thresholds
           counter_decay_rates, // counter_decay_rates
           std::nullopt, // feature_score_counter_decay_rates
-          std::nullopt, // max_training_id_num_per_table
-          std::nullopt, // target_eviction_percent_per_table
+          std::nullopt, // training_id_eviction_trigger_count
+          std::nullopt, // training_id_keep_count
           std::nullopt, // l2_weight_thresholds
           std::nullopt, // embedding_dims
           std::nullopt, // threshold_calculation_bucket_stride
@@ -533,8 +547,8 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
           std::nullopt, // counter_thresholds
           std::nullopt, // counter_decay_rates
           std::nullopt, // feature_score_counter_decay_rates
-          std::nullopt, // max_training_id_num_per_table
-          std::nullopt, // target_eviction_percent_per_table
+          std::nullopt, // training_id_eviction_trigger_count
+          std::nullopt, // training_id_keep_count
           l2_weight_thresholds, // l2_weight_thresholds
           std::vector<int64_t>({dim}), // embedding_dims
           std::nullopt, // threshold_calculation_bucket_stride
@@ -694,8 +708,8 @@ TEST(FeatureEvictTest, DupAPINoOpCheck) {
           counter_thresholds, // counter_thresholds
           counter_decay_rates, // counter_decay_rates
           std::nullopt, // feature_score_counter_decay_rates
-          std::nullopt, // max_training_id_num_per_table
-          std::nullopt, // target_eviction_percent_per_table
+          std::nullopt, // training_id_eviction_trigger_count
+          std::nullopt, // training_id_keep_count
           std::nullopt, // l2_weight_thresholds
           std::nullopt, // embedding_dims
           std::nullopt, // threshold_calculation_bucket_stride
@@ -828,8 +842,8 @@ TEST(FeatureEvictTest, EdgeCase_NoPause) {
           counter_thresholds, // counter_thresholds
           counter_decay_rates, // counter_decay_rates
           std::nullopt, // feature_score_counter_decay_rates
-          std::nullopt, // max_training_id_num_per_table
-          std::nullopt, // target_eviction_percent_per_table
+          std::nullopt, // training_id_eviction_trigger_count
+          std::nullopt, // training_id_keep_count
           std::nullopt, // l2_weight_thresholds
           std::nullopt, // embedding_dims
           std::nullopt, // threshold_calculation_bucket_stride
@@ -949,8 +963,8 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
           counter_thresholds, // counter_thresholds
           counter_decay_rates, // counter_decay_rates
           std::nullopt, // feature_score_counter_decay_rates
-          std::nullopt, // max_training_id_num_per_table
-          std::nullopt, // target_eviction_percent_per_table
+          std::nullopt, // training_id_eviction_trigger_count
+          std::nullopt, // training_id_keep_count
           std::nullopt, // l2_weight_thresholds
           std::nullopt, // embedding_dims
           std::nullopt, // threshold_calculation_bucket_stride

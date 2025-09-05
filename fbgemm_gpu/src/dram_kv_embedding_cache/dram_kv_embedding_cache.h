@@ -1101,6 +1101,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         }
         break;
       }
+      case EvictTriggerMode::ID_COUNT: {
+        auto used_id_count = get_map_actual_used_id_count();
+        auto eviction_threshold = 0;
+        for (const auto& eviction_trigger_count :
+             feature_evict_config_.value()
+                 ->training_id_eviction_trigger_count_.value()) {
+          eviction_threshold += eviction_trigger_count;
+        }
+        if (used_id_count > eviction_threshold) {
+          trigger_feature_evict();
+        }
+        break;
+      }
       default:
         break;
     }
@@ -1123,6 +1136,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   size_t get_num_rows() const {
     return kv_store_.getNumRows();
+  }
+
+  size_t get_map_actual_used_id_count() const {
+    return kv_store_.getActualUsedIDCount();
   }
 
   void resume_ongoing_eviction(bool force_resume = false) override {

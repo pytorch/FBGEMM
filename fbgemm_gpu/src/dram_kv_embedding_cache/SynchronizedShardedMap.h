@@ -89,6 +89,19 @@ class SynchronizedShardedMap {
     return num_rows;
   }
 
+  auto getActualUsedIDCount() const {
+    size_t used_id_count = 0;
+    for (size_t i = 0; i < shards_.size(); ++i) {
+      int64_t mempool_idx = i % mempools_.size();
+      // only calculate the sizes of K, V and block that are used
+      if (mempools_[mempool_idx]->get_allocated_chunk_bytes() > 0) {
+        auto rlmap = shards_[i].rlock();
+        used_id_count += rlmap->size();
+      }
+    }
+    return used_id_count;
+  }
+
  private:
   std::vector<folly::Synchronized<folly::F14FastMap<K, V>, M>> shards_;
   std::vector<std::unique_ptr<FixedBlockPool>> mempools_;
