@@ -1712,7 +1712,7 @@ __device__ float compute_max_block(
 
   __shared__ typename BlockReduce::TempStorage temp_storage[THREAD_Y];
 
-  float amax = BlockReduce(temp_storage[threadIdx.y]).Reduce(xabs, cub::Max());
+  float amax = BlockReduce(temp_storage[threadIdx.y]).Reduce(xabs, Max<float>());
 
   __shared__ float amax_smem[THREAD_Y];
   if (threadIdx.x == 0)
@@ -1734,7 +1734,7 @@ __device__ float compute_max_warp(
   typedef cub::WarpReduce<float> WarpReduce;
   __shared__ typename WarpReduce::TempStorage temp_storage[THREAD_Y];
 
-  float amax = WarpReduce(temp_storage[threadIdx.y]).Reduce(xabs, cub::Max());
+  float amax = WarpReduce(temp_storage[threadIdx.y]).Reduce(xabs, Max<float>());
   amax = __shfl_sync(0xffffffff, amax, 0);
   return amax;
 }
