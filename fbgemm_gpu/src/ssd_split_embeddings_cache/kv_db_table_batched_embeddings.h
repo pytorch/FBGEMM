@@ -27,6 +27,8 @@
 #include <folly/futures/Future.h>
 #include <folly/hash/Hash.h>
 
+#include <ATen/cuda/CUDAContext.h>
+#include <cuda_runtime.h>
 #include <rocksdb/cache.h>
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
@@ -34,10 +36,6 @@
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/table.h>
 #include <rocksdb/table_properties.h>
-#ifdef FBGEMM_USE_GPU
-#include <ATen/cuda/CUDAContext.h>
-#include <cuda_runtime.h>
-#endif
 
 #include <folly/coro/Task.h>
 #include "../dram_kv_embedding_cache/feature_evict.h"
