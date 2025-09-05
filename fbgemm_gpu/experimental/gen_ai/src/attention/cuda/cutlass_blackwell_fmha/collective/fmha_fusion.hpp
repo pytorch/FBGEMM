@@ -513,7 +513,7 @@ struct LocalMask : NoMask {
 };
 
 template<bool kIsQBegin = true>
-struct LocalMaskForBackward : LocalMask<kIsQBegin> {
+struct LocalMaskForBackward : LocalMask<kIsQBegin>, ResidualMaskForBackward {
 
   using Base = LocalMask<kIsQBegin>;
 

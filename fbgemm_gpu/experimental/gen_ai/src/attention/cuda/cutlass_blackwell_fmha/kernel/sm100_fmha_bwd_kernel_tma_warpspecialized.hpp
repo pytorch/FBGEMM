@@ -1280,13 +1280,27 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       }
       bool trailing_residual_masking = false;
       if constexpr (std::is_base_of_v<cutlass::fmha::collective::ResidualMaskForBackward, Mask>) {
+        // this matters for causal and local masking too
         trailing_residual_masking = warp_uniform((iter_index == iter_end - 1) || is_residual_k);
       }
       bool local_masking = false;
-      if constexpr (std::is_base_of_v<cutlass::fmha::collective::LocalMaskForBackward<true>, Mask>) {
-        local_masking = true;
-      } else if constexpr (std::is_base_of_v<cutlass::fmha::collective::LocalMaskForBackward<false>, Mask>) {
-        local_masking = true;
+      if constexpr (
+        std::is_base_of_v<cutlass::fmha::collective::LocalMask<true>, Mask>
+        || std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask>
+      ) {
+        const int offset = std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask> ? (get<1>(problem_shape) - get<0>(problem_shape)) : 0;
+        const int kv_left = get<1>(blk_coord) * TileShapeK{};
+        const int kv_right = kv_left + TileShapeK{} - 1;
+        // index for j
+        const int q_left = iter_index * TileShapeQ{} + offset;
+        const int q_right = q_left + TileShapeQ{} - 1;
+
+        const int q_right_window_left = q_right - mainloop_args.window_size_left;
+        const int q_left_window_right = q_left + mainloop_args.window_size_right;
+
+        const bool local_unmasked = (q_right_window_left < kv_left) && (q_left_window_right > kv_right);
+
+        local_masking = warp_uniform(!local_unmasked);
       }
 
       dispatch_bool(local_masking || leading_causal_masking || trailing_residual_masking, [&](auto is_masked_tile) {
