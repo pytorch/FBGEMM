@@ -3498,6 +3498,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def flush(self, force: bool = False) -> None:
         # allow force flush from split_embedding_weights to cover edge cases, e.g. checkpointing
         # after trained 0 batches
+        if not self.training:
+            # for eval mode, we should not write anything to embedding
+            return
+
         if self.step == self.last_flush_step and not force:
             logging.info(
                 f"SSD TBE has been flushed at {self.last_flush_step=} already for tbe:{self.tbe_unique_id}"
