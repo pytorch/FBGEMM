@@ -46,15 +46,19 @@ namespace fbgemm_gpu {
 using Tensor = at::Tensor;
 
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
-using Max = cuda::maximum<index_t>;
+template <typename T>
+using Max = cuda::maximum<T>;
 #else
-using Max = cub::Max<index_t>;
+template <typename T>
+using Max = cub::Max<T>;
 #endif
 
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
-using Min = cuda::minimum<index_t>;
+template <typename T>
+using Min = cuda::minimum<T>;
 #else
-using Min = cub::Min<index_t>;
+template <typename T>
+using Min = cub::Min<T>;
 #endif
 
 
