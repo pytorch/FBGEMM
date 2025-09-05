@@ -318,6 +318,9 @@ function(gpu_cpp_library)
         -Wno-deprecated-declarations
         -Wno-unused-command-line-argument)
 
+    target_compile_options(${lib_name} PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-rdc=true>)
+
     ############################################################################
     # Post-Build Steps
     ############################################################################
