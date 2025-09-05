@@ -9,7 +9,7 @@
 #pragma once
 
 #include <torch/custom_class.h>
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_cache.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_inference_embedding.h"
 
 namespace fbgemm_gpu {
 
@@ -42,10 +42,10 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
 
   void wait_evict_completion();
 
-  std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> get_dram_kv();
+  std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> get_dram_kv();
 
   void set_dram_kv(
-      std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> dram_kv);
+      std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> dram_kv);
 
   c10::List<at::Tensor> serialize() const;
 
@@ -56,7 +56,7 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   double uniform_init_lower_ = 0.0;
   double uniform_init_upper_ = 0.0;
 
-  std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> dram_kv_;
+  std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> dram_kv_;
   int64_t max_row_bytes_ = 0;
 };
 

@@ -160,6 +160,44 @@ def sample_scales() -> st.SearchStrategy[Optional[torch.Tensor]]:
     )
 
 
+# Source: https://github.com/pytorch/ao/blob/568c1932a16ae9f30d48da214a88dc0013e98ed8/torchao/prototype/moe_training/utils.py#L310
+def generate_jagged_offs(E, M, multiple_of=16, dtype=torch.int32, device="cuda"):
+    """
+    Utility function for tests and benchmarks.
+
+    Generates a tensor of length E, containing random values divisible by `multiple_of`,
+    from 0 to M, in sorted order, and where the final value in the tensor is always M.
+    Args:
+        E (int): The length of the tensor.
+        M (int): The maximum value in the tensor.
+    Returns:
+        torch.Tensor: A tensor of length E with the specified properties.
+    """
+    import random
+
+    # Ensure M is divisible by 16
+    if M % multiple_of != 0:
+        raise ValueError(f"M must be divisible by {multiple_of}")
+
+    # Generate a list of possible values
+    possible_values = list(range(multiple_of, M + 1, multiple_of))
+
+    # If E is larger than the number of possible values, raise an error
+    if E > len(possible_values):
+        raise ValueError("E cannot be larger than the number of possible values")
+
+    # Randomly select E - 1 values from the possible values (excluding M)
+    selected_values = torch.tensor(random.sample(possible_values[:-1], E - 1))
+
+    # Append M to the selected values
+    selected_values = torch.cat((selected_values, torch.tensor([M])))
+
+    # Sort the selected values
+    selected_values, _ = torch.sort(selected_values)
+
+    return selected_values.to(dtype).to(device)
+
+
 @unittest.skipIf(
     not torch.cuda.is_available(),
     "Skip when no GPU is available. This test is only for GPU.",
@@ -1228,11 +1266,115 @@ class FP8Tests(unittest.TestCase):
     @settings(deadline=None)
     @given(
         G=st.sampled_from([1, 4, 16]),
+        K=st.sampled_from([2048, 3584]),
+        N=st.sampled_from([256, 1024, 6144]),
+        M=st.sampled_from([256, 512, 3584]),
+    )
+    def test_mx_grouped_gemm_2d_2d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        # Simulate 2d-2d grouped gemm in backward pass `grad_weight = grad_output_t @ input`,
+        # where we use "K" as the contracting dim which has "G" groups.
+        from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import to_mxfp8
+
+        total_K = K  # Alias for clarity, communicating this consists of several groups along this dim
+        input_group_end_offsets = generate_jagged_offs(
+            G, total_K, multiple_of=32, device=self.device
+        )
+        X = torch.randn((M, total_K), dtype=torch.bfloat16, device=self.device) * 0.1
+        W = torch.randn((N, total_K), dtype=torch.bfloat16, device=self.device) * 0.01
+
+        # Convert scales to blocked format.
+        x_list = []
+        w_list = []
+        x_blocked_scale_list = []
+        w_blocked_scale_list = []
+
+        def round_up(x: int, y: int) -> int:
+            return ((x + y - 1) // y) * y
+
+        for group_idx in range(G):
+            # to_mxfp8 per group
+            prev_group_end_offset = (
+                0 if group_idx == 0 else input_group_end_offsets[group_idx - 1]
+            )
+            curr_group_end_offset = input_group_end_offsets[group_idx]
+            group_size = curr_group_end_offset - prev_group_end_offset
+            if group_size > 0:
+                x_slice = X[
+                    :, prev_group_end_offset:curr_group_end_offset
+                ].contiguous()  # (M, K_group)
+                w_slice = W[
+                    :, prev_group_end_offset:curr_group_end_offset
+                ].contiguous()  # (N, K_group)
+                x_scale_slice, xq_slice = to_mxfp8(
+                    x_slice
+                )  # scale shape -> (M, K_group // 32)
+                w_scale_slice, wq_slice = to_mxfp8(
+                    w_slice
+                )  # scale shape -> (N, K_group // 32)
+                x_list.append(xq_slice)
+                w_list.append(wq_slice)
+
+                # Convert scales to blocked format.
+                x_scale_slice_blocked = _to_blocked(
+                    x_scale_slice
+                )  # (round_up(M, 128), round_up(K_group//32, 4))
+                w_scale_slice_blocked = _to_blocked(
+                    w_scale_slice
+                )  # (round_up(N, 128), round_up(K_group//32, 4))
+                x_blocked_scale_list.append(x_scale_slice_blocked)
+                w_blocked_scale_list.append(w_scale_slice_blocked)
+
+        # Assemble the full XQ and WQ
+        xq = torch.cat(x_list, dim=1).contiguous()
+        wq = torch.cat(w_list, dim=1).contiguous()
+
+        # Combine all XQ groups blocked scales into one tensor.
+        x_blocked_scales = torch.cat(x_blocked_scale_list, dim=0)
+        M_rounded = round_up(M, 128)
+        x_blocked_scales = x_blocked_scales.reshape(M_rounded, -1)
+
+        # Combine all WQ groups blocked scales into one tensor.
+        w_blocked_scales = torch.cat(w_blocked_scale_list, dim=0)
+        N_rounded = round_up(N, 128)
+        w_blocked_scales = w_blocked_scales.reshape(N_rounded, -1)
+
+        # Compute mxfp8 grouped mm output
+        out = torch.empty((G, M, N), dtype=torch.bfloat16, device=self.device)
+        y_mxfp8 = torch.ops.fbgemm.mx8mx8bf16_grouped_mm(
+            xq,  # (M, total_K)
+            wq.transpose(-2, -1),  # (total_K, N)
+            x_blocked_scales,  # to_blocked_per_group(M, total_K//32)
+            w_blocked_scales,  # to_blocked_per_group(N, total_K//32)
+            input_group_end_offsets,  # (G,)
+            out,  # (G, M, N)
+        )
+
+        # bf16 reference output
+        y_bf16 = torch._grouped_mm(
+            X, W.t(), offs=input_group_end_offsets, out_dtype=torch.bfloat16
+        )
+
+        # Assert no NaNs
+        assert not y_mxfp8.isnan().any(), "mxfp8 output contains NaN"
+
+        # Assert outputs are close
+        torch.testing.assert_close(y_mxfp8, y_bf16, atol=8.0e-2, rtol=8.0e-2)
+
+    @unittest.skipIf(not SUPPORTS_MXFP8, "MXFP8 not supported on this platform")
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
         M=st.sampled_from([2048, 3584]),
         N=st.sampled_from([256, 1024, 6144]),
         K=st.sampled_from([256, 512, 3584]),
     )
-    def test_mx_grouped_gemm(
+    def test_mx_grouped_gemm_2d_3d(
         self,
         G: int,
         M: int,
@@ -1241,15 +1383,21 @@ class FP8Tests(unittest.TestCase):
     ) -> None:
         from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import to_mxfp8
 
-        X = torch.randn((G, M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+        # Simulate 2d-3d grouped gemm `out = input @ weight.t()`
+        # 2D inputs with groups along M, 3D weights.
+        block_size = 32
+        total_M = M  # Alias for clarity that M dim contains groups.
+        X = torch.randn((total_M, K), dtype=torch.bfloat16, device=self.device) * 0.1
         W = torch.randn((G, N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+        input_group_end_offsets = generate_jagged_offs(
+            G, total_M, multiple_of=32, device=self.device
+        )
 
-        m_values = [i.shape[0] for i in X]
-        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=X[0].device)
-
+        # For each constituent 2d subtensor in the 3d weights, quantize and convert scale to blocked format separately,
+        # as they each used for independent gemm in the grouped gemm.
         wq_list = []
         w_scale_list = []
-        for i in range(m_sizes.shape[0]):
+        for i in range(G):
             w_scale, wq = to_mxfp8(W[i])
             w_scale = _to_blocked(w_scale)
             wq_list.append(wq)
@@ -1257,47 +1405,45 @@ class FP8Tests(unittest.TestCase):
         wq = torch.stack(wq_list, dim=0).contiguous()
         w_scale = torch.stack(w_scale_list, dim=0).contiguous()
 
-        starting_row_after_padding_list = [0]
+        # For each group along `total_M` in the 2D tensor, quantize and convert scale to blocked format separately,
+        # as they each used for independent gemm in the grouped gemm.
         xq_list = []
         x_scale_list = []
-        for i in range(m_sizes.shape[0]):
-            scale_slice = X[i]
-            if m_sizes[i].item() != 0:
-                x_scale, xq = to_mxfp8(scale_slice)
+        for i in range(G):
+            prev_group_end = 0 if i == 0 else input_group_end_offsets[i - 1]
+            curr_group_end = input_group_end_offsets[i]
+            group_size = curr_group_end - prev_group_end
+            if group_size > 0:
+                x_slice = X[prev_group_end:curr_group_end, :]
+                x_scale, xq = to_mxfp8(x_slice)
                 x_scale = _to_blocked(x_scale)
                 xq_list.append(xq)
                 x_scale_list.append(x_scale)
-                starting_row_after_padding_list.append(
-                    starting_row_after_padding_list[i]
-                    + x_scale.numel() // (X[0].shape[1] // 32)
-                )
-            else:
-                starting_row_after_padding_list.append(
-                    starting_row_after_padding_list[i]
-                )
-        starting_row_after_padding = torch.tensor(
-            starting_row_after_padding_list, device=xq.device
-        )
-
         xq = torch.cat(xq_list, dim=0).contiguous()
         x_scale = torch.cat(x_scale_list, dim=0).contiguous()
-        x_scale = x_scale.reshape(-1, X[0].shape[-1] // 32)
+        x_scale = x_scale.reshape(-1, K // block_size)
         xq = xq.view(-1, xq.shape[-1])
 
-        y_mxfp8 = torch.ops.fbgemm.mx8mx8bf16_grouped_stacked(
+        # Compute mxfp8 grouped gemm.
+        out = torch.empty((total_M, N), dtype=torch.bfloat16, device=self.device)
+        y_mxfp8 = torch.ops.fbgemm.mx8mx8bf16_grouped_mm(
             xq,
-            wq,
+            wq.transpose(-2, -1),
             x_scale,
             w_scale,
-            m_sizes,
-            starting_row_after_padding=starting_row_after_padding,
+            input_group_end_offsets,
+            out,
         )
 
-        y_bf16_group = []
-        for i in range(G):
-            y_bf16_group.append(torch.matmul(X[i], W[i].t()))
-        y_bf16 = torch.cat(y_bf16_group, dim=0)
+        # Compute reference bf16 grouped gemm.
+        y_bf16 = torch._grouped_mm(
+            X,
+            W.transpose(-2, -1),
+            offs=input_group_end_offsets,
+            out_dtype=torch.bfloat16,
+        )
 
+        # Assert outputs are close.
         torch.testing.assert_close(y_mxfp8, y_bf16, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(
