@@ -123,6 +123,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   if ! [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] && [[ "$BUILD_CUDA_VERSION" != "cu126" ]]; then
     # NOTE: This flag is only supported in NVCC 12.8+
     nvcc_prepend_flags+=(
+      # when "-static-global-template-stub=true" in whole program compilation mode ("-rdc=false"), a __global__ function template instantiation or specialization ("split_embedding_backward_codegen_partial_rowwise_adam_weighted_kernel_warp_per_row_1< ::c10::Float8_e4m3fn,  ::c10::BFloat16,  ::c10::Half, long,  ::c10::BFloat16,  ::c10::BFloat16, (int)2, (int)32, (bool)1> ") must have a definition in the current translation unit. To resolve this issue, either use separate compilation mode ("-rdc=true"), or explicitly set "-static-global-template-stub=false" (but see nvcc documentation about downsides of turning it off)
+      -diag-suppress 20280
       # warn: in whole program compilation mode ("-rdc=false"), a __global__ function template instantiation or specialization will be required to have a definition in the current translation unit, when "-static-global-template-stub" will be set to "true" by default in the future. To resolve this issue, either use "-rdc=true", or explicitly set "-static-global-template-stub=false" (but see nvcc documentation about downsides of turning it off)
       -diag-suppress 20281
     )

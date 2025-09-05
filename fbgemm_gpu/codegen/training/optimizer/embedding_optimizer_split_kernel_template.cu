@@ -20,6 +20,7 @@ template <
     int32_t VEC_WIDTH
 >
 __global__ __launch_bounds__(kMaxThreads)
+__attribute__((visibility("default")))
 void split_{{ optimizer }}_update_kernel(
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
