@@ -17,9 +17,11 @@
 #include <torch/library.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <cub/cub.cuh>
+#include <cuda/functional>
 
 // clang-format off
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
+#include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_scan.cuh>
 #include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
@@ -42,6 +44,19 @@
 namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
+
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
+using Max = cuda::maximum<index_t>;
+#else
+using Max = cub::Max<index_t>;
+#endif
+
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
+using Min = cuda::minimum<index_t>;
+#else
+using Min = cub::Min<index_t>;
+#endif
+
 
 // A wrapper class for passing dynamically sized dimension information (e.g.
 // tensor.dims()) from the host to device.

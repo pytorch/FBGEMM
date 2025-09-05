@@ -242,7 +242,7 @@ template <
   uint32_t STEP_MASK,
   uint32_t LOAD_GROUP_SIZE // unused
   >
-__device__ void process_all_indices_small_Ls(
+__noinline__ __device__ void process_all_indices_small_Ls(
     long* const smem,
     const uint32_t total_L,
     const bool process_d,
@@ -534,7 +534,7 @@ template <
   uint32_t STEP_MASK,
   uint32_t LOAD_GROUP_SIZE
   >
-__device__ void process_all_indices_large_Ls(
+__noinline__ __device__ void process_all_indices_large_Ls(
     long* const smem,
     const uint32_t L,
     const bool process_d,

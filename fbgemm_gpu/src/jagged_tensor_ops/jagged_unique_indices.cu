@@ -10,6 +10,7 @@
 
 // clang-format off
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
+#include <cuda/functional>
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_scan.cuh>
@@ -121,8 +122,8 @@ __global__ __launch_bounds__(kMaxThreads) void unique_indices_length_kernel(
     t_min = (value < t_min) ? value : t_min;
   }
 
-  index_t block_max = BlockReduce(temp_storage_max).Reduce(t_max, cub::Max());
-  index_t block_min = BlockReduce(temp_storage_min).Reduce(t_min, cub::Min());
+  index_t block_max = BlockReduce(temp_storage_max).Reduce(t_max, Max());
+  index_t block_min = BlockReduce(temp_storage_min).Reduce(t_min, Min());
   if (tid == 0) {
     block_results[0] = block_max;
     block_results[1] = block_min;
@@ -240,7 +241,7 @@ __global__ __launch_bounds__(kMaxThreads) void compute_hash_size_kernel(
     t_max = (value > t_max) ? value : t_max;
   }
 
-  index_t block_max = BlockReduce(temp_storage_max).Reduce(t_max, cub::Max());
+  index_t block_max = BlockReduce(temp_storage_max).Reduce(t_max, Max());
   if (tid == 0) {
     hash_size[bid] = block_max + 1;
   }
