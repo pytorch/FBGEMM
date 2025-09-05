@@ -64,6 +64,11 @@ include(GNUInstallDirs)
 # Check AVX
 set(CHECK_AVX_COMPILE ON)
 include(${MODULE_PATH}/FindAVX.cmake)
+# For some reason, AVX flag values end up being packed into a single quoted
+# string when FBGEMM is built as part of PyTorch build, so we need to separate
+# the flags here back into list-string format
+separate_arguments(CXX_AVX2_FLAGS)
+separate_arguments(CXX_AVX512_FLAGS)
 
 # Load Python
 find_package(Python)

@@ -106,3 +106,7 @@ foreach(lang C;CXX)
     CHECK_SSE(${lang} "AVX512" "-mavx512f -mavx512dq -mavx512vl -mavx512bw -mfma;/arch:AVX512")
   endif()
 endforeach()
+
+MESSAGE(STATUS "CXX_AVX_FLAGS: ${CXX_AVX_FLAGS}")
+MESSAGE(STATUS "CXX_AVX2_FLAGS: ${CXX_AVX2_FLAGS}")
+MESSAGE(STATUS "CXX_AVX512_FLAGS: ${CXX_AVX512_FLAGS}")
