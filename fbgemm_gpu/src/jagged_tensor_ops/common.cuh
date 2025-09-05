@@ -50,7 +50,7 @@ template <typename T>
 using Max = cuda::maximum<T>;
 #else
 template <typename T>
-using Max = cub::Max<T>;
+using Max = cub::Max;
 #endif
 
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
@@ -58,7 +58,7 @@ template <typename T>
 using Min = cuda::minimum<T>;
 #else
 template <typename T>
-using Min = cub::Min<T>;
+using Min = cub::Min;
 #endif
 
 
