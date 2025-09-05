@@ -376,6 +376,7 @@ class FbgemmGpuBuild:
             cxx_flags.extend(
                 [
                     f"-DROCM_VERSION={RocmUtils.version_int()}",
+                    "-DUSE_ROCM=1",
                 ]
             )
 
