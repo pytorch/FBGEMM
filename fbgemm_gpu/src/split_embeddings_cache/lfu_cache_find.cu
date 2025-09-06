@@ -152,8 +152,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
             N,
             0,
             int(log2(float(lxu_cache_state.size(0) + 1)) + 1) + kLFUCounterBits,
-            at::cuda::getCurrentCUDAStream(),
-            false));
+            at::cuda::getCurrentCUDAStream()));
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             unique_indices.options().dtype(at::kByte));
@@ -167,8 +166,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
             N,
             0,
             int(log2(float(lxu_cache_state.size(0) + 1)) + 1) + kLFUCounterBits,
-            at::cuda::getCurrentCUDAStream(),
-            false));
+            at::cuda::getCurrentCUDAStream()));
       });
   return {sorted_cache_sets, cache_set_sorted_unique_indices};
 }

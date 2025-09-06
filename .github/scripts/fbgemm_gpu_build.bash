@@ -123,6 +123,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   if ! [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] && [[ "$BUILD_CUDA_VERSION" != "cu126" ]]; then
     # NOTE: This flag is only supported in NVCC 12.8+
     nvcc_prepend_flags+=(
+      # when "-static-global-template-stub=true" in whole program compilation mode ("-rdc=false"), a __global__ function template instantiation or specialization ("split_embedding_backward_codegen_partial_rowwise_adam_weighted_kernel_warp_per_row_1< ::c10::Float8_e4m3fn,  ::c10::BFloat16,  ::c10::Half, long,  ::c10::BFloat16,  ::c10::BFloat16, (int)2, (int)32, (bool)1> ") must have a definition in the current translation unit. To resolve this issue, either use separate compilation mode ("-rdc=true"), or explicitly set "-static-global-template-stub=false" (but see nvcc documentation about downsides of turning it off)
+      -diag-suppress 20280
       # warn: in whole program compilation mode ("-rdc=false"), a __global__ function template instantiation or specialization will be required to have a definition in the current translation unit, when "-static-global-template-stub" will be set to "true" by default in the future. To resolve this issue, either use "-rdc=true", or explicitly set "-static-global-template-stub=false" (but see nvcc documentation about downsides of turning it off)
       -diag-suppress 20281
     )
@@ -286,7 +288,8 @@ __configure_fbgemm_gpu_build_cuda () {
     # appending 7.0/7.5 to the back of the list mysteriously results in
     # undefined symbol errors on .SO loads
     if [[ $fbgemm_build_target == "hstu" ]]; then
-      if  [[ $cuda_version_nvcc == *"V12"* ]]; then
+      if  [[ $cuda_version_nvcc == *"V13"* ]] ||
+          [[ $cuda_version_nvcc == *"V12"* ]]; then
         # NOTE: Compiling 9.0a code will fail if sm_80 output is also is also
         # enabled, bc the code relies on the following function that is not
         # supported in sm_80:
@@ -297,7 +300,8 @@ __configure_fbgemm_gpu_build_cuda () {
         local arch_list="7.5;8.0"
       fi
 
-    elif  [[ $cuda_version_nvcc == *"V12.9"* ]] ||
+    elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
+          [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
       local arch_list="7.5;8.0;9.0a;10.0a;12.0a"
 
@@ -339,6 +343,12 @@ __configure_fbgemm_gpu_build_cuda () {
     # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
+
+  if  [[ $cuda_version_nvcc == *"V13.0"* ]]; then
+    build_args+=(
+      -DCUDA_TOOLKIT_ROOT_DIR="${conda_prefix}/targets/x86_64-linux/"
+    )
+  fi
 
   # Explicitly set CUDA_HOME (for CUDA 12.6+)
   __configure_fbgemm_gpu_cuda_home
