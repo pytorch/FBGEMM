@@ -10,7 +10,6 @@
 
 // clang-format off
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
-#include <cuda/functional>
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_scan.cuh>

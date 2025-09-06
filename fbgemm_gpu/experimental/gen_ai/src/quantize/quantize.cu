@@ -56,8 +56,14 @@
 #endif
 
 #include <cub/cub.cuh>
-#include <cuda/functional>
 #include <torch/torch.h>
+
+#ifdef USE_ROCM
+#include <thrust/functional.h>
+#else
+#include <cuda/functional>
+#endif
+
 
 #if CUDART_VERSION >= 12000
 #include <cuda_fp8.h>
@@ -76,12 +82,16 @@
 
 namespace fbgemm_gpu {
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
+#ifdef USE_ROCM
+using Max = thrust::maximum<T>;
+#else
+#if CUDA_VERSION >= 13000
 template <typename T>
 using Max = cuda::maximum<T>;
 #else
 template <typename T>
 using Max = cub::Max;
+#endif
 #endif
 
 // Each block handles a single batch and head

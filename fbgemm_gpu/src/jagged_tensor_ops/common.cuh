@@ -17,7 +17,12 @@
 #include <torch/library.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <cub/cub.cuh>
+
+#ifdef USE_ROCM
+#include <thrust/functional.h>
+#else
 #include <cuda/functional>
+#endif
 
 // clang-format off
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
@@ -45,20 +50,28 @@ namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
+#ifdef USE_ROCM
+using Max = thrust::maximum<T>;
+#else
+#if CUDA_VERSION >= 13000
 template <typename T>
 using Max = cuda::maximum<T>;
 #else
 template <typename T>
 using Max = cub::Max;
 #endif
+#endif
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
+#ifdef USE_ROCM
+using Min = thrust::minimum<T>;
+#else
+#if CUDA_VERSION >= 13000
 template <typename T>
 using Min = cuda::minimum<T>;
 #else
 template <typename T>
 using Min = cub::Min;
+#endif
 #endif
 
 
