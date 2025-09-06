@@ -209,7 +209,7 @@ class TBEBenchmarkParamsReporter:
                                     for bs in batch_size_per_feature_per_rank
                                     for b in bs
                                 ]
-                            )
+                            ).float()
                         )
                     )
                 )
