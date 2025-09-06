@@ -83,6 +83,7 @@
 namespace fbgemm_gpu {
 
 #ifdef USE_ROCM
+template <typename T>
 using Max = thrust::maximum<T>;
 #else
 #if CUDA_VERSION >= 13000

@@ -51,6 +51,7 @@ namespace fbgemm_gpu {
 using Tensor = at::Tensor;
 
 #ifdef USE_ROCM
+template <typename T>
 using Max = thrust::maximum<T>;
 #else
 #if CUDA_VERSION >= 13000
@@ -63,6 +64,7 @@ using Max = cub::Max;
 #endif
 
 #ifdef USE_ROCM
+template <typename T>
 using Min = thrust::minimum<T>;
 #else
 #if CUDA_VERSION >= 13000

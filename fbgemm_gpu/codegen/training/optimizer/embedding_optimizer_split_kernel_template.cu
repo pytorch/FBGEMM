@@ -159,4 +159,36 @@ void split_{{ optimizer }}_update_kernel
 
 #endif // FBGEMM_USE_SUBWARP_SHUFFLE
 
+template __global__ __launch_bounds__(kMaxThreads)
+void split_rowwise_adagrad_update_kernel
+< float,
+  float,
+  8,
+  (kWarpSize / 1),
+  4 // VEC_WIDTH
+>(
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<float, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> grad_dev_weights,
+    // grad_dev_indices is equivalent to sorted_linear_indices_run
+    const pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        weights_placements,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_lxu_cache_locations,
+    const int32_t max_D,
+    bool stochastic_rounding,
+    at::PhiloxCudaState stochastic_rounding_philox_args,
+    pta::PackedTensorAccessor64<at::acc_type<float, true>, 1, at::RestrictPtrTraits> momentum1_dev,
+    pta::PackedTensorAccessor64<at::acc_type<float, true>, 1, at::RestrictPtrTraits> momentum1_uvm,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> momentum1_placements,
+    pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> momentum1_offsets,
+    float learning_rate,
+    float eps,
+    float weight_decay,
+    int64_t weight_decay_mode,
+    float max_norm);
+
 // clang-format on
