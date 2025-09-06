@@ -134,7 +134,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     const bool enable_optimizer_offloading,
     {%- endif %}
     {%- if is_index_select %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
     {%- else %}
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
@@ -1131,7 +1131,7 @@ Tensor {{ embedding_cuda_op }}(
                         enable_optimizer_offloading,
                         {%- endif %}
                         {%- if is_index_select %}
-                        grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        PTA_B(grad_offsets, int64_t, 1, 32),
                         permute_output_dim_0_1
                         {%- else %}
                         {{ args.split_kernel_arg_constructors | make_pta_acc_builder_format() | join(",\n                        ") }}
