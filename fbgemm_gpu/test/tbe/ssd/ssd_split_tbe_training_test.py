@@ -811,6 +811,16 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
         # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__iter__`.
         emb2.local_weight_counts = [ids.numel() for ids in bucket_asc_ids_list]
+
+        (
+            _,
+            _,
+            _,
+            metadata_list,
+        ) = emb2.split_embedding_weights(no_snapshot=False, should_flush=True)
+
+        self.assertTrue(metadata_list is None)
+
         emb2.enable_load_state_dict_mode()
         self.assertIsNotNone(emb2._cached_kvzch_data)
         for i, _ in enumerate(emb.embedding_specs):
@@ -844,11 +854,13 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             emb_state_dict_list2,
             bucket_asc_ids_list2,
             num_active_id_per_bucket_list2,
-            _,
+            metadata_list2,
         ) = emb2.split_embedding_weights(no_snapshot=False, should_flush=True)
         split_optimizer_states2 = emb2.split_optimizer_states(
             bucket_asc_ids_list2, no_snapshot=False, should_flush=True
         )
+
+        self.assertTrue(metadata_list2 is not None)
 
         for t in range(len(emb.embedding_specs)):
             sorted_ids = torch.sort(bucket_asc_ids_list[t].flatten())
@@ -879,6 +891,10 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
                 num_active_id_per_bucket_list2[t],
                 atol=tolerance,
                 rtol=tolerance,
+            )
+
+            self.assertTrue(
+                metadata_list2[t].size(0) == bucket_asc_ids_list2[t].size(0)
             )
 
     def _check_raw_embedding_stream_call_counts(

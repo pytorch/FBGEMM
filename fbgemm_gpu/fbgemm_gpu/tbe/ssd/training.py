@@ -3132,18 +3132,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                             device=torch.device("cpu"),
                             dtype=torch.int64,
                         )
-                    metadata_tensor = torch.zeros(
-                        (self.local_weight_counts[i], 1),
-                        device=torch.device("cpu"),
-                        dtype=torch.int64,
-                    )
+                    metadata_tensor = None
 
                     # self.local_weight_counts[i] = 0  # Reset the count
 
                 # pyre-ignore [16] bucket_sorted_id_splits is not None
                 bucket_sorted_id_splits.append(bucket_ascending_id_tensor)
                 active_id_cnt_per_bucket_split.append(bucket_t)
-                metadata_splits.append(metadata_tensor)
+                if metadata_tensor is not None:
+                    metadata_splits.append(metadata_tensor)
+                else:
+                    metadata_splits = None
 
                 # for KV ZCH tbe, the sorted_indices is global id for checkpointing and publishing
                 # but in backend, local id is used during training, so the KVTensorWrapper need to convert global id to local id
