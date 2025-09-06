@@ -268,8 +268,7 @@ function(gpu_cpp_library)
         # Enforce -fPIC for STATIC library option, since they are to be
         # integrated into other libraries down the line
         # https://stackoverflow.com/questions/3961446/why-does-gcc-not-implicitly-supply-the-fpic-flag-when-compiling-static-librarie
-        POSITION_INDEPENDENT_CODE ON
-        CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+        POSITION_INDEPENDENT_CODE ON)
 
     if (args_DEPS OR CMAKE_INSTALL_RPATH)
         # Only set this if the library has dependencies that we also build,

@@ -342,8 +342,13 @@ __configure_fbgemm_gpu_build_cuda () {
     --nccl_lib_path="${nccl_lib_path}"
     # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
-    -DCUDA_TOOLKIT_ROOT_DIR="${conda_prefix}/targets/x86_64-linux/"
   )
+
+  if  [[ $cuda_version_nvcc == *"V13.0"* ]]; then
+    build_args+=(
+      -DCUDA_TOOLKIT_ROOT_DIR="${conda_prefix}/targets/x86_64-linux/"
+    )
+  fi
 
   # Explicitly set CUDA_HOME (for CUDA 12.6+)
   __configure_fbgemm_gpu_cuda_home
