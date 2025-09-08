@@ -54,9 +54,16 @@
 #ifndef USE_ROCM
 #include <mma.h>
 #endif
-#include <cub/cub.cuh>
 
+#include <cub/cub.cuh>
 #include <torch/torch.h>
+
+#ifdef USE_ROCM
+#include <thrust/functional.h>
+#else
+#include <cuda/functional>
+#endif
+
 
 #if CUDART_VERSION >= 12000
 #include <cuda_fp8.h>
@@ -72,7 +79,21 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <math.h>
+
 namespace fbgemm_gpu {
+
+#ifdef USE_ROCM
+template <typename T>
+using Max = thrust::maximum<T>;
+#else
+#if CUDA_VERSION >= 13000
+template <typename T>
+using Max = cuda::maximum<T>;
+#else
+template <typename T>
+using Max = cub::Max;
+#endif
+#endif
 
 // Each block handles a single batch and head
 
@@ -1702,7 +1723,7 @@ __device__ float compute_max_block(
 
   __shared__ typename BlockReduce::TempStorage temp_storage[THREAD_Y];
 
-  float amax = BlockReduce(temp_storage[threadIdx.y]).Reduce(xabs, cub::Max());
+  float amax = BlockReduce(temp_storage[threadIdx.y]).Reduce(xabs, Max<float>());
 
   __shared__ float amax_smem[THREAD_Y];
   if (threadIdx.x == 0)
@@ -1724,7 +1745,7 @@ __device__ float compute_max_warp(
   typedef cub::WarpReduce<float> WarpReduce;
   __shared__ typename WarpReduce::TempStorage temp_storage[THREAD_Y];
 
-  float amax = WarpReduce(temp_storage[threadIdx.y]).Reduce(xabs, cub::Max());
+  float amax = WarpReduce(temp_storage[threadIdx.y]).Reduce(xabs, Max<float>());
   amax = __shfl_sync(0xffffffff, amax, 0);
   return amax;
 }

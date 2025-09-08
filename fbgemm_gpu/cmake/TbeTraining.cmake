@@ -132,19 +132,22 @@ gpu_cpp_library(
   DESTINATION
     fbgemm_gpu)
 
-gpu_cpp_library(
-  PREFIX
-    fbgemm_gpu_tbe_optimizers
-  TYPE
-    SHARED
-  INCLUDE_DIRS
-    ${fbgemm_sources_include_directories}
-  GPU_SRCS
-    ${gen_defused_optim_src_files}
-  NVCC_FLAGS
-    ${TORCH_CUDA_OPTIONS}
-  DESTINATION
-    fbgemm_gpu)
+if ((FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+  AND (CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 13.0))
+  gpu_cpp_library(
+    PREFIX
+      fbgemm_gpu_tbe_optimizers
+    TYPE
+      SHARED
+    INCLUDE_DIRS
+      ${fbgemm_sources_include_directories}
+    GPU_SRCS
+      ${gen_defused_optim_src_files}
+    NVCC_FLAGS
+      ${TORCH_CUDA_OPTIONS}
+    DESTINATION
+      fbgemm_gpu)
+endif()
 
 gpu_cpp_library(
   PREFIX

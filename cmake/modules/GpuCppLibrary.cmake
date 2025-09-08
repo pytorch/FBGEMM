@@ -317,6 +317,18 @@ function(gpu_cpp_library)
         -Wno-deprecated-declarations
         -Wno-unused-command-line-argument)
 
+    if ((FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+        AND (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0))
+        set_property(TARGET ${lib_name}
+                    PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+        set_property(TARGET ${lib_name}
+                    PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+        target_compile_options(${lib_name} PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fPIC>)
+    endif()
+
+
     ############################################################################
     # Post-Build Steps
     ############################################################################
