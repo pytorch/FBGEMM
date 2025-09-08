@@ -163,16 +163,12 @@ ZipfParameters IndicesEstimator::zipfParams(
 
       if ((ratio < kHeavyHitterLowerBound_) ||
           (ratio > kHeavyHitterUpperBound_)) {
-        std::cout << "Skipping (s,q) (" << s << ", " << q
-                  << "): " << " inconsistent with heavy hitters!" << "\n";
         continue;
       }
 
       double logLikelihood = -zipfTotalFreq * log(normalizeConst) +
           s * freqTerm - kQRegularizer_ * q;
       if (logLikelihood > maxLogLikelihood) {
-        std::cout << "Found best Log likelihood so far on (s,q) (" << s << ", "
-                  << q << "): " << logLikelihood << "\n";
         maxLogLikelihood = logLikelihood;
         zipfParams.q = q;
         zipfParams.s = s;
