@@ -656,7 +656,7 @@ class BatchIndexSelectDim0TensorGPUOp
     const auto permute_output_dim_0_1 =
         ctx->saved_data["permute_output_dim_0_1"].toBool();
 
-    constexpr int32_t max_segment_length_per_warp = 32;
+    constexpr int32_t max_segment_length_per_warp =  4096;
 
     auto grad_output = grad_outputs[0];
 
