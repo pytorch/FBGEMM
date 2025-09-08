@@ -163,6 +163,19 @@ gpu_cpp_library(
     fbgemm_gpu)
 
 
+set(fbgemm_gpu_py_deps
+    fbgemm
+    fbgemm_gpu_sparse_async_cumsum
+    fbgemm_gpu_embedding_inplace_ops
+    fbgemm_gpu_tbe_index_select
+    fbgemm_gpu_tbe_cache
+    fbgemm_gpu_tbe_utils)
+
+if ((FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+  AND (CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 13.0))
+  list(APPEND fbgemm_gpu_py_deps fbgemm_gpu_tbe_optimizers)
+endif()
+
 gpu_cpp_library(
   PREFIX
     fbgemm_gpu_py
@@ -177,12 +190,6 @@ gpu_cpp_library(
   NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
-    fbgemm
-    fbgemm_gpu_sparse_async_cumsum
-    fbgemm_gpu_embedding_inplace_ops
-    fbgemm_gpu_tbe_index_select
-    fbgemm_gpu_tbe_cache
-    fbgemm_gpu_tbe_optimizers
-    fbgemm_gpu_tbe_utils
+    ${fbgemm_gpu_py_deps}
   DESTINATION
     fbgemm_gpu)
