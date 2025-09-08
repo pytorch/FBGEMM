@@ -232,8 +232,7 @@ get_unique_indices_cuda_impl(
       N,                                                                  \
       0,                                                                  \
       int(log2(float(max_indices + 1)) + 1),                              \
-      at::cuda::getCurrentCUDAStream(),                                   \
-      false))
+      at::cuda::getCurrentCUDAStream()))
 
 #define INVOKE_CUB_SORT_KEYS(TEMP_STORAGE_PTR)                           \
   AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys( \
@@ -244,8 +243,7 @@ get_unique_indices_cuda_impl(
       N,                                                                 \
       0,                                                                 \
       int(log2(float(max_indices + 1)) + 1),                             \
-      at::cuda::getCurrentCUDAStream(),                                  \
-      false))
+      at::cuda::getCurrentCUDAStream()))
 
 #define INVOKE_CUB_ENCODE(TEMP_STORAGE_PTR)                                  \
   AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode( \
@@ -256,8 +254,7 @@ get_unique_indices_cuda_impl(
       unique_indices_count->data_ptr<int32_t>(),                             \
       unique_indices_length.data_ptr<int32_t>(),                             \
       N,                                                                     \
-      at::cuda::getCurrentCUDAStream(),                                      \
-      false))
+      at::cuda::getCurrentCUDAStream()))
 
 #define INVOKE_CUB_UNIQUE(TEMP_STORAGE_PTR)                         \
   AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique( \
@@ -267,8 +264,7 @@ get_unique_indices_cuda_impl(
       unique_indices.data_ptr<index_t>(),                           \
       unique_indices_length.data_ptr<int32_t>(),                    \
       N,                                                            \
-      at::cuda::getCurrentCUDAStream(),                             \
-      false))
+      at::cuda::getCurrentCUDAStream()))
 
   AT_DISPATCH_INDEX_TYPES(
       linear_indices.scalar_type(), "get_unique_indices_cuda", [&] {
