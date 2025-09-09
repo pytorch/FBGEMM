@@ -9,7 +9,6 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
-// clang-format on
 
 #include "f8f8bf16_groupwise/f8f8bf16_groupwise_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.hpp"
@@ -64,22 +63,7 @@ at::Tensor dispatch_fp8_groupwise_kernel(
   int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
   int K = XQ.size(-1);
 
-  static int arch = -1;
-  // Avoid expensive cudaGetDeviceProperties call.
-  if (arch < 0) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
-    if (prop.major >= 10) {
-      arch = 10;
-      int runtimeVersion;
-      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
-      TORCH_CHECK(
-          runtimeVersion >= 12080,
-          "FP8 GEMM on sm100a or above requires cuda >= 12.8");
-    } else {
-      arch = 9;
-    }
-  }
+  const int arch = getDeviceArch();
 
   // Select kernel to run via heuristics or tuning.
   auto kernel = [&]() {
