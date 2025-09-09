@@ -39,6 +39,7 @@
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/device_sort.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 
 #if !(                                                  \
@@ -165,8 +166,8 @@ struct __align__(8) i8x8 {
 };
 
 __global__ void per_tensor_quantize_i8_kernel(
-    at::PackedTensorAccessor64<at::BFloat16, 1, at::RestrictPtrTraits> X,
-    at::PackedTensorAccessor64<int8_t, 1, at::RestrictPtrTraits> XQ,
+    pta::PackedTensorAccessor64<at::BFloat16, 1, at::RestrictPtrTraits> X,
+    pta::PackedTensorAccessor64<int8_t, 1, at::RestrictPtrTraits> XQ,
     at::BFloat16* scale_device,
     float inv_scale) {
   auto N = X.size(0);
@@ -237,16 +238,17 @@ at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
   dim3 threads = kThreadsPerBlock;
   dim3 blocks =
       cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
-  per_tensor_quantize_i8_kernel<<<
+
+  FBGEMM_LAUNCH_KERNEL(
+      (per_tensor_quantize_i8_kernel),
       blocks,
       threads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      X.packed_accessor64<at::BFloat16, 1, at::RestrictPtrTraits>(),
-      XQ.packed_accessor64<int8_t, 1, at::RestrictPtrTraits>(),
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(X, at::BFloat16, 1, 64),
+      PTA_B(XQ, int8_t, 1, 64),
       nullptr,
       inv_scale);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return XQ;
 }
 
@@ -265,16 +267,16 @@ std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(
   dim3 blocks =
       cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
 
-  per_tensor_quantize_i8_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (per_tensor_quantize_i8_kernel),
       blocks,
       threads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      X.packed_accessor64<at::BFloat16, 1, at::RestrictPtrTraits>(),
-      XQ.packed_accessor64<int8_t, 1, at::RestrictPtrTraits>(),
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(X, at::BFloat16, 1, 64),
+      PTA_B(XQ, int8_t, 1, 64),
       scale.data_ptr<at::BFloat16>(),
       0.0);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {XQ, scale};
 }
 
