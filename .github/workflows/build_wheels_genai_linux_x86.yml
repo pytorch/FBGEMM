@@ -51,13 +51,12 @@ jobs:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
       # Nova Coordinate Filters:
       # cuda/11.8: No longer supported in FBGEMM
-      # cuda/13.0: Not supported in FBGEMM CI yet
       # rocm/3.13t: causes segfaults at runtime
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter gpu_arch_version:13.0 --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 

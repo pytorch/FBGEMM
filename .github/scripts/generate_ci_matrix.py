@@ -303,6 +303,8 @@ class BuildConfigScheme:
         if self.target == TARGET_HSTU:
             # FBGEMM HSTU is expensive, so conserve CI resources
             return ["12.9.1"]
+        elif self.target == TARGET_GENAI:
+            return ["12.6.3", "12.8.1", "12.9.1", "13.0.0"]
         else:
             # GenAI is unable to support 11.8.0 anymore as of https://github.com/pytorch/FBGEMM/pull/4138
             return ["12.6.3", "12.8.1", "12.9.1"]
