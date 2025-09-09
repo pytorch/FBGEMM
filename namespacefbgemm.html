@@ -87,7 +87,8 @@ $(function(){ initResizable(false); });
   <div class="summary">
 <a href="#nested-classes">Classes</a> &#124;
 <a href="#enum-members">Enumerations</a> &#124;
-<a href="#func-members">Functions</a>  </div>
+<a href="#func-members">Functions</a> &#124;
+<a href="#var-members">Variables</a>  </div>
   <div class="headertitle"><div class="title">fbgemm Namespace Reference</div></div>
 </div><!--header-->
 <div class="contents">
@@ -280,9 +281,9 @@ Functions</h2></td></tr>
 <tr class="memitem:gaa51ab0f363fbcdf8ffa0a561884225d9" id="r_gaa51ab0f363fbcdf8ffa0a561884225d9"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:gaa51ab0f363fbcdf8ffa0a561884225d9"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9">FusedQuantizeDequantize</a> (const float *src, float *dst, std::int64_t len, const <a class="el" href="structfbgemm_1_1_tensor_quantization_params.html">TensorQuantizationParams</a> &amp;qparams, int thread_id=0, int num_threads=1, float noise_ratio=0.0f)</td></tr>
 <tr class="separator:gaa51ab0f363fbcdf8ffa0a561884225d9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga6b77c8540e630305db9a5f30a84e7e5b" id="r_ga6b77c8540e630305db9a5f30a84e7e5b"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
-<tr class="memitem:ga6b77c8540e630305db9a5f30a84e7e5b"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-generic.html#ga6b77c8540e630305db9a5f30a84e7e5b">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf</a> (int bit_rate, const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output)</td></tr>
-<tr class="separator:ga6b77c8540e630305db9a5f30a84e7e5b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga4354c9911e4ed2d76fe90f3738b2841d" id="r_ga4354c9911e4ed2d76fe90f3738b2841d"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
+<tr class="memitem:ga4354c9911e4ed2d76fe90f3738b2841d"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-generic.html#ga4354c9911e4ed2d76fe90f3738b2841d">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf</a> (int bit_rate, const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output, const InputType *rowwise_min_max=nullptr)</td></tr>
+<tr class="separator:ga4354c9911e4ed2d76fe90f3738b2841d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a512483b4cf064a2938fdaa4067a476ac" id="r_a512483b4cf064a2938fdaa4067a476ac"><td class="memTemplParams" colspan="2">template&lt;typename OutputType&gt; </td></tr>
 <tr class="memitem:a512483b4cf064a2938fdaa4067a476ac"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a512483b4cf064a2938fdaa4067a476ac">FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf</a> (int bit_rate, const uint8_t *input, size_t input_rows, int input_columns, OutputType *output, bool scale_bias_last=true)</td></tr>
 <tr class="separator:a512483b4cf064a2938fdaa4067a476ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -375,6 +376,11 @@ Functions</h2></td></tr>
 <tr class="memitem:a18832d0507cb6d8bce78371b97f66479" id="r_a18832d0507cb6d8bce78371b97f66479"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:a18832d0507cb6d8bce78371b97f66479"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a18832d0507cb6d8bce78371b97f66479">transpose_ref</a> (int64_t M, int64_t N, const T *src, int64_t ld_src, T *dst, int64_t ld_dst)</td></tr>
 <tr class="separator:a18832d0507cb6d8bce78371b97f66479"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
+Variables</h2></td></tr>
+<tr class="memitem:a445d75e731f0af7f60e375c34d3dbdb5" id="r_a445d75e731f0af7f60e375c34d3dbdb5"><td class="memItemLeft" align="right" valign="top">constexpr int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a445d75e731f0af7f60e375c34d3dbdb5">kRowwiseMinMaxNumCols</a> = 2</td></tr>
+<tr class="separator:a445d75e731f0af7f60e375c34d3dbdb5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Top level include file for FBGEMM. </p>
@@ -3335,6 +3341,30 @@ template&lt;typename T&gt; </div>
   </table>
   </dd>
 </dl>
+
+</div>
+</div>
+<h2 class="groupheader">Variable Documentation</h2>
+<a id="a445d75e731f0af7f60e375c34d3dbdb5" name="a445d75e731f0af7f60e375c34d3dbdb5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a445d75e731f0af7f60e375c34d3dbdb5">&#9670;&#160;</a></span>kRowwiseMinMaxNumCols</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int kRowwiseMinMaxNumCols = 2</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Number of columns in the rowwise min/max buffer passed to the quantization function(s) </p>
 
 </div>
 </div>

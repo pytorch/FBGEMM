@@ -29,7 +29,7 @@ var searchData=
   ['float8tofloat_5fref_26',['Float8ToFloat_ref',['../namespacefbgemm.html#ae2e971b1024a35c7e0c2a93a45afd2dd',1,'fbgemm']]],
   ['floatorhalftofused8bitrowwisequantizedsbfloat_27',['FloatOrHalfToFused8BitRowwiseQuantizedSBFloat',['../namespacefbgemm.html#ad1305a78156aed040eec4b75fd07683c',1,'fbgemm']]],
   ['floatorhalftofused8bitrowwisequantizedsbfloatref_28',['FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef',['../namespacefbgemm.html#a7cba6dad217715349653862b3e691057',1,'fbgemm']]],
-  ['floatorhalftofusednbitrowwisequantizedsbhalf_29',['FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf',['../group__fbgemm-quant-utils-generic.html#ga6b77c8540e630305db9a5f30a84e7e5b',1,'fbgemm']]],
+  ['floatorhalftofusednbitrowwisequantizedsbhalf_29',['FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf',['../group__fbgemm-quant-utils-generic.html#ga4354c9911e4ed2d76fe90f3738b2841d',1,'fbgemm']]],
   ['floatorhalftofusednbitrowwisequantizedsbhalfref_30',['FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef',['../namespacefbgemm.html#ad89426896d5c7b1f1b5db8ebaf201547',1,'fbgemm']]],
   ['floattobfloat16_5favx2_31',['FloatToBfloat16_avx2',['../namespacefbgemm.html#a444fa054549274d8c6f442f0b866aa98',1,'fbgemm']]],
   ['floattobfloat16_5favx512_32',['FloatToBfloat16_avx512',['../namespacefbgemm.html#a0e2b50c7d828e56f78cc0b8368dee35a',1,'fbgemm']]],

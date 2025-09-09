@@ -98,14 +98,14 @@ Functions</h2></td></tr>
 <tr class="memitem:gaa51ab0f363fbcdf8ffa0a561884225d9" id="r_gaa51ab0f363fbcdf8ffa0a561884225d9"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:gaa51ab0f363fbcdf8ffa0a561884225d9"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#gaa51ab0f363fbcdf8ffa0a561884225d9">FusedQuantizeDequantize</a> (const float *src, float *dst, std::int64_t len, const <a class="el" href="structfbgemm_1_1_tensor_quantization_params.html">TensorQuantizationParams</a> &amp;qparams, int thread_id=0, int num_threads=1, float noise_ratio=0.0f)</td></tr>
 <tr class="separator:gaa51ab0f363fbcdf8ffa0a561884225d9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga6b77c8540e630305db9a5f30a84e7e5b" id="r_ga6b77c8540e630305db9a5f30a84e7e5b"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
-<tr class="memitem:ga6b77c8540e630305db9a5f30a84e7e5b"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ga6b77c8540e630305db9a5f30a84e7e5b">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf</a> (int bit_rate, const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output)</td></tr>
-<tr class="separator:ga6b77c8540e630305db9a5f30a84e7e5b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga4354c9911e4ed2d76fe90f3738b2841d" id="r_ga4354c9911e4ed2d76fe90f3738b2841d"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
+<tr class="memitem:ga4354c9911e4ed2d76fe90f3738b2841d"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ga4354c9911e4ed2d76fe90f3738b2841d">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf</a> (int bit_rate, const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output, const InputType *rowwise_min_max=nullptr)</td></tr>
+<tr class="separator:ga4354c9911e4ed2d76fe90f3738b2841d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="ga6b77c8540e630305db9a5f30a84e7e5b" name="ga6b77c8540e630305db9a5f30a84e7e5b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga6b77c8540e630305db9a5f30a84e7e5b">&#9670;&#160;</a></span>FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf()</h2>
+<a id="ga4354c9911e4ed2d76fe90f3738b2841d" name="ga4354c9911e4ed2d76fe90f3738b2841d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga4354c9911e4ed2d76fe90f3738b2841d">&#9670;&#160;</a></span>FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -135,7 +135,12 @@ template&lt;typename InputType&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::uint8_t *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>&#160;)</td>
+          <td class="paramtype">std::uint8_t *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const InputType *</td>          <td class="paramname"><span class="paramname"><em>rowwise_min_max</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
