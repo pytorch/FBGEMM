@@ -1006,7 +1006,7 @@ static torch::autograd::variable_list backward(
 
 #ifdef USE_ROCM
     constexpr int32_t BT_block_size = 64;
-    constexpr int32_t max_segment_length_per_warp =  4096;
+    constexpr int32_t max_segment_length_per_warp =  16384;
 #else
     constexpr int32_t BT_block_size = 32;
     constexpr int32_t max_segment_length_per_warp = 32;
