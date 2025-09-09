@@ -206,8 +206,7 @@ lru_cache_find_uncached_cuda(
       N,                                                                  \
       0,                                                                  \
       int(log2(float(lxu_cache_state.size(0) + 1)) + 1),                  \
-      at::cuda::getCurrentCUDAStream(),                                   \
-      false))
+      at::cuda::getCurrentCUDAStream()))
 
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
