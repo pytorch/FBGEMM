@@ -202,7 +202,16 @@ Kernel_f8f8bf16_rowwise_grouped<InputType> get_kernel_via_tuning(
   const std::string shape_key = std::to_string(total_M) + "_" +
       std::to_string(max_N) + "_" + std::to_string(max_K) + "_" +
       std::to_string(G);
-  const auto& kernels = get_f8f8bf16_rowwise_grouped_kernels<InputType>();
+
+  const auto& kernels = []() {
+    const int arch = getDeviceArch();
+    if (arch == 9) {
+      return get_f8f8bf16_rowwise_grouped_kernels<InputType>();
+    } else {
+      return get_f8f8bf16_rowwise_grouped_kernels_sm100<InputType>();
+    }
+  }();
+
   auto kernel = cache.findBestKernelMaybeAutotune(
       shape_key,
       kernels,
