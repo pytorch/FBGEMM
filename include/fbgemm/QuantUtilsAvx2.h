@@ -17,6 +17,10 @@
 
 namespace fbgemm {
 
+/// Number of columns in the rowwise min/max buffer passed to the quantization
+/// function(s)
+constexpr int kRowwiseMinMaxNumCols = 2;
+
 /// Struct from <a href="https://github.com/google/gemmlowp">`gemmlowp`</a>
 ///
 /// A structure to hold quantization parameters `scale` and `zero_point`.
@@ -144,7 +148,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const InputType* input,
     size_t input_rows,
     int input_columns,
-    std::uint8_t* output);
+    std::uint8_t* output,
+    const InputType* rowwise_min_max = nullptr);
 
 template <typename InputType>
 void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(

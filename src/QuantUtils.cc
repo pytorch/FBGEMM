@@ -626,7 +626,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
     const InputType* input,
     size_t input_rows,
     int input_columns,
-    std::uint8_t* output) {
+    std::uint8_t* output,
+    const InputType* rowwise_min_max) {
   // Currenlty we can only dequantize if the number of input columns
   // is a multiple of number of elements_per_byte
 
@@ -640,15 +641,15 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
     switch (bit_rate) {
       case 2:
         FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<InputType, 2>(
-            input, input_rows, input_columns, output);
+            input, input_rows, input_columns, output, rowwise_min_max);
         break;
       case 4:
         FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<InputType, 4>(
-            input, input_rows, input_columns, output);
+            input, input_rows, input_columns, output, rowwise_min_max);
         break;
       case 8:
         FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<InputType, 8>(
-            input, input_rows, input_columns, output);
+            input, input_rows, input_columns, output, rowwise_min_max);
         break;
       default:
         FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<InputType>(
@@ -866,7 +867,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
       const type* input,                                                       \
       size_t input_rows,                                                       \
       int input_columns,                                                       \
-      std::uint8_t* output);                                                   \
+      std::uint8_t* output,                                                    \
+      const type* rowwise_min_max);                                            \
   template FBGEMM_API void                                                     \
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<type, false>(                \
       int bit_rate,                                                            \
