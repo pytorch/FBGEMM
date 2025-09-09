@@ -9,7 +9,6 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
-// clang-format on
 
 #include "f8f8bf16_rowwise_grouped/f8f8bf16_rowwise_grouped_manifest.cuh"
 #include "f8f8bf16_rowwise_grouped_sm100/f8f8bf16_rowwise_grouped_manifest.cuh"
@@ -32,22 +31,7 @@ TuningCache& getTuningCache() {
 template <typename InputType>
 Kernel_f8f8bf16_rowwise_grouped<InputType>
 get_kernel_via_heuristics(int total_M, int max_N, int max_K, int G) {
-  static int arch = -1;
-  // Avoid expensive cudaGetDeviceProperties call.
-  if (arch < 0) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
-    if (prop.major >= 10) {
-      arch = 10;
-      int runtimeVersion;
-      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
-      TORCH_CHECK(
-          runtimeVersion >= 12080,
-          "FP8 grouped GEMM on sm100a or above requires cuda >= 12.8");
-    } else {
-      arch = 9;
-    }
-  }
+  const int arch = getDeviceArch();
 
   // Use heuristics to pick the best kernel implementation.
   if (arch == 10) {

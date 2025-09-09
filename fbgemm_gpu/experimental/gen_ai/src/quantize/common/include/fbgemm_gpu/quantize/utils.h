@@ -19,4 +19,6 @@ constexpr int64_t nextPowerOf2(int64_t num) {
   return 1 << (CHAR_BIT * sizeof(num) - __builtin_clz(num - 1));
 }
 
+int getDeviceArch();
+
 } // namespace fbgemm_gpu
