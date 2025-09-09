@@ -108,6 +108,8 @@ def test_dense(
     print("")
 
 
+torch.use_deterministic_algorithms(True)
+
 for seq in [1024, 2048, 4096, 8192]:
     test_dense(seqlen_q=seq, seqlen_k=seq, causal=False)
     test_dense(seqlen_q=seq, seqlen_k=seq, causal=True)
