@@ -60,7 +60,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_kernel(
 
           // Collectively compute the block-wide max reduction
           scalar_t block_max_value =
-              BlockReduceT(temp_storage).Reduce(thread_val, cub::Max());
+              BlockReduceT(temp_storage).Reduce(thread_val, Max<index_t>());
           __syncthreads();
 
           if (tid == 0) {

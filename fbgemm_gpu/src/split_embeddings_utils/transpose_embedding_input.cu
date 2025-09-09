@@ -313,8 +313,7 @@ transpose_embedding_input(
                         linear_indices.numel(),
                         0,
                         total_hash_size_bits,
-                        at::cuda::getCurrentCUDAStream(),
-                        false));
+                        at::cuda::getCurrentCUDAStream()));
                 auto temp_storage = at::empty(
                     {static_cast<int64_t>(temp_storage_bytes)},
                     indices.options().dtype(at::kByte));
@@ -329,8 +328,7 @@ transpose_embedding_input(
                         linear_indices.numel(),
                         0,
                         total_hash_size_bits,
-                        at::cuda::getCurrentCUDAStream(),
-                        false));
+                        at::cuda::getCurrentCUDAStream()));
 #else
 	        using config = rocprim::radix_sort_config<
                 rocprim::default_config,
