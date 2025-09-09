@@ -1166,7 +1166,9 @@ class FP8Tests(unittest.TestCase):
         N=st.sampled_from([256, 1024, 6144]),
         K=st.sampled_from([256, 512, 3584]),
         use_cudagraph=st.booleans(),
-        mode=st.sampled_from(["stacked", "torch_2d3d"]),
+        mode=st.sampled_from(
+            ["stacked"] + (["torch_2d3d"] if torch.version.hip else [])
+        ),
     )
     def test_grouped_gemm_2d_3d(
         self,
