@@ -6,6 +6,7 @@ template <
     typename Element,
     typename ActiveMask,
     bool kIsVarlen,
+    bool kIsDeterministic,
     class... KernelOptions>
 std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     const at::Tensor& dO,
@@ -36,7 +37,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
   using TileShape = Shape<_128, _128, _128>;
 
   using Operation = cutlass::fmha::device::
-      Sm100FmhaBwd<ProblemShapeType, Element, ElementAccumulator, TileShape, /*kIsMla=*/false, ActiveMask>;
+      Sm100FmhaBwd<ProblemShapeType, Element, ElementAccumulator, TileShape, /*kIsMla=*/false, ActiveMask, kIsDeterministic>;
 
   using StrideQ = Stride<int, _1, Stride<Stride<int, int>, int>>; // Q D    ((H_R, H_K), B)
   using StrideK = Stride<int, _1, Stride<Stride<_0, int>, int>>;  // K D    ((H_R, H_K), B)
@@ -219,6 +220,19 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
       cutlass::KernelHardwareInfo::query_device_multiprocessor_count(
           hw_info.device_id);
 
+  auto seqlen_q = kIsVarlen ? max_seq_len_q.value() : q.size(1);
+
+  int* dq_semaphore_ptr = nullptr;
+  at::Tensor dq_semaphore;
+  if (kIsDeterministic) {
+    auto kBlockM = cute::get<0>(TileShape{});
+    auto opts = q.options();
+    dq_semaphore = torch::zeros(
+        {(seqlen_q + kBlockM - 1) / kBlockM, B, H_Q},
+        opts.dtype(torch::kInt32));
+    dq_semaphore_ptr = static_cast<int*>(dq_semaphore.data_ptr());
+  }
+
   typename Operation::Arguments arguments{
     problem_shape,
     static_cast<Element*>(q.data_ptr()),
@@ -240,6 +254,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     static_cast<Element*>(dV.data_ptr()),
     stride_dV,
     softmax_scale,
+    dq_semaphore_ptr,
     window_size_left,
     window_size_right,
     hw_info};
@@ -264,7 +279,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
     bool causal,
     int64_t window_size_left,
     int64_t window_size_right,
-    bool bottom_right
+    bool bottom_right,
+    bool deterministic
 ) {
   // This workaround initializes the CUDA context to prevent the 201 error
   // (invalid context).  When this function is invoked through PyTorch
@@ -294,11 +310,18 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
   }
 
   auto dispatch_fmha =
-    [&](auto element, auto element_out, auto varlen, auto mask, auto... kernel_options) {
+    [&](
+      auto element,
+      auto element_out,
+      auto varlen,
+      auto deterministic,
+      auto mask,
+      auto... kernel_options) {
       return fmha_bwd<
         decltype(element),
         decltype(mask),
         varlen,
+        deterministic,
         decltype(kernel_options)...>
       (
         dOutput,
@@ -315,53 +338,69 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
         window_size_right);
     };
 
-  auto dispatch_type = [&](auto varlen, auto mask) {
+  auto dispatch_type = [&](auto varlen, auto deterministic, auto mask) {
     if (query.dtype() == torch::kFloat16) {
-      return dispatch_fmha(cutlass::half_t{}, cutlass::half_t{}, varlen, mask);
+      return dispatch_fmha(
+          cutlass::half_t{}, cutlass::half_t{}, varlen, deterministic, mask);
     }
     else if (query.dtype() == torch::kBFloat16) {
       return dispatch_fmha(
-          cutlass::bfloat16_t{}, cutlass::bfloat16_t{}, varlen, mask);
+          cutlass::bfloat16_t{}, cutlass::bfloat16_t{}, varlen, deterministic, mask);
     }
     else if (query.dtype() == torch::kFloat8_e4m3fn) {
       return dispatch_fmha(
-          cutlass::float_e4m3_t{}, cutlass::bfloat16_t{}, varlen, mask);
+          cutlass::float_e4m3_t{}, cutlass::bfloat16_t{}, varlen, deterministic, mask);
     }
     TORCH_CHECK(false, "Unsupported dtype for q: ", query.dtype());
   };
 
-  auto dispatch_mask = [&](auto varlen) {
+  auto dispatch_mask = [&](auto varlen, auto deterministic) {
     if (causal) {
       if (bottom_right) {
-        return dispatch_type(varlen, CausalForBackwardMask</*kIsQBegin=*/false>{});
+        return dispatch_type(
+            varlen, deterministic, CausalForBackwardMask</*kIsQBegin=*/false>{});
       }
       else {
-        return dispatch_type(varlen, CausalForBackwardMask</*kIsQBegin=*/true>{});
+        return dispatch_type(
+            varlen, deterministic, CausalForBackwardMask</*kIsQBegin=*/true>{});
       }
     }
     else if (local) {
       if (bottom_right) {
-        return dispatch_type(varlen, LocalMaskForBackward</*kIsQBegin=*/false>{});
+        return dispatch_type(
+            varlen, deterministic, LocalMaskForBackward</*kIsQBegin=*/false>{});
       }
       else {
-        return dispatch_type(varlen, LocalMaskForBackward</*kIsQBegin=*/true>{});
+        return dispatch_type(
+            varlen, deterministic, LocalMaskForBackward</*kIsQBegin=*/true>{});
       }
     }
     else if (varlen || key.size(1) % 128 != 0) {
       // Use the residual mask for varlen or when K seqlen is not multiple of
       // blockN
-      return dispatch_type(varlen, ResidualMaskForBackward{});
+      return dispatch_type(
+          varlen, deterministic, ResidualMaskForBackward{});
     }
     else {
-      return dispatch_type(varlen, NoMask{});
+      return dispatch_type(
+          varlen, deterministic, NoMask{});
+    }
+  };
+
+  auto dispatch_deterministic = [&](auto varlen) {
+    if (deterministic) {
+      return dispatch_mask(varlen, std::bool_constant<true>{});
+    }
+    else {
+      return dispatch_mask(varlen, std::bool_constant<false>{});
     }
   };
 
   if (max_seq_len_q.has_value()) {
-    return dispatch_mask(std::bool_constant<true>{});
+    return dispatch_deterministic(std::bool_constant<true>{});
   } else {
     TORCH_CHECK(query.dim() == 4, "q must be [B, M, H, D] for fixed length")
-    return dispatch_mask(std::bool_constant<false>{});
+    return dispatch_deterministic(std::bool_constant<false>{});
   }
 }
 
@@ -383,7 +422,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    bool causal=False, "
         "    int window_size_left=-1, "
         "    int window_size_right=-1, "
-        "    bool bottom_right=True"
+        "    bool bottom_right=True, "
+        "    bool deterministic=False"
         ") -> (Tensor, Tensor, Tensor)"
   );
 }

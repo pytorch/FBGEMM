@@ -116,6 +116,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         causal: bool,
         window_size: tuple[int, int],
         fwd_only: bool,
+        deterministic: bool,
     ) -> None:
         device = torch.accelerator.current_accelerator()
         assert device is not None
@@ -164,7 +165,13 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
 
         # Run tested kernel
         out = cutlass_blackwell_fmha_func(
-            q, k, v, causal=causal, window_size=window_size, seqlen_kv=seqlen_kv
+            q,
+            k,
+            v,
+            causal=causal,
+            window_size=window_size,
+            seqlen_kv=seqlen_kv,
+            deterministic=deterministic,
         )
         if DEBUG:
             print("cutlass_blackwell_fmha_func completed successfully!")
@@ -172,6 +179,19 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         # Follow FlashAttention's numerical evaluation
         # Compare outputs
         self._allclose(out, out_ref, out_pt)
+
+        if deterministic:
+            # Rerun the test. The outputs must be bit-wise exact
+            out_d = cutlass_blackwell_fmha_func(
+                q,
+                k,
+                v,
+                causal=causal,
+                window_size=window_size,
+                seqlen_kv=seqlen_kv,
+                deterministic=deterministic,
+            )
+            assert torch.equal(out, out_d)
 
         if fwd_only:
             return
@@ -200,6 +220,17 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         self._allclose(dk, dk_ref, dk_pt)
         self._allclose(dv, dv_ref, dv_pt)
 
+        if deterministic:
+            # Rerun the test. The outputs must be bit-wise exact
+            (
+                dq_d,
+                dk_d,
+                dv_d,
+            ) = torch.autograd.grad(out_d, (q, k, v), g)
+            assert torch.equal(dq, dq_d)
+            assert torch.equal(dk, dk_d)
+            assert torch.equal(dv, dv_d)
+
     def _execute_cutlass_blackwell_attn_varlen(
         self,
         batch_size: int,
@@ -212,6 +243,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         causal: bool,
         window_size: tuple[int, int],
         fwd_only: bool,
+        deterministic: bool,
     ) -> None:
         device = torch.accelerator.current_accelerator()
         assert device is not None
@@ -298,12 +330,30 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             max_seq_len_q=max_seqlen_q,
             max_seq_len_k=max_seqlen_k,
             window_size=window_size,
+            deterministic=deterministic,
         )
         out = output_pad_fn(out_unpad)
 
         # Follow FlashAttention's numerical evaluation
         # Compare outputs
         self._allclose(out, out_ref, out_pt)
+
+        if deterministic:
+            # Rerun the test. The outputs must be bit-wise exact
+            out_unpad_d = cutlass_blackwell_fmha_func(
+                q_unpad,
+                k_unpad,
+                v_unpad,
+                causal=causal,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seq_len_q=max_seqlen_q,
+                max_seq_len_k=max_seqlen_k,
+                window_size=window_size,
+                deterministic=deterministic,
+            )
+            out_d = output_pad_fn(out_unpad_d)
+            assert torch.equal(out, out_d)
 
         if fwd_only:
             return
@@ -324,6 +374,18 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         self._allclose(dq, dq_ref, dq_pt)
         self._allclose(dk, dk_ref, dk_pt)
         self._allclose(dv, dv_ref, dv_pt)
+
+        if deterministic:
+            # Rerun the test. The outputs must be bit-wise exact
+            dq_unpad_d, dk_unpad_d, dv_unpad_d = torch.autograd.grad(
+                out_unpad_d, (q_unpad, k_unpad, v_unpad), g_unpad
+            )
+            dq_d = dq_pad_fn(dq_unpad_d)
+            dk_d = dk_pad_fn(dk_unpad_d)
+            dv_d = dk_pad_fn(dv_unpad_d)
+            assert torch.equal(dq, dq_d)
+            assert torch.equal(dk, dk_d)
+            assert torch.equal(dv, dv_d)
 
     @skip_cuda_lt_sm100
     @skip_rocm
@@ -366,6 +428,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             causal=causal,
             window_size=window_size,
             fwd_only=True,
+            deterministic=False,
         )
 
     @skip_cuda_lt_sm100
@@ -588,6 +651,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             causal=causal,
             window_size=window_size,
             fwd_only=True,
+            deterministic=False,
         )
 
     @skip_cuda_lt_sm100
@@ -603,6 +667,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         window_size=st.sampled_from(
             [(-1, -1), (128, 0), (256, 0), (128, 128), (512, 0)]
         ),
+        deterministic=st.booleans(),
     )
     @settings(**common_settings)
     def test_backward(
@@ -615,6 +680,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_varlen: bool,
         is_gqa: bool,
         window_size: tuple[int, int],
+        deterministic: bool,
     ) -> None:
         test_func = (
             self._execute_cutlass_blackwell_attn_varlen
@@ -633,4 +699,5 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             causal=causal,
             window_size=window_size,
             fwd_only=False,
+            deterministic=deterministic,
         )
