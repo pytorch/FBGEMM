@@ -49,12 +49,11 @@ jobs:
       env:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
       # Nova Coordinate Filters:
-      # cuda/13.0-aarch64: Not supported in FBGEMM CI yet
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_version:13.0-aarch64' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
