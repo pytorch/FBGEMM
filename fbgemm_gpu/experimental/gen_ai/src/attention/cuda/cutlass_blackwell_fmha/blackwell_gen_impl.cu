@@ -304,7 +304,7 @@ at::Tensor dispatch_fmha_gen_fwd(
 
   return DISPATCH_ELEMENT_TYPE(q.scalar_type(), Element, [&] {
     return DISPATCH_KERNEL_TYPE(static_cast<int>(kernel_type), KType, [&] {
-      GenRunner<Element, KType, Shape<_128, _128, _128>, Shape<_1, _1, _1>>
+      GenRunner<Element, KType, Shape<_128, _256, _128>, Shape<_1, _1, _1>>
           runner;
       return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx);
     });
