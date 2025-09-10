@@ -209,7 +209,7 @@ at::Tensor f8f8bf16_rowwise_preshuffle_impl(
               << K << "}" << std::endl;
   }
 
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
   invoker.Run(argument, StreamConfig{stream, false});
 
   return Y;

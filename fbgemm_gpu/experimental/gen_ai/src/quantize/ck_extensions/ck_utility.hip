@@ -32,7 +32,7 @@ void flush_icache_ck()
     hip_check_error(hipGetDeviceProperties(&deviceProps, 0));
     int32_t gpu_block3 = deviceProps.multiProcessorCount * 60;
 
-    auto stream = at::cuda::getCurrentHIPStream().stream();
+    auto stream = at::cuda::getCurrentCUDAStream().stream();
 
     ck::flush_icache<<<dim3(gpu_block3), dim3(64), 0, stream>>>();
     hip_check_error(hipGetLastError());

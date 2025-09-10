@@ -217,7 +217,7 @@ struct DeviceGemmHelper {
     gemm.SetDeviceKernelArgs(argument, kernel_args.data_ptr());
 
     // Get hip graph stream if it exists.
-    auto stream = at::cuda::getCurrentHIPStream().stream();
+    auto stream = at::cuda::getCurrentCUDAStream().stream();
     invoker.Run(argument, StreamConfig{stream, false});
 
     return Y;

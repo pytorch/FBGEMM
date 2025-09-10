@@ -128,7 +128,7 @@ at::Tensor fused_moe_impl(
       static_cast<int>(stride)};
 
   // Call kernel with default stream config
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
   ck_tile::stream_config stream_cfg{stream};
   fused_moe(traits, args, stream_cfg);
 

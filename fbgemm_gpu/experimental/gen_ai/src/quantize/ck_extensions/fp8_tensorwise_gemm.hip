@@ -185,7 +185,7 @@ f8f8bf16_tensorwise_impl(at::Tensor XQ, at::Tensor WQ, double scale) {
       b_element_op,
       c_element_op);
 
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
   invoker.Run(argument, StreamConfig{stream, false});
 
   return Y;

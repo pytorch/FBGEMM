@@ -18,7 +18,7 @@
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
 #include "kernels/fp8_rowwise_grouped_kernel_manifest.h"
 #include "kernels/fp8_rowwise_grouped_heuristic.hpp"
-#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/tuning_cache_hip.hpp"
 #include "fbgemm_gpu/quantize/utils.h"
 
 namespace fbgemm_gpu {
@@ -101,7 +101,7 @@ void set_static_kernel_args(
     at::TensorList w_scale,
     OutputType output) {
   // Get current cuda stream.
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
   int64_t group_count = XQ.size();
   // Declare variables for loop.
   EDataType* output_ptr;
@@ -382,7 +382,7 @@ void set_dynamic_kernel_args(
     std::optional<at::Tensor> M_sizes,
     bool zeroing_output_tensor) {
   // Get current cuda stream.
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
   int64_t group_count;
   // Check provided tensors are valid.
   TORCH_CHECK(
@@ -807,7 +807,7 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
       {static_cast<long>(G * sizeof(KernelArguments))},
       XQ.options().dtype(at::kByte));
 
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
   set_kernel_args<<<1, G, 0, stream>>>(
       reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
       reinterpret_cast<ADataType*>(XQ.data_ptr()),

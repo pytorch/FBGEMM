@@ -180,7 +180,7 @@ at::Tensor bf16_gemm_impl(at::Tensor A, at::Tensor B, std::optional<at::Tensor> 
       b_element_op,
       c_element_op);
 
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
   invoker.Run(arguments, StreamConfig{stream, false});
 
   return C;
