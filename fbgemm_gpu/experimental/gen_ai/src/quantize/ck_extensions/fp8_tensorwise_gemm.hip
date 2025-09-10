@@ -14,6 +14,10 @@
 #include <ATen/ATen.h>
 #include <c10/hip/HIPStream.h>
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
@@ -185,7 +189,7 @@ f8f8bf16_tensorwise_impl(at::Tensor XQ, at::Tensor WQ, double scale) {
       b_element_op,
       c_element_op);
 
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  auto stream = at::cuda::getCurrentHIPStream().stream();
   invoker.Run(argument, StreamConfig{stream, false});
 
   return Y;

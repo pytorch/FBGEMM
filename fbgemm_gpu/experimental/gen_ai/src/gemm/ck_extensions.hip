@@ -17,6 +17,10 @@
 
 #if defined(USE_ROCM)
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
@@ -180,7 +184,7 @@ at::Tensor bf16_gemm_impl(at::Tensor A, at::Tensor B, std::optional<at::Tensor> 
       b_element_op,
       c_element_op);
 
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  auto stream = at::cuda::getCurrentHIPStream().stream();
   invoker.Run(arguments, StreamConfig{stream, false});
 
   return C;

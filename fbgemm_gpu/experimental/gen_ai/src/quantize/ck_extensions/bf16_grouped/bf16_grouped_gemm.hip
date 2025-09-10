@@ -23,6 +23,10 @@
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
 #include "kernels/bf16_grouped_kernel_manifest.h"
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+
 namespace fbgemm_gpu {
 
 // Define useful types that are needed for various kernels.
@@ -182,7 +186,7 @@ void set_static_kernel_args(
     at::TensorList B,
     at::Tensor output) {
   // Get current cuda stream.
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  auto stream = at::cuda::getCurrentHIPStream().stream();
   int64_t group_count = A.size();
   // When group count is large, we can more efficiently initialize
   // by doing host setup and a memcpy. This is only viable if cuda
@@ -318,7 +322,7 @@ void set_dynamic_kernel_args(
     at::Tensor output,
     at::Tensor zero_start_index_M) {
   // Get current cuda stream.
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  auto stream = at::cuda::getCurrentHIPStream().stream();
   int group_count = A.size(0);
   // Confirm M is on the proper device.
   TORCH_CHECK(
@@ -356,7 +360,7 @@ at::Tensor get_stacked_kernel_args(
     at::Tensor Y,
     at::Tensor M_sizes) {
   // Get current cuda stream.
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  auto stream = at::cuda::getCurrentHIPStream().stream();
 
   int group_count = M_sizes.size(0);
   // Get space on device for the kernel argument tensor.

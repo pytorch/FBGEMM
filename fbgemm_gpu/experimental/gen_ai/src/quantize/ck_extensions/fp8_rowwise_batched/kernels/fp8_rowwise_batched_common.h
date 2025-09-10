@@ -7,10 +7,10 @@
  */
 
 #include <ATen/ATen.h>
-#ifdef USE_ROCM
 #include <c10/hip/HIPStream.h>
-#else
-#include <c10/cuda/CUDAStream.h>
+
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
 #endif
 
 #include "ck/ck.hpp"
@@ -176,7 +176,7 @@ at::Tensor f8f8bf16_rowwise_batched_impl(
       b_element_op,
       cde_element_op);
 
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  auto stream = at::cuda::getCurrentHIPStream().stream();
   invoker.Run(argument, StreamConfig{stream, false});
 
   return Y;
