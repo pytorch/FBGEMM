@@ -18,9 +18,12 @@ __set_cuda_symlinks_envvars () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
 
-  if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
+  if  [[ "$BUILD_CUDA_VERSION" =~ ^11.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.1.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.4.*$ ]]; then
+    echo "[INSTALL] Target CUDA version is ${BUILD_CUDA_VERSION}, no need to add extra symlinks and env vars ..."
+
+  else
     # CUDA 12.6 installation has a very different package layout than previous
     # CUDA versions - notably, NVTX has been moved elsewhere, which causes
     # PyTorch CMake scripts to complain.
@@ -91,9 +94,11 @@ __set_nvcc_prepend_flags () {
   # which overrides whatever `-ccbin` flag we set manually, so remove this
   # unwanted hook
   print_exec ls -la "${conda_prefix}/etc/conda/activate.d"
-  if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
+  if  [[ "$BUILD_CUDA_VERSION" =~ ^11.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.1.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.4.*$ ]]; then
+    echo "[INSTALL] No need to update NVCC activation scripts on older CUDA installations ..."
+  else
     echo "[INSTALL] Removing the -ccbin=CXX hook from NVCC activation scripts ..."
     print_exec sed -i '/-ccbin=/d' "${conda_prefix}/etc/conda/activate.d/*cuda-nvcc_activate.sh"
   fi
@@ -186,26 +191,25 @@ install_cuda () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
 
-  # NOTE: Currently, CUDA 12.6 cannot be installed using the nvidia/label/cuda-*
-  # conda channels, because we run into the following error:
+  # NOTE: Currently, CUDA 12.6 and later cannot be installed using the
+  # nvidia/label/cuda-* conda channels, because we run into the following error:
   #
   #   LibMambaUnsatisfiableError: Encountered problems while solving:
   #     - nothing provides __win needed by cuda-12.6.3-0
   #
-  # For now, we only use conda-forge for installing 12.6, but it is likely that
-  # in the future, we will be using conda-forge for installing all CUDA versions
-  # (except for versions 11.8 and below, which are only available through
+  # As such, we use conda-forge for installing all CUDA versions, except for
+  # versions 12.4 and below, which are only available through
   # nvidia/label/cuda-*)
-  if  [[ "$cuda_version" =~ ^12.6.*$ ]] ||
-      [[ "$cuda_version" =~ ^12.8.*$ ]] ||
-      [[ "$cuda_version" =~ ^12.9.*$ ]]; then
-    # shellcheck disable=SC2086
-    (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
-      cuda=${cuda_version}) || return 1
-  else
+  if  [[ "$BUILD_CUDA_VERSION" =~ ^11.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.1.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.4.*$ ]]; then
     # shellcheck disable=SC2086
     (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c "nvidia/label/cuda-${cuda_version}" -y \
       cuda) || return 1
+  else
+    # shellcheck disable=SC2086
+    (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
+      cuda=${cuda_version}) || return 1
   fi
 
   # Set the symlinks and environment variables not covered by conda install
