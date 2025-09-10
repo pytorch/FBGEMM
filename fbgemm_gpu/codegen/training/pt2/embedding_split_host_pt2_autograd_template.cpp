@@ -1009,6 +1009,7 @@ static torch::autograd::variable_list backward(
     int32_t max_segment_length_per_warp = 64;
     // Workaround. Should not be upstreamed in any way.
     // Redistribute all cta_per_row work to warp_per_row.
+    int32_t total_L = indices.numel();
     {%- if (not nobag) and 
            (optimizer == "rowwise_adagrad") and 
            (not vbe) and 
@@ -1017,9 +1018,10 @@ static torch::autograd::variable_list backward(
            (not is_index_select) and 
            (not dense) %}
     const auto T = weights_offsets.sym_numel();
-    const auto B = (offsets.size(0) - 1) / T;
+    auto total_B = (offsets.size(0) - 1);
+    const auto B = total_B / T;
     {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
-    if(!mixed_D && (max_D == {{ kDimSize }})) 
+    if(!mixed_D && total_L / total_B > 1 && (max_D == {{ kDimSize }})) 
     {
       max_segment_length_per_warp = 16384;
     }
