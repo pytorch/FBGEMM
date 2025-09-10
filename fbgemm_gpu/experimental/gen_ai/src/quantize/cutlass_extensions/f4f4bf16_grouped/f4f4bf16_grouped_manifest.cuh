@@ -24,18 +24,6 @@ at::Tensor f4f4bf16_grouped_128_64_256_1_1_1_f(
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
-at::Tensor f4f4bf16_grouped_128_64_256_1_1_1_f(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
 at::Tensor f4f4bf16_grouped_128_64_256_1_1_1_t(
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
@@ -46,18 +34,6 @@ at::Tensor f4f4bf16_grouped_128_64_256_1_1_1_t(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
-at::Tensor f4f4bf16_grouped_128_64_256_1_1_1_t(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
 at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_f(
@@ -72,18 +48,6 @@ at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_f(
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
-at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_f(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
 at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_t(
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
@@ -94,18 +58,6 @@ at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_t(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
-at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_t(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
 at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_f(
@@ -120,18 +72,6 @@ at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_f(
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
-at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_f(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
 at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_t(
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
@@ -142,18 +82,6 @@ at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_t(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
-at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_t(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
 at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_f(
@@ -168,18 +96,6 @@ at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_f(
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
-at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_f(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
 at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_t(
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
@@ -190,18 +106,6 @@ at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_t(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
-at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_t(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
 at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_f(
@@ -216,18 +120,6 @@ at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_f(
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
-at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_f(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
 at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_t(
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
@@ -240,58 +132,43 @@ at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_t(
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
 
-at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_t(
-    at::TensorList XQ, // FP4
-    at::TensorList WQ, // FP4
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes,
-    std::optional<at::TensorList> global_scale,
-    std::optional<at::Tensor> starting_row_after_padding);
-
-template <typename InputType>
 using Kernel_f4f4bf16_grouped = at::Tensor (*)(
-    InputType,
-    InputType,
-    InputType,
-    InputType,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
     at::Tensor,
     int64_t,
     std::optional<at::Tensor>,
     std::optional<at::Tensor>,
-    std::optional<InputType>,
+    std::optional<at::Tensor>,
     std::optional<at::Tensor>);
 
-template <typename InputType>
-const std::unordered_map<std::string, Kernel_f4f4bf16_grouped<InputType>>&
+const std::unordered_map<std::string, Kernel_f4f4bf16_grouped>&
 get_f4f4bf16_grouped_kernels() {
-  static const std::
-      unordered_map<std::string, Kernel_f4f4bf16_grouped<InputType>>
-          kernels = {
-              {"f4f4bf16_grouped_128_64_256_1_1_1_f",
-               f4f4bf16_grouped_128_64_256_1_1_1_f},
-              {"f4f4bf16_grouped_128_64_256_1_1_1_t",
-               f4f4bf16_grouped_128_64_256_1_1_1_t},
-              {"f4f4bf16_grouped_128_128_256_1_1_1_f",
-               f4f4bf16_grouped_128_128_256_1_1_1_f},
-              {"f4f4bf16_grouped_128_128_256_1_1_1_t",
-               f4f4bf16_grouped_128_128_256_1_1_1_t},
-              {"f4f4bf16_grouped_256_64_256_2_1_1_f",
-               f4f4bf16_grouped_256_64_256_2_1_1_f},
-              {"f4f4bf16_grouped_256_64_256_2_1_1_t",
-               f4f4bf16_grouped_256_64_256_2_1_1_t},
-              {"f4f4bf16_grouped_256_128_256_2_1_1_f",
-               f4f4bf16_grouped_256_128_256_2_1_1_f},
-              {"f4f4bf16_grouped_256_128_256_2_1_1_t",
-               f4f4bf16_grouped_256_128_256_2_1_1_t},
-              {"f4f4bf16_grouped_256_256_256_2_1_1_f",
-               f4f4bf16_grouped_256_256_256_2_1_1_f},
-              {"f4f4bf16_grouped_256_256_256_2_1_1_t",
-               f4f4bf16_grouped_256_256_256_2_1_1_t},
-          };
+  static const std::unordered_map<std::string, Kernel_f4f4bf16_grouped>
+      kernels = {
+          {"f4f4bf16_grouped_128_64_256_1_1_1_f",
+           f4f4bf16_grouped_128_64_256_1_1_1_f},
+          {"f4f4bf16_grouped_128_64_256_1_1_1_t",
+           f4f4bf16_grouped_128_64_256_1_1_1_t},
+          {"f4f4bf16_grouped_128_128_256_1_1_1_f",
+           f4f4bf16_grouped_128_128_256_1_1_1_f},
+          {"f4f4bf16_grouped_128_128_256_1_1_1_t",
+           f4f4bf16_grouped_128_128_256_1_1_1_t},
+          {"f4f4bf16_grouped_256_64_256_2_1_1_f",
+           f4f4bf16_grouped_256_64_256_2_1_1_f},
+          {"f4f4bf16_grouped_256_64_256_2_1_1_t",
+           f4f4bf16_grouped_256_64_256_2_1_1_t},
+          {"f4f4bf16_grouped_256_128_256_2_1_1_f",
+           f4f4bf16_grouped_256_128_256_2_1_1_f},
+          {"f4f4bf16_grouped_256_128_256_2_1_1_t",
+           f4f4bf16_grouped_256_128_256_2_1_1_t},
+          {"f4f4bf16_grouped_256_256_256_2_1_1_f",
+           f4f4bf16_grouped_256_256_256_2_1_1_f},
+          {"f4f4bf16_grouped_256_256_256_2_1_1_t",
+           f4f4bf16_grouped_256_256_256_2_1_1_t},
+      };
   return kernels;
 }
 
