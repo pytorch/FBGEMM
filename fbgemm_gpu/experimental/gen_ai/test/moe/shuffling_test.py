@@ -7,9 +7,9 @@
 # pyre-strict
 # pyre-ignore-all-errors[16,21,56]
 
-import functools
 import itertools
 import logging
+import random
 import unittest
 from typing import List, Optional, Tuple
 
@@ -24,6 +24,7 @@ if torch.cuda.is_available():
     )
 
 from hypothesis import given, settings, strategies as st, Verbosity
+from pyre_extensions import none_throws
 
 try:
     # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
@@ -214,110 +215,133 @@ class ShufflingTests(unittest.TestCase):
             ref_start_index = ref_end_index
 
     @given(
-        num_tokens=st.sampled_from(
-            [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
+        batch_size=st.sampled_from(
+            [1, 8, 123, 128, 1234, 2048, 4096, 4567, 8192, 16384]
         ),
         num_experts=st.sampled_from([16, 80, 128]),
-        ep_size=st.sampled_from([4, 5, 8, 11]),
+        dp_size=st.sampled_from([2, 4, 16]),
+        routed_mp_size=st.sampled_from([1, 4, 8]),
         dim=st.sampled_from([5120]),
-        top_k=st.sampled_from([1, 4]),
-        sparse=st.sampled_from([True, False]),
-        balanced=st.sampled_from([False]),
-        target_fn=st.sampled_from(["combine_shuffling", "split_shuffling"]),
+        top_k=st.sampled_from([1, 2, 4]),
+        is_combine_shuffling=st.booleans(),
+        is_padded=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_combine_or_split_shuffling(
         self,
-        num_tokens: int,
+        batch_size: int,
         num_experts: int,
-        ep_size: int,
+        dp_size: int,
+        routed_mp_size: int,
         dim: int,
         top_k: int,
-        sparse: bool,
-        balanced: bool,
-        target_fn: str,
+        is_combine_shuffling: bool,
+        is_padded: bool,
     ) -> None:
         torch.manual_seed(0)
-        device = device = torch.accelerator.current_accelerator()
+        random.seed(0)
+        device: torch.device = none_throws(torch.accelerator.current_accelerator())
 
-        is_combine_shuffling: bool = target_fn == "combine_shuffling"
+        num_tokens = batch_size * top_k
+        MP_SIZE = 4
+        ep_size = dp_size * MP_SIZE // routed_mp_size
 
-        if sparse:
-            num_tokens *= ep_size
-            num_local_experts: int = num_experts
-            expert_start: int = 1
-            expert_end: int = 1 + (num_experts // ep_size)
-        else:
-            num_local_experts: int = num_experts // ep_size
-            expert_start: int = 0
-            expert_end: int = num_local_experts
+        if ep_size > num_experts:
+            return
 
-        expert_group_size: int = expert_end - expert_start
+        num_local_experts: int = num_experts // ep_size
+        num_experts_in_group: int = num_local_experts * dp_size
 
+        rank = random.randint(0, dp_size)
+
+        expert_start: int = num_local_experts * rank
+        expert_end: int = num_local_experts * (rank + 1)
+
+        if not is_padded:
+            expert_start = 0
+            expert_end = num_local_experts
+
+        # Tokens are left shifted with valid values per rank.
+        # Sum of token counts per rank might not be the same as num_tokens.
         tokens: torch.Tensor = torch.randn(
-            num_tokens * ep_size * top_k, dim, device=device, dtype=torch.bfloat16
+            (dp_size, num_tokens, dim), device=device, dtype=torch.bfloat16
         )
 
-        if balanced:
-            assert num_tokens % (ep_size * num_local_experts) == 0
-            num_tokens_per_expert = num_tokens // (ep_size * num_local_experts)
-            token_counts: torch.Tensor = (
-                torch.ones(
-                    [ep_size, num_local_experts], dtype=torch.int32, device=device
-                )
-                * num_tokens_per_expert
+        tokens_per_rank = [
+            (
+                num_tokens
+                if (num_experts_in_group == num_experts or not is_padded)
+                else int(num_tokens * random.random())
             )
-        else:
+            for _ in range(dp_size)
+        ]
+
+        def generate_token_counts(token_per_rank: int) -> torch.Tensor:
+            if token_per_rank == 0:
+                return torch.zeros(
+                    [1, num_experts_in_group], device=device, dtype=torch.int32
+                )
             token_cumsums, _ = torch.sort(
                 torch.randint(
                     low=0,
-                    high=num_tokens,
-                    size=(num_local_experts * ep_size + 1,),
+                    high=token_per_rank,
+                    size=(
+                        (num_experts_in_group + 1,)
+                        if is_padded
+                        else (num_local_experts + 1,)
+                    ),
                     device=device,
                     dtype=torch.int32,
                 )
             )
             token_cumsums[0] = 0
-            token_cumsums[-1] = num_tokens
-            token_counts: torch.Tensor = token_cumsums[1:] - token_cumsums[:-1]
-            token_counts = token_counts.reshape(ep_size, num_local_experts)
+            token_cumsums[-1] = token_per_rank
+            return (token_cumsums[1:] - token_cumsums[:-1]).unsqueeze(0)
 
-        assert token_counts.sum().item() == num_tokens
+        token_counts: torch.Tensor = torch.cat(
+            [
+                generate_token_counts(token_per_rank)
+                for token_per_rank in tokens_per_rank
+            ],
+        )
+        # For combine_shuffling, each rank has token_per_rank valid tokens.
+        if is_combine_shuffling:
+            for i in range(dp_size):
+                tokens[i, tokens_per_rank[i] :] = torch.nan
+        # For split shuffling, tokens has sum of valid tokens from local experts across all ranks
+        else:
+            tokens = tokens.view(-1, dim)
+            tokens[token_counts[:, expert_start:expert_end].sum() :, :] = torch.nan
 
         token_counts_list: List[List[int]] = token_counts.tolist()
         token_counts_t_list: List[List[int]] = token_counts.T.tolist()
 
-        def slice_tokens(
-            tokens: torch.Tensor,
-            combine: bool,
-        ) -> Tuple[torch.Tensor, ...]:
-            offset = 0
-            if combine:
+        def slice_tokens() -> Tuple[torch.Tensor, ...]:
+            if is_combine_shuffling:
                 reshuffled_chunks = [[] for _ in range(num_local_experts)]
                 # token_counts: [EP, E]
-                for counts_per_rank in token_counts_list:
+                for rank, counts_per_rank in enumerate(token_counts_list):
+                    offset = 0
                     for expert, chunk_size in enumerate(counts_per_rank):
                         if expert >= expert_start and expert < expert_end:
-                            reshuffled_chunks[expert].append(
-                                tokens[offset : offset + chunk_size]
+                            reshuffled_chunks[expert - expert_start].append(
+                                tokens[rank, offset : offset + chunk_size]
                             )
                         offset += chunk_size
             else:
-                reshuffled_chunks = [[] for _ in range(ep_size)]
+                reshuffled_chunks = [[] for _ in range(dp_size)]
                 # token_counts: [EP, E]
+                offset = 0
                 for expert, counts_per_expert in enumerate(token_counts_t_list):
                     for rank, chunk_size in enumerate(counts_per_expert):
                         if expert >= expert_start and expert < expert_end:
                             reshuffled_chunks[rank].append(
                                 tokens[offset : offset + chunk_size]
                             )
-                        offset += chunk_size
+                            offset += chunk_size
             return tuple(itertools.chain(*reshuffled_chunks))
 
-        prepare_ref_fn = functools.partial(
-            slice_tokens, tokens=tokens, combine=is_combine_shuffling
-        )
-        reshuffled_chunks: Tuple[torch.Tensor, ...] = prepare_ref_fn()
+        reshuffled_chunks: Tuple[torch.Tensor, ...] = slice_tokens()
 
         def ref_fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
             cat_tokens = torch.cat(reshuffled_chunks)
@@ -329,14 +353,16 @@ class ShufflingTests(unittest.TestCase):
 
         ref_output_tokens, ref_output_token_counts = ref_fn()
 
+        assert not ref_output_tokens.isnan().any().item()
+
         def fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
             if is_combine_shuffling:
                 return combine_shuffling(
-                    tokens,
+                    tokens.view(-1, dim),
                     token_counts,
                     expert_start=expert_start,
                     expert_end=expert_end,
-                    is_balanced=balanced,
+                    is_padded=is_padded,
                 )
             else:
                 return (
@@ -345,7 +371,7 @@ class ShufflingTests(unittest.TestCase):
                         token_counts,
                         expert_start=expert_start,
                         expert_end=expert_end,
-                        is_balanced=balanced,
+                        is_padded=is_padded,
                     ),
                     None,
                 )
@@ -355,24 +381,34 @@ class ShufflingTests(unittest.TestCase):
         if is_combine_shuffling:
             assert output_token_counts is not None
             assert ref_output_token_counts is not None
-            self.assertEqual(tuple(output_token_counts.shape), (expert_group_size + 1,))
+            self.assertEqual(tuple(output_token_counts.shape), (num_local_experts + 1,))
             self.assertTrue(output_token_counts[:-1].equal(ref_output_token_counts))
             self.assertEqual(
                 output_token_counts[:-1].sum(), output_token_counts[-1].item()
             )
-
-        num_valid_tokens = ref_output_tokens.shape[0]
-        self.assertEqual(
-            tuple(output_tokens.shape), (num_tokens * ep_size * top_k, dim)
-        )
-        if not is_combine_shuffling and sparse:
-            reverse_input_tokens = torch.concat(
-                slice_tokens(output_tokens, combine=True)
-            )
-            self.assertTrue(tuple(reverse_input_tokens.shape), (num_valid_tokens, dim))
-            self.assertTrue(reverse_input_tokens.equal(tokens[:num_valid_tokens]))
-        else:
+            num_valid_tokens = ref_output_tokens.shape[0]
+            self.assertEqual(tuple(output_tokens.shape), (num_tokens * dp_size, dim))
             self.assertTrue(output_tokens[:num_valid_tokens].equal(ref_output_tokens))
+        else:
+            if not is_padded:
+                valid_token_counts = token_counts[:, expert_start:expert_end].sum()
+
+                self.assertEqual(
+                    tuple(output_tokens.shape), (num_tokens * dp_size, dim)
+                )
+                self.assertTrue(
+                    output_tokens[:valid_token_counts].equal(ref_output_tokens)
+                )
+            else:
+                valid_portions = []
+                output_tokens = output_tokens.view(dp_size, -1, dim)
+                for i in range(dp_size):
+                    local_offset = token_counts[i, :expert_start].sum()
+                    valid_tokens = token_counts[i, expert_start:expert_end].sum()
+                    valid_portions.append(
+                        output_tokens[i, local_offset : local_offset + valid_tokens, :]
+                    )
+                self.assertTrue(torch.cat(valid_portions).equal(ref_output_tokens))
 
 
 def _get_scores_without_ties(
