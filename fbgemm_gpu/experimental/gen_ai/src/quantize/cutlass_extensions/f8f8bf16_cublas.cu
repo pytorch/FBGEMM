@@ -10,12 +10,24 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/core/ScalarType.h>
 #include <c10/cuda/CUDAGuard.h>
-
-#include "cublas_utils.h"
+#include <cublas_v2.h>
 
 namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
+
+#define CUBLAS_WORKSPACE_SIZE 4194304
+
+namespace {
+
+inline void checkCublasStatus(cublasStatus_t status) {
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    printf("cuBLAS API failed with status %d\n", status);
+    throw std::logic_error("cuBLAS API failed");
+  }
+}
+
+} // namespace
 
 at::Tensor f8f8bf16_cublas(
     at::Tensor A, // FP8
