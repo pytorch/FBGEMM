@@ -12,11 +12,11 @@
 #include <cutlass/util/packed_stride.hpp>
 
 // clang-format off
-  // The fixed ordering of the headers is required for CUTLASS 3.2+
-  #include <cute/tensor.hpp>
-  #include <cutlass/gemm/collective/collective_builder.hpp>     // @manual
-  #include <cutlass/gemm/device/gemm_universal_adapter.h>       // @manual
-  #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
+// The fixed ordering of the headers is required for CUTLASS 3.2+
+#include <cute/tensor.hpp>
+#include <cutlass/gemm/collective/collective_builder.hpp>     // @manual
+#include <cutlass/gemm/device/gemm_universal_adapter.h>       // @manual
+#include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
@@ -27,69 +27,6 @@ inline int64_t _byte_align(int64_t offset) {
     offset += (16 - remainder);
   }
   return offset;
-}
-
-template <
-    typename ProblemShape,
-    typename ElementA,
-    typename ElementB,
-    typename ElementC,
-    typename ElementComputeEpilogue,
-    typename StrideA,
-    typename StrideB,
-    typename StrideC,
-    typename LayoutSFA,
-    typename LayoutSFB,
-    typename ElementGlobalScale,
-    typename Sm1xxBlkScaledConfig>
-__global__ void set_kernel_args_kernel(
-    int i, // Group index
-    int64_t G, // Total groups.
-    int64_t M,
-    int64_t N,
-    int64_t K,
-    ProblemShape* problem_shape_ptr,
-    ElementA* xq,
-    const ElementA** xq_ptr,
-    ElementB* wq,
-    const ElementB** wq_ptr,
-    ElementComputeEpilogue* x_scale,
-    const ElementComputeEpilogue** x_scale_ptr,
-    ElementComputeEpilogue* w_scale,
-    const ElementComputeEpilogue** w_scale_ptr,
-    ElementC* output,
-    ElementC** output_ptr,
-    StrideA* stride_a_ptr,
-    StrideB* stride_b_ptr,
-    StrideC* stride_c_ptr,
-    LayoutSFA* layout_SFA,
-    LayoutSFB* layout_SFB,
-    ElementGlobalScale* global_scale,
-    const ElementGlobalScale** global_scale_ptr) {
-  uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each kernel annoyingly can only set the kernel args for one group.
-  // This could only be avoided with complicated memory management.
-  if (idx == 0) {
-    problem_shape_ptr[i] = ProblemShape(N, M, K);
-    xq_ptr[i] = xq;
-    wq_ptr[i] = wq;
-    x_scale_ptr[i] = x_scale;
-    w_scale_ptr[i] = w_scale;
-    output_ptr[i] = output;
-    stride_a_ptr[i] = cutlass::make_cute_packed_stride(
-        StrideA{}, cute::make_shape(int(M), int(K), 1));
-    stride_b_ptr[i] = cutlass::make_cute_packed_stride(
-        StrideB{}, cute::make_shape(int(N), int(K), 1));
-    stride_c_ptr[i] = cutlass::make_cute_packed_stride(
-        StrideC{}, cute::make_shape(int(N), int(M), 1));
-    layout_SFA[i] = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
-        cute::make_shape(int(M), int(N), int(K), 1));
-    layout_SFB[i] = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
-        cute::make_shape(int(M), int(N), int(K), 1));
-    if (global_scale != nullptr) {
-      global_scale_ptr[i] = global_scale;
-    }
-  }
 }
 
 template <
@@ -201,7 +138,6 @@ __global__ void set_stacked_kernel_args_kernel(
 }
 
 template <
-    typename InputType,
     typename InputQuantType,
     int TB_M,
     int TB_N,
@@ -210,25 +146,21 @@ template <
     int TBS_N,
     int TBS_K>
 at::Tensor f4f4bf16_grouped_impl(
-    InputType XQ, // FP4
-    InputType WQ, // FP4
-    InputType x_scale,
-    InputType w_scale,
+    at::Tensor XQ, // FP4
+    at::Tensor WQ, // FP4
+    at::Tensor x_scale,
+    at::Tensor w_scale,
     at::Tensor output,
     int64_t G,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
-    std::optional<InputType> global_scale,
+    std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding) {
   // The number of groups the kernel uses may vary.
   int kernel_groups = G;
 
   at::TensorOptions options;
-  if constexpr (std::is_same_v<InputType, at::TensorList>) {
-    options = XQ[0].options();
-  } else {
-    options = XQ.options();
-  }
+  options = XQ.options();
 
   // Return early if there are no elements in the output.
   if (output.numel() == 0) {
@@ -244,12 +176,21 @@ at::Tensor f4f4bf16_grouped_impl(
   using LayoutA = cutlass::layout::RowMajor;
   using LayoutB = cutlass::layout::ColumnMajor;
   using LayoutC = cutlass::layout::RowMajor;
+
+  using ElementAUnderlying = typename ElementA::DataType;
+  using ElementBUnderlying = typename ElementB::DataType;
+
+  constexpr int AlignmentA =
+      128 / cutlass::sizeof_bits<ElementAUnderlying>::value;
+  constexpr int AlignmentB =
+      128 / cutlass::sizeof_bits<ElementBUnderlying>::value;
+  constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
+
   using LayoutA_Transpose =
       typename cutlass::layout::LayoutTranspose<LayoutA>::type;
   using LayoutB_Transpose =
       typename cutlass::layout::LayoutTranspose<LayoutB>::type;
-  constexpr int AlignmentA = 32;
-  constexpr int AlignmentB = 32;
+
   using ElementGlobalScale = float;
   using ElementAccumulator = float;
   using ArchTag = cutlass::arch::Sm100;
@@ -289,10 +230,10 @@ at::Tensor f4f4bf16_grouped_impl(
           //   space.
           ElementC,
           typename cutlass::layout::LayoutTranspose<LayoutC>::type*,
-          128 / cutlass::sizeof_bits<ElementC>::value,
+          AlignmentC,
           ElementC,
           typename cutlass::layout::LayoutTranspose<LayoutC>::type*,
-          128 / cutlass::sizeof_bits<ElementC>::value,
+          AlignmentC,
           EpilogueSchedule>::CollectiveOp;
 
   using CollectiveMainloop =
@@ -421,9 +362,10 @@ at::Tensor f4f4bf16_grouped_impl(
 
   auto stream = at::cuda::getCurrentCUDAStream().stream();
 
-  if constexpr (std::is_same_v<
-                    InputQuantType,
-                    cutlass::nv_float4_t<cutlass::float_e2m1_t>>) {
+  // NVFP4 uses global scale
+  constexpr bool is_nvfp4 = std::
+      is_same_v<InputQuantType, cutlass::nv_float4_t<cutlass::float_e2m1_t>>;
+  if constexpr (is_nvfp4) {
     TORCH_CHECK(global_scale.has_value(), "global_scale is required in nvfp4.");
   }
 
@@ -431,233 +373,89 @@ at::Tensor f4f4bf16_grouped_impl(
   using Sm1xxBlkScaledConfig =
       typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
-  // Set kernel arguments for tensor list inputs.
-  // The strategy here is to iterate over each group and set the corresponding
-  // device memory separately. This is the best way to allow true dynamic
-  // shapes.
-  if constexpr (std::is_same_v<InputType, at::TensorList>) {
-    int64_t _output_offset = 0;
-    for (int i = 0; i < G; ++i) {
-      // Compute buffer pointers based on input type.
-      int64_t M = XQ[i].size(0);
-      int64_t N = WQ[i].size(0);
-      int64_t K = XQ[i].size(1) * 2; // Since K is packed
+  // For Tensor inputs, we can set all group arguments in a single kernel
+  // launch.
+  TORCH_CHECK(
+      !zero_start_index_M.has_value() ||
+          zero_start_index_M->dtype() == at::kLong,
+      "zero_start_index_M must be int64.");
 
-      // Launch a kernel to set one group's arguments.
-      // NVFP4 args kernel
-      if constexpr (std::is_same_v<
-                        InputQuantType,
-                        cutlass::nv_float4_t<cutlass::float_e2m1_t>>) {
-        set_kernel_args_kernel<
-            ProblemShape::UnderlyingProblemShape,
-            ElementA,
-            ElementB,
-            ElementC,
-            ElementComputeEpilogue,
-            StrideA,
-            StrideB,
-            StrideC,
-            LayoutSFA,
-            LayoutSFB,
-            ElementGlobalScale,
-            Sm1xxBlkScaledConfig><<<1, 1, 0, stream>>>(
-            i,
-            G,
-            M,
-            N,
-            K,
-            problem_shape_ptr,
-            reinterpret_cast<ElementA*>(XQ[i].data_ptr()),
-            xq_ptr,
-            reinterpret_cast<ElementB*>(WQ[i].data_ptr()),
-            wq_ptr,
-            reinterpret_cast<ElementComputeEpilogue*>(x_scale[i].data_ptr()),
-            x_scale_ptr,
-            reinterpret_cast<ElementComputeEpilogue*>(w_scale[i].data_ptr()),
-            w_scale_ptr,
-            (reinterpret_cast<ElementC*>(output.data_ptr()) + _output_offset),
-            output_ptr,
-            stride_a_ptr,
-            stride_b_ptr,
-            stride_c_ptr,
-            layout_SFA,
-            layout_SFB,
-            reinterpret_cast<ElementGlobalScale*>(
-                global_scale.value()[i].data_ptr()),
-            global_scale_ptr);
-        _output_offset += M * N;
-      }
-      // MXFP4 args kernel
-      else {
-        set_kernel_args_kernel<
-            ProblemShape::UnderlyingProblemShape,
-            ElementA,
-            ElementB,
-            ElementC,
-            ElementComputeEpilogue,
-            StrideA,
-            StrideB,
-            StrideC,
-            LayoutSFA,
-            LayoutSFB,
-            ElementGlobalScale,
-            Sm1xxBlkScaledConfig><<<1, 1, 0, stream>>>(
-            i,
-            G,
-            M,
-            N,
-            K,
-            problem_shape_ptr,
-            reinterpret_cast<ElementA*>(XQ[i].data_ptr()),
-            xq_ptr,
-            reinterpret_cast<ElementB*>(WQ[i].data_ptr()),
-            wq_ptr,
-            reinterpret_cast<ElementComputeEpilogue*>(x_scale[i].data_ptr()),
-            x_scale_ptr,
-            reinterpret_cast<ElementComputeEpilogue*>(w_scale[i].data_ptr()),
-            w_scale_ptr,
-            (reinterpret_cast<ElementC*>(output.data_ptr()) + _output_offset),
-            output_ptr,
-            stride_a_ptr,
-            stride_b_ptr,
-            stride_c_ptr,
-            layout_SFA,
-            layout_SFB,
-            nullptr,
-            nullptr);
-        _output_offset += M * N;
-      }
-    }
+  TORCH_CHECK(
+      !M_sizes.has_value() || M_sizes->dtype() == at::kLong,
+      "M_sizes must be int64.");
+  // When m_offsets is used, XQ is shape [total_M, K]. When zero_start_index_M
+  // is used, shape is [G, M, K].
+  int64_t M = XQ.size(XQ.dim() - 2);
+  int64_t N = WQ.size(1);
+  int64_t K = WQ.size(2) * 2; // Since K is packed
+
+  // Calculate the number of scale elements per group
+  int64_t num_x_scale_per_group;
+  int64_t num_w_scale_per_group;
+  TORCH_CHECK(
+      x_scale.dim() == 2 || x_scale.dim() == 3,
+      "x_scale must be either 2D or 3D tensor")
+  if (x_scale.dim() == 3) {
+    num_x_scale_per_group = x_scale.size(1) * x_scale.size(2);
   } else {
-    // For Tensor inputs, we can set all group arguments in a single kernel
-    // launch.
-    TORCH_CHECK(
-        !zero_start_index_M.has_value() ||
-            zero_start_index_M->dtype() == at::kLong,
-        "zero_start_index_M must be int64.");
-
-    TORCH_CHECK(
-        !M_sizes.has_value() || M_sizes->dtype() == at::kLong,
-        "M_sizes must be int64.");
-    // When m_offsets is used, XQ is shape [total_M, K]. When zero_start_index_M
-    // is used, shape is [G, M, K].
-    int64_t M = XQ.size(XQ.dim() - 2);
-    int64_t N = WQ.size(1);
-    int64_t K = WQ.size(2) * 2; // Since K is packed
-
-    // Calculate the number of scale elements per group
-    int64_t num_x_scale_per_group;
-    int64_t num_w_scale_per_group;
-    TORCH_CHECK(
-        x_scale.dim() == 2 || x_scale.dim() == 3,
-        "x_scale must be either 2D or 3D tensor")
-    if (x_scale.dim() == 3) {
-      num_x_scale_per_group = x_scale.size(1) * x_scale.size(2);
-    } else {
-      num_x_scale_per_group = x_scale.size(1);
-    }
-    TORCH_CHECK(
-        w_scale.dim() == 2 || w_scale.dim() == 3,
-        "w_scale must be either 2D or 3D tensor")
-    if (w_scale.dim() == 3) {
-      num_w_scale_per_group = w_scale.size(1) * w_scale.size(2);
-    } else {
-      num_w_scale_per_group = w_scale.size(1);
-    }
-
-    int64_t* M_sizes_ptr =
-        reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
-    int64_t* starting_row_after_padding_ptr = reinterpret_cast<int64_t*>(
-        starting_row_after_padding.value().data_ptr());
-    // NVFP4 stacked args kernel
-    if constexpr (std::is_same_v<
-                      InputQuantType,
-                      cutlass::nv_float4_t<cutlass::float_e2m1_t>>) {
-      set_stacked_kernel_args_kernel<
-          ProblemShape::UnderlyingProblemShape,
-          ElementA,
-          ElementB,
-          ElementC,
-          ElementComputeEpilogue,
-          StrideA,
-          StrideB,
-          StrideC,
-          LayoutSFA,
-          LayoutSFB,
-          ElementGlobalScale,
-          Sm1xxBlkScaledConfig><<<1, G, 0, stream>>>(
-          G,
-          N,
-          K,
-          num_x_scale_per_group,
-          num_w_scale_per_group,
-          problem_shape_ptr,
-          reinterpret_cast<ElementA*>(XQ.data_ptr()),
-          xq_ptr,
-          reinterpret_cast<ElementB*>(WQ.data_ptr()),
-          wq_ptr,
-          reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
-          x_scale_ptr,
-          reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
-          w_scale_ptr,
-          reinterpret_cast<ElementC*>(output.data_ptr()),
-          output_ptr,
-          stride_a_ptr,
-          stride_b_ptr,
-          stride_c_ptr,
-          M_sizes_ptr,
-          layout_SFA,
-          layout_SFB,
-          reinterpret_cast<ElementGlobalScale*>(
-              global_scale.value().data_ptr()),
-          global_scale_ptr,
-          starting_row_after_padding_ptr);
-    }
-    // MXFP4 stacked args kernel
-    else {
-      set_stacked_kernel_args_kernel<
-          ProblemShape::UnderlyingProblemShape,
-          ElementA,
-          ElementB,
-          ElementC,
-          ElementComputeEpilogue,
-          StrideA,
-          StrideB,
-          StrideC,
-          LayoutSFA,
-          LayoutSFB,
-          ElementGlobalScale,
-          Sm1xxBlkScaledConfig><<<1, G, 0, stream>>>(
-          G,
-          N,
-          K,
-          num_x_scale_per_group,
-          num_w_scale_per_group,
-          problem_shape_ptr,
-          reinterpret_cast<ElementA*>(XQ.data_ptr()),
-          xq_ptr,
-          reinterpret_cast<ElementB*>(WQ.data_ptr()),
-          wq_ptr,
-          reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
-          x_scale_ptr,
-          reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
-          w_scale_ptr,
-          reinterpret_cast<ElementC*>(output.data_ptr()),
-          output_ptr,
-          stride_a_ptr,
-          stride_b_ptr,
-          stride_c_ptr,
-          M_sizes_ptr,
-          layout_SFA,
-          layout_SFB,
-          nullptr,
-          nullptr,
-          starting_row_after_padding_ptr);
-    }
-    // Set the number of groups to the kernel to be at most the number of
-    // non-zero rows.
-    kernel_groups = int(std::min(M, G));
+    num_x_scale_per_group = x_scale.size(1);
   }
+  TORCH_CHECK(
+      w_scale.dim() == 2 || w_scale.dim() == 3,
+      "w_scale must be either 2D or 3D tensor")
+  if (w_scale.dim() == 3) {
+    num_w_scale_per_group = w_scale.size(1) * w_scale.size(2);
+  } else {
+    num_w_scale_per_group = w_scale.size(1);
+  }
+
+  int64_t* M_sizes_ptr = reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
+  int64_t* starting_row_after_padding_ptr =
+      reinterpret_cast<int64_t*>(starting_row_after_padding.value().data_ptr());
+
+  set_stacked_kernel_args_kernel<
+      ProblemShape::UnderlyingProblemShape,
+      ElementA,
+      ElementB,
+      ElementC,
+      ElementComputeEpilogue,
+      StrideA,
+      StrideB,
+      StrideC,
+      LayoutSFA,
+      LayoutSFB,
+      ElementGlobalScale,
+      Sm1xxBlkScaledConfig><<<1, G, 0, stream>>>(
+      G,
+      N,
+      K,
+      num_x_scale_per_group,
+      num_w_scale_per_group,
+      problem_shape_ptr,
+      reinterpret_cast<ElementA*>(XQ.data_ptr()),
+      xq_ptr,
+      reinterpret_cast<ElementB*>(WQ.data_ptr()),
+      wq_ptr,
+      reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
+      x_scale_ptr,
+      reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
+      w_scale_ptr,
+      reinterpret_cast<ElementC*>(output.data_ptr()),
+      output_ptr,
+      stride_a_ptr,
+      stride_b_ptr,
+      stride_c_ptr,
+      M_sizes_ptr,
+      layout_SFA,
+      layout_SFB,
+      is_nvfp4 ? reinterpret_cast<ElementGlobalScale*>(
+                     global_scale.value().data_ptr())
+               : nullptr,
+      is_nvfp4 ? global_scale_ptr : nullptr,
+      starting_row_after_padding_ptr);
+  // Set the number of groups to the kernel to be at most the number of
+  // non-zero rows.
+  kernel_groups = int(std::min(M, G));
 
   cutlass::KernelHardwareInfo hw_info;
   // Change device_id to another value if you are running on a machine with
@@ -685,9 +483,7 @@ at::Tensor f4f4bf16_grouped_impl(
       {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr},
       hw_info};
 
-  if constexpr (std::is_same_v<
-                    InputQuantType,
-                    cutlass::nv_float4_t<cutlass::float_e2m1_t>>) {
+  if constexpr (is_nvfp4) {
     auto& fusion_args = arguments.epilogue.thread;
     fusion_args.alpha = 0;
     fusion_args.alpha_ptr_array = global_scale_ptr;
