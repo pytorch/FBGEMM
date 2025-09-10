@@ -283,22 +283,22 @@ GenEmbeddingSpMDMNBitLookup<
         asmjit::FuncFrame frame;
         frame.init(func);
 
-        frame.setDirtyRegs(
+        frame.set_dirty_regs(
             asmjit::RegGroup::kVec,
-            asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-                asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-                asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
+            asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+                asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15) |
+                asmjit::Support::bit_mask<int>(16, 17, 18, 19, 20, 21, 22, 23) |
+                asmjit::Support::bit_mask<int>(24, 25, 26, 27, 28, 29, 30, 31));
 
-        frame.setDirtyRegs(
+        frame.set_dirty_regs(
             asmjit::RegGroup::kGp,
             reg_id == 15
-                ? asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15)
-                : asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
+                ? asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15)
+                : asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
         if constexpr (ROWWISE_SPARSE) {
-          args.assignAll(
+          args.assign_all(
               output_size,
               index_size,
               data_size,
@@ -310,7 +310,7 @@ GenEmbeddingSpMDMNBitLookup<
               compressed_indices_table,
               scratchReg1_);
         } else {
-          args.assignAll(
+          args.assign_all(
               output_size,
               index_size,
               data_size,
@@ -322,11 +322,11 @@ GenEmbeddingSpMDMNBitLookup<
               scratchReg1_);
         }
 
-        args.updateFuncFrame(frame);
+        args.update_func_frame(frame);
         frame.finalize();
 
-        a->emitProlog(frame);
-        a->emitArgsAssignment(frame, args);
+        a->emit_prolog(frame);
+        a->emit_args_assignment(frame, args);
 
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
@@ -480,10 +480,10 @@ GenEmbeddingSpMDMNBitLookup<
         a->lea(
             index_size, x86::ptr(indices, index_size, areIndices64b ? 3 : 2));
 
-        asmjit::Label exit = a->newLabel();
-        asmjit::Label error = a->newLabel();
-        asmjit::Label LoopRangeIndexBegin = a->newLabel();
-        asmjit::Label LoopRangeIndexEnd = a->newLabel();
+        asmjit::Label exit = a->new_label();
+        asmjit::Label error = a->new_label();
+        asmjit::Label LoopRangeIndexBegin = a->new_label();
+        asmjit::Label LoopRangeIndexEnd = a->new_label();
 
         // rangeIndex loop begins (iterate output_size times)
         a->bind(LoopRangeIndexBegin);
@@ -491,8 +491,8 @@ GenEmbeddingSpMDMNBitLookup<
         a->jl(LoopRangeIndexEnd);
 
         if (normalize_by_lengths) {
-          asmjit::Label IfLengthsBegin = a->newLabel();
-          asmjit::Label IfLengthsEnd = a->newLabel();
+          asmjit::Label IfLengthsBegin = a->new_label();
+          asmjit::Label IfLengthsEnd = a->new_label();
           a->bind(IfLengthsBegin);
           if (use_offsets) {
             a->mov(lengths_R_, x86::dword_ptr(lengths, sizeof(offsetType)));
@@ -548,9 +548,9 @@ GenEmbeddingSpMDMNBitLookup<
           a->cmp(scratchReg1_, index_size);
           a->jg(error);
 
-          asmjit::Label LoopDataIndexBegin = a->newLabel();
-          asmjit::Label LoopDataIndexEnd = a->newLabel();
-          asmjit::Label ValidIndexLabel = a->newLabel();
+          asmjit::Label LoopDataIndexBegin = a->new_label();
+          asmjit::Label LoopDataIndexEnd = a->new_label();
+          asmjit::Label ValidIndexLabel = a->new_label();
 
           // dataIndex loop begins (iterate lengths_R_ times)
           a->bind(LoopDataIndexBegin);
@@ -597,8 +597,8 @@ GenEmbeddingSpMDMNBitLookup<
           int num_elem_per_byte = 8 / bit_rate;
           int fused_block_size = input_stride;
           if (pref_dist) {
-            asmjit::Label pref_dist_reset_start = a->newLabel();
-            asmjit::Label pref_dist_reset_end = a->newLabel();
+            asmjit::Label pref_dist_reset_start = a->new_label();
+            asmjit::Label pref_dist_reset_end = a->new_label();
             // out of bound handling for prefetch
             a->lea(
                 scratchReg2_, x86::ptr(indices, pref_dist * sizeof(indxType)));
@@ -629,8 +629,8 @@ GenEmbeddingSpMDMNBitLookup<
             a->bind(pref_dist_reset_end);
             if constexpr (ROWWISE_SPARSE) {
               asmjit::Label rowwise_sparse_pref_corner_case_begin =
-                  a->newLabel();
-              asmjit::Label rowwise_sparse_pref_corner_case_end = a->newLabel();
+                  a->new_label();
+              asmjit::Label rowwise_sparse_pref_corner_case_end = a->new_label();
               a->cmp(scratchReg2_, data_size);
               a->jae(rowwise_sparse_pref_corner_case_begin);
 
@@ -941,7 +941,7 @@ GenEmbeddingSpMDMNBitLookup<
           a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
         }
 
-        a->emitEpilog(frame);
+        a->emit_epilog(frame);
 
         // jit_fused8bitembedding_kernel fn;
         typename ReturnFunctionSignature<
@@ -949,12 +949,12 @@ GenEmbeddingSpMDMNBitLookup<
             offsetType,
             outType,
             ROWWISE_SPARSE>::jit_embedding_kernel fn;
-        asmjit::Error err = 0;
+        asmjit::Error err = asmjit::Error::kOk;
         {
           unique_lock<mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);
         }
-        if (err) {
+        if (err != asmjit::Error::kOk) {
           cout << "Error: in fn add" << '\n';
           return nullptr;
         }
