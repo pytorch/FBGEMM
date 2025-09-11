@@ -66,7 +66,7 @@ class QuantizationContext:
     row_dim: int = ROW_DIM_DEFAULT
     row_dim_quant: int = -1
     mx_group_size: int = MX_GROUP_SIZE_DEFAULT
-    rounding_mode: RoundingMode = RoundingMode.even
+    rounding_mode: Optional[RoundingMode] = RoundingMode.even
     padded_dim_sum_per_rank: Optional[List[int]] = None
 
 
@@ -167,6 +167,7 @@ class QuantizedCommCodec:
         loss_scale: Optional[float] = None,
         row_dim: Optional[int] = None,
         is_fwd: bool = True,
+        rounding_mode: Optional[RoundingMode] = None,
     ) -> None:
         if loss_scale is not None:
             if comm_precision not in [SparseType.FP16, SparseType.BF16]:
@@ -183,8 +184,12 @@ class QuantizedCommCodec:
         self._loss_scale = loss_scale
         self._is_fwd = is_fwd
         self._row_dim: int = -1 if row_dim is None else row_dim
+        self._rounding_mode: Optional[RoundingMode] = rounding_mode
         if self._comm_precision == SparseType.MX4:
             self._row_dim = MX_GROUP_SIZE_DEFAULT if row_dim is None else row_dim
+            self._rounding_mode = (
+                RoundingMode.even if rounding_mode is None else rounding_mode
+            )
 
     def encode(
         self, input_tensor: torch.Tensor, ctx: Optional[QuantizationContext] = None
@@ -258,7 +263,9 @@ class QuantizedCommCodec:
             return QuantizationContext(self._row_dim)
         if self._comm_precision == SparseType.MX4:
             return QuantizationContext(
-                row_dim=self._row_dim, mx_group_size=self._row_dim
+                row_dim=self._row_dim,
+                mx_group_size=self._row_dim,
+                rounding_mode=self._rounding_mode,
             )
         # int8 rowwise is default
         return QuantizationContext()
