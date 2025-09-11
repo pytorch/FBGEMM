@@ -58,9 +58,19 @@ def evaluate_platform_supports_fp8():
 
 def evaluate_platform_supports_mxfp8():
     if torch.cuda.is_available():
+        if torch.version.hip:
+            return False
         return torch.cuda.get_device_capability() >= (10, 0)
     return False
 
+
+def evaluate_cuda_platform_version(major: int):
+    if torch.version.cuda:
+        return torch.cuda.get_device_capability() >= (major, 0)
+    return False
+
+
+SM90_OR_LATER = evaluate_cuda_platform_version(9)
 
 SUPPORTS_FP8 = evaluate_platform_supports_fp8()
 
@@ -1166,7 +1176,9 @@ class FP8Tests(unittest.TestCase):
         N=st.sampled_from([256, 1024, 6144]),
         K=st.sampled_from([256, 512, 3584]),
         use_cudagraph=st.booleans(),
-        mode=st.sampled_from(["stacked", "torch_2d3d"]),
+        mode=st.sampled_from(
+            ["stacked"] + (["torch_2d3d"] if torch.version.hip else [])
+        ),
     )
     def test_grouped_gemm_2d_3d(
         self,
@@ -1896,191 +1908,6 @@ class FP8Tests(unittest.TestCase):
             torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X, W_bf16)
 
     @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
-    )
-    def run_gemv(
-        self, test_cases, gemv_op, atol, rtol, quantize_w=False, quantize_x=False
-    ):
-        for M, N, K in test_cases:
-            x = (
-                torch.randn(
-                    size=(M, K),
-                    dtype=torch.bfloat16,
-                    device=self.device,
-                )
-                * 0.1
-            )
-            w = (
-                torch.randn(
-                    size=(N, K),
-                    dtype=torch.bfloat16,
-                    device=self.device,
-                )
-                * 0.01
-            )
-            if quantize_w and not quantize_x:
-                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-                z = gemv_op(x, wq, w_scale)
-            elif quantize_w and quantize_x:
-                # row-wise scaling
-                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
-                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
-                z = gemv_op(xq, wq, x_scale, w_scale)
-            else:
-                z = gemv_op(x, w)
-            z_ref = (x @ w.T).to(torch.bfloat16).to(self.device)
-            torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
-
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
-    )
-    def run_gemv_batched(self, test_cases, gemv_op, atol, rtol):
-        for B, M, N, K in test_cases:
-            x = (
-                torch.randn(
-                    size=(B, M, K),
-                    dtype=torch.bfloat16,
-                    device=self.device,
-                )
-                * 0.1
-            )
-            w = (
-                torch.randn(
-                    size=(B, N, K),
-                    dtype=torch.bfloat16,
-                    device=self.device,
-                )
-                * 0.01
-            )
-            xq, x_scale = quantize_fp8_row(x)
-            x_scale = x_scale.view(B, -1)
-            assert x_scale.shape == (B, M)
-            wq, w_scale = quantize_fp8_row(w)
-            w_scale = w_scale.view(B, -1)
-            assert w_scale.shape == (B, N)
-            z = gemv_op(xq, wq, x_scale, w_scale, is_batched=True)
-            z_ref = torch.bmm(x, w.transpose(1, 2)).to(torch.bfloat16).to(self.device)
-            torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
-
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
-    )
-    def test_bf16_gemv(self) -> None:
-        test_cases = [
-            (1, 128, 256),
-            (1, 256, 256),
-            (1, 1280, 8192),
-            (1, 8192, 1024),
-            (1, 7168, 8192),
-            (1, 8192, 3584),
-            (2, 128, 256),
-            (2, 256, 256),
-            (2, 1280, 8192),
-            (2, 8192, 1024),
-            (2, 7168, 8192),
-            (2, 8192, 3584),
-            (4, 128, 256),
-            (4, 256, 256),
-            (4, 1280, 8192),
-            (4, 8192, 1024),
-            (4, 7168, 8192),
-            (4, 8192, 3584),
-        ]
-        self.run_gemv(test_cases, torch.ops.fbgemm.bf16_fast_gemv, 9.0e-3, 9.0e-3)
-
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
-    )
-    def test_bf16_fp8_gemv(self) -> None:
-        test_cases = [
-            (1, 1280, 8192),
-            (1, 8192, 1024),
-            (1, 7168, 8192),
-            (1, 8192, 3584),
-            (2, 1280, 8192),
-            (2, 8192, 1024),
-            (2, 7168, 8192),
-            (2, 8192, 3584),
-            (4, 1280, 8192),
-            (4, 8192, 1024),
-            (4, 7168, 8192),
-            (4, 8192, 3584),
-        ]
-        self.run_gemv(
-            test_cases,
-            torch.ops.fbgemm.bf16fp8bf16_fast_gemv,
-            9.0e-2,
-            9.0e-2,
-            quantize_w=True,
-        )
-
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
-    )
-    def test_fp8_fp8_gemv(self) -> None:
-        test_cases = [
-            (1, 1280, 8192),
-            (1, 8192, 1024),
-            (1, 7168, 8192),
-            (1, 8192, 3584),
-            (2, 1280, 8192),
-            (2, 8192, 1024),
-            (2, 7168, 8192),
-            (2, 8192, 3584),
-            (3, 1280, 8192),
-            (3, 8192, 1024),
-            (3, 7168, 8192),
-            (3, 8192, 3584),
-            (4, 1280, 8192),
-            (4, 8192, 1024),
-            (4, 7168, 8192),
-            (4, 8192, 3584),
-            (1, 4096, 5120),  # below are l4_17B_128E dense model shapes
-            (1, 5120, 2048),
-            (1, 896, 5120),
-            (1, 5120, 640),
-            (2, 4096, 5120),
-            (2, 5120, 2048),
-            (2, 896, 5120),
-            (2, 5120, 640),
-        ]
-        self.run_gemv(
-            test_cases,
-            torch.ops.fbgemm.fp8fp8bf16_fast_gemv,
-            9.0e-2,
-            9.0e-2,
-            quantize_w=True,
-            quantize_x=True,
-        )
-
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
-    )
-    def test_fp8_gemv_batched(self) -> None:
-        test_cases = [
-            (2, 1, 4096, 5120),
-            (2, 1, 5120, 2048),
-            (2, 1, 896, 5120),
-            (2, 1, 5120, 640),
-            (2, 1, 8192, 1024),
-            (2, 1, 7168, 8192),
-            (2, 1, 8192, 3584),
-            (2, 1, 1280, 8192),
-            (2, 2, 8192, 1024),
-            (2, 2, 7168, 8192),
-            (2, 2, 8192, 3584),
-            (2, 2, 1280, 8192),
-            (32, 1, 1280, 8192),
-            (128, 1, 1280, 8192),
-        ]
-        self.run_gemv_batched(
-            test_cases,
-            torch.ops.fbgemm.fp8fp8bf16_fast_gemv,
-            1.0e-1,
-            1.0e-1,
-        )
-
-    @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet supported."
     )
     @settings(deadline=None)
@@ -2139,6 +1966,181 @@ class FP8Tests(unittest.TestCase):
             zq = torch.ops.fbgemm.f8f8bf16_lite(xq, wq, x_scale * w_scale)
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=9.0e-2, rtol=9.0e-2)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Skip when GPU is not available")
+@unittest.skipIf(not SM90_OR_LATER, "Skip when not SM90+")
+class FastGemvTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.device = torch.accelerator.current_accelerator()
+
+    def run_gemv(
+        self, test_cases, gemv_op, atol, rtol, quantize_w=False, quantize_x=False
+    ):
+        for M, N, K in test_cases:
+            x = (
+                torch.randn(
+                    size=(M, K),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.1
+            )
+            w = (
+                torch.randn(
+                    size=(N, K),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.01
+            )
+            if quantize_w and not quantize_x:
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+                z = gemv_op(x, wq, w_scale)
+            elif quantize_w and quantize_x:
+                # row-wise scaling
+                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+                z = gemv_op(xq, wq, x_scale, w_scale)
+            else:
+                z = gemv_op(x, w)
+            z_ref = (x @ w.T).to(torch.bfloat16).to(self.device)
+            torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
+
+    def run_gemv_batched(self, test_cases, gemv_op, atol, rtol):
+        for B, M, N, K in test_cases:
+            x = (
+                torch.randn(
+                    size=(B, M, K),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.1
+            )
+            w = (
+                torch.randn(
+                    size=(B, N, K),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.01
+            )
+            xq, x_scale = quantize_fp8_row(x)
+            x_scale = x_scale.view(B, -1)
+            assert x_scale.shape == (B, M)
+            wq, w_scale = quantize_fp8_row(w)
+            w_scale = w_scale.view(B, -1)
+            assert w_scale.shape == (B, N)
+            z = gemv_op(xq, wq, x_scale, w_scale, is_batched=True)
+            z_ref = torch.bmm(x, w.transpose(1, 2)).to(torch.bfloat16).to(self.device)
+            torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
+
+    def test_bf16_gemv(self) -> None:
+        test_cases = [
+            (1, 128, 256),
+            (1, 256, 256),
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+            (2, 128, 256),
+            (2, 256, 256),
+            (2, 1280, 8192),
+            (2, 8192, 1024),
+            (2, 7168, 8192),
+            (2, 8192, 3584),
+            (4, 128, 256),
+            (4, 256, 256),
+            (4, 1280, 8192),
+            (4, 8192, 1024),
+            (4, 7168, 8192),
+            (4, 8192, 3584),
+        ]
+        self.run_gemv(test_cases, torch.ops.fbgemm.bf16_fast_gemv, 9.0e-3, 9.0e-3)
+
+    def test_bf16_fp8_gemv(self) -> None:
+        test_cases = [
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+            (2, 1280, 8192),
+            (2, 8192, 1024),
+            (2, 7168, 8192),
+            (2, 8192, 3584),
+            (4, 1280, 8192),
+            (4, 8192, 1024),
+            (4, 7168, 8192),
+            (4, 8192, 3584),
+        ]
+        self.run_gemv(
+            test_cases,
+            torch.ops.fbgemm.bf16fp8bf16_fast_gemv,
+            9.0e-2,
+            9.0e-2,
+            quantize_w=True,
+        )
+
+    def test_fp8_fp8_gemv(self) -> None:
+        test_cases = [
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+            (2, 1280, 8192),
+            (2, 8192, 1024),
+            (2, 7168, 8192),
+            (2, 8192, 3584),
+            (3, 1280, 8192),
+            (3, 8192, 1024),
+            (3, 7168, 8192),
+            (3, 8192, 3584),
+            (4, 1280, 8192),
+            (4, 8192, 1024),
+            (4, 7168, 8192),
+            (4, 8192, 3584),
+            (1, 4096, 5120),  # below are l4_17B_128E dense model shapes
+            (1, 5120, 2048),
+            (1, 896, 5120),
+            (1, 5120, 640),
+            (2, 4096, 5120),
+            (2, 5120, 2048),
+            (2, 896, 5120),
+            (2, 5120, 640),
+        ]
+        self.run_gemv(
+            test_cases,
+            torch.ops.fbgemm.fp8fp8bf16_fast_gemv,
+            9.0e-2,
+            9.0e-2,
+            quantize_w=True,
+            quantize_x=True,
+        )
+
+    def test_fp8_gemv_batched(self) -> None:
+        test_cases = [
+            (2, 1, 4096, 5120),
+            (2, 1, 5120, 2048),
+            (2, 1, 896, 5120),
+            (2, 1, 5120, 640),
+            (2, 1, 8192, 1024),
+            (2, 1, 7168, 8192),
+            (2, 1, 8192, 3584),
+            (2, 1, 1280, 8192),
+            (2, 2, 8192, 1024),
+            (2, 2, 7168, 8192),
+            (2, 2, 8192, 3584),
+            (2, 2, 1280, 8192),
+            (32, 1, 1280, 8192),
+            (128, 1, 1280, 8192),
+        ]
+        self.run_gemv_batched(
+            test_cases,
+            torch.ops.fbgemm.fp8fp8bf16_fast_gemv,
+            1.0e-1,
+            1.0e-1,
+        )
 
 
 @unittest.skipIf(

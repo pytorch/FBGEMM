@@ -39,6 +39,7 @@
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/device_sort.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 
 #if !(                                                  \
@@ -165,8 +166,8 @@ struct __align__(8) i8x8 {
 };
 
 __global__ void per_tensor_quantize_i8_kernel(
-    at::PackedTensorAccessor64<at::BFloat16, 1, at::RestrictPtrTraits> X,
-    at::PackedTensorAccessor64<int8_t, 1, at::RestrictPtrTraits> XQ,
+    pta::PackedTensorAccessor64<at::BFloat16, 1, at::RestrictPtrTraits> X,
+    pta::PackedTensorAccessor64<int8_t, 1, at::RestrictPtrTraits> XQ,
     at::BFloat16* scale_device,
     float inv_scale) {
   auto N = X.size(0);
@@ -237,16 +238,17 @@ at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
   dim3 threads = kThreadsPerBlock;
   dim3 blocks =
       cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
-  per_tensor_quantize_i8_kernel<<<
+
+  FBGEMM_LAUNCH_KERNEL(
+      (per_tensor_quantize_i8_kernel),
       blocks,
       threads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      X.packed_accessor64<at::BFloat16, 1, at::RestrictPtrTraits>(),
-      XQ.packed_accessor64<int8_t, 1, at::RestrictPtrTraits>(),
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(X, at::BFloat16, 1, 64),
+      PTA_B(XQ, int8_t, 1, 64),
       nullptr,
       inv_scale);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return XQ;
 }
 
@@ -265,16 +267,16 @@ std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(
   dim3 blocks =
       cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
 
-  per_tensor_quantize_i8_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (per_tensor_quantize_i8_kernel),
       blocks,
       threads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      X.packed_accessor64<at::BFloat16, 1, at::RestrictPtrTraits>(),
-      XQ.packed_accessor64<int8_t, 1, at::RestrictPtrTraits>(),
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(X, at::BFloat16, 1, 64),
+      PTA_B(XQ, int8_t, 1, 64),
       scale.data_ptr<at::BFloat16>(),
       0.0);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {XQ, scale};
 }
 
@@ -355,16 +357,16 @@ at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale) {
   constexpr int32_t kThreadsPerBlock = 1024;
   dim3 threads = std::min<int32_t>(kThreadsPerBlock, X1.size(1) / 8);
   dim3 blocks = X1.size(0);
-  silu_mul_quantize_i8_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (silu_mul_quantize_i8_kernel),
       blocks,
       threads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       X1.packed_accessor64<at::BFloat16, 2, at::RestrictPtrTraits>(),
       X2.packed_accessor64<at::BFloat16, 2, at::RestrictPtrTraits>(),
       Y.packed_accessor64<int8_t, 2, at::RestrictPtrTraits>(),
       inv_scale);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return Y;
 }
 
@@ -434,7 +436,7 @@ DEVICE_INLINE float stochastic_rounding_scalar_fp8(
 }
 
 template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
-__global__ void scaleMatrix(
+__global__ void scaleMatrix1(
     T_OUT* const output,
     T_S const* const input_scale,
     T_IN const* const input,
@@ -448,7 +450,7 @@ __global__ void scaleMatrix(
 }
 
 template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
-__global__ void scaleMatrix(
+__global__ void scaleMatrix2(
     T_OUT* const output,
     T_S const* const input_scale,
     T_IN const* const input,
@@ -483,7 +485,7 @@ __global__ void scaleMatrix(
 }
 
 template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
-__global__ void scaleMatrixRowwise(
+__global__ void scaleMatrixRowwise2(
     T_OUT* const output,
     T_S const* const input_scale,
     T_IN const* const input,
@@ -524,7 +526,7 @@ __global__ void scaleMatrixRowwise(
 }
 
 template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
-__global__ void scaleMatrixRowwise(
+__global__ void scaleMatrixRowwise1(
     T_OUT* const output,
     T_S const* const input_scale,
     T_IN const* const input,
@@ -561,7 +563,7 @@ void invokeQuantizeMatrix(
     const int64_t numel,
     const int64_t lda,
     bool stochastic_rounding,
-    const cudaStream_t stream) {
+    const c10::cuda::CUDAStream stream) {
   constexpr dim3 grid(1024);
   const dim3 block(CTA_SIZE);
   if (stochastic_rounding) {
@@ -570,13 +572,30 @@ void invokeQuantizeMatrix(
     std::lock_guard<std::mutex> lock(gen.mutex());
     rng_engine_inputs =
         at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
-    scaleMatrix<true><<<grid, block, 0, stream>>>(
-        output, input_scale, input, numel, lda, rng_engine_inputs);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (scaleMatrix2<true, T_OUT, T_S, T_IN>),
+        grid,
+        block,
+        0,
+        stream,
+        output,
+        input_scale,
+        input,
+        numel,
+        lda,
+        rng_engine_inputs);
   } else {
-    scaleMatrix<true>
-        <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (scaleMatrix1<true, T_OUT, T_S, T_IN>),
+        grid,
+        block,
+        0,
+        stream,
+        output,
+        input_scale,
+        input,
+        numel,
+        lda);
   }
 }
 
@@ -588,7 +607,7 @@ void invokeQuantizeMatrixRowwise(
     const int64_t numel,
     const int64_t lda,
     bool stochastic_rounding,
-    const cudaStream_t stream) {
+    const c10::cuda::CUDAStream stream) {
   constexpr dim3 grid(1024);
   const dim3 block(CTA_SIZE);
 
@@ -599,14 +618,30 @@ void invokeQuantizeMatrixRowwise(
     rng_engine_inputs =
         at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
 
-    scaleMatrixRowwise<true><<<grid, block, 0, stream>>>(
-        output, input_scale, input, numel, lda, rng_engine_inputs);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-
+    FBGEMM_LAUNCH_KERNEL(
+        (scaleMatrixRowwise2<true, T_OUT, T_S, T_IN>),
+        grid,
+        block,
+        0,
+        stream,
+        output,
+        input_scale,
+        input,
+        numel,
+        lda,
+        rng_engine_inputs);
   } else {
-    scaleMatrixRowwise<true>
-        <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (scaleMatrixRowwise1<true, T_OUT, T_S, T_IN>),
+        grid,
+        block,
+        0,
+        stream,
+        output,
+        input_scale,
+        input,
+        numel,
+        lda);
   }
 }
 
@@ -617,12 +652,20 @@ void invokeQuantizeMatrixColwise(
     T_IN const* const input,
     const int64_t numel,
     const int64_t lda,
-    const cudaStream_t stream) {
+    const c10::cuda::CUDAStream stream) {
   constexpr dim3 grid(1024);
   const dim3 block(CTA_SIZE);
-  scaleMatrixColwise<true>
-      <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  FBGEMM_LAUNCH_KERNEL(
+      (scaleMatrixColwise<true, T_OUT, T_S, T_IN>),
+      grid,
+      block,
+      0,
+      stream,
+      output,
+      input_scale,
+      input,
+      numel,
+      lda);
 }
 
 template <typename T>
@@ -726,12 +769,17 @@ void invokeComputeScale(
     const int64_t total_elements_per_slice,
     const int64_t* bs,
     const float* scale_ub,
-    const cudaStream_t stream) {
+    const c10::cuda::CUDAStream stream) {
   constexpr dim3 block(1024);
   constexpr dim3 grid(1024);
   int64_t numel_scale = numel;
   C10_CUDA_CHECK(cudaMemsetAsync(quant_ptr, 0, sizeof(T_S), stream));
-  computeFP8QuantizeScale<<<grid, block, 0, stream>>>(
+  FBGEMM_LAUNCH_KERNEL(
+      (computeFP8QuantizeScale<T_S, T_IN>),
+      grid,
+      block,
+      0,
+      stream,
       quant_ptr,
       input,
       numel_scale,
@@ -739,7 +787,6 @@ void invokeComputeScale(
       total_elements_per_slice,
       bs,
       scale_ub);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 at::Tensor get_fp8_per_tensor_scale(
@@ -1073,7 +1120,7 @@ void invokeComputeScalesAndQuantizeMatrix(
     const int64_t lda,
     const float* scale_ub,
     bool stochastic_rounding,
-    cudaStream_t stream) {
+    const c10::cuda::CUDAStream stream) {
   dim3 grid(numel / lda);
 #ifdef USE_ROCM
   bool use_shmem = true;
@@ -1110,30 +1157,49 @@ void invokeComputeScalesAndQuantizeMatrix(
       rng_engine_inputs =
           at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
 
-      dynamicQuantizeMatrixRowwiseStoc<SCALE>
-          <<<grid, block, shmem_size, stream>>>(
-              output,
-              quant_ptr,
-              input,
-              numel,
-              lda,
-              scale_ub,
-              rng_engine_inputs);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      FBGEMM_LAUNCH_KERNEL(
+          (dynamicQuantizeMatrixRowwiseStoc<SCALE, T_OUT, T_S, T_IN>),
+          grid,
+          block,
+          shmem_size,
+          stream,
+          output,
+          quant_ptr,
+          input,
+          numel,
+          lda,
+          scale_ub,
+          rng_engine_inputs);
     } else {
-      dynamicQuantizeMatrixRowwise<SCALE><<<grid, block, shmem_size, stream>>>(
-          output, quant_ptr, input, numel, lda, scale_ub);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      FBGEMM_LAUNCH_KERNEL(
+          (dynamicQuantizeMatrixRowwise<SCALE, T_OUT, T_S, T_IN>),
+          grid,
+          block,
+          shmem_size,
+          stream,
+          output,
+          quant_ptr,
+          input,
+          numel,
+          lda,
+          scale_ub);
     }
   } else {
     dim3 block(CTA_SIZE);
-    computeFP8QuantizeScaleRowwise<SCALE>
-        <<<grid, block, 0, stream>>>(quant_ptr, input, numel, lda, scale_ub);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (computeFP8QuantizeScaleRowwise<SCALE, T_S, T_IN>),
+        grid,
+        block,
+        0,
+        stream,
+        quant_ptr,
+        input,
+        numel,
+        lda,
+        scale_ub);
     invokeQuantizeMatrixRowwise(
         output, quant_ptr, input, numel, lda, stochastic_rounding, stream);
   }
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 template <typename T_OUT, typename T_S, typename T_IN>
@@ -1143,7 +1209,7 @@ void invokeComputeScalesAndQuantizeMatrixCol(
     const T_IN* input,
     const int64_t numel,
     const int64_t lda,
-    cudaStream_t stream) {
+    c10::cuda::CUDAStream stream) {
   dim3 block(CTA_SIZE);
   dim3 grid((lda + CTA_SIZE - 1) / CTA_SIZE);
   C10_CUDA_CHECK(cudaMemsetAsync(quant_ptr, 0, lda * sizeof(T_S), stream));
@@ -1563,7 +1629,7 @@ void invokeFP4Quantization(
     int32_t* SFOuput,
     bool useUE8M0,
     int multiProcessorCount,
-    cudaStream_t stream) {
+    c10::cuda::CUDAStream stream) {
   // Grid, Block size.
   // Each thread converts 8 values.
   dim3 block(std::min(int(n / ELTS_PER_THREAD), 512));
@@ -1601,7 +1667,7 @@ template void invokeFP4Quantization(
     int32_t* SFOuput,
     bool useUE8M0,
     int multiProcessorCount,
-    cudaStream_t stream);
+    c10::cuda::CUDAStream stream);
 
 template void invokeFP4Quantization(
     int m,
@@ -1612,7 +1678,7 @@ template void invokeFP4Quantization(
     int32_t* SFOuput,
     bool useUE8M0,
     int multiProcessorCount,
-    cudaStream_t stream);
+    c10::cuda::CUDAStream stream);
 
 int64_t get_device_attribute(int64_t attribute, int64_t device_id) {
   // Return the cached value on subsequent calls
@@ -1852,7 +1918,7 @@ void fp4_fused_amax_quantize(
     __nv_bfloat16 const* const x,
     const int64_t numel,
     const int blocksize,
-    const cudaStream_t stream) {
+    const c10::cuda::CUDAStream stream) {
   const int blocks_per_cta = 4;
 
   const dim3 block(blocksize, blocks_per_cta);
@@ -1903,7 +1969,7 @@ void invokeComputeFP4GlobalAmax(
     const int64_t total_elements_per_slice,
     const int64_t* bs,
     const float* scale_ub,
-    const cudaStream_t stream) {
+    const c10::cuda::CUDAStream stream) {
   constexpr dim3 block(1024);
   constexpr dim3 grid(1024);
   int64_t numel_scale = numel;

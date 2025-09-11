@@ -38,9 +38,6 @@ else:
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:comm_ops"
     )
     torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:gemm_ops"
-    )
-    torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:quantize_ops"
     )
     torch.ops.load_library(

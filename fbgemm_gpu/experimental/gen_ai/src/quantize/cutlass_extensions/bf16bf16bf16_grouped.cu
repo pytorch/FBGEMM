@@ -152,6 +152,76 @@ get_kernel_via_heuristic(int arch, int G, int total_M, int N, int K) {
       }
     }
 
+    // Llama4.x pretraining
+    if (N == 2560 && K == 5120) {
+      if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_64_128_2_2_1_9_f;
+      } else if (total_M <= 512) {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_f;
+      } else if (total_M <= 1024) {
+        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      }
+    } else if (N == 5120 && K == 5120) {
+      if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_f;
+      } else if (total_M <= 1024) {
+        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
+      } else if (total_M <= 4096) {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_4_4_1_9_t;
+      }
+    } else if (N == 3072 && K == 6144) {
+      if (total_M <= 512) {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_f;
+      } else if (total_M <= 1024) {
+        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
+      } else if (total_M <= 2048) {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      }
+    } else if (N == 6144 && K == 6144) {
+      if (total_M <= 512) {
+        return bf16bf16bf16_grouped_128_128_128_4_1_1_9_f;
+      } else if (total_M <= 1024) {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_4_4_1_9_t;
+      }
+
+    } else if (N == 5120 && K == 1280) {
+      if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_128_128_4_1_1_9_f;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      }
+    } else if (N == 5120 && K == 2560) {
+      if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
+      } else if (total_M <= 1024) {
+        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      }
+    } else if (N == 6144 && K == 1536) {
+      if (total_M <= 4096) {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      }
+    } else if (N == 6144 && K == 3072) {
+      if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
+      } else if (total_M <= 4096) {
+        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_1_4_1_9_t;
+      }
+    }
+
     // Fallback to legacy heuristic for now.
     if (total_M <= 16) {
       return bf16bf16bf16_grouped_128_16_128_1_1_1_9_f;
@@ -207,22 +277,7 @@ at::Tensor dispatch_bf16_grouped_kernel(
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
-  static int arch = -1;
-  // Avoid expensive cudaGetDeviceProperties call.
-  if (arch < 0) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
-    if (prop.major >= 10) {
-      arch = 10;
-      int runtimeVersion;
-      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
-      TORCH_CHECK(
-          runtimeVersion >= 12080,
-          "FP8 grouped GEMM on sm100a or above requires cuda >= 12.8");
-    } else {
-      arch = 9;
-    }
-  }
+  const int arch = getDeviceArch();
 
   // Select kernel to run via heuristics or tuning.
   auto kernel = [&]() {
