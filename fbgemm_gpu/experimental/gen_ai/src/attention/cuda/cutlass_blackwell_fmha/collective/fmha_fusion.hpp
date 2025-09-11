@@ -636,6 +636,29 @@ apply_variable_length_offset(Shape const& shape, Coord const& coord) {
   return cute::make_tuple(result_shape, result_offset);
 }
 
+template <class Shape, class Idx>
+CUTE_HOST_DEVICE constexpr auto apply_variable_length_paddedkv(
+    Shape const& shape,
+    Idx const& idx,
+    int kv_length) {
+  // Use a position counter to track which element we're processing
+  int position_counter = 0;
+
+  return transform_leaf(shape, [&](auto const& s) {
+    if constexpr (is_variable_length_v<decltype(s)>) {
+      int current_pos = position_counter++;
+      if (current_pos == 1) {
+        return kv_length;
+      } else {
+        return s.cumulative_length[idx + 1] - s.cumulative_length[idx];
+      }
+    } else {
+      position_counter++;
+      return s;
+    }
+  });
+}
+
 }  // namespace cutlass::fmha::collective
 
 namespace cute {
