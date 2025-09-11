@@ -33,7 +33,8 @@ enum class EvictTriggerMode {
   DISABLED, // Do not use feature evict
   ITERATION, // Trigger based on iteration steps
   MEM_UTIL, // Trigger based on memory usage
-  MANUAL // Manually triggered by upstream
+  MANUAL, // Manually triggered by upstream
+  ID_COUNT // Trigger based on id count
 };
 inline std::string to_string(EvictTriggerMode mode) {
   switch (mode) {
@@ -45,6 +46,8 @@ inline std::string to_string(EvictTriggerMode mode) {
       return "MEM_UTIL";
     case EvictTriggerMode::MANUAL:
       return "MANUAL";
+    case EvictTriggerMode::ID_COUNT:
+      return "ID_COUNT";
   }
 }
 
@@ -102,8 +105,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
       std::optional<std::vector<int64_t>> counter_thresholds,
       std::optional<std::vector<double>> counter_decay_rates,
       std::optional<std::vector<double>> feature_score_counter_decay_rates,
-      std::optional<std::vector<int64_t>> max_training_id_num_per_table,
-      std::optional<std::vector<double>> target_eviction_percent_per_table,
+      std::optional<std::vector<int64_t>> training_id_eviction_trigger_count,
+      std::optional<std::vector<int64_t>> training_id_keep_count,
       std::optional<std::vector<double>> l2_weight_thresholds,
       std::optional<std::vector<int64_t>> embedding_dims,
       std::optional<double> threshold_calculation_bucket_stride = 0.2,
@@ -120,10 +123,9 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         counter_decay_rates_(counter_decay_rates),
         feature_score_counter_decay_rates_(
             std::move(feature_score_counter_decay_rates)),
-        max_training_id_num_per_table_(
-            std::move(max_training_id_num_per_table)),
-        target_eviction_percent_per_table_(
-            std::move(target_eviction_percent_per_table)),
+        training_id_eviction_trigger_count_(
+            std::move(training_id_eviction_trigger_count)),
+        training_id_keep_count_(std::move(training_id_keep_count)),
         l2_weight_thresholds_(l2_weight_thresholds),
         embedding_dims_(embedding_dims),
         threshold_calculation_bucket_stride_(
@@ -160,6 +162,28 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
       case EvictTriggerMode::MANUAL: {
         break;
       }
+      case EvictTriggerMode::ID_COUNT: {
+        CHECK(
+            training_id_eviction_trigger_count_.has_value() &&
+            !training_id_eviction_trigger_count_.value().empty());
+        const auto& vec = training_id_eviction_trigger_count_.value();
+        eviction_trigger_stats_log = ", training_id_eviction_trigger_count: [";
+        total_id_eviction_trigger_count_ = 0;
+        for (size_t i = 0; i < vec.size(); ++i) {
+          total_id_eviction_trigger_count_ =
+              total_id_eviction_trigger_count_.value() + vec[i];
+          if (vec[i] <= 0) {
+            throw std::runtime_error(
+                "Invalid training_id_eviction_trigger_count, must be positive if ID_COUNT trigger mode is used");
+          }
+          eviction_trigger_stats_log += std::to_string(vec[i]);
+          if (i + 1 < vec.size()) {
+            eviction_trigger_stats_log += ", ";
+          }
+        }
+        eviction_trigger_stats_log += "]";
+        break;
+      }
       default:
         throw std::runtime_error("Unknown evict trigger mode");
     }
@@ -178,18 +202,21 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
 
       case EvictTriggerStrategy::BY_FEATURE_SCORE: {
         CHECK(feature_score_counter_decay_rates_.has_value());
-        CHECK(max_training_id_num_per_table_.has_value());
-        CHECK(target_eviction_percent_per_table_.has_value());
+        CHECK(training_id_eviction_trigger_count_.has_value());
+        CHECK(training_id_keep_count_.has_value());
+        CHECK(total_id_eviction_trigger_count_.has_value());
         CHECK(threshold_calculation_bucket_stride_.has_value());
         CHECK(threshold_calculation_bucket_num_.has_value());
         CHECK(ttls_in_mins_.has_value());
         LOG(INFO) << "eviction config, trigger mode:"
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
-                  << ", max_training_id_num_per_table: "
-                  << max_training_id_num_per_table_.value()
-                  << ", target_eviction_percent_per_table:"
-                  << target_eviction_percent_per_table_.value()
+                  << ", training_id_eviction_trigger_count: "
+                  << training_id_eviction_trigger_count_.value()
+                  << ", training_id_keep_count:"
+                  << training_id_keep_count_.value()
+                  << ", total_id_eviction_trigger_count: "
+                  << total_id_eviction_trigger_count_.value()
                   << ", ttls_in_mins: " << ttls_in_mins_.value()
                   << ", threshold_calculation_bucket_stride: "
                   << threshold_calculation_bucket_stride_.value()
@@ -252,8 +279,9 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
   std::optional<std::vector<int64_t>> counter_thresholds_;
   std::optional<std::vector<double>> counter_decay_rates_;
   std::optional<std::vector<double>> feature_score_counter_decay_rates_;
-  std::optional<std::vector<int64_t>> max_training_id_num_per_table_;
-  std::optional<std::vector<double>> target_eviction_percent_per_table_;
+  std::optional<std::vector<int64_t>> training_id_eviction_trigger_count_;
+  std::optional<std::vector<int64_t>> training_id_keep_count_;
+  std::optional<int64_t> total_id_eviction_trigger_count_;
   std::optional<std::vector<double>> l2_weight_thresholds_;
   std::optional<std::vector<int64_t>> embedding_dims_;
   std::optional<double> threshold_calculation_bucket_stride_;
@@ -953,8 +981,8 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
       const std::vector<int64_t>& sub_table_hash_cumsum,
       const std::vector<double>& decay_rates,
-      const std::vector<int64_t>& max_training_id_num_per_table,
-      const std::vector<double>& target_eviction_percent_per_table,
+      const std::vector<int64_t>& training_id_eviction_trigger_count,
+      const std::vector<int64_t>& training_id_keep_count,
       const std::vector<int64_t>& ttls_in_mins,
       const double threshold_calculation_bucket_stride,
       const int64_t threshold_calculation_bucket_num,
@@ -972,8 +1000,8 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
             is_training,
             test_mode),
         decay_rates_(decay_rates),
-        max_training_id_num_per_table_(max_training_id_num_per_table),
-        target_eviction_percent_per_table_(target_eviction_percent_per_table),
+        training_id_eviction_trigger_count_(training_id_eviction_trigger_count),
+        training_id_keep_count_(training_id_keep_count),
         ttls_in_mins_(ttls_in_mins),
         threshold_calculation_bucket_stride_(
             threshold_calculation_bucket_stride),
@@ -1007,6 +1035,13 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       bool add_new_block = false) {
     int64_t key = FixedBlockPool::get_key(block);
     int sub_table_id = this->get_sub_table_id(key);
+
+    if (ttls_in_mins_[sub_table_id] > 0) {
+      // If ttl is enabled, we don't need to populate the feature score
+      // bucket.
+      return;
+    }
+
     if (add_new_block) {
       double ratio = FixedBlockPool::get_feature_score_rate(block);
       int64_t idx = get_bucket_id_from_ratio(ratio);
@@ -1124,11 +1159,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
             this->local_blocks_num_per_shard_per_table_[table_id][shard_id];
       }
 
-      const double target_keep_ratio =
-          1 - target_eviction_percent_per_table_[table_id];
-      int64_t max_id =
-          static_cast<int64_t>(max_training_id_num_per_table_[table_id]);
-      int64_t keep_count = static_cast<int64_t>(max_id * target_keep_ratio);
+      int64_t keep_count = training_id_keep_count_[table_id];
       int64_t evict_count = total - keep_count;
 
       int64_t acc_count = 0;
@@ -1202,10 +1233,12 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
   std::vector<double> thresholds_; // Threshold for eviction.
 
   const std::vector<int64_t>&
-      max_training_id_num_per_table_; // training max id for each table.
-  const std::vector<double>&
-      target_eviction_percent_per_table_; // target eviction percent for
-                                          // each table
+      training_id_eviction_trigger_count_; // training id num for trigger
+                                           // eviction.
+  const std::vector<int64_t>&
+      training_id_keep_count_; // target keep training id num per table after
+                               // eviction.
+
   const std::vector<int64_t>& ttls_in_mins_; // Time-to-live for eviction.
   std::vector<std::vector<std::vector<size_t>>>
       local_buckets_per_shard_per_table_;
@@ -1453,8 +1486,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           kv_store,
           sub_table_hash_cumsum,
           config->feature_score_counter_decay_rates_.value(),
-          config->max_training_id_num_per_table_.value(),
-          config->target_eviction_percent_per_table_.value(),
+          config->training_id_eviction_trigger_count_.value(),
+          config->training_id_keep_count_.value(),
           config->ttls_in_mins_.value(),
           config->threshold_calculation_bucket_stride_.value(),
           config->threshold_calculation_bucket_num_.value(),

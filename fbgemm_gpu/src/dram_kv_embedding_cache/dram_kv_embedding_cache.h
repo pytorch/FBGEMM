@@ -1101,6 +1101,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         }
         break;
       }
+      case EvictTriggerMode::ID_COUNT: {
+        auto used_id_count = get_num_rows();
+        if (used_id_count > feature_evict_config_.value()
+                                ->total_id_eviction_trigger_count_.value()) {
+          trigger_feature_evict();
+        }
+        break;
+      }
       default:
         break;
     }

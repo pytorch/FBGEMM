@@ -62,7 +62,7 @@ class EmbeddingLocation(enum.IntEnum):
 
 class EvictionPolicy(NamedTuple):
     eviction_trigger_mode: int = (
-        0  # disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+        0  # disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual 4: id count
     )
     eviction_strategy: int = (
         0  # 0: timestamp, 1: counter , 2: counter + timestamp, 3: feature l2 norm 4: timestamp threshold 5: feature score
@@ -85,11 +85,11 @@ class EvictionPolicy(NamedTuple):
     feature_score_counter_decay_rates: Optional[List[float]] = (
         None  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
     )
-    max_training_id_num_per_table: Optional[List[int]] = (
-        None  # max_training_id_num_per_table for each table
+    training_id_eviction_trigger_count: Optional[List[int]] = (
+        None  # training_id_eviction_trigger_count for each table
     )
-    target_eviction_percent_per_table: Optional[List[float]] = (
-        None  # target_eviction_percent_per_table for each table
+    training_id_keep_count: Optional[List[int]] = (
+        None  # training_id_keep_count for each table
     )
     l2_weight_thresholds: Optional[List[float]] = (
         None  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
@@ -116,8 +116,8 @@ class EvictionPolicy(NamedTuple):
     meta_header_lens: Optional[List[int]] = None  # metaheader length for each table
 
     def validate(self) -> None:
-        assert self.eviction_trigger_mode in [0, 1, 2, 3], (
-            "eviction_trigger_mode must be 0, 1, 2, or 3, "
+        assert self.eviction_trigger_mode in [0, 1, 2, 3, 4], (
+            "eviction_trigger_mode must be 0, 1, 2, 3 or 4 "
             f"actual {self.eviction_trigger_mode}"
         )
         if self.eviction_trigger_mode == 0:
@@ -139,6 +139,10 @@ class EvictionPolicy(NamedTuple):
             assert (
                 self.eviction_mem_threshold_gb is not None
             ), "eviction_mem_threshold_gb must be set if eviction_trigger_mode is 2"
+        elif self.eviction_trigger_mode == 4:
+            assert (
+                self.training_id_eviction_trigger_count is not None
+            ), "training_id_eviction_trigger_count must be set if eviction_trigger_mode is 4"
 
         if self.eviction_strategy == 0:
             assert self.ttls_in_mins is not None, (
@@ -184,13 +188,13 @@ class EvictionPolicy(NamedTuple):
                 "feature_score_counter_decay_rates must be set if eviction_strategy is 5, "
                 f"actual {self.feature_score_counter_decay_rates}"
             )
-            assert self.max_training_id_num_per_table is not None, (
-                "max_training_id_num_per_table must be set if eviction_strategy is 5,"
-                f"actual {self.max_training_id_num_per_table}"
+            assert self.training_id_eviction_trigger_count is not None, (
+                "training_id_eviction_trigger_count must be set if eviction_strategy is 5,"
+                f"actual {self.training_id_eviction_trigger_count}"
             )
-            assert self.target_eviction_percent_per_table is not None, (
-                "target_eviction_percent_per_table must be set if eviction_strategy is 5,"
-                f"actual {self.target_eviction_percent_per_table}"
+            assert self.training_id_keep_count is not None, (
+                "training_id_keep_count must be set if eviction_strategy is 5,"
+                f"actual {self.training_id_keep_count}"
             )
             assert self.threshold_calculation_bucket_stride is not None, (
                 "threshold_calculation_bucket_stride must be set if eviction_strategy is 5,"
@@ -201,12 +205,12 @@ class EvictionPolicy(NamedTuple):
                 f"actual {self.threshold_calculation_bucket_num}"
             )
             assert (
-                len(self.target_eviction_percent_per_table)
+                len(self.training_id_keep_count)
                 == len(self.feature_score_counter_decay_rates)
-                == len(self.max_training_id_num_per_table)
+                == len(self.training_id_eviction_trigger_count)
             ), (
-                "feature_score_thresholds, max_training_id_num_per_table and target_eviction_percent_per_table must have the same length, "
-                f"actual {self.target_eviction_percent_per_table} vs {self.feature_score_counter_decay_rates} vs {self.max_training_id_num_per_table}"
+                "feature_score_thresholds, training_id_eviction_trigger_count and training_id_keep_count must have the same length, "
+                f"actual {self.training_id_keep_count} vs {self.feature_score_counter_decay_rates} vs {self.training_id_eviction_trigger_count}"
             )
 
 
