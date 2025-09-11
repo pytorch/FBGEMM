@@ -9,7 +9,6 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
-// clang-format on
 
 #include "f8f8bf16_rowwise_grouped/f8f8bf16_rowwise_grouped_manifest.cuh"
 #include "f8f8bf16_rowwise_grouped_sm100/f8f8bf16_rowwise_grouped_manifest.cuh"
@@ -32,22 +31,7 @@ TuningCache& getTuningCache() {
 template <typename InputType>
 Kernel_f8f8bf16_rowwise_grouped<InputType>
 get_kernel_via_heuristics(int total_M, int max_N, int max_K, int G) {
-  static int arch = -1;
-  // Avoid expensive cudaGetDeviceProperties call.
-  if (arch < 0) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
-    if (prop.major >= 10) {
-      arch = 10;
-      int runtimeVersion;
-      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
-      TORCH_CHECK(
-          runtimeVersion >= 12080,
-          "FP8 grouped GEMM on sm100a or above requires cuda >= 12.8");
-    } else {
-      arch = 9;
-    }
-  }
+  const int arch = getDeviceArch();
 
   // Use heuristics to pick the best kernel implementation.
   if (arch == 10) {
@@ -218,7 +202,16 @@ Kernel_f8f8bf16_rowwise_grouped<InputType> get_kernel_via_tuning(
   const std::string shape_key = std::to_string(total_M) + "_" +
       std::to_string(max_N) + "_" + std::to_string(max_K) + "_" +
       std::to_string(G);
-  const auto& kernels = get_f8f8bf16_rowwise_grouped_kernels<InputType>();
+
+  const auto& kernels = []() {
+    const int arch = getDeviceArch();
+    if (arch == 9) {
+      return get_f8f8bf16_rowwise_grouped_kernels<InputType>();
+    } else {
+      return get_f8f8bf16_rowwise_grouped_kernels_sm100<InputType>();
+    }
+  }();
+
   auto kernel = cache.findBestKernelMaybeAutotune(
       shape_key,
       kernels,

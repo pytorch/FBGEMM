@@ -16,13 +16,8 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <ATen/cuda/Atomic.cuh>
-#include <cub/cub.cuh>
 
-// clang-format off
-#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
-#include <cub/device/device_scan.cuh>
-#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
-// clang-format on
+#include "fbgemm_gpu/utils/device_sort.cuh"
 
 #include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"

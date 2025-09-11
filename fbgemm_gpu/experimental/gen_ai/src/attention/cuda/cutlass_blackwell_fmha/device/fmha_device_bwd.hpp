@@ -58,7 +58,8 @@ template<
     class ElementAccumulator,
     class TileShape,
     bool IsMla,
-    class Mask
+    class Mask,
+    bool IsDeterministic=false
 >
 class Sm100FmhaBwd {
 private:
@@ -123,6 +124,8 @@ public:
 
     ElementAccumulator softmax_scale;
 
+    int* ptr_dq_semaphore;
+
     int window_size_left = -1;
     int window_size_right = -1;
 
@@ -138,7 +141,7 @@ public:
 
   using OperationMha = cutlass::fmha::device::FMHA<
       cutlass::fmha::kernel::Sm100FmhaBwdKernelTmaWarpSpecialized<
-          ProblemShape, Element, ElementAccumulator, TileShape, Mask
+          ProblemShape, Element, ElementAccumulator, TileShape, Mask, IsDeterministic
       >
   >;
 
@@ -223,7 +226,10 @@ private:
         scaled_lse, to_bwd_stride(stride_scaled_lse),
         sum_OdO, to_bwd_stride(stride_sum_OdO),
         dQ_acc, to_bwd_stride(stride_dQ),
-        args.softmax_scale, args.window_size_left, args.window_size_right},
+        args.softmax_scale,
+        args.ptr_dq_semaphore,
+        args.window_size_left,
+        args.window_size_right },
       { args.ptr_dK, to_bwd_stride(args.stride_dK),
         args.ptr_dV, to_bwd_stride(args.stride_dV) },
       args.hw_info

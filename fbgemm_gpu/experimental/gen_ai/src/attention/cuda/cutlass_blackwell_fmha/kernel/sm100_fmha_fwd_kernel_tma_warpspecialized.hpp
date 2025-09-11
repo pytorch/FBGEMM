@@ -255,13 +255,9 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
     // If seqlen_kv is provided, use it to determine the sequence length for
     // key-value pairs
     if (params.seqlen_kv != nullptr) {
-      return transform_leaf(problem_shape, [&](auto const& s) {
-        if constexpr (is_variable_length_v<decltype(s)>) {
-          return params.seqlen_kv[batch_idx];
-        } else {
-          return s;
-        }
-      });
+      // Position-aware replacement that only replaces K/V (position 1)
+      return apply_variable_length_paddedkv(
+          problem_shape, batch_idx, params.seqlen_kv[batch_idx]);
     } else {
       // Fall back to the original behavior
       return apply_variable_length(params.problem_shape, batch_idx);

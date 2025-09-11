@@ -134,7 +134,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     const bool enable_optimizer_offloading,
     {%- endif %}
     {%- if is_index_select %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
     {%- else %}
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
@@ -220,7 +220,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     const bool enable_optimizer_offloading,
     {%- endif %}
     {%- if is_index_select %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
     {%- else %}
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
@@ -292,7 +292,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     const int32_t max_D,
     const int32_t max_vecs_per_thread,
     {%- if is_index_select %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
     {%- else %}
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
@@ -966,7 +966,6 @@ Tensor {{ embedding_cuda_op }}(
             {%- endif %}
 
             DISPATCH_OPTIMAL_KERNEL(max_D, [&] {
-
                 auto long_run_ids = at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
@@ -981,7 +980,6 @@ Tensor {{ embedding_cuda_op }}(
                     long_run_id_to_really_long_run_ids =
                         at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
                 }
-
 
                 auto num_really_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
                 auto grad_accum_counter = at::empty(
@@ -1133,7 +1131,7 @@ Tensor {{ embedding_cuda_op }}(
                         enable_optimizer_offloading,
                         {%- endif %}
                         {%- if is_index_select %}
-                        grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        PTA_B(grad_offsets, int64_t, 1, 32),
                         permute_output_dim_0_1
                         {%- else %}
                         {{ args.split_kernel_arg_constructors | make_pta_acc_builder_format() | join(",\n                        ") }}
@@ -1292,7 +1290,7 @@ Tensor {{ embedding_cuda_op }}(
                         enable_optimizer_offloading,
                         {%- endif %}
                         {%- if is_index_select %}
-                        grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        PTA_B(grad_offsets, int64_t, 1, 32),
                         permute_output_dim_0_1
                         {%- else %}
                         {{ args.split_kernel_arg_constructors | make_pta_acc_builder_format() | join(",\n                        ") }}
