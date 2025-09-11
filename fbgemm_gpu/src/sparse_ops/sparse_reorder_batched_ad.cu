@@ -70,7 +70,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
 
   const int64_t grid_size = (B * T + 32 - 1) / 32;
   TORCH_CHECK(
-      grid_size >= 0,
+      grid_size > 0,
       "grid_size must be positive, got ",
       grid_size,
       " where B =",
