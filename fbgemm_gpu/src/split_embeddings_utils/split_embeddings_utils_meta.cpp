@@ -23,7 +23,8 @@ generate_vbe_metadata_meta(
     const bool /*nobag*/,
     const c10::SymInt /*max_B_feature_rank*/,
     const int64_t /*info_B_num_bits*/,
-    const c10::SymInt total_B) {
+    const c10::SymInt total_B,
+    const std::optional<Tensor>& /*vbe_output_offsets*/ = std::nullopt) {
   Tensor row_output_offsets =
       at::empty_symint({total_B}, output_offsets_feature_rank.options());
   Tensor b_t_map = at::empty_symint({total_B}, B_offsets.options());
