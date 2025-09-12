@@ -51,10 +51,9 @@ struct Half4 {
 
   __device__ inline void store(at::Half* p) {
 #ifdef USE_ROCM
-    p[0] = __low2half(a);
-    p[1] = __high2half(a);
-    p[2] = __low2half(b);
-    p[3] = __high2half(b);
+    *reinterpret_cast<unsigned int*>(p) = *reinterpret_cast<unsigned int*>(&a);
+    *reinterpret_cast<unsigned int*>(p + 2) =
+        *reinterpret_cast<unsigned int*>(&b);
 #elif CUDA_VERSION >= 9000
 
 #ifndef __HALF2_TO_UI

@@ -2082,6 +2082,51 @@ class BF16I4ShuffledGroupedGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class BF16GroupedGrad(QuantizeOpBase):
+    """
+    BF16 grouped matmul with grad inputs backed by cutlass
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        # Convert m_values into offsets into grouped tensor.
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        # Group weights as single tensor.
+        w = torch.stack(w, dim=0).contiguous()
+        # Prepare online dgrad during pretraining backward.
+        w_perm = w.permute(0, 2, 1).contiguous()
+        # w.contiguous() is very expensive so handling it inside the gmm kernel for free
+        w = w_perm.permute(0, 2, 1)
+
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, w, m_sizes
+
+    def quantize(self, x, w, m_sizes):
+        return x, w, m_sizes
+
+    def compute(self, x, w, m_sizes):
+        return torch.ops.fbgemm.bf16bf16bf16_grouped_grad(x, w, m_sizes)
+
+    def quantize_and_compute(self, x, w, m_sizes):
+        x, w, m_sizes = self.quantize(x, w, m_sizes)
+        return self.compute(x, w, m_sizes)
+
+    @property
+    def name(self) -> str:
+        return "bf16_grouped_grad"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class BF16GroupedStacked(QuantizeOpBase):
     """
     BF16 grouped matmul with stacked inputs backed by cutlass or ck.
