@@ -690,7 +690,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
                 # Please refer to https://fburl.com/gdoc/nuupjwqq for the following eviction parameters.
                 eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
-                    self.kv_zch_params.eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+                    self.kv_zch_params.eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual, 4: id count
                     self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter, 2: counter + timestamp, 3: feature l2 norm, 4: timestamp threshold 5: feature score
                     self.kv_zch_params.eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
                     eviction_mem_threshold_gb,  # mem_util_threshold_in_GB if trigger mode is mem_util
@@ -698,8 +698,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     self.kv_zch_params.eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is counter
                     self.kv_zch_params.eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is counter
                     self.kv_zch_params.eviction_policy.feature_score_counter_decay_rates,  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
-                    self.kv_zch_params.eviction_policy.max_training_id_num_per_table,  # max_training_id_num for each table
-                    self.kv_zch_params.eviction_policy.target_eviction_percent_per_table,  # target_eviction_percent for each table
+                    self.kv_zch_params.eviction_policy.training_id_eviction_trigger_count,  # training_id_eviction_trigger_count for each table
+                    self.kv_zch_params.eviction_policy.training_id_keep_count,  # training_id_keep_count for each table
                     self.kv_zch_params.eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
                     table_dims.tolist() if table_dims is not None else None,
                     self.kv_zch_params.eviction_policy.threshold_calculation_bucket_stride,  # threshold_calculation_bucket_stride if eviction strategy is feature score
@@ -1046,9 +1046,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
                 self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.processed_counts"
-                )
-                self.stats_reporter.register_stats(
-                    f"eviction.feature_table.{t}.eviction_threshold_with_dry_run"
                 )
                 self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.evict_rate"
@@ -3925,11 +3922,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 event_name=f"eviction.feature_table.{t}.processed_counts",
                 data_bytes=int(processed_counts[t].item()),
                 enable_tb_metrics=True,
-            )
-            stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name=f"eviction.feature_table.{t}.eviction_threshold_with_dry_run",
-                data_bytes=float(eviction_threshold_with_dry_run[t].item()),
             )
             if processed_counts[t].item() != 0:
                 stats_reporter.report_data_amount(
