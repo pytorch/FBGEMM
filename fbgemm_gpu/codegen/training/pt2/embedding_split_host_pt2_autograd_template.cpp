@@ -732,6 +732,7 @@ class {{ autograd_func }} :
     TORCH_CHECK(aux_tensor[IDX_LXU_CACHE_LOCATIONS].has_value(), "lxu_cache_locations should have value.");
     const auto lxu_cache_locations = aux_tensor[IDX_LXU_CACHE_LOCATIONS].value();
     const auto is_experimental = aux_bool[IDX_IS_EXPERIMENTAL_TBE];
+    const auto mixed_D = aux_bool[IDX_MIXED_D];
     {%- endif %}
 
     // Default values for Dynamo tracing

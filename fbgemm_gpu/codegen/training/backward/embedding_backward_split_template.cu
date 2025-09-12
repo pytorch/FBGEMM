@@ -652,6 +652,16 @@ Tensor {{ embedding_cuda_op }}(
 
     CUDA_DEVICE_GUARD(dev_weights);
 
+    #ifdef USE_ROCM
+        if (!rocm::is_supported_cdna()) {
+            TORCH_WARN_ONCE("Running on non-CDNA architecture. Performance may be suboptimal.");
+        }
+        else {
+            // Ensure we're running on a supported CDNA architecture (including MI350)
+            TORCH_WARN_ONCE("Running on CDNA architecture");
+        }
+    #endif
+    
     {%- if nobag and not is_index_select %}
     auto max_D = D;
     {%- endif %}
@@ -1042,7 +1052,7 @@ Tensor {{ embedding_cuda_op }}(
 
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
-                    int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                    int32_t num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
                         [&] (int num_groups) {
@@ -1053,7 +1063,7 @@ Tensor {{ embedding_cuda_op }}(
                     );
 
                     const int32_t cta_per_row_grid_size = std::min(
-                        div_round_up(total_unique_indices, kMaxThreads),
+                        div_round_up(total_unique_indices, (kMaxThreads/4)),
                         get_max_thread_blocks_());
 
                     FBGEMM_LAUNCH_KERNEL(
@@ -1193,7 +1203,7 @@ Tensor {{ embedding_cuda_op }}(
                     const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
                                                       || dev_weights.scalar_type() == at::ScalarType::Float;
 
-                    if (use_hip_kernel && supported_weights_type && !mixed_D && rocm::is_supported_cdna())
+                    if (use_hip_kernel && !mixed_D && supported_weights_type && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256] %}
