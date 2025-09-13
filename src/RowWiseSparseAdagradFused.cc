@@ -165,25 +165,25 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         frame.init(func);
 
         if constexpr (instSet == inst_set_t::avx2) {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+              asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
         } else {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-                  asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-                  asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
+              asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15) |
+                  asmjit::Support::bit_mask<int>(16, 17, 18, 19, 20, 21, 22, 23) |
+                  asmjit::Support::bit_mask<int>(24, 25, 26, 27, 28, 29, 30, 31));
         }
 
-        frame.setDirtyRegs(
+        frame.set_dirty_regs(
             asmjit::RegGroup::kGp,
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
+            asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
-        args.assignAll(
+        args.assign_all(
             output_size,
             index_size,
             data_size,
@@ -196,10 +196,10 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             lr,
             rand_buffer);
 
-        args.updateFuncFrame(frame);
+        args.update_func_frame(frame);
         frame.finalize();
-        a->emitProlog(frame);
-        a->emitArgsAssignment(frame, args);
+        a->emit_prolog(frame);
+        a->emit_args_assignment(frame, args);
 
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
@@ -314,10 +314,10 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->add(scratchReg1, indices);
         a->mov(index_size, scratchReg1);
 
-        asmjit::Label exit = a->newLabel();
-        asmjit::Label error = a->newLabel();
-        asmjit::Label LoopRangeIndexBegin = a->newLabel();
-        asmjit::Label LoopRangeIndexEnd = a->newLabel();
+        asmjit::Label exit = a->new_label();
+        asmjit::Label error = a->new_label();
+        asmjit::Label LoopRangeIndexBegin = a->new_label();
+        asmjit::Label LoopRangeIndexEnd = a->new_label();
 
         // rangeIndex loop begin (iterate output_size times)
         a->bind(LoopRangeIndexBegin);
@@ -409,8 +409,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->cmp(scratchReg1, index_size);
         a->jg(error);
 
-        asmjit::Label LoopDataIndexBegin = a->newLabel();
-        asmjit::Label LoopDataIndexEnd = a->newLabel();
+        asmjit::Label LoopDataIndexBegin = a->new_label();
+        asmjit::Label LoopDataIndexEnd = a->new_label();
 
         // dataIndex loop begins (iterate lengths_R_ times)
         a->bind(LoopDataIndexBegin);
@@ -430,8 +430,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->jae(error);
 
         if (prefetch) {
-          asmjit::Label pref_dist_reset_start = a->newLabel();
-          asmjit::Label pref_dist_reset_end = a->newLabel();
+          asmjit::Label pref_dist_reset_start = a->new_label();
+          asmjit::Label pref_dist_reset_end = a->new_label();
           // out of bound handling for prefetch
           a->mov(scratchReg2, indices);
           a->add(
@@ -727,17 +727,17 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         }
 
         a->mov(x86::eax, scratchReg1.r32());
-        a->emitEpilog(frame);
+        a->emit_epilog(frame);
 
         // jit_fused8bitembedding_kernel fn;
         typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             jit_sparse_adagrad_kernel fn;
-        asmjit::Error err = 0;
+        asmjit::Error err = asmjit::Error::kOk;
         {
           unique_lock<mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);
         }
-        if (err) {
+        if (err != asmjit::Error::kOk) {
           cout << "Error: in fn add" << '\n';
           return nullptr;
         }
