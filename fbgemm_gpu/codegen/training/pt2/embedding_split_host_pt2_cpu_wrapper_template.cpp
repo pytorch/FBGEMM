@@ -143,7 +143,13 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu
     const Tensor& B_offsets,
     {%- endif %}
     const bool /*is_experimental = false*/,
-    const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+    {%- if vbe %}
+    const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
+    std::optional<Tensor> vbe_output = std::nullopt
+    {%- else %}
+    const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
+    {%- endif %}
+    ){
     Tensor offsets_;
     {%- if vbe %}
     const int64_t max_B_int = max_B.guard_int(__FILE__, __LINE__);
@@ -406,7 +412,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor B_offsets, "
         {%- endif %}
         "    bool is_experimental, "
+        {%- if vbe %}
+        "    int output_dtype, "
+        "    Tensor? vbe_output "
+        {%- else %}
         "    int output_dtype "
+        {%- endif %}
         ") -> Tensor"
         {%- if not nobag and not vbe %}
           // only split_embedding_codegen_forward_[un]weighted_cuda
