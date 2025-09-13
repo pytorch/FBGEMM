@@ -379,10 +379,14 @@ install_build_tools () {
   echo "[INSTALL] Adding symlink librhash.so.0, which is needed by CMake ..."
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-  (print_exec ln -s "${conda_prefix}/lib/librhash.so" "${conda_prefix}/lib/librhash.so.0") || return 1
+  if [ ! -e "${conda_prefix}/lib/librhash.so.0" ]; then
+    (print_exec ln -s "${conda_prefix}/lib/librhash.so" "${conda_prefix}/lib/librhash.so.0") || return 1
+  fi
 
   echo "[INSTALL] Adding symlink libtbb.so, which is needed by HIPCC ..."
-  (print_exec ln -s "${conda_prefix}/lib/libtbb.so.12" "${conda_prefix}/lib/libtbb.so") || return 1
+  if [ ! -e "${conda_prefix}/lib/libtbb.so" ]; then
+    (print_exec ln -s "${conda_prefix}/lib/libtbb.so.12" "${conda_prefix}/lib/libtbb.so") || return 1
+  fi
 
   # For some reason, the build package for Python 3.12+ is missing from conda,
   # so we have to install through pip instead.

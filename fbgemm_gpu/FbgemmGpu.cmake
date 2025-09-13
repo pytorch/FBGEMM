@@ -162,6 +162,25 @@ gpu_cpp_library(
   DESTINATION
     fbgemm_gpu)
 
+# For the ROCm case on non-Nova, an explicit link to
+# libtbb is required, or the following error is
+# encountered on library load:
+# undefined symbol: _ZN3tbb6detail2r117deallocate_memoryEPv
+if (DEFINED ENV{BUILD_FROM_NOVA})
+  message(STATUS "BUILD_FROM_NOVA is $ENV{BUILD_FROM_NOVA}.")
+  if($ENV{BUILD_FROM_NOVA} STREQUAL "0")
+    set(IS_NOVA FALSE)
+  else()
+    set(IS_NOVA TRUE)
+  endif()
+else()
+  message(STATUS "BUILD_FROM_NOVA is not defined.")
+  set(IS_NOVA FALSE)
+endif()
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM AND NOT IS_NOVA)
+  message(STATUS "Adding tbb as dep.")
+  set(DEP_MAYBE_TBB tbb)
+endif()
 
 gpu_cpp_library(
   PREFIX
@@ -184,5 +203,6 @@ gpu_cpp_library(
     fbgemm_gpu_tbe_cache
     fbgemm_gpu_tbe_optimizers
     fbgemm_gpu_tbe_utils
+    ${DEP_MAYBE_TBB}
   DESTINATION
     fbgemm_gpu)
