@@ -86,7 +86,10 @@ enum class PositionEmbeddingMode { ROPE = 0, XPOS = 1, NOPE = 2 };
 enum class KVQuantRecipe { perTokenScaling = 0, perHeadScaling = 1 };
 enum class QKV { Q, K, V };
 
-template <typename T, KVQuantRecipe recipe = KVQuantRecipe::perTokenScaling>
+template <
+    typename T,
+    KVQuantRecipe recipe = KVQuantRecipe::perTokenScaling,
+    bool symmetric = false>
 DEVICE_INLINE void quantize_fp8_kv(
     fx4 dst,
     T* dst_row_q,
@@ -624,61 +627,100 @@ quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm = false) {
   }
 }
 
-#define CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(                  \
-    NUM_GROUPS,                                                              \
-    DTYPE,                                                                   \
-    EMB_MODE,                                                                \
-    VARSEQ_BATCH,                                                            \
-    VARSEQ_SEQPOS,                                                           \
-    THETA,                                                                   \
-    GAMMA,                                                                   \
-    SCALE_BASE,                                                              \
-    EXPO_OFFSET,                                                             \
-    block_tables,                                                            \
-    page_size,                                                               \
-    block_tables_b_stride,                                                   \
-    varseq_cache_seqpos,                                                     \
-    actual_batch_size,                                                       \
-    rope_scaling,                                                            \
-    old_context_len,                                                         \
-    scaling_factor,                                                          \
-    lo_freq_factor,                                                          \
-    hi_freq_factor,                                                          \
-    write_k_back,                                                            \
-    k_norm)                                                                  \
-  rope_xpos_qkv_varseq_prefill_kernel_quantized<EMB_MODE, DTYPE, NUM_GROUPS> \
-      <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(            \
-          XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),    \
-          XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),    \
-          XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),    \
-          cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),    \
-          cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),    \
-          qparam_k_ptr,                                                      \
-          qparam_v_ptr,                                                      \
-          XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),  \
-          VARSEQ_BATCH,                                                      \
-          VARSEQ_SEQPOS,                                                     \
-          THETA,                                                             \
-          GAMMA,                                                             \
-          SCALE_BASE,                                                        \
-          EXPO_OFFSET,                                                       \
-          block_tables,                                                      \
-          page_size,                                                         \
-          block_tables_b_stride,                                             \
-          varseq_cache_seqpos,                                               \
-          actual_batch_size,                                                 \
-          rope_scaling,                                                      \
-          old_context_len,                                                   \
-          scaling_factor,                                                    \
-          lo_freq_factor,                                                    \
-          hi_freq_factor,                                                    \
-          write_k_back,                                                      \
-          k_norm);
+#define CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(               \
+    NUM_GROUPS,                                                           \
+    DTYPE,                                                                \
+    EMB_MODE,                                                             \
+    SYMMETRIC_QUANT,                                                      \
+    VARSEQ_BATCH,                                                         \
+    VARSEQ_SEQPOS,                                                        \
+    THETA,                                                                \
+    GAMMA,                                                                \
+    SCALE_BASE,                                                           \
+    EXPO_OFFSET,                                                          \
+    block_tables,                                                         \
+    page_size,                                                            \
+    block_tables_b_stride,                                                \
+    varseq_cache_seqpos,                                                  \
+    actual_batch_size,                                                    \
+    rope_scaling,                                                         \
+    old_context_len,                                                      \
+    scaling_factor,                                                       \
+    lo_freq_factor,                                                       \
+    hi_freq_factor,                                                       \
+    write_k_back,                                                         \
+    k_norm)                                                               \
+  if (SYMMETRIC_QUANT) {                                                  \
+    rope_xpos_qkv_varseq_prefill_kernel_quantized<                        \
+        EMB_MODE,                                                         \
+        DTYPE,                                                            \
+        NUM_GROUPS,                                                       \
+        true><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(  \
+        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),   \
+        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),   \
+        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),   \
+        cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),   \
+        cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),   \
+        qparam_k_ptr,                                                     \
+        qparam_v_ptr,                                                     \
+        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(), \
+        VARSEQ_BATCH,                                                     \
+        VARSEQ_SEQPOS,                                                    \
+        THETA,                                                            \
+        GAMMA,                                                            \
+        SCALE_BASE,                                                       \
+        EXPO_OFFSET,                                                      \
+        block_tables,                                                     \
+        page_size,                                                        \
+        block_tables_b_stride,                                            \
+        varseq_cache_seqpos,                                              \
+        actual_batch_size,                                                \
+        rope_scaling,                                                     \
+        old_context_len,                                                  \
+        scaling_factor,                                                   \
+        lo_freq_factor,                                                   \
+        hi_freq_factor,                                                   \
+        write_k_back,                                                     \
+        k_norm);                                                          \
+  } else {                                                                \
+    rope_xpos_qkv_varseq_prefill_kernel_quantized<                        \
+        EMB_MODE,                                                         \
+        DTYPE,                                                            \
+        NUM_GROUPS,                                                       \
+        false><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>( \
+        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),   \
+        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),   \
+        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),   \
+        cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),   \
+        cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),   \
+        qparam_k_ptr,                                                     \
+        qparam_v_ptr,                                                     \
+        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(), \
+        VARSEQ_BATCH,                                                     \
+        VARSEQ_SEQPOS,                                                    \
+        THETA,                                                            \
+        GAMMA,                                                            \
+        SCALE_BASE,                                                       \
+        EXPO_OFFSET,                                                      \
+        block_tables,                                                     \
+        page_size,                                                        \
+        block_tables_b_stride,                                            \
+        varseq_cache_seqpos,                                              \
+        actual_batch_size,                                                \
+        rope_scaling,                                                     \
+        old_context_len,                                                  \
+        scaling_factor,                                                   \
+        lo_freq_factor,                                                   \
+        hi_freq_factor,                                                   \
+        write_k_back,                                                     \
+        k_norm);                                                          \
+  }
 
 template <
     PositionEmbeddingMode EmbMode,
     CacheLogicalDtype kCacheDtype,
-    int KVQuantNumGroups = 1>
+    int KVQuantNumGroups = 1,
+    bool symmetric = false>
 __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
     at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ, // [B_T][N_H][D_H]
@@ -688,10 +730,12 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
         XV, // [B_T][N_KVH][D_H]
     at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_K, // [B][MAX_T][N_KVH][D_H] or
-                 // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged attention
+                 // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged
+                 // attention
     at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_V, // [B][MAX_T][N_KVH][D_H] or
-                 // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged attention
+                 // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged
+                 // attention
     int32_t* qparam_k_ptr,
     int32_t* qparam_v_ptr,
     at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
@@ -861,7 +905,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
           qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
         }
       }
-      quantize_fp8_kv(dst, dst_row_q, qparam_row);
+      quantize_fp8_kv<uint8_t, KVQuantRecipe::perTokenScaling, symmetric>(
+          dst, dst_row_q, qparam_row);
     } else if (kCacheDtype == CacheLogicalDtype::INT4) {
       CUDA_KERNEL_ASSERT(D_H_q - D_H / 2 == 4 * KVQuantNumGroups);
       quantize_int4_kv<KVQuantNumGroups>(dst, dst_row_q);
@@ -1201,6 +1246,7 @@ at::Tensor nope_qkv_varseq_prefill(
             1,
             CacheLogicalDtype::FP8,
             PositionEmbeddingMode::NOPE,
+            false, // symmetric_quant is False for FP8 NoPE
             varseq_batch_,
             varseq_seqpos_,
             0,
@@ -1231,6 +1277,7 @@ at::Tensor nope_qkv_varseq_prefill(
           num_groups_,
           CacheLogicalDtype::INT4,
           PositionEmbeddingMode::NOPE,
+          false, // symmetric_quant is False for INT4 NoPE
           varseq_batch_,
           varseq_seqpos_,
           0,
@@ -1403,6 +1450,7 @@ at::Tensor nope_qkv_decoding(
             1,
             CacheLogicalDtype::FP8,
             PositionEmbeddingMode::NOPE,
+            false, // symmetric_quant is False for FP8 NoPE
             batch_,
             seqpos_,
             0,
@@ -1433,6 +1481,7 @@ at::Tensor nope_qkv_decoding(
           num_groups_,
           CacheLogicalDtype::INT4,
           PositionEmbeddingMode::NOPE,
+          false, // symmetric_quant is False for INT4 NoPE
           batch_,
           seqpos_,
           0,
@@ -1484,7 +1533,8 @@ at::Tensor rope_qkv_varseq_prefill(
     bool k_norm = false,
     bool update_kv = true,
     std::optional<at::Tensor> amax_qkv = std::nullopt,
-    std::optional<at::Tensor> kv_quant_scale_precomputed = std::nullopt) {
+    std::optional<at::Tensor> kv_quant_scale_precomputed = std::nullopt,
+    bool symmetric_quant = false) {
   auto B_T = XQ.size(0);
   auto N_H = XQ.size(1);
   auto N_KVH = 0;
@@ -1631,6 +1681,7 @@ at::Tensor rope_qkv_varseq_prefill(
             1,
             CacheLogicalDtype::FP8,
             PositionEmbeddingMode::ROPE,
+            symmetric_quant, // for FP8 RoPE
             varseq_batch_,
             varseq_seqpos_,
             theta,
@@ -1661,6 +1712,7 @@ at::Tensor rope_qkv_varseq_prefill(
           num_groups_,
           CacheLogicalDtype::INT4,
           PositionEmbeddingMode::ROPE,
+          false, // symmetric_quant is False for INT4 RoPE
           varseq_batch_,
           varseq_seqpos_,
           theta,
@@ -1791,6 +1843,7 @@ at::Tensor xpos_qkv_varseq_prefill(
           1,
           CacheLogicalDtype::FP8,
           PositionEmbeddingMode::XPOS,
+          false, // symmetric_quant is False for FP8 XPOS
           varseq_batch_,
           varseq_seqpos_,
           theta,
@@ -1821,6 +1874,7 @@ at::Tensor xpos_qkv_varseq_prefill(
           num_groups_,
           CacheLogicalDtype::INT4,
           PositionEmbeddingMode::XPOS,
+          false, // symmetric_quant is False for INT4 XPOS
           varseq_batch_,
           varseq_seqpos_,
           theta,
@@ -1871,7 +1925,8 @@ at::Tensor rope_qkv_decoding(
     std::optional<at::Tensor> qparam_v = std::nullopt,
     bool k_norm = false,
     bool update_kv = true,
-    std::optional<at::Tensor> amax_qkv = std::nullopt) {
+    std::optional<at::Tensor> amax_qkv = std::nullopt,
+    bool symmetric_quant = false) {
   auto B = XQ.size(0);
   auto N_H = XQ.size(1);
   auto N_KVH = 0;
@@ -2005,6 +2060,7 @@ at::Tensor rope_qkv_decoding(
             1,
             CacheLogicalDtype::FP8,
             PositionEmbeddingMode::ROPE,
+            symmetric_quant, // symmetric_quant is True for FP8 RoPE
             nullptr,
             seqpos_,
             theta,
@@ -2036,6 +2092,7 @@ at::Tensor rope_qkv_decoding(
           num_groups_,
           CacheLogicalDtype::INT4,
           PositionEmbeddingMode::ROPE,
+          false, // symmetric_quant is False for INT4 RoPE
           nullptr,
           seqpos_,
           theta,
@@ -2160,6 +2217,7 @@ at::Tensor xpos_qkv_decoding(
           1,
           CacheLogicalDtype::FP8,
           PositionEmbeddingMode::XPOS,
+          false, // symmetric_quant is False for FP8 XPOS
           nullptr,
           seqpos_,
           theta,
@@ -2189,6 +2247,7 @@ at::Tensor xpos_qkv_decoding(
           num_groups_,
           CacheLogicalDtype::INT4,
           PositionEmbeddingMode::XPOS,
+          false, // symmetric_quant is False for INT4 XPOS
           nullptr,
           seqpos_,
           theta,
@@ -2236,7 +2295,7 @@ DEVICE_INLINE uint32_t packComponents(uint32_t x_bits[4]) {
   return packed;
 }
 
-template <typename T, KVQuantRecipe recipe>
+template <typename T, KVQuantRecipe recipe, bool symmetric>
 DEVICE_INLINE void
 quantize_fp8_kv(fx4 dst, T* dst_row_q, __half2* qparam, bool do_norm) {
   if (do_norm) {
@@ -2256,7 +2315,12 @@ quantize_fp8_kv(fx4 dst, T* dst_row_q, __half2* qparam, bool do_norm) {
     warp_min = -warpReduceMax(-thread_min, mask);
     warp_max = warpReduceMax(thread_max, mask);
 
-    auto bounded_max = (warp_max - warp_min) / 2;
+    float bounded_max;
+    if (symmetric) {
+      bounded_max = warp_max;
+    } else {
+      bounded_max = (warp_max - warp_min) / 2;
+    }
     // max FP16 value is 65504.0f.
     // Divide by 2 to avoid overflow during
     // e4m3fn (NV) to e4m3fnuz (AMD) conversion
@@ -2265,7 +2329,7 @@ quantize_fp8_kv(fx4 dst, T* dst_row_q, __half2* qparam, bool do_norm) {
     bounded_max = std::min(bounded_max, scale_ub);
     scale = static_cast<float>(
         std::max(bounded_max / FP8_E4M3_MAX::value, min_scaling_factor));
-    shift = warp_min + FP8_E4M3_MAX::value * scale;
+    shift = symmetric ? 0 : warp_min + FP8_E4M3_MAX::value * scale;
   } else {
     // Support of per-head scaling is limited to reading a
     // pre-calculated scale from qparam tensor and using it for scaling the
@@ -2294,11 +2358,16 @@ quantize_fp8_kv(fx4 dst, T* dst_row_q, __half2* qparam, bool do_norm) {
       param_store = reinterpret_cast<__half2*>(&dst_row_q[0]);
     }
     CUDA_KERNEL_ASSERT(uintptr_t(param_store) % 4 == 0);
-    *param_store = __floats2half2_rn(scale, shift);
+    if (symmetric) {
+      float* param_store_fp32 = reinterpret_cast<float*>(param_store);
+      *param_store_fp32 = scale;
+    } else {
+      *param_store = __floats2half2_rn(scale, shift);
+    }
   }
 }
 #else
-template <typename T, KVQuantRecipe recipe>
+template <typename T, KVQuantRecipe recipe, bool symmetric = false>
 DEVICE_INLINE void
 quantize_fp8_kv(fx4 dst, T* dst_row_, __half2* qparam, bool do_norm) {}
 std::vector<at::Tensor> quantize_fp8_per_tensor(
