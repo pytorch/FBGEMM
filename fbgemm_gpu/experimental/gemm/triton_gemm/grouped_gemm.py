@@ -253,7 +253,6 @@ def _fbgemm_grouped_gemm(
     tidx = tl.program_id(0)
 
     dtype: tl.dtype = c_ptr.dtype.element_ty
-    c_desc_ptr = None
 
     M_end_offset = 0
     M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
@@ -273,10 +272,10 @@ def _fbgemm_grouped_gemm(
             num_tiles = num_m_tiles * num_n_tiles
 
             if USE_TMA_STORE:
-                # pyre-ignore
                 c_desc_ptr = tl.make_tensor_descriptor(
                     c_ptr + M_start_offset * N,
                     shape=[m_size, n_size],
+                    # pyre-ignore
                     strides=[n_size, 1],
                     block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
                 )
@@ -422,7 +421,6 @@ def _fbgemm_grouped_gemm_ws(
     tidx = tl.program_id(0)
 
     dtype: tl.dtype = c_ptr.dtype.element_ty
-    c_desc_ptr = None
 
     M_end_offset = 0
     M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
@@ -443,10 +441,10 @@ def _fbgemm_grouped_gemm_ws(
 
             if USE_TMA_STORE:
                 with tl.async_task([0]):
-                    # pyre-ignore
                     c_desc_ptr = tl.make_tensor_descriptor(
                         c_ptr + M_start_offset * N,
                         shape=[m_size, N],
+                        # pyre-ignore
                         strides=[N, 1],
                         block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
                     )
@@ -586,7 +584,6 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
     tidx = tl.program_id(0)
 
     dtype = TT_FP8_DTYPE
-    c_desc_ptr = None
 
     M_end_offset = 0
     M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
@@ -606,10 +603,10 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
             num_tiles = num_m_tiles * num_n_tiles
 
             if USE_TMA_STORE:
-                # pyre-ignore
                 c_desc_ptr = tl.make_tensor_descriptor(
                     c_ptr + M_start_offset * N,
                     shape=[m_size, n_size],
+                    # pyre-ignore
                     strides=[n_size, 1],
                     block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
                 )
@@ -756,7 +753,6 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
     tidx = tl.program_id(0)
 
     dtype = TT_FP8_DTYPE
-    c_desc_ptr = None
 
     M_end_offset = 0
     M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
@@ -777,10 +773,10 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
 
             if USE_TMA_STORE:
                 with tl.async_task([0]):
-                    # pyre-ignore
                     c_desc_ptr = tl.make_tensor_descriptor(
                         c_ptr + M_start_offset * N,
                         shape=[m_size, N],
+                        # pyre-ignore
                         strides=[N, 1],
                         block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
                     )
@@ -1003,7 +999,6 @@ def _grouped_gemm(
     desc_x = x
     desc_w = w
     desc_ws = w_scale
-    workspace = None
 
     if USE_TMA_LOAD:
         desc_helper = utils.TmaAutoTuneHelper()
