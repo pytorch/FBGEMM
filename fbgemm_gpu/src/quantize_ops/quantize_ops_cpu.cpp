@@ -87,7 +87,8 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
 template <typename input_t>
 Tensor _float_to_fusednbitrowwise_cpu(
     const Tensor& input,
-    const int64_t bit_rate) {
+    const int64_t bit_rate,
+    const input_t* rowwise_min_max = nullptr) {
   TENSOR_ON_CPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
 
@@ -109,7 +110,12 @@ Tensor _float_to_fusednbitrowwise_cpu(
       input.data_ptr()); // input.data_ptr<input_t>(); -> Yields
                          // unresolved data_ptr symbol.
   fbgemm::FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<input_t>(
-      bit_rate, input_data, nrows, ncols, output.data_ptr<uint8_t>());
+      bit_rate,
+      input_data,
+      nrows,
+      ncols,
+      output.data_ptr<uint8_t>(),
+      rowwise_min_max);
 
   return output;
 }
@@ -427,6 +433,37 @@ Tensor float_or_half_to_fusednbitrowwise_cpu(
   return output;
 }
 
+static Tensor float_or_half_to_fusednbitrowwise_cpu_with_rowwise_min_max(
+    const Tensor& input,
+    const int64_t bit_rate,
+    const Tensor& rowwise_min_max) {
+  TORCH_CHECK(
+      (rowwise_min_max.dim() == 2 && rowwise_min_max.size(0) == input.size(0) &&
+       rowwise_min_max.size(1) == fbgemm::kRowwiseMinMaxNumCols),
+      "'rowwise_min_max' must be a 2D tensor with shape [num_rows(weight), 2].");
+
+  const auto rowwise_min_max_contig = rowwise_min_max.expect_contiguous(
+      rowwise_min_max.suggest_memory_format());
+  Tensor output;
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+      input.scalar_type(),
+      "float_or_half_to_fusednbitrowwise_cpu_with_rowwise_min_max",
+      [&] {
+        if constexpr (std::is_same_v<scalar_t, float>) {
+          const auto rowwise_min_max_data =
+              rowwise_min_max_contig->data_ptr<float>();
+          output = _float_to_fusednbitrowwise_cpu<float>(
+              input, bit_rate, rowwise_min_max_data);
+        } else { // scalar_t = at::Half
+          const auto rowwise_min_max_data =
+              static_cast<fbgemm::float16*>(rowwise_min_max_contig->data_ptr());
+          output = _float_to_fusednbitrowwise_cpu<fbgemm::float16>(
+              input, bit_rate, rowwise_min_max_data);
+        }
+      });
+  return output;
+}
+
 /// @ingroup quantize-data-cpu
 ///
 void FloatToFP8Quantized_ref(
@@ -558,6 +595,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor");
   m.def(
+      "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfWithRowwiseMinMax(Tensor input, int bit_rate, Tensor rowwise_min_max) -> Tensor");
+  m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfFrontToFloatOrHalf(Tensor input, int bit_rate, int output_dtype) -> Tensor");
@@ -624,6 +663,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf",
       fbgemm_gpu::float_or_half_to_fusednbitrowwise_cpu);
+  DISPATCH_TO_CPU(
+      "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfWithRowwiseMinMax",
+      fbgemm_gpu::float_or_half_to_fusednbitrowwise_cpu_with_rowwise_min_max);
   DISPATCH_TO_CPU(
       "FusedNBitRowwiseQuantizedSBHalfToFloat",
       fbgemm_gpu::fusednbitrowwise_to_float_cpu);
