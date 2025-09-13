@@ -8,7 +8,7 @@
 import functools
 import logging
 import os
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import triton  # @manual
@@ -1281,7 +1281,7 @@ def matmul_fp8_row(
             output += bias[None, :]
         return output.to(c.dtype)
 
-    def grid(META):
+    def grid(META: Dict[str, int]) -> Tuple[int, int]:
         return (
             triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
             META["SPLIT_K"],
@@ -1289,7 +1289,7 @@ def matmul_fp8_row(
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
 
-    def persistent_grid(META):
+    def persistent_grid(META: Dict[str, int]) -> Tuple[int]:
         return (
             min(
                 NUM_SMS,
@@ -1337,8 +1337,9 @@ def matmul_fp8_row(
         desc_helper.init_tma_descriptor("b_scale")
         desc_helper.init_tma_descriptor("bias")
 
-        def persistent_grid_tma_ws(META):
+        def persistent_grid_tma_ws(META: Dict[str, int]) -> Tuple[int]:
             nonlocal desc_helper  # noqa: F824
+            assert a_scale is not None  # Type narrowing for Pyre
             desc_helper.fill_2d_tma_descriptor(
                 "a",
                 a.data_ptr(),
@@ -1449,8 +1450,9 @@ def matmul_fp8_row(
         desc_helper.init_tma_descriptor("b_scale")
         desc_helper.init_tma_descriptor("bias")
 
-        def persistent_grid_tma(META):
+        def persistent_grid_tma(META: Dict[str, int]) -> Tuple[int]:
             nonlocal desc_helper  # noqa: F824
+            assert a_scale is not None  # Type narrowing for Pyre
             desc_helper.fill_2d_tma_descriptor(
                 "a",
                 a.data_ptr(),
@@ -2111,7 +2113,7 @@ def matmul_fp8_block(
         raise Exception("'b_scale' must be on the same device as 'a'")
 
     # noqa: E731:
-    def grid(META):
+    def grid(META: Dict[str, int]) -> Tuple[int, int]:
         return (
             triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
             META["SPLIT_K"],
@@ -4254,7 +4256,7 @@ def dequantize_fp8_row(
     M = xq.shape[0]
     use_int64 = xq.numel() > 2**31
 
-    def grid(meta):
+    def grid(meta: Dict[str, int]) -> Tuple[int]:
         return (triton.cdiv(M, meta["BLOCK_M"]),)
 
     with torch.cuda.device(xq.device.index):
@@ -4365,7 +4367,7 @@ def dequantize_fp8_packed_row(
     M = actual_xq.shape[0]
     use_int64 = actual_xq.numel() > 2**31
 
-    def grid(meta):
+    def grid(meta: Dict[str, int]) -> Tuple[int]:
         return (triton.cdiv(M, meta["BLOCK_M"]),)
 
     with torch.cuda.device(actual_xq.device.index):
@@ -4445,7 +4447,7 @@ def dequantize_fp8_block(
     M, K = xq.size()
     x_dequant = torch.empty_like(xq, dtype=torch.bfloat16)
 
-    def grid(meta):
+    def grid(meta: Dict[str, int]) -> Tuple[int, int]:
         return (
             triton.cdiv(M, meta["BLOCK_M"]),
             triton.cdiv(K, meta["BLOCK_K"]),
