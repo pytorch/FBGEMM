@@ -86,7 +86,9 @@ struct Sm100FmhaGenMainloopWarpspecialized {
   using Mask = Mask_;
 
   static constexpr int StageCountQ = get<1>(TileShape{}) == 256 ? 1 : 2;
-  static constexpr int StageCountKV = 256 * 11 / get<1>(TileShape{});
+  static constexpr int StageCountKV = sizeof(Element_) == 1
+      ? 256 * 11 / get<1>(TileShape{})
+      : 256 * 6 / get<1>(TileShape{});
   
   using StagesQ = cutlass::gemm::collective::StageCount<StageCountQ>;
   using StagesKV = cutlass::gemm::collective::StageCount<StageCountKV>;
