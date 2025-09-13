@@ -9,10 +9,10 @@
 #include <iostream>
 
 #include <ATen/ATen.h>
-#ifdef USE_ROCM
 #include <c10/hip/HIPStream.h>
-#else
-#include <c10/cuda/CUDAStream.h>
+
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
 #endif
 
 #include "ck/ck.hpp"
