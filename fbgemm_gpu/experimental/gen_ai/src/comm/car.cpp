@@ -225,6 +225,27 @@ void nccl_many2one(
   C10D_NCCL_CHECK(ncclGroupEnd(), "ncclGroupEnd");
 }
 
+void nccl_broadcast(
+    at::Tensor send,
+    at::Tensor recv,
+    int64_t root,
+    int64_t comm_idx) {
+  using namespace c10d;
+  auto stream = at::cuda::getCurrentCUDAStream();
+  auto& comm = *get_nccl_comm(comm_idx);
+
+  C10D_NCCL_CHECK(
+      ncclBroadcast(
+          send.data_ptr(),
+          recv.data_ptr(),
+          send.numel(),
+          to_nccl_data_type(recv.scalar_type()),
+          root,
+          comm,
+          stream.stream()),
+      "ncclBroadcast");
+}
+
 void nccl_reducescatter(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
   TORCH_CHECK(src.is_contiguous());
@@ -374,6 +395,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "nccl_many2one(Tensor(a!)[] dst, int[] src_ranks, int comm_idx=0) -> ()");
 
+  m.def(
+      "nccl_broadcast(Tensor send, Tensor(a!) recv, int root, int comm_idx=0) -> ()");
+
   m.def("nccl_reducescatter(Tensor(a!) dst, Tensor src, int comm_idx=0) -> ()");
 
   m.def(
@@ -406,6 +430,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("nccl_alltoall", nccl_alltoall);
   m.impl("nccl_one2many", nccl_one2many);
   m.impl("nccl_many2one", nccl_many2one);
+  m.impl("nccl_broadcast", nccl_broadcast);
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
@@ -421,6 +446,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("nccl_alltoall", nccl_alltoall);
   m.impl("nccl_one2many", nccl_one2many);
   m.impl("nccl_many2one", nccl_many2one);
+  m.impl("nccl_broadcast", nccl_broadcast);
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
@@ -472,6 +498,14 @@ void nccl_many2one_meta(
   return;
 }
 
+void nccl_broadcast_meta(
+    at::Tensor /*send*/,
+    at::Tensor /*recv*/,
+    int64_t /*root*/,
+    int64_t /*comm_idx*/) {
+  return;
+}
+
 void nccl_reducescatter_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
@@ -512,6 +546,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("nccl_alltoall", nccl_alltoall_meta);
   m.impl("nccl_one2many", nccl_one2many_meta);
   m.impl("nccl_many2one", nccl_many2one_meta);
+  m.impl("nccl_broadcast", nccl_broadcast_meta);
   m.impl("nccl_reducescatter", nccl_reducescatter_meta);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce_meta);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce_meta);
