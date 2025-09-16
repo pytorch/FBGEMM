@@ -179,7 +179,12 @@ else()
 endif()
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM AND NOT IS_NOVA)
   message(STATUS "Adding tbb as dep.")
-  set(DEP_MAYBE_TBB tbb)
+  find_library(DEP_MAYBE_TBB NAMES tbb HINTS $ENV{CONDA_ENV}/lib)
+  if(DEP_MAYBE_TBB)
+    message(STATUS "Found tbb: ${DEP_MAYBE_TBB}")
+  else()
+    message(FATAL_ERROR "tbb not found")
+  endif()
 endif()
 
 gpu_cpp_library(
