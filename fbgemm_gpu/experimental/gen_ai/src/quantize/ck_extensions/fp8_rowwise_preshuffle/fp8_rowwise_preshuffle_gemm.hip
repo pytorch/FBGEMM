@@ -25,6 +25,36 @@ namespace fbgemm_gpu {
 using RowwiseKernel = std::function<
     at::Tensor(at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor)>;
 
+// Define a custom hash function for std::tuple<int, int, int>
+struct IntTupleHash {
+  size_t operator()(const std::tuple<int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    return hash1 ^ hash2;
+  }
+  size_t operator()(const std::tuple<int, int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    auto hash3 = std::hash<int>{}(std::get<2>(t));
+    return hash1 ^ hash2 ^ hash3;
+  }
+};
+
+// For certain high priority shapes, we directly map to the best kernel rather
+// than use heuristics.
+static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTupleHash> rowwise_lookup_dispatch = {
+    // LLama 70B shapes
+    // Support for decode batch size 1
+    {{1, 1280, 8192},
+     fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1},
+    {{1, 7168, 8192},
+     fp8_rowwise_preshuffle_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v1},
+    {{1, 8192, 3584},
+     fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1},
+    {{1, 8192, 1024},
+     fp8_rowwise_preshuffle_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
+};
+
 RowwiseKernel rowwise_preshuffle_heuristic_dispatch(int M, int N, int K) {
   // Apply shape heuristics to find a suitable kernel implementation.
   if (M <= 16) {
