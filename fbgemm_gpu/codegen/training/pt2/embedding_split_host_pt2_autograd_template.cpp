@@ -1005,7 +1005,7 @@ static torch::autograd::variable_list backward(
     TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
 #ifdef USE_ROCM
-    int32_t BT_block_size = 64;
+    constexpr int32_t BT_block_size = 64;
     int32_t max_segment_length_per_warp = 64;
     // Workaround. Should not be upstreamed in any way.
     // Redistribute all cta_per_row work to warp_per_row.
@@ -1021,10 +1021,9 @@ static torch::autograd::variable_list backward(
     auto total_B = (offsets.size(0) - 1);
     const auto B = total_B / T;
     {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
-    if(!mixed_D  && (max_D == {{ kDimSize }})) 
+    if(!mixed_D && total_L / total_B > 1 && (max_D == {{ kDimSize }})) 
     {
       max_segment_length_per_warp = 16384;
-      BT_block_size = 16384;
     }
     {%- endfor %}
     {%- endif %}
