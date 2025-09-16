@@ -32,7 +32,6 @@ generate_vbe_metadata(
     const at::Tensor& D_offsets,
     const int64_t D,
     const bool nobag,
-    const c10::SymInt max_B_feature_rank,
+    const int64_t max_B_feature_rank,
     const int64_t info_B_num_bits,
-    const c10::SymInt total_B,
-    const std::optional<at::Tensor>& vbe_output_offsets);
+    const int64_t total_B);
