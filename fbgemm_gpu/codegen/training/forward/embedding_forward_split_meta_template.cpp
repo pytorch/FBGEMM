@@ -6,7 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// clang-format off
 {#
 // @lint-ignore LINTIGNORE
 // @lint-ignore-every CLANGFORMAT
@@ -104,12 +103,7 @@ Tensor
     const int64_t iter,
     const double gwd_lower_bound,
     {%- endif %}
-    {%- if vbe and not dense %}
-    const bool is_experimental,
-    std::optional<Tensor> vbe_output
-    {%- else %}
     const bool is_experimental
-    {%- endif %}
 ) {
     // NB: omitted the device tests TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL
     {%- if not nobag %}
@@ -216,4 +210,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 {%- endfor %} {#-/* for is_gwd */#}
 {%- endif %} {#/* if (not nobag or (not weighted and not vbe)) */#}
 {%- endfor %} {#-/* for nobag */#}
-  // clang-format on
+    // clang-format on

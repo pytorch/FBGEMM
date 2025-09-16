@@ -137,12 +137,7 @@ enum SSDTensor {
                 const double /*gwd_lower_bound*/,
                 {%- endif %}
                 const bool /*is_experimental*/,
-                {%- if vbe and not dense %}
-                const int64_t /*output_dtype*/,
-                std::optional<Tensor> /*vbe_output*/
-                {%- else %}
                 const int64_t /*output_dtype*/
-                {%- endif %}
             )>();
 
     auto output = embedding_codegen_forward_op.call(
@@ -191,12 +186,7 @@ enum SSDTensor {
       {%- endif %} {# /* if is_gwd */ #}
       {%- endif %} {# /* if not nobag */ #}
       is_experimental,
-      {%- if vbe and not dense %}
-      output_dtype,
-      vbe_output
-      {%- else %}
       output_dtype
-      {%- endif %}
     );
 
     if (is_annotate_trace_enabled) {
@@ -269,7 +259,7 @@ enum SSDTensor {
                 const bool /*use_homogeneous_placements*/,
                 {%- if ssd %}
                 const bool /*enable_optimizer_offloading*/,
-                {%- endif %}
+                {%- endif %}                
                 {%- if is_gwd %}
                 {%- if "prev_iter_dev" not in args_pt2.split_function_arg_names %}
                 const Tensor& /*prev_iter_dev*/,
@@ -369,14 +359,6 @@ enum SSDTensor {
     // The number of items in the tensorlist differ between devices and is determined at runtime
     std::vector<Tensor> ret;
 
-    {%- if vbe and not dense %}
-    // To avoid overhead of merging multiple VBE embedding outputs, each embedding ops return 
-    // the same output tensor i.e., vbe_output. To ensure all backward ops are triggered, the embedding 
-    // ops are called in chain. We hence need to pass the grad_outputs to the next embedding op.
-    // So, if vbe_output is passed, we return the grad_outputs.
-    Tensor grad_vbe_output = has_vbe_output ? grad_outputs[0] : Variable();
-    {%- endif %}
-
     {%- if not dense %}
     ret.push_back(Variable()); // placeholder autograd tensor
     {%- endif %}
@@ -418,21 +400,18 @@ enum SSDTensor {
     ret.push_back(Variable()); // max_B
     ret.push_back(Variable()); // max_B_feature_rank
     ret.push_back(Variable()); // vbe_output_size
-    {%- if not dense %}
-    ret.push_back(grad_vbe_output); // vbe_output
-    {%- endif %} {# /* if not dense */ #}
     {%- endif %} {# /* if vbe */ #}
     {%- if not dense %}
     ret.push_back(Variable()); // aux_tensor
     ret.push_back(Variable()); // aux_int
     ret.push_back(Variable()); // aux_float
     ret.push_back(Variable()); // aux_bool
-    {%- endif %} {# /* if not dense */ #}
+    {%- endif %}
     {%- if ssd %}
     {%- for tensor in ssd_tensors %}
     ret.push_back(Variable()); // {{ tensor }}
     {%- endfor %}
-    {%- endif %} {# /* if ssd */ #}
+    {%- endif %}
     {{ args_pt2.unified_pt2.split_variables | join("\n") }}
     return ret;
 {%- endmacro %}
@@ -493,9 +472,6 @@ enum SSDTensor {
           max_B,
           max_B_feature_rank,
           vbe_output_size,
-          {%- if not dense %}
-          vbe_output,
-          {%- endif %} {# /* if not dense */ #}
           {%- endif %} {# /* if vbe */ #}
           {%- if not dense %}
           aux_tensor,
@@ -528,7 +504,7 @@ enum SSDTensor {
       TENSORS_EMPTY_OR_ON_SAME_DEVICE({{ name }}[0], {{ name }}[2]);
       {{ name }}_host = {{ name }}[0];
       {{ name }}_placements = {{ name }}[1];
-      {{ name }}_offsets = {{ name }}[2];
+      {{ name }}_offsets = {{ name }}[2]; 
     }
     else if ({{ name }}.size() == {{ 5 if name == "weights" else 4 }})  {
       TENSOR_ON_CUDA_GPU({{ name }}[0]);
@@ -538,7 +514,7 @@ enum SSDTensor {
       {%- if name == "weights" %}
       TENSORS_EMPTY_OR_ON_SAME_DEVICE({{ name }}[0], {{ name }}[4]);
       {%- endif %}
-      {{ name }}_dev = {{ name }}[0];
+      {{ name }}_dev = {{ name }}[0]; 
       {{ name }}_uvm = {{ name }}[1];
       {{ name }}_placements = {{ name }}[2];
       {{ name }}_offsets = {{ name }}[3];
@@ -572,7 +548,7 @@ enum SSDTensor {
 {%- endmacro %}
 
 ////////////////////////////////////////////////////////////////////////////////
-// MACROS
+// MACROS 
 ////////////////////////////////////////////////////////////////////////////////
 #define GET_OPTIONAL_TENSOR_VALUE(name, empty_tensor) name.has_value() ? name.value() : empty_tensor;
 
@@ -655,9 +631,6 @@ class {{ autograd_func }} :
     const c10::SymInt max_B,
     const c10::SymInt max_B_feature_rank,
     const c10::SymInt vbe_output_size,
-    {%- if not dense %}
-    std::optional<Tensor> vbe_output,
-    {%- endif %} {# /* if not dense */ #}
     {%- endif %} {# /* if vbe */ #}
     {%- if not dense %}
     std::vector<std::optional<at::Tensor>> aux_tensor,
@@ -689,13 +662,6 @@ class {{ autograd_func }} :
     const auto vbe_output_offsets_feature_rank_ = GET_OPTIONAL_TENSOR_VALUE(aux_tensor[IDX_VBE_OUTPUT_OFFSETS_FEATURE_RANK], Tensor());
     const auto vbe_B_offsets_rank_per_feature_ = GET_OPTIONAL_TENSOR_VALUE(aux_tensor[IDX_VBE_B_OFFSETS_RANK_PER_FEATURE], Tensor());
     const c10::SymInt max_B_ = max_B;
-    {%- if not dense %}
-    const std::optional<Tensor> vbe_output_offsets = aux_tensor[IDX_VBE_OUTPUT_OFFSETS];
-    TORCH_CHECK(
-      vbe_output.has_value() == vbe_output_offsets.has_value(),
-      "Both vbe_output and vbe_output_offsets are required."
-    );
-    {%- endif %}
     {%- else %}
     const auto max_B_ = offsets.sym_size(0) / T;
     {%- endif %}
@@ -753,8 +719,7 @@ class {{ autograd_func }} :
                 const bool,
                 const c10::SymInt,
                 const int64_t,
-                const c10::SymInt,
-                const std::optional<Tensor>&)>();
+                const c10::SymInt)>();
     auto [
         vbe_row_output_offsets,
         vbe_b_t_map
@@ -774,8 +739,7 @@ class {{ autograd_func }} :
         {%- endif %}
         max_B_feature_rank,
         info_B_num_bits,
-        /*total_B=*/offsets.sym_size(0) - 1,
-        vbe_output_offsets
+        /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %} // vbe
 
@@ -791,9 +755,9 @@ class {{ autograd_func }} :
     const auto indice_weights_value = GET_OPTIONAL_TENSOR_VALUE(indice_weights, Tensor());
     {%- endif %}
 
-    // Setting learning rate tensor with `.fill_()` breaks apf_dlrm bento kernel with
+    // Setting learning rate tensor with `.fill_()` breaks apf_dlrm bento kernel with 
     // `RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation.`
-    // This is because if a tensor is saved for backward and it is mutated later, this can cause correctness problems.
+    // This is because if a tensor is saved for backward and it is mutated later, this can cause correctness problems. 
     // Since the forward compute and backward compute see different data values for this tensor.
     // To work around, we pass the cloned tensor instead the mutated tensor
     {%- if "learning_rate_tensor" in args_pt2.unified_pt2.split_unpacked_arg_names %}
@@ -880,12 +844,8 @@ class {{ autograd_func }} :
     ctx->saved_data["output_dtype"] = output_dtype;
     {%- endif %}
     {%- if vbe %}
-    ctx->saved_data["max_B"] = max_B_; // for reshaping vbe cpu offsets and grad_output
-    // This is needed to determine whether to return grads_output
-    {%- if not dense %}
-    ctx->saved_data["has_vbe_output"] = vbe_output.has_value();
-    {%- endif %} {# /* if not dense */ #}
-    {%- endif %} {# /* if vbe */ #}
+    ctx->saved_data["max_B"] = max_B_; // for reshaping vbe cpu offsets and grad_output 
+    {%- endif %}
 
     {%- if not dense %}
     // unpack optim args
@@ -1018,16 +978,13 @@ static torch::autograd::variable_list backward(
     {%- if is_gwd %}
     const auto gwd_lower_bound = ctx->saved_data["gwd_lower_bound"].toDouble();
     {%- endif %}
-
+    
     {%- if not nobag %}
     auto output_dtype = ctx->saved_data["output_dtype"].toInt();
     {%- endif %}
     {%- if not dense %}
     {%- if vbe %}
     auto max_B = ctx->saved_data["max_B"].toSymInt(); // for reshaping vbe cpu offsets and grad_output
-    {%- if not dense %}
-    const auto has_vbe_output = ctx->saved_data["has_vbe_output"].toBool(); // for whether to return grad_output
-    {%- endif %} {# /* if not dense */ #}
     {%- endif %}
 
     {%- for (var, _ , ivalue_cast, type) in args_pt2.unified_pt2.split_saved_data %}
@@ -1140,7 +1097,7 @@ static torch::autograd::variable_list backward(
         feature_requires_grad
         {%- endif %}
         );
-
+    
     Tensor grad_weights_dev;
     // weighted
     if (indice_weights.defined())
@@ -1190,7 +1147,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     {%- else %}
     const Tensor& placeholder_autograd_tensor,
     const at::TensorList weights,
-    {%- endif %} {#-/* if dense */#}
+    {%- endif %}
     const Tensor& D_offsets,
     const c10::SymInt total_D,
     const c10::SymInt max_D,
@@ -1207,20 +1164,16 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     const std::vector<int64_t>& aux_int,
     const std::vector<double>& aux_float,
     c10::List<bool> aux_bool,
-    {%- endif %} {#-/* if not dense */#}
+    {%- endif %}
     {{ args_pt2.unified_pt2.split_function_args | join(", ") }},
     const c10::SymInt max_B = -1,
     const c10::SymInt max_B_feature_rank = -1,
-    {%- if not dense %}
-    const c10::SymInt vbe_output_size = -1,
     {%- if ssd %}
-    const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
-    {%- endif %} {#-/* if ssd */#}
-    std::optional<Tensor> vbe_output = std::nullopt
+    const c10::SymInt vbe_output_size = -1,
+    const std::optional<at::TensorList>& ssd_tensors = std::nullopt
     {%- else %}
-    {#- /* ssd and pre-allocated vbe_output is not yet supported in Dense TBE */ -#}
     const c10::SymInt vbe_output_size = -1
-    {%- endif %} {#-/* if not dense */#}
+    {%- endif %}
 ) {
 
   {%- if has_gpu_support or has_cpu_support %}
@@ -1276,7 +1229,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
       "{{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail."
   );
   return Tensor();
-  {%- endif %}
+  {%- endif %} 
 }
 
 
@@ -1306,19 +1259,16 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int[] aux_int, "
         "    float[] aux_float, "
         "    bool[] aux_bool, "
-        {%- endif %} {#-/* if not dense */#}
         "    {{ args_pt2.unified_pt2.split_function_schemas | join(", ") }}, "
         "    SymInt max_B=-1, "
         "    SymInt max_B_feature_rank=-1, "
-        {%- if not dense %}
-        "    SymInt vbe_output_size=-1, "
         {%- if ssd %}
-        "    Tensor[]? ssd_tensors=None, "
-        {%- endif %}
-        "    Tensor? vbe_output=None "
+        "    SymInt vbe_output_size=-1, "
+        "    Tensor[]? ssd_tensors=None "
         {%- else %}
-        "    SymInt vbe_output_size=-1 "
-        {%- endif %} {#-/* if not dense */#}
+         "    SymInt vbe_output_size=-1 "
+        {%- endif %}
+        {%- endif %}
         ") -> Tensor",
         {PT2_COMPLIANT_TAG});
     // We're playing a funny trick here: we're using the autograd

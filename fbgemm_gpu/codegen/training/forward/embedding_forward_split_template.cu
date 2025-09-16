@@ -6,10 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+{#
 // @lint-ignore LINTIGNORE
 // @lint-ignore-every CLANGFORMAT
 // clang-format off
-{#
 // Note: clang-format off doesn't work with this templaterized code,
 // so we need to keep lint-ignore-every.
 // See https://fburl.com/dw9ljh4h
@@ -391,12 +391,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     const int64_t iter,
     const double gwd_lower_bound,
     {%- endif %}
-    {%- if vbe and not dense %}
-    const bool is_experimental,
-    std::optional<Tensor> vbe_output
-    {%- else %}
     const bool is_experimental
-    {%- endif %}
     {%- endif %} {#- /*if is_index_select*/ #}
 ) {
     {%- if not nobag or is_index_select %}
@@ -534,24 +529,11 @@ batch_index_select_dim0_codegen_forward_cuda(
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
 
     {%- if vbe %}
-    {%- if dense %}
+    // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
     output = at::empty(
         {1, vbe_output_size},
         dev_weights.options().dtype(getScalarType(o_dtype))
-      );
-    {%- else %}
-    // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
-    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(vbe_row_output_offsets, vbe_output);
-    if (vbe_output.has_value()){
-      output = vbe_output.value().reshape({1, -1});
-    }
-    else {
-      output = at::empty(
-        {1, vbe_output_size},
-        dev_weights.options().dtype(getScalarType(o_dtype))
-      );
-    }
-    {%- endif %} {#-/* if dense */#}
+    );
     {%- else %}
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
@@ -895,12 +877,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    int iter, "
           "    float gwd_lower_bound, "
           {%- endif %}
-          {%- if vbe and not dense %}
-          "    bool is_experimental,"
-          "    Tensor? vbe_output"
-          {%- else %}
           "    bool is_experimental"
-          {%- endif %}
           ") -> Tensor"
           {%- if not dense and not nobag and not vbe %}
           // only split_embedding_codegen_forward_[un]weighted_cuda
