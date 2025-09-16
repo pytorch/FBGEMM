@@ -42,7 +42,7 @@ struct IntTupleHash {
 
 // For certain high priority shapes, we directly map to the best kernel rather
 // than use heuristics.
-static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTupleHash> rowwise_lookup_dispatch = {
+static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTupleHash> llama70b_lookup_dispatch = {
     // LLama 70B shapes
     // Support for decode batch size 1
     {{1, 1280, 8192},
@@ -52,10 +52,15 @@ static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTup
     {{1, 8192, 3584},
      fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1},
     {{1, 8192, 1024},
-     fp8_rowwise_preshuffle_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
+     fp8_rowwise_preshuffle_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
 };
 
 RowwiseKernel rowwise_preshuffle_heuristic_dispatch(int M, int N, int K) {
+  // Llama 70B specific shape lookup.
+  auto nk_lookup_it = llama70b_lookup_dispatch.find({M, N, K});
+  if (nk_lookup_it != llama70b_lookup_dispatch.end()){
+    return nk_lookup_it->second;
+  }
   // Apply shape heuristics to find a suitable kernel implementation.
   if (M <= 16) {
     if (K <= 1024) {
