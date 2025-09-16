@@ -13,7 +13,14 @@
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
-
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and 
+                                                 optimizer == "rowwise_adagrad" and 
+                                                 not dense and
+                                                 not nobag and 
+                                                 not is_index_select and
+                                                 not is_gwd_kernel and 
+                                                 not vbe and 
+                                                 not ssd %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
 ////////////////////////////////////////////////////////////////////////////////
@@ -22,11 +29,9 @@
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/assert_macros.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
-
 {%- if is_rocm %}
 #include "fbgemm_gpu/rocm/cdna_guard.h"
 {%- endif %}
-
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -71,7 +76,8 @@ template <
   typename grad_t,
   typename cache_t,
   typename index_t,
-  int32_t kFixedMaxVecsPerThread
+  int32_t kFixedMaxVecsPerThread,
+  bool embDimMatch
 >
 __global__ __launch_bounds__(kForwardMaxThreads) void
 {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_{{ vbdesc }}kernel(
@@ -265,7 +271,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     {%- endif %}
                 }
                 grad_indice_weight =
-                    warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight);
+                    warpReduceAllSum<at::acc_type<cache_t, true>, kWarpSize, embDimMatch>(grad_indice_weight);
                 if (threadIdx.x == 0) {
                     {%- if use_vec_blocking %}
                     if (vec_start == 0) {
@@ -425,7 +431,35 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                         grad_t,
                         cache_t,
                         index_t,
-                        kFixedMaxVecsPerThread>;
+                        kFixedMaxVecsPerThread,
+                        /*embDimMatch=*/ false>;
+#ifdef USE_ROCM
+                {%- if is_optimized_hip_kernel_supported_mode %}
+                const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
+                                                      || dev_weights.scalar_type() == at::ScalarType::Float;
+
+                if (!mixed_D && supported_weights_type && rocm::is_supported_cdna())
+                {
+                    {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
+                        {%- for kWeightDecayMode in [0, 1, 2] %}
+                        if (max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
+                        {
+                            kernel_name_ =
+                                {{ kernel_name }}
+                                <
+                                    emb_t,
+                                    grad_t,
+                                    cache_t,
+                                    index_t,
+                                    kFixedMaxVecsPerThread,
+                                    /*embDimMatch=*/ true
+                                    >;
+                }
+                {%- endfor %}
+                {%- endfor %}
+            }
+            {%- endif %}
+#endif          
                 FBGEMM_LAUNCH_KERNEL(
                     kernel_name_,
                     div_round_up(total_B, kForwardMaxThreads / kWarpSize),
