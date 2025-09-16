@@ -443,7 +443,7 @@ struct KernelLauncher {
 #define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)        \
   ([&] {                                                                    \
     constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
-    decltype(KERNEL)& kernel = KERNEL;                                      \
+    const auto& kernel = KERNEL;                                            \
                                                                             \
     return fbgemm_gpu::utils::                                              \
         KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)   \
