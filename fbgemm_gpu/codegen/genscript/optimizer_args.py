@@ -73,7 +73,9 @@ annotation_dict: Dict[str, str] = {
     "row_counter_dev": "(q!)",
     "row_counter_uvm": "(r!)",
     "optim_tensor": "(s!)",
-    "vbe_output": "(t!)",
+    "delta_weights_host": "(t!)",
+    "delta_weights_dev": "(u!)",
+    "delta_weights_uvm": "(v!)",
 }
 
 ######################################################################

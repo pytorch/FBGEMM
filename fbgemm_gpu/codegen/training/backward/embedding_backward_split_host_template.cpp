@@ -708,7 +708,7 @@ class {{ autograd_func }} :
     static auto generate_vbe_metadata_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::generate_vbe_metadata", "")
-            .typed<std::tuple<Tensor, Tensor>(const Tensor&, const Tensor&, const Tensor&, const Tensor&, const int64_t, const bool, const c10::SymInt, const int64_t, const c10::SymInt, const std::optional<Tensor>&)>();
+            .typed<std::tuple<Tensor, Tensor>(const Tensor&, const Tensor&, const Tensor&, const Tensor&, const int64_t, const bool, const c10::SymInt, const int64_t, const c10::SymInt)>();
 
     auto [
         vbe_row_output_offsets,
@@ -729,8 +729,7 @@ class {{ autograd_func }} :
         {%- endif %}
         max_B_feature_rank,
         info_B_num_bits,
-        /*total_B=*/offsets.sym_size(0) - 1,
-        std::nullopt /* pre-allocated vbe_output is not supported in TBE interface V1 or Dense TBE */
+        /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %}
 

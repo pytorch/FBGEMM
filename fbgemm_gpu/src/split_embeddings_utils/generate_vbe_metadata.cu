@@ -34,9 +34,7 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
         D_offsets,
     const int32_t D,
     const bool nobag,
-    const int32_t info_B_num_bits,
-    const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
-        predefined_vbe_output_offsets) {
+    const int32_t info_B_num_bits) {
   // Relative sample ID in the rank-table matrix
   const auto b = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   // Rank ID
@@ -52,8 +50,6 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
     return;
   }
 
-  const bool use_predefined_offsets = predefined_vbe_output_offsets.size(0) > 0;
-
   const auto* __restrict__ output_offsets_feature =
       &output_offsets_feature_rank[r * T];
 
@@ -61,9 +57,8 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
   const auto b_t =
       static_cast<int64_t>(B_start_t) + static_cast<int64_t>(B_start_r_t) + b;
   const auto D_ = nobag ? D : (D_offsets[t + 1] - D_offsets[t]);
-  auto offset = use_predefined_offsets ? predefined_vbe_output_offsets[r][t]
-                                       : output_offsets_feature[t];
-  row_output_offsets[b_t] = offset + b * static_cast<int64_t>(D_);
+  row_output_offsets[b_t] =
+      output_offsets_feature[t] + b * static_cast<int64_t>(D_);
 
   // Relative sample ID in the table
   const auto b_ = B_start_r_t + b;
@@ -119,15 +114,11 @@ generate_vbe_metadata(
     const Tensor& D_offsets,
     const int64_t D,
     const bool nobag,
-    const c10::SymInt max_B_feature_rank,
+    const int64_t max_B_feature_rank,
     const int64_t info_B_num_bits,
-    const c10::SymInt total_B,
-    const std::optional<Tensor>& vbe_output_offsets = std::nullopt) {
+    const int64_t total_B) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      B_offsets,
-      B_offsets_rank_per_feature,
-      output_offsets_feature_rank,
-      vbe_output_offsets);
+      B_offsets, B_offsets_rank_per_feature, output_offsets_feature_rank);
 
   TENSOR_NDIM_EQUALS(B_offsets, 1);
   TENSOR_NDIM_EQUALS(B_offsets_rank_per_feature, 2);
@@ -141,53 +132,25 @@ generate_vbe_metadata(
     TORCH_CHECK(D_offsets.numel() == T + 1)
   }
 
-  const int64_t total_B_ = total_B.guard_int(__FILE__, __LINE__);
-  const int64_t max_B_feature_rank_ =
-      max_B_feature_rank.guard_int(__FILE__, __LINE__);
-
   const auto num_ranks = B_offsets_rank_per_feature.size(1) - 1;
   TORCH_CHECK(
       num_ranks > 0, "generate_vbe_metadata: Invalid num_ranks ", num_ranks);
   TORCH_CHECK(T > 0, "generate_vbe_metadata: Invalid T ", T);
   TORCH_CHECK(
-      max_B_feature_rank_ > 0,
+      max_B_feature_rank > 0,
       "generate_vbe_metadata: Invalid max_B_feature_rank ",
-      max_B_feature_rank_);
+      max_B_feature_rank);
 
   TORCH_CHECK(B_offsets_rank_per_feature.size(0) == T);
   TORCH_CHECK(output_offsets_feature_rank.numel() == num_ranks * T + 1);
 
-  Tensor predefined_vbe_output_offsets;
-  if (vbe_output_offsets.has_value()) {
-    predefined_vbe_output_offsets = vbe_output_offsets.value();
-    TORCH_CHECK(
-        predefined_vbe_output_offsets.dim() == 2,
-        "Expected a tensor of 2 dims: [num_ranks, num_features] but got ",
-        predefined_vbe_output_offsets.dim());
-    TORCH_CHECK(
-        predefined_vbe_output_offsets.size(0) == num_ranks,
-        "Expected predefined_vbe_output_offsets.size(0) to be",
-        num_ranks,
-        " but got ",
-        predefined_vbe_output_offsets.size(0));
-    TORCH_CHECK(
-        predefined_vbe_output_offsets.size(1) == T,
-        "Expected predefined_vbe_output_offsets.size(1) to be",
-        T,
-        " but got ",
-        predefined_vbe_output_offsets.size(1));
-  } else {
-    predefined_vbe_output_offsets =
-        at::empty({0, 0}, output_offsets_feature_rank.options());
-  }
-
   CUDA_DEVICE_GUARD(B_offsets);
 
   Tensor row_output_offsets =
-      at::empty({total_B_}, output_offsets_feature_rank.options());
-  Tensor b_t_map = at::empty({total_B_}, B_offsets.options());
+      at::empty({total_B}, output_offsets_feature_rank.options());
+  Tensor b_t_map = at::empty({total_B}, B_offsets.options());
 
-  const auto grid_dim_x = div_round_up(max_B_feature_rank_, kMaxThreads);
+  const auto grid_dim_x = div_round_up(max_B_feature_rank, kMaxThreads);
   const dim3 grid_size(grid_dim_x, num_ranks, T);
   const auto& [max_grid_x, max_grid_y, max_grid_z] =
       get_max_grid_size(at::cuda::current_device());
@@ -219,9 +182,7 @@ generate_vbe_metadata(
       PTA_B(D_offsets, int32_t, 1, 32),
       D,
       nobag,
-      info_B_num_bits,
-      MAKE_PTA_WITH_NAME(
-          func_name, predefined_vbe_output_offsets, int64_t, 2, 32));
+      info_B_num_bits);
 
   return {row_output_offsets, b_t_map};
 }
