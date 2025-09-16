@@ -1246,7 +1246,7 @@ Tensor {{ embedding_cuda_op }}(
                         if (max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
                         {
                             warp_per_row_grid_size = div_round_up(sorted_linear_indices_num_runs[0].item<int32_t>(), segments_per_workgroup);
-                            blockSize = dim3(256);
+                            total_L/total_B == 1? blockSize = dim3(64):dim3(256);
                             warp_per_row_smem_bytes = 0;
 
                             backward_warp_per_row_kernel =

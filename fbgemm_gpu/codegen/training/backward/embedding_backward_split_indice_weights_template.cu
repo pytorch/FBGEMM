@@ -420,13 +420,14 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                     "{}_embedding_codegen_grad_indice_weights{}_{}kernel".format(
                         mdesc, vdesc, vbdesc)
                 %}
-                FBGEMM_LAUNCH_KERNEL(
-                    ({{ kernel_name }}<
+                auto kernel_name_ = {{ kernel_name }}<
                         emb_t,
                         grad_t,
                         cache_t,
                         index_t,
-                        kFixedMaxVecsPerThread>),
+                        kFixedMaxVecsPerThread>;
+                FBGEMM_LAUNCH_KERNEL(
+                    kernel_name_,
                     div_round_up(total_B, kForwardMaxThreads / kWarpSize),
                     dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                     0,

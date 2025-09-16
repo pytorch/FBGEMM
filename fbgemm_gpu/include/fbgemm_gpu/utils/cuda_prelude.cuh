@@ -135,16 +135,28 @@ DEVICE_INLINE uint32_t ballot_sync(
 #endif
 }
 
-/// Sums a register value across all warp threads
-template <typename T, int ReduceWidth = kWarpSize>
+// Sums a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize, bool embDimMatch = false>
 DEVICE_INLINE T warpReduceAllSum(
     T val,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-      return rocm::wave_reduce<
+
+  if constexpr (embDimMatch) {
+    // Use ROCm wave-level reduction when embeddings dimensions already match warp size.
+    return rocm::wave_reduce<
         rocm::reduce_op::sum,  // Sum reduction
-        T,                                 // Data type
-        ReduceWidth                        // Wave/Warp size
+        T,                     // Data type
+        ReduceWidth            // Wave/Warp size
     >(val);
+  } else {
+    // Generic implementation using shuffle-xor reduction
+    #pragma unroll
+    for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+      T other = shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
+      val += other;
+    }
+    return val;
+  }
 }
 
 DEVICE_INLINE void syncwarp() {
