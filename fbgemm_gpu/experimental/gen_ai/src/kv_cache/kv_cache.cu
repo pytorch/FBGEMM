@@ -25,6 +25,7 @@
 #include <cub/cub.cuh>
 
 #include "fbgemm_gpu/utils/cuda_block_count.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
 
 #include <torch/torch.h>
@@ -125,38 +126,40 @@ DEVICE_INLINE void per_row_amax(fx4& dst, float* amax) {
   }
 }
 __global__ void nope_qkv_varseq_prefill_kernel(
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ, // [B_T][N_H][D_H]
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XK, // [B_T][N_KVH][D_H]
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XV, // [B_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_K, // [B][MAX_T][N_KVH][D_H] or
                  // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged attention
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_V, // [B][MAX_T][N_KVH][D_H] or
                  // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged attention
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ_O, // [B_T][N_H][D]
     int32_t* varseq_batch, // in decoding case we have T == 1 and so just pass
                            // nullptr
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> varseq_seqpos,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        varseq_seqpos,
     int32_t* block_tables, // [B][MAX_PAGES], maps logical pages to physical
                            // ones for paged attention
     int32_t page_size,
     int32_t block_tables_b_stride,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         varseq_cache_seqpos,
-    int64_t* actual_batch_size =
-        nullptr, // When running in CUDA graph mode, the actual batch size
-                 // can be smaller than block_tables.size(0). In this case
-                 // rows of block_tables beyond actual_batch_size are not
-                 // initialized, and using them wil cause undefined
-                 // behavior. To prevent this, when actual_batch_size is
-                 // provided, the kernel exits if the current batch index is
-                 // larger of equal to actual_batch_size,
-    bool update_kv = true) {
+    int64_t*
+        actual_batch_size, // When running in CUDA graph mode, the actual batch
+                           // size can be smaller than block_tables.size(0). In
+                           // this case rows of block_tables beyond
+                           // actual_batch_size are not initialized, and using
+                           // them wil cause undefined behavior. To prevent
+                           // this, when actual_batch_size is provided, the
+                           // kernel exits if the current batch index is larger
+                           // of equal to actual_batch_size,
+    bool update_kv) {
   // Launch b_t_(sum(h)) warps.
   auto b_t_hh = blockIdx.x * blockDim.y + threadIdx.y;
   auto B_T = XQ.size(0);
@@ -624,77 +627,84 @@ quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm = false) {
   }
 }
 
-#define CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(                  \
-    NUM_GROUPS,                                                              \
-    DTYPE,                                                                   \
-    EMB_MODE,                                                                \
-    VARSEQ_BATCH,                                                            \
-    VARSEQ_SEQPOS,                                                           \
-    THETA,                                                                   \
-    GAMMA,                                                                   \
-    SCALE_BASE,                                                              \
-    EXPO_OFFSET,                                                             \
-    block_tables,                                                            \
-    page_size,                                                               \
-    block_tables_b_stride,                                                   \
-    varseq_cache_seqpos,                                                     \
-    actual_batch_size,                                                       \
-    rope_scaling,                                                            \
-    old_context_len,                                                         \
-    scaling_factor,                                                          \
-    lo_freq_factor,                                                          \
-    hi_freq_factor,                                                          \
-    write_k_back,                                                            \
-    k_norm)                                                                  \
-  rope_xpos_qkv_varseq_prefill_kernel_quantized<EMB_MODE, DTYPE, NUM_GROUPS> \
-      <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(            \
-          XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),    \
-          XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),    \
-          XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),    \
-          cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),    \
-          cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),    \
-          qparam_k_ptr,                                                      \
-          qparam_v_ptr,                                                      \
-          XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),  \
-          VARSEQ_BATCH,                                                      \
-          VARSEQ_SEQPOS,                                                     \
-          THETA,                                                             \
-          GAMMA,                                                             \
-          SCALE_BASE,                                                        \
-          EXPO_OFFSET,                                                       \
-          block_tables,                                                      \
-          page_size,                                                         \
-          block_tables_b_stride,                                             \
-          varseq_cache_seqpos,                                               \
-          actual_batch_size,                                                 \
-          rope_scaling,                                                      \
-          old_context_len,                                                   \
-          scaling_factor,                                                    \
-          lo_freq_factor,                                                    \
-          hi_freq_factor,                                                    \
-          write_k_back,                                                      \
-          k_norm);
+#define CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL( \
+    NUM_GROUPS,                                             \
+    DTYPE,                                                  \
+    EMB_MODE,                                               \
+    VARSEQ_BATCH,                                           \
+    VARSEQ_SEQPOS,                                          \
+    THETA,                                                  \
+    GAMMA,                                                  \
+    SCALE_BASE,                                             \
+    EXPO_OFFSET,                                            \
+    block_tables,                                           \
+    page_size,                                              \
+    block_tables_b_stride,                                  \
+    varseq_cache_seqpos,                                    \
+    actual_batch_size,                                      \
+    rope_scaling,                                           \
+    old_context_len,                                        \
+    scaling_factor,                                         \
+    lo_freq_factor,                                         \
+    hi_freq_factor,                                         \
+    write_k_back,                                           \
+    k_norm)                                                 \
+  FBGEMM_LAUNCH_KERNEL(                                     \
+      (rope_xpos_qkv_varseq_prefill_kernel_quantized<       \
+          EMB_MODE,                                         \
+          DTYPE,                                            \
+          NUM_GROUPS>),                                     \
+      blocks,                                               \
+      threads,                                              \
+      0,                                                    \
+      at::cuda::getCurrentCUDAStream(),                     \
+      PTA_B(XQ, at::BFloat16, 3, 32),                       \
+      PTA_B(XK, at::BFloat16, 3, 32),                       \
+      PTA_B(XV, at::BFloat16, 3, 32),                       \
+      PTA_B(cache_K, uint8_t, 4, 64),                       \
+      PTA_B(cache_V, uint8_t, 4, 64),                       \
+      qparam_k_ptr,                                         \
+      qparam_v_ptr,                                         \
+      PTA_B(XQ_O, at::BFloat16, 3, 32),                     \
+      VARSEQ_BATCH,                                         \
+      VARSEQ_SEQPOS,                                        \
+      THETA,                                                \
+      GAMMA,                                                \
+      SCALE_BASE,                                           \
+      EXPO_OFFSET,                                          \
+      block_tables,                                         \
+      page_size,                                            \
+      block_tables_b_stride,                                \
+      varseq_cache_seqpos,                                  \
+      actual_batch_size,                                    \
+      rope_scaling,                                         \
+      old_context_len,                                      \
+      scaling_factor,                                       \
+      lo_freq_factor,                                       \
+      hi_freq_factor,                                       \
+      write_k_back,                                         \
+      k_norm);
 
 template <
     PositionEmbeddingMode EmbMode,
     CacheLogicalDtype kCacheDtype,
     int KVQuantNumGroups = 1>
 __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ, // [B_T][N_H][D_H]
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XK, // [B_T][N_KVH][D_H]
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XV, // [B_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_K, // [B][MAX_T][N_KVH][D_H] or
                  // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged attention
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_V, // [B][MAX_T][N_KVH][D_H] or
                  // [1][MAX_PAGES * PAGE_SIZE][N_KVH][D_H] for paged attention
     int32_t* qparam_k_ptr,
     int32_t* qparam_v_ptr,
-    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ_O, // [B_T][N_H][D]
     int32_t* varseq_batch, // in decoding case we have T == 1 and so just
                            // pass nullptr
@@ -1111,27 +1121,27 @@ at::Tensor nope_qkv_varseq_prefill(
   CacheLogicalDtype cache_logical_dtype =
       static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
   if (cache_K.dtype() == at::kBFloat16) {
-    nope_qkv_varseq_prefill_kernel<<<
+    FBGEMM_LAUNCH_KERNEL(
+        (nope_qkv_varseq_prefill_kernel),
         blocks,
         threads,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-        cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-        cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        at::cuda::getCurrentCUDAStream(),
+        PTA_B(XQ, at::BFloat16, 3, 32),
+        PTA_B(XK, at::BFloat16, 3, 32),
+        PTA_B(XV, at::BFloat16, 3, 32),
+        PTA_B(cache_K, at::BFloat16, 4, 64),
+        PTA_B(cache_V, at::BFloat16, 4, 64),
+        PTA_B(XQ_O, at::BFloat16, 3, 32),
         varseq_batch.data_ptr<int32_t>(),
-        varseq_seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        PTA_B(varseq_seqpos, int32_t, 1, 32),
         block_tables_ptr,
         page_size,
         block_tables_b_stride,
-        varseq_cache_seqpos_
-            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        PTA_B(varseq_cache_seqpos_, int32_t, 1, 32),
         actual_batch_size_ptr,
         update_kv);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
     int32_t* qparam_k_ptr = nullptr;
@@ -1315,27 +1325,27 @@ at::Tensor nope_qkv_decoding(
   CacheLogicalDtype cache_logical_dtype =
       static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
   if (cache_K.dtype() == at::kBFloat16) {
-    nope_qkv_varseq_prefill_kernel<<<
+    FBGEMM_LAUNCH_KERNEL(
+        (nope_qkv_varseq_prefill_kernel),
         blocks,
         threads,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-        cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-        cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        at::cuda::getCurrentCUDAStream(),
+        PTA_B(XQ, at::BFloat16, 3, 32),
+        PTA_B(XK, at::BFloat16, 3, 32),
+        PTA_B(XV, at::BFloat16, 3, 32),
+        PTA_B(cache_K, at::BFloat16, 4, 64),
+        PTA_B(cache_V, at::BFloat16, 4, 64),
+        PTA_B(XQ_O, at::BFloat16, 3, 32),
         batch.has_value() ? batch.value().data_ptr<int32_t>() : nullptr,
-        seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        PTA_B(seqpos, int32_t, 1, 32),
         block_tables_ptr,
         page_size,
         block_tables_b_stride,
-        cache_seqpos_.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        PTA_B(cache_seqpos_, int32_t, 1, 32),
         actual_batch_size_ptr,
         update_kv);
 
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
     int32_t* qparam_k_ptr = nullptr;
