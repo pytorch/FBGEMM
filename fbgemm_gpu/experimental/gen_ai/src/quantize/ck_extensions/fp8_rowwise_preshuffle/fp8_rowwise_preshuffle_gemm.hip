@@ -112,6 +112,7 @@ at::Tensor f8f8_rowwise_preshuffle_wrapper(
     std::optional<at::Tensor> bias,
     bool use_fast_accum,
     std::optional<at::Tensor> output = std::nullopt) {
+  static auto float8_dtype = get_float8_e4m3_dtype();
   // Check that input datatypes are valid.
   TORCH_CHECK(
       (XQ.dtype() == float8_dtype.first) &&
