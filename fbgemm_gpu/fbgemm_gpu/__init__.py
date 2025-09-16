@@ -7,15 +7,84 @@
 
 import logging
 import os
+import re
 
 import torch
 
+# Based on the FBGEMM-PyTorch compatibility table at
+# https://docs.pytorch.org/FBGEMM/general/Releases.html#fbgemm-releases-compatibility
+_fbgemm_torch_compat_table = {
+    "1.3": "2.8",
+    "1.2": "2.7",
+    "1.1": "2.6",
+    "1.0": "2.5",
+    "0.8": "2.4",
+    "0.7": "2.3",
+    "0.6": "2.2",
+    "0.5": "2.1",
+    "0.4": "2.0",
+}
 
-def _load_library(filename: str, no_throw: bool = False) -> None:
+
+def _load_library(filename: str, version: str, no_throw: bool = False) -> None:
     """Load a shared library from the given filename."""
+
+    # Check if the version of PyTorch is compatible with the version of FBGEMM
+    # that we are trying to load, and print a loud warning if not.  This is
+    # useful for the OSS build, where we have a single FBGEMM library that is
+    # compatible with multiple versions of PyTorch.
+    #
+    # Based on: https://github.com/pytorch/ao/blob/main/torchao/__init__.py#L30
+
+    keys = [
+        key
+        for key in _fbgemm_torch_compat_table.keys()
+        if version.startswith(f"{key}.")
+    ]
+
+    if version == "INTERNAL" or "+git" in version:
+        # if FBGEMM version has "+git", assume it's locally built and we don't know
+        #   anything about the PyTorch version used to build it
+        logging.info(
+            "FBGEMM version is INTERNAL or local, ignoring version compatibility check with PyTorch"
+        )
+
+    elif re.match(r"^\d{4}\.\d{1,2}\.\d{1,2}.*$", version):
+        # if FBGEMM version is a date, assume it's a nightly build and that we
+        # know what we're doing
+        logging.info(
+            "FBGEMM version is a nightly version, ignoring version compatibility check with PyTorch"
+        )
+
+    elif not keys:
+        logging.warning(
+            f"""
+            \033[33m
+            _fbgemm_torch_compat_table has no entry for {version} of FBGEMM;
+            cannot determine compatibility with PyTorch {torch.__version__}
+            \033[0m
+            """
+        )
+
+    elif str(torch.__version__) != _fbgemm_torch_compat_table[keys[0]]:
+        logging.warning(
+            f"""
+            \033[31m
+            FBGEMM_GPU version is {version}, which is not guaranteed to be
+            compatible with PyTorch {torch.__version__}; library loading might
+            crash!
+
+            Please refer to
+            https://docs.pytorch.org/FBGEMM/general/Releases.html#fbgemm-releases-compatibility
+            for the FBGEMM-PyTorch compatibility table.
+            \033[0m
+            """
+        )
+
     try:
         torch.ops.load_library(os.path.join(os.path.dirname(__file__), filename))
         logging.info(f"Successfully loaded: '{filename}'")
+
     except Exception as error:
         logging.error(f"Could not load the library '{filename}'!\n\n\n{error}\n\n\n")
         if not no_throw:
@@ -87,7 +156,7 @@ for library in libraries_to_load.get(__target__, []):
     #
     #   https://github.com/pytorch/FBGEMM/pull/3477
     #   https://github.com/pytorch/FBGEMM/pull/3717
-    _load_library(f"{library}.so", __variant__ == "docs")
+    _load_library(f"{library}.so", __version__, __variant__ == "docs")
 
 try:
     # Trigger meta operator registrations
