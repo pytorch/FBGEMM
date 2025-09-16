@@ -145,6 +145,22 @@ fp8_rowwise_preshuffle_256x32x64x512_16x16_1x2_32x8x1_32x8x1_1x32x1x8_8x8x1_1x2_
     at::Tensor Y);
 
 at::Tensor
+fp8_rowwise_preshuffle_256x32x128x256_16x16_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v1(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_preshuffle_256x32x128x256_16x16_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v2_2(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
 fp8_rowwise_preshuffle_256x64x64x512_32x32_1x1_32x8x1_32x8x1_1x32x1x8_8x8x1_1x1_intrawave_v1(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -210,6 +226,14 @@ fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1
 
 at::Tensor
 fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2_8(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,

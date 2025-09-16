@@ -44,7 +44,7 @@ struct IntTupleHash {
 // than use heuristics.
 static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTupleHash> llama70b_lookup_dispatch = {
     // LLama 70B shapes
-    // Support for decode batch size 1
+    // Decode BS 1
     {{1, 1280, 8192},
      fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1_8},
     {{1, 7168, 8192},
@@ -53,6 +53,15 @@ static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTup
      fp8_rowwise_preshuffle_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1_4},
     {{1, 8192, 1024},
      fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2},
+    // Decode BS 128
+    {{128, 1280, 8192},
+     fp8_rowwise_preshuffle_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2_8},
+    {{128, 7168, 8192},
+     fp8_rowwise_preshuffle_256x32x128x256_16x16_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v2_2},
+    {{128, 8192, 3584},
+     fp8_rowwise_preshuffle_256x32x128x256_16x16_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v1},
+    {{128, 8192, 1024},
+     fp8_rowwise_preshuffle_256x32x128x256_16x16_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v1},
 };
 
 RowwiseKernel rowwise_preshuffle_heuristic_dispatch(int M, int N, int K) {
