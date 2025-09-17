@@ -191,6 +191,7 @@ def generate_requests(
 
     # Generate indices
     all_indices = _generate_indices(tbe_data_config, iters, Bs, L_offsets)
+    all_indices = all_indices.to(get_device())
 
     # Build TBE requests
     if tbe_data_config.variable_B() or tbe_data_config.variable_L():

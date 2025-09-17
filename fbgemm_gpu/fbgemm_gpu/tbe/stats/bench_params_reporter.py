@@ -177,7 +177,9 @@ class TBEBenchmarkParamsReporter:
         E = (
             Es[0]
             if len(set(Es)) == 1
-            else torch.ceil(torch.mean(torch.tensor(feature_rows)))
+            else torch.ceil(
+                torch.mean(torch.tensor(feature_rows, dtype=torch.float))
+            ).item()
         )
         # Set mixed_dim to be True if there are multiple dims
         mixed_dim = len(set(Ds)) > 1
@@ -185,7 +187,9 @@ class TBEBenchmarkParamsReporter:
         D = (
             Ds[0]
             if not mixed_dim
-            else torch.ceil(torch.mean(torch.tensor(feature_dims)))
+            else torch.ceil(
+                torch.mean(torch.tensor(feature_dims, dtype=torch.float))
+            ).item()
         )
 
         # Compute indices distribution parameters
@@ -198,7 +202,7 @@ class TBEBenchmarkParamsReporter:
 
         # Compute batch parameters
         batch_params = BatchParams(
-            B=((offsets.numel() - 1) // T),
+            B=int((offsets.numel() - 1) // T),
             sigma_B=(
                 int(
                     torch.ceil(
