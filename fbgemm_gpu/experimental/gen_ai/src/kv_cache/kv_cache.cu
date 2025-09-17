@@ -1550,35 +1550,38 @@ at::Tensor rope_qkv_varseq_prefill(
         static_cast<int64_t*>(actual_batch_size.value().data_ptr());
   }
   if (cache_K.dtype() == at::kBFloat16) {
-    rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::ROPE>
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            varseq_batch.data_ptr<int32_t>(),
-            varseq_seqpos
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            theta,
-            0,
-            0,
-            0,
-            block_tables_ptr,
-            page_size,
-            block_tables_b_stride,
-            varseq_cache_seqpos_
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            actual_batch_size_ptr,
-            rope_scaling,
-            old_context_len,
-            scaling_factor,
-            lo_freq_factor,
-            hi_freq_factor,
-            write_k_back,
-            update_kv);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::ROPE>),
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        varseq_batch.data_ptr<int32_t>(),
+        varseq_seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        theta,
+        0,
+        0,
+        0,
+        block_tables_ptr,
+        page_size,
+        block_tables_b_stride,
+        varseq_cache_seqpos_
+            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        actual_batch_size_ptr,
+        rope_scaling,
+        old_context_len,
+        scaling_factor,
+        lo_freq_factor,
+        hi_freq_factor,
+        write_k_back,
+        update_kv);
+
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
     auto varseq_batch_ = varseq_batch.data_ptr<int32_t>();
@@ -1767,33 +1770,38 @@ at::Tensor xpos_qkv_varseq_prefill(
         static_cast<int64_t*>(actual_batch_size.value().data_ptr());
   }
   if (cache_K.dtype() == at::kBFloat16) {
-    rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::XPOS>
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            varseq_batch.data_ptr<int32_t>(),
-            varseq_seqpos
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            theta,
-            gamma,
-            scale_base,
-            exponent_offset,
-            block_tables_ptr,
-            page_size,
-            block_tables_b_stride,
-            varseq_cache_seqpos_
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            actual_batch_size_ptr,
-            rope_scaling,
-            old_context_len,
-            scaling_factor,
-            lo_freq_factor,
-            hi_freq_factor);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::XPOS>),
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        varseq_batch.data_ptr<int32_t>(),
+        varseq_seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        theta,
+        gamma,
+        scale_base,
+        exponent_offset,
+        block_tables_ptr,
+        page_size,
+        block_tables_b_stride,
+        varseq_cache_seqpos_
+            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        actual_batch_size_ptr,
+        rope_scaling,
+        old_context_len,
+        scaling_factor,
+        lo_freq_factor,
+        hi_freq_factor,
+        false,
+        true);
+
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
     auto varseq_batch_ = varseq_batch.data_ptr<int32_t>();
@@ -1935,34 +1943,37 @@ at::Tensor rope_qkv_decoding(
   }
   auto cache_seqpos_ = cache_seqpos.value_or(seqpos);
   if (cache_K.dtype() == at::kBFloat16) {
-    rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::ROPE>
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            batch.has_value() ? batch.value().data_ptr<int32_t>() : nullptr,
-            seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            theta,
-            0,
-            0,
-            0,
-            block_tables_ptr,
-            page_size,
-            block_tables_b_stride,
-            cache_seqpos_
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            actual_batch_size_ptr,
-            rope_scaling,
-            old_context_len,
-            scaling_factor,
-            lo_freq_factor,
-            hi_freq_factor,
-            false,
-            update_kv);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::ROPE>),
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        batch.has_value() ? batch.value().data_ptr<int32_t>() : nullptr,
+        seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        theta,
+        0,
+        0,
+        0,
+        block_tables_ptr,
+        page_size,
+        block_tables_b_stride,
+        cache_seqpos_.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        actual_batch_size_ptr,
+        rope_scaling,
+        old_context_len,
+        scaling_factor,
+        lo_freq_factor,
+        hi_freq_factor,
+        false,
+        update_kv);
+
   } else {
     auto seqpos_ =
         seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>();
@@ -2142,32 +2153,37 @@ at::Tensor xpos_qkv_decoding(
   }
   auto cache_seqpos_ = cache_seqpos.value_or(seqpos);
   if (cache_K.dtype() == at::kBFloat16) {
-    rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::XPOS>
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-            XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
-            batch.has_value() ? batch.value().data_ptr<int32_t>() : nullptr,
-            seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            theta,
-            gamma,
-            scale_base,
-            exponent_offset,
-            block_tables_ptr,
-            page_size,
-            block_tables_b_stride,
-            cache_seqpos_
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            actual_batch_size_ptr,
-            rope_scaling,
-            old_context_len,
-            scaling_factor,
-            lo_freq_factor,
-            hi_freq_factor);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    FBGEMM_LAUNCH_KERNEL(
+        (rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::XPOS>),
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        XQ_O.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+        batch.has_value() ? batch.value().data_ptr<int32_t>() : nullptr,
+        seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        theta,
+        gamma,
+        scale_base,
+        exponent_offset,
+        block_tables_ptr,
+        page_size,
+        block_tables_b_stride,
+        cache_seqpos_.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        actual_batch_size_ptr,
+        rope_scaling,
+        old_context_len,
+        scaling_factor,
+        lo_freq_factor,
+        hi_freq_factor,
+        false,
+        true);
+
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
     auto seqpos_ =
