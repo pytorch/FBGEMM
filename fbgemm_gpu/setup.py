@@ -379,18 +379,6 @@ class FbgemmGpuBuild:
                 ]
             )
 
-            if self.nova_flag() is None:
-                cxx_flags.extend(
-                    [
-                        # For the ROCm case on non-Nova, an explicit link to
-                        # libtbb is required, or the following error is
-                        # encountered on library load:
-                        #
-                        # undefined symbol: _ZN3tbb6detail2r117deallocate_memoryEPv
-                        "-ltbb",
-                    ]
-                )
-
         cmake_args.extend(
             [
                 f"-DCMAKE_C_FLAGS='{' '.join(cxx_flags)}'",

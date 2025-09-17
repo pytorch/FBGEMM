@@ -1167,10 +1167,15 @@ at::Tensor nope_qkv_varseq_prefill(
           is_precalculated_qparam =
               static_cast<bool*>(kv_quant_scale_precomputed.value().data_ptr());
         }
-        rope_xpos_qkv_varseq_prefill_kernel_fp8<
-            PositionEmbeddingMode::NOPE,
-            CacheLogicalDtype::FP8,
-            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+        FBGEMM_LAUNCH_KERNEL(
+            (rope_xpos_qkv_varseq_prefill_kernel_fp8<
+                PositionEmbeddingMode::NOPE,
+                CacheLogicalDtype::FP8,
+                1>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
             XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
@@ -1205,7 +1210,7 @@ at::Tensor nope_qkv_varseq_prefill(
             k_norm,
             amax_ptr,
             is_precalculated_qparam);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+
       } else {
         CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
             1,
@@ -1367,10 +1372,15 @@ at::Tensor nope_qkv_decoding(
         if (amax_qkv.has_value()) {
           amax_ptr = static_cast<float*>(amax_qkv.value().data_ptr());
         }
-        rope_xpos_qkv_varseq_prefill_kernel_fp8<
-            PositionEmbeddingMode::NOPE,
-            CacheLogicalDtype::FP8,
-            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+        FBGEMM_LAUNCH_KERNEL(
+            (rope_xpos_qkv_varseq_prefill_kernel_fp8<
+                PositionEmbeddingMode::NOPE,
+                CacheLogicalDtype::FP8,
+                1>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
             XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
@@ -1405,8 +1415,6 @@ at::Tensor nope_qkv_decoding(
             k_norm,
             amax_ptr,
             nullptr);
-
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
 
       } else {
         CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
@@ -1596,10 +1604,15 @@ at::Tensor rope_qkv_varseq_prefill(
           is_precalculated_qparam =
               static_cast<bool*>(kv_quant_scale_precomputed.value().data_ptr());
         }
-        rope_xpos_qkv_varseq_prefill_kernel_fp8<
-            PositionEmbeddingMode::ROPE,
-            CacheLogicalDtype::FP8,
-            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+        FBGEMM_LAUNCH_KERNEL(
+            (rope_xpos_qkv_varseq_prefill_kernel_fp8<
+                PositionEmbeddingMode::ROPE,
+                CacheLogicalDtype::FP8,
+                1>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
             XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
@@ -1634,7 +1647,6 @@ at::Tensor rope_qkv_varseq_prefill(
             k_norm,
             amax_ptr,
             is_precalculated_qparam);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
 
       } else {
         CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
@@ -1970,10 +1982,15 @@ at::Tensor rope_qkv_decoding(
         if (amax_qkv.has_value()) {
           amax_ptr = static_cast<float*>(amax_qkv.value().data_ptr());
         }
-        rope_xpos_qkv_varseq_prefill_kernel_fp8<
-            PositionEmbeddingMode::ROPE,
-            CacheLogicalDtype::FP8,
-            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+        FBGEMM_LAUNCH_KERNEL(
+            (rope_xpos_qkv_varseq_prefill_kernel_fp8<
+                PositionEmbeddingMode::ROPE,
+                CacheLogicalDtype::FP8,
+                1>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
             XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
             XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
@@ -2009,7 +2026,6 @@ at::Tensor rope_qkv_decoding(
             amax_ptr,
             nullptr);
 
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
         CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
             1,

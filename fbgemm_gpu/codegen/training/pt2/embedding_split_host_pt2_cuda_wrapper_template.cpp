@@ -107,12 +107,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
     const double gwd_lower_bound,
     {%- endif %}
     const bool is_experimental,
-    {%- if vbe and not dense %}
-    const int64_t output_dtype,
-    std::optional<Tensor> vbe_output
-    {%- else %}
     const int64_t output_dtype
-    {%- endif %}
     ){
     {%- set op = "{}_embedding{}_codegen_forward_{}_cuda".format(
         fwd_mdesc, ndesc, desc_suffix
@@ -160,12 +155,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
                 const int64_t /*iter*/,
                 const double /*gwd_lower_bound*/,
                 {%- endif %}
-                {%- if vbe and not dense %}
-                const bool,
-                std::optional<Tensor> /*vbe_output*/
-                {%- else %}
                 const bool
-                {%- endif %}
             )>();
 
     return op.call(
@@ -211,12 +201,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
             iter,
             gwd_lower_bound,
             {%- endif %} {# /* if is_gwd */ #}
-            {%- if vbe and not dense %}
-            is_experimental,
-            vbe_output
-            {%- else %}
             is_experimental
-            {%- endif %}
         );
     };
 {%- else %}
@@ -576,12 +561,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    float gwd_lower_bound, "
         {%- endif %}
         "    bool is_experimental, "
-        {%- if vbe and not dense %}
-        "    int output_dtype, "
-        "    Tensor? vbe_output"
-        {%- else %}
         "    int output_dtype "
-        {%- endif %}
         ") -> Tensor"
         {%- if not nobag and not vbe %}
           // only split_embedding_codegen_forward_[un]weighted_cuda

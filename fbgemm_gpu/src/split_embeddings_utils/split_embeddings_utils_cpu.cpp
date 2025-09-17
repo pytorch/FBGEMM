@@ -119,8 +119,7 @@ generate_vbe_metadata_cpu(
     const bool /*nobag*/,
     const c10::SymInt /*max_B_feature_rank*/,
     const int64_t info_B_num_bits,
-    const c10::SymInt total_B,
-    const std::optional<Tensor>& vbe_output_offsets = std::nullopt) {
+    const c10::SymInt total_B) {
   TENSOR_ON_CPU(B_offsets);
   TENSORS_ON_SAME_DEVICE(B_offsets, B_offsets_rank_per_feature);
   TENSORS_ON_SAME_DEVICE(B_offsets, output_offsets_feature_rank);
@@ -140,11 +139,6 @@ generate_vbe_metadata_cpu(
   Tensor row_output_offsets =
       at::empty({total_B_}, output_offsets_feature_rank.options());
   TORCH_CHECK(B_offsets.dtype() == at::kInt, "B_offsets should be int32");
-
-  if (vbe_output_offsets.has_value()) {
-    TORCH_CHECK(vbe_output_offsets->numel() == total_B, "size mismatch");
-  }
-
   Tensor b_t_map = at::empty({total_B_}, B_offsets.options());
   auto B_offsets_acc = B_offsets.accessor<int32_t, 1>();
   auto D_offsets_acc = D_offsets.accessor<int32_t, 1>();
@@ -172,8 +166,7 @@ generate_vbe_metadata_cpu(
       }
     }
   }
-  auto row_output_offsets_ = vbe_output_offsets.value_or(row_output_offsets);
-  return {row_output_offsets_, b_t_map};
+  return {row_output_offsets, b_t_map};
 }
 
 std::tuple<int64_t, int64_t>
@@ -211,8 +204,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    bool nobag, "
       "    SymInt max_B_feature_rank, "
       "    int info_B_num_bits, "
-      "    SymInt total_B, "
-      "    Tensor? vbe_output_offsets=None"
+      "    SymInt total_B"
       ") -> (Tensor, Tensor)");
   DISPATCH_TO_CPU("generate_vbe_metadata", generate_vbe_metadata_cpu);
   DISPATCH_TO_CPU("get_infos_metadata", get_infos_metadata_cpu);
