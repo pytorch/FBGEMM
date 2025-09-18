@@ -170,7 +170,7 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-template <bool ExternalQParam>
+template <bool ExternalQParam, bool Symmetric = false>
 __global__ void dequantize_fp8_cache_kernel(
     // This code currently represents FP8 version not int4
     at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
@@ -188,8 +188,6 @@ __global__ void dequantize_fp8_cache_kernel(
   auto MAX_T = cache_K.size(1);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
-  // TODO: support D_H < 128 for small model used in testing.
-  CUDA_KERNEL_ASSERT(D_H == 128);
   const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
   CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
 
@@ -232,7 +230,15 @@ __global__ void dequantize_fp8_cache_kernel(
       tidx -= 32;
     }
     uint32_t q = *reinterpret_cast<uint32_t*>(&row[tidx * 4 + offset_bytes]);
-    kv_dq = dequantize_packed_fp8(q, *qparam_src);
+
+    if (Symmetric) {
+      // No shift, FP32 scale
+      float* qparam_src_fp32 = reinterpret_cast<float*>(qparam_src);
+      kv_dq = dequantize_packed_fp8_symmetric(q, *qparam_src_fp32);
+    } else {
+      kv_dq = dequantize_packed_fp8(q, *qparam_src);
+    }
+
     // now, write our outputs
     // each thread writes 4 elements of type bf16
     *reinterpret_cast<uint2*>(&row_dq[4 * tidx]) =
@@ -275,7 +281,7 @@ __global__ void dequantize_fp8_cache_kernel_paged(
 }
 
 #else
-template <bool ExternalQParam>
+template <bool ExternalQParam, bool symmetric = false>
 __global__ void dequantize_fp8_cache_kernel(
     // This code currently represents FP8 version not int4
     at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
@@ -293,8 +299,6 @@ __global__ void dequantize_fp8_cache_kernel(
   auto MAX_T = cache_K.size(1);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
-  // TODO: support D_H < 128 for small model used in testing.
-  CUDA_KERNEL_ASSERT(D_H == 128);
   const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
   CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
 
@@ -319,24 +323,30 @@ __global__ void dequantize_fp8_cache_kernel(
     row_k_dq = &cache_K_dq[b][t][h][0];
     row_v_dq = &cache_V_dq[b][t][h][0];
     // Calculate kv_dq for this row
-    {
-      __half2* qparam_k_src;
-      __half2* qparam_v_src;
-      if (ExternalQParam) {
-        size_t idx = b * (MAX_T * N_KVH) + t * N_KVH + h;
-        qparam_k_src = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
-        qparam_v_src = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
-      } else {
-        qparam_k_src = reinterpret_cast<__half2*>(&row_k[0]);
-        qparam_v_src = reinterpret_cast<__half2*>(&row_v[0]);
-      }
-      uint64_t kq =
-          *reinterpret_cast<uint32_t*>(&row_k[threadIdx.x * 4 + offset_bytes]);
-      uint64_t vq =
-          *reinterpret_cast<uint32_t*>(&row_v[threadIdx.x * 4 + offset_bytes]);
+    __half2* qparam_k_src;
+    __half2* qparam_v_src;
+    if (ExternalQParam) {
+      size_t idx = b * (MAX_T * N_KVH) + t * N_KVH + h;
+      qparam_k_src = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
+      qparam_v_src = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
+    } else {
+      qparam_k_src = reinterpret_cast<__half2*>(&row_k[0]);
+      qparam_v_src = reinterpret_cast<__half2*>(&row_v[0]);
+    }
+    uint64_t kq =
+        *reinterpret_cast<uint32_t*>(&row_k[threadIdx.x * 4 + offset_bytes]);
+    uint64_t vq =
+        *reinterpret_cast<uint32_t*>(&row_v[threadIdx.x * 4 + offset_bytes]);
 
-      packed = kq | (vq << 32);
+    packed = kq | (vq << 32);
 
+    if (symmetric) {
+      // No shift, FP32 scale
+      float* qparam_k_src_fp32 = reinterpret_cast<float*>(qparam_k_src);
+      float* qparam_v_src_fp32 = reinterpret_cast<float*>(qparam_v_src);
+      kv_dq = dequantize_packed_fp8_symmetric(
+          packed, *qparam_k_src_fp32, *qparam_v_src_fp32);
+    } else {
       kv_dq = dequantize_packed_fp8(packed, *qparam_k_src, *qparam_v_src);
     }
     // now, write our outputs
@@ -387,7 +397,6 @@ __global__ void dequantize_fp8_cache_kernel_paged(
   auto N_KVH = cache_K.size(2);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
-  CUDA_KERNEL_ASSERT(D_H == 128);
 
   auto b = blockIdx.x;
   // only need to dequantize this far.
@@ -482,7 +491,8 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     std::optional<at::Tensor> qparam_k,
     std::optional<at::Tensor> qparam_v,
     std::optional<at::Tensor> block_tables,
-    int64_t page_size) {
+    int64_t page_size,
+    std::optional<bool> symmetric) {
   TORCH_CHECK(cache_K.is_cuda());
   TORCH_CHECK(cache_V.is_cuda());
   TORCH_CHECK(kv_seqlen.is_cuda());
@@ -502,6 +512,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     fp8_qparam_offset = 0;
   }
   auto D_H = (D_HQ - fp8_qparam_offset);
+
+  // TODO: support D_H < 128 for small model used in testing.
+  TORCH_CHECK(D_H == 128, "D_H must be 128, got ", D_H);
 
   // TODO:
   // The below allocates Tensors that have the same shape as cache_K and
@@ -538,8 +551,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   constexpr int32_t kMaxBlocks = 512;
   dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
-#define CALL_DEQUANTIZE_FP8_CACHE(EXTERNAL_Q_PARAM)                           \
-  const auto deq_fn = dequantize_fp8_cache_kernel<EXTERNAL_Q_PARAM>;          \
+#define CALL_DEQUANTIZE_FP8_CACHE(EXTERNAL_Q_PARAM, SYMMETRIC_QUANT)          \
+  const auto deq_fn =                                                         \
+      dequantize_fp8_cache_kernel<EXTERNAL_Q_PARAM, SYMMETRIC_QUANT>;         \
   deq_fn<<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
       cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
       cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
@@ -549,11 +563,21 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
       qparam_k_ptr,                                                           \
       qparam_v_ptr);                                                          \
   C10_CUDA_KERNEL_LAUNCH_CHECK()
+
+  bool use_symmetric_quantization = symmetric && symmetric.value();
   if (block_tables_ptr == nullptr) {
     if (qparam_k_ptr) {
-      CALL_DEQUANTIZE_FP8_CACHE(true);
+      if (use_symmetric_quantization) {
+        CALL_DEQUANTIZE_FP8_CACHE(true, true);
+      } else {
+        CALL_DEQUANTIZE_FP8_CACHE(true, false);
+      }
     } else {
-      CALL_DEQUANTIZE_FP8_CACHE(false);
+      if (use_symmetric_quantization) {
+        CALL_DEQUANTIZE_FP8_CACHE(false, true);
+      } else {
+        CALL_DEQUANTIZE_FP8_CACHE(false, false);
+      }
     }
 #undef CALL_DEQUANTIZE_FP8_CACHE
   } else {

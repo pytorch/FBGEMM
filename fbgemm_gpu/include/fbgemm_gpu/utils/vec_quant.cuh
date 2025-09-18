@@ -415,6 +415,19 @@ DEVICE_INLINE bfx8 dequantize_packed_fp8_symmetric(
   result.vals[3] = __floats2bfloat162_rn(r3.x, r3.y);
   return result;
 }
+DEVICE_INLINE bfx4 dequantize_packed_fp8_symmetric(
+    uint32_t xs, // x0 x1 x2 x3
+    float scale) {
+  __nv_fp8_e4m3* fp8_vs = reinterpret_cast<__nv_fp8_e4m3*>(&xs); // 4 element
+
+  auto r0 = make_float2(float(fp8_vs[0]) * scale, float(fp8_vs[1]) * scale);
+  auto r1 = make_float2(float(fp8_vs[2]) * scale, float(fp8_vs[3]) * scale);
+
+  bfx4 result;
+  result.vals[0] = __floats2bfloat162_rn(r0.x, r0.y);
+  result.vals[1] = __floats2bfloat162_rn(r1.x, r1.y);
+  return result;
+}
 DEVICE_INLINE bfx4 dequantize_packed_fp8(uint32_t vs, __half2 shift_scale_0) {
   uint32_t v = vs;
   __nv_fp8_e4m3* fp8_k = reinterpret_cast<__nv_fp8_e4m3*>(&v); // 4 element
