@@ -165,7 +165,7 @@ struct load_row_per_warp<half, 160, index_t> {
   static __device__ void
   run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
     int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 192);
+        amdgcn_make_buffer_resource(p_emb_table + row_index * 160);
     *reinterpret_cast<half2*>(emb_data) = llvm_amdgcn_raw_buffer_load_fp16x2(
         emb_res, lane_id * sizeof(half2), 0, 0);
     if ((lane_id + 128) % 192 < 160) {
