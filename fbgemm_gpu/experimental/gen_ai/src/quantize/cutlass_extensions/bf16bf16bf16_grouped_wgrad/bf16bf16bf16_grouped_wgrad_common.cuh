@@ -127,7 +127,9 @@ at::Tensor bf16bf16bf16_grouped_wgrad_impl(
       cutlass::gemm::GroupProblemShape<cute::Shape<int, int, int>>;
   using ElementA = cutlass::bfloat16_t;
   using ElementB = cutlass::bfloat16_t;
-  using ElementC = cutlass::bfloat16_t;
+  using ElementC =
+      cute::conditional_t<OUTPUT_ACCUM, float, cutlass::bfloat16_t>;
+
   using LayoutA = cutlass::layout::ColumnMajor;
   using LayoutB = cutlass::layout::RowMajor;
   using LayoutC = cutlass::layout::RowMajor;
@@ -393,7 +395,8 @@ at::Tensor bf16bf16bf16_grouped_wgrad_sm100_impl(
       cutlass::gemm::GroupProblemShape<cute::Shape<int, int, int>>;
   using ElementA = cutlass::bfloat16_t;
   using ElementB = cutlass::bfloat16_t;
-  using ElementC = cutlass::bfloat16_t;
+  using ElementC =
+      cute::conditional_t<OUTPUT_ACCUM, float, cutlass::bfloat16_t>;
   using LayoutA = cutlass::layout::ColumnMajor;
   using LayoutB = cutlass::layout::RowMajor;
   using LayoutC = cutlass::layout::RowMajor;
