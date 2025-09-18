@@ -363,6 +363,146 @@ class KVCacheTests(unittest.TestCase):
         N_KVH_L=st.sampled_from([1, 2]),
     )
     @unittest.skipIf(
+        not torch.cuda.is_available()
+        or (
+            torch.version.cuda
+            and torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9
+        )
+        or (torch.version.hip and torch.version.hip < "6.2")
+        or not HAS_XFORMERS,
+        "Skip when H100 is not available or MI300 is not available",
+    )
+    def test_symmetric_fp8_kv_cache(self, MAX_T: int, N_KVH_L: int) -> None:
+        N_H_L = 2
+        T = 2
+        B = 2
+        D_H = 128
+
+        xq = (
+            torch.cat(
+                [
+                    torch.randn(N_H_L, D_H, dtype=torch.bfloat16, device=self.device)
+                    * (i)
+                    for i in range(B * T)
+                ]
+            )
+        ).view(B * T, N_H_L, D_H)
+        scale_step = 0.01 / B / T
+        shift_step = 5 * scale_step
+        xk_rows = [
+            scale_step
+            * (i + 1)
+            * torch.randn(size=(N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device)
+            + i * shift_step
+            for i in range(B * T)
+        ]
+        xv_rows = [
+            scale_step
+            * (i + 1)
+            * torch.randn(size=(N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device)
+            + i * shift_step
+            for i in range(B * T)
+        ]
+
+        xk = (torch.cat(xk_rows)).view(B * T, N_KVH_L, D_H)
+
+        xv = (torch.cat(xv_rows)).view(B * T, N_KVH_L, D_H)
+        varseq_seqpos = torch.cat(
+            [
+                torch.as_tensor(list(range(T)), dtype=torch.int, device=self.device)
+                for b in range(B)
+            ]
+        )
+        varseq_batch = torch.cat(
+            [
+                torch.as_tensor(
+                    [b for _ in range(T)], dtype=torch.int, device=self.device
+                )
+                for b in range(B)
+            ]
+        )
+        attn_bias = (
+            fmha.attn_bias.BlockDiagonalCausalWithOffsetPaddedKeysMask.from_seqlens(
+                q_seqlen=[T for _ in range(B)],
+                kv_padding=MAX_T,
+                kv_seqlen=[T for _ in range(B)],
+            )
+        )
+        attn_bias.k_seqinfo.to(self.device)
+        assert attn_bias.k_seqinfo.seqlen.shape == (B,)
+        assert attn_bias.k_seqinfo.seqlen.tolist() == [T for _ in range(B)]
+
+        theta = 10000.0
+        cache_k_bf16 = torch.zeros(
+            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
+        )
+        cache_v_bf16 = torch.zeros(
+            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
+        )
+
+        xq_out_bf16 = torch.compile(
+            torch.ops.fbgemm.rope_qkv_varseq_prefill, backend=self.compile_backend
+        )(
+            xq,
+            xk,
+            xv,
+            cache_k_bf16,
+            cache_v_bf16,
+            varseq_batch,
+            varseq_seqpos,
+            theta,
+        )
+        qparam_offset = 4
+
+        cache_k_fp8 = torch.zeros(
+            size=(B, MAX_T, N_KVH_L, int(D_H) + qparam_offset),
+            dtype=torch.uint8,
+            device=self.device,
+        )
+        cache_v_fp8 = torch.zeros(
+            size=(B, MAX_T, N_KVH_L, int(D_H) + qparam_offset),
+            dtype=torch.uint8,
+            device=self.device,
+        )
+        xq_out = torch.compile(
+            torch.ops.fbgemm.rope_qkv_varseq_prefill, backend=self.compile_backend
+        )(
+            xq,
+            xk,
+            xv,
+            cache_k_fp8,
+            cache_v_fp8,
+            varseq_batch,
+            varseq_seqpos,
+            theta,
+            cache_logical_dtype_int=LogicalDtype.fp8.value,
+            symmetric_quant=True,
+        )
+        torch.testing.assert_close(xq_out_bf16, xq_out)
+
+        dequantized_cache = torch.compile(
+            torch.ops.fbgemm.dequantize_fp8_cache, backend=self.compile_backend
+        )(
+            cache_k_fp8,
+            cache_v_fp8,
+            attn_bias.k_seqinfo.seqlen,
+            symmetric=True,
+        )
+        cache_k, cache_v = dequantized_cache
+
+        torch.testing.assert_close(
+            cache_k[:, :T], cache_k_bf16[:, :T], atol=1.0e-2, rtol=5.0e-2
+        )
+        torch.testing.assert_close(
+            cache_v[:, :T], cache_v_bf16[:, :T], atol=1.0e-2, rtol=5.0e-2
+        )
+
+    @settings(deadline=None)
+    @given(
+        MAX_T=st.sampled_from([8000, 16384]),
+        N_KVH_L=st.sampled_from([1, 2]),
+    )
+    @unittest.skipIf(
         not torch.cuda.is_available() or not HAS_XFORMERS or not torch.version.hip,
         "Skip when no AMD GPU or xformers is not available",
     )
