@@ -25,6 +25,7 @@
 #include <cub/cub.cuh>
 
 #include "fbgemm_gpu/utils/cuda_block_count.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
 
 #include <torch/torch.h>
@@ -113,8 +114,12 @@ __global__ void dequantize_int4_cache_kernel(
 }
 
 #define CALL_DEQUANTIZE_INT4_CACHE_GROUPWISE_KERNEL(NUM_GROUPS, ...)          \
-  dequantize_int4_cache_kernel<                                               \
-      NUM_GROUPS><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(  \
+  FBGEMM_LAUNCH_KERNEL(                                                       \
+      (dequantize_int4_cache_kernel<NUM_GROUPS>),                             \
+      blocks,                                                                 \
+      threads,                                                                \
+      0,                                                                      \
+      at::cuda::getCurrentCUDAStream(),                                       \
       cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
       cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
       kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),       \
@@ -539,16 +544,19 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
 #define CALL_DEQUANTIZE_FP8_CACHE(EXTERNAL_Q_PARAM)                           \
-  const auto deq_fn = dequantize_fp8_cache_kernel<EXTERNAL_Q_PARAM>;          \
-  deq_fn<<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
+  FBGEMM_LAUNCH_KERNEL(                                                       \
+      (dequantize_fp8_cache_kernel<EXTERNAL_Q_PARAM>),                        \
+      blocks,                                                                 \
+      threads,                                                                \
+      0,                                                                      \
+      at::cuda::getCurrentCUDAStream(),                                       \
       cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
       cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
       kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),       \
       cache_K_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(), \
       cache_V_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(), \
       qparam_k_ptr,                                                           \
-      qparam_v_ptr);                                                          \
-  C10_CUDA_KERNEL_LAUNCH_CHECK()
+      qparam_v_ptr);
   if (block_tables_ptr == nullptr) {
     if (qparam_k_ptr) {
       CALL_DEQUANTIZE_FP8_CACHE(true);
@@ -557,11 +565,12 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     }
 #undef CALL_DEQUANTIZE_FP8_CACHE
   } else {
-    dequantize_fp8_cache_kernel_paged<<<
+    FBGEMM_LAUNCH_KERNEL(
+        (dequantize_fp8_cache_kernel_paged),
         blocks,
         threads,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
+        at::cuda::getCurrentCUDAStream(),
         cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
         cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
         kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
@@ -572,7 +581,6 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
         block_tables_ptr,
         block_tables_b_stride,
         page_size);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
   return {cache_K_dq, cache_V_dq};
@@ -752,11 +760,13 @@ at::Tensor quantize_qkv_per_head(
   auto scale_q = at::zeros({B, N_KVH_L}, XQ_O.options().dtype(at::kFloat));
   float* const scale_q_ptr = scale_q.data_ptr<float>();
   // Launch the kernel
-  quantizeQKVPerHead<<<
+
+  FBGEMM_LAUNCH_KERNEL(
+      (quantizeQKVPerHead),
       grid_size,
       block_size,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       xqkv_amax_row.data_ptr<float>(),
       xqkv.data_ptr<at::BFloat16>(),
       varseq_seqpos.data_ptr<int32_t>(),
@@ -770,8 +780,8 @@ at::Tensor quantize_qkv_per_head(
       cache_V.packed_accessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>(),
       scale_q_ptr,
       qparam_k_ptr,
-      qparam_v_ptr);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+      qparam_v_ptr,
+      64.f);
   return scale_q;
 }
 #else
