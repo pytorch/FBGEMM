@@ -188,8 +188,6 @@ __global__ void dequantize_fp8_cache_kernel(
   auto MAX_T = cache_K.size(1);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
-  // TODO: support D_H < 128 for small model used in testing.
-  CUDA_KERNEL_ASSERT(D_H == 128);
   const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
   CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
 
@@ -301,10 +299,8 @@ __global__ void dequantize_fp8_cache_kernel(
   auto MAX_T = cache_K.size(1);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
-  // TODO: support D_H < 128 for small model used in testing.
-  // CUDA_KERNEL_ASSERT(D_H == 128);
   const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
-  // CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
+  CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
 
   auto b = blockIdx.x;
   // only need to dequantize this far.
@@ -401,7 +397,6 @@ __global__ void dequantize_fp8_cache_kernel_paged(
   auto N_KVH = cache_K.size(2);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
-  CUDA_KERNEL_ASSERT(D_H == 128);
 
   auto b = blockIdx.x;
   // only need to dequantize this far.
@@ -517,6 +512,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     fp8_qparam_offset = 0;
   }
   auto D_H = (D_HQ - fp8_qparam_offset);
+
+  // TODO: support D_H < 128 for small model used in testing.
+  TORCH_CHECK(D_H == 128, "D_H must be 128, got ", D_H);
 
   // TODO:
   // The below allocates Tensors that have the same shape as cache_K and

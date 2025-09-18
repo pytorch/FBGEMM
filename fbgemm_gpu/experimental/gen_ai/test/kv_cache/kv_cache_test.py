@@ -358,6 +358,50 @@ class KVCacheTests(unittest.TestCase):
         )
 
     @settings(deadline=None)
+    @unittest.skipIf(
+        not torch.cuda.is_available()
+        or (
+            torch.version.cuda
+            and torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9
+        )
+        or (torch.version.hip and torch.version.hip < "6.2")
+        or not HAS_XFORMERS,
+        "Skip when H100 is not available or MI300 is not available",
+    )
+    def test_dequantize_fp8_cache_too_many_resources_for_launch(self) -> None:
+        # With heavy register usage, dequantize_fp8_cache can fail with
+        # CUDA error: too many resources requested for launch
+        device = "cuda"
+
+        # Shapes/dtypes
+        B, MAX_T, N_KVH, D = 1, 139_264, 1, 128
+
+        cache_k = torch.randint(
+            low=0, high=256, size=(B, MAX_T, N_KVH, D), dtype=torch.uint8, device=device
+        )
+        cache_v = torch.randint(
+            low=0, high=256, size=(B, MAX_T, N_KVH, D), dtype=torch.uint8, device=device
+        )
+
+        # Per-token qparams (symmetric=True implies zp=0)
+        qparam_k = torch.zeros((B, MAX_T, N_KVH, 1), dtype=torch.int32, device=device)
+        qparam_v = torch.zeros((B, MAX_T, N_KVH, 1), dtype=torch.int32, device=device)
+
+        # Sequence length (single int32)
+        seq_len = torch.tensor([MAX_T], dtype=torch.int32, device=device)
+
+        torch.ops.fbgemm.dequantize_fp8_cache(  # type: ignore[reportCallIssue]
+            cache_k,
+            cache_v,
+            seq_len,
+            qparam_k=qparam_k,
+            qparam_v=qparam_v,
+            block_tables=None,
+            page_size=0,
+            symmetric=True,
+        )
+
+    @settings(deadline=None)
     @given(
         MAX_T=st.sampled_from([8000, 16384]),
         N_KVH_L=st.sampled_from([1, 2]),
