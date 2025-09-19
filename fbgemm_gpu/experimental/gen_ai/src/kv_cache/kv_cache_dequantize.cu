@@ -13,7 +13,6 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
-#include <algorithm>
 #include "c10/core/ScalarType.h"
 #include "c10/util/BFloat16.h"
 #include "kv_cache.cuh"
@@ -34,14 +33,14 @@ namespace fbgemm_gpu {
 
 template <int KVQuantNumGroups = 1>
 __global__ void dequantize_int4_cache_kernel(
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_K, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_V, // [B][MAX_T][N_KVH][D_H // G]
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_K_dq, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_V_dq // [B][MAX_T][N_KVH][D_H]
 ) {
   auto N_KVH = cache_K.size(2);
@@ -113,18 +112,18 @@ __global__ void dequantize_int4_cache_kernel(
   }
 }
 
-#define CALL_DEQUANTIZE_INT4_CACHE_GROUPWISE_KERNEL(NUM_GROUPS, ...)          \
-  FBGEMM_LAUNCH_KERNEL(                                                       \
-      (dequantize_int4_cache_kernel<NUM_GROUPS>),                             \
-      blocks,                                                                 \
-      threads,                                                                \
-      0,                                                                      \
-      at::cuda::getCurrentCUDAStream(),                                       \
-      cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
-      cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
-      kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),       \
-      cache_K_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(), \
-      cache_V_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>());
+#define CALL_DEQUANTIZE_INT4_CACHE_GROUPWISE_KERNEL(NUM_GROUPS, ...) \
+  FBGEMM_LAUNCH_KERNEL(                                              \
+      (dequantize_int4_cache_kernel<NUM_GROUPS>),                    \
+      blocks,                                                        \
+      threads,                                                       \
+      0,                                                             \
+      at::cuda::getCurrentCUDAStream(),                              \
+      PTA_B(cache_K, uint8_t, 4, 64),                                \
+      PTA_B(cache_V, uint8_t, 4, 64),                                \
+      PTA_B(kv_seqlen, int32_t, 1, 32),                              \
+      PTA_B(cache_K_dq, at::BFloat16, 4, 64),                        \
+      PTA_B(cache_V_dq, at::BFloat16, 4, 64));
 
 std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
     at::Tensor cache_K,
@@ -178,14 +177,14 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
 template <bool ExternalQParam>
 __global__ void dequantize_fp8_cache_kernel(
     // This code currently represents FP8 version not int4
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_K, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_V, // [B][MAX_T][N_KVH][D_H // G]
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_K_dq, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_V_dq, // [B][MAX_T][N_KVH][D_H]
     int32_t* qparam_k_ptr,
     int32_t* qparam_v_ptr) {
@@ -262,14 +261,14 @@ __global__ void dequantize_fp8_cache_kernel(
 
 __global__ void dequantize_fp8_cache_kernel_paged(
     // This code currently represents FP8 version not int4
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_K, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_V, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H // G]
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_K_dq, // [1][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_V_dq, // [1][MAX_T][N_KVH][D_H]
     int32_t* qparam_k_ptr,
     int32_t* qparam_v_ptr,
@@ -283,14 +282,14 @@ __global__ void dequantize_fp8_cache_kernel_paged(
 template <bool ExternalQParam>
 __global__ void dequantize_fp8_cache_kernel(
     // This code currently represents FP8 version not int4
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_K, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_V, // [B][MAX_T][N_KVH][D_H // G]
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_K_dq, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_V_dq, // [B][MAX_T][N_KVH][D_H]
     int32_t* qparam_k_ptr,
     int32_t* qparam_v_ptr) {
@@ -375,14 +374,14 @@ __global__ void dequantize_fp8_cache_kernel(
 // kernel for now.
 __global__ void dequantize_fp8_cache_kernel_paged(
     // This code currently represents FP8 version not int4
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_K, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
         cache_V, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H // G]
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_K_dq, // [1][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
         cache_V_dq, // [1][MAX_T][N_KVH][D_H]
     int32_t* qparam_k_ptr,
     int32_t* qparam_v_ptr,
@@ -543,19 +542,19 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   constexpr int32_t kMaxBlocks = 512;
   dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
-#define CALL_DEQUANTIZE_FP8_CACHE(EXTERNAL_Q_PARAM)                           \
-  FBGEMM_LAUNCH_KERNEL(                                                       \
-      (dequantize_fp8_cache_kernel<EXTERNAL_Q_PARAM>),                        \
-      blocks,                                                                 \
-      threads,                                                                \
-      0,                                                                      \
-      at::cuda::getCurrentCUDAStream(),                                       \
-      cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
-      cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),         \
-      kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),       \
-      cache_K_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(), \
-      cache_V_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(), \
-      qparam_k_ptr,                                                           \
+#define CALL_DEQUANTIZE_FP8_CACHE(EXTERNAL_Q_PARAM)    \
+  FBGEMM_LAUNCH_KERNEL(                                \
+      (dequantize_fp8_cache_kernel<EXTERNAL_Q_PARAM>), \
+      blocks,                                          \
+      threads,                                         \
+      0,                                               \
+      at::cuda::getCurrentCUDAStream(),                \
+      PTA_B(cache_K, uint8_t, 4, 64),                  \
+      PTA_B(cache_V, uint8_t, 4, 64),                  \
+      PTA_B(kv_seqlen, int32_t, 1, 32),                \
+      PTA_B(cache_K_dq, at::BFloat16, 4, 64),          \
+      PTA_B(cache_V_dq, at::BFloat16, 4, 64),          \
+      qparam_k_ptr,                                    \
       qparam_v_ptr);
   if (block_tables_ptr == nullptr) {
     if (qparam_k_ptr) {
@@ -571,11 +570,11 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
         threads,
         0,
         at::cuda::getCurrentCUDAStream(),
-        cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
-        cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
-        kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        cache_K_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-        cache_V_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        PTA_B(cache_K, uint8_t, 4, 64),
+        PTA_B(cache_V, uint8_t, 4, 64),
+        PTA_B(kv_seqlen, int32_t, 1, 32),
+        PTA_B(cache_K_dq, at::BFloat16, 4, 64),
+        PTA_B(cache_V_dq, at::BFloat16, 4, 64),
         qparam_k_ptr,
         qparam_v_ptr,
         block_tables_ptr,
@@ -612,11 +611,11 @@ __global__ void quantizeQKVPerHead(
     const int32_t* varseq_seqpos, // [B_T]
     const int32_t* varseq_batch, // [B_T]
     const bool* is_precalculated_qparam, // [B_T]
-    at::PackedTensorAccessor64<at::Float8_e4m3fn, 3, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::Float8_e4m3fn, 3, at::RestrictPtrTraits>
         XQ_O, // [B_T][N_H][D]
-    at::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
         cache_K, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
         cache_V, // [B][MAX_T][N_KVH][D_H]
     float* const scale_q,
     float* const scale_k,
@@ -775,9 +774,9 @@ at::Tensor quantize_qkv_per_head(
       is_precalculated_qparam.has_value()
           ? is_precalculated_qparam.value().data_ptr<bool>()
           : nullptr,
-      XQ_O.packed_accessor64<at::Float8_e4m3fn, 3, at::RestrictPtrTraits>(),
-      cache_K.packed_accessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>(),
-      cache_V.packed_accessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>(),
+      PTA_B(XQ_O, at::Float8_e4m3fn, 3, 64),
+      PTA_B(cache_K, at::Float8_e4m3fn, 4, 64),
+      PTA_B(cache_V, at::Float8_e4m3fn, 4, 64),
       scale_q_ptr,
       qparam_k_ptr,
       qparam_v_ptr,
