@@ -225,7 +225,7 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
               static_cast<Element*>(v.data_ptr()), stride_V,
               window_size_left, window_size_right
           },
-          0.0f /* softmax_scale */,
+          static_cast<float>(softmax_scale.value_or(0.0f)) /* softmax_scale */,
           1.0f /* scale_q */,
           1.0f /* scale_k */,
           1.0f /* scale_v */,

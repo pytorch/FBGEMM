@@ -243,6 +243,7 @@ def attention_ref(  # noqa
     upcast=True,
     reorder_ops=False,
     key_leftpad=None,
+    softmax_scale=None,
 ):
     """
     Arguments:
@@ -261,6 +262,7 @@ def attention_ref(  # noqa
         reorder_ops: whether to change the order of operations (scaling k instead of scaling q, etc.)
             without changing the math. This is to estimate the numerical error from operation
             reordering.
+        softmax_scale: float, scale for softmax. If None, use 1/sqrt(head_dim)
     Output:
         output: (batch_size, seqlen_q, nheads, head_dim)
         attention: (batch_size, nheads, seqlen_q, seqlen_k), softmax after dropout
@@ -274,10 +276,12 @@ def attention_ref(  # noqa
     k = repeat(k, "b s h d -> b s (h g) d", g=q.shape[2] // k.shape[2])
     v = repeat(v, "b s h d -> b s (h g) d", g=q.shape[2] // v.shape[2])
     d = q.shape[-1]
+    # Use provided softmax_scale or default to 1/sqrt(d)
+    scale = softmax_scale if softmax_scale is not None else 1 / math.sqrt(d)
     if not reorder_ops:
-        scores = torch.einsum("bthd,bshd->bhts", q / math.sqrt(d), k)
+        scores = torch.einsum("bthd,bshd->bhts", q * scale, k)
     else:
-        scores = torch.einsum("bthd,bshd->bhts", q, k / math.sqrt(d))
+        scores = torch.einsum("bthd,bshd->bhts", q, k * scale)
     if softcap > 0:
         scores /= softcap
         scores = scores.tanh()
