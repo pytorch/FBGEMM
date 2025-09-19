@@ -26,6 +26,7 @@ if torch.cuda.is_available():
         quantize_fp8_packed_row,
         quantize_fp8_packed_row_raw,
         quantize_fp8_row,
+        quantize_fp8_row_meta,
         scale_fp8_row,
     )
 
@@ -48,6 +49,8 @@ class TestFp8Matmul(unittest.TestCase):
             use_jagged: bool = False,
             use_scale_ub: bool = False,
             transpose_inputs: bool = False,
+            align_rows_to: Optional[int] = None,
+            expected_padded_size: Optional[int] = None,  # only set with align_rows_to
         ) -> None:
             a = torch.randn(shape, dtype=torch.bfloat16, device=device)
             inputs = [a]
@@ -91,7 +94,22 @@ class TestFp8Matmul(unittest.TestCase):
                     zero_start_index_M=zero_start_index_M,
                     use_triton=use_triton,
                     output_device=output_device,
+                    align_rows_to=align_rows_to,
                 )
+
+                a_fp8_meta, a_scale_meta = quantize_fp8_row_meta(
+                    input_a,
+                    scale_ub=scale_ub,
+                    zero_start_index_M=zero_start_index_M,
+                    use_triton=use_triton,
+                    output_device=output_device,
+                    align_rows_to=align_rows_to,
+                )
+
+                self.assertEqual(a_fp8.dtype, a_fp8_meta.dtype)
+                self.assertEqual(a_fp8.shape, a_fp8_meta.shape)
+                self.assertEqual(a_scale.dtype, a_scale_meta.dtype)
+                self.assertEqual(a_scale.shape, a_scale_meta.shape)
 
                 # Undo scaling.
                 a_torch = a_fp8.to(torch.bfloat16)
@@ -100,6 +118,20 @@ class TestFp8Matmul(unittest.TestCase):
                 assert a_scale.shape == a_torch.shape[:-1]
 
                 a_torch *= a_scale.view(broadcast_shape)
+
+                if align_rows_to is not None:
+                    # Pad input_a's row dimension to expected_padded_size if specified.
+                    assert expected_padded_size is not None
+                    pad_rows = expected_padded_size - input_a.shape[-1]
+                    if pad_rows > 0:
+                        pad_shape = list(input_a.shape)
+                        pad_shape[-1] = pad_rows
+                        pad_tensor = torch.zeros(
+                            pad_shape,
+                            dtype=input_a.dtype,
+                            device=input_a.device,
+                        )
+                        input_a = torch.cat([input_a, pad_tensor], dim=-1)
 
                 self.assertTrue(
                     torch.allclose(
@@ -112,8 +144,50 @@ class TestFp8Matmul(unittest.TestCase):
 
         for n_col in range(1, 9000, 100):
             _test_quantize_fp8_row((2, n_col), True, torch.device("cuda"))
+
+            # Test with padding. These go up to 9000 (larger than max BLOCK_SIZE)
+
+            # Calculate expected_padded_size from align_rows_to=8.
+            # Using a different math here, just to make tests different from implementation.
+            align_rows_to = 8
+            trailing_beyond_alignment = n_col % align_rows_to
+            padding_size = (
+                align_rows_to - trailing_beyond_alignment
+                if trailing_beyond_alignment > 0
+                else 0
+            )
+            expected_padded_size = n_col + padding_size
+            _test_quantize_fp8_row(
+                (2, n_col),
+                True,
+                torch.device("cuda"),
+                align_rows_to=align_rows_to,
+                expected_padded_size=expected_padded_size,
+            )
+
         # Test with batched input.
         _test_quantize_fp8_row((4, 2, 3), True, torch.device("cuda"))
+        _test_quantize_fp8_row(  # simple padding case
+            (4, 2, 3),
+            True,
+            torch.device("cuda"),
+            align_rows_to=8,
+            expected_padded_size=8,
+        )
+        _test_quantize_fp8_row(  # multiple padding case
+            (4, 2, 13),
+            True,
+            torch.device("cuda"),
+            align_rows_to=8,
+            expected_padded_size=16,
+        )
+        _test_quantize_fp8_row(  # 0 padding case
+            (4, 2, 8),
+            True,
+            torch.device("cuda"),
+            align_rows_to=8,
+            expected_padded_size=8,
+        )
         _test_quantize_fp8_row((6, 4, 2, 3), True, torch.device("cuda"))
         # Test with non-contiguous input
         _test_quantize_fp8_row(
@@ -132,6 +206,14 @@ class TestFp8Matmul(unittest.TestCase):
         _test_quantize_fp8_row((6, 4, 2, 3), True, torch.device("cpu"))
         # Test with zero_start_index_M
         _test_quantize_fp8_row((20, 30), True, torch.device("cuda"), use_jagged=True)
+        _test_quantize_fp8_row(
+            (20, 30),
+            True,
+            torch.device("cuda"),
+            use_jagged=True,
+            align_rows_to=16,
+            expected_padded_size=32,
+        )
         _test_quantize_fp8_row(
             (6, 4, 2, 3), True, torch.device("cuda"), use_jagged=True
         )
