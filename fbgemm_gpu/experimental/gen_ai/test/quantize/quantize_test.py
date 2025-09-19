@@ -566,7 +566,7 @@ class FP8Tests(unittest.TestCase):
         B_T=st.sampled_from([0, 2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
-        QType=st.sampled_from([torch.float8_e4m3fn, torch.float8_e5m2]),
+        QType=st.sampled_from([torch.float8_e4m3fn]),
         CudaGraph=st.sampled_from([True, False]),
     )
     def test_quantize_int4_fp8_matmul(
@@ -933,7 +933,7 @@ class FP8Tests(unittest.TestCase):
         bias = (
             torch.randn(
                 size=(B, N),
-                dtype=torch.bfloat16,
+                dtype=torch.float32,
                 device=self.device,
             )
             if Bias

@@ -10,7 +10,7 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor f8f8bf16_rowwise_batched_64_128_128_1_2_1_10_f(
+at::Tensor f8f8bf16_rowwise_batched_64_128_128_2_1_1_9_f_e5m2(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -22,12 +22,12 @@ at::Tensor f8f8bf16_rowwise_batched_64_128_128_1_2_1_10_f(
       64,
       128,
       128,
-      1,
       2,
       1,
-      10,
+      1,
+      9,
       false,
-      cutlass::float_e4m3_t>(XQ, WQ, x_scale, w_scale, bias, output);
+      cutlass::float_e5m2_t>(XQ, WQ, x_scale, w_scale, bias, output);
 }
 
 } // namespace fbgemm_gpu
