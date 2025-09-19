@@ -23,6 +23,7 @@
 #endif
 
 #include "fbgemm_gpu/utils/cuda_block_count.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
 
 #include <torch/torch.h>
@@ -47,12 +48,12 @@ namespace fbgemm_gpu {
  * 32-63 to convert the V tensors. NV only has threads 0-31 per warp.
  */
 __global__ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel(
-    at::PackedTensorAccessor64<uint8_t, 5, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 5, at::RestrictPtrTraits>
         cache_K, // [N_H_L][B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 5, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 5, at::RestrictPtrTraits>
         cache_V, // [N_H_L][B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_K,
-    at::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_V) {
+    pta::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_K,
+    pta::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_V) {
   auto N_KVH = cache_K.size(3);
   auto MAX_T = cache_K.size(2);
   auto D_H = cache_K.size(4);
@@ -133,17 +134,16 @@ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
   dim3 blocks(N_H_L, B, std::max<int32_t>(1, kMaxBlocks / (B * N_H_L)));
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
 
-  convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      (convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel),
       blocks,
       threads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      cache_K.packed_accessor64<uint8_t, 5, at::RestrictPtrTraits>(),
-      cache_V.packed_accessor64<uint8_t, 5, at::RestrictPtrTraits>(),
-      qparam_K.packed_accessor64<int32_t, 5, at::RestrictPtrTraits>(),
-      qparam_V.packed_accessor64<int32_t, 5, at::RestrictPtrTraits>());
-
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(cache_K, uint8_t, 5, 64),
+      PTA_B(cache_V, uint8_t, 5, 64),
+      PTA_B(qparam_K, int32_t, 5, 64),
+      PTA_B(qparam_V, int32_t, 5, 64));
 }
 #else
 void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
