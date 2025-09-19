@@ -21,13 +21,14 @@ from .attention_ref_fp8 import attention_ref_fp8
 from .test_utils import attention_ref, generate_qkv, generate_random_padding_mask
 
 common_settings = {
-    "verbosity": Verbosity.verbose,
-    "max_examples": 20,
+    "verbosity": Verbosity.normal,
+    "max_examples": 200,
     "deadline": None,
     "suppress_health_check": [HealthCheck.filter_too_much, HealthCheck.data_too_large],
 }
 
 DEBUG = False
+SEED = 2
 
 compute_capability = (0, 0)
 if torch.cuda.is_available():
@@ -50,21 +51,39 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         t_pt: torch.Tensor,
     ) -> None:
         assert t_test.shape == t_ref.shape == t_pt.shape
+
+        ratio = 2.0
+
+        # Calculate all differences
+        test_ref_diff = self._abs_max(t_test - t_ref)
+        test_pt_diff = self._abs_max(t_test - t_pt)
+        pt_ref_diff = self._abs_max(t_pt - t_ref)
+
         if DEBUG:
             # Debug: Print the differences
+            print(f"DEBUG: Max absolute difference vs ref: {test_ref_diff}")
+            print(f"DEBUG: Max absolute difference vs pt: {test_pt_diff}")
+            print(f"DEBUG: Max absolute difference pt vs ref: {pt_ref_diff}")
             print(
-                f"DEBUG: Max absolute difference vs ref: {self._abs_max(t_test - t_ref)}"
+                f"DEBUG: Tolerance check: {test_ref_diff} <= {ratio * pt_ref_diff + 1e-5}"
             )
-            print(
-                f"DEBUG: Max absolute difference vs pt: {self._abs_max(t_test - t_pt)}"
-            )
-            print(
-                f"DEBUG: Max absolute difference pt vs ref: {self._abs_max(t_pt - t_ref)}"
-            )
-            print(
-                f"DEBUG: Tolerance check: {self._abs_max(t_test - t_ref)} <= {2 * self._abs_max(t_pt - t_ref) + 1e-5}"
-            )
-        assert self._abs_max(t_test - t_ref) <= 2 * self._abs_max(t_pt - t_ref) + 1e-4
+
+        # First assertion with gap information
+        tolerance_threshold = ratio * pt_ref_diff + 1e-4
+        assert test_ref_diff <= tolerance_threshold, (
+            f"Tolerance check failed: max_diff={test_ref_diff:.6f} > "
+            f"threshold={tolerance_threshold:.6f}, gap={test_ref_diff - tolerance_threshold:.6f}"
+        )
+
+        # sanity checks
+        assert test_ref_diff <= 0.5, (
+            f"Max difference vs ref too large: {test_ref_diff:.6f} > 0.5, "
+            f"gap={test_ref_diff - 0.5:.6f}"
+        )
+        assert pt_ref_diff <= 0.5, (
+            f"Max difference pt vs ref too large: {pt_ref_diff:.6f} > 0.5, "
+            f"gap={pt_ref_diff - 0.5:.6f}"
+        )
 
     def _generate_qkv(
         self,
@@ -121,6 +140,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     ) -> None:
         device = torch.accelerator.current_accelerator()
         assert device is not None
+        torch.manual_seed(SEED)
         assert seqlen_q <= seqlen_k
 
         # Initialize deterministic variables
@@ -262,6 +282,8 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     ) -> None:
         device = torch.accelerator.current_accelerator()
         assert device is not None
+
+        torch.manual_seed(SEED)
 
         # Initialize deterministic variables
         out_unpad_d = None
@@ -500,6 +522,8 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         kv_heads = 1
         head_dim = 128
         dtype = torch.bfloat16
+
+        torch.manual_seed(SEED)
 
         # Create tensors
         q_padded = torch.randn(
