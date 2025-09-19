@@ -19,6 +19,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     const std::optional<const at::Tensor>& cu_seqlens_k,
     std::optional<int> max_seq_len_q,
     std::optional<int> max_seq_len_k,
+    const std::optional<double> softmax_scale,
     const int window_size_left,
     const int window_size_right
 ) {
@@ -207,8 +208,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     get<2, 1>(stride_dV) = 0;
   }
 
-  // TODO: pass in softmax_scale?
-  ElementAccumulator softmax_scale = 1.0f / sqrtf(D);
+  ElementAccumulator softmax_scale_value = softmax_scale.has_value() ? softmax_scale.value() : (1.0f / sqrtf(D));
 
   at::Tensor dQ = torch::empty_like(q);
   at::Tensor dK = torch::empty_like(k);
@@ -253,7 +253,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     stride_dK,
     static_cast<Element*>(dV.data_ptr()),
     stride_dV,
-    softmax_scale,
+    softmax_scale_value,
     dq_semaphore_ptr,
     window_size_left,
     window_size_right,
@@ -276,6 +276,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
     const std::optional<at::Tensor>& cu_seqlens_k,
     std::optional<int64_t> max_seq_len_q,
     std::optional<int64_t> max_seq_len_k,
+    std::optional<double> softmax_scale,
     bool causal,
     int64_t window_size_left,
     int64_t window_size_right,
@@ -334,6 +335,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
         cu_seqlens_k,
         max_seq_len_q,
         max_seq_len_k,
+        softmax_scale,
         window_size_left,
         window_size_right);
     };
@@ -419,6 +421,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor? cu_seqlens_k=None, "
         "    int? max_seq_len_q=None, "
         "    int? max_seq_len_k=None, "
+        "    float? softmax_scale=None, "
         "    bool causal=False, "
         "    int window_size_left=-1, "
         "    int window_size_right=-1, "
