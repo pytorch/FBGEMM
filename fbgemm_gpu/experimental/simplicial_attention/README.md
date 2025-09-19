@@ -7,6 +7,8 @@ High-performance GPU Kernels of 2-Simplicial Attention
 
 The idea is further optimized in: [Fast and Simplex: 2-Simplicial Attention in Triton](https://arxiv.org/pdf/2507.02754)
 
+The Deep Dive Blog: [Fast 2-Simplicial Attention: Hardware-Efficient Kernels in TLX](https://pytorch.org/blog/fast-2-simplicial-attention-hardware-efficient-kernels-in-tlx/)
+
 ## Installation
 
 Install `triton` TLX from the branch: https://github.com/facebookexperimental/triton/tree/tlx
