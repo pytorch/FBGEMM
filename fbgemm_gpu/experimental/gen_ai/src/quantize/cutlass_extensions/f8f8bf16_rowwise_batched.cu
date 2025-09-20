@@ -29,7 +29,6 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
     at::Tensor WQ, // FP8
     at::Tensor x_scale, // FP32
     at::Tensor w_scale, // FP32
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt) {
   const int arch = getDeviceArch();
@@ -41,6 +40,14 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
   M = XQ.size(1);
   N = WQ.size(1);
 
+  const bool use_e5m2 = XQ.dtype() == at::kFloat8_e5m2;
+  if (use_e5m2) {
+    TORCH_CHECK(
+        arch == 9, "f8f8bf16_rowwise_batched only supports FP8 e5m2 on SM90");
+    return f8f8bf16_rowwise_batched_64_128_128_2_1_1_9_f_e5m2(
+        XQ, WQ, x_scale, w_scale, bias, output);
+  }
+
   if (arch == 10) {
     if ((M * N <= 4096 * 4096) || (N % 256 > 0 && M % 256 == 0) ||
         (M % 256 > 0 && N % 256 > 0) || M >= 1024 && N >= 1024) {
@@ -49,10 +56,10 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
               cute::size(
                   cute::Shape<cute::Int<2>, cute::Int<1>, cute::Int<1>>{})) {
         return f8f8bf16_rowwise_batched_64_128_128_2_1_1_10_f(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return f8f8bf16_rowwise_batched_128_128_128_2_1_1_10_t(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       }
     } else {
       if ((ceildiv(M, 64 * 2) * ceildiv(N, 128 * 1)) <=
@@ -60,10 +67,10 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
               cute::size(
                   cute::Shape<cute::Int<1>, cute::Int<2>, cute::Int<1>>{})) {
         return f8f8bf16_rowwise_batched_64_128_128_1_2_1_10_f(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return f8f8bf16_rowwise_batched_128_128_128_1_2_1_10_t(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       }
     }
   } else {
@@ -74,10 +81,10 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
               cute::size(
                   cute::Shape<cute::Int<2>, cute::Int<1>, cute::Int<1>>{})) {
         return f8f8bf16_rowwise_batched_64_128_128_2_1_1_9_f(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return f8f8bf16_rowwise_batched_128_128_128_2_1_1_9_t(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       }
     } else {
       if ((ceildiv(M, 64 * 2) * ceildiv(N, 128 * 1)) <=
@@ -85,10 +92,10 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
               cute::size(
                   cute::Shape<cute::Int<1>, cute::Int<2>, cute::Int<1>>{})) {
         return f8f8bf16_rowwise_batched_64_128_128_1_2_1_9_f(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return f8f8bf16_rowwise_batched_128_128_128_1_2_1_9_t(
-            XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+            XQ, WQ, x_scale, w_scale, bias, output);
       }
     }
   }
@@ -102,8 +109,10 @@ at::Tensor f8f8bf16_rowwise_batched(
     std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true,
     std::optional<at::Tensor> output = std::nullopt) {
+  TORCH_CHECK(
+      use_fast_accum, "f8f8bf16_rowwise_batched only supports fast_accum=True");
   return dispatch_fp8_rowwise_batched_kernel(
-      XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
+      XQ, WQ, x_scale, w_scale, bias, output);
 }
 
 #else

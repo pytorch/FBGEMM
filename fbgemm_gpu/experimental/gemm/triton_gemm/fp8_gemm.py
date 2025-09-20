@@ -2328,6 +2328,7 @@ def _kernel_quantize_fp8_row(
     M,
     N,
     K,
+    K_fp8,  # used when padding
     stride_ab,
     stride_am,
     stride_an,
@@ -2364,7 +2365,8 @@ def _kernel_quantize_fp8_row(
         B (int): Size of dimenion 0
         M (int): Size of dimenion 1
         N (int): Size of dimenion 2
-        K (int): Size of dimenion 3
+        K (int): Size of dimenion 3 (input row size)
+        K_fp8 (int): Size of dimenion 3 for A_fp8 (output row size, can be >= K)
         stride_ab (int): Stride of b dimension of A.
         stride_am (int): Stride of m dimension of A.
         stride_an (int): Stride of n dimension of A.
@@ -2433,21 +2435,26 @@ def _kernel_quantize_fp8_row(
     tl.store(A_scale + pid, 1.0 / a_scale)
     n_offset = tl.arange(0, BLOCK_SIZE)
 
-    for _k in range(0, tl.cdiv(K, BLOCK_SIZE)):
+    # Write quantized values for the first K elements (from A), and pad the rest with zeros up to K_fp8
+    for _k in range(0, tl.cdiv(K_fp8, BLOCK_SIZE)):
+        # Load from A if in range, else 0 (we're going all the way to K_fp8)
         a = tl.load(
             A + a_offset_base + n_offset * stride_ak,
             mask=n_offset < K_in,
             other=0.0,
         )
+        # For elements >= K, a will be 0
         a_fp8 = a * a_scale
         # Clamp A to fp8 range to make sure there's no overflow.
         # This is required for AMD. Nvidia's default saturation
         # handles it, but it's nice to have anyway.
         a_fp8 = tl.clamp(a_fp8, -MAX_FP8, MAX_FP8).to(TL_FP8_DTYPE)
+
+        # Store the full new row in its place (for elements >= K, a_fp8 is already 0)
         tl.store(
             A_fp8 + a_fp8_offset_base + n_offset * stride_ok,
             a_fp8,
-            mask=n_offset < K,
+            mask=n_offset < K_fp8,
         )
         n_offset += BLOCK_SIZE
 
@@ -2456,6 +2463,7 @@ def triton_quantize_fp8_row(
     a: Tensor,
     scale_ub: Optional[Tensor] = None,
     zero_start_index_M: Optional[Tensor] = None,
+    align_rows_to: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor]:
     """
     Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
@@ -2464,6 +2472,7 @@ def triton_quantize_fp8_row(
         a (Tensor): higher precision input tensor of 4 dimension.
         scale_ub (Tensor): Maximum allowed value for scale.
         zero_start_index_M (Tensor): Indicates number of nonzero elements in each row.
+        align_rows_to: Pad rows to align to this value. Useful for downstream kernels accepting specific sizes (e.g., multiple of 16)
 
     Returns:
         torch.Tensor: fp8 scaled tensor.
@@ -2485,7 +2494,18 @@ def triton_quantize_fp8_row(
     pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     num_rows = a.numel() // a.shape[-1]
     a_scale = torch.empty((num_rows), dtype=torch.float32, device=a.device)
-    a_fp8 = torch.empty(a.shape, device=a.device, dtype=pt_dtype)
+    # If align_rows_to is provided, pad the last dimension to be a multiple of it
+    if align_rows_to is not None:
+        last_dim = a.shape[-1]
+        padded_last_dim = (
+            (last_dim + align_rows_to - 1) // align_rows_to
+        ) * align_rows_to
+        a_fp8 = torch.empty(
+            (*a.shape[:-1], padded_last_dim), device=a.device, dtype=pt_dtype
+        )
+        a_shape = torch.Size((*a_shape[:-1], padded_last_dim))
+    else:
+        a_fp8 = torch.empty(a.shape, device=a.device, dtype=pt_dtype)
 
     # If input tensor is sufficiently large, we need to use int64 indexing.
     use_int64 = a.numel() > (2**31 - 1)
@@ -2504,6 +2524,7 @@ def triton_quantize_fp8_row(
                 a.shape[1],
                 a.shape[2],
                 a.shape[3],
+                a_fp8.shape[3],
                 a.stride(0),
                 a.stride(1),
                 a.stride(2),
@@ -2908,6 +2929,7 @@ def quantize_fp8_row(
     zero_start_index_M: Optional[Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
+    align_rows_to: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a to fp8 with row-wise scalings and optionally move to output device.
@@ -2918,6 +2940,7 @@ def quantize_fp8_row(
         zero_start_index_M (Tensor): Indicates number of nonzero elements in each row.
         use_triton (bool): Whether to use triton kernel or pytorch.
         output_device (torch.device): Device to optionally move the scaled tensors to.
+        align_rows_to: Pad rows to align to this value. Useful for downstream kernels accepting specific sizes (e.g., multiple of 16)
 
     Returns:
         torch.Tensor: fp8 scaled tensor.
@@ -2928,7 +2951,12 @@ def quantize_fp8_row(
         logger.info("Triton does not support cpu, falling back to torch ops.")
         use_triton = False
     if use_triton:
-        return triton_quantize_fp8_row(a, scale_ub, zero_start_index_M)
+        return triton_quantize_fp8_row(
+            a,
+            scale_ub,
+            zero_start_index_M,
+            align_rows_to=align_rows_to,
+        )
     # else use pytorch implementation.
     if not output_device:
         output_device = a.device
@@ -2958,18 +2986,29 @@ def quantize_fp8_row(
 def quantize_fp8_row_meta(
     a: Tensor,
     scale_ub: Optional[Tensor] = None,
+    zero_start_index_M: Optional[Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
+    align_rows_to: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Shape function for torch compile."""
     if output_device is None:
         output_device = a.device
     a_shape = a.shape
-    # Flatten to 2D since each row of each potential batch gets a scale.
     dtype = get_fp8_constants()[0]
-    fake_out = torch.empty(a.shape, device=output_device, dtype=dtype)
     fake_scale = torch.empty(a_shape[:-1], device=output_device, dtype=torch.float32)
-    return fake_out, fake_scale
+    if align_rows_to is not None:
+        last_dim = a.shape[-1]
+        padded_last_dim = (
+            (last_dim + align_rows_to - 1) // align_rows_to
+        ) * align_rows_to
+        fake_out = torch.empty(
+            (*a.shape[:-1], padded_last_dim), device=output_device, dtype=dtype
+        )
+        return fake_out, fake_scale
+    else:
+        fake_out = torch.empty(a.shape, device=output_device, dtype=dtype)
+        return fake_out, fake_scale
 
 
 @triton.autotune(
