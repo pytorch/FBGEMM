@@ -292,6 +292,8 @@ at::Tensor f8i4bf16_rowwise(
     at::Tensor w_zp) {
   // Check datatypes.
   TORCH_CHECK(
+      XQ.dtype() == at::kFloat8_e4m3fn, "XQ datatype must be FP8 e4m3.");
+  TORCH_CHECK(
       x_scale.dtype() == at::kFloat, "Input scale tensor must be float32.");
   TORCH_CHECK(
       (w_scale.dtype() == at::kFloat && w_zp.dtype() == at::kFloat) ||
@@ -299,37 +301,17 @@ at::Tensor f8i4bf16_rowwise(
           (w_scale.dtype() == at::kBFloat16 && w_zp.dtype() == at::kBFloat16),
       "Weight scale and zero point tensors must be float32, bfloat16, or float16, and dtype of weight scale and zero point tensors must be the same .");
 
-  // Templatize based on input and weight scale/zero point dtype.
-  bool use_e5m2 = XQ.dtype() == at::kFloat8_e5m2;
-
   if (w_scale.dtype() == at::kFloat) {
-    if (use_e5m2) {
-      return dispatch_f8i4bf16_rowwise_kernel<cutlass::float_e5m2_t, float>(
-          XQ, WQ, x_scale, w_scale, w_zp);
-    } else {
-      return dispatch_f8i4bf16_rowwise_kernel<cutlass::float_e4m3_t, float>(
-          XQ, WQ, x_scale, w_scale, w_zp);
-    }
+    return dispatch_f8i4bf16_rowwise_kernel<cutlass::float_e4m3_t, float>(
+        XQ, WQ, x_scale, w_scale, w_zp);
   } else if (w_scale.dtype() == at::kHalf) {
-    if (use_e5m2) {
-      return dispatch_f8i4bf16_rowwise_kernel<
-          cutlass::float_e5m2_t,
-          cutlass::half_t>(XQ, WQ, x_scale, w_scale, w_zp);
-    } else {
-      return dispatch_f8i4bf16_rowwise_kernel<
-          cutlass::float_e4m3_t,
-          cutlass::half_t>(XQ, WQ, x_scale, w_scale, w_zp);
-    }
+    return dispatch_f8i4bf16_rowwise_kernel<
+        cutlass::float_e4m3_t,
+        cutlass::half_t>(XQ, WQ, x_scale, w_scale, w_zp);
   } else if (w_scale.dtype() == at::kBFloat16) {
-    if (use_e5m2) {
-      return dispatch_f8i4bf16_rowwise_kernel<
-          cutlass::float_e5m2_t,
-          cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, w_zp);
-    } else {
-      return dispatch_f8i4bf16_rowwise_kernel<
-          cutlass::float_e4m3_t,
-          cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, w_zp);
-    }
+    return dispatch_f8i4bf16_rowwise_kernel<
+        cutlass::float_e4m3_t,
+        cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, w_zp);
   } else {
     throw std::runtime_error(
         "Weight scale and zero point data type not supported in f8i4bf16_rowwise");

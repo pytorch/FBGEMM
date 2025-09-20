@@ -15,7 +15,6 @@ at::Tensor f8f8bf16_rowwise_batched_64_128_128_1_2_1_9_f(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
@@ -24,7 +23,6 @@ at::Tensor f8f8bf16_rowwise_batched_64_128_128_1_2_1_10_f(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
@@ -33,7 +31,6 @@ at::Tensor f8f8bf16_rowwise_batched_64_128_128_2_1_1_9_f(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
@@ -42,7 +39,6 @@ at::Tensor f8f8bf16_rowwise_batched_64_128_128_2_1_1_10_f(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
@@ -51,7 +47,6 @@ at::Tensor f8f8bf16_rowwise_batched_128_128_128_1_2_1_9_t(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
@@ -60,7 +55,6 @@ at::Tensor f8f8bf16_rowwise_batched_128_128_128_1_2_1_10_t(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
@@ -69,7 +63,6 @@ at::Tensor f8f8bf16_rowwise_batched_128_128_128_2_1_1_9_t(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
@@ -78,7 +71,14 @@ at::Tensor f8f8bf16_rowwise_batched_128_128_128_2_1_1_10_t(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    bool use_fast_accum = true,
+    std::optional<at::Tensor> bias = std::nullopt,
+    std::optional<at::Tensor> output = std::nullopt);
+
+at::Tensor f8f8bf16_rowwise_batched_64_128_128_2_1_1_9_f_e5m2(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt);
 
