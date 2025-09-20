@@ -11,6 +11,7 @@
 #include "f8f8bf16_rowwise_batched/f8f8bf16_rowwise_batched_manifest.cuh"
 
 #include "fbgemm_gpu/quantize/utils.h"
+#include "fbgemm_gpu/quantize/utils_gpu.h"
 
 namespace fbgemm_gpu {
 
