@@ -81,7 +81,7 @@ def int4_row_quantize(
         x (Tensor): [N, K] Higher precision weight tensor to quantize.
         group_size (int): Number of elements to calculate group scale for.
     Returns:
-        wq (Tensor): [N, K // 2] Quantized int4 tensor stored in int8 elements.
+        wq (Tensor): [N, K] Quantized int4 tensor stored in int8 elements.
         group_scale (Tensor): [K / group_size, N] FP32 Scale per group.
     """
     n_bit = 4  # Number of target bits.
