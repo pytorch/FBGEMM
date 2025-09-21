@@ -13,6 +13,7 @@
 #include "f8f8bf16_groupwise/f8f8bf16_groupwise_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.hpp"
 #include "fbgemm_gpu/quantize/utils.h"
+#include "fbgemm_gpu/quantize/utils_gpu.h"
 
 namespace fbgemm_gpu {
 
