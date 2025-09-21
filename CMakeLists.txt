@@ -225,7 +225,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
 
-  get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
+  get_filelist("get_fbgemm_avx2_srcs()" FBGEMM_AVX2_SRCS)
   get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
 
   cpp_library(
@@ -259,7 +259,7 @@ endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
 
-  get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+  get_filelist("get_fbgemm_avx512_srcs()" FBGEMM_AVX512_SRCS)
   get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
 
   cpp_library(
