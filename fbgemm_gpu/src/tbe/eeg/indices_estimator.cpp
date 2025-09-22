@@ -7,6 +7,7 @@
  */
 
 #include "indices_estimator.h"
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <fstream>
@@ -45,7 +46,7 @@ void IndicesEstimator::populateLogTable_() {
   }
 }
 
-IndicesEstimator::init(const torch::Tensor& indices) {
+void IndicesEstimator::init(const torch::Tensor& indices) {
   TORCH_CHECK(
       indices.numel() > 0, "indices numel is ", indices.numel(), "(< 1)");
 
