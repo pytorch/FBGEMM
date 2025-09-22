@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from torch.library import register_fake
@@ -35,7 +35,7 @@ def custom_op_fmha(
     softmax_scale: Optional[float] = None,
     causal: bool = False,
     seqlen_kv: Optional[torch.Tensor] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     assert q.is_contiguous(), "q is not contiguous"
     assert k.is_contiguous(), "k is not contiguous"
     assert v.is_contiguous(), "v is not contiguous"
@@ -123,7 +123,7 @@ def custom_op_fmha_bwd(
     max_seq_len_q: Optional[int] = None,
     max_seq_len_k: Optional[int] = None,
     causal: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     return torch.ops.fbgemm.fmha_bwd(
         dOutput,
         query,

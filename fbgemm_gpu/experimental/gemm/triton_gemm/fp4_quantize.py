@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import triton  # @manual
@@ -275,7 +275,7 @@ def triton_quantize_mx4_unpack(
     mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
 
@@ -701,7 +701,7 @@ def triton_silu_quantize_mx4_unpack(
     mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
 
@@ -1126,7 +1126,7 @@ def triton_rms_quantize_mx4_unpack(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
 
@@ -1446,7 +1446,7 @@ def triton_scale_nvfp4_quant(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -1796,7 +1796,7 @@ def triton_scale_nvfp4_quant_silu(
     mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -2158,7 +2158,7 @@ def triton_scale_nvfp4_quant_rms(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -2542,7 +2542,7 @@ def triton_nvfp4_quant_stacked(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -3777,7 +3777,7 @@ def mega_fp4_quantize_kernel(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
     orig_shape = input.shape
     assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
@@ -3956,7 +3956,7 @@ def triton_nvfp4_quant_stacked_silu(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -4366,7 +4366,7 @@ def triton_nvfp4_quant_stacked_rms(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -5212,7 +5212,7 @@ def mega_fp4_unpack(
     m_sizes: torch.Tensor,
     input: torch.Tensor,
     group_size: int = 16,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
     orig_shape = input.shape
     assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
@@ -5457,7 +5457,7 @@ def _calculate_group_max(
 def calculate_group_max(
     input: torch.Tensor,
     m_sizes: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
 
     assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
     other_dims = 1 if input.ndim == 1 else -1

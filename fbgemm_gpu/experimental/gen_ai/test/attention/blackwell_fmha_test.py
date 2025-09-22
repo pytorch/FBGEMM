@@ -6,7 +6,7 @@
 
 import random
 import unittest
-from typing import Optional, Tuple
+from typing import Optional
 
 import hypothesis.strategies as st
 import torch
@@ -95,7 +95,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         head_dim: int,
         device: torch.device,
         dtype: torch.dtype,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         q = torch.randn(
             batch_size,
             seqlen_q,

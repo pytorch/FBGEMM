@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Optional, Union
 
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
@@ -191,25 +191,25 @@ class UVMCacheStatsIndex(enum.IntEnum):
 class RESParams:
     res_server_port: int = 0  # the port of the res server
     res_store_shards: int = 1  # the number of shards to store the raw embeddings
-    table_names: List[str] = field(default_factory=list)  # table names the TBE holds
-    table_offsets: List[int] = field(
+    table_names: list[str] = field(default_factory=list)  # table names the TBE holds
+    table_offsets: list[int] = field(
         default_factory=list
     )  # table offsets for the global rows the TBE holds
-    table_sizes: List[int] = field(
+    table_sizes: list[int] = field(
         default_factory=list
     )  # table sizes for the global rows the TBE holds
 
 
 def construct_split_state(
-    embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]],
+    embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]],
     rowwise: bool,
     cacheable: bool,
     precision: SparseType = SparseType.FP32,
     int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET,
     placement: Optional[EmbeddingLocation] = None,
 ) -> SplitState:
-    placements: List[EmbeddingLocation] = []
-    offsets: List[int] = []
+    placements: list[EmbeddingLocation] = []
+    offsets: list[int] = []
     dev_size: int = 0
     host_size: int = 0
     uvm_size: int = 0
@@ -251,18 +251,18 @@ def construct_split_state(
 def apply_split_helper(
     persistent_state_fn: Callable[[str, Tensor], None],
     set_attr_fn: Callable[
-        [str, Union[Tensor, List[int], List[EmbeddingLocation]]], None
+        [str, Union[Tensor, list[int], list[EmbeddingLocation]]], None
     ],
     current_device: torch.device,
     use_cpu: bool,
-    feature_table_map: List[int],
+    feature_table_map: list[int],
     split: SplitState,
     prefix: str,
-    dtype: Type[torch.dtype],
+    dtype: type[torch.dtype],
     enforce_hbm: bool = False,
     make_dev_param: bool = False,
-    dev_reshape: Optional[Tuple[int, ...]] = None,
-    uvm_tensors_log: Optional[List[str]] = None,
+    dev_reshape: Optional[tuple[int, ...]] = None,
+    uvm_tensors_log: Optional[list[str]] = None,
     uvm_host_mapped: bool = False,
 ) -> None:
     set_attr_fn(f"{prefix}_physical_placements", split.placements)
@@ -622,12 +622,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             (preshard_table_height, preshard_table_dim, height_offset, dim_offset)
     """
 
-    embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]
+    embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]]
     optimizer_args: invokers.lookup_args.OptimizerArgs
-    lxu_cache_locations_list: List[Tensor]
+    lxu_cache_locations_list: list[Tensor]
     lxu_cache_locations_empty: Tensor
-    timesteps_prefetched: List[int]
-    prefetched_info: List[Tuple[Tensor, Tensor, Optional[Tensor]]]
+    timesteps_prefetched: list[int]
+    prefetched_info: list[tuple[Tensor, Tensor, Optional[Tensor]]]
     record_cache_metrics: RecordCacheMetrics
     # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
@@ -641,10 +641,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def __init__(  # noqa C901
         self,
-        embedding_specs: List[
-            Tuple[int, int, EmbeddingLocation, ComputeDevice]
+        embedding_specs: list[
+            tuple[int, int, EmbeddingLocation, ComputeDevice]
         ],  # tuple of (rows, dims, placements, compute_devices)
-        feature_table_map: Optional[List[int]] = None,  # [T]
+        feature_table_map: Optional[list[int]] = None,  # [T]
         cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
         cache_load_factor: float = 0.2,
         cache_sets: int = 0,
@@ -682,8 +682,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         use_experimental_tbe: bool = False,
         prefetch_pipeline: bool = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
-        table_names: Optional[List[str]] = None,
-        optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
+        table_names: Optional[list[str]] = None,
+        optimizer_state_dtypes: Optional[dict[str, SparseType]] = None,
         multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
         global_weight_decay: Optional[GlobalWeightDecayDefinition] = None,
         uvm_host_mapped: bool = False,
@@ -691,7 +691,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         tbe_input_multiplexer_config: Optional[TBEInputMultiplexerConfig] = None,
         embedding_table_index_type: torch.dtype = torch.int64,
         embedding_table_offset_type: torch.dtype = torch.int64,
-        embedding_shard_info: Optional[List[Tuple[int, int, int, int]]] = None,
+        embedding_shard_info: Optional[list[tuple[int, int, int, int]]] = None,
         enable_raw_embedding_streaming: bool = False,
         res_params: Optional[RESParams] = None,
     ) -> None:
@@ -800,7 +800,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.embedding_specs = embedding_specs
         (rows, dims, locations, compute_devices) = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
-        self.dims: List[int] = dims
+        self.dims: list[int] = dims
         assert T_ > 0
         # mixed D is not supported by no bag kernels
         mixed_D = False
@@ -877,7 +877,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.stats_reporter: Optional[TBEStatsReporter] = (
             stats_reporter_config.create_reporter() if stats_reporter_config else None
         )
-        self._uvm_tensors_log: List[str] = []
+        self._uvm_tensors_log: list[str] = []
 
         self.bwd_wait_prefetch_timer: Optional[AsyncSeriesTimer] = None
         self.prefetch_duration_timer: Optional[AsyncSeriesTimer] = None
@@ -904,7 +904,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET
 
-        self.feature_table_map: List[int] = (
+        self.feature_table_map: list[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
 
@@ -1110,13 +1110,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if ensemble_mode is None:
             ensemble_mode = EnsembleModeDefinition()
-        self._ensemble_mode: Dict[str, float] = {
+        self._ensemble_mode: dict[str, float] = {
             key: float(fval) for key, fval in ensemble_mode.__dict__.items()
         }
 
         if emainplace_mode is None:
             emainplace_mode = EmainplaceModeDefinition()
-        self._emainplace_mode: Dict[str, float] = {
+        self._emainplace_mode: dict[str, float] = {
             key: float(fval) for key, fval in emainplace_mode.__dict__.items()
         }
 
@@ -1421,7 +1421,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.step = 0
         self.last_reported_step = 0
-        self.last_reported_uvm_stats: List[float] = []
+        self.last_reported_uvm_stats: list[float] = []
 
         # Check whether to use TBE v2
         is_experimental = False
@@ -1470,8 +1470,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self.embedding_table_offset_type: torch.dtype = embedding_table_offset_type
 
-        self.prefetched_info: List[Tuple[Tensor, Tensor, Optional[Tensor]]] = (
-            torch.jit.annotate(List[Tuple[Tensor, Tensor, Optional[Tensor]]], [])
+        self.prefetched_info: list[tuple[Tensor, Tensor, Optional[Tensor]]] = (
+            torch.jit.annotate(list[tuple[Tensor, Tensor, Optional[Tensor]]], [])
         )
         if self.enable_raw_embedding_streaming:
             self.res_params: RESParams = res_params or RESParams()
@@ -1537,7 +1537,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
     @staticmethod
-    def get_table_name_for_logging(table_names: Optional[List[str]]) -> str:
+    def get_table_name_for_logging(table_names: Optional[list[str]]) -> str:
         """
         Given a list of all table names in the TBE, generate a string to
         represent them in logging. If there is more than one table, this method
@@ -1563,7 +1563,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         multipass_prefetch_config: Optional[MultiPassPrefetchConfig],
         input_tensor: Tensor,
         output_tensor: Tensor,
-    ) -> List[Tuple[Tensor, Tensor, int]]:
+    ) -> list[tuple[Tensor, Tensor, int]]:
         """
         Given inputs (the indices to forward), partition the input and output
         into smaller chunks and return them as a list of tuples
@@ -1611,7 +1611,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
-    def get_states(self, prefix: str) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    def get_states(self, prefix: str) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         """
         Get a state of a given tensor (`prefix`)
 
@@ -1650,7 +1650,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(offsets, dtype=torch.int64),
         )
 
-    def get_all_states(self) -> List[Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]]:
+    def get_all_states(self) -> list[tuple[Tensor, Tensor, Tensor, Tensor, Tensor]]:
         """
         Get all states in the TBE (`weights`, `momentum1`, `momentum2`,
         `prev_iter`, and `row_counter`)
@@ -1782,7 +1782,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def _generate_vbe_metadata(
         self,
         offsets: Tensor,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]],
+        batch_size_per_feature_per_rank: Optional[list[list[int]]],
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -1842,7 +1842,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         return mask
 
     # pyre-fixme[2]: For 1st argument expected not ANY
-    def writeback_hook(self, module: Any, grad: Tensor) -> Tuple[Tensor]:
+    def writeback_hook(self, module: Any, grad: Tensor) -> tuple[Tensor]:
         indices = self._indices
         offsets = self._offsets
 
@@ -1854,7 +1854,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
         total_unique_indices: Optional[int] = None,
     ) -> Tensor:
         """
@@ -2346,7 +2346,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
-    def ema_inplace(self, emainplace_mode: Dict[str, float]) -> None:
+    def ema_inplace(self, emainplace_mode: dict[str, float]) -> None:
         """
         Perform ema operations on the full sparse embedding tables.
         We organize the sparse table, in the following way.
@@ -2376,7 +2376,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     emainplace_mode["step_ema_coef"],
                 )
 
-    def ensemble_and_swap(self, ensemble_mode: Dict[str, float]) -> None:
+    def ensemble_and_swap(self, ensemble_mode: dict[str, float]) -> None:
         """
         Perform ensemble and swap operations on the full sparse embedding tables.
 
@@ -2424,7 +2424,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
         return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
-    def _get_uvm_cache_print_state(self, use_local_cache: bool = False) -> List[float]:
+    def _get_uvm_cache_print_state(self, use_local_cache: bool = False) -> list[float]:
         snapshot = self.get_uvm_cache_stats(use_local_cache)
         if use_local_cache:
             return snapshot.tolist()
@@ -2437,7 +2437,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.ignore
     def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
         # TODO: Create a separate reporter class to unify the stdlog reporting
-        uvm_cache_stats: List[float] = self._get_uvm_cache_print_state(use_local_cache)
+        uvm_cache_stats: list[float] = self._get_uvm_cache_print_state(use_local_cache)
         N = max(1, uvm_cache_stats[0])
         m = {
             "N_called": uvm_cache_stats[UVMCacheStatsIndex.num_calls],
@@ -2481,14 +2481,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not stats_reporter.should_report(self.step):
             return
 
-        uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
+        uvm_cache_stats: list[float] = self.get_uvm_cache_stats(
             use_local_cache=False
         ).tolist()
         self.last_reported_step = self.step
 
         if len(self.last_reported_uvm_stats) == 0:
             self.last_reported_uvm_stats = [0.0] * len(uvm_cache_stats)
-        uvm_cache_stats_delta: List[float] = [0.0] * len(uvm_cache_stats)
+        uvm_cache_stats_delta: list[float] = [0.0] * len(uvm_cache_stats)
         for i in range(len(uvm_cache_stats)):
             uvm_cache_stats_delta[i] = (
                 uvm_cache_stats[i] - self.last_reported_uvm_stats[i]
@@ -2517,7 +2517,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         forward_stream: Optional[torch.cuda.Stream] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
     ) -> None:
         if self.prefetch_stream is None and forward_stream is not None:
             self.prefetch_stream = torch.cuda.current_stream()
@@ -2792,7 +2792,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 param.uniform_(min_val, max_val)
 
     @torch.jit.ignore
-    def split_embedding_weights(self) -> List[Tensor]:
+    def split_embedding_weights(self) -> list[Tensor]:
         """
         Returns a list of embedding weights (view), split by table
 
@@ -2834,7 +2834,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         raise ValueError(f"Optimizer buffer {state} not found")
 
     @torch.jit.export
-    def get_optimizer_state(self) -> List[Dict[str, torch.Tensor]]:
+    def get_optimizer_state(self) -> list[dict[str, torch.Tensor]]:
         r"""
         Get the optimizer state dict that matches the OSS Pytorch optims
         TODO: populate the supported list of optimizers
@@ -2918,7 +2918,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.ignore
     def split_optimizer_states(
         self,
-    ) -> List[List[torch.Tensor]]:
+    ) -> list[list[torch.Tensor]]:
         """
         Returns a list of optimizer states (view), split by table
 
@@ -2966,7 +2966,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             state_offsets: Tensor,
             state_placements: Tensor,
             rowwise: bool,
-        ) -> List[torch.Tensor]:
+        ) -> list[torch.Tensor]:
             splits = []
             for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
                 offset = state_offsets[t]
@@ -2985,7 +2985,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     splits.append(state.detach()[offset : offset + rows].view(rows))
             return splits
 
-        states: List[List[torch.Tensor]] = []
+        states: list[list[torch.Tensor]] = []
         if self.optimizer not in (OptimType.EXACT_SGD,):
             states.append(
                 get_optimizer_states(
@@ -3111,7 +3111,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         return self.learning_rate_tensor.item()
 
     @torch.jit.ignore
-    def update_hyper_parameters(self, params_dict: Dict[str, float]) -> None:
+    def update_hyper_parameters(self, params_dict: dict[str, float]) -> None:
         """
         Sets hyper-parameters from external control flow.
 
@@ -3187,10 +3187,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         split: SplitState,
         prefix: str,
-        dtype: Type[torch.dtype],
+        dtype: type[torch.dtype],
         enforce_hbm: bool = False,
         make_dev_param: bool = False,
-        dev_reshape: Optional[Tuple[int, ...]] = None,
+        dev_reshape: Optional[tuple[int, ...]] = None,
         uvm_host_mapped: bool = False,
     ) -> None:
         apply_split_helper(
@@ -3436,7 +3436,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def _update_cache_counter_and_locations(
         self,
         module: nn.Module,
-        grad_input: Union[Tuple[Tensor, ...], Tensor],
+        grad_input: Union[tuple[Tensor, ...], Tensor],
     ) -> None:
         """
         Backward prehook function when prefetch_pipeline is enabled.
@@ -3632,10 +3632,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
         force_cast_input_types: bool = True,
         prefetch_pipeline: bool = False,
-    ) -> Tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
+    ) -> tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
         """
         Prepare TBE inputs as follows:
 
@@ -3825,7 +3825,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 # Counts of indices that segment lengths > 1024
                 counts_cta_per_row_mth = counts_cta_per_row[counts_cta_per_row > 1024]
 
-                def compute_numel_and_avg(counts: Tensor) -> Tuple[int, float]:
+                def compute_numel_and_avg(counts: Tensor) -> tuple[int, float]:
                     numel = counts.numel()
                     avg = (counts.sum().item() / numel) if numel != 0 else -1.0
                     return numel, avg
@@ -4026,12 +4026,12 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     max_D: int
     hash_size_cumsum: Tensor
     total_hash_size_bits: int
-    embedding_specs: List[Tuple[int, int]]
+    embedding_specs: list[tuple[int, int]]
 
     def __init__(
         self,
-        embedding_specs: List[Tuple[int, int]],  # tuple of (rows, dims)
-        feature_table_map: Optional[List[int]] = None,  # [T]
+        embedding_specs: list[tuple[int, int]],  # tuple of (rows, dims)
+        feature_table_map: Optional[list[int]] = None,  # [T]
         weights_precision: SparseType = SparseType.FP32,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
@@ -4144,7 +4144,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 row for (row, _) in embedding_specs[:t]
             )
 
-        self.weights_physical_offsets: List[int] = weights_offsets
+        self.weights_physical_offsets: list[int] = weights_offsets
         weights_offsets = [weights_offsets[t] for t in feature_table_map]
         self.register_buffer(
             "weights_offsets",
@@ -4171,7 +4171,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     def _generate_vbe_metadata(
         self,
         offsets: Tensor,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]],
+        batch_size_per_feature_per_rank: Optional[list[list[int]]],
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -4189,7 +4189,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
     ) -> Tensor:
         # Generate VBE metadata
         vbe_metadata = self._generate_vbe_metadata(
@@ -4228,7 +4228,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
     @torch.jit.export
-    def split_embedding_weights(self) -> List[Tensor]:
+    def split_embedding_weights(self) -> list[Tensor]:
         """
         Returns a list of weights, split by table
         """

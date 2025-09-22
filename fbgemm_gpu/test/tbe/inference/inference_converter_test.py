@@ -12,7 +12,7 @@ import logging
 import math
 import random
 import unittest
-from typing import Optional, Tuple
+from typing import Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -62,7 +62,7 @@ def to_device(t: torch.Tensor, use_cpu: bool) -> torch.Tensor:
 
 def get_table_batched_offsets_from_dense(
     merged_indices: torch.Tensor, use_cpu: bool = False
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     (T, B, L) = merged_indices.size()
     lengths = np.ones((T, B)) * L
     flat_lengths = lengths.flatten()

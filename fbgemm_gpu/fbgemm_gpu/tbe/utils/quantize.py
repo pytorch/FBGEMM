@@ -7,7 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[61]
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 
@@ -22,7 +22,7 @@ def quantize_embs(
     weight: torch.Tensor,
     weight_ty: SparseType,
     fp8_config: Optional[FP8QuantizationConfig] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
     weight = weight.detach()
     if weight_ty == SparseType.FP32:
         q_weight = weight.float()

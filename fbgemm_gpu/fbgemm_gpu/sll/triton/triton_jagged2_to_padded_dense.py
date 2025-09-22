@@ -6,7 +6,6 @@
 
 # pyre-unsafe
 
-from typing import Tuple
 
 import torch
 import triton
@@ -196,7 +195,7 @@ class Jagged2ToPaddedDense(torch.autograd.Function):
     # pyre-fixme
     def backward(
         ctx, grad_output: torch.Tensor
-    ) -> Tuple[torch.Tensor, None, None, None]:
+    ) -> tuple[torch.Tensor, None, None, None]:
         max_length = ctx.max_length
         (lengths, offsets) = ctx.saved_tensors
         grad_in = padded_dense_to_jagged2_fwd(grad_output, lengths, offsets, max_length)

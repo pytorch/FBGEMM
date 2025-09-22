@@ -11,7 +11,7 @@ import logging
 import math
 import os
 import unittest
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -165,7 +165,7 @@ def generate_input(
     target_group_size: int,
     attn_dim: int,
     hidden_dim: int,
-    window_size: Tuple[int, int],
+    window_size: tuple[int, int],
     dtype: torch.dtype,
     full_batch: bool,
     has_drab: bool,
@@ -518,11 +518,11 @@ class HSTU16Test(unittest.TestCase):
         batch_size: int,
         heads: int,
         max_context_len: int,
-        attn_hidden_dims: Tuple[int, int],
+        attn_hidden_dims: tuple[int, int],
         alpha: float,
-        rab_params: Tuple[bool, bool, Optional[int]],
-        seq_len_params: Tuple[int, int, bool],
-        target_params: Tuple[int, Tuple[int, int], int],
+        rab_params: tuple[bool, bool, Optional[int]],
+        seq_len_params: tuple[int, int, bool],
+        target_params: tuple[int, tuple[int, int], int],
         dtype: torch.dtype,
         full_batch: bool,
     ) -> None:
@@ -871,11 +871,11 @@ class HSTU8Test(unittest.TestCase):
         self,
         batch_size: int,
         heads: int,
-        seq_len_params: Tuple[int, int],
-        window_size: Tuple[int, int],
-        attn_hidden_dims: Tuple[int, int],
+        seq_len_params: tuple[int, int],
+        window_size: tuple[int, int],
+        attn_hidden_dims: tuple[int, int],
         alpha: float,
-        rab_params: Tuple[bool, bool, Optional[int]],
+        rab_params: tuple[bool, bool, Optional[int]],
         full_batch: bool,
         dtype: torch.dtype,
         max_target_len: int,

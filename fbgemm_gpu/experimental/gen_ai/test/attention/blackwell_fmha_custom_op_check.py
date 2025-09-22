@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha  # noqa
 
@@ -24,7 +24,7 @@ def get_varlen_args(
     dtype: torch.dtype,
     causal: bool,
     fwd_only: bool = False,
-) -> Tuple[
+) -> tuple[
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,

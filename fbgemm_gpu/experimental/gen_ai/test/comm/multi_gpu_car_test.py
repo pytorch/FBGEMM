@@ -14,7 +14,7 @@ import os
 import tempfile
 import unittest
 import uuid
-from typing import Callable, Dict, List, Tuple, Union
+from typing import Callable, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -46,7 +46,7 @@ def has_nvswitch() -> bool:
     return "GRANDTETON" in model or "SUPERMICRO" in model
 
 
-def _setup(path: str) -> Tuple[int, int]:
+def _setup(path: str) -> tuple[int, int]:
     rank = int(os.environ["LOCAL_RANK"])
     W = int(os.environ["WORLD_SIZE"])
     device = torch.device(f"cuda:{rank}")
@@ -151,8 +151,8 @@ def _run_reducescatter_inner(path: str) -> None:
             )
             rank_start = N // W * rank
             rank_end = N // W * (rank + 1)
-            args: List[torch.Tensor] = [y_reducescatter, y]
-            kwargs: Dict[str, Union[bool, torch.Tensor]] = {}
+            args: list[torch.Tensor] = [y_reducescatter, y]
+            kwargs: dict[str, Union[bool, torch.Tensor]] = {}
 
             if split_last_dim:
                 kwargs["split_last_dim"] = True
@@ -372,7 +372,7 @@ class LLamaMultiGpuTests(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=3, deadline=100000)
     def test_allgather_dtype_mismatch(
-        self, dtypes: Tuple[torch.dtype, torch.dtype]
+        self, dtypes: tuple[torch.dtype, torch.dtype]
     ) -> None:
         dst_dtype, src_dtype = dtypes
         # float8 is only supported in H100 or MI300x

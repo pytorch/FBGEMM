@@ -9,7 +9,7 @@
 
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import torch
 
@@ -46,9 +46,9 @@ class TBEDataConfig:
     # Force generated tensors to be on CPU
     use_cpu: bool = False
     # Number of embeddings in each embedding features (number of rows)
-    Es: Optional[List[int]] = None
+    Es: Optional[list[int]] = None
     # Target embedding dimension for each features (number of columns)
-    Ds: Optional[List[int]] = None
+    Ds: Optional[list[int]] = None
     # Maximum number of indices
     max_indices: Optional[int] = None  # Maximum number of indices
 
@@ -60,7 +60,7 @@ class TBEDataConfig:
         self.validate()
 
     @staticmethod
-    def complex_fields() -> Dict[str, Any]:
+    def complex_fields() -> dict[str, Any]:
         return {
             "batch_params": BatchParams,
             "indices_params": IndicesParams,
@@ -69,7 +69,7 @@ class TBEDataConfig:
 
     @classmethod
     # pyre-ignore [3]
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]):
         for field, Type in cls.complex_fields().items():
             if not isinstance(data[field], Type):
                 data[field] = Type.from_dict(data[field])
@@ -80,7 +80,7 @@ class TBEDataConfig:
     def from_json(cls, data: str):
         return cls.from_dict(json.loads(data))
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         tmp = dataclasses.asdict(self)
         for field in TBEDataConfig.complex_fields().keys():
             tmp[field] = self.__dict__[field].dict()

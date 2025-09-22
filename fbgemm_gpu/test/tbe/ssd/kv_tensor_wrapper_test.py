@@ -9,7 +9,7 @@
 import gc
 import tempfile
 import unittest
-from typing import Any, Dict
+from typing import Any
 from unittest import TestCase
 
 import fbgemm_gpu  # noqa E402
@@ -30,7 +30,7 @@ if not open_source:
 
 MAX_EXAMPLES = 20
 MAX_D = 256
-default_settings: Dict[str, Any] = {
+default_settings: dict[str, Any] = {
     "verbosity": Verbosity.verbose,
     "max_examples": MAX_EXAMPLES,
     "deadline": None,

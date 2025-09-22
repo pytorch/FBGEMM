@@ -14,7 +14,7 @@ import functools
 import logging
 import random
 import unittest
-from typing import Callable, Dict, List
+from typing import Callable
 
 import hypothesis.strategies as st
 import numpy as np
@@ -48,7 +48,7 @@ class IndexSelectTest(unittest.TestCase):
     def test_index_select_dim0(
         self,
         N: int,
-        shape: List[int],
+        shape: list[int],
         dtype: torch.dtype,
         use_cpu: bool,
         consecutive_indices: bool,
@@ -120,7 +120,7 @@ class IndexSelectTest(unittest.TestCase):
         self,
         num_indices: int,
         max_num_input_rows: int,
-        shape: List[int],
+        shape: list[int],
         dtype: torch.dtype,
         use_cpu: bool,
         num_groups: int,
@@ -130,10 +130,10 @@ class IndexSelectTest(unittest.TestCase):
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
 
-        input_group: List[torch.Tensor] = []
-        input_ref_group: List[torch.Tensor] = []
-        indices_group: List[torch.Tensor] = []
-        grad_group: List[torch.Tensor] = []
+        input_group: list[torch.Tensor] = []
+        input_ref_group: list[torch.Tensor] = []
+        indices_group: list[torch.Tensor] = []
+        grad_group: list[torch.Tensor] = []
         for _ in range(num_groups):
             if use_var_num_input_rows:
                 num_input_rows = (
@@ -206,10 +206,10 @@ class IndexSelectTest(unittest.TestCase):
         cat_output.backward(cat_grad)
 
         def compare_tensor_groups(
-            test_group: List[torch.Tensor],
-            ref_group: List[torch.Tensor],
+            test_group: list[torch.Tensor],
+            ref_group: list[torch.Tensor],
             tensor_type: str,
-            tols: Dict["str", float],
+            tols: dict["str", float],
         ) -> None:
             passed = True
             failure_count = 0
@@ -285,9 +285,9 @@ class IndexSelectTest(unittest.TestCase):
             ).tolist()
 
         def validate(
-            test_list: List[torch.Tensor],
-            ref_list: List[torch.Tensor],
-            rows: List[int],
+            test_list: list[torch.Tensor],
+            ref_list: list[torch.Tensor],
+            rows: list[int],
             val_fn: Callable[[torch.Tensor, torch.Tensor], bool],
             name: str,
         ) -> None:
@@ -413,7 +413,7 @@ class IndexSelectTest(unittest.TestCase):
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
 # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: Dict[str, List[Callable]] = {
+additional_decorators: dict[str, list[Callable]] = {
     "test_aot_dispatch_dynamic__test_index_select_dim0": [unittest.skip("hangs")],
     "test_aot_dispatch_static__test_index_select_dim0": [unittest.skip("hangs")],
     "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],

@@ -10,7 +10,7 @@
 import tempfile
 import unittest
 
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -47,7 +47,7 @@ VIRTUAL_TABLE_ROWS = int(
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommon):
-    def get_physical_table_arg_indices_(self, feature_table_map: List[int]):
+    def get_physical_table_arg_indices_(self, feature_table_map: list[int]):
         """
         Get the physical table arg indices for the reference and TBE.  The
         first element in each tuple is for accessing the reference embedding
