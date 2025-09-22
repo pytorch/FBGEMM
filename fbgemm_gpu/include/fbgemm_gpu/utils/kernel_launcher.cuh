@@ -443,7 +443,7 @@ struct KernelLauncher {
 #define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)        \
   ([&] {                                                                    \
     constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
-    const auto& kernel = KERNEL;                                            \
+    auto& kernel = KERNEL;                                                  \
                                                                             \
     return fbgemm_gpu::utils::                                              \
         KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)   \
@@ -453,7 +453,7 @@ struct KernelLauncher {
 #define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)    \
   ([&] {                                                                    \
     constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
-    decltype(KERNEL)& kernel = KERNEL;                                      \
+    auto& kernel = KERNEL;                                                  \
                                                                             \
     return fbgemm_gpu::utils::                                              \
         KernelLauncher<true, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)    \
@@ -463,7 +463,7 @@ struct KernelLauncher {
 #define FBGEMM_TIME_KERNEL_RUN(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)      \
   ([&] {                                                                    \
     constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
-    decltype(KERNEL)& kernel = KERNEL;                                      \
+    auto& kernel = KERNEL;                                                  \
                                                                             \
     return fbgemm_gpu::utils::                                              \
         KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_, true>(     \
