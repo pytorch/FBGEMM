@@ -1347,13 +1347,14 @@ def _kernel_nvfp4_quantize(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -1417,7 +1418,7 @@ def _kernel_nvfp4_quantize(
         )
         tl.store(
             scale + actual_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
@@ -1694,13 +1695,14 @@ def _kernel_nvfp4_quantize_silu(
         group_max = tl.max(tl.abs(a_groups), axis=1)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -1766,7 +1768,7 @@ def _kernel_nvfp4_quantize_silu(
         )
         tl.store(
             scale + actual_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
@@ -2053,13 +2055,14 @@ def _kernel_nvfp4_quantize_rms(
         group_max = tl.max(tl.abs(a_groups), axis=1)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -2127,7 +2130,7 @@ def _kernel_nvfp4_quantize_rms(
         )
         tl.store(
             scale + actual_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
@@ -2415,13 +2418,14 @@ def _kernel_nvfp4_quantize_stacked(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -2489,7 +2493,7 @@ def _kernel_nvfp4_quantize_stacked(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -3092,13 +3096,14 @@ def _kernel_nvfp4_quantize_stacked_silu(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -3166,7 +3171,7 @@ def _kernel_nvfp4_quantize_stacked_silu(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -3384,13 +3389,14 @@ def _mega_fp4_quantize_kernel(
             input_global_scale_tensor + tensor_idx, mask=tensor_idx_guard
         )
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -3458,7 +3464,7 @@ def _mega_fp4_quantize_kernel(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -3654,13 +3660,14 @@ def _mega_fp4_quantize_kernel_with_tensor_idx(
             input_global_scale_tensor + tensor_idx, mask=tensor_idx_guard
         )
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -3728,7 +3735,7 @@ def _mega_fp4_quantize_kernel_with_tensor_idx(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -4238,13 +4245,14 @@ def _kernel_nvfp4_quantize_stacked_rms(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -4312,7 +4320,7 @@ def _kernel_nvfp4_quantize_stacked_rms(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -4580,13 +4588,14 @@ def _mega_fp4_pack_kernel(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -4638,7 +4647,7 @@ def _mega_fp4_pack_kernel(
 
         tl.store(
             out + exp_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < (SCALE_CHUNK_SIZE * (pid + 1) + SCALE_SHIFT))
             & (exp_offset < SCALE_SIZE + SCALE_SHIFT),
@@ -4792,13 +4801,14 @@ def _mega_fp4_pack_kernel_per_tensor(
             input_global_scale_tensor + tensor_idx, mask=tensor_idx_guard
         )
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -4850,7 +4860,7 @@ def _mega_fp4_pack_kernel_per_tensor(
 
         tl.store(
             out + exp_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < (SCALE_CHUNK_SIZE * (pid + 1) + SCALE_SHIFT))
             & (exp_offset < (SCALE_SIZE + SCALE_SHIFT)),
