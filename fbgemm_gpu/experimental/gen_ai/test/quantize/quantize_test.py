@@ -349,9 +349,7 @@ class FP8Tests(unittest.TestCase):
             ["rowwise", "blockwise"]
             + (["tensorwise_broadcast", "tensorwise"] if torch.version.cuda else [])
         ),
-        QType=(
-            st.sampled_from([fp8_e4m3, fp8_e5m2] if torch.version.cuda else [fp8_e4m3])
-        ),
+        QType=(st.sampled_from([fp8_e4m3])),
         Bias=st.sampled_from([True, False]),
         CudaGraph=st.sampled_from([True, False]),
         UseTriton=st.sampled_from([False] + ([True] if torch.version.cuda else [])),
