@@ -461,10 +461,10 @@ using namespace fbgemm_gpu;
         {%- endif %}
 
         {%- if is_rocm %}
-        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
+        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + (kThreadGroupSize/32) > L &&  l_start + j < L; ++j) {
         {%- else %}
         // Iterate over kThreadGroupSize indices
-        for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
+        for (auto j = 0; j < (kThreadGroupSize/32) && l_start + j < L; ++j) {
         {%- endif %}
             {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
             // Load index from thread j in the group
@@ -628,7 +628,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     constexpr int VEC_WIDTH = 4;
     {%- if is_rocm %}
     // Unroll factor for ROCm devices
-    constexpr int kManualUnrollLength = 4;
+    constexpr int kManualUnrollLength = 8;
     {%- endif %}
 
     // Determine the linearized warp ID, and exit early if needed
