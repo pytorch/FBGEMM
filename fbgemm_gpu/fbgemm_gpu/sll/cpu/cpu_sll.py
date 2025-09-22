@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-from typing import Any, Tuple
+from typing import Any
 
 import torch
 
@@ -65,7 +65,7 @@ class JaggedDenseBmmCPU(torch.autograd.Function):
     # pyre-fixme
     def backward(
         ctx: Any, grad_output: torch.Tensor  # pyre-ignore
-    ) -> Tuple[torch.Tensor, torch.Tensor, None, None, None]:
+    ) -> tuple[torch.Tensor, torch.Tensor, None, None, None]:
         """
         # X = [Sum_B, D]
         # Y = [B, D, T]
@@ -128,7 +128,7 @@ class JaggedJaggedBmm(torch.autograd.Function):
     # pyre-fixme
     def backward(
         ctx: Any, grad_output: torch.Tensor  # pyre-ignore
-    ) -> Tuple[torch.Tensor, torch.Tensor, None, None, None]:
+    ) -> tuple[torch.Tensor, torch.Tensor, None, None, None]:
         """
         # X = [Sum_B, D]
         # Y = [Sum_B, T]
@@ -172,7 +172,7 @@ def cpu_dense_jagged_cat_jagged_out(
     b: torch.Tensor,
     b_offsets: torch.Tensor,
     max_seq_len: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     assert a.size(0) == b_offsets.size(0) - 1
     c = torch.empty(b.size(0) + a.size(0), dtype=a.dtype, device=a.device)
     c_offsets = b_offsets + torch.arange(
@@ -368,7 +368,7 @@ class JaggedSoftmaxCPU(torch.autograd.Function):
     # pyre-fixme
     def backward(
         ctx: Any, grad_output: torch.Tensor  # pyre-ignore
-    ) -> Tuple[torch.Tensor, None, None]:
+    ) -> tuple[torch.Tensor, None, None]:
         y, x_offsets = ctx.saved_tensors
 
         B = x_offsets.size(0) - 1
@@ -923,7 +923,7 @@ class JaggedDenseAddCPU(torch.autograd.Function):
     def backward(
         ctx,  # pyre-ignore
         grad_output: torch.Tensor,
-    ) -> Tuple[torch.Tensor, None, torch.Tensor, None]:
+    ) -> tuple[torch.Tensor, None, torch.Tensor, None]:
         (offsets,) = ctx.saved_tensors
         grad_dense = torch.ops.fbgemm.jagged_to_padded_dense(
             grad_output, [offsets], [ctx.max_seq_len]

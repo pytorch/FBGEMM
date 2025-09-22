@@ -9,7 +9,7 @@
 
 import sys
 
-from typing import Any, Dict
+from typing import Any
 
 import hypothesis.strategies as st
 
@@ -68,7 +68,7 @@ else:
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
-common_strategy: Dict[str, Any] = {
+common_strategy: dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=5),
     "D": st.integers(min_value=2, max_value=128),
     "B": st.integers(min_value=1, max_value=128),
@@ -89,7 +89,7 @@ common_strategy: Dict[str, Any] = {
     ),
 }
 
-common_settings: Dict[str, Any] = {
+common_settings: dict[str, Any] = {
     "verbosity": VERBOSITY,
     "max_examples": MAX_EXAMPLES_LONG_RUNNING,
     "deadline": None,
@@ -525,7 +525,7 @@ def execute_backward_adagrad(  # noqa C901
             )
 
 
-def adjust_mixed_B_st(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def adjust_mixed_B_st(kwargs: dict[str, Any]) -> dict[str, Any]:
     # VBE is supported in rowwise_adagrad only
     assert "row_wise" in kwargs
     if not kwargs["row_wise"]:

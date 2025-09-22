@@ -12,7 +12,7 @@ import subprocess
 import unittest
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Union
 
 import fbgemm_gpu
 import hypothesis.strategies as st
@@ -28,7 +28,7 @@ TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1"
 # Skip pt2 compliant tag test for certain operators
 # TODO: remove this once the operators are pt2 compliant
 # pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
+additional_decorators: dict[str, list[Callable]] = {
     # vbe_generate_metadata_cpu return different values from vbe_generate_metadata_meta
     # this fails fake_tensor test as the test expects them to be the same
     # fake_tensor test is added in failures_dict but failing fake_tensor test still cause pt2_compliant tag test to fail
@@ -45,7 +45,7 @@ additional_decorators: Dict[str, List[Callable]] = {
 }
 
 # Used for `@unittest.skipIf`
-gpu_unavailable: Tuple[bool, str] = (
+gpu_unavailable: tuple[bool, str] = (
     not torch.cuda.is_available() or torch.cuda.device_count() == 0,
     "CUDA is not available or no GPUs detected",
 )
@@ -58,31 +58,31 @@ is_sm80_or_greater: bool = (
     is_nvidia_device and torch.cuda.get_device_capability()[0] >= 8
 )
 
-running_on_sm70: Tuple[bool, str] = (
+running_on_sm70: tuple[bool, str] = (
     not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
     "Skip test if SM70, since the code is hardcoded to sm80+ support",
 )
 
 # Used for `@unittest.skipIf` for tests that pass in internal CI, but fail on the GitHub runners
-running_on_github: Tuple[bool, str] = (
+running_on_github: tuple[bool, str] = (
     os.getenv("GITHUB_ENV") is not None,
     "Test is currently known to fail or hang when run in the GitHub runners",
 )
 
-running_in_oss: Tuple[bool, str] = (
+running_in_oss: tuple[bool, str] = (
     # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
     getattr(fbgemm_gpu, "open_source", False),
     "Test is currently known to fail in OSS mode",
 )
 
-running_on_rocm: Tuple[bool, str] = (
+running_on_rocm: tuple[bool, str] = (
     TEST_WITH_ROCM,
     "Test currently doesn't work on the ROCm stack",
 )
 
 # Tests with this marker generally fails with `free(): corrupted unsorted chunks`
 # errors when fbgemm_gpu is compiled under Clang
-on_oss_clang: Tuple[bool, str] = (
+on_oss_clang: tuple[bool, str] = (
     (
         hasattr(fbgemm_gpu, "open_source")
         and os.system("c++ --version | grep -i clang") == 0
@@ -91,7 +91,7 @@ on_oss_clang: Tuple[bool, str] = (
 )
 
 # Used for `@unittest.skipIf` for tests that currently fail on ARM platform
-on_arm_platform: Tuple[bool, str] = (
+on_arm_platform: tuple[bool, str] = (
     subprocess.run(["uname", "-m"], stdout=subprocess.PIPE)
     .stdout.decode("utf-8")
     .strip()
@@ -100,7 +100,7 @@ on_arm_platform: Tuple[bool, str] = (
 )
 
 
-def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
+def cpu_and_maybe_gpu() -> st.SearchStrategy[list[torch.device]]:
     gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
     # st.sampled_from is not guaranteed to test all the values passed to it.
     # However, Hypothesis, by default, generates 100 test cases from the specified strategies.
@@ -138,7 +138,7 @@ class optests:
         *,
         fast: bool = False,
         # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-        additional_decorators: Optional[Dict[str, Callable]] = None,
+        additional_decorators: Optional[dict[str, Callable]] = None,
     ):
         if additional_decorators is None:
             additional_decorators = {}
@@ -221,7 +221,7 @@ def gradcheck(
     # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
     f: Callable,
     # pyre-ignore[2]
-    inputs: Union[torch.Tensor, Tuple[Any, ...]],
+    inputs: Union[torch.Tensor, tuple[Any, ...]],
     *args: Any,
     **kwargs: Any,
 ) -> None:
@@ -234,7 +234,7 @@ def gradcheck(
     torch.autograd.gradcheck(f, inputs, *args, **kwargs)
 
 
-def cpu_only() -> st.SearchStrategy[List[torch.device]]:
+def cpu_only() -> st.SearchStrategy[list[torch.device]]:
     return st.sampled_from([torch.device("cpu")])
 
 
@@ -326,7 +326,7 @@ def skipIfRocmLessThan(min_version: int) -> Any:
     return decorator
 
 
-def symint_vector_unsupported() -> Tuple[bool, str]:
+def symint_vector_unsupported() -> tuple[bool, str]:
     major, minor = torch.__version__.split(".")[0:2]
     return (
         int(major) < 2 or (int(major) == 2 and int(minor) < 1),

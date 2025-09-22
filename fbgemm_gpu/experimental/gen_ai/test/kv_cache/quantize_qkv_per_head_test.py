@@ -9,7 +9,7 @@
 
 import logging
 import unittest
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
@@ -121,8 +121,8 @@ def quantize_qkv_per_head_python_reference(
     cache_K: Optional[torch.Tensor] = None,
     cache_V: Optional[torch.Tensor] = None,
 ) -> Union[
-    Tuple[torch.Tensor, torch.Tensor],
-    Tuple[
+    tuple[torch.Tensor, torch.Tensor],
+    tuple[
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -293,7 +293,7 @@ def create_test_tensors(
     D_H: int,
     MAX_T: int,
     device: torch.device,
-) -> Tuple[
+) -> tuple[
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,

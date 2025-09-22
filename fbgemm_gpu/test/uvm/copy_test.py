@@ -9,7 +9,6 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import List
 
 import fbgemm_gpu
 import hypothesis.strategies as st
@@ -49,7 +48,7 @@ class CopyTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_to_cpu(self, sizes: List[int], uvm_op) -> None:
+    def test_uvm_to_cpu(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = False
             uvm_t = uvm_op(
@@ -91,7 +90,7 @@ class CopyTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_to_device(self, sizes: List[int], uvm_op) -> None:
+    def test_uvm_to_device(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = False
             uvm_t = uvm_op(
@@ -133,7 +132,7 @@ class CopyTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_to_cpu_clone(self, sizes: List[int], uvm_op) -> None:
+    def test_uvm_to_cpu_clone(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = False
             uvm_t = uvm_op(

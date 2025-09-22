@@ -11,7 +11,6 @@
 import itertools
 import random
 import unittest
-from typing import List
 
 import hypothesis.strategies as st
 import torch
@@ -31,9 +30,9 @@ else:
 class ExpandIntoJaggedPermuteTest(unittest.TestCase):
     @staticmethod
     def expand_into_jagged_permute_ref_(
-        permute: List[int],
-        length: List[int],
-    ) -> List[int]:
+        permute: list[int],
+        length: list[int],
+    ) -> list[int]:
         offsets = [0] + list(itertools.accumulate(length))
         output_permute = []
         for r in permute:

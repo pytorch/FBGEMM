@@ -8,7 +8,6 @@
 
 import logging
 import random
-from typing import List, Tuple
 
 import click
 import numpy as np
@@ -104,7 +103,7 @@ def create_embedding_specs(
     cached_tables_ratio: float,
     num_embeddings: int,
     embedding_dims: int,
-) -> List[Tuple[str, int, int, SparseType, EmbeddingLocation]]:
+) -> list[tuple[str, int, int, SparseType, EmbeddingLocation]]:
     """
     Returns embedding specs to be used with IntNBitTableBatchedEmbeddingBagsCodegen.
     """
@@ -157,7 +156,7 @@ def create_embedding_specs(
 
 def create_request(
     num_tables: int, num_embeddings: int, batch: int, avg_pooling_factor: int
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """
     Returns [indices, offsets], which are inputs of embedding bags.
     """

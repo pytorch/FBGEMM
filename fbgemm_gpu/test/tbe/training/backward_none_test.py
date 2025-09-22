@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -304,7 +304,7 @@ class BackwardNoneTest(unittest.TestCase):
             # as weight
             if weights_precision != output_dtype:
                 fs = [f.to(output_dtype.as_dtype()) for f in fs]
-            gos: Union[List[Tensor], Tensor] = [torch.randn_like(f) for f in fs]
+            gos: Union[list[Tensor], Tensor] = [torch.randn_like(f) for f in fs]
             [f.backward(go) for (f, go) in zip(fs, gos)]
         else:
             bs_ = SplitTableBatchedEmbeddingBagsCodegen(
@@ -331,7 +331,7 @@ class BackwardNoneTest(unittest.TestCase):
                     to_device(xw.contiguous().view(-1), use_cpu),
                 )
             )
-            gos: Union[List[Tensor], Tensor] = torch.rand_like(fs)
+            gos: Union[list[Tensor], Tensor] = torch.rand_like(fs)
             fs.backward(gos)
 
         cc = SplitTableBatchedEmbeddingBagsCodegen(

@@ -9,7 +9,7 @@
 
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import torch
 
@@ -40,7 +40,7 @@ class IndicesParams:
 
     @classmethod
     # pyre-ignore [3]
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]):
         if not isinstance(data["heavy_hitters"], torch.Tensor):
             data["heavy_hitters"] = torch.tensor(
                 data["heavy_hitters"], dtype=torch.float32
@@ -54,7 +54,7 @@ class IndicesParams:
     def from_json(cls, data: str):
         return cls.from_dict(json.loads(data))
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         # https://stackoverflow.com/questions/73735974/convert-dataclass-of-dataclass-to-json-string
         tmp = dataclasses.asdict(self)
         # Convert tensor to list for JSON serialization
@@ -99,11 +99,11 @@ class BatchParams:
     # Number of ranks for variable batch size generation
     vbe_num_ranks: Optional[int] = None
     # List of target batch sizes, i.e. number of batch lookups per table
-    Bs: Optional[List[int]] = None
+    Bs: Optional[list[int]] = None
 
     @classmethod
     # pyre-ignore [3]
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]):
         return cls(**data)
 
     @classmethod
@@ -111,7 +111,7 @@ class BatchParams:
     def from_json(cls, data: str):
         return cls.from_dict(json.loads(data))
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
     def json(self, format: bool = False) -> str:
@@ -145,7 +145,7 @@ class PoolingParams:
 
     @classmethod
     # pyre-ignore [3]
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]):
         return cls(**data)
 
     @classmethod
@@ -153,7 +153,7 @@ class PoolingParams:
     def from_json(cls, data: str):
         return cls.from_dict(json.loads(data))
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
     def json(self, format: bool = False) -> str:

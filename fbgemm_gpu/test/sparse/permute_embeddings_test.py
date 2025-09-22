@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Any, Callable, Tuple
+from typing import Any, Callable
 
 import hypothesis.strategies as st
 import torch
@@ -30,9 +30,9 @@ else:
 class PermuteEmbeddingsTest(unittest.TestCase):
     @staticmethod
     def permute_embeddings_(
-        permute_fn: Callable[..., Tuple[torch.Tensor, ...]],
+        permute_fn: Callable[..., tuple[torch.Tensor, ...]],
         *args: Any,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if permute_fn == torch.ops.fbgemm.permute_2D_sparse_data:
             permuted_lengths, permuted_embeddings, _ = permute_fn(*args, None)
             return permuted_lengths, permuted_embeddings
@@ -59,7 +59,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
         T: int,
         L: int,
         long_index: bool,
-        permute_fn: Callable[..., Tuple[torch.Tensor, ...]],
+        permute_fn: Callable[..., tuple[torch.Tensor, ...]],
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)

@@ -10,7 +10,7 @@
 import dataclasses
 import json
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import click
 
@@ -34,7 +34,7 @@ class TBEBenchmarkingConfig:
 
     @classmethod
     # pyre-ignore [3]
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]):
         return cls(**data)
 
     @classmethod
@@ -42,7 +42,7 @@ class TBEBenchmarkingConfig:
     def from_json(cls, data: str):
         return cls.from_dict(json.loads(data))
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
     def json(self, format: bool = False) -> str:

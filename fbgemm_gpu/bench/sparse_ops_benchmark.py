@@ -11,7 +11,6 @@ import functools
 import logging
 import math
 import random
-from typing import List
 
 import click
 import fbgemm_gpu
@@ -681,8 +680,8 @@ def index_select_bench(
     optim_group: torch.optim.Optimizer = torch.optim.SGD(gis_inputs, lr=0.1)
 
     def index_select_fwd_ref(
-        inputs: List[torch.Tensor], indices: List[torch.Tensor]
-    ) -> List[torch.Tensor]:
+        inputs: list[torch.Tensor], indices: list[torch.Tensor]
+    ) -> list[torch.Tensor]:
         outputs = []
         for input, index in zip(inputs, indices):
             optim_index.zero_grad()
@@ -690,18 +689,18 @@ def index_select_bench(
         return outputs
 
     def index_select_bwd_ref(
-        outputs: List[torch.Tensor], grads: List[torch.Tensor]
+        outputs: list[torch.Tensor], grads: list[torch.Tensor]
     ) -> None:
         for output, grad in zip(outputs, grads):
             optim_index.zero_grad()
             output.backward(grad, retain_graph=True)
 
     def batch_index_select_fwd(
-        concat_inputs: List[torch.Tensor],
-        concat_indices: List[int],
-        input_num_indices: List[int],
-        input_rows: List[int],
-        input_columns: List[int],
+        concat_inputs: list[torch.Tensor],
+        concat_indices: list[int],
+        input_num_indices: list[int],
+        input_rows: list[int],
+        input_columns: list[int],
     ) -> torch.autograd.Variable:
         optim_batch.zero_grad()
         return torch.ops.fbgemm.batch_index_select_dim0(
@@ -709,14 +708,14 @@ def index_select_bench(
         )
 
     def group_index_select_fwd(
-        gis_inputs: List[torch.Tensor], indices: List[int]
+        gis_inputs: list[torch.Tensor], indices: list[int]
     ) -> torch.autograd.Variable:
         optim_group.zero_grad()
         return torch.ops.fbgemm.group_index_select_dim0(gis_inputs, indices)
 
     def batch_group_index_select_bwd(
         output: torch.autograd.Variable,
-        grads: List[torch.Tensor],
+        grads: list[torch.Tensor],
         optim: torch.optim.Optimizer,
     ) -> torch.autograd.Variable:
         optim.zero_grad()

@@ -12,7 +12,7 @@
 import random
 import unittest
 from itertools import accumulate
-from typing import List, Optional
+from typing import Optional
 
 import hypothesis.strategies as st
 import torch
@@ -55,7 +55,7 @@ class PermuteIndicesTest(unittest.TestCase):
         W: int,
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
-        length_splits: Optional[List[torch.Tensor]] = None
+        length_splits: Optional[list[torch.Tensor]] = None
         if is_1D:
             if B == 0:
                 batch_sizes = [0] * W

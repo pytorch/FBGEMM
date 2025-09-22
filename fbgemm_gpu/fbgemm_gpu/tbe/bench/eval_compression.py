@@ -10,7 +10,7 @@
 import logging
 import statistics
 from dataclasses import dataclass
-from typing import Callable, List, Tuple
+from typing import Callable
 
 import torch
 
@@ -29,8 +29,8 @@ class EvalCompressionBenchmarkOutput:
 
 
 def benchmark_eval_compression(
-    baseline_requests: List[Tuple[torch.Tensor, torch.Tensor]],
-    compressed_requests: List[Tuple[torch.Tensor, torch.Tensor]],
+    baseline_requests: list[tuple[torch.Tensor, torch.Tensor]],
+    compressed_requests: list[tuple[torch.Tensor, torch.Tensor]],
     baseline_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     compressed_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     reindex: torch.Tensor,

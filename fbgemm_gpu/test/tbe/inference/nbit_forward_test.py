@@ -10,7 +10,7 @@
 
 import random
 import unittest
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -51,7 +51,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 # pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
+additional_decorators: dict[str, list[Callable]] = {
     "test_faketensor__test_nbit_forward_uvm_cache": [
         unittest.skip("CUDA Assert"),
     ],
@@ -587,7 +587,7 @@ class NBitFowardTest(NBitFowardTestCommon):
     @settings(deadline=None)
     @unittest.skipIf(*gpu_unavailable)
     def test_nbit_forward_gpu_no_cache_max_sizes(
-        self, indices_dtype: torch.dtype, weights_ty_and_D: Tuple[SparseType, int]
+        self, indices_dtype: torch.dtype, weights_ty_and_D: tuple[SparseType, int]
     ) -> None:
         weights_ty, D = weights_ty_and_D
         self.execute_nbit_forward_(
@@ -876,7 +876,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         quant_cc.fill_random_weights()
         raw_embedding_weights = quant_cc.split_embedding_weights()
         # we mimic 1.0 scale, 0.0 bias for better results comparison
-        embedding_weights: List[Tuple[torch.Tensor, Optional[torch.Tensor]]] = [
+        embedding_weights: list[tuple[torch.Tensor, Optional[torch.Tensor]]] = [
             (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
             for table_weight, _ in raw_embedding_weights
         ]

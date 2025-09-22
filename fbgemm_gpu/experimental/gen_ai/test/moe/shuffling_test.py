@@ -11,7 +11,7 @@ import itertools
 import logging
 import random
 import unittest
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import torch
 import triton  # noqa: F401
@@ -106,7 +106,7 @@ class ShufflingTests(unittest.TestCase):
         if not rowmajor:
             routing_scores = routing_scores.transpose(0, 1).contiguous().transpose(0, 1)
 
-        def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        def fn() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             op = index_shuffling
             if compiled:
                 op = torch.compile(op, backend="inductor", fullgraph=True)
@@ -121,7 +121,7 @@ class ShufflingTests(unittest.TestCase):
                     top_k,
                 )
 
-        def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        def ref_fn() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             valid_routing_scores = routing_scores[:num_valid_tokens].contiguous()
             selected_expert_indices = torch.topk(valid_routing_scores, top_k, dim=1)[1]
             expert_indices, flattened_position_indices = torch.sort(
@@ -313,10 +313,10 @@ class ShufflingTests(unittest.TestCase):
             tokens = tokens.view(-1, dim)
             tokens[token_counts[:, expert_start:expert_end].sum() :, :] = torch.nan
 
-        token_counts_list: List[List[int]] = token_counts.tolist()
-        token_counts_t_list: List[List[int]] = token_counts.T.tolist()
+        token_counts_list: list[list[int]] = token_counts.tolist()
+        token_counts_t_list: list[list[int]] = token_counts.T.tolist()
 
-        def slice_tokens() -> Tuple[torch.Tensor, ...]:
+        def slice_tokens() -> tuple[torch.Tensor, ...]:
             if is_combine_shuffling:
                 reshuffled_chunks = [[] for _ in range(num_local_experts)]
                 # token_counts: [EP, E]
@@ -341,9 +341,9 @@ class ShufflingTests(unittest.TestCase):
                             offset += chunk_size
             return tuple(itertools.chain(*reshuffled_chunks))
 
-        reshuffled_chunks: Tuple[torch.Tensor, ...] = slice_tokens()
+        reshuffled_chunks: tuple[torch.Tensor, ...] = slice_tokens()
 
-        def ref_fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        def ref_fn() -> tuple[torch.Tensor, Optional[torch.Tensor]]:
             cat_tokens = torch.cat(reshuffled_chunks)
             if is_combine_shuffling:
                 counts = token_counts[:, expert_start:expert_end].sum(dim=0)
@@ -355,7 +355,7 @@ class ShufflingTests(unittest.TestCase):
 
         assert not ref_output_tokens.isnan().any().item()
 
-        def fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        def fn() -> tuple[torch.Tensor, Optional[torch.Tensor]]:
             if is_combine_shuffling:
                 return combine_shuffling(
                     tokens.view(-1, dim),

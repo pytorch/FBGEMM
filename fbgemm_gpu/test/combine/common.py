@@ -6,7 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import fbgemm_gpu
 import torch
@@ -25,17 +25,17 @@ if not open_source:
 
 
 class TBEInputPrepareReference(torch.nn.Module):
-    def __init__(self, include_last_offsets: List[bool]) -> None:
+    def __init__(self, include_last_offsets: list[bool]) -> None:
         super().__init__()
         self.include_last_offsets = include_last_offsets
 
     def forward(  # noqa C901
         self,
-        indices_list: List[torch.Tensor],
-        offsets_list: List[torch.Tensor],
-        per_sample_weights_list: List[torch.Tensor],
+        indices_list: list[torch.Tensor],
+        offsets_list: list[torch.Tensor],
+        per_sample_weights_list: list[torch.Tensor],
         batch_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         size = 0
         assert len(indices_list) > 0
         assert len(indices_list) == len(offsets_list)
@@ -73,7 +73,7 @@ class TBEInputPrepareReference(torch.nn.Module):
             offsets_accs[i + 1] = offsets_accs[i] + indices_list[i].size(0)
 
         assert offsets_accs[-1] == combined_indices.size(0)
-        combined_offsets_size: List[int] = (
+        combined_offsets_size: list[int] = (
             [int(offsets_starts[-1].item()) + 1]
             if batch_size is None
             else [batch_size * len(offsets_list) + 1]

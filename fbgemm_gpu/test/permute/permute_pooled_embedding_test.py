@@ -10,7 +10,6 @@
 import inspect
 import sys
 import unittest
-from typing import List
 
 import hypothesis.strategies as st
 import torch
@@ -26,7 +25,7 @@ if open_source:
 else:
     from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, on_arm_platform, optests
 
-suppressed_list: List[HealthCheck] = (
+suppressed_list: list[HealthCheck] = (
     [HealthCheck.not_a_test_method]
     if getattr(HealthCheck, "not_a_test_method", False)
     else []

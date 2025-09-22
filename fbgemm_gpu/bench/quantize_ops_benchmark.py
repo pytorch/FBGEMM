@@ -10,7 +10,8 @@ import functools
 import logging
 import random
 from contextlib import nullcontext
-from typing import Iterable, Optional, Union
+from typing import Optional, Union
+from collections.abc import Iterable
 
 import click
 import fbgemm_gpu

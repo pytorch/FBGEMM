@@ -10,7 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import Any, Dict
+from typing import Any
 
 from hypothesis import given, settings
 
@@ -29,7 +29,7 @@ from .backward_adagrad_common import (
 )
 
 # Set up test strategy
-test_st: Dict[str, Any] = common_strategy.copy()
+test_st: dict[str, Any] = common_strategy.copy()
 test_st["D"] = st.integers(min_value=128, max_value=512)
 
 
