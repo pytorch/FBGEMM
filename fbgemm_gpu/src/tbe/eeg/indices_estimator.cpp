@@ -45,7 +45,7 @@ void IndicesEstimator::populateLogTable_() {
   }
 }
 
-IndicesEstimator::IndicesEstimator(const torch::Tensor& indices) {
+IndicesEstimator::init(const torch::Tensor& indices) {
   TORCH_CHECK(
       indices.numel() > 0, "indices numel is ", indices.numel(), "(< 1)");
 
@@ -60,6 +60,10 @@ IndicesEstimator::IndicesEstimator(const torch::Tensor& indices) {
 
   // Populate the log table
   populateLogTable_();
+}
+
+IndicesEstimator::IndicesEstimator(const torch::Tensor& indices) {
+  init(indices);
 }
 
 IndicesEstimator::IndicesEstimator(const std::filesystem::path& tensors_path) {
@@ -79,7 +83,7 @@ IndicesEstimator::IndicesEstimator(const std::filesystem::path& tensors_path) {
   assert((ival.isTensor()) && "Loaded file is not a tensor!");
 
   // Pass it to the tensor-based constructor
-  IndicesEstimator(ival.toTensor());
+  init(ival.toTensor());
 }
 
 std::vector<double> IndicesEstimator::heavyHitters() const {

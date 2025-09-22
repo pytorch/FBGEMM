@@ -37,6 +37,8 @@ class IndicesEstimator {
   double estimateQuality(const IndicesDistributionParameters& params) const;
 
  private:
+  void init(const torch::Tensor& indices);
+
   // Hardcoded parameters
   // Heavy hitter threshold: we make sure they account for >=90% of the mass or
   // the top 20 frequencies, whichever comes first. We also ensure that we cover
