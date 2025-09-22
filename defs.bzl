@@ -116,8 +116,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Types.h",
     ]
 
-# buildifier: disable=unused-variable
-def get_fbgemm_avx2_srcs(msvc = False):
+def get_fbgemm_avx2_srcs():
     return [
         #All the source files that either use avx2 instructions statically
         "src/EmbeddingSpMDMAvx2.cc",
@@ -151,8 +150,7 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
         })
     return asm_srcs if not msvc else intrinsics_srcs
 
-# buildifier: disable=unused-variable
-def get_fbgemm_avx512_srcs(msvc = False):
+def get_fbgemm_avx512_srcs():
     return [
         #All the source files that use avx512 instructions statically
         "src/FbgemmBfloat16ConvertAvx512.cc",
