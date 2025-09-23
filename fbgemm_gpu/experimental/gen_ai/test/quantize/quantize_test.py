@@ -2257,7 +2257,7 @@ class BF16Tests(unittest.TestCase):
         if output_accum:
             wgrad_accum = torch.randn(
                 (G, N, K),
-                dtype=torch.bfloat16,
+                dtype=torch.float32,
                 device=torch.accelerator.current_accelerator(),
             )
         else:
@@ -2270,6 +2270,9 @@ class BF16Tests(unittest.TestCase):
             output=wgrad_accum.clone() if output_accum else None,
             output_accum=output_accum,
         )
+
+        if output_accum:
+            assert test_wgrad.dtype == torch.float32
 
         # Reference
         dy_fp32 = dy_bf16.to(torch.float32)
@@ -2295,18 +2298,26 @@ class BF16Tests(unittest.TestCase):
 
         if output_accum:
             assert wgrad_accum is not None
-            ref_wgrad += wgrad_accum.to(torch.float32)
+            ref_wgrad += wgrad_accum
 
-        ref_wgrad = ref_wgrad.to(torch.bfloat16)
+        ref_wgrad = ref_wgrad.to(test_wgrad.dtype)
 
         # Compare groups with non-zero m_size
         if non_zero_groups:
-            torch.testing.assert_close(
-                test_wgrad[non_zero_groups],
-                ref_wgrad[non_zero_groups],
-                atol=1e-4,
-                rtol=1e-2,
-            )
+            if test_wgrad.dtype == torch.float32:
+                torch.testing.assert_close(
+                    test_wgrad[non_zero_groups],
+                    ref_wgrad[non_zero_groups],
+                    atol=1e-4,
+                    rtol=1e-4,
+                )
+            else:
+                torch.testing.assert_close(
+                    test_wgrad[non_zero_groups],
+                    ref_wgrad[non_zero_groups],
+                    atol=1e-4,
+                    rtol=1e-2,
+                )
 
 
 if __name__ == "__main__":
