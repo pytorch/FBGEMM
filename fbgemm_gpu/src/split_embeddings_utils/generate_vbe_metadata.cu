@@ -70,7 +70,7 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
 
 } // namespace
 
-std::tuple<int, int, int> get_max_grid_size(int device) {
+static std::tuple<int, int, int> get_max_grid_size() {
   static auto max_grid = [&]() -> std::tuple<int, int, int> {
     cudaDeviceProp prop;
     C10_CUDA_CHECK(cudaGetDeviceProperties(&prop, at::cuda::current_device()));
@@ -152,8 +152,7 @@ generate_vbe_metadata(
 
   const auto grid_dim_x = div_round_up(max_B_feature_rank, kMaxThreads);
   const dim3 grid_size(grid_dim_x, num_ranks, T);
-  const auto& [max_grid_x, max_grid_y, max_grid_z] =
-      get_max_grid_size(at::cuda::current_device());
+  const auto& [max_grid_x, max_grid_y, max_grid_z] = get_max_grid_size();
   TORCH_CHECK(
       grid_size.x > 0 && grid_size.x <= max_grid_x,
       "generate_vbe_metadata: Invalid grid_size.x ",
