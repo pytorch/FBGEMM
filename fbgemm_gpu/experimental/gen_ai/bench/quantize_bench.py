@@ -490,13 +490,15 @@ def print_kernels(kernels: Optional[list[str]]) -> list[QuantizeOpBase]:
     "--total-K",
     default=None,
     help="If set, adjusts the K values to sum to this number. "
-    "This can help simulate real grouped workloads in backward wgrad.",
+    "This can help simulate real grouped workloads in backward wgrad. "
+    "Comma separated list of total-K values to benchmark.",
 )
 @click.option(
     "--total-M",
     default=None,
     help="If set, adjusts the M values to sum to this number. "
-    "This can help simulate real grouped workloads.",
+    "This can help simulate real grouped workloads."
+    "Comma separated list of total-M values to benchmark.",
 )
 @click.option(
     "--no-cuda-graph",
@@ -634,25 +636,29 @@ def invoke_main(
     if groups:
         groups_list = [int(g) for g in groups.strip().split(",")]
         if total_m:
+            total_m_list = [int(tm) for tm in total_m.strip().split(",")]
             MNK = [
                 [
                     [b] * g,
-                    generate_group_tensor(g, int(total_m)),
+                    generate_group_tensor(g, tm),
                     [n] * g,
                     [k] * g,
                 ]
                 for g in groups_list
+                for tm in total_m_list
                 for b, _, n, k in MNK
             ]
         elif total_k:
+            total_k_list = [int(tk) for tk in total_k.strip().split(",")]
             MNK = [
                 [
                     [b] * g,
                     [m] * g,
                     [n] * g,
-                    generate_group_tensor(g, int(total_k)),
+                    generate_group_tensor(g, tk),
                 ]
                 for g in groups_list
+                for tk in total_k_list
                 for b, m, n, _ in MNK
             ]
         else:
