@@ -1632,18 +1632,21 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_impl(
           O.packed_accessor32<float, 5, at::RestrictPtrTraits>(),
           seq_positions.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
     } else {
-#define CALL_MQA_ATTN_SPLITKV_INT4_GROUPWISE_KERNEL(NUM_GROUPS, ...)      \
-  if (set_max_dynamic_smem) {                                             \
-    set_gpu_max_dynamic_shared_memory(                                    \
-        gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>, smem, device);         \
-  }                                                                       \
-  gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>                               \
-      <<<blocks, threads, smem, at::cuda::getCurrentCUDAStream()>>>(      \
-          attn_out.packed_accessor32<float, 3, at::RestrictPtrTraits>(),  \
-          cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(), \
-          O.packed_accessor32<float, 5, at::RestrictPtrTraits>(),         \
-          seq_positions                                                   \
-              .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+#define CALL_MQA_ATTN_SPLITKV_INT4_GROUPWISE_KERNEL(NUM_GROUPS, ...)  \
+  if (set_max_dynamic_smem) {                                         \
+    set_gpu_max_dynamic_shared_memory(                                \
+        gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>, smem, device);     \
+  }                                                                   \
+  FBGEMM_LAUNCH_KERNEL(                                               \
+      (gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>),                    \
+      blocks,                                                         \
+      threads,                                                        \
+      smem,                                                           \
+      at::cuda::getCurrentCUDAStream(),                               \
+      attn_out.packed_accessor32<float, 3, at::RestrictPtrTraits>(),  \
+      cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(), \
+      O.packed_accessor32<float, 5, at::RestrictPtrTraits>(),         \
+      seq_positions.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
 
       auto num_groups_ = num_groups ? num_groups.value() : 1;
       CALL_INT4_KERNEL_WITH_KV_GROUPWISE_QUANT_CHECK(
@@ -2535,18 +2538,18 @@ at::Tensor mqa_attn(
     if (set_max_dynamic_smem) {
       set_gpu_max_dynamic_shared_memory(mqa_attn_kernel, smem, XQ.get_device());
     }
-    mqa_attn_kernel<<<
+    FBGEMM_LAUNCH_KERNEL(
+        (mqa_attn_kernel),
         blocks,
         threads,
         smem,
-        at::cuda::getCurrentCUDAStream()>>>(
+        at::cuda::getCurrentCUDAStream(),
         XQ.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),
         cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
         cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
         O.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),
         seq_positions.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
         qk_scale);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     if (cache_logical_dtype == CacheLogicalDtype::FP8) {
 #if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
@@ -2554,11 +2557,12 @@ at::Tensor mqa_attn(
         set_gpu_max_dynamic_shared_memory(
             mqa_attn_fp8_kernel, smem, XQ.get_device());
       }
-      mqa_attn_fp8_kernel<<<
+      FBGEMM_LAUNCH_KERNEL(
+          (mqa_attn_fp8_kernel),
           blocks,
           threads,
           smem,
-          at::cuda::getCurrentCUDAStream()>>>(
+          at::cuda::getCurrentCUDAStream(),
           XQ.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),
           cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
           cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
@@ -2569,20 +2573,23 @@ at::Tensor mqa_attn(
       throw std::runtime_error("CUDA version is older than 12.0");
 #endif
     } else {
-#define CALL_MQA_ATTN_INT4_GROUPWISE_KERNEL(NUM_GROUPS, ...)              \
-  if (set_max_dynamic_smem) {                                             \
-    set_gpu_max_dynamic_shared_memory(                                    \
-        mqa_attn_int4_kernel<NUM_GROUPS>, smem, XQ.get_device());         \
-  }                                                                       \
-  mqa_attn_int4_kernel<NUM_GROUPS>                                        \
-      <<<blocks, threads, smem, at::cuda::getCurrentCUDAStream()>>>(      \
-          XQ.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(), \
-          cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(), \
-          cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(), \
-          O.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),  \
-          seq_positions                                                   \
-              .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),    \
-          qk_scale);
+#define CALL_MQA_ATTN_INT4_GROUPWISE_KERNEL(NUM_GROUPS, ...)                \
+  if (set_max_dynamic_smem) {                                               \
+    set_gpu_max_dynamic_shared_memory(                                      \
+        mqa_attn_int4_kernel<NUM_GROUPS>, smem, XQ.get_device());           \
+  }                                                                         \
+  FBGEMM_LAUNCH_KERNEL(                                                     \
+      (mqa_attn_int4_kernel<NUM_GROUPS>),                                   \
+      blocks,                                                               \
+      threads,                                                              \
+      smem,                                                                 \
+      at::cuda::getCurrentCUDAStream(),                                     \
+      XQ.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),       \
+      cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),       \
+      cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),       \
+      O.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),        \
+      seq_positions.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+      qk_scale);
 
       auto num_groups_ = num_groups ? num_groups.value() : 1;
       CALL_INT4_KERNEL_WITH_KV_GROUPWISE_QUANT_CHECK(
