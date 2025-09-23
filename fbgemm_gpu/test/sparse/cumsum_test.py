@@ -9,7 +9,6 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import Tuple, Type
 
 import hypothesis.strategies as st
 import numpy as np
@@ -42,7 +41,7 @@ class CumSumTest(unittest.TestCase):
     def test_cumsum(
         self,
         n: int,
-        index_types: Tuple[Type[object], Type[object]],
+        index_types: tuple[type[object], type[object]],
         device: torch.device,
     ) -> None:
         (pt_index_dtype, np_index_dtype) = index_types
@@ -106,7 +105,7 @@ class CumSumTest(unittest.TestCase):
         self,
         n: int,
         b: int,
-        index_types: Tuple[Type[object], Type[object]],
+        index_types: tuple[type[object], type[object]],
         device: torch.device,
     ) -> None:
         (pt_index_dtype, np_index_dtype) = index_types

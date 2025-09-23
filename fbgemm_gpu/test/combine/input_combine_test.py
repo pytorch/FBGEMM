@@ -8,8 +8,6 @@
 # pyre-strict
 import unittest
 
-from typing import List, Tuple
-
 import fbgemm_gpu  # noqa: F401
 
 import torch
@@ -59,15 +57,15 @@ class InputCombineTest(unittest.TestCase):
 
     def _get_prepadded_inputs(
         self,
-        dtypes: List[torch.dtype],
+        dtypes: list[torch.dtype],
         device: torch._C.device = DEFAULT_DEVICE,
         include_last: bool = True,
-    ) -> Tuple[
-        List[torch.Tensor],
-        List[torch.Tensor],
-        List[torch.Tensor],
-        List[torch.Tensor],
-        List[bool],
+    ) -> tuple[
+        list[torch.Tensor],
+        list[torch.Tensor],
+        list[torch.Tensor],
+        list[torch.Tensor],
+        list[bool],
     ]:
         indices_list = [
             torch.tensor([1, 2, 3, 123, 123, 123], dtype=dtypes[0], device=device),

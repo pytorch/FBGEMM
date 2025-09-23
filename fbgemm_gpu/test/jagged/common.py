@@ -11,7 +11,7 @@
 import itertools
 import sys
 import unittest
-from typing import Callable, Dict, List, Tuple
+from typing import Callable
 
 import fbgemm_gpu
 import fbgemm_gpu.sparse_ops
@@ -26,7 +26,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
-suppressed_list: List[HealthCheck] = (
+suppressed_list: list[HealthCheck] = (
     [HealthCheck.differing_executors]
     if getattr(HealthCheck, "differing_executors", False)
     else []
@@ -43,7 +43,7 @@ settings.load_profile("suppress_differing_executors_check")
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
 # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: Dict[str, List[Callable]] = {
+additional_decorators: dict[str, list[Callable]] = {
     "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
         # This operator has been grandfathered in. We need to fix this test failure.
         unittest.expectedFailure,
@@ -117,9 +117,9 @@ def generate_jagged_tensor(
     # dynamo to mark the input as dynamic shape to make sure symbolic
     # shape is generated
     mark_dynamic: bool = False,
-) -> Tuple[torch.Tensor, List[torch.LongTensor], npt.NDArray]:
+) -> tuple[torch.Tensor, list[torch.LongTensor], npt.NDArray]:
     max_lengths = np.random.randint(low=1, high=10, size=(num_jagged_dim,))
-    x_offsets: List[torch.LongTensor] = []
+    x_offsets: list[torch.LongTensor] = []
     num_lengths = outer_dense_size
     for d in range(num_jagged_dim):
         # Sometimes length[i] exceed max_L meaning jagged->dense will be
@@ -161,7 +161,7 @@ def generate_jagged_tensor(
 
 def to_padded_dense(
     values: torch.Tensor,
-    offsets: List[torch.LongTensor],
+    offsets: list[torch.LongTensor],
     max_lengths: npt.NDArray,
     padding_value: float = 0,
 ) -> torch.Tensor:

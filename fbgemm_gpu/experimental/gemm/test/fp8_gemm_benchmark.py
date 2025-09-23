@@ -6,7 +6,7 @@
 
 # pyre-strict
 
-from typing import Callable, Tuple
+from typing import Callable
 
 import click
 
@@ -32,7 +32,7 @@ def bench(cuda_graph: bool, rowwise_tma: bool) -> None:
         bench_factory: Callable[
             [torch.Tensor, torch.Tensor], Callable[[], torch.Tensor]
         ],
-        shape: Tuple[int, int, int] = (1024, 1024, 1024),
+        shape: tuple[int, int, int] = (1024, 1024, 1024),
         tag: str = "",
     ) -> None:
         # Benchmarks the function returned by bench_factory.

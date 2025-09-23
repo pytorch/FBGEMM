@@ -7,7 +7,8 @@
 # pyre-strict
 
 import math
-from typing import Callable, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Callable, Optional
 
 import torch
 
@@ -74,7 +75,7 @@ def permute_2D_sparse_data_input1D_meta(
     stride: int,
     weights: Optional[Tensor] = None,
     permuted_lengths_sum: Optional[int] = None,
-) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+) -> tuple[Tensor, Tensor, Optional[Tensor]]:
     torch._check(
         lengths.dim() == 1, lambda: f"expected lengths.dim() == 1, got {lengths.dim()}"
     )
@@ -111,7 +112,7 @@ def permute_2D_sparse_data_input1D_backward(
     grad_lengths: torch.Tensor,
     grad_values: torch.Tensor,
     grad_weights: torch.Tensor,
-) -> Tuple[None, Tensor, Tensor, None, Tensor, None]:
+) -> tuple[None, Tensor, Tensor, None, Tensor, None]:
     inv_permute = torch.ops.fbgemm.invert_permute(ctx.permute)
     permuted_grad_lengths, permuted_grad_values, permuted_grad_weights = (
         torch.ops.fbgemm.permute_2D_sparse_data_input1D(
@@ -139,7 +140,7 @@ def permute_2D_sparse_data_meta(
     values: Tensor,
     weights: Optional[Tensor] = None,
     permuted_lengths_sum: Optional[int] = None,
-) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+) -> tuple[Tensor, Tensor, Optional[Tensor]]:
     torch._check(
         lengths.dim() == 2, lambda: f"expected lengths.dim() == 2, got {lengths.dim()}"
     )
@@ -197,7 +198,7 @@ def permute_1D_sparse_data_meta(
     values: Tensor,
     weights: Optional[Tensor] = None,
     permuted_lengths_sum: Optional[int] = None,
-) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+) -> tuple[Tensor, Tensor, Optional[Tensor]]:
     indices = values
     permuted_lengths_size = permute.numel()
     permuted_lengths = lengths.new_empty([permuted_lengths_size])
@@ -218,7 +219,7 @@ def permute_1D_sparse_data_meta(
 
 def masked_select_jagged_1d(
     values: Tensor, lengths: Tensor, mask: Tensor
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     torch._check(values.dim() == 1)
     torch._check(lengths.dim() == 1)
     torch._check(values.device == lengths.device)
@@ -231,11 +232,11 @@ def masked_select_jagged_1d(
 
 
 def tbe_input_combine_abstract(
-    indices_list: List[Tensor],
-    offsets_list: List[Tensor],
-    per_sample_weights: List[Tensor],
+    indices_list: list[Tensor],
+    offsets_list: list[Tensor],
+    per_sample_weights: list[Tensor],
     include_last_offsets: Tensor,
-) -> Tuple[Tensor, Tensor, Tensor]:
+) -> tuple[Tensor, Tensor, Tensor]:
     torch._check(len(indices_list) > 0)
     torch._check(len(indices_list) == len(offsets_list))
     torch._check(len(indices_list) == len(per_sample_weights))
@@ -268,10 +269,10 @@ def tbe_input_combine_abstract(
 
 
 def tbe_input_combine_with_length_abstract(
-    indices_list: List[Tensor],
-    offsets_list: List[Tensor],
-    per_sample_weights: List[Tensor],
-) -> Tuple[Tensor, Tensor, Tensor]:
+    indices_list: list[Tensor],
+    offsets_list: list[Tensor],
+    per_sample_weights: list[Tensor],
+) -> tuple[Tensor, Tensor, Tensor]:
     torch._check(len(indices_list) > 0)
     torch._check(len(indices_list) == len(offsets_list))
     torch._check(len(indices_list) == len(per_sample_weights))
@@ -339,7 +340,7 @@ def expand_into_jagged_permute_meta(
     permute: Tensor,
     input_offsets: Tensor,
     output_offsets: Tensor,
-    output_size: Tuple[int, ...],
+    output_size: tuple[int, ...],
 ) -> Tensor:
     torch._check(permute.numel() > 0, lambda: "expected {permute.numel} > 0")
     torch._check(
@@ -465,7 +466,7 @@ def block_bucketize_sparse_features_meta(
     keep_orig_idx: bool = False,
     total_num_blocks: Optional[torch.Tensor] = None,
     keep_orig_idx_per_feature: Optional[torch.Tensor] = None,
-) -> Tuple[
+) -> tuple[
     torch.Tensor,
     torch.Tensor,
     Optional[torch.Tensor],
@@ -500,7 +501,7 @@ def block_bucketize_sparse_features_2d_weights_meta(
     keep_orig_idx: bool = False,
     total_num_blocks: Optional[torch.Tensor] = None,
     keep_orig_idx_per_feature: Optional[torch.Tensor] = None,
-) -> Tuple[
+) -> tuple[
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -521,7 +522,7 @@ def block_bucketize_sparse_features_2d_weights_meta(
 
 
 def merge_pooled_embeddings(
-    pooled_embeddings: List[torch.Tensor],
+    pooled_embeddings: list[torch.Tensor],
     uncat_dim_size: int,
     target_device: torch.device,
     cat_dim: int = 1,
@@ -552,7 +553,7 @@ def merge_pooled_embeddings(
 
 def permute_sparse_features_abstract(
     permute: Tensor, lengths: Tensor, indices: Tensor, weights: Optional[Tensor] = None
-) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+) -> tuple[Tensor, Tensor, Optional[Tensor]]:
     torch._check(lengths.dtype == indices.dtype)
     torch._check(permute.device == lengths.device)
     torch._check(permute.device == indices.device)
@@ -583,7 +584,7 @@ def segment_sum_csr_abstract(
 
 def dense_to_jagged_forward(
     dense: torch.Tensor,
-    offsets: List[torch.Tensor],
+    offsets: list[torch.Tensor],
     total_L: Optional[torch.SymInt] = None,
 ) -> torch.Tensor:
     if total_L is None:
@@ -598,9 +599,9 @@ def dense_to_jagged_forward(
 
 def dense_to_jagged(
     dense: torch.Tensor,
-    offsets: List[torch.Tensor],
+    offsets: list[torch.Tensor],
     total_L: Optional[torch.SymInt] = None,
-) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+) -> tuple[torch.Tensor, list[torch.Tensor]]:
     if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
     return (dense_to_jagged_forward(dense, offsets, total_L), offsets)
@@ -609,9 +610,9 @@ def dense_to_jagged(
 def batch_index_select_dim0_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
-    input_num_indices: List[int],
-    input_rows: List[int],
-    input_columns: List[int],
+    input_num_indices: list[int],
+    input_rows: list[int],
+    input_columns: list[int],
     permute_output_dim_0_1: bool,
 ) -> torch.Tensor:
     """
@@ -653,11 +654,11 @@ def batch_index_select_dim0_tensor_abstract(
 def batch_index_select_dim0_forward_cuda_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
-    input_num_indices: List[int],
-    input_rows: List[int],
-    input_columns: List[int],
+    input_num_indices: list[int],
+    input_rows: list[int],
+    input_columns: list[int],
     permute_output_dim_0_1: bool,
-) -> List[torch.Tensor]:
+) -> list[torch.Tensor]:
     num_inputs = len(input_rows)
     torch._check(len(input_num_indices) == len(input_rows))
     torch._check(len(input_num_indices) == len(input_columns))
@@ -694,7 +695,7 @@ def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
     input_rows: torch.Tensor,
     input_columns: torch.Tensor,
     permute_output_dim_0_1: bool,
-) -> List[torch.Tensor]:
+) -> list[torch.Tensor]:
     num_inputs: int = input_rows.size(0)
     torch._check(input_num_indices.size(0) == input_rows.size(0))
     torch._check(input_num_indices.size(0) == input_columns.size(0))
@@ -739,7 +740,7 @@ def keyed_jagged_index_select_dim1_abstract(
     batch_size: torch.SymInt,
     weights: Optional[torch.Tensor] = None,
     selected_lengths_sum: Optional[torch.SymInt] = None,
-) -> List[torch.Tensor]:
+) -> list[torch.Tensor]:
     """
     This meta function is used to calculate the shape of output tensors
     from the original function `fbgemm::keyed_jagged_index_select_dim1` without the actual data.
@@ -764,7 +765,7 @@ def keyed_jagged_index_select_dim1_abstract(
             torch.index_select(lengths, 0, length_indices).sum().item()
         )
 
-    ret: List[torch.Tensor] = [
+    ret: list[torch.Tensor] = [
         # pyre-ignore
         values.new_empty([selected_lengths_sum]),
         lengths.new_empty([indices.shape[0] * num_batches]),
@@ -796,11 +797,11 @@ def batch_index_select_dim0_backward_cuda_impl_abstract(
 def batch_index_select_dim0_forward_cpu_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
-    input_num_indices: List[int],
-    input_rows: List[int],
-    input_columns: List[int],
+    input_num_indices: list[int],
+    input_rows: list[int],
+    input_columns: list[int],
     permute_output_dim_0_1: bool,
-) -> List[torch.Tensor]:
+) -> list[torch.Tensor]:
     # input lists must have the same length
     num_inputs = len(input_num_indices)
     torch._check(num_inputs == len(input_rows))
@@ -830,7 +831,7 @@ def batch_index_select_dim0_tensor_forward_cpu_impl_abstract(
     input_rows: torch.Tensor,
     input_columns: torch.Tensor,
     permute_output_dim_0_1: bool,
-) -> List[torch.Tensor]:
+) -> list[torch.Tensor]:
     # input lists must have the same length
     num_inputs = len(input_num_indices)
     torch._check(num_inputs == len(input_rows))
@@ -880,8 +881,8 @@ def bounds_check_indices_abstract(
 
 
 def group_index_select_dim0_gpu_impl_abstract(
-    inputs: List[torch.Tensor], group_size: int
-) -> List[torch.Tensor]:
+    inputs: list[torch.Tensor], group_size: int
+) -> list[torch.Tensor]:
     """
     Calculate output shapes for group_index_select_dim0_gpu_impl
     without the actual data.
@@ -911,8 +912,8 @@ def group_index_select_dim0_gpu_impl_abstract(
 
 
 def group_index_select_dim0_gpu_backward_abstract(
-    all_inputs: List[torch.Tensor], output_shape_group_ref: List[torch.SymInt]
-) -> List[torch.Tensor]:
+    all_inputs: list[torch.Tensor], output_shape_group_ref: list[torch.SymInt]
+) -> list[torch.Tensor]:
     """
     Calculate output shapes for group_index_select_dim0_gpu_backward
     without the actual data.
@@ -945,7 +946,7 @@ def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
     batch_size: torch.SymInt,
     weights: Optional[torch.Tensor] = None,
     selected_lengths_sum: Optional[torch.SymInt] = None,
-) -> List[torch.Tensor]:
+) -> list[torch.Tensor]:
     num_batches = lengths.size(0) // batch_size
     torch._check(lengths.size(0) + 1 == offsets.size(0))
     # pyre-ignore
@@ -959,7 +960,7 @@ def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
         selected_lengths_sum = torch.library.get_ctx().new_dynamic_size()
 
     torch._check_is_size(selected_lengths_sum)
-    vlw: List[torch.Tensor] = [
+    vlw: list[torch.Tensor] = [
         values.new_empty([selected_lengths_sum]),  # output
         lengths.new_empty([indices.shape[0] * num_batches]),  # output_lengths
     ]
@@ -1002,7 +1003,7 @@ def histogram_binning_calibration_abstract(
     upper_bound: float,
     bin_ctr_in_use_after: int,
     bin_ctr_weight_value: float,
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     return torch.empty_like(logit), torch.empty([logit.numel()], dtype=torch.int64)
 
 
@@ -1153,7 +1154,7 @@ def generic_histogram_binning_calibration_by_feature(
     positive_weight: float,
     bin_ctr_in_use_after: int,
     bin_ctr_weight_value: float,
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     torch._check(bin_num_examples.numel() == bin_num_positives.numel())
     torch._check(
         bin_num_examples.numel() == (num_segments + 1) * (bin_boundaries.numel() + 1)
@@ -1164,13 +1165,13 @@ def generic_histogram_binning_calibration_by_feature(
 
 
 def permute_multi_embedding_function_impl_abstract(
-    pooled_embs: List[Tensor],
+    pooled_embs: list[Tensor],
     permutes: Tensor,
     in_shapes: Tensor,
     out_shapes: Tensor,
-    out_lengths: List[int],
+    out_lengths: list[int],
     reverse: bool = False,
-) -> List[Tensor]:
+) -> list[Tensor]:
     out_dtype = pooled_embs[0].dtype
     bs = pooled_embs[0].shape[0]
     torch._check(permutes.shape[1] == 6, lambda: "permutes must have 6 columns")
@@ -1196,9 +1197,9 @@ def lengths_range_abstract(
 
 
 def all_to_one_device(
-    input_tensors: List[Tensor],
+    input_tensors: list[Tensor],
     target_device: torch.device,
-) -> List[Tensor]:
+) -> list[Tensor]:
     return [
         torch.empty_like(input_tensor, device=torch.device("meta"))
         for input_tensor in input_tensors

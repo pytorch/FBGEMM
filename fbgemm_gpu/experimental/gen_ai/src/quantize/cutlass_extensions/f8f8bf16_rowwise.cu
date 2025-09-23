@@ -14,6 +14,7 @@
 #include "f8f8bf16_rowwise/f8f8bf16_rowwise_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.hpp"
 #include "fbgemm_gpu/quantize/utils.h"
+#include "fbgemm_gpu/quantize/utils_gpu.h"
 
 namespace fbgemm_gpu {
 
@@ -21,8 +22,10 @@ namespace fbgemm_gpu {
 
 // FP8 Rowwise Cutlass kernel dispatch.
 Kernel_f8f8bf16_rowwise
-get_kernel_via_heuristic(int arch, int M, int N, int K, bool use_fast_accum) {
+get_kernel_via_heuristic(int M, int N, int K, bool use_fast_accum) {
   // Use shape heuristics to dispatch to optimized kernel configuration.
+  const int arch = getDeviceArch();
+
   if (arch == 10) {
     if (M <= 128) {
       if (N <= 1024) {
@@ -115,7 +118,6 @@ get_kernel_via_heuristic(int arch, int M, int N, int K, bool use_fast_accum) {
 }
 
 Kernel_f8f8bf16_rowwise get_kernel_via_tuning(
-    int arch,
     int M,
     int N,
     int K,
@@ -134,6 +136,7 @@ Kernel_f8f8bf16_rowwise get_kernel_via_tuning(
   // Use (M, N, K) shape as the key.
   const std::string shape_key =
       std::to_string(M) + "_" + std::to_string(N) + "_" + std::to_string(K);
+  const int arch = getDeviceArch();
   const auto& kernels = get_f8f8bf16_rowwise_kernels(arch);
   auto kernel = cache.findBestKernelMaybeAutotune(
       shape_key,
@@ -158,44 +161,19 @@ at::Tensor dispatch_fp8_rowwise_kernel(
     bool use_fast_accum,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt) {
+  TORCH_CHECK(XQ.dtype() == at::kFloat8_e4m3fn);
+
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
   int K = XQ.size(-1);
-
-  static int arch = -1;
-  // Avoid expensive cudaGetDeviceProperties call.
-  if (arch < 0) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
-    if (prop.major >= 10) {
-      arch = 10;
-      int runtimeVersion;
-      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
-      TORCH_CHECK(
-          runtimeVersion >= 12080,
-          "FP8 GEMM on sm100a or above requires cuda >= 12.8");
-    } else {
-      arch = 9;
-    }
-  }
 
   // Select kernel to run via heuristics or tuning.
   auto kernel = [&]() {
     if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
       return get_kernel_via_tuning(
-          arch,
-          M,
-          N,
-          K,
-          XQ,
-          WQ,
-          x_scale,
-          w_scale,
-          use_fast_accum,
-          bias,
-          output);
+          M, N, K, XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
     } else {
-      return get_kernel_via_heuristic(arch, M, N, K, use_fast_accum);
+      return get_kernel_via_heuristic(M, N, K, use_fast_accum);
     }
   }();
   // Invoke kernel

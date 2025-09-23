@@ -8,7 +8,7 @@
 
 import itertools
 import unittest
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import triton
@@ -42,7 +42,7 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_quantize_fp8_row(self) -> None:
         def _test_quantize_fp8_row(
-            shape: Tuple[int, ...],
+            shape: tuple[int, ...],
             use_triton: bool,
             device: torch.device,
             output_device: Optional[torch.device] = None,
@@ -227,7 +227,7 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_quantize_fp8_packed_row(self) -> None:
         def _test_quantize_fp8_packed_row(
-            shape: Tuple[int, ...],
+            shape: tuple[int, ...],
             use_triton: bool,
             device: torch.device,
             output_device: Optional[torch.device] = None,
@@ -337,7 +337,7 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_dequantize_fp8_row(self) -> None:
         def _test_dequantize_fp8_row(
-            shape: Tuple[int, ...],
+            shape: tuple[int, ...],
         ) -> None:
             a = torch.randn(shape, dtype=torch.bfloat16, device="cuda")
             a_fp8, a_scale = quantize_fp8_row(
@@ -372,7 +372,7 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_dequantize_fp8_packed_row(self) -> None:
         def _test_dequantize_fp8_packed_row(
-            shape: Tuple[int, ...],
+            shape: tuple[int, ...],
         ) -> None:
             a = torch.randn(shape, dtype=torch.bfloat16, device="cuda")
 
@@ -410,7 +410,7 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_scale_fp8_row(self) -> None:
         def _test_scale_fp8_row(
-            shape: Tuple[int, int],
+            shape: tuple[int, int],
             device: torch.device,
         ) -> None:
             M, K = shape
@@ -438,7 +438,7 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_matmul_fp8_row(self) -> None:
         def _test_matmul_fp8_row(
-            shape: Tuple[int, int, int],
+            shape: tuple[int, int, int],
             device: torch.device,
             fp8_fast_accum: bool,
             use_bias: bool = False,
@@ -521,7 +521,7 @@ class TestFp8Matmul(unittest.TestCase):
             return xq
 
         def _test_matmul_fp8_row_skip_scaling(
-            shape: Tuple[int, int, int],
+            shape: tuple[int, int, int],
             device: torch.device,
             use_bias: bool = True,
             transpose_input: bool = False,
@@ -602,7 +602,7 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_quantize_fp8_group(self) -> None:
         def _test_quantize_fp8_group(
-            shape: Tuple[int, int],
+            shape: tuple[int, int],
             group_size: int,
             use_scale_ub: bool = False,
         ) -> None:
@@ -633,8 +633,8 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_quantize_fp8_block(self) -> None:
         def _test_quantize_fp8_block(
-            shape: Tuple[int, int],
-            block_shape: Tuple[int, int],
+            shape: tuple[int, int],
+            block_shape: tuple[int, int],
             use_scale_ub: bool = False,
         ) -> None:
             M, K = shape
@@ -667,8 +667,8 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_dequantize_fp8_block(self) -> None:
         def _test_dequantize_fp8_block(
-            shape: Tuple[int, int],
-            block_shape: Tuple[int, int],
+            shape: tuple[int, int],
+            block_shape: tuple[int, int],
             use_scale_ub: bool = False,
         ) -> None:
             M, K = shape
@@ -695,8 +695,8 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_matmul_fp8_block(self) -> None:
         def _test_matmul_fp8_block(
-            shape: Tuple[int, int, int],
-            block_shape: Tuple[int, int, int],
+            shape: tuple[int, int, int],
+            block_shape: tuple[int, int, int],
             fp8_fast_accum: bool,
             transpose_input: bool = False,
             device: str = "cuda",

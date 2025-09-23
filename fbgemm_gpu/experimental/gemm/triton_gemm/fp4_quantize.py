@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import triton  # @manual
@@ -275,7 +275,7 @@ def triton_quantize_mx4_unpack(
     mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
 
@@ -701,7 +701,7 @@ def triton_silu_quantize_mx4_unpack(
     mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
 
@@ -1126,7 +1126,7 @@ def triton_rms_quantize_mx4_unpack(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
 
@@ -1347,13 +1347,14 @@ def _kernel_nvfp4_quantize(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -1417,7 +1418,7 @@ def _kernel_nvfp4_quantize(
         )
         tl.store(
             scale + actual_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
@@ -1446,7 +1447,7 @@ def triton_scale_nvfp4_quant(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -1694,13 +1695,14 @@ def _kernel_nvfp4_quantize_silu(
         group_max = tl.max(tl.abs(a_groups), axis=1)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -1766,7 +1768,7 @@ def _kernel_nvfp4_quantize_silu(
         )
         tl.store(
             scale + actual_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
@@ -1796,7 +1798,7 @@ def triton_scale_nvfp4_quant_silu(
     mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -2053,13 +2055,14 @@ def _kernel_nvfp4_quantize_rms(
         group_max = tl.max(tl.abs(a_groups), axis=1)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -2127,7 +2130,7 @@ def _kernel_nvfp4_quantize_rms(
         )
         tl.store(
             scale + actual_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
@@ -2158,7 +2161,7 @@ def triton_scale_nvfp4_quant_rms(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -2415,13 +2418,14 @@ def _kernel_nvfp4_quantize_stacked(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -2489,7 +2493,7 @@ def _kernel_nvfp4_quantize_stacked(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -2542,7 +2546,7 @@ def triton_nvfp4_quant_stacked(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -3092,13 +3096,14 @@ def _kernel_nvfp4_quantize_stacked_silu(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -3166,7 +3171,7 @@ def _kernel_nvfp4_quantize_stacked_silu(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -3384,13 +3389,14 @@ def _mega_fp4_quantize_kernel(
             input_global_scale_tensor + tensor_idx, mask=tensor_idx_guard
         )
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -3458,7 +3464,7 @@ def _mega_fp4_quantize_kernel(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -3654,13 +3660,14 @@ def _mega_fp4_quantize_kernel_with_tensor_idx(
             input_global_scale_tensor + tensor_idx, mask=tensor_idx_guard
         )
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -3728,7 +3735,7 @@ def _mega_fp4_quantize_kernel_with_tensor_idx(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -3777,7 +3784,7 @@ def mega_fp4_quantize_kernel(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
     orig_shape = input.shape
     assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
@@ -3956,7 +3963,7 @@ def triton_nvfp4_quant_stacked_silu(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -4238,13 +4245,14 @@ def _kernel_nvfp4_quantize_stacked_rms(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -4312,7 +4320,7 @@ def _kernel_nvfp4_quantize_stacked_rms(
 
         tl.store(
             scale + actual_scale_offset_permute,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(row_idx < M)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
@@ -4366,7 +4374,7 @@ def triton_nvfp4_quant_stacked_rms(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
 
@@ -4580,13 +4588,14 @@ def _mega_fp4_pack_kernel(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -4638,7 +4647,7 @@ def _mega_fp4_pack_kernel(
 
         tl.store(
             out + exp_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < (SCALE_CHUNK_SIZE * (pid + 1) + SCALE_SHIFT))
             & (exp_offset < SCALE_SIZE + SCALE_SHIFT),
@@ -4792,13 +4801,14 @@ def _mega_fp4_pack_kernel_per_tensor(
             input_global_scale_tensor + tensor_idx, mask=tensor_idx_guard
         )
         # Next we scale A in preparation for quantization.
-        scale_ = group_max / 6.0 * input_global_scale
+        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
+        # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            6.0 / group_max, [GROUP_LOAD, 1]
+            input_global_scale / scale_, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -4850,7 +4860,7 @@ def _mega_fp4_pack_kernel_per_tensor(
 
         tl.store(
             out + exp_offset,
-            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            scale_.to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < (SCALE_CHUNK_SIZE * (pid + 1) + SCALE_SHIFT))
             & (exp_offset < (SCALE_SIZE + SCALE_SHIFT)),
@@ -5212,7 +5222,7 @@ def mega_fp4_unpack(
     m_sizes: torch.Tensor,
     input: torch.Tensor,
     group_size: int = 16,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
     orig_shape = input.shape
     assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
@@ -5457,7 +5467,7 @@ def _calculate_group_max(
 def calculate_group_max(
     input: torch.Tensor,
     m_sizes: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
 
     assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
     other_dims = 1 if input.ndim == 1 else -1

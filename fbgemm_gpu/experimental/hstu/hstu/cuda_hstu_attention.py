@@ -9,7 +9,7 @@
 
 # pyre-strict
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from .library import *  # noqa: F401, F403
 import torch
 
@@ -28,7 +28,7 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
         num_contexts: torch.Tensor,
         num_targets: torch.Tensor,
         target_group_size: int,
-        window_size: Tuple[int, int] = (-1, -1),
+        window_size: tuple[int, int] = (-1, -1),
         alpha: float = 1.0,
         rab: Optional[torch.Tensor] = None,  # need grad
         has_drab: bool = False,
@@ -227,7 +227,7 @@ def hstu_attn_varlen_func(
     num_contexts: torch.Tensor,
     num_targets: torch.Tensor,
     target_group_size: int = 1,
-    window_size: Tuple[int, int] = (-1, -1),
+    window_size: tuple[int, int] = (-1, -1),
     alpha: float = 1.0,
     rab: Optional[torch.Tensor] = None,
     has_drab: bool = False,
@@ -325,7 +325,7 @@ def cuda_hstu_attn_varlen(
     max_seqlen_q: int,
     max_seqlen_k: int,
     num_targets: torch.Tensor,
-    window_size: Tuple[int, int] = (-1, -1),
+    window_size: tuple[int, int] = (-1, -1),
     alpha: float = 1.0,
     is_train: bool = True,
 ) -> torch.Tensor:

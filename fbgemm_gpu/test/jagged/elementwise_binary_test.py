@@ -9,7 +9,6 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import List, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -228,20 +227,20 @@ class ElementwiseBinaryTest(unittest.TestCase):
         x_padded = to_padded_dense(x_values, x_offsets, max_lengths)
 
         def jagged_dense_elementwise_add(
-            x_values: torch.Tensor, x_offsets: List[torch.LongTensor], y: torch.Tensor
+            x_values: torch.Tensor, x_offsets: list[torch.LongTensor], y: torch.Tensor
         ) -> torch.Tensor:
             return torch.ops.fbgemm.jagged_dense_elementwise_add(x_values, x_offsets, y)
 
         def jagged_dense_elementwise_add_jagged_output(
-            x_values: torch.Tensor, x_offsets: List[torch.LongTensor], y: torch.Tensor
-        ) -> Tuple[torch.Tensor, List[torch.LongTensor]]:
+            x_values: torch.Tensor, x_offsets: list[torch.LongTensor], y: torch.Tensor
+        ) -> tuple[torch.Tensor, list[torch.LongTensor]]:
             return torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
                 x_values, x_offsets, y
             )
 
         def jagged_dense_elementwise_mul(
-            x_values: torch.Tensor, x_offsets: List[torch.LongTensor], y: torch.Tensor
-        ) -> Tuple[torch.Tensor, List[torch.LongTensor]]:
+            x_values: torch.Tensor, x_offsets: list[torch.LongTensor], y: torch.Tensor
+        ) -> tuple[torch.Tensor, list[torch.LongTensor]]:
             return torch.ops.fbgemm.jagged_dense_elementwise_mul(x_values, x_offsets, y)
 
         if operation == "add":

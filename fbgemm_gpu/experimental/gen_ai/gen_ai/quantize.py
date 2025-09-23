@@ -8,7 +8,6 @@
 
 # Helper functions for using FBGEMM quantized operators.
 
-from typing import Tuple
 
 import torch
 
@@ -32,7 +31,7 @@ def pack_int4(x: torch.Tensor) -> torch.Tensor:
 def int4_row_quantize_zp(
     x: torch.Tensor,
     group_size: int = 128,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     n_bit = 4  # Number of target bits.
     # Split input into chunks of group_size. This approach allows K that isnt divisible by group_size.
     to_quant = torch.split(x.to(torch.float), group_size, dim=-1)
@@ -73,7 +72,7 @@ def int4_row_quantize_zp(
 def int4_row_quantize(
     x: torch.Tensor,
     group_size: int = 128,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Helper function to quantize a tensor to int4 with groupwise scales.
 
@@ -81,7 +80,7 @@ def int4_row_quantize(
         x (Tensor): [N, K] Higher precision weight tensor to quantize.
         group_size (int): Number of elements to calculate group scale for.
     Returns:
-        wq (Tensor): [N, K // 2] Quantized int4 tensor stored in int8 elements.
+        wq (Tensor): [N, K] Quantized int4 tensor stored in int8 elements.
         group_scale (Tensor): [K / group_size, N] FP32 Scale per group.
     """
     n_bit = 4  # Number of target bits.
@@ -111,7 +110,7 @@ def int4_row_quantize(
 
 def quantize_int4_preshuffle(
     w: torch.Tensor, group_size: int = 128, dtype: str = "fp8", use_zp: bool = True
-) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
     """
     Quantizes an input weight tensor to int4 using preshuffling and scale packing.
     This function is intended to be used with fbgemms mixed dtype kernels and is expected
@@ -131,7 +130,7 @@ def quantize_int4_preshuffle(
 
     def _quantize(
         w: torch.Tensor, dtype: str = "fp8"
-    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
 
         if dtype == "fp8":
             # Start by lowering weights to FP8 and producing row scales.
@@ -228,7 +227,7 @@ def shuffle_slice(
 
 def scale_nvfp4_quant(
     input: torch.Tensor, input_global_scale: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize input tensor to FP4 and return quantized tensor and scale.
     This function quantizes the last dimension of the given tensor `input`. For

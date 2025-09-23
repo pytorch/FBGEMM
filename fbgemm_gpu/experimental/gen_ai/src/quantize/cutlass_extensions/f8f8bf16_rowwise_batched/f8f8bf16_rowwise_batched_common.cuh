@@ -33,8 +33,7 @@ template <
     int TBS_N,
     int TBS_K,
     int ARCH,
-    bool PONG,
-    typename INPUT_DTYPE>
+    bool PONG>
 at::Tensor f8f8bf16_rowwise_batched_impl(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
@@ -58,8 +57,6 @@ at::Tensor f8f8bf16_rowwise_batched_impl(
   }
 
   TORCH_CHECK(XQ.size(-1) == K);
-  TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
-  TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 
   at::Tensor Y;
   if (output.has_value()) {
@@ -69,7 +66,7 @@ at::Tensor f8f8bf16_rowwise_batched_impl(
     Y = at::empty({B, M, N}, XQ.options().dtype(at::kBFloat16));
   }
 
-  using ElementInputA = INPUT_DTYPE;
+  using ElementInputA = cutlass::float_e4m3_t;
   using LayoutInputA = cutlass::layout::RowMajor;
   constexpr int AlignmentInputA = 16 / sizeof(ElementInputA);
 
@@ -300,45 +297,6 @@ at::Tensor f8f8bf16_rowwise_batched_impl(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return Y;
-}
-
-template <
-    int TB_M,
-    int TB_N,
-    int TB_K,
-    int TBS_M,
-    int TBS_N,
-    int TBS_K,
-    int ARCH,
-    bool PONG,
-    typename INPUT_DTYPE>
-at::Tensor f8f8bf16_rowwise_batched_wrapper(
-    at::Tensor XQ,
-    at::Tensor WQ,
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    std::optional<at::Tensor> bias,
-    std::optional<at::Tensor> output) {
-  // Check datatypes.
-  TORCH_CHECK(
-      x_scale.dtype() == at::kFloat && w_scale.dtype() == at::kFloat,
-      "Scale tensors must be float32.");
-  if (bias.has_value()) {
-    TORCH_CHECK(
-        bias.value().dtype() == at::kFloat,
-        "Bias type must be float32 if provided.");
-  }
-
-  return f8f8bf16_rowwise_batched_impl<
-      TB_M,
-      TB_N,
-      TB_K,
-      TBS_M,
-      TBS_N,
-      TBS_K,
-      ARCH,
-      PONG,
-      INPUT_DTYPE>(XQ, WQ, x_scale, w_scale, bias, output);
 }
 
 #else

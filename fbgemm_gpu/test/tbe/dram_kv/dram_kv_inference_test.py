@@ -10,7 +10,6 @@ import threading
 import time
 import unittest
 from time import sleep
-from typing import List
 
 import fbgemm_gpu
 import torch
@@ -99,7 +98,7 @@ class DramKvInferenceTest(unittest.TestCase):
             ),
         )
 
-        def equal_one_of(t1: torch.Tensor, t2: List[torch.Tensor]) -> bool:
+        def equal_one_of(t1: torch.Tensor, t2: list[torch.Tensor]) -> bool:
             any_equal = False
             for t in t2:
                 any_equal = torch.equal(t1, t)
@@ -142,7 +141,7 @@ class DramKvInferenceTest(unittest.TestCase):
         )
         full_ids: torch.Tensor = torch.tensor([0, 1, 2, 3, 4, 5], dtype=torch.int64)
 
-        def equal_one_of(t1: torch.Tensor, t2: List[torch.Tensor]) -> bool:
+        def equal_one_of(t1: torch.Tensor, t2: list[torch.Tensor]) -> bool:
             any_equal = False
             for t in t2:
                 any_equal = torch.equal(t1, t)

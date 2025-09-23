@@ -9,7 +9,6 @@
 
 
 import unittest
-from typing import Tuple
 
 import fbgemm_gpu
 
@@ -30,7 +29,7 @@ else:
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
-typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
+typed_gpu_unavailable: tuple[bool, str] = gpu_unavailable
 
 
 @unittest.skipIf(*gpu_unavailable)

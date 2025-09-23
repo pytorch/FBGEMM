@@ -12,7 +12,7 @@ import logging
 import os
 import tempfile
 from contextlib import nullcontext
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 import click
 import numpy as np
@@ -231,7 +231,7 @@ def device(  # noqa C901
         pooling_mode = PoolingMode.NONE
         do_pooling = False
 
-    common_split_args: Dict[str, Any] = {
+    common_split_args: dict[str, Any] = {
         "weights_precision": weights_precision,
         "stochastic_rounding": stoc,
         "output_dtype": output_dtype,
@@ -1384,7 +1384,7 @@ def vbe(
         else EmbeddingLocation.HOST
     )
 
-    common_split_args: Dict[str, Any] = {
+    common_split_args: dict[str, Any] = {
         "weights_precision": embconfig.weights_dtype,
         "stochastic_rounding": embconfig.stochastic_rounding,
         "output_dtype": embconfig.output_dtype,

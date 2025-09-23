@@ -10,7 +10,7 @@
 import logging
 import unittest
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -29,7 +29,7 @@ if not open_source:
     )
 
 MAX_EXAMPLES = 20
-default_st: Dict[str, Any] = {
+default_st: dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=10),
     "D": st.integers(min_value=2, max_value=128),
     "log_E": st.integers(min_value=2, max_value=3),
@@ -37,7 +37,7 @@ default_st: Dict[str, Any] = {
     "weights_precision": st.sampled_from([SparseType.FP32, SparseType.FP16]),
 }
 
-default_settings: Dict[str, Any] = {
+default_settings: dict[str, Any] = {
     "verbosity": Verbosity.verbose,
     "max_examples": MAX_EXAMPLES,
     "deadline": None,
@@ -54,7 +54,7 @@ class DRAMKVTest(unittest.TestCase):
         log_E: int,
         weights_precision: SparseType,
         mixed: bool,
-    ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int], int]:
+    ) -> tuple[SSDTableBatchedEmbeddingBags, list[int], list[int], int]:
         E = int(10**log_E)
         D = D * 4
         if not mixed:

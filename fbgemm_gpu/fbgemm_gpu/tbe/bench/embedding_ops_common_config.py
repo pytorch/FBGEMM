@@ -8,7 +8,7 @@
 # pyre-strict
 
 import dataclasses
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import click
 import torch
@@ -44,7 +44,7 @@ class EmbeddingOpsCommonConfig:
     def validate(self):
         return self
 
-    def split_args(self) -> Dict[str, Any]:
+    def split_args(self) -> dict[str, Any]:
         return {
             "weights_precision": self.weights_dtype,
             "stochastic_rounding": self.stochastic_rounding,

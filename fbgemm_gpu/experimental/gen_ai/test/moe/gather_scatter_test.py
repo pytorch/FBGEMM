@@ -10,7 +10,7 @@
 import logging
 import random
 import unittest
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import triton  # noqa: F401
@@ -171,7 +171,7 @@ class GatherScatterTests(unittest.TestCase):
                 torch.arange(T).cuda() < num_valid_tokens, token_indices, -1
             )
 
-        def torch_fn() -> Tuple[torch.Tensor, torch.Tensor]:
+        def torch_fn() -> tuple[torch.Tensor, torch.Tensor]:
             shuffled_x = torch.index_select(x, dim=0, index=token_indices)
             shuffled_scores = torch.index_select(scores, dim=1, index=token_indices)
             shuffled_selected_scores = torch.gather(
@@ -190,7 +190,7 @@ class GatherScatterTests(unittest.TestCase):
             -1, 1
         )
 
-        def triton_fn() -> Tuple[torch.Tensor, torch.Tensor]:
+        def triton_fn() -> tuple[torch.Tensor, torch.Tensor]:
             scores_ = scores.contiguous().transpose(0, 1)
             if rowmajor:
                 scores_ = scores_.contiguous()
