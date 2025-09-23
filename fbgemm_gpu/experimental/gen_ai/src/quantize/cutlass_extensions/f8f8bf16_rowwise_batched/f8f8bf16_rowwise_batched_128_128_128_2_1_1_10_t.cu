@@ -18,16 +18,8 @@ at::Tensor f8f8bf16_rowwise_batched_128_128_128_2_1_1_10_t(
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt) {
   // Dispatch this kernel to the correct underlying implementation.
-  return f8f8bf16_rowwise_batched_wrapper<
-      128,
-      128,
-      128,
-      2,
-      1,
-      1,
-      10,
-      true,
-      cutlass::float_e4m3_t>(XQ, WQ, x_scale, w_scale, bias, output);
+  return f8f8bf16_rowwise_batched_impl<128, 128, 128, 2, 1, 1, 10, true>(
+      XQ, WQ, x_scale, w_scale, bias, output);
 }
 
 } // namespace fbgemm_gpu
