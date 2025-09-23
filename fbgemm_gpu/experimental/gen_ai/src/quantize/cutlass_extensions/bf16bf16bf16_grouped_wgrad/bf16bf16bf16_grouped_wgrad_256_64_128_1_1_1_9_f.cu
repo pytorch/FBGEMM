@@ -10,25 +10,18 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor bf16bf16bf16_grouped_wgrad_128_256_128_1_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_wgrad_256_64_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
     bool output_accum) {
   if (output_accum) {
-    return bf16bf16bf16_grouped_wgrad_impl<128, 256, 128, 1, 1, 1, true, false>(
+    return bf16bf16bf16_grouped_wgrad_impl<256, 64, 128, 1, 1, 1, true, false>(
         X, W, M_sizes, output);
   } else {
-    return bf16bf16bf16_grouped_wgrad_impl<
-        128,
-        256,
-        128,
-        1,
-        1,
-        1,
-        false,
-        false>(X, W, M_sizes, output);
+    return bf16bf16bf16_grouped_wgrad_impl<256, 64, 128, 1, 1, 1, false, false>(
+        X, W, M_sizes, output);
   }
 }
 
