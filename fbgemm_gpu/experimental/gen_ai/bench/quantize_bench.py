@@ -487,10 +487,18 @@ def print_kernels(kernels: Optional[list[str]]) -> list[QuantizeOpBase]:
     help="If set with grouped mode, repeat input shapes this many times. Comma separated list of groups to benchmark",
 )
 @click.option(
+    "--total-K",
+    default=None,
+    help="If set, adjusts the K values to sum to this number. "
+    "This can help simulate real grouped workloads in backward wgrad. "
+    "Comma separated list of total-K values to benchmark.",
+)
+@click.option(
     "--total-M",
     default=None,
-    help="If set, Adjusts the M values to sum to this number. "
-    "This can help simulate real grouped workloads.",
+    help="If set, adjusts the M values to sum to this number. "
+    "This can help simulate real grouped workloads."
+    "Comma separated list of total-M values to benchmark.",
 )
 @click.option(
     "--no-cuda-graph",
@@ -542,6 +550,7 @@ def invoke_main(
     pair_nk: bool,
     grouped: bool,
     groups: Optional[str],
+    total_k: Optional[str],
     total_m: Optional[str],
     no_cuda_graph: bool,
     use_rotating_buffer_bench: bool,
@@ -553,6 +562,14 @@ def invoke_main(
 ):
     if enable_amd_env_vars:
         set_amd_env_vars()
+
+    # Validate that total_m and total_k are mutually exclusive
+    if total_m is not None and total_k is not None:
+        raise ValueError(
+            "total_m and total_k cannot be specified at the same time. "
+            "Please provide only one of them."
+        )
+
     # If kernel filter is provided, parse it. Else, benchmark all kernels.
     all_kernels = kernels.strip().split(",") if kernels else None
     quantize_ops = collect_kernels_to_profile(all_kernels)
@@ -619,15 +636,30 @@ def invoke_main(
     if groups:
         groups_list = [int(g) for g in groups.strip().split(",")]
         if total_m:
+            total_m_list = [int(tm) for tm in total_m.strip().split(",")]
             MNK = [
                 [
                     [b] * g,
-                    generate_group_tensor(g, int(total_m)),
+                    generate_group_tensor(g, tm),
                     [n] * g,
                     [k] * g,
                 ]
                 for g in groups_list
+                for tm in total_m_list
                 for b, _, n, k in MNK
+            ]
+        elif total_k:
+            total_k_list = [int(tk) for tk in total_k.strip().split(",")]
+            MNK = [
+                [
+                    [b] * g,
+                    [m] * g,
+                    [n] * g,
+                    generate_group_tensor(g, tk),
+                ]
+                for g in groups_list
+                for tk in total_k_list
+                for b, m, n, _ in MNK
             ]
         else:
             MNK = [
