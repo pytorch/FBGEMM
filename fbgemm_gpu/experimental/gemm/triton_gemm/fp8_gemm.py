@@ -8,7 +8,7 @@
 import functools
 import logging
 import os
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import triton  # @manual
@@ -68,7 +68,7 @@ def supports_float8_fnuz(throw_on_hip_incompatibility: bool = True) -> bool:
     return False
 
 
-def get_fp8_constants() -> Tuple[torch.dtype, tl.dtype, float, float]:
+def get_fp8_constants() -> tuple[torch.dtype, tl.dtype, float, float]:
     """
     Helper function to get constant values for the current platform.
 
@@ -106,7 +106,7 @@ def init_to_zero(name):
     return lambda nargs: nargs[name].zero_()
 
 
-def get_configs_io_bound() -> List[Config]:
+def get_configs_io_bound() -> list[Config]:
     """
     Returns a list of configs for matmul that are IO bound.
 
@@ -159,7 +159,7 @@ def dummy_prune_configs(configs, named_args, **kwargs):
     return configs
 
 
-MATMUL_CONFIGS: List[Config] = [
+MATMUL_CONFIGS: list[Config] = [
     # basic configs for compute-bound matmuls
     Config(
         {"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 32, "SPLIT_K": 1},
@@ -960,7 +960,7 @@ def make_autotuner_config(dictargs, **kwargs):
     return Config(dictargs, **kwargs)
 
 
-def get_ws_configs() -> List[Config]:
+def get_ws_configs() -> list[Config]:
     if not has_warp_specialization:
         return []
     return [
@@ -1281,7 +1281,7 @@ def matmul_fp8_row(
             output += bias[None, :]
         return output.to(c.dtype)
 
-    def grid(META: Dict[str, int]) -> Tuple[int, int]:
+    def grid(META: dict[str, int]) -> tuple[int, int]:
         return (
             triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
             META["SPLIT_K"],
@@ -1289,7 +1289,7 @@ def matmul_fp8_row(
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
 
-    def persistent_grid(META: Dict[str, int]) -> Tuple[int]:
+    def persistent_grid(META: dict[str, int]) -> tuple[int]:
         return (
             min(
                 NUM_SMS,
@@ -1337,7 +1337,7 @@ def matmul_fp8_row(
         desc_helper.init_tma_descriptor("b_scale")
         desc_helper.init_tma_descriptor("bias")
 
-        def persistent_grid_tma_ws(META: Dict[str, int]) -> Tuple[int]:
+        def persistent_grid_tma_ws(META: dict[str, int]) -> tuple[int]:
             nonlocal desc_helper  # noqa: F824
             assert a_scale is not None  # Type narrowing for Pyre
             desc_helper.fill_2d_tma_descriptor(
@@ -1450,7 +1450,7 @@ def matmul_fp8_row(
         desc_helper.init_tma_descriptor("b_scale")
         desc_helper.init_tma_descriptor("bias")
 
-        def persistent_grid_tma(META: Dict[str, int]) -> Tuple[int]:
+        def persistent_grid_tma(META: dict[str, int]) -> tuple[int]:
             nonlocal desc_helper  # noqa: F824
             assert a_scale is not None  # Type narrowing for Pyre
             desc_helper.fill_2d_tma_descriptor(
@@ -2113,7 +2113,7 @@ def matmul_fp8_block(
         raise Exception("'b_scale' must be on the same device as 'a'")
 
     # noqa: E731:
-    def grid(META: Dict[str, int]) -> Tuple[int, int]:
+    def grid(META: dict[str, int]) -> tuple[int, int]:
         return (
             triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
             META["SPLIT_K"],
@@ -2205,7 +2205,7 @@ def matmul_fp8_block_meta(
     return torch.empty((M, N), device=a.device, dtype=torch.bfloat16)
 
 
-def get_matmul_tune(M: int, N: int, K: int) -> Tuple[int, int, int]:
+def get_matmul_tune(M: int, N: int, K: int) -> tuple[int, int, int]:
     """
     Generate a simplified matmul tune key for A @ B.T
     with [M, K] A and [N, K] B to reduce excessive autotuning.
@@ -2234,7 +2234,7 @@ def prep_matmul(
     a: Union[TensorWrapper, torch.Tensor],
     b: Union[TensorWrapper, torch.Tensor],
     dot_out_dtype: Optional[torch.dtype],
-) -> Tuple[
+) -> tuple[
     int, int, int, int, int, int, torch.Tensor, tl.dtype, tl.dtype, torch.device
 ]:
     """
@@ -2464,7 +2464,7 @@ def triton_quantize_fp8_row(
     scale_ub: Optional[Tensor] = None,
     zero_start_index_M: Optional[Tensor] = None,
     align_rows_to: Optional[int] = None,
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """
     Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
 
@@ -2739,7 +2739,7 @@ def triton_quantize_fp8_packed_row(
     scale_ub: Optional[Tensor] = None,
     zero_start_index_M: Optional[Tensor] = None,
     return_only_packed: Optional[bool] = False,
-) -> Tuple[Optional[Tensor], Optional[Tensor], Tensor]:
+) -> tuple[Optional[Tensor], Optional[Tensor], Tensor]:
     """
     Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
 
@@ -2832,7 +2832,7 @@ def quantize_fp8_packed_row(
     zero_start_index_M: Optional[Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a to fp8 with row-wise scalings and optionally move to output device.
 
@@ -2930,7 +2930,7 @@ def quantize_fp8_row(
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
     align_rows_to: Optional[int] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a to fp8 with row-wise scalings and optionally move to output device.
 
@@ -2990,7 +2990,7 @@ def quantize_fp8_row_meta(
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
     align_rows_to: Optional[int] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Shape function for torch compile."""
     if output_device is None:
         output_device = a.device
@@ -3209,7 +3209,7 @@ def triton_quantize_fp8_block(
     block_k: int = 256,
     scale_ub: Optional[torch.Tensor] = None,
     k_major: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings.
 
@@ -3287,7 +3287,7 @@ def quantize_fp8_block(
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
     k_major: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings and optionally move to output device.
 
@@ -3520,7 +3520,7 @@ def triton_quantize_fp8_group(
     scale_ub: Optional[torch.Tensor] = None,
     m_sizes: Optional[torch.Tensor] = None,
     k_major: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with group-wise scalings.
 
@@ -3590,7 +3590,7 @@ def quantize_fp8_group(
     k_major: bool = True,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with group-wise scalings and optionally move to output device.
 
@@ -3807,7 +3807,7 @@ def get_full_non_persistent_tuning_space():
     return configs
 
 
-MATMUL_CONFIGS_NON_PERSISTENT: List[Config] = get_full_non_persistent_tuning_space()
+MATMUL_CONFIGS_NON_PERSISTENT: list[Config] = get_full_non_persistent_tuning_space()
 MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     triton.Config(
         {
@@ -4323,7 +4323,7 @@ def dequantize_fp8_row(
     M = xq.shape[0]
     use_int64 = xq.numel() > 2**31
 
-    def grid(meta: Dict[str, int]) -> Tuple[int]:
+    def grid(meta: dict[str, int]) -> tuple[int]:
         return (triton.cdiv(M, meta["BLOCK_M"]),)
 
     with torch.cuda.device(xq.device.index):
@@ -4434,7 +4434,7 @@ def dequantize_fp8_packed_row(
     M = actual_xq.shape[0]
     use_int64 = actual_xq.numel() > 2**31
 
-    def grid(meta: Dict[str, int]) -> Tuple[int]:
+    def grid(meta: dict[str, int]) -> tuple[int]:
         return (triton.cdiv(M, meta["BLOCK_M"]),)
 
     with torch.cuda.device(actual_xq.device.index):
@@ -4514,7 +4514,7 @@ def dequantize_fp8_block(
     M, K = xq.size()
     x_dequant = torch.empty_like(xq, dtype=torch.bfloat16)
 
-    def grid(meta: Dict[str, int]) -> Tuple[int, int]:
+    def grid(meta: dict[str, int]) -> tuple[int, int]:
         return (
             triton.cdiv(M, meta["BLOCK_M"]),
             triton.cdiv(K, meta["BLOCK_K"]),

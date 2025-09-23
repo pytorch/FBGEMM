@@ -11,7 +11,7 @@
 
 import copy
 import unittest
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import torch
@@ -46,7 +46,7 @@ from .backward_adagrad_common import (  # noqa
 
 
 # Set up test strategy
-test_st: Dict[str, Any] = {
+test_st: dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=5),
     "D": st.integers(min_value=2, max_value=128),
     "B": st.integers(min_value=1, max_value=128),
@@ -140,7 +140,7 @@ def apply_gwd_per_table(
 
 def apply_gwd(
     T: int,
-    Bs: List[int],
+    Bs: list[int],
     emb: SplitTableBatchedEmbeddingBagsCodegen,
     prev_iter_dev: torch.Tensor,
     step: int,

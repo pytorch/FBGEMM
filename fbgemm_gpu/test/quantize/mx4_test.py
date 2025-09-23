@@ -7,7 +7,6 @@
 # pyre-strict
 
 import unittest
-from typing import List, Tuple
 
 import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 import hypothesis.strategies as st
@@ -81,7 +80,7 @@ def fake_quantize_mx(
     max_norm: float = 6.0,
     group_size: int = 32,
     shared_exp_method: str = "max",
-    axes: List[int] = [-1],  # noqa
+    axes: list[int] = [-1],
     round: str = "nearest",
     flush_fp32_subnorms: bool = False,
 ) -> torch.Tensor:
@@ -254,11 +253,11 @@ class TestMXQuantizationConversion(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_mx4_cases(
         self,
-        shape: List[int],
+        shape: list[int],
         group_size: int,
         rounding_mode: RoundingMode,
         magnitude: int,
-        mx4_format: Tuple[int, int],
+        mx4_format: tuple[int, int],
         device: str,
     ) -> None:
         """Test correctness of mx4 routines with random inputs and unusual shapes."""
@@ -321,11 +320,11 @@ class TestMXQuantizationConversion(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
     def test_mx4_large_cases(
         self,
-        shape: List[int],
+        shape: list[int],
         group_size: int,
         rounding_mode: RoundingMode,
         magnitude: int,
-        mx4_format: Tuple[int, int],
+        mx4_format: tuple[int, int],
         device: str,
     ) -> None:
         """Test correctness of mx4 routines with random inputs and shapes that overflow int32."""

@@ -9,7 +9,6 @@
 
 
 from math import sqrt
-from typing import List
 
 import torch
 
@@ -22,7 +21,7 @@ except Exception:
     load_torch_module("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 
-def wrap_weight_to_parameter(weights: List[torch.Tensor]) -> List[torch.Tensor]:
+def wrap_weight_to_parameter(weights: list[torch.Tensor]) -> list[torch.Tensor]:
     for i, v in enumerate(weights):
         if not isinstance(v, torch.nn.Parameter):
             weights[i] = torch.nn.Parameter(v)
@@ -31,7 +30,7 @@ def wrap_weight_to_parameter(weights: List[torch.Tensor]) -> List[torch.Tensor]:
 
 class BatchedUnaryEmbeddingBag(torch.nn.Module):
     # pyre-fixme[3]: Return type must be annotated.
-    def __init__(self, num_tasks: int, hash_sizes: List[int], long_index: bool = False):
+    def __init__(self, num_tasks: int, hash_sizes: list[int], long_index: bool = False):
         super().__init__()
         self.num_tasks = num_tasks
         self.hash_sizes = hash_sizes

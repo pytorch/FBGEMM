@@ -10,7 +10,6 @@
 
 import random
 import unittest
-from typing import List, Tuple
 
 import hypothesis.strategies as st
 import torch
@@ -70,13 +69,13 @@ class JaggedSliceTest(unittest.TestCase):
             offsets: torch.Tensor,
             start: torch.Tensor,
             slice_length: int,
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        ) -> tuple[torch.Tensor, torch.Tensor]:
             end_offsets_ = slice_length + start + offsets[:-1]
             end_offsets = torch.where(
                 end_offsets_ > offsets[1:], offsets[1:], end_offsets_
             )
             start_offsets = start + offsets[:-1]
-            indices_to_select: List[torch.Tensor] = []
+            indices_to_select: list[torch.Tensor] = []
             for i in range(end_offsets.size(0)):
                 indices_to_select.append(
                     torch.arange(start_offsets[i].item(), end_offsets[i].item())

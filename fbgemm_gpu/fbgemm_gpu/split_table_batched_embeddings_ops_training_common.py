@@ -7,7 +7,7 @@
 
 # pyre-unsafe
 
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from torch import Tensor
@@ -36,7 +36,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 
 def generate_vbe_metadata(
     offsets: Tensor,
-    batch_size_per_feature_per_rank: Optional[List[List[int]]],
+    batch_size_per_feature_per_rank: Optional[list[list[int]]],
     pooling_mode: PoolingMode,
     feature_dims_cpu: Tensor,
     device: torch.device,

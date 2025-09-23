@@ -8,7 +8,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -32,20 +32,20 @@ class TBERequest:
     indices: torch.Tensor
     offsets: torch.Tensor
     per_sample_weights: Optional[torch.Tensor] = None
-    Bs_per_feature_per_rank: Optional[List[List[int]]] = None
+    Bs_per_feature_per_rank: Optional[list[list[int]]] = None
 
-    def unpack_2(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def unpack_2(self) -> tuple[torch.Tensor, torch.Tensor]:
         return (self.indices, self.offsets)
 
     def unpack_3(
         self,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         return (self.indices, self.offsets, self.per_sample_weights)
 
     def unpack_4(
         self,
-    ) -> Tuple[
-        torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[List[List[int]]]
+    ) -> tuple[
+        torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[list[list[int]]]
     ]:
         return (
             self.indices,
@@ -68,7 +68,7 @@ def generate_requests_from_data_file(
     tables: Optional[str] = None,
     index_dtype: Optional[torch.dtype] = None,
     offset_dtype: Optional[torch.dtype] = None,
-) -> List[TBERequest]:
+) -> list[TBERequest]:
     """
     Generate TBE requests from the input data file. If `requests_data_file` is provided,
     `indices_file` and `offsets_file` should not be provided. If either `indices_file`
@@ -178,12 +178,12 @@ def generate_int_data_from_stats(
 
 def generate_pooling_factors_from_stats(
     iters: int,
-    Bs: List[int],
+    Bs: list[int],
     L: int,
     sigma_L: int,
     # distribution of pooling factors
     length_dist: str,
-) -> Tuple[int, torch.Tensor]:
+) -> tuple[int, torch.Tensor]:
     """
     Generate pooling factors for the TBE requests from the given stats
     """
@@ -211,7 +211,7 @@ def generate_batch_sizes_from_stats(
     vbe_num_ranks: int,
     # Distribution of batch sizes
     batch_size_dist: str,
-) -> Tuple[List[int], List[List[int]]]:
+) -> tuple[list[int], list[list[int]]]:
     """
     Generate batch sizes for features from the given stats
     """
@@ -234,7 +234,7 @@ def generate_batch_sizes_from_stats(
 
 def generate_indices_uniform(
     iters: int,
-    Bs: List[int],
+    Bs: list[int],
     L: int,
     E: int,
     use_variable_L: bool,
@@ -267,7 +267,7 @@ def generate_indices_uniform(
 
 def generate_indices_zipf(
     iters: int,
-    Bs: List[int],
+    Bs: list[int],
     L: int,
     E: int,
     alpha: float,
@@ -324,7 +324,7 @@ def generate_indices_zipf(
 
 def update_indices_with_random_reuse(
     iters: int,
-    Bs: List[int],
+    Bs: list[int],
     L: int,
     reuse: float,
     indices: torch.Tensor,
@@ -411,7 +411,7 @@ def generate_requests(  # noqa C901
     vbe_num_ranks: Optional[int] = None,
     index_dtype: Optional[torch.dtype] = None,
     offset_dtype: Optional[torch.dtype] = None,
-) -> List[TBERequest]:
+) -> list[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
     if (

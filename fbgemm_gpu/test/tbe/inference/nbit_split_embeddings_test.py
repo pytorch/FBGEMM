@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Callable, Dict, List
+from typing import Callable
 
 import hypothesis.strategies as st
 import numpy as np
@@ -40,7 +40,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 # pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
+additional_decorators: dict[str, list[Callable]] = {
     "test_faketensor__test_nbit_forward_cpu_seq_int4": {
         unittest.skip(
             "Operator outputs int4 tensors which do not support opcheck tests"

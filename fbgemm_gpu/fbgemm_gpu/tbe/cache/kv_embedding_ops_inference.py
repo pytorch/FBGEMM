@@ -10,7 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch  # usort:skip
 from torch import Tensor  # usort:skip
@@ -47,15 +47,15 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
 
     def __init__(  # noqa C901
         self,
-        embedding_specs: List[
-            Tuple[str, int, int, SparseType, EmbeddingLocation]
+        embedding_specs: list[
+            tuple[str, int, int, SparseType, EmbeddingLocation]
         ],  # tuple of (feature_names, rows, dims, SparseType, EmbeddingLocation/placement)
-        feature_table_map: Optional[List[int]] = None,  # [T]
-        index_remapping: Optional[List[Tensor]] = None,
+        feature_table_map: Optional[list[int]] = None,  # [T]
+        index_remapping: Optional[list[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
-        weight_lists: Optional[List[Tuple[Tensor, Optional[Tensor]]]] = None,
+        weight_lists: Optional[list[tuple[Tensor, Optional[Tensor]]]] = None,
         pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
@@ -74,7 +74,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         cacheline_alignment: bool = True,
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
-        feature_names_per_table: Optional[List[List[str]]] = None,
+        feature_names_per_table: Optional[list[list[str]]] = None,
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(KVEmbeddingInference, self).__init__(
@@ -119,12 +119,12 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             num_shards, uniform_init_lower, uniform_init_upper
         )
 
-        self.specs: List[Tuple[int, int, int]] = [
+        self.specs: list[tuple[int, int, int]] = [
             (rows, dims, sparse_type.as_int())
             for (_, rows, dims, sparse_type, _) in self.embedding_specs
         ]
         # table shard offset if inference sharding is enabled, otherwise, should be all zeros
-        self.table_sharding_offset: List[int] = [0] * len(self.embedding_specs)
+        self.table_sharding_offset: list[int] = [0] * len(self.embedding_specs)
         self.kv_embedding_cache_initialized = False
         self.hash_size_cumsum: torch.Tensor = torch.zeros(
             0,
@@ -137,7 +137,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             dtype=torch.int64,
         )
 
-    def construct_hash_size_cumsum(self) -> List[int]:
+    def construct_hash_size_cumsum(self) -> list[int]:
         hash_size_cumsum = [0]
         for spec in self.embedding_specs:
             rows = spec[1]
@@ -146,7 +146,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
 
     def calculate_indices_and_weights_offsets(
         self, indices: Tensor, offsets: Tensor
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         if self.pooling_mode is not PoolingMode.NONE:
             T = self.weights_offsets.numel()
         else:
@@ -280,7 +280,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         self.weight_initialized = True
 
     @torch.jit.export
-    def init_tbe_config(self, table_sharding_offset: List[int]) -> None:
+    def init_tbe_config(self, table_sharding_offset: list[int]) -> None:
         """
         Initialize the dynamic TBE table configs, e.g. sharded table offsets, etc.
         Should be called before loading weights.
@@ -290,9 +290,9 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
     @torch.jit.export
     def embedding_inplace_update(
         self,
-        update_table_indices: List[int],
-        update_row_indices: List[List[int]],
-        update_weights: List[Tensor],
+        update_table_indices: list[int],
+        update_row_indices: list[list[int]],
+        update_weights: list[Tensor],
     ) -> None:
         # function is not used for now on the inference side
         for i in range(len(update_table_indices)):

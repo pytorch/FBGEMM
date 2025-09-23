@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Any, cast, List, Optional, Tuple
+from typing import Any, cast, Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -56,10 +56,10 @@ class CacheTest(unittest.TestCase):
     def _compute_grad_output_shape(
         self,
         B: int,
-        D_offsets: List[int],
+        D_offsets: list[int],
         mixed_B: bool,
-        Bs_feature_rank: Optional[List[List[int]]] = None,
-    ) -> Tuple[int, ...]:
+        Bs_feature_rank: Optional[list[list[int]]] = None,
+    ) -> tuple[int, ...]:
         """
         Compute output gradient shape
         If mixed_B = True (variable batch size), the shape is sum(Bi * Di for
@@ -296,10 +296,10 @@ class CacheTest(unittest.TestCase):
 
         _prefetch(cc, batch_i)
 
-        input_batch_count: List[int] = []
+        input_batch_count: list[int] = []
         intput_original_size: int = 0
         intput_long_size: int = 0
-        output_batch_count: List[int] = []
+        output_batch_count: list[int] = []
         output_original_size: int = 0
         while batch_i:
             indices, offsets, _, Bs_feature_rank = batch_i.unpack_4()
@@ -361,8 +361,8 @@ class CacheTest(unittest.TestCase):
 
             def assert_event_exist(
                 event_name: str,
-                steps: List[int],
-                expected_value: Optional[List[int]] = None,
+                steps: list[int],
+                expected_value: Optional[list[int]] = None,
             ) -> None:
                 self.assertEqual(
                     len(stats_reporter.reported_data[event_name]), len(steps)

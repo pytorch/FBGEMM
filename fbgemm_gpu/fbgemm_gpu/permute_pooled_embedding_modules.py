@@ -8,7 +8,7 @@
 # pyre-strict
 
 from itertools import accumulate
-from typing import List, Optional
+from typing import Optional
 
 import torch
 
@@ -93,8 +93,8 @@ class PermutePooledEmbeddings:
 
     def __init__(
         self,
-        embs_dims: List[int],
-        permute: List[int],
+        embs_dims: list[int],
+        permute: list[int],
         device: Optional[torch.device] = None,
     ) -> None:
         self._offset_dim_list: torch.Tensor = torch.tensor(
@@ -105,7 +105,7 @@ class PermutePooledEmbeddings:
             permute, device=device, dtype=torch.int64
         )
 
-        inv_permute: List[int] = [0] * len(permute)
+        inv_permute: list[int] = [0] * len(permute)
         for i, p in enumerate(permute):
             inv_permute[p] = i
 

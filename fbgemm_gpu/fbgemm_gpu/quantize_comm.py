@@ -13,7 +13,7 @@
 
 
 import logging
-from typing import List, Optional, Tuple, TypeVar
+from typing import Optional, TypeVar
 
 import torch
 
@@ -67,7 +67,7 @@ class QuantizationContext:
     row_dim_quant: int = -1
     mx_group_size: int = MX_GROUP_SIZE_DEFAULT
     rounding_mode: Optional[RoundingMode] = RoundingMode.even
-    padded_dim_sum_per_rank: Optional[List[int]] = None
+    padded_dim_sum_per_rank: Optional[list[int]] = None
 
 
 def _quantize_tensor(
@@ -273,10 +273,10 @@ class QuantizedCommCodec:
     def padded_size(
         self,
         input_tensor: torch.Tensor,
-        dim_per_rank: List[int],
+        dim_per_rank: list[int],
         my_rank: int,
         qcomm_ctx: QuantizationContext,
-    ) -> Tuple[int, int]:
+    ) -> tuple[int, int]:
         if input_tensor.ndim == 1:
             return input_tensor.shape[0], 0
         # return padded size for the feature dimension (dim 1), 0 if no padding needed.

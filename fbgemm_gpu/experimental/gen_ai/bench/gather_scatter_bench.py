@@ -6,7 +6,7 @@
 
 import functools
 import itertools
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import click
 import torch
@@ -156,16 +156,16 @@ def bench_topk_index_shuffling(T: int, E: int, K: int) -> None:
     torch.manual_seed(0)
 
     num_rotating_buffers = min(max(2, triton.cdiv(1024 * 1024 * 1024, T * E * 2)), 1000)
-    scores_list: List[torch.Tensor] = [
+    scores_list: list[torch.Tensor] = [
         torch.randn(T, E, device=_ACCELERATOR_TAG, dtype=torch.bfloat16)
         for i in range(num_rotating_buffers)
     ]
 
-    def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def fn() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         for scores in scores_list:
             index_shuffling(scores, top_k=K)
 
-    def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def ref_fn() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         for scores in scores_list:
             _, selected_expert_indices = torch.topk(scores, K, dim=1)
             expert_indices, _ = torch.sort(
@@ -235,14 +235,14 @@ def bench_combine_or_split_shuffling(
     assert token_counts.sum().item() == input_num_tokens
 
     num_rotating_buffers = triton.cdiv(1024 * 1024 * 1024, tokens.numel() * 2)
-    token_list: List[torch.Tensor] = [
+    token_list: list[torch.Tensor] = [
         tokens.clone() for _ in range(num_rotating_buffers)
     ]
-    token_count_list: List[torch.Tensor] = [
+    token_count_list: list[torch.Tensor] = [
         token_counts.clone() for _ in range(num_rotating_buffers)
     ]
 
-    def fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def fn() -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         for tokens, token_counts in zip(token_list, token_count_list):
             if is_combine_shuffling:
                 combine_shuffling(

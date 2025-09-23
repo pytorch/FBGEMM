@@ -10,7 +10,7 @@
 import os
 import unittest
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -95,7 +95,7 @@ FP16_MAX_POS: float = torch.finfo(torch.float16).max
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 
-def fp8_row_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def fp8_row_quantize_ref(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     # Quantize an input tensor and return the fp8 tensor and its inverse scale.
     x_row_max = torch.max(torch.abs(x), dim=1).values
     max_scaling_factor = E4M3_MAX_POS * 512.0  # Match kernel logics
@@ -104,7 +104,7 @@ def fp8_row_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     return xq, scale.reciprocal().to(torch.float32)
 
 
-def fp8_col_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def fp8_col_quantize_ref(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     # Quantize an input tensor and return the fp8 tensor and its inverse scale.
     x_col_max = torch.max(torch.abs(x), dim=0).values
     max_scaling_factor = E4M3_MAX_POS * 512.0  # Match kernel logics
@@ -116,7 +116,7 @@ def fp8_col_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 def int4_row_quantize(
     x: torch.Tensor,
     group_size: int = 128,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     n_bit = 4  # Number of target bits.
     to_quant = x.reshape(-1, group_size).to(torch.float)
 

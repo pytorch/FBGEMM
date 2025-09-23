@@ -11,7 +11,7 @@ import math
 import unittest
 from enum import Enum
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -39,7 +39,7 @@ def find_different_rows(
     atol: float = 1.0e-4,
     rtol: float = 1.0e-4,
     return_values: bool = False,
-) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
     """
     Find the indices of rows that are different between two tensors.
 
@@ -158,7 +158,7 @@ VIRTUAL_TABLE_ROWS = int(
     2**18
 )  # relatively large for now given optimizer is still pre-allocated
 
-default_strategies: Dict["str", Any] = {
+default_strategies: dict["str", Any] = {
     "T": st.integers(min_value=1, max_value=10),
     "D": st.integers(min_value=2, max_value=128),
     "B": st.integers(min_value=1, max_value=128),
@@ -190,7 +190,7 @@ class FlushLocation(Enum):
 
 
 class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
-    def get_physical_table_arg_indices_(self, feature_table_map: List[int]):
+    def get_physical_table_arg_indices_(self, feature_table_map: list[int]):
         """
         Get the physical table arg indices for the reference and TBE.  The
         first element in each tuple is for accessing the reference embedding
@@ -214,11 +214,11 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
     def generate_in_bucket_indices(
         self,
         hash_mode: int,
-        bucket_id_range: Tuple[int, int],
+        bucket_id_range: tuple[int, int],
         bucket_size: int,
         # max height in ref_emb, the logical id high, physically id in kv is a shift from [0,h) to [table_offset, table_offset+h]
         high: int,
-        size: Tuple[int, int],
+        size: tuple[int, int],
     ) -> torch.Tensor:
         """
         Generate indices in embedding bucket, this is guarantee on the torchrec input_dist
@@ -246,21 +246,21 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         self,
         B: int,
         L: int,
-        Es: List[int],
-        feature_table_map: List[int],
+        Es: list[int],
+        feature_table_map: list[int],
         weights_precision: SparseType = SparseType.FP32,
         trigger_bounds_check: bool = False,
         mixed_B: bool = False,
         is_kv_tbes: bool = False,
-        bucket_offsets: Optional[List[Tuple[int, int]]] = None,
-        bucket_sizes: Optional[List[int]] = None,
-    ) -> Tuple[
-        List[torch.Tensor],
-        List[torch.Tensor],
+        bucket_offsets: Optional[list[tuple[int, int]]] = None,
+        bucket_sizes: Optional[list[int]] = None,
+    ) -> tuple[
+        list[torch.Tensor],
+        list[torch.Tensor],
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
-        Optional[List[List[int]]],
+        Optional[list[list[int]]],
     ]:
         """
         Generate indices and per sample weights
@@ -356,15 +356,15 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         mixed: bool = False,
         enable_optimizer_offloading: bool = False,
         backend_return_whole_row: bool = False,
-        optimizer_state_dtypes: Dict[OptimType, SparseType] = {},  # noqa: B006
+        optimizer_state_dtypes: dict[OptimType, SparseType] = {},  # noqa: B006
         embedding_cache_mode: bool = False,
-    ) -> Tuple[
+    ) -> tuple[
         SSDTableBatchedEmbeddingBags,
-        List[torch.nn.EmbeddingBag],
-        List[int],
-        List[int],
-        List[Tuple[int, int]],
-        List[int],
+        list[torch.nn.EmbeddingBag],
+        list[int],
+        list[int],
+        list[tuple[int, int]],
+        list[int],
     ]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -563,8 +563,8 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         lazy_bulk_init_enabled: bool = False,
         backend_type: BackendType = BackendType.SSD,
         enable_raw_embedding_streaming: bool = False,
-        optimizer_state_dtypes: Dict[str, SparseType] = {},  # noqa: B006
-    ) -> Tuple[SSDTableBatchedEmbeddingBags, List[torch.nn.EmbeddingBag]]:
+        optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
+    ) -> tuple[SSDTableBatchedEmbeddingBags, list[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
         torch.nn.EmbeddingBags)
@@ -702,7 +702,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
 
     def concat_ref_tensors(
         self,
-        tensors: List[torch.Tensor],
+        tensors: list[torch.Tensor],
         do_pooling: bool,
         B: int,
         D: int,
@@ -713,8 +713,8 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
 
     def concat_ref_tensors_vbe(
         self,
-        tensors: List[torch.Tensor],
-        batch_size_per_feature_per_rank: List[List[int]],
+        tensors: list[torch.Tensor],
+        batch_size_per_feature_per_rank: list[list[int]],
     ) -> torch.Tensor:
         """
         rearrange tensors into VBE format and concat them into one tensor
@@ -742,9 +742,9 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
     def execute_ssd_forward_(
         self,
         emb: SSDTableBatchedEmbeddingBags,
-        emb_ref: List[torch.nn.EmbeddingBag],
-        indices_list: List[torch.Tensor],
-        per_sample_weights_list: List[torch.Tensor],
+        emb_ref: list[torch.nn.EmbeddingBag],
+        indices_list: list[torch.Tensor],
+        per_sample_weights_list: list[torch.Tensor],
         indices: torch.Tensor,
         offsets: torch.Tensor,
         per_sample_weights: torch.Tensor,
@@ -753,8 +753,8 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         weighted: bool,
         tolerance: Optional[float] = None,
         it: int = -1,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-    ) -> Tuple[List[torch.Tensor], torch.Tensor]:
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
         """
         Execute the forward functions of SSDTableBatchedEmbeddingBags and
         torch.nn.EmbeddingBag and compare outputs
@@ -837,12 +837,12 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
 
     def execute_ssd_backward_(
         self,
-        output_ref_list: List[torch.Tensor],
+        output_ref_list: list[torch.Tensor],
         output: torch.Tensor,
         B: int,
         D: int,
         pooling_mode: PoolingMode,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
     ) -> None:
         # Generate output gradient
         output_grad_list = [torch.randn_like(out) for out in output_ref_list]
@@ -867,7 +867,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
 
     def split_optimizer_states_(
         self, emb: SSDTableBatchedEmbeddingBags
-    ) -> List[List[torch.Tensor]]:
+    ) -> list[list[torch.Tensor]]:
         _, bucket_asc_ids_list, _, _ = emb.split_embedding_weights(
             no_snapshot=False, should_flush=True
         )

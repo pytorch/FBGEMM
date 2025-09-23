@@ -13,7 +13,7 @@ import logging
 import os
 import tempfile
 from math import log2
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import torch  # usort:skip
 
@@ -42,15 +42,15 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
     """
 
-    embedding_specs: List[Tuple[str, int, int, SparseType]]
+    embedding_specs: list[tuple[str, int, int, SparseType]]
     _local_instance_index: int = -1
 
     def __init__(
         self,
-        embedding_specs: List[
-            Tuple[str, int, int, SparseType]
+        embedding_specs: list[
+            tuple[str, int, int, SparseType]
         ],  # tuple of (feature_names, rows, dims, SparseType)
-        feature_table_map: Optional[List[int]] = None,  # [T]
+        feature_table_map: Optional[list[int]] = None,  # [T]
         pooling_mode: PoolingMode = PoolingMode.SUM,
         output_dtype: SparseType = SparseType.FP16,
         row_alignment: Optional[int] = None,
@@ -73,7 +73,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ssd_uniform_init_lower: float = -0.01,
         ssd_uniform_init_upper: float = 0.01,
         # Parameter Server Configs
-        ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
+        ps_hosts: Optional[tuple[tuple[str, int]]] = None,
         ps_max_key_per_request: Optional[int] = None,
         ps_client_thread_num: Optional[int] = None,
         ps_max_local_index_length: Optional[int] = None,
@@ -99,7 +99,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
 
-        self.feature_table_map: List[int] = (
+        self.feature_table_map: list[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
         T = len(self.feature_table_map)
@@ -112,9 +112,9 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         self.output_dtype: int = output_dtype.as_int()
         # (feature_names, rows, dims, weights_tys) = zip(*embedding_specs)
         # Pyre workaround
-        rows: List[int] = [e[1] for e in embedding_specs]
-        dims: List[int] = [e[2] for e in embedding_specs]
-        weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
+        rows: list[int] = [e[1] for e in embedding_specs]
+        dims: list[int] = [e[2] for e in embedding_specs]
+        weights_tys: list[SparseType] = [e[3] for e in embedding_specs]
 
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(itertools.accumulate(D_offsets))
@@ -169,7 +169,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             offsets.append(uvm_size)
             uvm_size += state_size
 
-        self.weights_physical_offsets: List[int] = offsets
+        self.weights_physical_offsets: list[int] = offsets
 
         weights_tys_int = [weights_tys[t].as_int() for t in self.feature_table_map]
         self.register_buffer(
@@ -517,13 +517,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.export
     def split_embedding_weights(
         self, split_scale_shifts: bool = True
-    ) -> List[Tuple[Tensor, Optional[Tensor]]]:
+    ) -> list[tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table.
 
         Testing only, very slow.
         """
-        splits: List[Tuple[Tensor, Optional[Tensor]]] = []
+        splits: list[tuple[Tensor, Optional[Tensor]]] = []
         rows_cumsum = 0
         for _, row, dim, weight_ty in self.embedding_specs:
             weights = torch.empty(
