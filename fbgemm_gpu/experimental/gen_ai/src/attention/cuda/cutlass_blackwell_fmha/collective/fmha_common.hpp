@@ -126,3 +126,35 @@ void warpgroup_reg_set() {
 }
 
 }  // namespace cutlass::fmha::collective
+
+namespace constexpr_type_map {
+/*
+ * The following utility type_traits allow mapping constexpr variable to type at
+ * compile time.
+ * The default return type defined for each map would be returned if queried key
+ * does not exist in the map.
+ */
+
+template <auto keyVal, typename _valueT>
+struct cValTypePair {
+  static constexpr auto key = keyVal;
+  using valueT = _valueT;
+};
+
+template <typename Default, typename FirstMapping, typename ...OtherMapping>
+struct TypeMap {
+  template<auto QueryKey>
+  using query = std::conditional_t<
+      QueryKey == FirstMapping::key,
+      typename FirstMapping::valueT,
+      typename TypeMap<Default, OtherMapping...>::template query<QueryKey>
+  >;
+};
+
+template <typename Default, typename LastMapping>
+struct TypeMap<Default, LastMapping> {
+  template<auto QueryKey>
+  using query = std::conditional_t<QueryKey == LastMapping::key, typename LastMapping::valueT, Default>;
+};
+
+}

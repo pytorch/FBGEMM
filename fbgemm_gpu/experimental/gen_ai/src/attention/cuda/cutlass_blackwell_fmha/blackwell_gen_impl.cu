@@ -262,10 +262,15 @@ struct GenRunner {
 };
 
 // Dispatch macros for different element types
-// TODO(henrylhtsang / ayaoibrahim1123): Add support for other data types.
 #define DISPATCH_ELEMENT_TYPE(DTYPE, ELEMENT_TYPE, ...)                       \
   [&] {                                                                       \
-    if (DTYPE == at::kFloat8_e4m3fn) {                                 \
+    if (DTYPE == at::kHalf) {                                                 \
+      using ELEMENT_TYPE = cutlass::half_t;                                   \
+      return __VA_ARGS__();                                                   \
+    } else if (DTYPE == at::kBFloat16) {                                      \
+      using ELEMENT_TYPE = cutlass::bfloat16_t;                               \
+      return __VA_ARGS__();                                                   \
+    } else if (DTYPE == at::kFloat8_e4m3fn) {                                 \
       using ELEMENT_TYPE = cutlass::float_e4m3_t;                             \
       return __VA_ARGS__();                                                   \
     } else {                                                                  \
@@ -299,7 +304,7 @@ at::Tensor dispatch_fmha_gen_fwd(
 
   return DISPATCH_ELEMENT_TYPE(q.scalar_type(), Element, [&] {
     return DISPATCH_KERNEL_TYPE(static_cast<int>(kernel_type), KType, [&] {
-      GenRunner<Element, KType, Shape<_128, _128, _128>, Shape<_1, _1, _1>>
+      GenRunner<Element, KType, Shape<_128, _256, _128>, Shape<_1, _1, _1>>
           runner;
       return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx);
     });

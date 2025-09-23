@@ -439,31 +439,31 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 seqlen_k,
                 batch_size,
                 is_mqa,
-                window_size,
-                sm_scale,
+                q_heads,
+                dtype,
             )
             for seqlen_k in [64, 128, 256, 1024]
             for batch_size in [1, 2]
             for is_mqa in [True]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
-            for sm_scale in [None, 1.0 / 128]
-        ]
+            for q_heads in [8]
+            for dtype in [torch.float8_e4m3fn, torch.bfloat16]
+        ],
+        name_func=lambda func, num, p: func.__name__
+        + "_"
+        + num
+        + "_"
+        + "_".join(map(str, p)),
     )
     def test_decode(
         self,
         seqlen_k: int,
         batch_size: int,
         is_mqa: bool,
-        window_size: tuple[int, int],
-        sm_scale: Optional[float],
-        q_heads: int = 8,
-        dtype: torch.dtype = torch.float8_e4m3fn,
+        q_heads: int,
+        dtype: torch.dtype,
     ) -> None:
         seqlen_q = 1
         causal = True
-        assert (
-            dtype == torch.float8_e4m3fn
-        ), "Gen Kernel only supports float8_e4m3fn for now"
         self._execute_cutlass_blackwell_attn_dense(
             batch_size,
             seqlen_q,
@@ -473,10 +473,12 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             head_dim=128,
             dtype=dtype,
             causal=causal,
-            window_size=window_size,
+            # Decode kernel does not support sliding window attention yet
+            window_size=(-1, -1),
             fwd_only=True,
             deterministic=False,
-            sm_scale=sm_scale,
+            # Decode kernel does not support sm_scale
+            sm_scale=None,
         )
 
     @skip_cuda_lt_sm100
