@@ -2198,5 +2198,116 @@ class NVFP4Tests(unittest.TestCase):
         torch.testing.assert_close(fake_quant_y, y_ref, atol=0.1, rtol=0.1)
 
 
+@unittest.skipIf(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
+    "Skip when MI300 or H100 is not available",
+)
+class BF16Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.device = torch.accelerator.current_accelerator()
+
+    @unittest.skipIf(
+        not torch.version.cuda,
+        "Skip on AMD: test_bf16_grouped_gemmw_wgrad not yet suported.",
+    )
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([2, 16]),
+        M=st.sampled_from([257, 2049]),
+        N=st.sampled_from([256, 2048]),
+        K=st.sampled_from([128, 1024]),
+        output_accum=st.booleans(),
+    )
+    def test_bf16_grouped_gemmw_wgrad(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+        output_accum: bool,
+    ) -> None:
+        torch.manual_seed(hash((G, M, N, K)))
+        # Inputs
+        dy_bf16 = torch.randn(
+            (M, N), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        )
+        x_bf16 = torch.randn(
+            (M, K), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        )
+
+        def generate_random_splits(G: int, M: int) -> torch.Tensor:
+            m_cumsums = torch.sort(
+                torch.randint(
+                    0,
+                    M,
+                    (G + 1,),
+                    dtype=torch.int32,
+                    device=torch.accelerator.current_accelerator(),
+                )
+            ).values
+            m_cumsums[0], m_cumsums[-1] = 0, M
+            m_sizes = m_cumsums[1:] - m_cumsums[:-1]
+            return m_sizes
+
+        m_sizes = generate_random_splits(G, M)
+
+        # Test
+        if output_accum:
+            wgrad_accum = torch.randn(
+                (G, N, K),
+                dtype=torch.bfloat16,
+                device=torch.accelerator.current_accelerator(),
+            )
+        else:
+            wgrad_accum = None
+
+        test_wgrad = torch.ops.fbgemm.bf16bf16bf16_grouped_wgrad(
+            dy_bf16,
+            x_bf16,
+            m_sizes.to(torch.int64),
+            output=wgrad_accum.clone() if output_accum else None,
+            output_accum=output_accum,
+        )
+
+        # Reference
+        dy_fp32 = dy_bf16.to(torch.float32)
+        x_fp32 = x_bf16.to(torch.float32)
+        ref_wgrad = torch.empty(
+            (G, N, K),
+            dtype=torch.float32,
+            device=torch.accelerator.current_accelerator(),
+        )
+
+        # Track which groups have non-zero size for comparison
+        non_zero_groups = []
+        m_start = 0
+        for g, m_size in enumerate(m_sizes.tolist()):
+            if m_size > 0:
+                # Actual slice - compute matrix multiplication
+                ref_wgrad[g, :, :] = (
+                    dy_fp32[m_start : m_start + m_size, :].T
+                    @ x_fp32[m_start : m_start + m_size, :]
+                )
+                non_zero_groups.append(g)
+            m_start += m_size
+
+        if output_accum:
+            assert wgrad_accum is not None
+            ref_wgrad += wgrad_accum.to(torch.float32)
+
+        ref_wgrad = ref_wgrad.to(torch.bfloat16)
+
+        # Compare groups with non-zero m_size
+        if non_zero_groups:
+            torch.testing.assert_close(
+                test_wgrad[non_zero_groups],
+                ref_wgrad[non_zero_groups],
+                atol=1e-4,
+                rtol=1e-2,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
