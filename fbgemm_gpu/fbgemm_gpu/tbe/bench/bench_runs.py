@@ -11,6 +11,7 @@ import logging
 import statistics
 import threading
 import time
+import gzip
 from subprocess import Popen
 from typing import Callable, Optional
 
@@ -18,7 +19,7 @@ import torch
 
 from fbgemm_gpu.tbe.utils import b_indices, TBERequest
 from fbgemm_gpu.tbe.utils.common import get_device
-
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import SplitTableBatchedEmbeddingBagsCodegen
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -248,36 +249,43 @@ def benchmark_requests(  # noqa: C901
     periodic_logs: bool = False,
     warmup_ms: Optional[int] = None,
     iters: int = -1,
+    emb: Optional[SplitTableBatchedEmbeddingBagsCodegen] = None,
+    save: Optional[str] = None,
+    load: Optional[str] = None,
+    compressed: bool = False,
+    slice_min: Optional[int] = None,
+    slice_max: Optional[int] = None,
 ) -> float:
     times = []
     # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
     # for the first kernel if warmup_ms > 0
     # warmup_ms is prioritized over num_warmups
-
+    import copy
     if warmup_ms is None:
         num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
 
-    # warm-up the GPU before profiling
-    bench_warmup(
-        requests[0],
-        # pyre-ignore[6]
-        warmup_ms,
-        num_warmups,
-        lambda indices, offsets, per_sample_weights: func(
-            indices,
-            offsets,
-            per_sample_weights,
-        ),
-        bwd_only=bwd_only,
-        grad=grad,
-    )
+    if not (load or save):
+        # warm-up the GPU before profiling
+        bench_warmup(
+            requests[0],
+            # pyre-ignore[6]
+            warmup_ms,
+            num_warmups,
+            lambda indices, offsets, per_sample_weights: func(
+                indices,
+                offsets,
+                per_sample_weights,
+            ),
+            bwd_only=bwd_only,
+            grad=grad,
+        )
 
-    if callback_after_warmup is not None:
-        callback_after_warmup()
+        if callback_after_warmup is not None:
+            callback_after_warmup()
 
     num_reqs = len(requests)
     iters = num_reqs if iters == -1 else iters
-
+    sliced = slice_min is not None and slice_max is not None
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
@@ -285,7 +293,86 @@ def benchmark_requests(  # noqa: C901
     else:
         start_events = []
         end_events = []
+    if save and emb:
+        for it in range(iters):
+            req = requests[it % num_reqs]
 
+            indices, offsets, weights = req.unpack_3()
+            out = emb(indices, offsets, weights)
+            torch.cuda.synchronize()
+            if compressed:
+                with gzip.open(f"{save}/{it}_fwd_grad_out.pt.gz", "wb") as f:
+                    torch.save(out, f)
+            else:
+                torch.save(out, f"{save}/{it}_fwd_grad_out.pt")
+            
+            out.backward(grad)
+            torch.cuda.synchronize()
+            torch.save(out, f"{save}/{it}_bwd_grad_out.pt")
+ 
+            if sliced:
+                for id, t in enumerate(emb.split_embedding_weights()):
+                    if compressed:
+                        with gzip.open(f"{save}/{it}_{id}_bwd_weights_out.pt.gz", "wb") as f:
+                            torch.save(t[slice_min:slice_max,:].clone(), f)
+                    else:
+                        torch.save(t[slice_min:slice_max,:].clone(), f"{save}/{it}_{id}_bwd_weights_out.pt")
+                else:
+                        torch.save(t[slice_min:slice_max,:].clone(), f"{save}/{it}_{id}_bwd_weights_out.pt")
+                torch.save(emb.momentum1_dev, f"{save}/{it}_bwd_momentum1_dev_out.pt")
+                torch.save(emb.momentum1_uvm, f"{save}/{it}_bwd_momentum1_uvm_out.pt")
+            
+            else:
+                if compressed:
+                    with gzip.open(f"{save}/{it}_bwd_state_out.pth.gz", "wb") as f:
+                        torch.save(emb.state_dict(), f)
+                else:
+                    torch.save(emb.state_dict(), f"{save}/{it}_bwd_state_out.pth")
+
+    if load and emb:
+        for it in range(iters):
+            req = requests[it % num_reqs]
+
+            indices, offsets, weights = req.unpack_3()
+            out = emb(indices, offsets, weights)
+            torch.cuda.synchronize()
+            
+            out.backward(grad)
+            torch.cuda.synchronize()
+            emb_ref = copy.deepcopy(emb)
+            if not sliced:
+                if compressed:
+                    with gzip.open(f"{load}/{it}_bwd_state_out.pth.gz", "rb") as f:
+                        emb_ref.load_state_dict(torch.load(f))
+                else:
+                    emb_ref.load_state_dict(torch.load(f"{load}/{it}_bwd_state_out.pth"))
+
+            print(f"[{it + 1}/{iters}] Backward weights check... ", end="", flush=True)
+            if sliced:
+                for id, t in enumerate(emb.split_embedding_weights()):
+                    if compressed:
+                        with gzip.open(f"{it}_{id}_bwd_weights_out.pt.gz", "rb") as f:
+                            w_ref = torch.load(f)
+                    else:
+                        w_ref = torch.load(f"{load}/{it}_{id}_bwd_weights_out.pt")
+                    torch.testing.assert_close(t[slice_min:slice_max,:], w_ref,
+                                               msg=f"FAILED table = {id}", atol=1.0e-3, rtol=10e-3)
+            else:
+                for id, t in enumerate(emb.split_embedding_weights()):
+                    torch.testing.assert_close(t, emb_ref.split_embedding_weights()[id], 
+                                               msg=f"FAILED table = {id}", atol=1.0e-3, rtol=10e-3)
+            print("PASS")
+            
+            print(f"[{it + 1}/{iters}] Backward momentum check... ", end="", flush=True)
+            if sliced:
+                m_dev_ref = torch.load(f"{load}/{it}_bwd_momentum1_dev_out.pt")
+                m_uvm_ref = torch.load(f"{load}/{it}_bwd_momentum1_uvm_out.pt")
+            else:
+                m_dev_ref = emb_ref.momentum1_dev
+                m_uvm_ref = emb_ref.momentum1_uvm
+            torch.testing.assert_close(emb.momentum1_dev, m_dev_ref, atol=1.0e-4, rtol=1.0e-4)
+            torch.testing.assert_close(emb.momentum1_uvm, m_uvm_ref, atol=1.0e-4, rtol=1.0e-4)
+            print("PASS")
     for it in range(iters):
         req = requests[it % num_reqs]
 
