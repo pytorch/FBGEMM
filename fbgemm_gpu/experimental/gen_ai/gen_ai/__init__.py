@@ -46,3 +46,15 @@ else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:gather_scatter_ops"
     )
+
+    gemm_ops = [
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/src/quantize/cutlass_extensions:cutlass_bf16bf16bf16_grouped_grad",
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/src/quantize/cutlass_extensions:cutlass_bf16bf16bf16_grouped_wgrad",
+    ]
+    for op in gemm_ops:
+        try:
+            torch.ops.load_library(
+                op,
+            )
+        except OSError:
+            pass

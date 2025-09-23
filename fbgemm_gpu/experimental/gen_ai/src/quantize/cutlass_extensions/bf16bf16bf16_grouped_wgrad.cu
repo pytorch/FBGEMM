@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <torch/library.h>
 
 #include "bf16bf16bf16_grouped_wgrad/bf16bf16bf16_grouped_wgrad_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.hpp"
@@ -1092,5 +1093,31 @@ at::Tensor bf16bf16bf16_grouped_wgrad(
 }
 
 #endif
+
+at::Tensor bf16bf16bf16_grouped_wgrad_meta(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> /* output = std::nullopt */,
+    bool /* output_accum = false */) {
+  const at::SymInt G = M_sizes.size(0);
+  const at::SymInt N = X.sym_size(1);
+  const at::SymInt K = W.sym_size(1);
+  at::Tensor Y = at::empty_symint({G, N, K}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
+  m.impl("bf16bf16bf16_grouped_wgrad", bf16bf16bf16_grouped_wgrad);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("bf16bf16bf16_grouped_wgrad", bf16bf16bf16_grouped_wgrad_meta);
+}
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "bf16bf16bf16_grouped_wgrad(Tensor X, Tensor W, Tensor M_sizes, Tensor(a!)? output=None, bool output_accum=False) -> Tensor");
+}
 
 } // namespace fbgemm_gpu
