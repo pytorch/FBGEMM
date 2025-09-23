@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <torch/library.h>
 
 #include "bf16bf16bf16_grouped_grad/bf16bf16bf16_grouped_grad_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.hpp"
@@ -333,5 +334,29 @@ at::Tensor bf16bf16bf16_grouped_grad(at::Tensor, at::Tensor, at::Tensor) {
 }
 
 #endif
+
+at::Tensor bf16bf16bf16_grouped_grad_meta(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor /* M_sizes */) {
+  const at::SymInt total_M = X.sym_size(0);
+  const at::SymInt N = W.sym_size(1);
+  at::Tensor Y =
+      at::empty_symint({total_M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
+  m.impl("bf16bf16bf16_grouped_grad", bf16bf16bf16_grouped_grad);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("bf16bf16bf16_grouped_grad", bf16bf16bf16_grouped_grad_meta);
+}
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "bf16bf16bf16_grouped_grad(Tensor X, Tensor W, Tensor M_sizes) -> Tensor");
+}
 
 } // namespace fbgemm_gpu
