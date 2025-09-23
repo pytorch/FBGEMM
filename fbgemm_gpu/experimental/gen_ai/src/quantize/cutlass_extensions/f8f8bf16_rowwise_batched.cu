@@ -32,8 +32,6 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
     at::Tensor w_scale, // FP32
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt) {
-  const int arch = getDeviceArch();
-
   TORCH_CHECK(
       (XQ.dim() == 3 && WQ.dim() == 3),
       "FP8 rowwise batched GEMM only supports 3D inputs");
@@ -41,14 +39,20 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
   M = XQ.size(1);
   N = WQ.size(1);
 
-  const bool use_e5m2 = XQ.dtype() == at::kFloat8_e5m2;
-  if (use_e5m2) {
+  TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
+  TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
+  TORCH_CHECK(XQ.dtype() == at::kFloat8_e4m3fn, "XQ must be FP8 e4m3fn");
+  TORCH_CHECK(WQ.dtype() == at::kFloat8_e4m3fn, "WQ must be FP8 e4m3fn");
+  TORCH_CHECK(
+      x_scale.dtype() == at::kFloat && w_scale.dtype() == at::kFloat,
+      "Scale tensors must be float32.");
+  if (bias.has_value()) {
     TORCH_CHECK(
-        arch == 9, "f8f8bf16_rowwise_batched only supports FP8 e5m2 on SM90");
-    return f8f8bf16_rowwise_batched_64_128_128_2_1_1_9_f_e5m2(
-        XQ, WQ, x_scale, w_scale, bias, output);
+        bias.value().dtype() == at::kFloat,
+        "Bias type must be float32 if provided.");
   }
 
+  const int arch = getDeviceArch();
   if (arch == 10) {
     if ((M * N <= 4096 * 4096) || (N % 256 > 0 && M % 256 == 0) ||
         (M % 256 > 0 && N % 256 > 0) || M >= 1024 && N >= 1024) {
