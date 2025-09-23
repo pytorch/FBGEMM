@@ -9,7 +9,6 @@
 
 import unittest
 from enum import Enum, unique
-from typing import List, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import hypothesis.strategies as st
@@ -38,7 +37,7 @@ class LogicalDtype(Enum):
 
 def quant_int4_dequant_bf16(
     in_tensor: torch.Tensor, num_groups: int = 1
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     A util function for quantizing a tensor from from a float type (including
     FP32, FP16, BF16) to INT4 and then dequantize the INT4 result to BF16
@@ -97,9 +96,9 @@ def gqa_reference(
     Q: torch.Tensor,
     K: torch.Tensor,
     V: torch.Tensor,
-    seq_lens: List[int],
+    seq_lens: list[int],
     qk_scale: float,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     The reference GQA implementation
     """
@@ -267,7 +266,7 @@ class Int4GQATest(unittest.TestCase):
         self,
         dtype: str,
         num_groups: int,
-        args: Tuple[int, int, int, int],
+        args: tuple[int, int, int, int],
         mqa: bool,
         validate_p_inf_exp: bool,
     ) -> None:
@@ -293,9 +292,9 @@ class Int4GQATest(unittest.TestCase):
             Q: torch.Tensor,
             K: torch.Tensor,
             V: torch.Tensor,
-            seq_lens: List[int],
+            seq_lens: list[int],
             qk_scale: float,
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        ) -> tuple[torch.Tensor, torch.Tensor]:
             (B, T, H, D) = Q.shape
             (_, MAX_T, Hk, D) = K.shape
             (_, MAX_T, Hv, D) = V.shape

@@ -8,7 +8,7 @@
 # pyre-ignore-all-errors[3,6,56]
 
 import unittest
-from typing import Any, Dict
+from typing import Any
 
 import hypothesis.strategies as st
 import torch
@@ -29,7 +29,7 @@ from .training_common import (
     VIRTUAL_TABLE_ROWS,
 )
 
-default_st: Dict[str, Any] = default_strategies | {
+default_st: dict[str, Any] = default_strategies | {
     "m1_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
     "m2_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
     "num_buckets": st.integers(min_value=10, max_value=15),

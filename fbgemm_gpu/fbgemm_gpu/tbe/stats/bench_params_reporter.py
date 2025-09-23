@@ -11,7 +11,7 @@ import io
 import json
 import logging
 import os
-from typing import List, Optional
+from typing import Optional
 
 import fbgemm_gpu  # noqa F401
 import torch  # usort:skip
@@ -144,7 +144,7 @@ class TBEBenchmarkParamsReporter:
         indices: torch.Tensor,
         offsets: torch.Tensor,
         per_sample_weights: Optional[torch.Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
     ) -> TBEDataConfig:
         """
         Extracts parameters from the embedding operation, input indices, and offsets to create a TBEDataConfig.
@@ -266,7 +266,7 @@ class TBEBenchmarkParamsReporter:
         offsets: torch.Tensor,
         op_id: str = "",
         per_sample_weights: Optional[torch.Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
     ) -> None:
         """
         Reports the configuration of the embedding operation and input data, then writes the TBE configuration to the filestore.

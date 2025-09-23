@@ -10,7 +10,7 @@
 
 import struct
 from enum import Enum, IntEnum
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -31,7 +31,7 @@ class RoundingMode(IntEnum):
     even = 2
 
     @staticmethod
-    def string_enums() -> List[str]:
+    def string_enums() -> list[str]:
         return [s.name for s in list(RoundingMode)]
 
 
@@ -74,12 +74,12 @@ def _get_max_norm(ebits: int, mbits: int) -> float:
     return 2**emax * float(2 ** (mbits - 1) - 1) / 2 ** (mbits - 2)
 
 
-_FORMAT_CACHE: Dict[ElemFormat, Tuple[int, int, int, float, float]] = {}
+_FORMAT_CACHE: dict[ElemFormat, tuple[int, int, int, float, float]] = {}
 
 
 def _get_format_params(  # noqa
     fmt: Union[ElemFormat, str, None],
-) -> Tuple[int, int, int, float, float]:
+) -> tuple[int, int, int, float, float]:
     """Allowed formats:
     - intX:         2 <= X <= 32, assume sign-magnitude, 1.xxx representation
     - floatX/fpX:   16 <= X <= 28, assume top exp is used for NaN/Inf
@@ -150,8 +150,8 @@ def _get_format_params(  # noqa
 
 
 def _reshape_to_blocks(
-    A: torch.Tensor, axes: List[int], block_size: int
-) -> Tuple[torch.Tensor, List[int], torch.Size, torch.Size]:
+    A: torch.Tensor, axes: list[int], block_size: int
+) -> tuple[torch.Tensor, list[int], torch.Size, torch.Size]:
     if axes is None:
         raise Exception(
             "axes required in order to determine which "
@@ -192,7 +192,7 @@ def _reshape_to_blocks(
         pad = list(reversed(pad))
         A = torch.nn.functional.pad(A, pad, mode="constant")
 
-    def _reshape(shape: List[int], reshape_block_size: int) -> List[int]:
+    def _reshape(shape: list[int], reshape_block_size: int) -> list[int]:
         for axis in axes:
             # Reshape to tiles if axis length > reshape_block_size
             if shape[axis] >= reshape_block_size:
@@ -214,7 +214,7 @@ def _reshape_to_blocks(
 
 
 def _undo_reshape_to_blocks(
-    A: torch.Tensor, padded_shape: torch.Size, orig_shape: torch.Size, axes: List[int]
+    A: torch.Tensor, padded_shape: torch.Size, orig_shape: torch.Size, axes: list[int]
 ) -> torch.Tensor:
     # Undo tile reshaping
     A = A.view(padded_shape)
@@ -228,7 +228,7 @@ def _undo_reshape_to_blocks(
     return A
 
 
-def get_s_e_m(value_in_float: float) -> Tuple[int, int, int]:
+def get_s_e_m(value_in_float: float) -> tuple[int, int, int]:
     def float_to_bits(value_in_float: float) -> int:
         s = struct.pack("@f", value_in_float)
         return struct.unpack("@I", s)[0]
@@ -411,7 +411,7 @@ def _shared_exponents(
     A: torch.Tensor,
     method: str = "max",
     rounding_mode: str = "even",
-    axes: Optional[List[int]] = None,
+    axes: Optional[list[int]] = None,
     ebits: int = 0,
 ) -> torch.Tensor:
     """

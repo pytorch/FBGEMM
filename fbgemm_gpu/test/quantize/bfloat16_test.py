@@ -8,7 +8,6 @@
 
 import unittest
 from ctypes import c_float, c_int32, cast, POINTER, pointer
-from typing import Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -124,7 +123,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op_cuda_large_nrows_bf16(
-        self, ncols_nrows: Tuple[int, int]
+        self, ncols_nrows: tuple[int, int]
     ) -> None:
         ncols, nrows = ncols_nrows
         input_data = torch.rand(nrows, ncols).float()

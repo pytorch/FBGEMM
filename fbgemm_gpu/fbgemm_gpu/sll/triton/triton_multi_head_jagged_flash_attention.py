@@ -6,7 +6,6 @@
 
 # pyre-unsafe
 
-from typing import Tuple
 
 import torch
 import triton
@@ -688,7 +687,7 @@ class MultiHeadJaggedFlashAttention(torch.autograd.Function):
     # pyre-fixme
     def backward(
         ctx, grad_output: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, None, None, None]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, None, None, None]:
         (
             jagged_Q,
             jagged_K,

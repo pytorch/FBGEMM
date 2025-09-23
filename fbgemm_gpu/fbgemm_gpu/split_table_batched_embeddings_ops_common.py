@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import List, NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional
 
 import torch
 from torch import Tensor
@@ -73,25 +73,25 @@ class EvictionPolicy(NamedTuple):
     eviction_mem_threshold_gb: Optional[int] = (
         None  # eviction trigger condition if trigger mode is mem_util
     )
-    counter_thresholds: Optional[List[int]] = (
+    counter_thresholds: Optional[list[int]] = (
         None  # count_thresholds for each table if eviction strategy is counter
     )
-    ttls_in_mins: Optional[List[int]] = (
+    ttls_in_mins: Optional[list[int]] = (
         None  # ttls_in_mins for each table if eviction strategy is timestamp
     )
-    counter_decay_rates: Optional[List[float]] = (
+    counter_decay_rates: Optional[list[float]] = (
         None  # count_decay_rates for each table if eviction strategy is counter
     )
-    feature_score_counter_decay_rates: Optional[List[float]] = (
+    feature_score_counter_decay_rates: Optional[list[float]] = (
         None  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
     )
-    training_id_eviction_trigger_count: Optional[List[int]] = (
+    training_id_eviction_trigger_count: Optional[list[int]] = (
         None  # training_id_eviction_trigger_count for each table
     )
-    training_id_keep_count: Optional[List[int]] = (
+    training_id_keep_count: Optional[list[int]] = (
         None  # training_id_keep_count for each table
     )
-    l2_weight_thresholds: Optional[List[float]] = (
+    l2_weight_thresholds: Optional[list[float]] = (
         None  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
     )
     threshold_calculation_bucket_stride: Optional[float] = (
@@ -113,7 +113,7 @@ class EvictionPolicy(NamedTuple):
     interval_for_feature_statistics_decay_s: int = (
         24 * 3600  # 1 day, interval for feature statistics decay
     )
-    meta_header_lens: Optional[List[int]] = None  # metaheader length for each table
+    meta_header_lens: Optional[list[int]] = None  # metaheader length for each table
 
     def validate(self) -> None:
         assert self.eviction_trigger_mode in [0, 1, 2, 3, 4], (
@@ -217,10 +217,10 @@ class EvictionPolicy(NamedTuple):
 class KVZCHParams(NamedTuple):
     # global bucket id start and global bucket id end offsets for each logical table,
     # where start offset is inclusive and end offset is exclusive
-    bucket_offsets: List[Tuple[int, int]] = []
+    bucket_offsets: list[tuple[int, int]] = []
     # bucket size for each logical table
     # the value indicates corresponding input space for each bucket id, e.g. 2^50 / total_num_buckets
-    bucket_sizes: List[int] = []
+    bucket_sizes: list[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
     # when enabled, backend will return whole row(metaheader + weight + optimizer) instead of weight only
@@ -340,8 +340,8 @@ SplitState: NamedTuple = NamedTuple(
         ("dev_size", int),
         ("host_size", int),
         ("uvm_size", int),
-        ("placements", List[EmbeddingLocation]),
-        ("offsets", List[int]),
+        ("placements", list[EmbeddingLocation]),
+        ("offsets", list[int]),
     ],
 )
 
@@ -349,15 +349,15 @@ SplitState: NamedTuple = NamedTuple(
 @dataclass
 class CacheState:
     # T + 1 elements and cache_hash_size_cumsum[-1] == total_cache_hash_size
-    cache_hash_size_cumsum: List[int]
-    cache_index_table_map: List[int]
+    cache_hash_size_cumsum: list[int]
+    cache_index_table_map: list[int]
     total_cache_hash_size: int
 
 
 def construct_cache_state(
-    row_list: List[int],
-    location_list: List[EmbeddingLocation],
-    feature_table_map: List[int],
+    row_list: list[int],
+    location_list: list[EmbeddingLocation],
+    feature_table_map: list[int],
 ) -> CacheState:
     _cache_hash_size_cumsum = [0]
     total_cache_hash_size = 0

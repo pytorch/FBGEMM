@@ -12,7 +12,6 @@
 import random
 import unittest
 from itertools import accumulate
-from typing import Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -177,7 +176,7 @@ class LXUCacheTest(unittest.TestCase):
             offsets: Tensor,
             cache_hash_size_cumsum: Tensor,
             total_cache_hash_size: int,
-        ) -> Tuple[Tensor, Tensor]:
+        ) -> tuple[Tensor, Tensor]:
             linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
                 cache_hash_size_cumsum,
                 indices,

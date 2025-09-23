@@ -10,7 +10,6 @@
 
 import random
 import unittest
-from typing import List
 
 import fbgemm_gpu
 import hypothesis.strategies as st
@@ -53,7 +52,7 @@ class UvmTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_is_uvm_tensor(self, sizes: List[int], uvm_op) -> None:
+    def test_is_uvm_tensor(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = random.choice([True, False])
             uvm_t = uvm_op(
@@ -87,7 +86,7 @@ class UvmTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_cudaMemAdvise(self, sizes: List[int], uvm_op) -> None:
+    def test_cudaMemAdvise(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = False
             uvm_t = uvm_op(
@@ -119,7 +118,7 @@ class UvmTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_cudaMemPrefetchAsync(self, sizes: List[int], uvm_op) -> None:
+    def test_cudaMemPrefetchAsync(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = False
             uvm_t = uvm_op(
@@ -153,7 +152,7 @@ class UvmTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_slice(self, sizes: List[int], uvm_op) -> None:
+    def test_uvm_slice(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = False
             uvm_t = uvm_op(
@@ -194,7 +193,7 @@ class UvmTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_memadviceDontFork(self, sizes: List[int], uvm_op) -> None:
+    def test_uvm_memadviceDontFork(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
             is_host_mapped = False
             uvm_t = uvm_op(
@@ -219,7 +218,7 @@ class UvmTest(unittest.TestCase):
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_new_managed_tensor_meta(self, sizes: List[int]) -> None:
+    def test_new_managed_tensor_meta(self, sizes: list[int]) -> None:
         cpu_tensor = torch.empty(sizes).to("meta")
         cpu_tensor_meta = torch.ops.fbgemm.new_managed_tensor(cpu_tensor, sizes)
         assert cpu_tensor.shape == cpu_tensor_meta.shape

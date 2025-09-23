@@ -12,7 +12,7 @@ import statistics
 import threading
 import time
 from subprocess import Popen
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional
 
 import torch
 
@@ -49,7 +49,7 @@ def bench_warmup_with_spec(
     warmup_ms: int,
     warmup_runs: int,
     func: Callable[
-        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[List[List[int]]]],
+        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[list[list[int]]]],
         torch.Tensor,
     ],
     bwd_only: bool = False,
@@ -92,7 +92,7 @@ cpu_bm_barrier = BMBarrier()
 
 
 def cpu_tbe_worker(
-    requests_: List[TBERequest],
+    requests_: list[TBERequest],
     func_: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     use_barrier: bool = False,
 ) -> float:
@@ -124,7 +124,7 @@ def cpu_tbe_worker(
 
 
 def benchmark_cpu_requests_mp(
-    requests: List[TBERequest],
+    requests: list[TBERequest],
     emb_module: torch.nn.Module,
     num_warmups: int = 0,
     num_copies: int = 1,
@@ -207,7 +207,7 @@ def benchmark_cpu_requests_mp(
 
 
 def benchmark_cpu_requests(
-    requests: List[TBERequest],
+    requests: list[TBERequest],
     func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     num_warmups: int = 0,
 ) -> float:
@@ -225,7 +225,7 @@ def benchmark_cpu_requests(
 
 
 def benchmark_requests(  # noqa: C901
-    requests: List[TBERequest],
+    requests: list[TBERequest],
     func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
@@ -335,9 +335,9 @@ def benchmark_requests(  # noqa: C901
 
 
 def benchmark_requests_with_spec(  # noqa: C901
-    requests: List[TBERequest],
+    requests: list[TBERequest],
     func: Callable[
-        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[List[List[int]]]],
+        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[list[list[int]]]],
         torch.Tensor,
     ],
     flush_gpu_cache_size_mb: int = 0,
@@ -450,7 +450,7 @@ def benchmark_requests_with_spec(  # noqa: C901
 
 
 def benchmark_requests_refer(
-    requests: List[TBERequest],
+    requests: list[TBERequest],
     T: int,
     B: int,
     L: int,
@@ -542,12 +542,12 @@ def benchmark_requests_refer(
 
 
 def benchmark_pipelined_requests(
-    requests: List[TBERequest],
+    requests: list[TBERequest],
     func1: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
     func2: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     torch.cuda.synchronize()
     start_events = [
         (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
@@ -599,10 +599,10 @@ def benchmark_pipelined_requests(
 
 
 def benchmark_vbe(
-    requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
+    requests: list[tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
     func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     num_warmups: int = 0,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     A benchmark function to return the average execution time in seconds of
     forward and backward of VBE kernels.

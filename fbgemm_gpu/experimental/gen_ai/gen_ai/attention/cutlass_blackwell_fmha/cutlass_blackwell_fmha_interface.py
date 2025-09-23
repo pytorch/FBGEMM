@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 
@@ -175,7 +175,7 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
         max_seq_len_q: Optional[int] = None,
         max_seq_len_k: Optional[int] = None,
         seqlen_kv: Optional[torch.Tensor] = None,
-        window_size: Tuple[int, int] = (-1, -1),
+        window_size: tuple[int, int] = (-1, -1),
         bottom_right: bool = True,
         deterministic: bool = False,
     ) -> torch.Tensor:
@@ -242,7 +242,7 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
             return out
 
     @staticmethod
-    def backward(ctx, dout: torch.Tensor, *args: Any) -> Tuple[  # type: ignore
+    def backward(ctx, dout: torch.Tensor, *args: Any) -> tuple[  # type: ignore
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,

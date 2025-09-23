@@ -7,7 +7,6 @@
 # pyre-strict
 
 import unittest
-from typing import Dict, Tuple
 
 import hypothesis.strategies as st
 import torch
@@ -22,7 +21,7 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
     # min_normal_pos is the minimal of normal numbers
     def _get_hfp8_dynamic_range(
         self, ebits: int, mbits: int, bias: int
-    ) -> Tuple[int, int, int]:
+    ) -> tuple[int, int, int]:
         max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
         min_pos = 2 ** (1 - bias - mbits)
         min_normal_pos = 2 ** (1 - bias)
@@ -30,7 +29,7 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
 
     def _get_hfp8_config(
         self,
-    ) -> Tuple[int, int, Dict[int, int], Dict[int, int], Dict[int, int]]:
+    ) -> tuple[int, int, dict[int, int], dict[int, int], dict[int, int]]:
         # TODO: set up test for 1-5-2 format
         # TODO: parameterize ebits and mbits in unit test
         ebits = 4

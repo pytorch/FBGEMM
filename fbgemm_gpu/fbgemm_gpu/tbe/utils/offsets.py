@@ -6,7 +6,7 @@
 
 # pyre-strict
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import numpy as np
 import torch
@@ -21,7 +21,7 @@ def get_table_batched_offsets_from_dense(
     L: Optional[int] = None,
     total_B: Optional[int] = None,
     use_cpu: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     if L is None and total_B is None:
         (T, B, L) = merged_indices.size()
         total_B = T * B
@@ -37,7 +37,7 @@ def get_table_batched_offsets_from_dense(
     )
 
 
-def get_offsets_from_dense(indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_offsets_from_dense(indices: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     (B, L) = indices.size()
     return (
         indices.contiguous().view(-1),

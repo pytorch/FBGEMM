@@ -10,7 +10,7 @@
 import abc
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from torch import Tensor
 
@@ -32,15 +32,15 @@ class TBEInfo:
         col_offset: the shard offset of the current rank on column (dim)
     """
 
-    table_names: List[str]
-    table_heights: List[int]
+    table_names: list[str]
+    table_heights: list[int]
     tbe_uuid: str
-    feature_table_map: List[int]
-    table_dims: List[int]
-    full_table_heights: List[int]
-    full_table_dims: List[int]
-    row_offset: List[int]
-    col_offset: List[int]
+    feature_table_map: list[int]
+    table_dims: list[int]
+    full_table_heights: list[int]
+    full_table_dims: list[int]
+    row_offset: list[int]
+    col_offset: list[int]
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ class TBEInputInfo:
 
     indices: Tensor
     offsets: Tensor
-    batch_size_per_feature_per_rank: Optional[List[List[int]]] = None
+    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None
 
 
 class TBEInputMultiplexer(abc.ABC):

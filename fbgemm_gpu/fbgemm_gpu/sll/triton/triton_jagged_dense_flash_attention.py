@@ -6,7 +6,6 @@
 
 # pyre-unsafe
 
-from typing import Tuple
 
 import torch
 import triton
@@ -171,7 +170,7 @@ def jagged_dense_flash_attention_fwd(
     jagged_offsets,
     max_seq_len,
     allow_tf32=False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Q: jagged tensor, [sum_B, D]
     K: dense tensor, [B, D, T]
@@ -650,7 +649,7 @@ def jagged_dense_flash_attention_bwd(
     jagged_offsets,
     max_seq_len,
     allow_tf32=False,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Q: jagged tensor, [sum_B, D]
     K: dense tensor, [B, D, T]
@@ -812,7 +811,7 @@ class JaggedDenseFlashAttention(torch.autograd.Function):
     # pyre-fixme
     def backward(
         ctx, do: torch.Tensor
-    ) -> Tuple[
+    ) -> tuple[
         torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None, None, None
     ]:
         Q, K, V, attn_bias, jagged_offsets, lse, attn_out = ctx.saved_tensors

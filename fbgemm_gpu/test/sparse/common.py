@@ -11,7 +11,7 @@
 import os
 import unittest
 from itertools import accumulate
-from typing import Callable, Dict, List, Optional, Tuple, Type
+from typing import Callable, Optional
 
 import fbgemm_gpu
 import torch
@@ -26,7 +26,7 @@ if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
 
-suppressed_list: List[HealthCheck] = (
+suppressed_list: list[HealthCheck] = (
     [HealthCheck.differing_executors]
     if getattr(HealthCheck, "differing_executors", False)
     else []
@@ -40,7 +40,7 @@ def permute_indices_ref_(
     weights: Optional[torch.Tensor],
     permute: torch.LongTensor,
     is_1D: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     T = lengths.size(0)
     B = lengths.size(1)
     if T == 0 or B == 0:
@@ -97,7 +97,7 @@ def permute_indices_ref_(
 @torch.jit.script
 def permute_scripted(
     permute: torch.Tensor, lengths: torch.Tensor, indices: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     (
         permuted_lengths_cpu,
         permuted_indices_cpu,
@@ -111,12 +111,12 @@ def permute_scripted(
 
 
 def extend_test_class(
-    klass: Type[unittest.TestCase],
+    klass: type[unittest.TestCase],
     # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
     # Please avoid putting tests here, you should put operator-specific
     # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
     # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-    additional_decorators: Optional[Dict[str, List[Callable]]] = None,
+    additional_decorators: Optional[dict[str, list[Callable]]] = None,
 ) -> None:
     failures_dict_path: str = get_file_path_2(
         "", os.path.dirname(__file__), "failures_dict.json"

@@ -7,7 +7,7 @@
 
 # pyre-strict
 
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import torch
@@ -34,7 +34,7 @@ except Exception:
 
 def _generate_batch_sizes(
     tbe_data_config: TBEDataConfig,
-) -> Tuple[List[int], Optional[List[List[int]]]]:
+) -> tuple[list[int], Optional[list[list[int]]]]:
     if tbe_data_config.variable_B():
         assert (
             tbe_data_config.batch_params.vbe_num_ranks is not None
@@ -54,7 +54,7 @@ def _generate_batch_sizes(
 
 
 def _generate_pooling_info(
-    tbe_data_config: TBEDataConfig, iters: int, Bs: List[int]
+    tbe_data_config: TBEDataConfig, iters: int, Bs: list[int]
 ) -> torch.Tensor:
     if tbe_data_config.variable_L():
         # Generate L from stats
@@ -77,7 +77,7 @@ def _generate_pooling_info(
 def _generate_indices(
     tbe_data_config: TBEDataConfig,
     iters: int,
-    Bs: List[int],
+    Bs: list[int],
     L_offsets: torch.Tensor,
 ) -> torch.Tensor:
 
@@ -107,11 +107,11 @@ def _generate_indices(
 def _build_requests_jagged(
     tbe_data_config: TBEDataConfig,
     iters: int,
-    Bs: List[int],
-    Bs_feature_rank: Optional[List[List[int]]],
+    Bs: list[int],
+    Bs_feature_rank: Optional[list[list[int]]],
     L_offsets: torch.Tensor,
     all_indices: torch.Tensor,
-) -> List[TBERequest]:
+) -> list[TBERequest]:
     total_B = sum(Bs)
     all_indices = all_indices.flatten()
     requests = []
@@ -142,7 +142,7 @@ def _build_requests_jagged(
 
 def _build_requests_dense(
     tbe_data_config: TBEDataConfig, iters: int, all_indices: torch.Tensor
-) -> List[TBERequest]:
+) -> list[TBERequest]:
     # NOTE: We're using existing code from requests.py to build the
     # requests, and since the existing code requires 2D view of all_indices,
     # the existing all_indices must be reshaped
@@ -175,8 +175,8 @@ def _build_requests_dense(
 def generate_requests(
     tbe_data_config: TBEDataConfig,
     iters: int = 1,
-    batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-) -> List[TBERequest]:
+    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+) -> list[TBERequest]:
 
     # Generate batch sizes
     if batch_size_per_feature_per_rank:
@@ -221,8 +221,8 @@ def generate_requests_with_Llist(
     tbe_data_config: TBEDataConfig,
     L_list: torch.Tensor,
     iters: int = 1,
-    batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-) -> List[TBERequest]:
+    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+) -> list[TBERequest]:
     """
     Generate a list of TBERequest objects based on the provided TBE data configuration and L_list
     This function generates batch sizes and pooling information from the input L_list,
@@ -284,7 +284,7 @@ def generate_requests_with_Llist(
         return _build_requests_dense(tbe_data_config, iters, all_indices)
 
 
-def generate_embedding_dims(tbe_data_config: TBEDataConfig) -> Tuple[int, List[int]]:
+def generate_embedding_dims(tbe_data_config: TBEDataConfig) -> tuple[int, list[int]]:
     if tbe_data_config.mixed_dim:
         Ds = [
             round_up(

@@ -10,7 +10,7 @@
 import logging
 import os
 import unittest
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import triton  # noqa: F401
@@ -147,7 +147,7 @@ class ActivationTests(unittest.TestCase):
         else:
             scale_ub_tensor = None
 
-        def fn() -> Tuple[torch.Tensor, torch.Tensor]:
+        def fn() -> tuple[torch.Tensor, torch.Tensor]:
             op = silu_mul_quant
             if compiled:
                 op = torch.compile(op)
@@ -156,7 +156,7 @@ class ActivationTests(unittest.TestCase):
         y_fp8, y_scale = fn()
         y = y_fp8.to(torch.float32) * y_scale[:, None]
 
-        def ref_fn() -> Tuple[torch.Tensor, torch.Tensor]:
+        def ref_fn() -> tuple[torch.Tensor, torch.Tensor]:
             x0_fp32 = x0.to(torch.float32)
             x1_fp32 = x1.to(torch.float32)
             y_fp32 = x0_fp32 * torch.sigmoid(x0_fp32) * x1_fp32

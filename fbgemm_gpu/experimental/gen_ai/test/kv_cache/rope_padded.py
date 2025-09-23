@@ -6,7 +6,7 @@
 
 # pyre-unsafe
 
-from typing import Dict, Optional
+from typing import Optional
 
 import torch
 
@@ -46,7 +46,7 @@ except ImportError:
             from triton.language.extra.cuda.libdevice import pow
 
 
-_INTERNAL_DTYPE_MAP: Dict[str, int] = {"": 0, "f32": 1, "f64": 2}
+_INTERNAL_DTYPE_MAP: dict[str, int] = {"": 0, "f32": 1, "f64": 2}
 
 
 @triton.jit

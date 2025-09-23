@@ -8,7 +8,7 @@
 
 import logging
 import time
-from typing import Callable, Tuple
+from typing import Callable
 
 import click
 import torch
@@ -25,9 +25,9 @@ except Exception:
 
 
 def benchmark_hbc_function(
-    func: Callable[[Tensor], Tuple[Tensor, Tensor]],
+    func: Callable[[Tensor], tuple[Tensor, Tensor]],
     input: Tensor,
-) -> Tuple[float, Tensor]:
+) -> tuple[float, Tensor]:
     if input.is_cuda:
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -118,7 +118,7 @@ def cli(
         [num_bins * (num_segments + 1)], dtype=torch.float64
     ).fill_(0.0)
 
-    def fbgemm_hbc_cpu(input: Tensor) -> Tuple[Tensor, Tensor]:
+    def fbgemm_hbc_cpu(input: Tensor) -> tuple[Tensor, Tensor]:
         return torch.ops.fbgemm.histogram_binning_calibration(
             input,
             bin_num_examples,
@@ -130,7 +130,7 @@ def cli(
             0.9995,
         )
 
-    def fbgemm_hbc_by_feature_cpu(input: Tensor) -> Tuple[Tensor, Tensor]:
+    def fbgemm_hbc_by_feature_cpu(input: Tensor) -> tuple[Tensor, Tensor]:
         return torch.ops.fbgemm.histogram_binning_calibration_by_feature(
             input,
             segment_values,
@@ -146,7 +146,7 @@ def cli(
             0.9995,
         )
 
-    def fbgemm_generic_hbc_by_feature_cpu(input: Tensor) -> Tuple[Tensor, Tensor]:
+    def fbgemm_generic_hbc_by_feature_cpu(input: Tensor) -> tuple[Tensor, Tensor]:
         return torch.ops.fbgemm.generic_histogram_binning_calibration_by_feature(
             input,
             segment_values,
@@ -186,7 +186,7 @@ def cli(
             bin_num_examples_gpu: Tensor = bin_num_examples.cuda()
             bin_num_positives_gpu: Tensor = bin_num_positives.cuda()
 
-            def fbgemm_hbc_gpu(input: Tensor) -> Tuple[Tensor, Tensor]:
+            def fbgemm_hbc_gpu(input: Tensor) -> tuple[Tensor, Tensor]:
                 return torch.ops.fbgemm.histogram_binning_calibration(
                     input,
                     bin_num_examples_gpu,
@@ -206,7 +206,7 @@ def cli(
                 by_feature_bin_num_positives.cuda()
             )
 
-            def fbgemm_hbc_by_feature_gpu(input: Tensor) -> Tuple[Tensor, Tensor]:
+            def fbgemm_hbc_by_feature_gpu(input: Tensor) -> tuple[Tensor, Tensor]:
                 return torch.ops.fbgemm.histogram_binning_calibration_by_feature(
                     input,
                     segment_values_gpu,
@@ -226,7 +226,7 @@ def cli(
 
             def fbgemm_generic_hbc_by_feature_gpu(
                 input: Tensor,
-            ) -> Tuple[Tensor, Tensor]:
+            ) -> tuple[Tensor, Tensor]:
                 return (
                     torch.ops.fbgemm.generic_histogram_binning_calibration_by_feature(
                         input,

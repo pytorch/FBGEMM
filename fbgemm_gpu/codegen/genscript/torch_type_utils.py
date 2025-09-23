@@ -12,7 +12,6 @@
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Dict
 
 
 class ArgType(IntEnum):
@@ -37,7 +36,7 @@ class TensorType:
     scalar_type: str
 
 
-arg_type_to_tensor_type: Dict[ArgType, TensorType] = {
+arg_type_to_tensor_type: dict[ArgType, TensorType] = {
     ArgType.FLOAT_TENSOR: TensorType("float", "at::ScalarType::Float"),
     ArgType.HALF_TENSOR: TensorType("at::Half", "at::ScalarType::Half"),
     ArgType.BFLOAT16_TENSOR: TensorType("at::BFloat16", "at::ScalarType::BFloat16"),

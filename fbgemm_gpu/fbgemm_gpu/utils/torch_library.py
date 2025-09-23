@@ -8,7 +8,7 @@
 # pyre-strict
 
 import re
-from typing import Callable, Dict
+from typing import Callable
 
 import torch
 
@@ -112,7 +112,7 @@ class TorchLibraryFragment:
                 self.lib.impl(op_name, fn, dispatch_key)
 
     # pyre-ignore[24]
-    def register(self, op_name: str, functors: Dict[str, Callable]) -> None:
+    def register(self, op_name: str, functors: dict[str, Callable]) -> None:
         """
         Registers a set of dispatches for a defined operator.
 

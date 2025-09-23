@@ -6,7 +6,7 @@
 
 # pyre-unsafe
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import triton
@@ -75,7 +75,7 @@ def silu_mul_quant(
     x1: torch.Tensor,
     scale_ub: Optional[torch.Tensor] = None,
     valid_token_count: Optional[torch.Tensor] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Fused silu, mul, and FP8 rowwise quantization operations.
 

@@ -12,7 +12,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Callable, Deque, Optional, Tuple, Type, TypeVar
+from typing import Callable, Optional, TypeVar
 
 import torch
 
@@ -171,7 +171,7 @@ class AsyncSeriesTimerRecordedContext:
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
+        exc_type: Optional[type[BaseException]],
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
@@ -191,7 +191,7 @@ class AsyncSeriesTimer:
     """
 
     def __init__(self, report_functor: Callable[[T, float], None]) -> None:
-        self._events_queue: Deque[Tuple[torch.cuda.Event, torch.cuda.Event, T]] = (
+        self._events_queue: deque[tuple[torch.cuda.Event, torch.cuda.Event, T]] = (
             deque()
         )
         self._active_start_event: Optional[torch.cuda.Event] = None

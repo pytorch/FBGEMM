@@ -12,7 +12,7 @@ import random
 import sys
 import unittest
 from math import sqrt
-from typing import Callable, List, Tuple
+from typing import Callable
 
 import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 import numpy as np
@@ -59,7 +59,7 @@ def torch_compiled(model: Callable, **kwargs) -> Callable:
 
 class TableBatchedEmbeddingsTest(unittest.TestCase):
     class RefEmb(torch.nn.Module):
-        def __init__(self, num_tasks: int, hash_sizes: List[int]) -> None:
+        def __init__(self, num_tasks: int, hash_sizes: list[int]) -> None:
             super().__init__()
             self.num_tasks = num_tasks
             self.hash_sizes = hash_sizes
@@ -79,7 +79,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
                     self.emb_modules.append(emb)
 
         def forward(
-            self, offsets: List[torch.Tensor], indices: List[torch.Tensor]
+            self, offsets: list[torch.Tensor], indices: list[torch.Tensor]
         ) -> torch.Tensor:
             tt_list = []
             for n in range(self.num_tasks):
@@ -99,7 +99,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         num_embeddings: int,
         # pyre-fixme[24]: Generic type `list` expects 1 type parameter, use
         #  `typing.List[<element type>]` to avoid runtime subscripting errors.
-    ) -> Tuple[List, List, List]:
+    ) -> tuple[list, list, list]:
         lengths = []
         offsets = []
         indices = []

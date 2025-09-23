@@ -11,7 +11,6 @@
 import itertools
 import random
 import unittest
-from typing import List
 
 import hypothesis.strategies as st
 import numpy as np
@@ -32,7 +31,7 @@ else:
     )
 
 
-def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
+def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: list[int]) -> list[int]:
     hash_size_offsets_list = [0]
     count = 0
     for f in range(1, len(hash_size_cum_sum_list)):

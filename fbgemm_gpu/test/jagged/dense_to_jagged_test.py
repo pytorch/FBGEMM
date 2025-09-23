@@ -9,7 +9,6 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import List, Tuple
 
 import hypothesis.strategies as st
 import torch
@@ -249,8 +248,8 @@ class DenseToJaggedTest(unittest.TestCase):
 
         def jagged_to_dense(
             values: torch.Tensor,
-            offsets: List[torch.LongTensor],
-            max_lengths: List[int],
+            offsets: list[torch.LongTensor],
+            max_lengths: list[int],
         ) -> torch.Tensor:
             return torch.ops.fbgemm.jagged_to_padded_dense(values, offsets, max_lengths)
 
@@ -265,13 +264,13 @@ class DenseToJaggedTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(dense, -1)
 
         def dense_to_jagged_withL(
-            dense: torch.Tensor, offsets: List[torch.LongTensor], total_L: List[int]
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            dense: torch.Tensor, offsets: list[torch.LongTensor], total_L: list[int]
+        ) -> tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.dense_to_jagged(dense, offsets, total_L)
 
         def dense_to_jagged_noL(
-            dense: torch.Tensor, offsets: List[torch.LongTensor]
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            dense: torch.Tensor, offsets: list[torch.LongTensor]
+        ) -> tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.dense_to_jagged(dense, offsets)
 
         jagged_values, jagged_offsets = dense_to_jagged_noL(dense, offsets)

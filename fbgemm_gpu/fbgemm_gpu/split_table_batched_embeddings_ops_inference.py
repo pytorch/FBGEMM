@@ -12,7 +12,7 @@
 import logging
 import uuid
 from itertools import accumulate
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
@@ -92,14 +92,14 @@ def align_to_cacheline(a: int) -> int:
 
 
 def nbit_construct_split_state(
-    embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
+    embedding_specs: list[tuple[str, int, int, SparseType, EmbeddingLocation]],
     cacheable: bool,
     row_alignment: int,
     scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     cacheline_alignment: bool = True,
 ) -> SplitState:
-    placements = torch.jit.annotate(List[EmbeddingLocation], [])
-    offsets = torch.jit.annotate(List[int], [])
+    placements = torch.jit.annotate(list[EmbeddingLocation], [])
+    offsets = torch.jit.annotate(list[int], [])
     dev_size = 0
     host_size = 0
     uvm_size = 0
@@ -165,7 +165,7 @@ def inputs_to_device(
     offsets: torch.Tensor,
     per_sample_weights: Optional[torch.Tensor],
     bounds_check_warning: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     if bounds_check_warning.device.type == "meta":
         return indices, offsets, per_sample_weights
 
@@ -331,7 +331,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             Options are `torch.int32` and `torch.int64`.
     """
 
-    embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
+    embedding_specs: list[tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
     # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
     cache_miss_counter: torch.Tensor
@@ -346,15 +346,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def __init__(  # noqa C901
         self,
-        embedding_specs: List[
-            Tuple[str, int, int, SparseType, EmbeddingLocation]
+        embedding_specs: list[
+            tuple[str, int, int, SparseType, EmbeddingLocation]
         ],  # tuple of (feature_names, rows, dims, SparseType, EmbeddingLocation/placement)
-        feature_table_map: Optional[List[int]] = None,  # [T]
-        index_remapping: Optional[List[Tensor]] = None,
+        feature_table_map: Optional[list[int]] = None,  # [T]
+        index_remapping: Optional[list[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
-        weight_lists: Optional[List[Tuple[Tensor, Optional[Tensor]]]] = None,
+        weight_lists: Optional[list[tuple[Tensor, Optional[Tensor]]]] = None,
         pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
@@ -373,7 +373,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cacheline_alignment: bool = True,
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
-        feature_names_per_table: Optional[List[List[str]]] = None,
+        feature_names_per_table: Optional[list[list[str]]] = None,
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
@@ -406,14 +406,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.indices_dtype = indices_dtype
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
-        self.feature_names: List[str] = [e[0] for e in embedding_specs]
+        self.feature_names: list[str] = [e[0] for e in embedding_specs]
         self.cache_load_factor: float = cache_load_factor
         self.cache_sets: int = cache_sets
         self.cache_reserved_memory: float = cache_reserved_memory
-        rows: List[int] = [e[1] for e in embedding_specs]
-        dims: List[int] = [e[2] for e in embedding_specs]
-        weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
-        locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+        rows: list[int] = [e[1] for e in embedding_specs]
+        dims: list[int] = [e[2] for e in embedding_specs]
+        weights_tys: list[SparseType] = [e[3] for e in embedding_specs]
+        locations: list[EmbeddingLocation] = [e[4] for e in embedding_specs]
         # if target device is meta then we set use_cpu based on the embedding location
         # information in embedding_specs.
         if self.current_device.type == "meta":
@@ -453,7 +453,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         T_ = len(self.embedding_specs)
         assert T_ > 0
 
-        self.feature_table_map: List[int] = (
+        self.feature_table_map: list[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
         T = len(self.feature_table_map)
@@ -676,7 +676,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         return self.table_wise_cache_miss
 
     @torch.jit.export
-    def get_feature_num_per_table(self) -> List[int]:
+    def get_feature_num_per_table(self) -> list[int]:
         if self.feature_names_per_table is None:
             return []
         return [len(feature_names) for feature_names in self.feature_names_per_table]
@@ -1211,8 +1211,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         dev_size: int,
         host_size: int,
         uvm_size: int,
-        placements: List[int],
-        offsets: List[int],
+        placements: list[int],
+        offsets: list[int],
         enforce_hbm: bool,
     ) -> None:
         assert not self.weight_initialized, "Weights have already been initialized."
@@ -1602,7 +1602,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def split_embedding_weights_with_scale_bias(
         self, split_scale_bias_mode: int = 1
-    ) -> List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]]:
+    ) -> list[tuple[Tensor, Optional[Tensor], Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
         split_scale_bias_mode:
@@ -1611,7 +1611,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             2: return weights, scale, bias.
         """
         assert self.weight_initialized
-        splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = []
+        splits: list[tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = []
         for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
             placement = self.weights_physical_placements[t]
             if (
@@ -1736,12 +1736,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # the second with scale_bias.
         # This should've been named as split_scale_bias.
         # Keep as is for backward compatibility.
-    ) -> List[Tuple[Tensor, Optional[Tensor]]]:
+    ) -> list[tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
         """
         # fmt: off
-        splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = (
+        splits: list[tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = (
             self.split_embedding_weights_with_scale_bias(
                 split_scale_bias_mode=(1 if split_scale_shifts else 0)
             )
@@ -1779,7 +1779,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
     def assign_embedding_weights(
-        self, q_weight_list: List[Tuple[Tensor, Optional[Tensor]]]
+        self, q_weight_list: list[tuple[Tensor, Optional[Tensor]]]
     ) -> None:
         """
         Assigns self.split_embedding_weights() with values from the input list of weights and scale_shifts.
@@ -1799,11 +1799,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def set_index_remappings_array(
         self,
-        index_remapping: List[Tensor],
+        index_remapping: list[Tensor],
     ) -> None:
-        rows: List[int] = [e[1] for e in self.embedding_specs]
+        rows: list[int] = [e[1] for e in self.embedding_specs]
         index_remappings_array_offsets = [0]
-        original_feature_rows = torch.jit.annotate(List[int], [])
+        original_feature_rows = torch.jit.annotate(list[int], [])
         last_offset = 0
         for t, mapping in enumerate(index_remapping):
             if mapping is not None:
@@ -1842,11 +1842,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def set_index_remappings(
         self,
-        index_remapping: List[Tensor],
+        index_remapping: list[Tensor],
         pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
     ) -> None:
-        rows: List[int] = [e[1] for e in self.embedding_specs]
+        rows: list[int] = [e[1] for e in self.embedding_specs]
         T = len(self.embedding_specs)
         # Hash mapping pruning
         if not use_array_for_index_remapping:
@@ -1916,7 +1916,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def _embedding_inplace_update_per_table(
         self,
         update_table_idx: int,
-        update_row_indices: List[int],
+        update_row_indices: list[int],
         update_weights: Tensor,
     ) -> None:
         row_size = len(update_row_indices)
@@ -1941,9 +1941,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def embedding_inplace_update(
         self,
-        update_table_indices: List[int],
-        update_row_indices: List[List[int]],
-        update_weights: List[Tensor],
+        update_table_indices: list[int],
+        update_row_indices: list[list[int]],
+        update_weights: list[Tensor],
     ) -> None:
         for i in range(len(update_table_indices)):
             self._embedding_inplace_update_per_table(
@@ -1954,8 +1954,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def embedding_inplace_update_internal(
         self,
-        update_table_indices: List[int],
-        update_row_indices: List[int],
+        update_table_indices: list[int],
+        update_row_indices: list[int],
         update_weights: Tensor,
     ) -> None:
         assert len(update_table_indices) == len(update_row_indices)

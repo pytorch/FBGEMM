@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Optional, Type
+from typing import Optional
 
 import hypothesis.strategies as st
 import torch
@@ -963,7 +963,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features(
         self,
-        index_type: Type[torch.dtype],
+        index_type: type[torch.dtype],
         has_weight: bool,
         bucketize_pos: bool,
         sequence: bool,
@@ -1128,7 +1128,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_inference(
         self,
-        index_type: Type[torch.dtype],
+        index_type: type[torch.dtype],
     ) -> None:
         # pyre-ignore [6]
         lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=index_type)
@@ -1208,7 +1208,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_populate_bucketized_permute(
         self,
-        index_type: Type[torch.dtype],
+        index_type: type[torch.dtype],
     ) -> None:
         # pyre-ignore [6]
         lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=index_type)
@@ -1566,7 +1566,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=32, deadline=None)
     def test_block_bucketize_sparse_features_large(
         self,
-        index_type: Type[torch.dtype],
+        index_type: type[torch.dtype],
         has_weight: bool,
         bucketize_pos: bool,
         sequence: bool,
@@ -1673,7 +1673,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_float64_weights(
         self,
-        index_type: Type[torch.dtype],
+        index_type: type[torch.dtype],
         bucketize_pos: bool,
         sequence: bool,
     ) -> None:

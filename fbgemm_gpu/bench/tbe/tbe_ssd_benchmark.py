@@ -12,7 +12,7 @@ import os
 import tempfile
 import time
 from contextlib import nullcontext
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Union
 
 import click
 import numpy as np
@@ -61,7 +61,7 @@ def benchmark_ssd_function(
     buf: torch.Tensor,
     indices: torch.Tensor,
     indices_per_itr: int,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     actions_count_cpu = torch.tensor([indices_per_itr]).long().cpu()
     # warmup
     for i in range(warmup_iters):
@@ -302,14 +302,14 @@ def ssd_training(  # noqa C901
     else:
         feature_requires_grad = None
     if mixed:
-        Ds: List[int] = [
+        Ds: list[int] = [
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
         # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
-        Ds: List[int] = [D] * T
+        Ds: list[int] = [D] * T
 
     if pooling is None or pooling == "sum":
         pooling = "sum"
@@ -323,13 +323,13 @@ def ssd_training(  # noqa C901
         do_pooling = False
 
     feature_table_map = list(range(T))
-    common_args: Dict[str, Any] = {
+    common_args: dict[str, Any] = {
         "feature_table_map": feature_table_map,
         "learning_rate": 0.1,
         "eps": 0.1,
         "pooling_mode": pooling_mode,
     }
-    common_split_tbe_args: Dict[str, Any] = {
+    common_split_tbe_args: dict[str, Any] = {
         # SSD only supports rowwise-adagrad
         "optimizer": OptimType.EXACT_ROWWISE_ADAGRAD,
         "weights_precision": weights_precision,

@@ -15,7 +15,7 @@ import threading
 import time
 import unittest
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from unittest.mock import patch
 
 import hypothesis.strategies as st
@@ -41,7 +41,7 @@ if not open_source:
 
 MAX_EXAMPLES = 100
 WORLD_SIZE = 4
-default_st: Dict[str, Any] = {
+default_st: dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=10),
     "D": st.integers(min_value=2, max_value=128),
     "log_E": st.integers(min_value=2, max_value=3),
@@ -49,7 +49,7 @@ default_st: Dict[str, Any] = {
     "weights_precision": st.sampled_from([SparseType.FP32, SparseType.FP16]),
 }
 
-default_settings: Dict[str, Any] = {
+default_settings: dict[str, Any] = {
     "verbosity": Verbosity.verbose,
     "max_examples": MAX_EXAMPLES,
     "deadline": None,
@@ -146,7 +146,7 @@ class SSDCheckpointTest(unittest.TestCase):
         kv_zch_params: Optional[KVZCHParams] = None,
         backend_type: BackendType = BackendType.SSD,
         flushing_block_size: int = 1000,
-    ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int]]:
+    ) -> tuple[SSDTableBatchedEmbeddingBags, list[int], list[int]]:
         E = int(10**log_E)
         D = D * 4
         if not mixed:

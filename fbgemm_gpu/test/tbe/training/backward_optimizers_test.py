@@ -11,7 +11,7 @@
 
 import math
 import unittest
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -105,7 +105,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         use_cpu: bool,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         uvm_non_rowwise_momentum: bool = False,
-        optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
+        optimizer_state_dtypes: Optional[dict[str, SparseType]] = None,
         use_rowwise_bias_correction: bool = False,
         counter_weight_decay_mode: Optional[CounterWeightDecayMode] = None,
     ) -> None:
@@ -257,7 +257,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         [f.backward(go) for (f, go) in zip(fs, gos)]
         # do SGD update
 
-        optimizer_kwargs: Dict[str, Any] = {"learning_rate": 0.5}
+        optimizer_kwargs: dict[str, Any] = {"learning_rate": 0.5}
         (lr, eps, beta1, beta2, weight_decay, momentum, eta) = (
             0.5,
             1e-4,
@@ -793,7 +793,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         prev_iter: torch.Tensor,
         iter_: int,
         weight_decay: float,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         row_counter = row_counter.view(row_counter.numel(), 1)
         prev_iter = prev_iter.view(prev_iter.numel(), 1)
         freq = torch.ones_like(row_counter)
@@ -1117,7 +1117,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         use_cpu: bool,
         uvm_non_rowwise_momentum: bool,
-        optimizer_state_dtypes: Dict[str, SparseType],
+        optimizer_state_dtypes: dict[str, SparseType],
     ) -> None:
         self.execute_backward_optimizers_(
             T,
@@ -1349,7 +1349,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         use_cpu: bool,
         uvm_non_rowwise_momentum: bool,
-        optimizer_state_dtypes: Dict[str, SparseType],
+        optimizer_state_dtypes: dict[str, SparseType],
     ) -> None:
         self.execute_backward_optimizers_(
             T,

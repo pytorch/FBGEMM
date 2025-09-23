@@ -6,7 +6,6 @@
 
 import math
 import unittest
-from typing import Tuple
 
 import fbgemm_gpu
 import torch
@@ -41,7 +40,7 @@ class TestFp4Quantize(unittest.TestCase):
 
     def test_quantize_fp4(self) -> None:
         def _test_quantize_fp4(
-            shape: Tuple[int, int],
+            shape: tuple[int, int],
             device: str = "cuda",
         ) -> None:
             M, N = shape
@@ -92,7 +91,7 @@ class TestFp4RmsQuantize(unittest.TestCase):
 
     def test_rms_quantize_fp4(self) -> None:
         def _test_rms_quantize_fp4(
-            shape: Tuple[int, int],
+            shape: tuple[int, int],
             device: str = "cuda",
         ) -> None:
             M, N = shape
@@ -158,7 +157,7 @@ class TestFp4SiluQuantize(unittest.TestCase):
 
     def test_silu_quantize_fp4(self) -> None:
         def _test_silu_quantize_fp4(
-            shape: Tuple[int, int],
+            shape: tuple[int, int],
             device: str = "cuda",
         ) -> None:
             M, N = shape
@@ -216,7 +215,7 @@ class TestNVFp4SiluQuantize(unittest.TestCase):
     def test_silu_quantize_nvfp4(self) -> None:
 
         def _test_silu_quantize_nvfp4(
-            shape: Tuple[int, int],
+            shape: tuple[int, int],
             device: str = "cuda",
         ) -> None:
             M, N = shape
@@ -258,7 +257,7 @@ class TestNVFp4RmsQuantize(unittest.TestCase):
     def test_rms_quantize_nvfp4(self) -> None:
 
         def _test_rms_quantize_nvfp4(
-            shape: Tuple[int, int],
+            shape: tuple[int, int],
             device: str = "cuda",
         ) -> None:
             M, N = shape

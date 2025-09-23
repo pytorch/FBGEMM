@@ -9,7 +9,7 @@
 
 # pyre-ignore-all-errors[6]
 
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import triton  # @manual
@@ -472,7 +472,7 @@ def triton_jagged_to_dense_optimization_2d(
 # In FBGEMM it was computed by GPU but in triton currently has some compilation issue so we use CUP computation method as workaround
 # However in real-world case if we only dealing with 2d jagged tensor we don't need to use this function at all
 def _jagged_offsets_to_dense_indice(
-    offsets: List[torch.Tensor], dense_strides: List[int], dense_sizes: List[int]
+    offsets: list[torch.Tensor], dense_strides: list[int], dense_sizes: list[int]
 ) -> torch.Tensor:
 
     output_offset = torch.zeros(len(offsets[-1]) - 1, device="cpu", dtype=torch.int32)
@@ -532,8 +532,8 @@ def _jagged_offsets_to_dense_indice(
 # not be affected at all
 def jagged_to_dense(
     jagged_values: torch.Tensor,
-    jagged_offsets: List[torch.Tensor],
-    jagged_max_lengths: List[int],
+    jagged_offsets: list[torch.Tensor],
+    jagged_max_lengths: list[int],
     padding_value: float = 0.0,  # padding value currently use 0.0 as default value
     operation_function: Union[
         str, None
@@ -720,10 +720,10 @@ def triton_dense_to_jagged(
 
 def dense_to_jagged(
     dense: torch.Tensor,
-    jagged_offsets: List[torch.Tensor],
+    jagged_offsets: list[torch.Tensor],
     operation_function: Union[str, None] = None,
     operation_jagged_values: Union[torch.Tensor, None] = None,
-) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+) -> tuple[torch.Tensor, list[torch.Tensor]]:
 
     thread_block_row_size = 32
     thread_block_col_size = 32
@@ -780,7 +780,7 @@ def dense_to_jagged(
 # jagged_tensor + dense -> dense
 def jagged_dense_elementwise_add_dense_output(
     jagged_values: Tensor,
-    jagged_offsets: List[Tensor],
+    jagged_offsets: list[Tensor],
     # pyre-fixme[2]: Parameter must be annotated.
     dense,
 ) -> Tensor:
@@ -800,8 +800,8 @@ def jagged_dense_elementwise_add_dense_output(
 
 # jagged_tensor + dense -> jagged_tensor
 def jagged_dense_elementwise_add_jagged_output(
-    jagged_values: Optional[Tensor], jagged_offsets: List[Tensor], dense: Tensor
-) -> Tuple[Tensor, List[Tensor]]:
+    jagged_values: Optional[Tensor], jagged_offsets: list[Tensor], dense: Tensor
+) -> tuple[Tensor, list[Tensor]]:
 
     return dense_to_jagged(
         dense,
@@ -813,8 +813,8 @@ def jagged_dense_elementwise_add_jagged_output(
 
 # jagged_tensor * dense -> jagged_tensor
 def jagged_dense_elementwise_mul_jagged_output(
-    jagged_values: Optional[Tensor], jagged_offsets: List[Tensor], dense: Tensor
-) -> Tuple[Tensor, List[Tensor]]:
+    jagged_values: Optional[Tensor], jagged_offsets: list[Tensor], dense: Tensor
+) -> tuple[Tensor, list[Tensor]]:
 
     return dense_to_jagged(
         dense,

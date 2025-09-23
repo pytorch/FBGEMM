@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import cast, Optional, Tuple
+from typing import cast, Optional
 
 import hypothesis.strategies as st
 import torch
@@ -35,7 +35,7 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
         indices: torch.Tensor,
         weights: Optional[torch.Tensor],
         permute: torch.LongTensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         T = lengths.size(0)
         B = lengths.size(1)
         permuted_lengths = torch.index_select(lengths.view(T, B), 0, permute)
@@ -81,7 +81,7 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
         indices = torch.randint(
             low=1,
             high=int(1e5),
-            size=cast(Tuple[int, ...], (lengths.sum().item(),)),
+            size=cast(tuple[int, ...], (lengths.sum().item(),)),
         ).type(index_dtype)
         permute_list = list(range(T))
         random.shuffle(permute_list)
@@ -143,7 +143,7 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
         indices = torch.randint(
             low=1,
             high=int(1e5),
-            size=cast(Tuple[int, ...], (lengths.sum().item(),)),
+            size=cast(tuple[int, ...], (lengths.sum().item(),)),
         ).type(index_dtype)
         permute_list = list(range(T))
 

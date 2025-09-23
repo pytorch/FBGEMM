@@ -10,7 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import Any, Dict
+from typing import Any
 
 import torch
 
@@ -30,9 +30,9 @@ from .backward_adagrad_common import (
 )
 
 # Set up test strategy
-test_st: Dict[str, Any] = common_strategy.copy()
+test_st: dict[str, Any] = common_strategy.copy()
 test_st["D"] = st.integers(min_value=2, max_value=128)
-test_st_cpu: Dict[str, Any] = test_st.copy()
+test_st_cpu: dict[str, Any] = test_st.copy()
 test_st_cpu["use_cpu"] = st.just(True)
 test_st_cpu["row_wise"] = st.just(True)
 test_st_cpu["output_dtype"] = st.sampled_from([SparseType.FP32, SparseType.FP16])

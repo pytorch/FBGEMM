@@ -8,14 +8,13 @@
 # pyre-strict
 
 import enum
-import typing
-from typing import Any, Callable, List, Tuple
+from typing import Any, Callable
 
 
 # Create enums in given namespace with information from query_op
 def create_enums(
-    namespace: typing.Dict[str, Any],
-    query_op: Callable[[], List[Tuple[str, List[Tuple[str, int]]]]],
+    namespace: dict[str, Any],
+    query_op: Callable[[], list[tuple[str, list[tuple[str, int]]]]],
 ) -> None:
     for enum_name, items in query_op():
         # Create matching python enumeration

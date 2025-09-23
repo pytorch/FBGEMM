@@ -6,9 +6,10 @@
 
 import os
 from abc import ABCMeta, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Callable, List, Mapping, Optional, Tuple, Union
+from typing import Callable, Optional, Union
 
 import torch
 
@@ -91,7 +92,7 @@ class MoEArgs:
 
 INIT_METHODS_TYPE = Mapping[
     str,
-    Callable[[torch.Tensor], Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]],
+    Callable[[torch.Tensor], Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]],
 ]
 
 
@@ -846,8 +847,8 @@ class MetaShufflingMoE(BaselineMoE):
     def _exchange_tokens(
         self,
         send_tokens: torch.Tensor,
-        send_sizes: Optional[List[int]],
-        recv_sizes: Optional[List[int]],
+        send_sizes: Optional[list[int]],
+        recv_sizes: Optional[list[int]],
         is_input: bool,
     ) -> torch.Tensor:
         """
@@ -1066,7 +1067,7 @@ class MetaShufflingMoE(BaselineMoE):
 
     def _route(
         self, tokens: torch.Tensor
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, torch.Tensor]:
         B, T, D = tokens.shape
         tokens = tokens.view(-1, D)
 

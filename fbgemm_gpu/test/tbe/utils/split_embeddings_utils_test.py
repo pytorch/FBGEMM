@@ -14,7 +14,6 @@ import pickle
 import random
 import unittest
 from itertools import accumulate
-from typing import List, Tuple
 
 import fbgemm_gpu  # noqa E402
 
@@ -46,10 +45,10 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 def gen_inputs(
-    hash_sizes: List[int],
+    hash_sizes: list[int],
     batch_size: int,
     max_len: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     the lengths of bags are chosen from
     a uniform distribution from [0, max_len]
@@ -80,7 +79,7 @@ def transpose_embedding_input_ref(
     indices: torch.Tensor,
     offsets: torch.Tensor,
     info_B_num_bits: int,
-) -> Tuple[
+) -> tuple[
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -488,7 +487,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         use_cpu_hashtable: bool,
         use_array_for_index_remapping: bool,
     ) -> None:
-        E = int(1000)
+        E = 1000
         LOAD_FACTOR = 0.8
         pruning_ratio = 0.5
 

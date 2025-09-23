@@ -7,7 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
-from typing import Any, List, Tuple
+from typing import Any
 
 import fbgemm_gpu
 import torch
@@ -30,10 +30,10 @@ else:
     )
     from fbgemm_gpu.test.test_utils import gpu_unavailable, on_arm_platform
 
-typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
-typed_on_arm_platform: Tuple[bool, str] = on_arm_platform
+typed_gpu_unavailable: tuple[bool, str] = gpu_unavailable
+typed_on_arm_platform: tuple[bool, str] = on_arm_platform
 
-suppressed_list: List[HealthCheck] = (
+suppressed_list: list[HealthCheck] = (
     [HealthCheck.not_a_test_method]
     if getattr(HealthCheck, "not_a_test_method", False)
     else []

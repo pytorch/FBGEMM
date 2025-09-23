@@ -6,7 +6,6 @@
 
 # pyre-strict
 
-from typing import List, Tuple
 
 import click
 import torch
@@ -82,7 +81,7 @@ def estimate(indices: str) -> None:
 )
 def generate(
     hitters: str,
-    zipf: Tuple[float, float],
+    zipf: tuple[float, float],
     max_index: int,
     num_indices: int,
     output: str,
@@ -114,7 +113,7 @@ def generate(
     assert output != "", "Output file path must be provided"
 
     try:
-        _hitters: List[float] = (
+        _hitters: list[float] = (
             [float(x) for x in hitters.split(",")] if hitters else []
         )
     except Exception as e:

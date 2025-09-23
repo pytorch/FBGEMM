@@ -12,7 +12,7 @@ import logging
 import os
 import tempfile
 from contextlib import nullcontext
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 try:
     from fbgemm_gpu.tbe.trace.fbgemm_kineto_trace_handler import (
@@ -136,7 +136,7 @@ def device(  # noqa C901
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
 
     # Construct the common split arguments for the embedding op
-    common_split_args: Dict[str, Any] = embconfig.split_args() | {
+    common_split_args: dict[str, Any] = embconfig.split_args() | {
         "optimizer": optimizer,
         "learning_rate": 0.1,
         "eps": 0.1,
@@ -295,7 +295,7 @@ def device(  # noqa C901
                 FbgemmKinetoTraceHandler(p_obj).sync_log(
                     run_id=str(trace_url),
                     test_phase="fwd",
-                    test_name=str("tbe_training"),
+                    test_name="tbe_training",
                     benchmark_duration_us=float(time_per_iter * 1.0e6),
                     achieved_bw_gbps=float(read_write_bytes / time_per_iter / 1.0e9),
                 )
@@ -352,7 +352,7 @@ def device(  # noqa C901
                 FbgemmKinetoTraceHandler(p_obj).sync_log(
                     run_id=str(trace_url),
                     test_phase="fwd_bwd",
-                    test_name=str("tbe_training"),
+                    test_name="tbe_training",
                     benchmark_duration_us=float(time_per_iter * 1.0e6),
                     achieved_bw_gbps=float(
                         2 * read_write_bytes / time_per_iter / 1.0e9
@@ -457,7 +457,7 @@ def device_with_speclist(  # noqa C901
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
 
     # Construct the common split arguments for the embedding op
-    common_split_args: Dict[str, Any] = embconfig.split_args() | {
+    common_split_args: dict[str, Any] = embconfig.split_args() | {
         "optimizer": optimizer,
         "learning_rate": 0.1,
         "eps": 0.1,

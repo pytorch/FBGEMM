@@ -12,7 +12,6 @@ import functools
 import logging
 import random
 from dataclasses import dataclass
-from typing import List, Tuple
 
 import click
 import fbgemm_gpu
@@ -505,7 +504,7 @@ def masked_select_jagged_1d(
 
     def ref(
         values: torch.Tensor, lengths: torch.Tensor, mask: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         masked_values_ref = values[mask]
         cum_count = torch.cumsum(mask, 0)
         cum_count = torch.cat((cum_count, torch.tensor([0])))
@@ -653,9 +652,9 @@ def keyed_jagged_index_select_dim1(
         ref_inputs.append((key_values, key_lengths, indices, key_weights))
 
     def keyed_jagged_index_select_dim1_ref(
-        inputs: List[torch.Tensor],
+        inputs: list[torch.Tensor],
         has_weights: bool,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         outputs = []
         output_weights = []
         for key_values, key_lengths, indices, _ in inputs:
@@ -758,11 +757,11 @@ def jagged_slice_cpu(
         offsets: torch.Tensor,
         start: torch.Tensor,
         max_L: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         end_offsets_ = max_L + start + offsets[:-1]
         end_offsets = torch.where(end_offsets_ > offsets[1:], offsets[1:], end_offsets_)
         start_offsets = start + offsets[:-1]
-        indices_to_select: List[torch.Tensor] = []
+        indices_to_select: list[torch.Tensor] = []
         for i in range(end_offsets.size(0)):
             indices_to_select.append(
                 torch.arange(start_offsets[i].item(), end_offsets[i].item())

@@ -24,15 +24,13 @@ if open_source:
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
-from typing import List
-
 
 class GenerateVBEMetadataTest(unittest.TestCase):
     def generate_vbe_metadata_ref(
         self,
         offsets: torch.Tensor,
         info_B_num_bits: int,
-        batch_size_per_feature_per_rank: List[List[int]],
+        batch_size_per_feature_per_rank: list[list[int]],
         output_offset_feature_rank: torch.Tensor,
         feature_dims: torch.Tensor,
     ):

@@ -10,7 +10,7 @@
 
 import logging
 import math
-from typing import cast, Optional, Tuple
+from typing import cast, Optional
 
 import torch
 
@@ -53,7 +53,7 @@ class SplitEmbInferenceConverter:
         return model
 
     # pyre-fixme[2]: Parameter must be annotated.
-    def _prune_by_weights_l2_norm(self, new_num_rows, weights) -> Tuple[Tensor, float]:
+    def _prune_by_weights_l2_norm(self, new_num_rows, weights) -> tuple[Tensor, float]:
         assert new_num_rows > 0
         from numpy.linalg import norm
 
@@ -75,7 +75,7 @@ class SplitEmbInferenceConverter:
         idx: int,
         num_rows: int,
         module: SplitTableBatchedEmbeddingBagsCodegen,
-    ) -> Tuple[Tensor, Optional[Tensor]]:
+    ) -> tuple[Tensor, Optional[Tensor]]:
         # TODO(yingz): Avoid DtoH / HtoD overhead.
         weights = module.split_embedding_weights()[idx].cpu()
         if self.pruning_ratio is None:
@@ -100,7 +100,7 @@ class SplitEmbInferenceConverter:
 
     def _quantize_embs(
         self, weight: Tensor, weight_ty: SparseType
-    ) -> Tuple[Tensor, Optional[Tensor]]:
+    ) -> tuple[Tensor, Optional[Tensor]]:
         fp8_quant_config = cast(FP8QuantizationConfig, self.quantization_config)
         return quantize_embs(weight, weight_ty, fp8_quant_config)
 

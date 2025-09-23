@@ -9,7 +9,7 @@
 
 import logging
 from itertools import accumulate
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from torch import nn
@@ -34,8 +34,8 @@ def _fx_wrap_tensor_to_device(t: torch.Tensor, device: torch.device) -> torch.Te
 class PermutePooledEmbeddingsSplit(nn.Module):
     def __init__(
         self,
-        embs_dims: List[int],
-        permute: List[int],
+        embs_dims: list[int],
+        permute: list[int],
         device: Optional[torch.device] = None,
     ) -> None:
         super(PermutePooledEmbeddingsSplit, self).__init__()
@@ -51,7 +51,7 @@ class PermutePooledEmbeddingsSplit(nn.Module):
             "_permute", torch.tensor(permute, device=device, dtype=torch.int64)
         )
 
-        inv_permute: List[int] = [0] * len(permute)
+        inv_permute: list[int] = [0] * len(permute)
         for i, p in enumerate(permute):
             inv_permute[p] = i
 

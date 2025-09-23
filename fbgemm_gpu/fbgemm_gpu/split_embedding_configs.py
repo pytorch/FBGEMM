@@ -9,7 +9,7 @@
 
 import enum
 import itertools
-from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
+from typing import Any, Dict  # noqa: F401
 
 import torch
 
@@ -81,13 +81,13 @@ class EmbOptimType(enum.Enum):
         return self.value
 
     def _extract_dtype(
-        self, optimizer_state_dtypes: Dict[str, "SparseType"], name: str
+        self, optimizer_state_dtypes: dict[str, "SparseType"], name: str
     ) -> torch.dtype:
         if optimizer_state_dtypes is None or name not in optimizer_state_dtypes:
             return torch.float32
         return optimizer_state_dtypes[name].as_dtype()
 
-    def state_names(self) -> List[str]:
+    def state_names(self) -> list[str]:
         """
         Returns the names of the optimizer states.  The order of the states will
         be the order in which they are processed and returned in
@@ -101,7 +101,7 @@ class EmbOptimType(enum.Enum):
         else:
             return []
 
-    def state_size_table(self, D: int) -> Dict[str, int]:
+    def state_size_table(self, D: int) -> dict[str, int]:
         """
         Returns the table of state names to state sizes in terms of number of
         elements (per table row)
@@ -118,7 +118,7 @@ class EmbOptimType(enum.Enum):
     def state_size_nbytes(
         self,
         D: int,
-        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+        optimizer_state_dtypes: dict[str, "SparseType"] = {},  # noqa: B006
     ) -> int:
         """
         Returns the size of the data (in bytes) required to hold the optimizer
@@ -143,8 +143,8 @@ class EmbOptimType(enum.Enum):
         self,
         D: int,
         weights_precision: "SparseType",
-        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
-    ) -> Dict[str, Tuple[int, int]]:
+        optimizer_state_dtypes: dict[str, "SparseType"] = {},  # noqa: B006
+    ) -> dict[str, tuple[int, int]]:
         """
         Returns the start and end byte offsets of each optimizer state along a
         cache row with optimizer state offloading enabled.
@@ -184,10 +184,10 @@ class EmbOptimType(enum.Enum):
 
     def empty_states(
         self,
-        rows: List[int],
-        dims: List[int],
-        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
-    ) -> List[List[torch.Tensor]]:
+        rows: list[int],
+        dims: list[int],
+        optimizer_state_dtypes: dict[str, "SparseType"] = {},  # noqa: B006
+    ) -> list[list[torch.Tensor]]:
         """
         Creates sets of empty tensors per table to hold optimizer states based
         on the specified optimizer type, state dtypes, embedding specs, and
@@ -196,7 +196,7 @@ class EmbOptimType(enum.Enum):
         # Else, check that the local row count for each table is set
         assert len(rows) == len(dims)
 
-        opt_states_set: List[List[torch.Tensor]] = []
+        opt_states_set: list[list[torch.Tensor]] = []
 
         for r, D in zip(rows, dims):
             # Set up the table of state names to state sizes, ordered by their
@@ -223,10 +223,10 @@ class EmbOptimType(enum.Enum):
 
     def ssd_state_splits(
         self,
-        embedding_specs: List[Tuple[int, int]],  # Tuple of (rows, dims)
-        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+        embedding_specs: list[tuple[int, int]],  # Tuple of (rows, dims)
+        optimizer_state_dtypes: dict[str, "SparseType"] = {},  # noqa: B006
         enable_optimizer_offloading: bool = False,
-    ) -> List[Tuple[SplitState, str, torch.dtype]]:
+    ) -> list[tuple[SplitState, str, torch.dtype]]:
         """
         Returns the split planning for the optimizer states
         """
@@ -234,9 +234,9 @@ class EmbOptimType(enum.Enum):
         T_ = len(embedding_specs)
 
         # This is the cumulative row counts for rowwise states
-        row_count_cumsum: List[int] = [0] + list(itertools.accumulate(rows))
+        row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows))
         # This is the cumulative element counts for elementwise states
-        table_size_cumsum: List[int] = [0] + list(
+        table_size_cumsum: list[int] = [0] + list(
             itertools.accumulate([r * d for r, d in embedding_specs])
         )
 
@@ -441,7 +441,7 @@ class SparseType(enum.Enum):
             return QuantizationConfig()
 
 
-ELEMENT_SIZE: Dict[SparseType, int] = {
+ELEMENT_SIZE: dict[SparseType, int] = {
     SparseType.FP32: 4,
     SparseType.FP16: 2,
     SparseType.FP8: 1,

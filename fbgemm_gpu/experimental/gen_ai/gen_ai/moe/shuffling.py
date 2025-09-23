@@ -6,7 +6,7 @@
 
 # pyre-unsafe
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import triton
@@ -20,7 +20,7 @@ def combine_shuffling(
     expert_start: Optional[int] = None,
     expert_end: Optional[int] = None,
     is_padded: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     # pyre-ignore
     return _combine_or_split_shuffling(
         tokens=tokens,
@@ -60,7 +60,7 @@ def _combine_or_split_shuffling(
     is_padded: bool,
     is_combine: bool,
     init_with_zeros: bool = False,
-) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
     # T is intentionally ignored in kernel interface to avoid recompilation
     assert tokens.is_contiguous()
     assert token_counts.is_contiguous()

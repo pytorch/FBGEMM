@@ -10,7 +10,7 @@
 import logging
 import unittest
 from enum import Enum, unique
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
@@ -40,8 +40,8 @@ logger.setLevel(logging.INFO)
 
 
 def _get_varseq_batch_seqpos(
-    seqlens_q: List[int], seqlens_kv: List[int], device: torch.device
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    seqlens_q: list[int], seqlens_kv: list[int], device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     varseq_batch[i] is batch index of query i
     varseq_seqpos[i] is the offset of the last key which query i attends to
