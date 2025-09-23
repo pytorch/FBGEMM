@@ -2083,7 +2083,7 @@ class BF16I4ShuffledGroupedGemm(QuantizeOpBase):
 @register_quantize_op
 class BF16GroupedGrad(QuantizeOpBase):
     """
-    BF16 grouped matmul with grad inputs backed by cutlass
+    BF16 grouped matmul with dgrad inputs in pretraining backed by cutlass
     """
 
     def preprocess(self, x, w):
@@ -2115,6 +2115,52 @@ class BF16GroupedGrad(QuantizeOpBase):
     @property
     def name(self) -> str:
         return "bf16_grouped_grad"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class BF16GroupedWGrad(QuantizeOpBase):
+    """
+    BF16 grouped matmul with wgrad inputs in pretraining backed by cutlass
+    """
+
+    def preprocess(self, x, w):
+        # Get K values for each group
+        k_values = [xi.shape[1] for xi in x]  # K dimension for each group
+
+        # Convert k_values into sizes tensor
+        k_sizes = torch.tensor(k_values).to(dtype=torch.int64, device=x[0].device)
+
+        x = torch.concat(x, dim=1).contiguous()  # shape: (M, G*K)
+        w = torch.concat(w, dim=1).contiguous()  # shape: (N, G*K)
+
+        # Transpose the follows to simulate wgrad shapes
+        x = x.t().contiguous()  # shape: (G*K, M)
+        w = w.t().contiguous()  # shape: (G*K, N)
+
+        # Return processed tensors
+        return x, w, k_sizes
+
+    def quantize(self, x, w, k_sizes):
+        return x, w, k_sizes
+
+    def compute(self, x, w, k_sizes):
+        return torch.ops.fbgemm.bf16bf16bf16_grouped_wgrad(x, w, k_sizes)
+
+    def quantize_and_compute(self, x, w, k_sizes):
+        x, w, k_sizes = self.quantize(x, w, k_sizes)
+        return self.compute(x, w, k_sizes)
+
+    @property
+    def name(self) -> str:
+        return "bf16_grouped_wgrad"
 
     @property
     def hip(self) -> bool:
