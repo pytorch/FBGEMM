@@ -431,6 +431,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             assert torch.equal(dk, dk_d)
             assert torch.equal(dv, dv_d)
 
+    @unittest.skipIf(True, "Skip this until we figure out an issue with scaled_mm")
     @skip_cuda_lt_sm100
     @skip_rocm
     @parameterized.expand(
