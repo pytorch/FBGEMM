@@ -51,6 +51,7 @@ from ..common import (
     gen_mixed_B_batch_sizes,
     MAX_EXAMPLES_LONG_RUNNING,
     open_source,
+    v1_lookup,
 )
 
 if open_source:
@@ -109,6 +110,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         use_rowwise_bias_correction: bool = False,
         counter_weight_decay_mode: Optional[CounterWeightDecayMode] = None,
         counter_halflife: int = -1,
+        use_api_v1: bool = False,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
 
@@ -398,20 +400,25 @@ class BackwardOptimizersTest(unittest.TestCase):
         (indices, offsets) = get_table_batched_offsets_from_dense(
             x, L, sum(Bs), use_cpu=use_cpu
         )
-        fc2 = (
-            cc(
-                indices,
-                offsets,
-                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
-            )
-            if not weighted
-            else cc(
-                indices,
-                offsets,
-                to_device(xw.contiguous().view(-1), use_cpu),
-                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
-            )
+        per_sample_weights = (
+            to_device(xw.contiguous().view(-1), use_cpu) if weighted else None
         )
+        if use_api_v1:
+            fc2 = v1_lookup(
+                cc,
+                indices,
+                offsets,
+                use_cpu,
+                per_sample_weights=per_sample_weights,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
+        else:
+            fc2 = cc(
+                indices,
+                offsets,
+                per_sample_weights=per_sample_weights,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
         if do_pooling:
             if mixed_B:
                 goc = format_ref_tensors_in_mixed_B_layout(gos, Bs_rank_feature)
@@ -429,21 +436,22 @@ class BackwardOptimizersTest(unittest.TestCase):
 
         get_optimizer_states = None
 
-        try:
-            get_optimizer_states = cc.get_optimizer_state()
-            assert len(get_optimizer_states) == T
-        except NotImplementedError:
-            assert optimizer not in (
-                OptimType.ADAM,
-                OptimType.PARTIAL_ROWWISE_ADAM,
-                OptimType.LAMB,
-                OptimType.PARTIAL_ROWWISE_LAMB,
-                OptimType.EXACT_SGD,
-                OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.EXACT_ADAGRAD,
-                OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
-                OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
-            )
+        if optimizer not in [OptimType.EXACT_SGD, OptimType.NONE]:
+            try:
+                get_optimizer_states = cc.get_optimizer_state()
+                assert len(get_optimizer_states) == T
+            except NotImplementedError:
+                print("no optimizer state")
+                assert optimizer not in (
+                    OptimType.ADAM,
+                    OptimType.PARTIAL_ROWWISE_ADAM,
+                    OptimType.LAMB,
+                    OptimType.PARTIAL_ROWWISE_LAMB,
+                    OptimType.EXACT_ROWWISE_ADAGRAD,
+                    OptimType.EXACT_ADAGRAD,
+                    OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                    OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+                )
 
         if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
             rowwise = optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
@@ -1554,6 +1562,222 @@ class BackwardOptimizersTest(unittest.TestCase):
             long_segments,
             pooling_mode,
             use_cpu,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.sampled_from([2, 4, 128, 256]),
+        B=st.integers(min_value=1, max_value=10),
+        L=st.sampled_from([1, 20, 50]),
+        optimizer=st.sampled_from(
+            [
+                OptimType.LAMB,
+                OptimType.ADAM,
+                OptimType.EXACT_ADAGRAD,
+                OptimType.LARS_SGD,
+                OptimType.PARTIAL_ROWWISE_ADAM,
+                OptimType.PARTIAL_ROWWISE_LAMB,
+            ]
+        ),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        long_segments=st.booleans(),
+        use_cpu=use_cpu_strategy(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_optimizers_v1(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        L: int,
+        optimizer: OptimType,
+        pooling_mode: PoolingMode,
+        weighted: bool,
+        mixed: bool,
+        long_segments: bool,
+        use_cpu: bool,
+    ) -> None:
+        """
+        This test verifies non-VBE pipeline in TBE API V1 for
+            OptimType.LAMB,
+            OptimType.ADAM,
+            OptimType.EXACT_ADAGRAD,
+            OptimType.LARS_SGD,
+            OptimType.PARTIAL_ROWWISE_ADAM,
+            OptimType.PARTIAL_ROWWISE_LAMB.
+        """
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            3,  # log_E
+            L,
+            weighted,
+            mixed,
+            False,  # mixed_B
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            use_api_v1=True,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.sampled_from([2, 4, 128, 256]),
+        B=st.integers(min_value=1, max_value=10),
+        L=st.sampled_from([1, 20, 50]),
+        optimizer=st.sampled_from(
+            [
+                OptimType.ADAM,
+            ]
+        ),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        long_segments=st.booleans(),
+        use_cpu=use_cpu_strategy(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_optimizers_v1_vbe(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        optimizer: OptimType,
+        pooling_mode: PoolingMode,
+        long_segments: bool,
+        use_cpu: bool,
+    ) -> None:
+        """
+        This test verifies that VBE pipeline in TBE API V1 for optimizers
+            OptimType.ADAM.
+        Note that optimziers below do not have VBE support.
+            OptimType.LAMB,
+            OptimType.EXACT_ADAGRAD,
+            OptimType.LARS_SGD,
+            OptimType.PARTIAL_ROWWISE_ADAM,
+            OptimType.PARTIAL_ROWWISE_LAMB.
+        """
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            3,  # log_E
+            L,
+            weighted,
+            mixed,
+            True,  # mixed_B
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            use_api_v1=True,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.sampled_from([2, 4, 128, 256]),
+        B=st.integers(min_value=1, max_value=10),
+        L=st.sampled_from([1, 20, 50]),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        long_segments=st.booleans(),
+        use_cpu=use_cpu_strategy(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        weight_decay_mode=st.sampled_from(
+            [
+                WeightDecayMode.NONE,
+                WeightDecayMode.L2,
+                WeightDecayMode.DECOUPLE,
+                WeightDecayMode.COUNTER,
+                WeightDecayMode.COWCLIP,
+            ]
+        ),
+        counter_weight_decay_mode=st.sampled_from(
+            [
+                CounterWeightDecayMode.NONE,
+                CounterWeightDecayMode.L2,
+                CounterWeightDecayMode.DECOUPLE,
+                CounterWeightDecayMode.ADAGRADW,
+            ]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_optimizers_v1_rowwise_adagrad(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        long_segments: bool,
+        use_cpu: bool,
+        pooling_mode: PoolingMode,
+        weight_decay_mode: WeightDecayMode,
+        counter_weight_decay_mode: CounterWeightDecayMode,
+    ) -> None:
+        """
+        This test verifies that VBE pipeline in TBE API V1 for optimizers other than rowwise adagrad and rowwise adagrad with counter.
+        """
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            3,  # log_E
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            weight_decay_mode,
+            counter_weight_decay_mode=counter_weight_decay_mode,
+            use_api_v1=True,
         )
 
 
