@@ -440,10 +440,16 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 seqlen_k,
                 batch_size,
                 is_mqa,
+                window_size,
+                head_dim,
+                sm_scale,
             )
             for seqlen_k in [64, 128, 256, 1024]
             for batch_size in [1, 2]
             for is_mqa in [True]
+            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for head_dim in [128]
+            for sm_scale in [None, 1.0 / head_dim]
         ]
     )
     def test_decode(
@@ -451,6 +457,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         seqlen_k: int,
         batch_size: int,
         is_mqa: bool,
+        window_size: tuple[int, int],
+        head_dim: int,
+        sm_scale: Optional[float],
         q_heads: int = 8,
         dtype: torch.dtype = torch.float8_e4m3fn,
     ) -> None:
@@ -465,7 +474,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             seqlen_k,
             q_heads,
             kv_heads=1 if is_mqa else q_heads,
-            head_dim=128,
+            head_dim=head_dim,
             dtype=dtype,
             causal=causal,
             # Decode kernel does not support sliding window attention yet
@@ -486,6 +495,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 q_heads,
                 causal,
                 window_size,
+                head_dim,
                 sm_scale,
             )
             for kv_padding in [128, 256, 512, 1024]
@@ -493,7 +503,8 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for q_heads in [8, 16]
             for causal in [True, False]
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
-            for sm_scale in [None, 1.0 / 128]
+            for head_dim in [128]
+            for sm_scale in [None, 1.0 / head_dim]
         ]
     )
     def test_jagged_vs_padded_kv(
@@ -503,6 +514,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         q_heads: int,
         causal: bool,
         window_size: tuple[int, int],
+        head_dim: int,
         sm_scale: Optional[float],
     ) -> None:
         """
@@ -517,7 +529,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         seqlen_q = kv_padding  # Maximum sequence length (padded size)
         device = torch.accelerator.current_accelerator()
         kv_heads = 1
-        head_dim = 128
+        head_dim = head_dim
         dtype = torch.bfloat16
 
         torch.manual_seed(SEED)
@@ -663,6 +675,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 is_varlen,
                 kv_heads,
                 window_size,
+                head_dim,
                 sm_scale,
             )
             for seqlen_q, offset_q in [
@@ -682,7 +695,8 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for is_varlen in [False, True]
             for kv_heads in [1, 2, 3, 4]
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
-            for sm_scale in [None, 1.0 / 128]
+            for head_dim in [64, 128]
+            for sm_scale in [None, 1.0 / head_dim]
         ]
     )
     def test_forward(
@@ -695,6 +709,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_varlen: bool,
         kv_heads: int,
         window_size: tuple[int, int],
+        head_dim: int,
         sm_scale: Optional[float],
         dtype: torch.dtype = torch.bfloat16,
     ) -> None:
@@ -713,7 +728,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             seqlen_k,
             q_heads=kv_heads * q_heads_per_kv_head,
             kv_heads=kv_heads,
-            head_dim=128,
+            head_dim=head_dim,
             dtype=dtype,
             causal=causal,
             window_size=window_size,
@@ -736,7 +751,8 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             [(-1, -1), (128, 0), (256, 0), (128, 128), (512, 0)]
         ),
         deterministic=st.booleans(),
-        sm_scale=st.sampled_from([None, 1.0 / 128]),
+        head_dim=st.sampled_from([64, 128]),
+        is_sm_scale=st.booleans(),
     )
     @settings(**common_settings)
     def test_backward(
@@ -750,8 +766,10 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_gqa: bool,
         window_size: tuple[int, int],
         deterministic: bool,
-        sm_scale: Optional[float],
+        head_dim: int,
+        is_sm_scale: bool,
     ) -> None:
+        sm_scale = 1.0 / head_dim if is_sm_scale else None
         test_func = (
             self._execute_cutlass_blackwell_attn_varlen
             if is_varlen
@@ -764,7 +782,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             seqlen,
             q_heads=kv_heads * q_heads_per_kv_head,
             kv_heads=kv_heads,
-            head_dim=128,
+            head_dim=head_dim,
             dtype=dtype,
             causal=causal,
             window_size=window_size,
