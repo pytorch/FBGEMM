@@ -298,7 +298,7 @@ using namespace fbgemm_gpu;
         // Cooperatively load the indices
         const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
         // If idx is loaded
-        const auto offset_idx = idx * D_emb;
+        [[maybe_unused]] const auto offset_idx = idx * D_emb;
         {%- endif %}
 
         {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}

@@ -1386,9 +1386,9 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
     const std::optional<Tensor>& total_num_blocks,
     const int64_t my_size,
     const int64_t weights_dim,
-    Tensor new_lengths,
-    Tensor new_indices,
-    Tensor new_weights,
+    const Tensor& new_lengths,
+    const Tensor& new_indices,
+    const Tensor& new_weights,
     std::optional<Tensor> new_pos,
     const std::optional<Tensor>& unbucketize_permute,
     const std::optional<Tensor>& batch_size_per_feature,
@@ -1417,8 +1417,8 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
   const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
   offset_t* batch_sizes_data = nullptr;
   const auto variable_batch_size = batch_size_per_feature.has_value();
-  const auto variable_bucket_sizes = block_bucketize_pos.has_value() &&
-      block_bucketize_pos.value().size() != 0;
+  const auto variable_bucket_sizes =
+      block_bucketize_pos.has_value() && !block_bucketize_pos.value().empty();
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
   std::vector<int64_t> lower_bounds(indices.numel(), 0);
