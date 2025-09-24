@@ -98,8 +98,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- endif %}
     ) {
     constexpr int32_t kVecWidth = 4;
-    int error_code = 0;
-    int64_t error_value;
+    [[maybe_unused]] int error_code = 0;
+    [[maybe_unused]] int64_t error_value = 0;
 
     int32_t T = D_offsets.size(0) - 1;
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;

@@ -14,6 +14,6 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 DLL_PUBLIC std::tuple<int64_t, int64_t>
-get_infos_metadata(Tensor unused, int64_t B, int64_t T) {
+get_infos_metadata(Tensor /*unused*/, int64_t B, int64_t T) {
   return get_info_B_num_bits_from_T(T, B);
 }
