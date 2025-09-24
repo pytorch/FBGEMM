@@ -741,7 +741,7 @@ def bwd_pre_triton(o, dO):
     return d
 
 
-def triton_bwd(q, k1, k2, v1, v2, o, dO, m, w1, w2, k2_bias=None, v2_bias=None):
+def triton_bwd(q, k1, k2, v1, v2,w1, w2, o, dO, m, k2_bias=None, v2_bias=None):
     dq = torch.zeros_like(q, dtype=torch.float32)
     dk1 = torch.zeros_like(k1)
     dk2 = torch.zeros_like(k2)
