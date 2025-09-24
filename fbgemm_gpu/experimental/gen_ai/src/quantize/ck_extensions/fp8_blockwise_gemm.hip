@@ -14,6 +14,10 @@
 #include <ATen/ATen.h>
 #include <c10/hip/HIPStream.h>
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
