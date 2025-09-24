@@ -186,7 +186,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     """
     )
-    split_precomputation += """	
+    split_precomputation += """
 	// Define the rowwise adagrad optimizer state struct view
     struct [[maybe_unused]] OptimizerState {
         at::acc_type<cache_t, true> momentum;
@@ -197,17 +197,17 @@ def rowwise_adagrad() -> Dict[str, Any]:
 
     at::acc_type<cache_t, true> multiplier = 0.0;
     at::acc_type<cache_t, true> correction = 0.0;
-    if (threadIdx.x == 0) {	
+    if (threadIdx.x == 0) {
         auto new_sum_square_grads = g_avg_square;
-	
-        // Update the optimizer state.  Use optimizer state offloading only if 
+
+        // Update the optimizer state.  Use optimizer state offloading only if
         // SSD and if enabled by the user
         if (enable_optimizer_offloading) {
             // Fetch the pointer to the optimizer state along the cache row
             auto* optimizer = weight_row_template.template optimizer_state_ptr<OptimizerState>();
             new_sum_square_grads += optimizer->momentum;
             optimizer->momentum = new_sum_square_grads;
-        
+
         } else {
             new_sum_square_grads += momentum1[idx];
             momentum1[idx] = new_sum_square_grads;
@@ -570,14 +570,17 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         if (regularization_mode == 3) { // counter-based regularization (regularization_mode=3)
             if (adjustment_enabled) {
                if (weight_decay_mode == 3) { // AdagradW (weight_decay_mode=3)
-                    if (counter_halflife < 0) {
+                    if (counter_halflife == -1) {
                         adjusted_multiplier = multiplier * sqrtf(row_counter[idx] * 1.0);
-                        exp_reg_correction = 1.0 - weight_decay * learning_rate;
-                        const auto lazy_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
-                        const auto lazy_multiplier = powf(exp_reg_correction, min(lazy_delta, iter * 1.0 - adjustment_iter) - 1.0);
-                        adjusted_multiplier *= lazy_multiplier;
-                        exp_reg_correction *= lazy_multiplier;
                     }
+                    else if (counter_halflife == -2) {
+                        adjusted_multiplier = min(learning_rate * powf(row_counter[idx] * 1.0, 1.0), adjustment_ub) / (sqrtf(new_sum_square_grads) + eps);
+                    }
+                    exp_reg_correction = 1.0 - weight_decay * learning_rate;
+                    const auto lazy_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+                    const auto lazy_multiplier = powf(exp_reg_correction, min(lazy_delta, iter * 1.0 - adjustment_iter) - 1.0);
+                    adjusted_multiplier *= lazy_multiplier;
+                    exp_reg_correction *= lazy_multiplier;
                 } else if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
                     exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
                 } else if (weight_decay_mode == 1) { // L2 regularization (coupled wd)
@@ -1040,8 +1043,8 @@ def adam() -> Dict[str, Any]:
         DEVICE_INLINE momentum2_ph_t* momentum2_ptr(const int32_t D) {
             // Cast to uintptr_t for pointer arithmetic
             auto addr = reinterpret_cast<uintptr_t>(momentum1_ptr() + D);
-            
-            // Cast back to momentum2_ph_t* and return 
+
+            // Cast back to momentum2_ph_t* and return
             return reinterpret_cast<momentum2_ph_t *>(addr);
         }
     };
@@ -1179,16 +1182,16 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     struct OptimizerState {
         // momentum2 is a single value placed at the beginning of the struct
         momentum2_ph_t momentum2;
-        
+
         // momentum1 is an array of values placed after momentum2, aligned to 4-byte boundary
         // to support mixed state precision (e.g. FP32 momentum1 and FP16 momentum2)
         alignas(4) momentum1_ph_t momentum1[1];
-        
+
         // momentum2_ptr returns a pointer to the beginning of the struct
         DEVICE_INLINE momentum2_ph_t* momentum2_ptr() {
             return &momentum2;
         }
-        
+
         // momentum1_ptr returns a pointer to the beginning of the momentum1 array
         DEVICE_INLINE momentum1_ph_t* momentum1_ptr() {
             return momentum1;
@@ -1231,11 +1234,11 @@ def partial_rowwise_adam() -> Dict[str, Any]:
       // Create a Vec4T for momentum1 values - either directly from momentum1_start
       // or from a temporary aligned buffer if optimizer offloading is enabled
       Vec4T<momentum1_ph_t> m_t;
-      
+
       if (enable_optimizer_offloading) {
-        // When offloading is enabled, we need to ensure proper alignment, so 
+        // When offloading is enabled, we need to ensure proper alignment, so
         // first copy to a temporary aligned array before loading to Vec4T
-        m_t = vec4_load_unaligned(momentum1_start + d);        
+        m_t = vec4_load_unaligned(momentum1_start + d);
         m_t.mul_(beta1);
         m_t.fma_(grad, 1.0 - beta1);
         vec4_store_unaligned(m_t, momentum1_start + d);
@@ -1247,7 +1250,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         m_t.fma_(grad, 1.0 - beta1);
         m_t.store(&momentum1_start[d]);
       }
-      
+
       // Update weights using the momentum values
       weight_new.acc.x -= learning_rate * (m_t.acc.x / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.x);
       weight_new.acc.y -= learning_rate * (m_t.acc.y / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.y);

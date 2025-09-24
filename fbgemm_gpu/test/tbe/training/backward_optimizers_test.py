@@ -108,6 +108,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         optimizer_state_dtypes: Optional[dict[str, SparseType]] = None,
         use_rowwise_bias_correction: bool = False,
         counter_weight_decay_mode: Optional[CounterWeightDecayMode] = None,
+        counter_halflife: int = -1,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
 
@@ -297,7 +298,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 else:
                     counter_based_regularization = CounterBasedRegularizationDefinition(
                         counter_weight_decay_mode=CounterWeightDecayMode.ADAGRADW,
-                        counter_halflife=-1,
+                        counter_halflife=counter_halflife,
                         adjustment_iter=-1,
                         adjustment_ub=0.1,
                         learning_rate_mode=LearningRateMode.EQUAL,
@@ -893,11 +894,22 @@ class BackwardOptimizersTest(unittest.TestCase):
                 adjustment_iter > 0 and iter_ > adjustment_iter
             ):
                 if counter_weight_decay_mode == CounterWeightDecayMode.ADAGRADW:
-                    adjusted_multiplier = torch.where(
-                        row_counter > 0,
-                        multiplier * torch.sqrt(row_counter),
-                        torch.Tensor([0.0]),
-                    )
+                    if counter_halflife == -1:
+                        adjusted_multiplier = torch.where(
+                            row_counter > 0,
+                            multiplier * torch.sqrt(row_counter),
+                            torch.Tensor([0.0]),
+                        )
+                    elif counter_halflife == -2:
+                        adjusted_multiplier = torch.where(
+                            row_counter > 0,
+                            torch.minimum(
+                                torch.tensor([learning_rate]) * row_counter,
+                                torch.tensor([adjustment_ub]),
+                            )
+                            / denom,
+                            torch.tensor([0.0]),
+                        )
                     exp_reg_correction = torch.where(
                         row_counter > 0,
                         1.0 - weight_decay * learning_rate,
@@ -1177,6 +1189,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 CounterWeightDecayMode.ADAGRADW,
             ]
         ),
+        counter_halflife=st.sampled_from([-1, -2]),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -1201,6 +1214,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         use_cpu: bool,
         weight_decay_mode: WeightDecayMode,
         counter_weight_decay_mode: CounterWeightDecayMode,
+        counter_halflife: int,
     ) -> None:
         if (
             pooling_mode == PoolingMode.NONE
@@ -1222,6 +1236,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             use_cpu,
             weight_decay_mode,
             counter_weight_decay_mode=counter_weight_decay_mode,
+            counter_halflife=counter_halflife,
         )
 
     @given(
