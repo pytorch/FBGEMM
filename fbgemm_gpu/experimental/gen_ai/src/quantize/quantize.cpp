@@ -76,8 +76,11 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
     at::Tensor X,
     at::Tensor W,
     at::Tensor zero_start_index_M);
-at::Tensor
-bf16bf16bf16_grouped_stacked(at::Tensor X, at::Tensor W, at::Tensor M_sizes);
+at::Tensor bf16bf16bf16_grouped_stacked(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> out = std::nullopt);
 at::Tensor f8f8bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -781,12 +784,18 @@ at::Tensor bf16bf16bf16_grouped_dynamic_meta(
 at::Tensor bf16bf16bf16_grouped_stacked_meta(
     at::Tensor X,
     at::Tensor W,
-    at::Tensor /* M_sizes */) {
+    at::Tensor /* M_sizes */,
+    std::optional<at::Tensor> out) {
   const at::SymInt total_M = X.sym_size(0);
   const at::SymInt N = W.sym_size(1);
-  at::Tensor Y =
-      at::empty_symint({total_M, N}, X.options().dtype(at::kBFloat16));
-  return Y;
+
+  if (out.has_value()) {
+    return out.value();
+  } else {
+    at::Tensor output =
+        at::empty_symint({total_M, N}, X.options().dtype(at::kBFloat16));
+    return output;
+  }
 }
 
 at::Tensor f8f8bf16_rowwise_grouped_stacked_meta(

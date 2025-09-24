@@ -300,8 +300,11 @@ at::Tensor dispatch_bf16_grouped_kernel(
   return kernel(X, W, output, M_sizes);
 }
 
-at::Tensor
-bf16bf16bf16_grouped_grad(at::Tensor X, at::Tensor W, at::Tensor M_sizes) {
+at::Tensor bf16bf16bf16_grouped_grad(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> out) {
   int64_t total_M = X.size(0);
   int64_t N = W.size(1);
   int64_t K = W.size(2);
@@ -315,20 +318,29 @@ bf16bf16bf16_grouped_grad(at::Tensor X, at::Tensor W, at::Tensor M_sizes) {
   TORCH_CHECK(X.stride(-1) == 1, "Activation memory layout must be row-major.");
   TORCH_CHECK(W.stride(-2) == 1, "Weight memory layout must be column-major.");
 
-  at::Tensor Y = at::empty(total_M * N, X.options().dtype(at::kBFloat16));
+  at::Tensor Y;
+  if (out.has_value()) {
+    Y = out.value();
+  } else {
+    Y = at::empty(total_M * N, X.options().dtype(at::kBFloat16));
+  }
   // Early exit for empty inputs.
   if (total_M == 0) {
     return Y.view({total_M, N});
   }
   // Return continuous view of output.
-  at::Tensor out =
+  at::Tensor output =
       dispatch_bf16_grouped_kernel(G, total_M, N, K, X, W, Y, M_sizes);
-  return out.view({total_M, N});
+  return output.view({total_M, N});
 }
 
 #else
 
-at::Tensor bf16bf16bf16_grouped_grad(at::Tensor, at::Tensor, at::Tensor) {
+at::Tensor bf16bf16bf16_grouped_grad(
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    std::optional<at::Tensor>) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -338,12 +350,18 @@ at::Tensor bf16bf16bf16_grouped_grad(at::Tensor, at::Tensor, at::Tensor) {
 at::Tensor bf16bf16bf16_grouped_grad_meta(
     at::Tensor X,
     at::Tensor W,
-    at::Tensor /* M_sizes */) {
+    at::Tensor /* M_sizes */,
+    std::optional<at::Tensor> out) {
   const at::SymInt total_M = X.sym_size(0);
   const at::SymInt N = W.sym_size(1);
-  at::Tensor Y =
-      at::empty_symint({total_M, N}, X.options().dtype(at::kBFloat16));
-  return Y;
+
+  if (out.has_value()) {
+    return out.value();
+  } else {
+    at::Tensor output =
+        at::empty_symint({total_M, N}, X.options().dtype(at::kBFloat16));
+    return output;
+  }
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -356,7 +374,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "bf16bf16bf16_grouped_grad(Tensor X, Tensor W, Tensor M_sizes) -> Tensor");
+      "bf16bf16bf16_grouped_grad(Tensor X, Tensor W, Tensor M_sizes, Tensor? out=None) -> Tensor");
 }
 
 } // namespace fbgemm_gpu
