@@ -40,7 +40,7 @@ from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from torch import Tensor
 
 from .. import common  # noqa E402
-from ..common import MAX_EXAMPLES, open_source
+from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source, v1_lookup
 
 if open_source:
     # pyre-ignore[21]
@@ -149,6 +149,49 @@ class BackwardNoneTest(unittest.TestCase):
     def test_backward_none_with_rowwise_adagrad(self, **kwargs: Any) -> None:
         self.execute_backward_none_(optimizer=OptimType.EXACT_ROWWISE_ADAGRAD, **kwargs)
 
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(
+        running_on_github and torch.version.hip is not None,
+        "Test is flaky on GitHub + ROCm",
+    )
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.sampled_from([2, 4, 128, 256]),
+        B=st.integers(min_value=1, max_value=10),
+        L=st.sampled_from([1, 20, 50]),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        output_dtype=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_none_v1(  # noqa C901
+        self,
+        **kwargs: Any,
+    ) -> None:
+        """
+        This test verifies that VBE pipeline in TBE API V1 for optimizers other than rowwise adagrad.
+        """
+        self.execute_backward_none_(
+            log_E=3,
+            use_api_v1=True,
+            **kwargs,
+        )
+
     def execute_backward_none_(  # noqa C901
         self,
         T: int,
@@ -162,6 +205,7 @@ class BackwardNoneTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         output_dtype: SparseType,
         optimizer: Optional[OptimType] = None,
+        use_api_v1: bool = False,
     ) -> None:
         use_cpu = False
         mixed = False
@@ -354,16 +398,25 @@ class BackwardNoneTest(unittest.TestCase):
             uniq_indices = indices[start:end].unique()
             total_unique_indices += uniq_indices.numel()
 
-        fc2 = (
-            cc(indices, offsets, total_unique_indices=total_unique_indices)
-            if not weighted
-            else cc(
+        per_sample_weights = (
+            to_device(xw.contiguous().view(-1), use_cpu) if weighted else None
+        )
+        if use_api_v1:
+            fc2 = v1_lookup(
+                cc,
                 indices,
                 offsets,
-                to_device(xw.contiguous().view(-1), use_cpu),
+                use_cpu=False,
+                per_sample_weights=per_sample_weights,
                 total_unique_indices=total_unique_indices,
             )
-        )
+        else:
+            fc2 = cc(
+                indices,
+                offsets,
+                per_sample_weights=per_sample_weights,
+                total_unique_indices=total_unique_indices,
+            )
         if optimizer is None:
             assert type(gos) is list
             if do_pooling:

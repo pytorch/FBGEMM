@@ -40,6 +40,7 @@ from ..common import (
     MAX_EXAMPLES,
     MAX_EXAMPLES_LONG_RUNNING,
     open_source,
+    v1_lookup,
 )
 
 if open_source:
@@ -85,6 +86,7 @@ class BackwardSGDTest(unittest.TestCase):
         use_cpu: bool,
         output_dtype: SparseType,
         use_writeback_bwd_prehook: bool = False,
+        use_api_v1: bool = False,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         if use_cpu and use_cache:
@@ -322,20 +324,25 @@ class BackwardSGDTest(unittest.TestCase):
         batch_size_per_feature_per_rank = Bs_rank_feature if mixed_B else None
 
         # Run TBE's forward
-        fc2 = (
-            cc(
-                indices,
-                offsets,
-                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
-            )
-            if not weighted
-            else cc(
-                indices,
-                offsets,
-                to_device(xw.contiguous().view(-1), use_cpu),
-                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
-            )
+        per_sample_weights = (
+            to_device(xw.contiguous().view(-1), use_cpu) if weighted else None
         )
+        if use_api_v1:
+            fc2 = v1_lookup(
+                cc,
+                indices,
+                offsets,
+                use_cpu=use_cpu,
+                per_sample_weights=per_sample_weights,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
+        else:
+            fc2 = cc(
+                indices,
+                offsets,
+                per_sample_weights=per_sample_weights,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
         # Generate gradients
         if do_pooling:
             if mixed_B:
@@ -609,6 +616,68 @@ class BackwardSGDTest(unittest.TestCase):
             use_cpu,
             SparseType.FP32,  # output_dtype
             use_writeback_bwd_prehook=True,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.sampled_from([2, 4, 128, 256]),
+        B=st.integers(min_value=1, max_value=10),
+        L=st.sampled_from([1, 20, 50]),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=use_cpu_strategy(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_sgd_v1(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        use_cache: bool,
+        cache_algorithm: CacheAlgorithm,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_backward_sgd_(
+            T,
+            D,
+            B,
+            3,  # log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B if not use_cpu else False,
+            use_cache,
+            cache_algorithm,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            SparseType.FP32,  # output_dtype
+            use_api_v1=True,
         )
 
 
