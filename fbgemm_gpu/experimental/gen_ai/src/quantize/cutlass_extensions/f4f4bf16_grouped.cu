@@ -8,16 +8,6 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <cutlass/util/device_memory.h>
-#include <cutlass/util/packed_stride.hpp>
-
-// clang-format off
-// The fixed ordering of the headers is required for CUTLASS 3.2+
-#include <cute/tensor.hpp>
-#include <cutlass/gemm/collective/collective_builder.hpp>     // @manual
-#include <cutlass/gemm/device/gemm_universal_adapter.h>       // @manual
-#include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
-// clang-format on
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 #include "f4f4bf16_grouped/f4f4bf16_grouped_manifest.cuh"
@@ -160,14 +150,10 @@ at::Tensor dispatch_fp4_grouped_kernel(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt,
     std::optional<at::Tensor> global_scale = std::nullopt,
     std::optional<at::Tensor> starting_row_after_padding = std::nullopt,
     bool use_mx = true) {
-  TORCH_CHECK(
-      zero_start_index_M.has_value() != M_sizes.has_value(),
-      "One of zero_start_index_M or M_sizes must be provided.");
   TORCH_CHECK(M_sizes.has_value(), "M_sizes is assumed to be provided.");
   TORCH_CHECK(
       starting_row_after_padding.has_value(),
@@ -187,8 +173,6 @@ at::Tensor dispatch_fp4_grouped_kernel(
       x_scale,
       w_scale,
       output,
-      G,
-      zero_start_index_M,
       M_sizes,
       global_scale,
       starting_row_after_padding);
@@ -228,7 +212,6 @@ at::Tensor f4f4bf16_grouped_stacked(
       x_scale,
       w_scale,
       Y,
-      std::nullopt,
       M_sizes,
       global_scale,
       starting_row_after_padding,
