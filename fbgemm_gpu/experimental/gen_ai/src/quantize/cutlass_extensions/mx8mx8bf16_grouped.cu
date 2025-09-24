@@ -8,16 +8,6 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <cutlass/util/device_memory.h>
-#include <cutlass/util/packed_stride.hpp>
-
-// clang-format off
-// The fixed ordering of the headers is required for CUTLASS 3.2+
-#include <cute/tensor.hpp>
-#include <cutlass/gemm/collective/collective_builder.hpp>     // @manual
-#include <cutlass/gemm/device/gemm_universal_adapter.h>       // @manual
-#include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
-// clang-format on
 
 #include "fbgemm_gpu/quantize/tuning_cache.hpp"
 #include "fbgemm_gpu/quantize/utils.h"
