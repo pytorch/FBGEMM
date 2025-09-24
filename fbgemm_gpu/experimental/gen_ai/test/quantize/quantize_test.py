@@ -2208,9 +2208,23 @@ class BF16Tests(unittest.TestCase):
     def setUpClass(cls):
         cls.device = torch.accelerator.current_accelerator()
 
+    def generate_random_splits(G: int, M: int) -> torch.Tensor:
+        m_cumsums = torch.sort(
+            torch.randint(
+                0,
+                M,
+                (G + 1,),
+                dtype=torch.int32,
+                device=torch.accelerator.current_accelerator(),
+            )
+        ).values
+        m_cumsums[0], m_cumsums[-1] = 0, M
+        m_sizes = m_cumsums[1:] - m_cumsums[:-1]
+        return m_sizes
+
     @unittest.skipIf(
         not torch.version.cuda,
-        "Skip on AMD: test_bf16_grouped_gemmw_wgrad not yet suported.",
+        "Skip on AMD: test_grouped_gemm_wgrad not yet suported.",
     )
     @settings(deadline=None)
     @given(
@@ -2220,7 +2234,7 @@ class BF16Tests(unittest.TestCase):
         K=st.sampled_from([128, 1024]),
         output_accum=st.booleans(),
     )
-    def test_bf16_grouped_gemmw_wgrad(
+    def test_grouped_gemm_wgrad(
         self,
         G: int,
         M: int,
@@ -2237,21 +2251,7 @@ class BF16Tests(unittest.TestCase):
             (M, K), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
         )
 
-        def generate_random_splits(G: int, M: int) -> torch.Tensor:
-            m_cumsums = torch.sort(
-                torch.randint(
-                    0,
-                    M,
-                    (G + 1,),
-                    dtype=torch.int32,
-                    device=torch.accelerator.current_accelerator(),
-                )
-            ).values
-            m_cumsums[0], m_cumsums[-1] = 0, M
-            m_sizes = m_cumsums[1:] - m_cumsums[:-1]
-            return m_sizes
-
-        m_sizes = generate_random_splits(G, M)
+        m_sizes = BF16Tests.generate_random_splits(G, M)
 
         # Test
         if output_accum:
@@ -2318,6 +2318,139 @@ class BF16Tests(unittest.TestCase):
                     atol=1e-4,
                     rtol=1e-2,
                 )
+
+    @unittest.skipIf(
+        not torch.version.cuda,
+        "Skip on AMD: test_grouped_gemm_dgrad not yet suported.",
+    )
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([2, 16]),
+        M=st.sampled_from([257, 2049]),
+        N=st.sampled_from([256, 2048]),
+        K=st.sampled_from([128, 1024]),
+    )
+    def test_grouped_gemm_dgrad(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        torch.manual_seed(hash((G, M, N, K)))
+
+        # Inputs
+        dy_bf16 = torch.randn(
+            (M, N), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        )
+        w_bf16 = torch.randn(
+            (G, N, K),
+            dtype=torch.bfloat16,
+            device=torch.accelerator.current_accelerator(),
+        )
+        m_sizes = BF16Tests.generate_random_splits(G, M)
+
+        y_bf16 = torch.ops.fbgemm.bf16bf16bf16_grouped_grad(
+            dy_bf16,
+            w_bf16.permute(0, 2, 1),
+            m_sizes.to(torch.int64),
+        )
+
+        Y_preallocated = torch.empty(
+            (M * K),
+            dtype=torch.bfloat16,
+            device=torch.accelerator.current_accelerator(),
+        )
+        y_bf16_preallocated = torch.ops.fbgemm.bf16bf16bf16_grouped_grad(
+            dy_bf16,
+            w_bf16.permute(0, 2, 1),
+            m_sizes.to(torch.int64),
+            Y_preallocated,
+        )
+
+        # Reference
+        dy_fp32 = dy_bf16.to(torch.float32)
+        w_fp32 = w_bf16.to(torch.float32)
+
+        ref_y_fp32 = torch.empty(
+            (M, K), dtype=torch.float32, device=torch.accelerator.current_accelerator()
+        )
+        m_start = 0
+        for g, m_size in enumerate(m_sizes.tolist()):
+            ref_y_fp32[m_start : m_start + m_size, :] = dy_fp32[
+                m_start : m_start + m_size, :
+            ] @ w_fp32[g, :, :].view(N, K)
+            m_start += m_size
+        ref_y_bf16 = ref_y_fp32.to(torch.bfloat16)
+
+        torch.testing.assert_close(y_bf16, ref_y_bf16, atol=1e-3, rtol=1.6e-2)
+        torch.testing.assert_close(
+            y_bf16_preallocated, ref_y_bf16, atol=1e-3, rtol=1.6e-2
+        )
+
+    @unittest.skipIf(
+        not torch.version.cuda,
+        "Skip on AMD: test_grouped_gemm_fprop not yet suported.",
+    )
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([2, 16]),
+        M=st.sampled_from([257, 2049]),
+        N=st.sampled_from([256, 2048]),
+        K=st.sampled_from([128, 1024]),
+    )
+    def test_grouped_gemm_fprop(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        torch.manual_seed(hash((G, M, N, K)))
+
+        # Inputs
+        x_bf16 = torch.randn(
+            (M, K), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        )
+        w_bf16 = torch.randn(
+            (G, N, K),
+            dtype=torch.bfloat16,
+            device=torch.accelerator.current_accelerator(),
+        )
+        m_sizes = BF16Tests.generate_random_splits(G, M)
+
+        y_bf16 = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
+            x_bf16, w_bf16, m_sizes.to(torch.int64)
+        )
+
+        Y_preallocated = torch.empty(
+            (M * N),
+            dtype=torch.bfloat16,
+            device=torch.accelerator.current_accelerator(),
+        )
+        y_bf16_Y_preallocated = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
+            x_bf16, w_bf16, m_sizes.to(torch.int64), Y_preallocated
+        )
+
+        # Reference
+        x_fp32 = x_bf16.to(torch.float32)
+        w_fp32 = w_bf16.to(torch.float32)
+
+        ref_y_fp32 = torch.empty(
+            (M, N), dtype=torch.float32, device=torch.accelerator.current_accelerator()
+        )
+        m_start = 0
+        for g, m_size in enumerate(m_sizes.tolist()):
+            ref_y_fp32[m_start : m_start + m_size, :] = (
+                x_fp32[m_start : m_start + m_size, :] @ w_fp32[g, :, :].view(N, K).T
+            )
+            m_start += m_size
+        ref_y_bf16 = ref_y_fp32.to(torch.bfloat16)
+
+        torch.testing.assert_close(y_bf16, ref_y_bf16, atol=1e-3, rtol=1.6e-2)
+        torch.testing.assert_close(
+            y_bf16_Y_preallocated, ref_y_bf16, atol=1e-3, rtol=1.6e-2
+        )
 
 
 if __name__ == "__main__":
