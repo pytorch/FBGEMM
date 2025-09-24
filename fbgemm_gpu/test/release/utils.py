@@ -8,8 +8,7 @@
 
 import inspect
 import typing
-from collections.abc import Iterable, Sequence  # noqa: F401
-from typing import Optional, Union
+from typing import Iterable, List, Optional, Sequence, Union  # noqa: F401
 
 import torch
 from torch import device, dtype, Tensor, types
@@ -64,7 +63,7 @@ def get_supported_param_types():
 
 SUPPORTED_RETURN_TYPES = {
     Tensor: "Tensor",
-    list[Tensor]: "Tensor[]",
+    typing.List[Tensor]: "Tensor[]",
     int: "int",
     float: "float",
     bool: "bool",

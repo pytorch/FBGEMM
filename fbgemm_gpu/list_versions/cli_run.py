@@ -9,8 +9,9 @@
 
 import logging
 import subprocess
+import typing
 from datetime import datetime
-from typing import Union
+from typing import List, Union
 
 import click
 
@@ -36,7 +37,7 @@ class CLIOutput:
         self._timestamp = timestamp
         self._visible = visible
 
-    def to_dict(self) -> dict[str, Union[int, str]]:
+    def to_dict(self) -> typing.Dict[str, Union[int, str]]:
         return {
             "cli": self._cli,
             "stdout": self._stdout,
@@ -51,7 +52,7 @@ class CLI:
     def __init__(self) -> None:
         pd.options.display.max_rows
         pd.set_option("display.max_colwidth", None)
-        self._cli_outputs: list[CLIOutput] = [
+        self._cli_outputs: List[CLIOutput] = [
             CLIOutput(
                 cli="python –c “import torch; print(torch.__version__)”",
                 stdout="{}".format(torch.__version__),
@@ -64,7 +65,7 @@ class CLI:
 
     def run(
         self,
-        cli: Union[str, list[str]],
+        cli: Union[str, List[str]],
         visible: bool = True,
         input: str = "",
         capture_output: bool = True,
@@ -100,7 +101,7 @@ class CLI:
                 self._cli_outputs.append(result)
         return result
 
-    def run_piped(self, clis: list[str]) -> None:
+    def run_piped(self, clis: List[str]) -> None:
         the_input = ""
         for cli in clis[:-1]:
             result = self.run(

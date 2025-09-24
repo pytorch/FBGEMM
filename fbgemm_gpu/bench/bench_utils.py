@@ -10,6 +10,7 @@ import copy
 import logging
 import threading
 import time
+from typing import List, Tuple
 
 import torch
 
@@ -31,7 +32,7 @@ def benchmark_torch_function(  # noqa: C901
     name: str = "",
     num_threads: int = 1,
     copy_f_for_multi_thread_test: bool = False,
-) -> tuple[float, torch.Tensor]:
+) -> Tuple[float, torch.Tensor]:
     logging.debug(f"Start to benchmark {name}...")
     if device != "cpu" and device != "" and device != "cuda":
         torch.cuda.set_device(device)
@@ -67,7 +68,7 @@ def benchmark_torch_function(  # noqa: C901
             dtype=torch.float,
             device=device,
         )
-        duration_ms_list: list[float] = []
+        duration_ms_list: List[float] = []
 
         f_list = [f]
         # make deepcopy of f if necessary

@@ -9,9 +9,8 @@
 import functools
 import logging
 import random
-from collections.abc import Iterable
 from contextlib import nullcontext
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 
 import click
 import fbgemm_gpu

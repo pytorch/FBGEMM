@@ -6,6 +6,7 @@
 
 # Keep a registry of all quantize operators.
 import abc
+from typing import List, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import numpy as np
@@ -220,7 +221,7 @@ def register_quantize_op(op):
     return op
 
 
-def get_quantize_ops() -> list[QuantizeOpBase]:
+def get_quantize_ops() -> List[QuantizeOpBase]:
     """Get all registered quantize ops."""
     return quantize_op_registry
 
@@ -1767,7 +1768,7 @@ class F8I4RowwiseGemm(QuantizeOpBase):
         self,
         x: torch.Tensor,
         group_size: int = 128,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         n_bit = 4  # Number of target bits.
         to_quant = x.reshape(-1, group_size).to(torch.float)
 

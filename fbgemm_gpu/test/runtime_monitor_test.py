@@ -8,7 +8,7 @@
 
 
 import unittest
-from typing import cast
+from typing import cast, List, Tuple
 
 import fbgemm_gpu
 import torch
@@ -30,7 +30,7 @@ else:
 
 
 class TesteeAsyncSeriesTimer(AsyncSeriesTimer):
-    outputs: list[tuple[str, float]]
+    outputs: List[Tuple[str, float]]
 
     def __init__(self) -> None:
         self.outputs = []
@@ -43,7 +43,7 @@ class TesteeAsyncSeriesTimer(AsyncSeriesTimer):
 
 class RuntimeMonitorTest(unittest.TestCase):
     def assert_context(
-        self, timer: TesteeAsyncSeriesTimer, context_list: list[str]
+        self, timer: TesteeAsyncSeriesTimer, context_list: List[str]
     ) -> None:
         timer._lazy_report()
         self.assertEqual([t[0] for t in timer.outputs], context_list)

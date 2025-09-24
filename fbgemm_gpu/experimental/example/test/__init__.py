@@ -6,10 +6,12 @@
 
 # pyre-strict
 
+from typing import Tuple
+
 import torch
 
 
-gpu_unavailable: tuple[bool, str] = (
+gpu_unavailable: Tuple[bool, str] = (
     not torch.cuda.is_available() or torch.cuda.device_count() == 0,
     "CUDA is not available or no GPUs detected",
 )

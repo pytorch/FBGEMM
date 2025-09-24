@@ -13,6 +13,7 @@ import tempfile
 import traceback
 from datetime import datetime
 from functools import partial
+from typing import Tuple
 
 import torch
 
@@ -100,7 +101,7 @@ def run_demo(cmd_args: argparse.Namespace) -> None:
 
         def fp8_rowwise_init_method(
             x: torch.Tensor,
-        ) -> tuple[torch.Tensor, torch.Tensor]:
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
             default_init_method(x)
             if x.ndim == 3:
                 E, K, N = x.shape

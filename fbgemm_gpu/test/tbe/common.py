@@ -7,6 +7,7 @@
 
 # pyre-strict
 
+from typing import List, Tuple
 
 import fbgemm_gpu
 import numpy as np
@@ -49,7 +50,7 @@ FORWARD_MAX_THREADS = 512
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-def gen_mixed_B_batch_sizes(B: int, T: int) -> tuple[list[list[int]], list[int]]:
+def gen_mixed_B_batch_sizes(B: int, T: int) -> Tuple[List[List[int]], List[int]]:
     num_ranks = np.random.randint(low=1, high=4)
     low = max(int(0.25 * B), 1)
     high = int(B)
@@ -65,7 +66,7 @@ def gen_mixed_B_batch_sizes(B: int, T: int) -> tuple[list[list[int]], list[int]]
 
 
 def format_ref_tensors_in_mixed_B_layout(
-    ref_tensors: list[torch.Tensor], Bs_rank_feature: list[list[int]]
+    ref_tensors: List[torch.Tensor], Bs_rank_feature: List[List[int]]
 ) -> torch.Tensor:
     # Relayout the reference tensor
     # Jagged dimension: (rank, table, local batch)

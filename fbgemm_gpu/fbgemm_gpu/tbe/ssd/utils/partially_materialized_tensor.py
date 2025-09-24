@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import functools
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import torch
 
@@ -248,7 +248,7 @@ class PartiallyMaterializedTensor:
 
         return torch.equal(tensor1.full_tensor(), tensor2.full_tensor())
 
-    def get_kvtensor_serializable_metadata(self) -> list[str]:
+    def get_kvtensor_serializable_metadata(self) -> List[str]:
         return self._wrapped.get_kvtensor_serializable_metadata()
 
     def __hash__(self):

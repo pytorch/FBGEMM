@@ -9,6 +9,7 @@
 
 import random
 import unittest
+from typing import List
 
 import click
 import torch
@@ -26,7 +27,7 @@ def rand_int(min_value: int, max_value: int) -> int:
     return torch.randint(min_value, max_value, (1,)).tolist()[0]
 
 
-def clean_command(command: str) -> list[str]:
+def clean_command(command: str) -> List[str]:
     return [x for x in command.strip().split() if x]
 
 

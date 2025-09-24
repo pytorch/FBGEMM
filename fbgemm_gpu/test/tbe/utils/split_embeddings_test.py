@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Callable
+from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
 import numpy as np
@@ -49,7 +49,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 # pyre-ignore
-additional_decorators: dict[str, list[Callable]] = {}
+additional_decorators: Dict[str, List[Callable]] = {}
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
@@ -440,8 +440,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
         E = int(10**log_E)
         D = D * 4
-        Ds: list[int] = []
-        Es: list[int] = []
+        Ds: List[int] = []
+        Es: List[int] = []
         if not mixed:
             Ds = [D] * T
             Es = [E] * T
@@ -482,10 +482,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
         )
 
-        pruned_indices: list[int] = []
-        pruned_indices_offsets: list[int] = [0]
-        logical_table_ids: list[int] = []
-        buffer_ids: list[int] = []
+        pruned_indices: List[int] = []
+        pruned_indices_offsets: List[int] = [0]
+        logical_table_ids: List[int] = []
+        buffer_ids: List[int] = []
         for i in range(len(Es)):
             indices = [
                 np.random.randint(low=1, high=int(Es[i] - 2))
@@ -514,10 +514,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             torch.tensor(buffer_ids, dtype=torch.int32, requires_grad=False), False
         )
 
-        momentum1: list[Tensor] = [
+        momentum1: List[Tensor] = [
             s for (s,) in cc.split_optimizer_states()
         ]  # List[rows]
-        weight: list[Tensor] = cc.split_embedding_weights()  # List[(rows, dim)]
+        weight: List[Tensor] = cc.split_embedding_weights()  # List[(rows, dim)]
         for t in range(T):
             momentum1[t].fill_(1)
             weight[t].fill_(1)

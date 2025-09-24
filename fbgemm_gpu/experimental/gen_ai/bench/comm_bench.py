@@ -12,6 +12,7 @@ import tempfile
 import uuid
 from functools import lru_cache
 from pprint import pprint
+from typing import Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import pandas as pd
@@ -31,7 +32,7 @@ def get_symm_buffer(group):
     return inp, group.group_name
 
 
-def _setup(path: str) -> tuple[int, int]:
+def _setup(path: str) -> Tuple[int, int]:
     rank = int(os.environ["LOCAL_RANK"])
     W = int(os.environ["WORLD_SIZE"])
     device = torch.device(f"cuda:{rank}")

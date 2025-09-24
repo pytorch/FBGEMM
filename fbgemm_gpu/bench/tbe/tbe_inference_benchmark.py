@@ -16,7 +16,7 @@ import random
 import statistics
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import click
 import numpy as np
@@ -1398,14 +1398,14 @@ def nbit_uvm_compare_direct_mapped(
     )
 
     if mixed:
-        Ds: list[int] = [
+        Ds: List[int] = [
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
         # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
-        Ds: list[int] = [D] * T
+        Ds: List[int] = [D] * T
 
     _requests_uvm = generate_requests(
         iters,
@@ -1417,7 +1417,7 @@ def nbit_uvm_compare_direct_mapped(
         alpha=alpha,
         weighted=weighted,
     )
-    requests_uvm: list[TBERequest] = [
+    requests_uvm: List[TBERequest] = [
         TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
         for req in _requests_uvm
     ]
@@ -1429,7 +1429,7 @@ def nbit_uvm_compare_direct_mapped(
         + param_size_multiplier * B * sum(Ds[:T]) * L
     )
 
-    stats: dict[str, Any] = {
+    stats: Dict[str, Any] = {
         "B": B,
         "T": T,
         "E": E,

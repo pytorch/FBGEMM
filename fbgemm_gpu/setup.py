@@ -16,7 +16,7 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 import setuptools
 import setuptools_git_versioning as gitversion
@@ -31,12 +31,12 @@ logging.basicConfig(level=logging.INFO)
 @dataclass(frozen=True)
 class FbgemmGpuBuild:
     args: argparse.Namespace
-    other_args: list[str]
+    other_args: List[str]
 
     """FBGEMM_GPU Package Build Configuration"""
 
     @classmethod
-    def from_args(cls, argv: list[str]):
+    def from_args(cls, argv: List[str]):
         parser = argparse.ArgumentParser(description="FBGEMM_GPU Build Setup")
         parser.add_argument(
             "--verbose",
@@ -268,7 +268,7 @@ class FbgemmGpuBuild:
         )
         return full_version_string
 
-    def cmake_args(self) -> list[str]:
+    def cmake_args(self) -> List[str]:
         def _get_cxx11_abi():
             try:
                 value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
@@ -581,7 +581,7 @@ class FbgemmGpuInstall(PipInstall):
         self.print_versions()
 
 
-def main(argv: list[str]) -> None:
+def main(argv: List[str]) -> None:
     # Handle command line args before passing to main setup() method.
     build = FbgemmGpuBuild.from_args(argv)
     # Repair command line args for setup() method.

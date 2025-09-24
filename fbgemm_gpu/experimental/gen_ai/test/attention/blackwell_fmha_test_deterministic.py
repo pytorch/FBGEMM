@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Tuple
 
 import torch
 
@@ -15,7 +16,7 @@ from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
 def _allclose(
     t_1: torch.Tensor,
     t_2: torch.Tensor,
-) -> tuple[float, float]:
+) -> Tuple[float, float]:
     diff = t_1 - t_2
     return diff.abs().max().item(), diff.abs().sum().item()
 
@@ -28,7 +29,7 @@ def _generate_inputs(
     kv_heads: int,
     head_dim: int,
     dtype: torch.dtype,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     device = torch.accelerator.current_accelerator()
     assert device is not None
     assert seqlen_q <= seqlen_k
@@ -69,7 +70,7 @@ def _execute_cutlass_blackwell_attn_dense(
     v: torch.Tensor,
     g: torch.Tensor,
     causal: bool,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     # Run tested kernel
     out = cutlass_blackwell_fmha_func(q, k, v, causal=causal, seqlen_kv=None)
     (
