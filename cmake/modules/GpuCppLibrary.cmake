@@ -302,6 +302,18 @@ function(gpu_cpp_library)
         list(APPEND library_dependencies ${NVML_LIB_PATH})
     endif()
 
+    if(NOT TARGET TBB::tbb)
+        find_package(TBB QUIET)
+    endif()
+    if(TBB_FOUND)
+        list(APPEND library_dependencies TBB::tbb)
+    else()
+        find_library(TBB_LIB NAMES tbb tbb12 HINTS $ENV{CONDA_PREFIX}/lib /usr/lib/x86_64-linux-gnu /usr/local/lib /lib/x86_64-linux-gnu)
+        if(TBB_LIB)
+            list(APPEND library_dependencies ${TBB_LIB})
+        endif()
+    endif()
+
     # Link against the external libraries as needed
     target_link_libraries(${lib_name} PRIVATE ${library_dependencies})
 
