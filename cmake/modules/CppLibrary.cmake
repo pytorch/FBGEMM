@@ -168,6 +168,18 @@ function(cpp_library)
         target_link_libraries(${lib_name} PUBLIC OpenMP::OpenMP_CXX)
     endif()
 
+    if(NOT TARGET TBB::tbb)
+        find_package(TBB QUIET)
+    endif()
+    if(TBB_FOUND)
+        target_link_libraries(${lib_name} PUBLIC TBB::tbb)
+    else()
+        find_library(TBB_LIB NAMES tbb tbb12 HINTS $ENV{CONDA_PREFIX}/lib /usr/lib/x86_64-linux-gnu /usr/local/lib /lib/x86_64-linux-gnu)
+        if(TBB_LIB)
+            target_link_libraries(${lib_name} PUBLIC ${TBB_LIB})
+        endif()
+    endif()
+
     # Add sanitizer options if needed
     if(args_SANITIZER_OPTIONS)
         target_link_options(${lib_name} PUBLIC
