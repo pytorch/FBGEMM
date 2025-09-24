@@ -8,7 +8,6 @@
 
 #include <cpuinfo.h>
 #include <algorithm>
-#include <cmath>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -458,7 +457,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
               int b_remainder = 0;
               if (kidx % 2 == 1) {
                 // Make sure abs(b_prev + *bptr - b_remainder) <= 128
-                int b_prev = B_csc.Values().back();
+                auto b_prev = B_csc.Values().back();
                 b_remainder = std::max(b_prev + *bptr - 128, b_remainder);
                 b_remainder = std::min(b_prev + *bptr + 128, b_remainder);
               }

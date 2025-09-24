@@ -124,11 +124,11 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
   std::unordered_map<Node, uint32_t> cuda_device_to_nvml_device;
 
   for (const auto i : c10::irange(device_count)) {
-    nvmlDevice_t handle;
+    nvmlDevice_t handle = nullptr;
     NVML_CHECK(nvmlDeviceGetHandleByIndex(i, &handle));
     nvmlPciInfo_t pci_info;
     NVML_CHECK(nvmlDeviceGetPciInfo(handle, &pci_info));
-    std::array<char, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id;
+    std::array<char, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id{};
     std::copy(
         &pci_info.busId[0],
         &pci_info.busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE],
@@ -148,7 +148,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
 
   std::vector<Links> links(world_size * world_size);
   for (const auto i : c10::irange(world_size)) {
-    nvmlDevice_t handle;
+    nvmlDevice_t handle = nullptr;
     NVML_CHECK(
         nvmlDeviceGetHandleByIndex(cuda_device_to_nvml_device[i], &handle));
     for (const auto link : c10::irange(NVML_NVLINK_MAX_LINKS)) {
@@ -163,7 +163,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
       }
       nvmlPciInfo_t pci_info;
       NVML_CHECK(nvmlDeviceGetNvLinkRemotePciInfo(handle, link, &pci_info));
-      std::array<char, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id;
+      std::array<char, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id{};
       std::copy(
           &pci_info.busId[0],
           &pci_info.busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE],

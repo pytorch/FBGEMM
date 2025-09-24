@@ -53,7 +53,7 @@ static torch::Tensor convertVectorToTensor(
 // Metadata structure for an index
 struct IndexMetadata {
   std::vector<double> tags;
-  int64_t freq;
+  int64_t freq{};
 };
 
 torch::Tensor IndicesGenerator::generate() {
