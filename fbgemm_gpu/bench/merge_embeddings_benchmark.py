@@ -10,6 +10,7 @@
 
 import logging
 import signal
+from typing import List, Tuple
 
 import click
 import fbgemm_gpu
@@ -58,7 +59,7 @@ def get_table_batched_offsets_from_dense(
     merged_indices: torch.Tensor,
     # pyre-fixme[2]: Parameter must be annotated.
     gpu_num,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     (T, B, L) = merged_indices.size()
     lengths = np.ones((T, B)) * L
     flat_lengths = lengths.flatten()
@@ -79,7 +80,7 @@ def generate_requests(
     E: int,
     # inter-batch indices reuse rate
     reuse: float = 0.0,
-) -> list[tuple[torch.IntTensor, torch.IntTensor, None]]:
+) -> List[Tuple[torch.IntTensor, torch.IntTensor, None]]:
     rs = []
     for gpu_num in range(num_gpus):
         all_indices = torch.randint(

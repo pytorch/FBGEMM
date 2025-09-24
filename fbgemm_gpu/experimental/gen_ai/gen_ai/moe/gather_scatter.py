@@ -6,7 +6,7 @@
 
 # pyre-unsafe
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 import triton
@@ -101,7 +101,7 @@ def gather_scale_quant_dense_tokens(
     scores: torch.Tensor,
     scale_ub: Optional[torch.Tensor] = None,
     valid_token_count: Optional[torch.Tensor] = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Gather, scale, and quantize dense tokens along 1D indices.
 

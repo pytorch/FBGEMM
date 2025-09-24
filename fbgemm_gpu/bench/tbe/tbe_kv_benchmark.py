@@ -9,7 +9,7 @@
 import gc
 import logging
 import time
-from typing import Callable
+from typing import Callable, Dict, Type
 
 import click
 import numpy as np
@@ -57,7 +57,7 @@ tbe_class: OptionCommandType = click.option(
 )
 
 
-TBE_CLASS_MAP: dict[str, type[IntNBitTableBatchedEmbeddingBagsCodegen]] = {
+TBE_CLASS_MAP: Dict[str, Type[IntNBitTableBatchedEmbeddingBagsCodegen]] = {
     "KVEmbeddingInference": KVEmbeddingInference,
     "IntNBitTableBatchedEmbeddingBagsCodegen": IntNBitTableBatchedEmbeddingBagsCodegen,
 }

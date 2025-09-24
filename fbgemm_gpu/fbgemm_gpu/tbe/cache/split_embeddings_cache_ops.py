@@ -6,7 +6,7 @@
 
 # pyre-unsafe
 
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import torch
 
@@ -17,13 +17,13 @@ def get_unique_indices_v2(
     compute_count: bool = False,
     compute_inverse_indices: bool = False,
 ) -> Union[
-    tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]],
-    tuple[
+    Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]],
+    Tuple[
         torch.Tensor,
         torch.Tensor,
         Optional[torch.Tensor],
     ],
-    tuple[torch.Tensor, torch.Tensor],
+    Tuple[torch.Tensor, torch.Tensor],
 ]:
     """
     A wrapper for get_unique_indices for overloading the return type

@@ -9,6 +9,7 @@
 import argparse
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Dict, List, Set, Tuple
 
 
 @dataclass(frozen=True)
@@ -20,11 +21,11 @@ class ProblemShape:
     K: int
 
     @classmethod
-    def from_tuple(cls, shape_tuple: tuple[int, int, int]) -> "ProblemShape":
+    def from_tuple(cls, shape_tuple: Tuple[int, int, int]) -> "ProblemShape":
         """Create ProblemShape from a tuple."""
         return cls(M=shape_tuple[0], N=shape_tuple[1], K=shape_tuple[2])
 
-    def to_tuple(self) -> tuple[int, int, int]:
+    def to_tuple(self) -> Tuple[int, int, int]:
         """Convert to tuple for backwards compatibility."""
         return (self.M, self.N, self.K)
 
@@ -51,7 +52,7 @@ class NEntry:
     """Represents an N dimension entry with its K entries."""
 
     N: int
-    k_entries: list[KEntry]
+    k_entries: List[KEntry]
 
 
 @dataclass
@@ -59,17 +60,17 @@ class MEntry:
     """Represents an M dimension entry with its N entries."""
 
     M: int
-    n_entries: list[NEntry]
+    n_entries: List[NEntry]
 
 
 @dataclass
 class Heuristic:
     """Represents the complete heuristic structure."""
 
-    m_entries: list[MEntry]
+    m_entries: List[MEntry]
 
 
-def get_kernel_assignment(file_path: str, threshold: float) -> dict[ProblemShape, str]:
+def get_kernel_assignment(file_path: str, threshold: float) -> Dict[ProblemShape, str]:
     """
     Assign kernels to problem shape from a set of profiling runs on a kernel.
     The heuristic is currently built in a greedy approach:
@@ -77,11 +78,11 @@ def get_kernel_assignment(file_path: str, threshold: float) -> dict[ProblemShape
     2. For the above kernels, count how often it appeared across all problem shapes.
     3. When assigning a kernel to a problem shape, prioritize kernels that appear more often to minimize the number of kernels used.
     """
-    kernel_results: list[KernelResult] = []
-    best_times_ms: dict[ProblemShape, float] = {}
-    kernel_count: dict[str, int] = defaultdict(int)
-    kernel_candidates: dict[ProblemShape, set[str]] = defaultdict(set)
-    kernel_assignment: dict[ProblemShape, str] = {}
+    kernel_results: List[KernelResult] = []
+    best_times_ms: Dict[ProblemShape, float] = {}
+    kernel_count: Dict[str, int] = defaultdict(int)
+    kernel_candidates: Dict[ProblemShape, Set[str]] = defaultdict(set)
+    kernel_assignment: Dict[ProblemShape, str] = {}
 
     with open(file_path, "r") as file:
         # Parse CSV and find the best time for each problem shape
@@ -121,7 +122,7 @@ def get_kernel_assignment(file_path: str, threshold: float) -> dict[ProblemShape
     return kernel_assignment
 
 
-def get_heuristic(kernel_assignment: dict[ProblemShape, str]) -> Heuristic:
+def get_heuristic(kernel_assignment: Dict[ProblemShape, str]) -> Heuristic:
     """Build hierarchical heuristic structure from kernel assignments."""
     M_vals = sorted({problem_shape.M for problem_shape in kernel_assignment.keys()})
     N_vals = sorted({problem_shape.N for problem_shape in kernel_assignment.keys()})

@@ -8,6 +8,7 @@
 
 import functools
 from math import sqrt
+from typing import List, Tuple
 
 import click
 import fbgemm_gpu
@@ -32,7 +33,7 @@ def generate_unary_feature(
     num_embeddings: int,
     # pyre-fixme[24]: Generic type `list` expects 1 type parameter, use
     #  `typing.List[<element type>]` to avoid runtime subscripting errors.
-) -> tuple[list, list, list]:
+) -> Tuple[List, List, List]:
     lengths = []
     offsets = []
     indices = []
@@ -52,7 +53,7 @@ def generate_unary_feature(
 
 
 class MyModule(torch.nn.Module):
-    def __init__(self, num_tasks: int, hash_sizes: list[int]) -> None:
+    def __init__(self, num_tasks: int, hash_sizes: List[int]) -> None:
         super().__init__()
         self.num_tasks = num_tasks
         self.hash_sizes = hash_sizes
@@ -72,7 +73,7 @@ class MyModule(torch.nn.Module):
                 self.emb_modules.append(emb)
 
     def forward(
-        self, offsets: list[torch.Tensor], indices: list[torch.Tensor]
+        self, offsets: List[torch.Tensor], indices: List[torch.Tensor]
     ) -> torch.Tensor:
         tt_list = []
         for n in range(self.num_tasks):
