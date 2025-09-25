@@ -140,11 +140,19 @@ template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T warpReduceAllSum(
     T val,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-      return rocm::wave_reduce<
-        rocm::reduce_op::sum,  // Sum reduction
-        T,                                 // Data type
-        ReduceWidth                        // Wave/Warp size
-    >(val);
+      #ifdef USE_ROCM
+          return rocm::wave_reduce<
+            rocm::reduce_op::sum,  // Sum reduction
+            T,                                 // Data type
+            ReduceWidth                        // Wave/Warp size
+        >(val);
+      #else
+        #pragma unroll
+          for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+            val += shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
+          }
+          return val;
+      #endif
 }
 
 DEVICE_INLINE void syncwarp() {
