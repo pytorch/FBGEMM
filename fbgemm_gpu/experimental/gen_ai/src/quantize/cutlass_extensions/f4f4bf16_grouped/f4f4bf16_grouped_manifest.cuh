@@ -18,8 +18,6 @@ at::Tensor f4f4bf16_grouped_128_64_256_1_1_1_f(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -30,8 +28,6 @@ at::Tensor f4f4bf16_grouped_128_64_256_1_1_1_t(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -42,8 +38,6 @@ at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_f(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -54,8 +48,6 @@ at::Tensor f4f4bf16_grouped_128_128_256_1_1_1_t(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -66,8 +58,6 @@ at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_f(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -78,8 +68,6 @@ at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_t(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -90,8 +78,6 @@ at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_f(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -102,8 +88,6 @@ at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_t(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -114,8 +98,6 @@ at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_f(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -126,8 +108,6 @@ at::Tensor f4f4bf16_grouped_256_256_256_2_1_1_t(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding);
@@ -138,8 +118,6 @@ using Kernel_f4f4bf16_grouped = at::Tensor (*)(
     at::Tensor,
     at::Tensor,
     at::Tensor,
-    int64_t,
-    std::optional<at::Tensor>,
     std::optional<at::Tensor>,
     std::optional<at::Tensor>,
     std::optional<at::Tensor>);
