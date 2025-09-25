@@ -320,6 +320,9 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
     if (q.size(q.dim() - 1) == 128) {
       return dispatch_type(varlen, mask, std::integral_constant<int, 128>{});
     }
+    else if (q.size(q.dim() - 1) == 64) {
+      return dispatch_type(varlen, mask, std::integral_constant<int, 64>{});
+    }
     else {
       TORCH_CHECK(false, "Unsupported head dim: ", q.size(q.dim() - 1));
     }

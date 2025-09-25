@@ -5,6 +5,7 @@
 template <
     typename Element,
     typename ActiveMask,
+    int HeadDim,
     bool kIsVarlen,
     bool kIsDeterministic,
     class... KernelOptions>
@@ -34,8 +35,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     cute::tuple<VariableLength, VariableLength, int, int, cute::tuple<cute::tuple<int, int>, int>>,
     cute::tuple<int, int, int, int, cute::tuple<cute::tuple<int, int>, int>>
   >;
-
-  using TileShape = Shape<_128, _128, _128>;
+  using D_H = cute::Int<HeadDim>;
+  using TileShape = Shape<_128, _128, D_H>;
 
   using Operation = cutlass::fmha::device::
       Sm100FmhaBwd<ProblemShapeType, Element, ElementAccumulator, TileShape, /*kIsMla=*/false, ActiveMask, kIsDeterministic>;
@@ -114,7 +115,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
     problem_shape = cute::make_tuple(
         Q, K, D, D, make_shape(make_shape(H_R, H_K), B));
   }
-
+  TORCH_CHECK(D == HeadDim);
   TORCH_CHECK(D % 8 == 0); // Alignment
   if constexpr (!kIsVarlen) {
     // TODO: support Q < 8
@@ -314,6 +315,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
     [&](
       auto element,
       auto element_out,
+      auto head_dim,
       auto varlen,
       auto deterministic,
       auto mask,
@@ -321,6 +323,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
       return fmha_bwd<
         decltype(element),
         decltype(mask),
+        head_dim,
         varlen,
         deterministic,
         decltype(kernel_options)...>
@@ -340,51 +343,63 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
         window_size_right);
     };
 
-  auto dispatch_type = [&](auto varlen, auto deterministic, auto mask) {
+  auto dispatch_type = [&](auto varlen, auto deterministic, auto mask, auto head_dim) {
     if (query.dtype() == torch::kFloat16) {
       return dispatch_fmha(
-          cutlass::half_t{}, cutlass::half_t{}, varlen, deterministic, mask);
+          cutlass::half_t{}, cutlass::half_t{}, head_dim, varlen, deterministic, mask);
     }
     else if (query.dtype() == torch::kBFloat16) {
       return dispatch_fmha(
-          cutlass::bfloat16_t{}, cutlass::bfloat16_t{}, varlen, deterministic, mask);
+          cutlass::bfloat16_t{}, cutlass::bfloat16_t{}, head_dim, varlen, deterministic, mask);
     }
     else if (query.dtype() == torch::kFloat8_e4m3fn) {
       return dispatch_fmha(
-          cutlass::float_e4m3_t{}, cutlass::bfloat16_t{}, varlen, deterministic, mask);
+          cutlass::float_e4m3_t{}, cutlass::bfloat16_t{}, head_dim, varlen, deterministic, mask);
     }
     TORCH_CHECK(false, "Unsupported dtype for q: ", query.dtype());
+  };
+
+  auto dispatch_head_dim = [&](auto varlen, auto deterministic, auto mask) {
+    if (query.size(query.dim() - 1) == 128) {
+      return dispatch_type(varlen, deterministic, mask, std::integral_constant<int, 128>{});
+    }
+    else if (query.size(query.dim() - 1) == 64) {
+      return dispatch_type(varlen, deterministic, mask, std::integral_constant<int, 64>{});
+    }
+    else {
+      TORCH_CHECK(false, "Unsupported head dim: ", query.size(query.dim() - 1));
+    }
   };
 
   auto dispatch_mask = [&](auto varlen, auto deterministic) {
     if (causal) {
       if (bottom_right) {
-        return dispatch_type(
+        return dispatch_head_dim(
             varlen, deterministic, CausalForBackwardMask</*kIsQBegin=*/false>{});
       }
       else {
-        return dispatch_type(
+        return dispatch_head_dim(
             varlen, deterministic, CausalForBackwardMask</*kIsQBegin=*/true>{});
       }
     }
     else if (local) {
       if (bottom_right) {
-        return dispatch_type(
+        return dispatch_head_dim(
             varlen, deterministic, LocalMaskForBackward</*kIsQBegin=*/false>{});
       }
       else {
-        return dispatch_type(
+        return dispatch_head_dim(
             varlen, deterministic, LocalMaskForBackward</*kIsQBegin=*/true>{});
       }
     }
     else if (varlen || key.size(1) % 128 != 0) {
       // Use the residual mask for varlen or when K seqlen is not multiple of
       // blockN
-      return dispatch_type(
+      return dispatch_head_dim(
           varlen, deterministic, ResidualMaskForBackward{});
     }
     else {
-      return dispatch_type(
+      return dispatch_head_dim(
           varlen, deterministic, NoMask{});
     }
   };
