@@ -632,6 +632,12 @@ at::Tensor jagged_to_padded_dense(
     const c10::SymIntArrayRef max_lengths,
     const double padding_value);
 
+at::Tensor jagged_to_padded_dense_forward_cpu(
+    const at::Tensor& values,
+    const std::vector<at::Tensor>& offsets,
+    c10::SymIntArrayRef max_lengths,
+    const double padding_value);
+
 at::Tensor jagged_dense_elementwise_add(
     const at::Tensor& x_values,
     const std::vector<at::Tensor>& x_offsets,
