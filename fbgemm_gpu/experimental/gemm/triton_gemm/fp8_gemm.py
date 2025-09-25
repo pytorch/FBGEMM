@@ -1246,8 +1246,19 @@ def matmul_fp8_row(
     # View inputs into proper torch fp8 dtype.
     if torch.version.cuda:
         assert a.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+    elif torch.version.hip:
+        if torch.cuda.get_device_capability() < (9, 5):
+            assert a.dtype in (
+                torch.float8_e4m3fnuz,
+                torch.float8_e5m2fnuz,
+            )
+        else:
+            assert a.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
     else:
-        assert a.dtype in (torch.float8_e4m3fnuz, torch.float8_e5m2fnuz)
+        assert a.dtype in (
+            torch.float8_e4m3fnuz,
+            torch.float8_e5m2fnuz,
+        )
     assert b.dtype == pt_fp8_dtype
     M, N, K, m_key, n_key, k_key, c, c_dtype_triton, dot_out_dtype_triton, device = (
         prep_matmul(a, b, dot_out_dtype)
@@ -3808,259 +3819,61 @@ def get_full_non_persistent_tuning_space():
 
 
 MATMUL_CONFIGS_NON_PERSISTENT: list[Config] = get_full_non_persistent_tuning_space()
+# (BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M, SPLIT_K, waves_per_eu, matrix_instr_nonkdim, kpack, num_warps, num_stages)
+_MATMUL_CONFIG_TUPLES_PINGPONG_4K_8K_16K = [
+    (16, 16, 256, 1, 1, 8, 16, 2, 2, 2),
+    (16, 16, 256, 1, 1, 0, 16, 2, 2, 2),
+    (32, 64, 512, 1, 1, 2, 16, 2, 8, 2),
+    (64, 64, 256, 1, 1, 2, 16, 2, 4, 2),
+    (256, 256, 128, 32, 1, 2, 16, 1, 8, 2),
+    (256, 256, 128, 2, 1, 0, 32, 2, 8, 2),
+    (256, 256, 128, 1, 1, 0, 32, 2, 8, 2),
+    (256, 256, 128, 2, 1, 0, 16, 1, 8, 2),
+    (256, 256, 64, 2, 1, 2, 16, 1, 8, 2),
+    (128, 256, 64, 2, 1, 2, 16, 1, 4, 2),
+    (256, 128, 128, 4, 1, 0, 16, 1, 8, 2),
+    (128, 128, 128, 1, 1, 2, 16, 2, 4, 2),
+    (128, 128, 256, 1, 1, 2, 16, 2, 8, 2),
+    (128, 128, 64, 4, 1, 2, 16, 2, 4, 2),
+    (128, 128, 64, 1, 1, 2, 16, 2, 4, 2),
+    (128, 64, 64, 4, 1, 0, 16, 2, 4, 2),
+    (128, 64, 64, 1, 1, 0, 16, 2, 4, 2),
+    (256, 128, 128, 1, 1, 2, 16, 1, 8, 2),
+]
+
+
+def _should_skip_config(block_k, matrix_instr_nonkdim):
+    """Skip config if BLOCK_K=64 and matrix_instr_nonkdim=16 on GFX95+"""
+    try:
+        return (
+            block_k == 64
+            and matrix_instr_nonkdim == 16
+            and torch.version.hip is not None
+            and torch.cuda.get_device_capability() >= (9, 5)
+        )
+    except RuntimeError:
+        # If no HIP GPUs are available, we can't check device capability
+        # so we don't skip any configs
+        return False
+
+
 MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     triton.Config(
         {
-            "BLOCK_M": 16,
-            "BLOCK_N": 16,
-            "BLOCK_K": 256,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 8,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
+            "BLOCK_M": block_m,
+            "BLOCK_N": block_n,
+            "BLOCK_K": block_k,
+            "GROUP_M": group_m,
+            "SPLIT_K": split_k,
+            "waves_per_eu": waves_per_eu,
+            "matrix_instr_nonkdim": matrix_instr_nonkdim,
+            "kpack": kpack,
         },
-        num_warps=2,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 16,
-            "BLOCK_N": 16,
-            "BLOCK_K": 256,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 0,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=2,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 32,
-            "BLOCK_N": 64,
-            "BLOCK_K": 512,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 64,
-            "BLOCK_N": 64,
-            "BLOCK_K": 256,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=4,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 256,
-            "BLOCK_N": 256,
-            "BLOCK_K": 128,
-            "GROUP_M": 32,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 1,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 256,
-            "BLOCK_N": 256,
-            "BLOCK_K": 128,
-            "GROUP_M": 2,
-            "SPLIT_K": 1,
-            "waves_per_eu": 0,
-            "matrix_instr_nonkdim": 32,
-            "kpack": 2,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 256,
-            "BLOCK_N": 256,
-            "BLOCK_K": 128,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 0,
-            "matrix_instr_nonkdim": 32,
-            "kpack": 2,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 256,
-            "BLOCK_N": 256,
-            "BLOCK_K": 128,
-            "GROUP_M": 2,
-            "SPLIT_K": 1,
-            "waves_per_eu": 0,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 1,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 256,
-            "BLOCK_N": 256,
-            "BLOCK_K": 64,
-            "GROUP_M": 2,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 1,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 128,
-            "BLOCK_N": 256,
-            "BLOCK_K": 64,
-            "GROUP_M": 2,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 1,
-        },
-        num_warps=4,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 256,
-            "BLOCK_N": 128,
-            "BLOCK_K": 128,
-            "GROUP_M": 4,
-            "SPLIT_K": 1,
-            "waves_per_eu": 0,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 1,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 128,
-            "BLOCK_N": 128,
-            "BLOCK_K": 128,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=4,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 128,
-            "BLOCK_N": 128,
-            "BLOCK_K": 256,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 128,
-            "BLOCK_N": 128,
-            "BLOCK_K": 64,
-            "GROUP_M": 4,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=4,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 128,
-            "BLOCK_N": 128,
-            "BLOCK_K": 64,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=4,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 128,
-            "BLOCK_N": 64,
-            "BLOCK_K": 64,
-            "GROUP_M": 4,
-            "SPLIT_K": 1,
-            "waves_per_eu": 0,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=4,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 128,
-            "BLOCK_N": 64,
-            "BLOCK_K": 64,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 0,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 2,
-        },
-        num_warps=4,
-        num_stages=2,
-    ),
-    triton.Config(
-        {
-            "BLOCK_M": 256,
-            "BLOCK_N": 128,
-            "BLOCK_K": 128,
-            "GROUP_M": 1,
-            "SPLIT_K": 1,
-            "waves_per_eu": 2,
-            "matrix_instr_nonkdim": 16,
-            "kpack": 1,
-        },
-        num_warps=8,
-        num_stages=2,
-    ),
+        num_warps=num_warps,
+        num_stages=num_stages,
+    )
+    for block_m, block_n, block_k, group_m, split_k, waves_per_eu, matrix_instr_nonkdim, kpack, num_warps, num_stages in _MATMUL_CONFIG_TUPLES_PINGPONG_4K_8K_16K
+    if not _should_skip_config(block_k, matrix_instr_nonkdim)
 ]
 
 # Set this to enable full autotuning for proper benchmarking.
