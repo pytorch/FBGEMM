@@ -515,7 +515,8 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
 at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor X,
     at::Tensor W,
-    at::Tensor M_sizes) {
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> out) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int64_t group_count = M_sizes.size(0);

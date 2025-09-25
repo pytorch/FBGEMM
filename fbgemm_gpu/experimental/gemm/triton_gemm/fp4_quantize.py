@@ -1461,7 +1461,7 @@ def triton_scale_nvfp4_quant(
         stochastic_casting (bool): Whether to use stochastic casting.
 
     Returns:
-        torch.Tensor: [M / 2] nvfp4 scaled tensor packed into in8
+        torch.Tensor: [M / 2] nvfp4 scaled tensor packed into int8
         torch.Tensor: [M / group_size] nvfp4 shared exponents into int8
 
         eg.
