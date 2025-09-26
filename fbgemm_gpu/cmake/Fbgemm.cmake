@@ -26,7 +26,8 @@ set(fbgemm_sources_avx2
   "${FBGEMM}/src/QuantUtilsAvx2.cc")
 
 set(fbgemm_sources_avx512
-  "${FBGEMM}/src/EmbeddingSpMDMAvx512.cc")
+  "${FBGEMM}/src/EmbeddingSpMDMAvx512.cc"
+  "${FBGEMM}/src/QuantUtilsAvx512.cc")
 
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${fbgemm_sources_avx2}
@@ -46,7 +47,7 @@ if(CXX_AVX2_FOUND)
     ${fbgemm_sources}
     ${fbgemm_sources_avx2})
 endif()
-if((NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM) AND CXX_AVX512_FOUND)
+if(CXX_AVX512_FOUND)
   set(fbgemm_sources
     ${fbgemm_sources}
     ${fbgemm_sources_avx2}

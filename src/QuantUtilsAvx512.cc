@@ -6,12 +6,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <stdexcept>
 #define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx512.h"
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
 #endif
+#include <cpuinfo.h>
+#include <fbgemm/FloatConversion.h>
 #include <cassert>
 
 namespace fbgemm {
@@ -381,6 +384,50 @@ void requantizeOutputProcessingGConvAvx512(
   } // i loop
 }
 
+void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
+    const std::uint8_t* input,
+    size_t input_rows,
+    int input_columns,
+    bfloat16* output) {
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && defined(FBGEMM_FBCODE)
+  constexpr int VLEN = 8;
+  int output_columns = input_columns - 2 * sizeof(float);
+
+  for (size_t row = 0; row < input_rows; ++row) {
+    const std::uint8_t* input_row = input + row * input_columns;
+    const float* input_row_scale_bias =
+        reinterpret_cast<const float*>(input_row + output_columns);
+    bfloat16* output_row = output + row * output_columns;
+
+    __m256 scale_v = _mm256_set1_ps(input_row_scale_bias[0]);
+    __m256 bias_v = _mm256_set1_ps(input_row_scale_bias[1]);
+
+    int col = 0;
+    for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
+      __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
+          _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
+#ifdef __FMA__
+      __m256 dequantzed_v = _mm256_fmadd_ps(in_v, scale_v, bias_v);
+#else
+      __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
+#endif
+      _mm_storeu_si128(
+          reinterpret_cast<__m128i*>(output_row + col),
+          (__m128i)(_mm256_cvtneps_pbh(dequantzed_v)));
+    }
+
+    for (; col < output_columns; ++col) {
+      float output_value =
+          input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
+      output_row[col] = cpu_float2bfloat16(output_value);
+    }
+  } // for each row
+#else
+  throw std::runtime_error(
+      "Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512 not implemented for non x86");
+#endif
+}
+
 #define INSTANTIATE_REQUANTIZE_BIAS_TYPE(              \
     A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE)       \
   template void requantizeOutputProcessingGConvAvx512< \
@@ -468,4 +515,5 @@ INSTANTIATE_BIAS(false)
 #undef INSTANTIATE_B_SYM
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BIAS
+
 } // namespace fbgemm
