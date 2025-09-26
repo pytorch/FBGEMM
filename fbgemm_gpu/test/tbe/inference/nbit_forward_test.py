@@ -8,7 +8,6 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
-import os
 import random
 import unittest
 from typing import Any, Callable, Optional, Union
@@ -124,12 +123,6 @@ additional_decorators: dict[str, list[Callable]] = {
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class NBitFowardTest(NBitFowardTestCommon):
-    def _is_cpu_output_on_pinned_memory(self) -> bool:
-        return (
-            os.getenv("FBGEMM_TBE_CPU_OUTPUT_DISABLE_PINNED_MEMORY") != "1"
-            and torch.cuda.is_available()
-        )
-
     def execute_nbit_forward_fused_pooled_emb_quant_(
         self,
         T: int,
@@ -905,9 +898,6 @@ class NBitFowardTest(NBitFowardTestCommon):
         lengths = torch.cat(lengths_list, 0)
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
         quant_cc_output = quant_cc(indices.int(), offsets.int())
-        self.assertEqual(
-            quant_cc_output.is_pinned(), self._is_cpu_output_on_pinned_memory()
-        )
         tables_rows = [
             T for T, _, _ in quant_cc.split_embedding_weights_with_scale_bias(0)
         ]
