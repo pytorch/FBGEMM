@@ -55,7 +55,7 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
   return output;
 }
 
-template <typename output_t>
+template <typename output_t, bool is_uint16_t_of_type_bf16 = false>
 Tensor& _fused8bitrowwise_to_float_cpu_out_t(
     Tensor& output,
     const Tensor& input) {
@@ -78,7 +78,9 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
   auto output_data = static_cast<output_t*>(
       output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
                           // unresolved data_ptr symbol.
-  fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<output_t>(
+  fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<
+      output_t,
+      is_uint16_t_of_type_bf16>(
       input.data_ptr<uint8_t>(), nrows, ncols, output_data);
 
   return output;
@@ -217,11 +219,19 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
 Tensor& _fused8bitrowwise_to_float_cpu_out(
     Tensor& output,
     const Tensor& input) {
-  return _fused8bitrowwise_to_float_cpu_out_t<float>(output, input);
+  return _fused8bitrowwise_to_float_cpu_out_t<float, false>(output, input);
 }
 
 Tensor& fused8bitrowwise_to_half_cpu_out(Tensor& output, const Tensor& input) {
-  return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::float16>(output, input);
+  return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::float16, false>(
+      output, input);
+}
+
+Tensor& _fused8bitrowwise_to_bfloat16_cpu_out(
+    Tensor& output,
+    const Tensor& input) {
+  return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::bfloat16, true>(
+      output, input);
 }
 
 /// @ingroup quantize-data-cpu
@@ -287,6 +297,13 @@ Tensor fused8bitrowwise_to_half_cpu(const Tensor& input) {
 
 /// @ingroup quantize-data-cpu
 ///
+Tensor fused8bitrowwise_to_bfloat16_cpu(const Tensor& input) {
+  auto output = at::empty({0}, input.options().dtype(at::kBFloat16));
+  return _fused8bitrowwise_to_bfloat16_cpu_out(output, input);
+}
+
+/// @ingroup quantize-data-cpu
+///
 Tensor fused8bitrowwise_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t output_dtype,
@@ -304,6 +321,10 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
     case SparseType::FP16:
       output = at::empty({0}, input.options().dtype(at::kHalf));
       output = fused8bitrowwise_to_half_cpu_out(output, input);
+      break;
+    case SparseType::BF16:
+      output = at::empty({0}, input.options().dtype(at::kBFloat16));
+      output = _fused8bitrowwise_to_bfloat16_cpu_out(output, input);
       break;
     default:
       TORCH_CHECK(false);
@@ -582,6 +603,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "FP8RowwiseQuantizedToFloat(Tensor input, bool forward, int output_dtype=0) -> Tensor",
       {PT2_COMPLIANT_TAG});
   m.def("Fused8BitRowwiseQuantizedToHalf(Tensor input) -> Tensor");
+  m.def("Fused8BitRowwiseQuantizedToBfloat16(Tensor input) -> Tensor");
   m.def(
       "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int output_dtype=0, bool scale_bias_last=True, bool quant_padding_float_type=True) -> Tensor");
   m.def(
@@ -648,6 +670,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "Fused8BitRowwiseQuantizedToHalf",
       fbgemm_gpu::fused8bitrowwise_to_half_cpu);
+  DISPATCH_TO_CPU(
+      "Fused8BitRowwiseQuantizedToBfloat16",
+      fbgemm_gpu::fused8bitrowwise_to_bfloat16_cpu);
   DISPATCH_TO_CPU(
       "Fused8BitRowwiseQuantizedToFloatOrHalf",
       fbgemm_gpu::fused8bitrowwise_to_float_or_half_cpu);
