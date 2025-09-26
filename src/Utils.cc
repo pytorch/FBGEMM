@@ -319,6 +319,10 @@ bool fbgemmHasAvx512VnniSupport() {
   return cpuinfo_has_x86_avx512vnni();
 }
 
+bool fbgemmHasAvx512Bf16Support() {
+  return cpuinfo_has_x86_avx512bf16();
+}
+
 bool fbgemmHasArmNeonSupport() {
   return cpuinfo_has_arm_neon();
 }

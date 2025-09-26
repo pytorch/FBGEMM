@@ -178,6 +178,11 @@ FBGEMM_API bool fbgemmHasAvx2Support();
 FBGEMM_API bool fbgemmHasAvx512VnniSupport();
 
 /**
+ * @brief Are we running on a AVX512_BF16 supported cpu?
+ */
+FBGEMM_API bool fbgemmHasAvx512Bf16Support();
+
+/**
  * @brief Are we running on a ARM Neon supported cpu?
  */
 FBGEMM_API bool fbgemmHasArmNeonSupport();

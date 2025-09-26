@@ -10,6 +10,7 @@
 
 #include "./FbgemmBuild.h" // @manual
 #include "./QuantUtilsAvx2.h" // @manual
+#include "./QuantUtilsAvx512.h" // @manual
 #include "./QuantUtilsNeon.h" // @manual
 #include "./Types.h" // @manual
 #include "./Utils.h" // @manual
@@ -330,7 +331,7 @@ FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
  * This version intentionally supports only 8-bit because
  * the corresponding quantize version only supports 8-bit.
  */
-template <typename OutputType>
+template <typename OutputType, bool is_uint16_t_of_type_bf16 = false>
 FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     const uint8_t* input,
     size_t input_rows,
@@ -377,7 +378,7 @@ FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
  * Same as Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf but unoptimized.
  * This should not be called directly except in testing.
  */
-template <typename OutputType>
+template <typename OutputType, bool is_uint16_t_of_type_bf16 = false>
 FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const uint8_t* input,
     size_t input_rows,

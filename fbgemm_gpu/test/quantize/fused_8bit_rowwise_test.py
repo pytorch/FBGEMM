@@ -141,9 +141,9 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
 
         assume(ncols % (2 * num_elem_per_byte) == 0)
         if not test_cuda:
-            # cpu path does not support bf16
+            # cpu path only supports bf16 dequantization
             if output_dtype == SparseType.BF16:
-                return
+                input_data = input_data.float()
             if test_generic_op:
                 quantized_data = (
                     torch.ops.fbgemm.FloatOrHalfToFused8BitRowwiseQuantized(input_data)
@@ -171,6 +171,15 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                     dequantized_data = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToHalf(
                         quantized_data
                     )
+                elif output_dtype == SparseType.BF16:
+                    quantized_data = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                        input_data,
+                    )
+                    dequantized_data = (
+                        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToBfloat16(
+                            quantized_data,
+                        )
+                    )
                 else:
                     raise NotImplementedError("Unsupported dtype")
 
@@ -185,6 +194,10 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                 torch.testing.assert_close(dequantized_data.float(), reference.float())
             elif output_dtype == SparseType.FP16:
                 torch.testing.assert_close(dequantized_data.half(), reference.half())
+            elif output_dtype == SparseType.BF16:
+                torch.testing.assert_close(
+                    dequantized_data.bfloat16(), reference.bfloat16()
+                )
         if test_cuda and gpu_available:
             if nrows == 0 or ncols == 0:
                 return
