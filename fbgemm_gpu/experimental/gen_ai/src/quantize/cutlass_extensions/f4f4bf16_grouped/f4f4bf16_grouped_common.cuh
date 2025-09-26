@@ -21,6 +21,8 @@
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 
+namespace fbgemm_gpu {
+
 inline int64_t _byte_align(int64_t offset) {
   int64_t remainder = offset % 16;
   if (remainder != 0) {
@@ -34,7 +36,7 @@ template <
     typename ElementA,
     typename ElementB,
     typename ElementC,
-    typename ElementComputeEpilogue,
+    typename ElementScale,
     typename StrideA,
     typename StrideB,
     typename StrideC,
@@ -46,17 +48,15 @@ __global__ void set_stacked_kernel_args_kernel(
     int64_t G,
     int64_t N,
     int64_t K,
-    int64_t num_x_scale_per_group,
-    int64_t num_w_scale_per_group,
     ProblemShape* problem_shape_ptr,
     ElementA* xq,
     const ElementA** xq_ptr,
     ElementB* wq,
     const ElementB** wq_ptr,
-    ElementComputeEpilogue* x_scale,
-    const ElementComputeEpilogue** x_scale_ptr,
-    ElementComputeEpilogue* w_scale,
-    const ElementComputeEpilogue** w_scale_ptr,
+    ElementScale* x_scale,
+    const ElementScale** x_scale_ptr,
+    ElementScale* w_scale,
+    const ElementScale** w_scale_ptr,
     ElementC* output,
     ElementC** output_ptr,
     StrideA* stride_a_ptr,
@@ -84,6 +84,7 @@ __global__ void set_stacked_kernel_args_kernel(
     problem_shape_ptr[group_index] = ProblemShape(0, 0, 0);
     // Sync threads to get consistent state in the block.
     __syncthreads();
+    auto round_up = [](int64_t x, int64_t y) { return ((x + y - 1) / y) * y; };
 
     // Compute shape for this group.
     // M for this group is pulled directly from M_sizes.
@@ -107,8 +108,7 @@ __global__ void set_stacked_kernel_args_kernel(
            multiples of (128, 4), and there is a group of 16 elements per scale.
         */
         accumulated_w_scale +=
-            (((N + 128 - 1) / 128) * 128 * ((K + 4 - 1) / 4) * 4 /
-             ele_per_quantize_group);
+            round_up(N, 128) * round_up(K, 4) / ele_per_quantize_group;
       }
       accumulated_x_scale =
           starting_row_after_padding[group_index] * K / ele_per_quantize_group;
@@ -151,13 +151,16 @@ at::Tensor f4f4bf16_grouped_impl(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    int64_t G,
-    std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding) {
   // The number of groups the kernel uses may vary.
-  int kernel_groups = G;
+  int64_t G;
+  int kernel_groups;
+  if (M_sizes) {
+    G = M_sizes->size(0);
+    kernel_groups = M_sizes->size(0);
+  }
 
   at::TensorOptions options;
   options = XQ.options();
@@ -166,6 +169,13 @@ at::Tensor f4f4bf16_grouped_impl(
   if (output.numel() == 0) {
     return output;
   }
+
+  // NVFP4 uses global scale
+  constexpr bool is_nvfp4 = std::
+      is_same_v<InputQuantType, cutlass::nv_float4_t<cutlass::float_e2m1_t>>;
+  TORCH_CHECK(
+      is_nvfp4 == global_scale.has_value(),
+      "global_scale must be set for nvfp4 inputs.");
 
   // Define gemm configuration.
   using ProblemShape =
@@ -201,9 +211,7 @@ at::Tensor f4f4bf16_grouped_impl(
       cute::Shape<cute::Int<TBS_M>, cute::Int<TBS_N>, cute::Int<TBS_K>>;
 
   using KernelSchedule = cute::conditional_t<
-      std::is_same_v<
-          InputQuantType,
-          cutlass::nv_float4_t<cutlass::float_e2m1_t>>,
+      is_nvfp4,
       cute::conditional_t<
           (TB_M == 256) && (TBS_M % 2 == 0),
           cutlass::gemm::KernelPtrArrayTmaWarpSpecialized2SmNvf4Sm100,
@@ -260,7 +268,7 @@ at::Tensor f4f4bf16_grouped_impl(
   using StrideB = typename Gemm::GemmKernel::InternalStrideB;
   using StrideC = typename Gemm::GemmKernel::InternalStrideD;
 
-  using ElementComputeEpilogue = typename ElementA::ScaleFactorType;
+  using ElementScale = typename ElementA::ScaleFactorType;
 
   using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::
       InternalLayoutSFA; // Scale Factor tensors have an interleaved layout.
@@ -268,6 +276,9 @@ at::Tensor f4f4bf16_grouped_impl(
   using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::
       InternalLayoutSFB; // Scale Factor tensors have an interleaved layout.
                          // Bring Layout instead of stride.
+  // For SFA and SFB tensors layouts
+  using Sm1xxBlkScaledConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
   // Create a buffer for kernel arguments. We do this by first figuring out
   // how much space each sub-argument requires and setting up corresponding
@@ -286,11 +297,11 @@ at::Tensor f4f4bf16_grouped_impl(
 
   // X block scales.
   const int64_t x_scale_offset = wq_offset + wq_size_buffer;
-  int64_t x_scale_buffer = _byte_align(G * sizeof(ElementComputeEpilogue**));
+  int64_t x_scale_buffer = _byte_align(G * sizeof(ElementScale**));
 
   // W block scales.
   const int64_t w_scale_offset = x_scale_offset + x_scale_buffer;
-  int64_t w_scale_buffer = _byte_align(G * sizeof(ElementComputeEpilogue**));
+  int64_t w_scale_buffer = _byte_align(G * sizeof(ElementScale**));
 
   // Outputs.
   const int64_t output_offset = w_scale_offset + w_scale_buffer;
@@ -338,12 +349,10 @@ at::Tensor f4f4bf16_grouped_impl(
       reinterpret_cast<const ElementA**>(kernel_args_ptr + xq_offset);
   const ElementB** wq_ptr =
       reinterpret_cast<const ElementB**>(kernel_args_ptr + wq_offset);
-  const ElementComputeEpilogue** x_scale_ptr =
-      reinterpret_cast<const ElementComputeEpilogue**>(
-          kernel_args_ptr + x_scale_offset);
-  const ElementComputeEpilogue** w_scale_ptr =
-      reinterpret_cast<const ElementComputeEpilogue**>(
-          kernel_args_ptr + w_scale_offset);
+  const ElementScale** x_scale_ptr =
+      reinterpret_cast<const ElementScale**>(kernel_args_ptr + x_scale_offset);
+  const ElementScale** w_scale_ptr =
+      reinterpret_cast<const ElementScale**>(kernel_args_ptr + w_scale_offset);
   ElementC** output_ptr =
       reinterpret_cast<ElementC**>(kernel_args_ptr + output_offset);
   StrideA* stride_a_ptr =
@@ -362,63 +371,20 @@ at::Tensor f4f4bf16_grouped_impl(
 
   auto stream = at::cuda::getCurrentCUDAStream().stream();
 
-  // NVFP4 uses global scale
-  constexpr bool is_nvfp4 = std::
-      is_same_v<InputQuantType, cutlass::nv_float4_t<cutlass::float_e2m1_t>>;
-  if constexpr (is_nvfp4) {
-    TORCH_CHECK(global_scale.has_value(), "global_scale is required in nvfp4.");
-  }
-
-  // For SFA and SFB tensors layouts
-  using Sm1xxBlkScaledConfig =
-      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
-
-  // For Tensor inputs, we can set all group arguments in a single kernel
-  // launch.
   TORCH_CHECK(
-      !zero_start_index_M.has_value() ||
-          zero_start_index_M->dtype() == at::kLong,
-      "zero_start_index_M must be int64.");
-
-  TORCH_CHECK(
-      !M_sizes.has_value() || M_sizes->dtype() == at::kLong,
+      M_sizes.has_value() && M_sizes->dtype() == at::kLong,
       "M_sizes must be int64.");
-  // When m_offsets is used, XQ is shape [total_M, K]. When zero_start_index_M
-  // is used, shape is [G, M, K].
+  // When m_offsets is used, XQ is shape [total_M, K].
   int64_t M = XQ.size(XQ.dim() - 2);
   int64_t N = WQ.size(1);
   int64_t K = WQ.size(2) * 2; // Since K is packed
-
-  // Calculate the number of scale elements per group
-  int64_t num_x_scale_per_group;
-  int64_t num_w_scale_per_group;
-  TORCH_CHECK(
-      x_scale.dim() == 2 || x_scale.dim() == 3,
-      "x_scale must be either 2D or 3D tensor")
-  if (x_scale.dim() == 3) {
-    num_x_scale_per_group = x_scale.size(1) * x_scale.size(2);
-  } else {
-    num_x_scale_per_group = x_scale.size(1);
-  }
-  TORCH_CHECK(
-      w_scale.dim() == 2 || w_scale.dim() == 3,
-      "w_scale must be either 2D or 3D tensor")
-  if (w_scale.dim() == 3) {
-    num_w_scale_per_group = w_scale.size(1) * w_scale.size(2);
-  } else {
-    num_w_scale_per_group = w_scale.size(1);
-  }
-
-  int64_t* M_sizes_ptr = reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
-  int64_t* starting_row_after_padding_ptr =
-      reinterpret_cast<int64_t*>(starting_row_after_padding.value().data_ptr());
 
   set_stacked_kernel_args_kernel<
       ProblemShape::UnderlyingProblemShape,
       ElementA,
       ElementB,
       ElementC,
-      ElementComputeEpilogue,
+      ElementScale,
       StrideA,
       StrideB,
       StrideC,
@@ -429,30 +395,29 @@ at::Tensor f4f4bf16_grouped_impl(
       G,
       N,
       K,
-      num_x_scale_per_group,
-      num_w_scale_per_group,
       problem_shape_ptr,
       reinterpret_cast<ElementA*>(XQ.data_ptr()),
       xq_ptr,
       reinterpret_cast<ElementB*>(WQ.data_ptr()),
       wq_ptr,
-      reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
+      reinterpret_cast<ElementScale*>(x_scale.data_ptr()),
       x_scale_ptr,
-      reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
+      reinterpret_cast<ElementScale*>(w_scale.data_ptr()),
       w_scale_ptr,
       reinterpret_cast<ElementC*>(output.data_ptr()),
       output_ptr,
       stride_a_ptr,
       stride_b_ptr,
       stride_c_ptr,
-      M_sizes_ptr,
+      reinterpret_cast<int64_t*>(M_sizes.value().data_ptr()),
       layout_SFA,
       layout_SFB,
       is_nvfp4 ? reinterpret_cast<ElementGlobalScale*>(
                      global_scale.value().data_ptr())
                : nullptr,
       is_nvfp4 ? global_scale_ptr : nullptr,
-      starting_row_after_padding_ptr);
+      reinterpret_cast<int64_t*>(
+          starting_row_after_padding.value().data_ptr()));
   // Set the number of groups to the kernel to be at most the number of
   // non-zero rows.
   kernel_groups = int(std::min(M, G));
@@ -466,19 +431,16 @@ at::Tensor f4f4bf16_grouped_impl(
               hw_info.device_id),
           2147483647); // INT_MAX
 
-  using DataTypeA = typename ElementA::DataType;
-  using DataTypeB = typename ElementB::DataType;
-
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGrouped,
       {kernel_groups, problem_shape_ptr, nullptr},
-      {reinterpret_cast<const DataTypeB**>(wq_ptr),
+      {reinterpret_cast<const ElementBUnderlying**>(wq_ptr),
        stride_b_ptr,
-       reinterpret_cast<const DataTypeA**>(xq_ptr),
+       reinterpret_cast<const ElementAUnderlying**>(xq_ptr),
        stride_a_ptr,
-       reinterpret_cast<const ElementComputeEpilogue**>(w_scale_ptr),
+       reinterpret_cast<const ElementScale**>(w_scale_ptr),
        layout_SFB,
-       reinterpret_cast<const ElementComputeEpilogue**>(x_scale_ptr),
+       reinterpret_cast<const ElementScale**>(x_scale_ptr),
        layout_SFA},
       {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr},
       hw_info};
@@ -523,5 +485,7 @@ at::Tensor f4f4bf16_grouped_impl(
 
   return output;
 }
+
+} // namespace fbgemm_gpu
 
 #endif
