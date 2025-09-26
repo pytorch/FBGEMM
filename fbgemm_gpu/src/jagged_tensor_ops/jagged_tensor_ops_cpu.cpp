@@ -959,6 +959,15 @@ Tensor jagged_acc_weights_and_counts_cpu(
 
 } // namespace
 
+at::Tensor jagged_to_padded_dense_forward_cpu(
+    const at::Tensor& values,
+    const std::vector<at::Tensor>& offsets,
+    c10::SymIntArrayRef max_lengths,
+    const double padding_value) {
+  return jagged_to_padded_dense_forward(
+      values, offsets, max_lengths, padding_value);
+}
+
 std::tuple<Tensor, Tensor> masked_select_jagged_1d(
     const Tensor& values,
     const Tensor& lengths,
