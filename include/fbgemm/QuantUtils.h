@@ -336,7 +336,9 @@ FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     const uint8_t* input,
     size_t input_rows,
     int input_columns,
-    OutputType* output);
+    OutputType* output,
+    const bool scale_bias_last = true,
+    const bool quant_padding_float_type = true);
 
 /**
  * Same as ToFusedNBitRowwiseQuantizedSBHalf but unoptimized.
@@ -383,6 +385,8 @@ FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const uint8_t* input,
     size_t input_rows,
     int input_columns,
-    OutputType* output);
+    OutputType* output,
+    const bool scale_bias_last = true,
+    const bool quant_padding_float_type = true);
 
 } // namespace fbgemm
