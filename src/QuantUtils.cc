@@ -806,7 +806,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
   }
 }
 
-template <typename OutputType>
+template <typename OutputType, bool is_uint16_t_of_type_bf16>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const std::uint8_t* input,
     size_t input_rows,
@@ -826,13 +826,17 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
       if constexpr (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
       } else {
-        output_row[col] = cpu_float2half_rn(output_value);
+        if constexpr (is_uint16_t_of_type_bf16) {
+          output_row[col] = cpu_float2bfloat16(output_value);
+        } else {
+          output_row[col] = cpu_float2half_rn(output_value);
+        }
       }
     }
   }
 }
 
-template <typename OutputType>
+template <typename OutputType, bool is_uint16_t_of_type_bf16>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     const std::uint8_t* input,
     size_t input_rows,
@@ -844,13 +848,25 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
 #else
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-    Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<OutputType>(
-        input, input_rows, input_columns, output);
+    if (is_uint16_t_of_type_bf16 && fbgemmHasAvx512Bf16Support()) {
+#ifdef FBGEMM_FBCODE
+      Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
+          input,
+          input_rows,
+          input_columns,
+          reinterpret_cast<bfloat16*>(output));
+      return;
 #endif
-  } else {
-    Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<OutputType>(
-        input, input_rows, input_columns, output);
+    } else if (!is_uint16_t_of_type_bf16) {
+      Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<OutputType>(
+          input, input_rows, input_columns, output);
+      return;
+    }
+#endif
   }
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<
+      OutputType,
+      is_uint16_t_of_type_bf16>(input, input_rows, input_columns, output);
 #endif
 }
 
@@ -906,13 +922,25 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
       std::uint8_t* output,                                                    \
       const type* rowwise_min_max);                                            \
   template FBGEMM_API void                                                     \
-  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<type>(                      \
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<type, false>(               \
       const uint8_t* input,                                                    \
       size_t input_rows,                                                       \
       int input_columns,                                                       \
       type* output);                                                           \
   template FBGEMM_API void                                                     \
-  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<type>(                         \
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<type, true>(                \
+      const uint8_t* input,                                                    \
+      size_t input_rows,                                                       \
+      int input_columns,                                                       \
+      type* output);                                                           \
+  template FBGEMM_API void                                                     \
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<type, false>(                  \
+      const uint8_t* input,                                                    \
+      size_t input_rows,                                                       \
+      int input_columns,                                                       \
+      type* output);                                                           \
+  template FBGEMM_API void                                                     \
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<type, true>(                   \
       const uint8_t* input,                                                    \
       size_t input_rows,                                                       \
       int input_columns,                                                       \

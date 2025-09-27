@@ -267,14 +267,15 @@ public:
     auto [Q_, K, D, D_VO, HB] = args.problem_shape;
     auto [H, B] = product_each(HB);
     D = cutlass::round_up(D, 8);  // Alignment
-    int Q = cutlass::round_up(static_cast<int>(Q_), 8);  // Alignment
+    size_t Q = cutlass::round_up(static_cast<int>(Q_), 8);  // Alignment
     size_t workspace_bytes = 0;
+    size_t accum_size = sizeof(ElementAccumulator);
     // OdO vector
-    workspace_bytes += B*H*Q * sizeof(ElementAccumulator);
+    workspace_bytes += static_cast<size_t>(B)*static_cast<size_t>(H)*Q * accum_size;
     // scaled LSE vector
-    workspace_bytes += B*H*Q * sizeof(ElementAccumulator);
+    workspace_bytes += static_cast<size_t>(B)*static_cast<size_t>(H)*Q * accum_size;
     // FP32 versions of outputs that are churned (start off with Q only)
-    workspace_bytes += B*H*Q*D * sizeof(ElementAccumulator);
+    workspace_bytes += static_cast<size_t>(B)*static_cast<size_t>(H)*Q*static_cast<size_t>(D) * accum_size;
     return workspace_bytes;
   }
 
