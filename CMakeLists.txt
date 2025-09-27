@@ -109,9 +109,6 @@ if(MSVC)
   set(MSVC_BOOL True)
 else(MSVC)
   set(MSVC_BOOL False)
-  check_cxx_compiler_flag(-march=armv8-a+sve COMPILER_SUPPORTS_SVE)
-  check_cxx_compiler_flag(-march=armv8-a+sve2 COMPILER_SUPPORTS_SVE2)
-  check_cxx_compiler_flag(-march=armv8-a+fp16fml COMPILER_SUPPORTS_FP16FML)
 endif(MSVC)
 
 ################################################################################
@@ -290,6 +287,17 @@ endif()
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  check_cxx_compiler_flag(-march=armv8.2-a+fp16fml COMPILER_SUPPORTS_FP16FML)
+  if(COMPILER_SUPPORTS_FP16FML)
+    set(fbgemm_fml_flags "-march=armv8.2-a+fp16fml")
+  endif()
+  if(NOT COMPILER_SUPPORTS_FP16FML) # for clang
+    check_cxx_compiler_flag(-mfp16fml  COMPILER_SUPPORTS_FP16FML)
+    if(COMPILER_SUPPORTS_FP16FML)
+      set(fbgemm_fml_flags "-march=armv8.2 -mfp16fml")
+    endif()
+  endif()
+
   if(NOT COMPILER_SUPPORTS_FP16FML)
     message(FATAL_ERROR "The current compiler does not support building FP16FML code")
   endif()
@@ -309,7 +317,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
       -ftree-vectorize
       -fno-trapping-math
       -Wignored-qualifiers
-      -march=armv8-a+fp16fml
+      -march=armv8.2-a+fp16fml
     DEFINITIONS
       ${fbgemm_arm_defs}
     DEPS
@@ -330,6 +338,8 @@ endif()
 
 set(FBGEMM_BUILD_SVE False)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+  check_cxx_compiler_flag(-march=armv8-a+sve COMPILER_SUPPORTS_SVE)
+  check_cxx_compiler_flag(-march=armv8-a+sve2 COMPILER_SUPPORTS_SVE2)
   if(COMPILER_SUPPORTS_SVE2)
     set(FBGEMM_BUILD_SVE True)
     set(fbgemm_sve_flags "-march=armv8-a+sve2")
