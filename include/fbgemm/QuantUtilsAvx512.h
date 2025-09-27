@@ -39,6 +39,7 @@ FBGEMM_API void requantizeOutputProcessingGConvAvx512(
     int ld_in,
     const requantizationParams_t<BIAS_TYPE>& r);
 
+template <bool scale_bias_last = true, bool quant_padding_float_type = true>
 void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
     const std::uint8_t* input,
     size_t input_rows,
