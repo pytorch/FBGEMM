@@ -94,7 +94,7 @@ jobs:
           { arch: x86, instance: "linux.4xlarge", timeout: 20 },
           { arch: arm, instance: "linux.arm64.m7g.4xlarge", timeout: 30 },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
 
     steps:
     - name: Setup Build Container
@@ -156,7 +156,7 @@ jobs:
           { arch: x86, instance: "linux.rocm.gpu.2" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
         rocm-version: [ "6.3", "6.4" ]
 
     steps:
