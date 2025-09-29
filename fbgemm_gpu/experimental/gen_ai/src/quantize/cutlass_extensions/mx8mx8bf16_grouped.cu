@@ -19,7 +19,7 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
-#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/tuning_cache.cuh"
 #include "fbgemm_gpu/quantize/utils.h"
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)

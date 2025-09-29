@@ -22,7 +22,7 @@
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
 #include "kernels/fp8_rowwise_grouped_kernel_manifest.h"
 #include "kernels/fp8_rowwise_grouped_heuristic.hpp"
-#include "fbgemm_gpu/quantize/tuning_cache_hip.hpp"
+#include "fbgemm_gpu/quantize/tuning_cache_hip.cuh"
 #include "fbgemm_gpu/quantize/utils.h"
 
 namespace fbgemm_gpu {

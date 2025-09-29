@@ -12,7 +12,7 @@
 // clang-format on
 
 #include "f8f8bf16_rowwise/f8f8bf16_rowwise_manifest.cuh"
-#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/tuning_cache.cuh"
 #include "fbgemm_gpu/quantize/utils.h"
 
 namespace fbgemm_gpu {
