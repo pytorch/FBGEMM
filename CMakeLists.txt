@@ -317,7 +317,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
       -ftree-vectorize
       -fno-trapping-math
       -Wignored-qualifiers
-      -march=armv8.2-a+fp16fml
+      -march=${fbgemm_fml_flags}
     DEFINITIONS
       ${fbgemm_arm_defs}
     DEPS
