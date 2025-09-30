@@ -3814,7 +3814,6 @@ def get_full_non_persistent_tuning_space():
                                                     num_stages=num_stages,
                                                 )
                                             )
-    logger.info(f"all configs #: {len(configs)}")
     return configs
 
 
