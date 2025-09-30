@@ -14,11 +14,21 @@
 #include <ATen/core/Tensor.h>
 #include <c10/hip/HIPStream.h>
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
 #include "kernels/fp8_rowwise_grouped_kernel_manifest.h"
 #include "kernels/fp8_rowwise_grouped_heuristic.hpp"
-#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+
+#ifdef FBGEMM_FBCODE
+#include "fbgemm_gpu/quantize/tuning_cache.cuh"
+#else
+#include "fbgemm_gpu/quantize/tuning_cache_hip.cuh"
+#endif
+
 #include "fbgemm_gpu/quantize/utils.h"
 
 namespace fbgemm_gpu {

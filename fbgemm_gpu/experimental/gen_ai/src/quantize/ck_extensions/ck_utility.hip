@@ -17,6 +17,10 @@
 #include <ATen/ATen.h>
 #include <c10/hip/HIPStream.h>
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+
 #if defined(USE_ROCM)
 
 #include "ck/ck.hpp"
