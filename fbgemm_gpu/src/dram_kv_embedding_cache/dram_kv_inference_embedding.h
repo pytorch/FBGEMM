@@ -22,6 +22,7 @@
 #include <thrift/lib/cpp2/protocol/CompactProtocol.h>
 #include <thrift/lib/cpp2/protocol/Serializer.h>
 #include <torch/script.h>
+#include <random>
 #include "common/time/Time.h"
 
 #include "../ssd_split_embeddings_cache/initializer.h"
@@ -419,9 +420,46 @@ class DramKVInferenceEmbedding {
                           before_read_lock_ts;
 
                       if (!wlmap->empty()) {
-                        row_storage_data_ptr =
-                            FixedBlockPool::data_ptr<weight_type>(
-                                wlmap->begin()->second);
+                        // Use O(1) FixedBlockPool direct access for optimal
+                        // performance + full randomization
+                        static thread_local uint64_t seed =
+                            std::hash<std::thread::id>{}(
+                                std::this_thread::get_id());
+                        auto* pool = kv_store_.pool_by(shard_id);
+
+                        // Direct O(1) random block calculation without checking
+                        // "used" status Since we just need random
+                        // initialization data, any allocated block works
+                        if (pool->get_chunks().size() > 0) {
+                          // Fast LCG for block index generation
+                          seed = seed * 1664525ULL + 1013904223ULL;
+                          size_t total_allocated_blocks =
+                              pool->get_chunks().size() *
+                              pool->get_blocks_per_chunk();
+                          size_t block_idx = seed % total_allocated_blocks;
+
+                          // Calculate block address directly (O(1), never null)
+                          size_t chunk_idx =
+                              block_idx / pool->get_blocks_per_chunk();
+                          size_t block_in_chunk =
+                              block_idx % pool->get_blocks_per_chunk();
+                          char* chunk_ptr = static_cast<char*>(
+                              pool->get_chunks()[chunk_idx].ptr);
+                          // Block pointer includes metadata at the beginning
+                          weight_type* block_ptr =
+                              reinterpret_cast<weight_type*>(
+                                  chunk_ptr +
+                                  pool->get_block_size() * block_in_chunk);
+
+                          row_storage_data_ptr =
+                              FixedBlockPool::data_ptr<weight_type>(block_ptr);
+                        } else {
+                          // Fallback: use first element from map (guaranteed to
+                          // exist since map is not empty)
+                          row_storage_data_ptr =
+                              FixedBlockPool::data_ptr<weight_type>(
+                                  wlmap->begin()->second);
+                        }
                       } else {
                         const auto& init_storage =
                             initializers_[shard_id]->row_storage_;
@@ -526,7 +564,9 @@ class DramKVInferenceEmbedding {
                   read_lookup_cache_total_duration / num_shards_;
               read_acquire_lock_avg_duration_ +=
                   read_acquire_lock_total_duration / num_shards_;
-              read_missing_load_avg_ += read_missing_load / num_shards_;
+              LOG_EVERY_MS(INFO, 5000)
+                  << "get_kv_db_async total read_missing_load per batch: "
+                  << read_missing_load;
               return std::vector<folly::Unit>(results.size());
             });
   };
