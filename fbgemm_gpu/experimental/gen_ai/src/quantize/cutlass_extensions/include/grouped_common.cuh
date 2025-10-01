@@ -30,7 +30,8 @@ template <
     typename StrideC,
     typename LayoutSFA,
     typename LayoutSFB,
-    typename Sm1xxBlkScaledConfig>
+    typename Sm1xxBlkScaledConfig,
+    typename ElementGlobalScale = float>
 __global__ void set_grouped_gemm_args_kernel(
     int64_t G,
     int64_t M,
@@ -53,14 +54,26 @@ __global__ void set_grouped_gemm_args_kernel(
     int32_t* offsets, // Group end offsets
     LayoutSFA* layout_SFA,
     LayoutSFB* layout_SFB,
-    GroupedGemmInputType gemm_type) {
+    GroupedGemmInputType gemm_type,
+    ElementGlobalScale* global_scale = nullptr,
+    const ElementGlobalScale** global_scale_ptr = nullptr) {
   const uint32_t group_index = blockIdx.x * blockDim.x + threadIdx.x;
+
+  // 2 FP4 values are packed into uint8
+  using ElementAUnderlying = typename ElementA::DataType;
+  constexpr bool is_packed_inputs =
+      std::is_same_v<ElementAUnderlying, cutlass::float_e2m1_t>;
 
   // If this thread corresponds to a valid group, write kernel args to device
   // memory.
   if (group_index < G) {
     // Set problem shapes to empty by default.
     problem_shape_ptr[group_index] = ProblemShape(0, 0, 0);
+
+    // Handle global scale for NVFP4
+    if (global_scale != nullptr) {
+      global_scale_ptr[group_index] = global_scale + group_index;
+    }
 
     // Offsets for this group.
     int64_t xq_offset = 0;
@@ -75,7 +88,9 @@ __global__ void set_grouped_gemm_args_kernel(
     const int64_t N_rounded = round_up(N, 128);
     const int64_t M_rounded = round_up(M, 128);
 
-    const int64_t scale_factor_block_size = 32;
+    // NVFP4 groups 16 elements for a single scale factor, MXFP4 & MXFP8
+    // groups 32 elements.
+    const int64_t scale_factor_block_size = global_scale == nullptr ? 32 : 16;
 
     // Handle offsets API (torch compliant API for 2D-2D and 2D-3D inputs)
     CUDA_KERNEL_ASSERT(
@@ -105,11 +120,19 @@ __global__ void set_grouped_gemm_args_kernel(
         // Set starting input offsets for this group.
         // XQ is shape (M,K) with strides (K, 1) and group offsets are along
         // the K dim, so: xq_offset -> prev_group_end_offset * 1
-        xq_offset = prev_group_end_offset;
+        if constexpr (is_packed_inputs) {
+          xq_offset = prev_group_end_offset / 2;
+        } else {
+          xq_offset = prev_group_end_offset;
+        }
 
         // WQ is shape (N,K) with strides (K, 1) and group offsets are along
         // the K dim, so: wq_offset -> prev_group_end_offset * 1
-        wq_offset = prev_group_end_offset;
+        if constexpr (is_packed_inputs) {
+          wq_offset = prev_group_end_offset / 2;
+        } else {
+          wq_offset = prev_group_end_offset;
+        }
 
         // Output for 2d-2d grouped GEMM is shape (G, M, N)
         // output_offset -> group_index rows with stride of M * N
@@ -211,10 +234,18 @@ __global__ void set_grouped_gemm_args_kernel(
           }
 
           // wq_offset -> group_offset_M rows with stride of K
-          xq_offset = group_offset_M * K;
+          if constexpr (is_packed_inputs) {
+            xq_offset = group_offset_M * K / 2;
+          } else {
+            xq_offset = group_offset_M * K;
+          }
 
           // wq_offset -> group_index rows with stride of N * K (3d tensor)
-          wq_offset = group_index * N * K;
+          if constexpr (is_packed_inputs) {
+            wq_offset = group_index * N * K / 2;
+          } else {
+            wq_offset = group_index * N * K;
+          }
 
           // output_offset -> group_offset_M rows with stride of N
           output_offset = group_offset_M * N;

@@ -19,6 +19,8 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
+#include "cutlass_extensions/include/grouped_common.cuh"
+
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 
 namespace fbgemm_gpu {
@@ -151,24 +153,21 @@ at::Tensor f4f4bf16_grouped_impl(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
+    std::optional<at::Tensor> offsets,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding) {
   // The number of groups the kernel uses may vary.
-  int64_t G;
-  int kernel_groups;
-  if (M_sizes) {
-    G = M_sizes->size(0);
-    kernel_groups = M_sizes->size(0);
-  }
-
-  at::TensorOptions options;
-  options = XQ.options();
-
-  // Return early if there are no elements in the output.
-  if (output.numel() == 0) {
-    return output;
-  }
+  const int64_t G = [&]() {
+    if (M_sizes) {
+      return M_sizes->size(0);
+    } else if (offsets) {
+      return offsets->size(0);
+    } else {
+      TORCH_CHECK(false, "Either offsets or M_sizes must be provided.");
+    }
+  }();
+  int kernel_groups = G;
 
   // NVFP4 uses global scale
   constexpr bool is_nvfp4 = std::
@@ -335,6 +334,7 @@ at::Tensor f4f4bf16_grouped_impl(
   int64_t total_buffer_size = global_scale_offset + global_scale_buffer;
 
   // Allocate space for gemm information.
+  at::TensorOptions options = XQ.options();
   at::Tensor kernel_args =
       at::empty({total_buffer_size}, options.dtype(at::kByte));
 
@@ -371,56 +371,106 @@ at::Tensor f4f4bf16_grouped_impl(
 
   auto stream = at::cuda::getCurrentCUDAStream().stream();
 
-  TORCH_CHECK(
-      M_sizes.has_value() && M_sizes->dtype() == at::kLong,
-      "M_sizes must be int64.");
-  // When m_offsets is used, XQ is shape [total_M, K].
-  int64_t M = XQ.size(XQ.dim() - 2);
-  int64_t N = WQ.size(1);
-  int64_t K = WQ.size(2) * 2; // Since K is packed
+  const int64_t M = XQ.size(-2);
+  const int64_t N = WQ.size(-2);
+  const int64_t K = WQ.size(-1) * 2; // 2 FP4 values are packed into uint8
 
-  set_stacked_kernel_args_kernel<
-      ProblemShape::UnderlyingProblemShape,
-      ElementA,
-      ElementB,
-      ElementC,
-      ElementScale,
-      StrideA,
-      StrideB,
-      StrideC,
-      LayoutSFA,
-      LayoutSFB,
-      ElementGlobalScale,
-      Sm1xxBlkScaledConfig><<<1, G, 0, stream>>>(
-      G,
-      N,
-      K,
-      problem_shape_ptr,
-      reinterpret_cast<ElementA*>(XQ.data_ptr()),
-      xq_ptr,
-      reinterpret_cast<ElementB*>(WQ.data_ptr()),
-      wq_ptr,
-      reinterpret_cast<ElementScale*>(x_scale.data_ptr()),
-      x_scale_ptr,
-      reinterpret_cast<ElementScale*>(w_scale.data_ptr()),
-      w_scale_ptr,
-      reinterpret_cast<ElementC*>(output.data_ptr()),
-      output_ptr,
-      stride_a_ptr,
-      stride_b_ptr,
-      stride_c_ptr,
-      reinterpret_cast<int64_t*>(M_sizes.value().data_ptr()),
-      layout_SFA,
-      layout_SFB,
-      is_nvfp4 ? reinterpret_cast<ElementGlobalScale*>(
-                     global_scale.value().data_ptr())
-               : nullptr,
-      is_nvfp4 ? global_scale_ptr : nullptr,
-      reinterpret_cast<int64_t*>(
-          starting_row_after_padding.value().data_ptr()));
-  // Set the number of groups to the kernel to be at most the number of
-  // non-zero rows.
-  kernel_groups = int(std::min(M, G));
+  if (offsets.has_value()) {
+    // Torch API
+    GroupedGemmInputType gemm_type;
+    if (XQ.dim() == 2 && WQ.dim() == 2) {
+      gemm_type = GroupedGemmInputType::_2D2D;
+    } else if (XQ.dim() == 2 && WQ.dim() == 3) {
+      gemm_type = GroupedGemmInputType::_2D3D;
+    } else {
+      TORCH_CHECK(
+          false,
+          "Invalid input dimensions. MXFP4/NVFP4 grouped GEMM currently only supports 2D-2D and 2D-3D inputs.");
+    }
+
+    set_grouped_gemm_args_kernel<
+        ProblemShape::UnderlyingProblemShape,
+        ElementA,
+        ElementB,
+        ElementC,
+        ElementScale,
+        StrideA,
+        StrideB,
+        StrideC,
+        LayoutSFA,
+        LayoutSFB,
+        Sm1xxBlkScaledConfig><<<1, G, 0, stream>>>(
+        G,
+        M,
+        N,
+        K,
+        problem_shape_ptr,
+        reinterpret_cast<ElementA*>(XQ.data_ptr()),
+        xq_ptr,
+        reinterpret_cast<ElementB*>(WQ.data_ptr()),
+        wq_ptr,
+        reinterpret_cast<ElementScale*>(x_scale.data_ptr()),
+        x_scale_ptr,
+        reinterpret_cast<ElementScale*>(w_scale.data_ptr()),
+        w_scale_ptr,
+        reinterpret_cast<ElementC*>(output.data_ptr()),
+        output_ptr,
+        stride_a_ptr,
+        stride_b_ptr,
+        stride_c_ptr,
+        reinterpret_cast<int32_t*>(offsets.value().data_ptr()),
+        layout_SFA,
+        layout_SFB,
+        gemm_type,
+        is_nvfp4 ? reinterpret_cast<ElementGlobalScale*>(
+                       global_scale.value().data_ptr())
+                 : nullptr,
+        is_nvfp4 ? global_scale_ptr : nullptr);
+  } else {
+    // Internal API
+    set_stacked_kernel_args_kernel<
+        ProblemShape::UnderlyingProblemShape,
+        ElementA,
+        ElementB,
+        ElementC,
+        ElementScale,
+        StrideA,
+        StrideB,
+        StrideC,
+        LayoutSFA,
+        LayoutSFB,
+        ElementGlobalScale,
+        Sm1xxBlkScaledConfig><<<1, G, 0, stream>>>(
+        G,
+        N,
+        K,
+        problem_shape_ptr,
+        reinterpret_cast<ElementA*>(XQ.data_ptr()),
+        xq_ptr,
+        reinterpret_cast<ElementB*>(WQ.data_ptr()),
+        wq_ptr,
+        reinterpret_cast<ElementScale*>(x_scale.data_ptr()),
+        x_scale_ptr,
+        reinterpret_cast<ElementScale*>(w_scale.data_ptr()),
+        w_scale_ptr,
+        reinterpret_cast<ElementC*>(output.data_ptr()),
+        output_ptr,
+        stride_a_ptr,
+        stride_b_ptr,
+        stride_c_ptr,
+        reinterpret_cast<int64_t*>(M_sizes.value().data_ptr()),
+        layout_SFA,
+        layout_SFB,
+        is_nvfp4 ? reinterpret_cast<ElementGlobalScale*>(
+                       global_scale.value().data_ptr())
+                 : nullptr,
+        is_nvfp4 ? global_scale_ptr : nullptr,
+        reinterpret_cast<int64_t*>(
+            starting_row_after_padding.value().data_ptr()));
+    // Set the number of groups to the kernel to be at most the number of
+    // non-zero rows.
+    kernel_groups = int(std::min(M, G));
+  }
 
   cutlass::KernelHardwareInfo hw_info;
   // Change device_id to another value if you are running on a machine with
