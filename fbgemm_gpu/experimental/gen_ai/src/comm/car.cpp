@@ -299,7 +299,7 @@ void nccl_allreduce(
 // a far-off ROCm version check.
 //    https://github.com/ROCm/rccl/pull/1729
 #if (defined(FBGEMM_FBCODE) && defined(USE_ROCM)) || \
-    (!defined(FBGEMM_FBCODE) && defined(USE_ROCM) && (ROCM_VERSION >= 60600))
+    (!defined(FBGEMM_FBCODE) && defined(USE_ROCM) && (ROCM_VERSION >= 70200))
   if (bias) {
     C10D_NCCL_CHECK(
         ncclAllReduceWithBias(
