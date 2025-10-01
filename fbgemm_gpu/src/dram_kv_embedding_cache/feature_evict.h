@@ -204,7 +204,6 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         CHECK(feature_score_counter_decay_rates_.has_value());
         CHECK(training_id_eviction_trigger_count_.has_value());
         CHECK(training_id_keep_count_.has_value());
-        CHECK(total_id_eviction_trigger_count_.has_value());
         CHECK(threshold_calculation_bucket_stride_.has_value());
         CHECK(threshold_calculation_bucket_num_.has_value());
         CHECK(ttls_in_mins_.has_value());
@@ -215,8 +214,6 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << training_id_eviction_trigger_count_.value()
                   << ", training_id_keep_count:"
                   << training_id_keep_count_.value()
-                  << ", total_id_eviction_trigger_count: "
-                  << total_id_eviction_trigger_count_.value()
                   << ", ttls_in_mins: " << ttls_in_mins_.value()
                   << ", threshold_calculation_bucket_stride: "
                   << threshold_calculation_bucket_stride_.value()
