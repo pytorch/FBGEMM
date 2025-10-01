@@ -3971,8 +3971,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.step, stats_reporter.report_interval  # pyre-ignore
         )
 
-        if len(dram_kv_perf_stats) != 23:
-            logging.error("dram cache perf stats should have 23 elements")
+        if len(dram_kv_perf_stats) != 24:
+            logging.error("dram cache perf stats should have 24 elements")
             return
 
         dram_read_duration = dram_kv_perf_stats[0]
@@ -4001,6 +4001,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         dram_kv_allocated_bytes = dram_kv_perf_stats[20]
         dram_kv_actual_used_chunk_bytes = dram_kv_perf_stats[21]
         dram_kv_num_rows = dram_kv_perf_stats[22]
+        dram_kv_read_counts = dram_kv_perf_stats[23]
 
         stats_reporter.report_duration(
             iteration_step=self.step,
@@ -4139,6 +4140,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_missing_load",
             data_bytes=dram_bwd_l1_cnflct_miss_write_missing_load,
+            enable_tb_metrics=True,
+        )
+
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="dram_kv.perf.get.dram_kv_read_counts",
+            data_bytes=dram_kv_read_counts,
             enable_tb_metrics=True,
         )
 
