@@ -13,13 +13,13 @@ from torch.library import register_fake
 torch.library.define(
     "blackwell_fmha::fmha_fwd",
     "(Tensor q, Tensor k, Tensor v, Tensor? cu_seqlens_q, Tensor? cu_seqlens_k, int? max_seq_len_q, int? max_seq_len_k, float? softmax_scale, bool? causal, Tensor? seqlen_kv) -> (Tensor, Tensor)",
-    tags=[torch.Tag.pt2_compliant_tag],
+    tags=torch.Tag.pt2_compliant_tag,
 )
 
 torch.library.define(
     "blackwell_fmha::fmha_bwd",
     "(Tensor dout, Tensor q, Tensor k, Tensor v, Tensor out, Tensor softmax_lse, Tensor? cu_seqlens_q, Tensor? cu_seqlens_k, int? max_seq_len_q, int? max_seq_len_k, bool? causal) -> (Tensor, Tensor, Tensor)",
-    tags=[torch.Tag.pt2_compliant_tag],
+    tags=torch.Tag.pt2_compliant_tag,
 )
 
 
