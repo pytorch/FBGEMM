@@ -17,7 +17,7 @@ import fbgemm_gpu
 import numpy as np
 import tabulate
 import torch
-
+import math
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -101,6 +101,7 @@ def generate_requests(
 
 
 # pyre-fixme[3]: Return type must be annotated.
+
 def _get_random_tensor(
     num_ads: int,
     embedding_dimension: int,
@@ -108,38 +109,55 @@ def _get_random_tensor(
     data_type: str,
     gpu_idx: int,
     include_quantization: bool,
+    use_pitched: bool = True,
+    alignment: int = 256,   # alignment in bytes
 ):
+    device = torch.device(f"cuda:{gpu_idx}")
+
     if data_type == "FP16" or include_quantization:
-        result_tensor = torch.randn(
-            num_ads,
-            embedding_dimension * ads_tables,
-            dtype=torch.float16,
-            device=torch.device(f"cuda:{gpu_idx}"),
-        )
+        dtype = torch.float16
+        width_elems = embedding_dimension * ads_tables
+        elem_size = torch.finfo(dtype).bits // 8
+
+        if use_pitched:
+            width_bytes = width_elems * elem_size
+            pitch_bytes = math.ceil(width_bytes / alignment) * alignment
+            pitch_elems = pitch_bytes // elem_size
+            storage = torch.empty((num_ads, pitch_elems), dtype=dtype, device=device)
+            result_tensor = storage[:, :width_elems]  # logical view
+        else:
+            result_tensor = torch.randn(num_ads, width_elems, dtype=dtype, device=device)
+
     elif data_type == "INT8":
-        assert (
-            embedding_dimension % 2
-        ) == 0, "needs to align to 2 bytes (half type size) for INT8"
-        result_tensor = torch.randint(
-            0,
-            255,
-            # 2 FP16 numbers for scale and bias, total of 4 bytes overhead
-            size=(num_ads, (embedding_dimension + 4) * ads_tables),
-            dtype=torch.uint8,
-            device=torch.device(f"cuda:{gpu_idx}"),
-        )
+        assert embedding_dimension % 2 == 0, "needs to align to 2 bytes for INT8"
+        dtype = torch.uint8
+        width_elems = (embedding_dimension + 4) * ads_tables
+        elem_size = 1
+
+        if use_pitched:
+            width_bytes = width_elems * elem_size
+            pitch_bytes = math.ceil(width_bytes / alignment) * alignment
+            pitch_elems = pitch_bytes // elem_size
+            storage = torch.randint(0, 255, (num_ads, pitch_elems), dtype=dtype, device=device)
+            result_tensor = storage[:, :width_elems]
+        else:
+            result_tensor = torch.randint(0, 255, (num_ads, width_elems), dtype=dtype, device=device)
+
     elif data_type == "INT4":
-        assert (
-            embedding_dimension % 4
-        ) == 0, "needs to align to 2 bytes (half type size) for INT4"
-        result_tensor = torch.randint(
-            0,
-            255,
-            # Using torch.uint8 for int4 storage
-            size=(num_ads, (embedding_dimension // 2 + 4) * ads_tables),
-            dtype=torch.uint8,
-            device=torch.device(f"cuda:{gpu_idx}"),
-        )
+        assert embedding_dimension % 4 == 0, "needs to align to 2 bytes for INT4"
+        dtype = torch.uint8
+        width_elems = (embedding_dimension // 2 + 4) * ads_tables
+        elem_size = 1
+
+        if use_pitched:
+            width_bytes = width_elems * elem_size
+            pitch_bytes = math.ceil(width_bytes / alignment) * alignment
+            pitch_elems = pitch_bytes // elem_size
+            storage = torch.randint(0, 255, (num_ads, pitch_elems), dtype=dtype, device=device)
+            result_tensor = storage[:, :width_elems]
+        else:
+            result_tensor = torch.randint(0, 255, (num_ads, width_elems), dtype=dtype, device=device)
+
     else:
         raise ValueError
 
