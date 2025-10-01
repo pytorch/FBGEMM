@@ -317,7 +317,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
       -ftree-vectorize
       -fno-trapping-math
       -Wignored-qualifiers
-      -march=armv8.2-a+fp16fml
+      ${fbgemm_fml_flags}
     DEFINITIONS
       ${fbgemm_arm_defs}
     DEPS
@@ -337,7 +337,14 @@ endif()
 ################################################################################
 
 set(FBGEMM_BUILD_SVE False)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+# SVE and SVE2 feature paths require the intrinsics declared in arm_neon_sve_bridge.h
+# This header file is available in the following releases:
+#    Clang 17 and later.
+#    GCC 14 and later.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64" AND
+  ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 14)
+  OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 17)))
+
   check_cxx_compiler_flag(-march=armv8-a+sve COMPILER_SUPPORTS_SVE)
   check_cxx_compiler_flag(-march=armv8-a+sve2 COMPILER_SUPPORTS_SVE2)
   if(COMPILER_SUPPORTS_SVE2)
