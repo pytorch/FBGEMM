@@ -11,7 +11,7 @@
 #include <torch/library.h>
 
 #include "bf16bf16bf16_grouped_wgrad/bf16bf16bf16_grouped_wgrad_manifest.cuh"
-#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/tuning_cache.cuh"
 #include "fbgemm_gpu/quantize/utils.h"
 #include "fbgemm_gpu/quantize/utils_gpu.h"
 

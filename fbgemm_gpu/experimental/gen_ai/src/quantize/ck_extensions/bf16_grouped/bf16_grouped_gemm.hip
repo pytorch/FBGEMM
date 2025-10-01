@@ -23,6 +23,10 @@
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
 #include "kernels/bf16_grouped_kernel_manifest.h"
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+
 namespace fbgemm_gpu {
 
 // Define useful types that are needed for various kernels.

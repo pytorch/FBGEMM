@@ -200,7 +200,8 @@ if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/experimental/example
-    ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gen_ai)
+    ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gen_ai
+    ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gen_ai/src/quantize/common/include)
 
   # HIPify all .CU and .CUH sources under the current directory (`/fbgemm_gpu`)
   #

@@ -7,6 +7,10 @@
 
 #include <c10/hip/HIPStream.h>
 
+#ifdef HIPIFY_V2
+#define getCurrentHIPStream getCurrentCUDAStream
+#endif
+#
 #include <atomic>
 #include <cassert>
 #include <cmath>
