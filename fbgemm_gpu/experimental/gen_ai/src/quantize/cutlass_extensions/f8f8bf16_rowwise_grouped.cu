@@ -12,7 +12,7 @@
 
 #include "f8f8bf16_rowwise_grouped/f8f8bf16_rowwise_grouped_manifest.cuh"
 #include "f8f8bf16_rowwise_grouped_sm100/f8f8bf16_rowwise_grouped_manifest.cuh"
-#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/tuning_cache.cuh"
 #include "fbgemm_gpu/quantize/utils.h"
 #include "fbgemm_gpu/quantize/utils_gpu.h"
 
