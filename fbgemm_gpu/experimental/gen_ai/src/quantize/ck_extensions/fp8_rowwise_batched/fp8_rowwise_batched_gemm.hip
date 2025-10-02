@@ -217,6 +217,7 @@ at::Tensor f8f8bf16_rowwise_batched(
     std::optional<at::Tensor> bias,
     bool use_fast_accum,
     std::optional<at::Tensor> output = std::nullopt) {
+  static auto float8_dtype = get_float8_e4m3_dtype();
   // Check that input datatypes are valid.
   TORCH_CHECK(
       XQ.dim() == 3 && WQ.dim() == 3,
