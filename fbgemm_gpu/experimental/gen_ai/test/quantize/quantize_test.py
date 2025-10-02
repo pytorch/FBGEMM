@@ -16,6 +16,11 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import torch
 import triton  # noqa: F401
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
+    get_nvfp4_global_scales_naive,
+    quantize_nvfp4_naive,
+    triton_quantize_mx4_unpack,
+)
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -64,6 +69,21 @@ def evaluate_platform_supports_mxfp8():
     return False
 
 
+def evaluate_platform_supports_nvfp4():
+    if torch.cuda.is_available():
+        if torch.version.cuda:
+            return evaluate_cuda_platform_version(10) and torch.version.cuda >= "12.8"
+    return False
+
+
+def evaluate_platform_supports_mxfp4():
+    if torch.cuda.is_available():
+        if torch.version.cuda:
+            return evaluate_cuda_platform_version(10) and torch.version.cuda >= "12.8"
+        # TODO add AMD here later
+    return False
+
+
 def evaluate_cuda_platform_version(major: int):
     if torch.version.cuda:
         return torch.cuda.get_device_capability() >= (major, 0)
@@ -71,6 +91,10 @@ def evaluate_cuda_platform_version(major: int):
 
 
 SM90_OR_LATER = evaluate_cuda_platform_version(9)
+
+SUPPORTS_NVFP4 = evaluate_platform_supports_nvfp4()
+
+SUPPORTS_MXFP4 = evaluate_platform_supports_mxfp4()
 
 SUPPORTS_FP8 = evaluate_platform_supports_fp8()
 
@@ -2145,13 +2169,12 @@ class FastGemvTests(unittest.TestCase):
     not torch.cuda.is_available() or torch.version.hip,
     "Skip when cuda is not available or HIP is enabled",
 )
+@unittest.skipIf(not SUPPORTS_NVFP4, "Skip if NVFP4 is not supported")
 class NVFP4Tests(unittest.TestCase):
-    @unittest.skipIf(
-        (not torch.version.cuda)
-        or torch.version.hip is not None
-        or str(torch.version.cuda) <= "12.8",
-        "Skip if no cuda is present or HIP is enabled",
-    )
+    @classmethod
+    def setUpClass(cls):
+        cls.device = torch.accelerator.current_accelerator()
+
     @settings(deadline=None)
     @given(
         B_T=st.sampled_from([2048, 4096]),
@@ -2172,7 +2195,7 @@ class NVFP4Tests(unittest.TestCase):
             torch.randn(
                 size=(B_T, D),
                 dtype=torch.bfloat16,
-                device=torch.accelerator.current_accelerator(),
+                device=self.device,
             )
             * 0.1
         )
@@ -2180,7 +2203,7 @@ class NVFP4Tests(unittest.TestCase):
             torch.randn(
                 size=(HD_L, D),
                 dtype=torch.bfloat16,
-                device=torch.accelerator.current_accelerator(),
+                device=self.device,
             )
             * 0.01
         )
@@ -2196,6 +2219,226 @@ class NVFP4Tests(unittest.TestCase):
 
         y_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(fake_quant_y, y_ref, atol=0.1, rtol=0.1)
+
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([250, 500, 3500]),
+        N=st.sampled_from([256, 1024, 6144]),
+        K=st.sampled_from([2048, 3584]),
+    )
+    def test_grouped_gemm_2d_3d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        XS = [
+            torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+            for _ in range(G)
+        ]
+        WS = [
+            torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+            for _ in range(G)
+        ]
+        offsets = torch.arange(M, G * (M + 1), M, dtype=torch.int32, device=self.device)
+
+        global_scales, x_global_scales, w_global_scales = get_nvfp4_global_scales_naive(
+            XS, WS
+        )
+        xqs, x_scales = quantize_nvfp4_naive(XS, x_global_scales)
+        wqs, w_scales = quantize_nvfp4_naive(WS, w_global_scales)
+
+        xq = torch.cat(xqs, dim=0).view(torch.float4_e2m1fn_x2)
+        wq = torch.stack(wqs, dim=0).view(torch.float4_e2m1fn_x2)
+        x_scale = torch.stack(x_scales, dim=0).view(torch.float8_e4m3fn)
+        w_scale = torch.stack(w_scales, dim=0).view(torch.float8_e4m3fn)
+        global_scale = torch.stack(global_scales, dim=0)
+
+        X = torch.cat(XS, dim=0)
+        W = torch.stack(WS, dim=0)
+
+        out_bf16 = torch._grouped_mm(
+            X, W.transpose(-2, -1), offs=offsets, out_dtype=torch.bfloat16
+        )
+        out_nvfp4 = torch.ops.fbgemm.f4f4bf16_grouped_mm(
+            xq, wq.transpose(-2, -1), x_scale, w_scale, offsets, None, global_scale
+        )
+        self.assertTrue(out_nvfp4.isfinite().all(), "output contains non-finite values")
+
+        torch.testing.assert_close(out_nvfp4, out_bf16, atol=5.0e-2, rtol=5.0e-2)
+
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([250, 500, 3500]),
+        N=st.sampled_from([256, 1024, 6144]),
+        K=st.sampled_from([2048, 3584]),
+    )
+    def test_grouped_gemm_2d_2d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        XS = [
+            torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+            for _ in range(G)
+        ]
+        WS = [
+            torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+            for _ in range(G)
+        ]
+        offsets = torch.arange(K, G * (K + 1), K, dtype=torch.int32, device=self.device)
+
+        global_scales, x_global_scales, w_global_scales = get_nvfp4_global_scales_naive(
+            XS, WS
+        )
+        xqs, x_scales = quantize_nvfp4_naive(XS, x_global_scales)
+        wqs, w_scales = quantize_nvfp4_naive(WS, w_global_scales)
+
+        xq = torch.cat(xqs, dim=1).view(torch.float4_e2m1fn_x2)
+        wq = torch.cat(wqs, dim=1).view(torch.float4_e2m1fn_x2)
+        x_scale = torch.stack(x_scales, dim=0).view(torch.float8_e4m3fn)
+        w_scale = torch.stack(w_scales, dim=0).view(torch.float8_e4m3fn)
+        global_scale = torch.stack(global_scales, dim=0)
+
+        X = torch.cat(XS, dim=1)
+        W = torch.cat(WS, dim=1)
+
+        out_bf16 = torch._grouped_mm(
+            X, W.transpose(-2, -1), offs=offsets, out_dtype=torch.bfloat16
+        )
+        out_nvfp4 = torch.ops.fbgemm.f4f4bf16_grouped_mm(
+            xq, wq.transpose(-2, -1), x_scale, w_scale, offsets, None, global_scale
+        )
+        self.assertTrue(out_nvfp4.isfinite().all(), "output contains non-finite values")
+
+        torch.testing.assert_close(out_nvfp4, out_bf16, atol=5.0e-2, rtol=5.0e-2)
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available() or torch.version.hip,
+    "Skip when cuda is not available or HIP is enabled",
+)
+@unittest.skipIf(not SUPPORTS_MXFP4, "Skip if MXFP4 is not supported")
+class MXFP4Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.device = torch.accelerator.current_accelerator()
+
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([250, 500, 3500]),
+        N=st.sampled_from([256, 1024, 6144]),
+        K=st.sampled_from([2048, 3584]),
+    )
+    def test_grouped_gemm_2d_3d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        XS = [
+            torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+            for _ in range(G)
+        ]
+        WS = [
+            torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+            for _ in range(G)
+        ]
+        offsets = torch.arange(M, G * (M + 1), M, dtype=torch.int32, device=self.device)
+
+        wqs = []
+        xqs = []
+        w_scales = []
+        x_scales = []
+
+        for x, w in zip(XS, WS):
+            xq, x_scale = triton_quantize_mx4_unpack(x)
+            wq, w_scale = triton_quantize_mx4_unpack(w)
+
+            xqs.append(xq)
+            wqs.append(wq)
+            x_scales.append(x_scale)
+            w_scales.append(w_scale)
+
+        xq = torch.cat(xqs, dim=0).view(torch.float4_e2m1fn_x2)
+        wq = torch.stack(wqs, dim=0).view(torch.float4_e2m1fn_x2)
+        x_scale = torch.stack(x_scales, dim=0).view(torch.float8_e8m0fnu)
+        w_scale = torch.stack(w_scales, dim=0).view(torch.float8_e8m0fnu)
+
+        X = torch.cat(XS, dim=0)
+        W = torch.stack(WS, dim=0)
+
+        out_bf16 = torch._grouped_mm(
+            X, W.transpose(-2, -1), offs=offsets, out_dtype=torch.bfloat16
+        )
+        out_mxfp4 = torch.ops.fbgemm.f4f4bf16_grouped_mm(
+            xq, wq.transpose(-2, -1), x_scale, w_scale, offsets
+        )
+        self.assertTrue(out_mxfp4.isfinite().all(), "output contains non-finite values")
+
+        torch.testing.assert_close(out_mxfp4, out_bf16, atol=8.0e-2, rtol=8.0e-2)
+
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([250, 500, 3500]),
+        N=st.sampled_from([256, 1024, 6144]),
+        K=st.sampled_from([2048, 3584]),
+    )
+    def test_grouped_gemm_2d_2d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        XS = [
+            torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+            for _ in range(G)
+        ]
+        WS = [
+            torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+            for _ in range(G)
+        ]
+        offsets = torch.arange(K, G * (K + 1), K, dtype=torch.int32, device=self.device)
+
+        wqs = []
+        xqs = []
+        w_scales = []
+        x_scales = []
+
+        for x, w in zip(XS, WS):
+            xq, x_scale = triton_quantize_mx4_unpack(x)
+            wq, w_scale = triton_quantize_mx4_unpack(w)
+
+            xqs.append(xq)
+            wqs.append(wq)
+            x_scales.append(x_scale)
+            w_scales.append(w_scale)
+
+        xq = torch.cat(xqs, dim=1).view(torch.float4_e2m1fn_x2)
+        wq = torch.cat(wqs, dim=1).view(torch.float4_e2m1fn_x2)
+        x_scale = torch.stack(x_scales, dim=0).view(torch.float8_e8m0fnu)
+        w_scale = torch.stack(w_scales, dim=0).view(torch.float8_e8m0fnu)
+
+        X = torch.cat(XS, dim=1)
+        W = torch.cat(WS, dim=1)
+
+        out_bf16 = torch._grouped_mm(
+            X, W.transpose(-2, -1), offs=offsets, out_dtype=torch.bfloat16
+        )
+        out_mxfp4 = torch.ops.fbgemm.f4f4bf16_grouped_mm(
+            xq, wq.transpose(-2, -1), x_scale, w_scale, offsets
+        )
+        self.assertTrue(out_mxfp4.isfinite().all(), "output contains non-finite values")
+
+        torch.testing.assert_close(out_mxfp4, out_bf16, atol=8.0e-2, rtol=8.0e-2)
 
 
 @unittest.skipIf(

@@ -18,6 +18,7 @@ at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_t(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
+    std::optional<at::Tensor> offsets,
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding) {
@@ -34,6 +35,7 @@ at::Tensor f4f4bf16_grouped_256_64_256_2_1_1_t(
       x_scale,
       w_scale,
       output,
+      offsets,
       M_sizes,
       global_scale,
       starting_row_after_padding);
