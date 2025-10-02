@@ -18,7 +18,6 @@
 #include <tuple>
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
-#include "./EmbeddingSpMDMSve.h"
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/FbgemmEmbedding.h"
@@ -1126,76 +1125,6 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     }
   }
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-
-#if HAVE_SVE
-  if constexpr (std::is_same<inType, uint8_t>::value) {
-    if (!is_asmjit_disabled()) {
-      if (no_bag) {
-        return [=](int64_t output_size,
-                   int64_t index_size,
-                   int64_t data_size,
-                   const uint8_t* input_u8,
-                   const indxType* indices,
-                   const offsetType* offsets_or_lengths,
-                   const float*
-                       weights, // optional, can be null for non-weighted sum
-                   outType* out) {
-          return internal::
-              EmbeddingSpMDM8Bit_Sve<indxType, offsetType, outType, true, true>(
-                  block_size,
-                  output_size,
-                  index_size,
-                  data_size,
-                  input_u8,
-                  indices,
-                  offsets_or_lengths,
-                  weights,
-                  normalize_by_lengths,
-                  out,
-                  is_weight_positional,
-                  use_offsets,
-                  output_stride,
-                  input_stride,
-                  scale_bias_last,
-                  is_bf16_out);
-        };
-      } else {
-        return [=](int64_t output_size,
-                   int64_t index_size,
-                   int64_t data_size,
-                   const uint8_t* input_u8,
-                   const indxType* indices,
-                   const offsetType* offsets_or_lengths,
-                   const float* weights, // optional, can be null for
-                                         // non-weighted sum
-                   outType* out) {
-          return internal::EmbeddingSpMDM8Bit_Sve<
-              indxType,
-              offsetType,
-              outType,
-              false,
-              true>(
-              block_size,
-              output_size,
-              index_size,
-              data_size,
-              input_u8,
-              indices,
-              offsets_or_lengths,
-              weights,
-              normalize_by_lengths,
-              out,
-              is_weight_positional,
-              use_offsets,
-              output_stride,
-              input_stride,
-              scale_bias_last,
-              is_bf16_out);
-        };
-      };
-    }
-  }
-#endif
 
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
   if (!cpuinfo_initialize()) {
