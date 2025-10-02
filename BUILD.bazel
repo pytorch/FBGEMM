@@ -152,7 +152,7 @@ cc_library(
         ],
         ":linux-aarch64": [
             "-fopenmp",
-            "-march=armv9-a+sve2+fp16+bf16",
+            "-march=armv9-a+sve2+fp16",
         ],
         "//conditions:default": [],
     }),
