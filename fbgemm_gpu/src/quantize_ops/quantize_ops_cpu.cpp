@@ -58,18 +58,26 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
 template <typename output_t, bool is_uint16_t_of_type_bf16 = false>
 Tensor& _fused8bitrowwise_to_float_cpu_out_t(
     Tensor& output,
-    const Tensor& input) {
+    const Tensor& input,
+    const bool scale_bias_last,
+    const bool quant_padding_float_type) {
   TENSOR_ON_CPU(input);
   TORCH_CHECK(
       input.dim() >= 2,
       "Tensor 'input' must have >= 2 dimension(s). Found ",
       input.ndimension());
+  TORCH_CHECK(
+      quant_padding_float_type == true || scale_bias_last == false,
+      "2-byte padding (quant_padding_float_type=false) only works with scale_bias_last=false")
+
+  const int quant_padding_size =
+      (quant_padding_float_type) ? sizeof(float) : sizeof(fbgemm::float16);
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
   const int64_t nrows = c10::size_to_dim_(last_dim, input_sizes);
   const int32_t ncols = input_sizes[last_dim];
-  const int32_t output_columns = ncols - 2 * sizeof(float);
+  const int32_t output_columns = ncols - 2 * quant_padding_size;
 
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
@@ -81,7 +89,12 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
   fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<
       output_t,
       is_uint16_t_of_type_bf16>(
-      input.data_ptr<uint8_t>(), nrows, ncols, output_data);
+      input.data_ptr<uint8_t>(),
+      nrows,
+      ncols,
+      output_data,
+      scale_bias_last,
+      quant_padding_float_type);
 
   return output;
 }
@@ -218,20 +231,29 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
 ///
 Tensor& _fused8bitrowwise_to_float_cpu_out(
     Tensor& output,
-    const Tensor& input) {
-  return _fused8bitrowwise_to_float_cpu_out_t<float, false>(output, input);
+    const Tensor& input,
+    const bool scale_bias_last,
+    const bool quant_padding_float_type) {
+  return _fused8bitrowwise_to_float_cpu_out_t<float, false>(
+      output, input, scale_bias_last, quant_padding_float_type);
 }
 
-Tensor& fused8bitrowwise_to_half_cpu_out(Tensor& output, const Tensor& input) {
+Tensor& fused8bitrowwise_to_half_cpu_out(
+    Tensor& output,
+    const Tensor& input,
+    const bool scale_bias_last,
+    const bool quant_padding_float_type) {
   return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::float16, false>(
-      output, input);
+      output, input, scale_bias_last, quant_padding_float_type);
 }
 
 Tensor& _fused8bitrowwise_to_bfloat16_cpu_out(
     Tensor& output,
-    const Tensor& input) {
+    const Tensor& input,
+    const bool scale_bias_last,
+    const bool quant_padding_float_type) {
   return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::bfloat16, true>(
-      output, input);
+      output, input, scale_bias_last, quant_padding_float_type);
 }
 
 /// @ingroup quantize-data-cpu
@@ -307,24 +329,27 @@ Tensor fused8bitrowwise_to_bfloat16_cpu(const Tensor& input) {
 Tensor fused8bitrowwise_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t output_dtype,
-    [[maybe_unused]] const bool scale_bias_last,
-    [[maybe_unused]] const bool quant_padding_float_type) {
+    const bool scale_bias_last,
+    const bool quant_padding_float_type) {
   Tensor output;
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
       output = at::empty({0}, input.options().dtype(at::kFloat));
 
-      output = _fused8bitrowwise_to_float_cpu_out(output, input);
+      output = _fused8bitrowwise_to_float_cpu_out(
+          output, input, scale_bias_last, quant_padding_float_type);
 
       break;
     case SparseType::FP16:
       output = at::empty({0}, input.options().dtype(at::kHalf));
-      output = fused8bitrowwise_to_half_cpu_out(output, input);
+      output = fused8bitrowwise_to_half_cpu_out(
+          output, input, scale_bias_last, quant_padding_float_type);
       break;
     case SparseType::BF16:
       output = at::empty({0}, input.options().dtype(at::kBFloat16));
-      output = _fused8bitrowwise_to_bfloat16_cpu_out(output, input);
+      output = _fused8bitrowwise_to_bfloat16_cpu_out(
+          output, input, scale_bias_last, quant_padding_float_type);
       break;
     default:
       TORCH_CHECK(false);
@@ -607,7 +632,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int output_dtype=0, bool scale_bias_last=True, bool quant_padding_float_type=True) -> Tensor");
   m.def(
-      "Fused8BitRowwiseQuantizedToFloatOut(Tensor output, Tensor input) -> Tensor");
+      "Fused8BitRowwiseQuantizedToFloatOut(Tensor output, Tensor input, bool scale_bias_last=True, bool quant_padding_float_type=True) -> Tensor");
   m.def(
       "Fused8BitRowwiseQuantizedToFloatMixedDim(Tensor input, Tensor D_offsets, int output_dtype) -> Tensor");
   m.def(
