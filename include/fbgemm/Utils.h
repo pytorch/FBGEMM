@@ -21,7 +21,8 @@
 #include <type_traits>
 
 #ifndef HAVE_SVE
-#if defined(__aarch64__) && __ARM_FEATURE_SVE
+#if defined(__aarch64__) && __ARM_FEATURE_SVE && \
+    __has_include(<arm_neon_sve_bridge.h>)
 #define HAVE_SVE 1
 #else
 #define HAVE_SVE 0
