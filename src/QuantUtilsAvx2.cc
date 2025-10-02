@@ -2177,23 +2177,40 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
   } // for each row
 }
 
-template <typename OutputType>
+template <
+    typename OutputType,
+    bool scale_bias_last,
+    bool quant_padding_float_type>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
     size_t input_rows,
     int input_columns,
     OutputType* output) {
   constexpr int VLEN = 8;
-  int output_columns = input_columns - 2 * sizeof(float);
+  using scale_bias_t =
+      std::conditional_t<quant_padding_float_type, float, float16>;
+  int output_columns = input_columns - 2 * sizeof(scale_bias_t);
 
   for (size_t row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
-    const float* input_row_scale_bias =
-        reinterpret_cast<const float*>(input_row + output_columns);
+    const scale_bias_t* input_row_scale_bias = (scale_bias_last)
+        ? (reinterpret_cast<const scale_bias_t*>(input_row + output_columns))
+        : (reinterpret_cast<const scale_bias_t*>(input_row));
+    if constexpr (!scale_bias_last) {
+      input_row += 2 * sizeof(scale_bias_t);
+    }
     OutputType* output_row = output + row * output_columns;
 
-    __m256 scale_v = _mm256_set1_ps(input_row_scale_bias[0]);
-    __m256 bias_v = _mm256_set1_ps(input_row_scale_bias[1]);
+    float scale = NAN, bias = NAN;
+    if constexpr (std::is_same_v<scale_bias_t, float>) {
+      scale = input_row_scale_bias[0];
+      bias = input_row_scale_bias[1];
+    } else {
+      scale = cpu_half2float(input_row_scale_bias[0]);
+      bias = cpu_half2float(input_row_scale_bias[1]);
+    }
+    __m256 scale_v = _mm256_set1_ps(scale);
+    __m256 bias_v = _mm256_set1_ps(bias);
 
     int col = 0;
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
@@ -2216,8 +2233,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     }
 
     for (; col < output_columns; ++col) {
-      float output_value =
-          input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
+      float output_value = input_row[col] * scale + bias;
       if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else {
@@ -2258,17 +2274,35 @@ INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 8)
       size_t input_rows,                                                 \
       int input_columns,                                                 \
       std::uint8_t* output,                                              \
-      const type* rowwise_min_max);                                      \
-  template void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<type>( \
-      const std::uint8_t* input,                                         \
-      size_t input_rows,                                                 \
-      int input_columns,                                                 \
-      type* output);
+      const type* rowwise_min_max);
 
     // clang-format off
 INSTANTIATE_QuantizationAvx2Functions8Bits(float)
 INSTANTIATE_QuantizationAvx2Functions8Bits(float16)
 // clang-format on
 #undef INSTANTIATE_QuantizationAvx2Functions8Bits
+
+#define INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2( \
+    type, scale_bias_last, quant_padding_float_type)                   \
+  template void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<     \
+      type,                                                            \
+      scale_bias_last,                                                 \
+      quant_padding_float_type>(                                       \
+      const std::uint8_t* input,                                       \
+      size_t input_rows,                                               \
+      int input_columns,                                               \
+      type* output);
+
+    // clang-format off
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, true, true)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, true, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, false, true)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, false, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, true)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, true)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, false)
+// clang-format on
+#undef INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2
 
 } // namespace fbgemm

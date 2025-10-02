@@ -166,7 +166,10 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     int input_columns,
     OutputType* output);
 
-template <typename OutputType>
+template <
+    typename OutputType,
+    bool scale_bias_last = true,
+    bool quant_padding_float_type = true>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
     size_t input_rows,
