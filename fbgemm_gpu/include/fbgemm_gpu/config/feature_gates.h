@@ -62,7 +62,8 @@ namespace fbgemm_gpu::config {
   X(TBE_ROCM_INFERENCE_PACKED_BAGS) \
   X(TBE_ROCM_HIP_BACKWARD_KERNEL)   \
   X(BOUNDS_CHECK_INDICES_V2)        \
-  X(TBE_REPORT_INPUT_PARAMS)
+  X(TBE_REPORT_INPUT_PARAMS)        \
+  X(TBE_CPU_OUTPUT_DISABLE_PINNED_MEMORY)
 // X(EXAMPLE_FEATURE_FLAG)
 
 /// @ingroup fbgemm-gpu-config
@@ -90,6 +91,12 @@ bool check_feature_gate_key(const std::string& key);
 /// @brief For the given `FeatureGateName`, check if the corresponding feature
 /// is enabled.
 bool is_feature_enabled(const FeatureGateName& feature);
+
+/// @ingroup fbgemm-gpu-config
+///
+/// @brief For the given `FeatureGateName`, check if the corresponding
+/// feature is enabled in the env vars only.
+bool is_feature_enabled_from_env(const FeatureGateName& feature);
 
 #ifdef FBGEMM_FBCODE
 bool is_feature_enabled(const FbFeatureGateName& feature);
