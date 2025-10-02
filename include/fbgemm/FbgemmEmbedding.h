@@ -362,31 +362,6 @@ void compressed_indices_remap_avx512(
     float* out_weights);
 #endif
 
-// Specialization for uint8_t* input on aarch64 called by GenerateEmbeddingSpMDM
-template <
-    typename IndexType,
-    typename OffsetType,
-    typename OutType,
-    bool NoBag,
-    bool EnablePrefetching>
-FBGEMM_API bool EmbeddingSpMDM8Bit_Sve(
-    const int64_t block_size,
-    const int64_t output_size,
-    const int64_t index_size,
-    const int64_t data_size,
-    const uint8_t* input,
-    const IndexType* indices,
-    const OffsetType* offsets_or_lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    const bool normalize_by_lengths,
-    OutType* out,
-    const bool is_weight_positional,
-    const bool use_offsets,
-    const int64_t output_stride,
-    const int64_t input_stride,
-    const bool scale_bias_last,
-    const bool is_bf16_out);
-
 } // namespace internal
 
 template <typename IndexType>
