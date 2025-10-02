@@ -1799,8 +1799,14 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     } else if constexpr (std::is_base_of_v<cutlass::fmha::collective::CausalMask<false>, Mask>) {
       int offset = get<1>(problem_shape) - get<0>(problem_shape);
       iter_start = max(0, (int(get<1>(blk_coord) * TileShapeK{}) - offset) / (int)TileShapeQ{});
-    } else if constexpr (std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask>) {
-      int offset = get<1>(problem_shape) - get<0>(problem_shape);
+    }
+    else if constexpr (
+        std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask> ||
+        std::is_base_of_v<cutlass::fmha::collective::LocalMask<true>, Mask>
+    ) {
+      int offset = std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask>
+        ? get<1>(problem_shape) - get<0>(problem_shape)
+        : 0;
 
       int k_max = (get<1>(blk_coord) + 1) * TileShapeK{};
       int q_max = min(get<0>(problem_shape), k_max - offset + params.mainloop_params.window_size_left);
