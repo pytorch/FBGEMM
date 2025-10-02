@@ -290,9 +290,9 @@ Functions</h2></td></tr>
 <tr class="memitem:ad1305a78156aed040eec4b75fd07683c" id="r_ad1305a78156aed040eec4b75fd07683c"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
 <tr class="memitem:ad1305a78156aed040eec4b75fd07683c"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ad1305a78156aed040eec4b75fd07683c">FloatOrHalfToFused8BitRowwiseQuantizedSBFloat</a> (const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output, const InputType *rowwise_min_max=nullptr)</td></tr>
 <tr class="separator:ad1305a78156aed040eec4b75fd07683c"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a20ce748bb5f7f260d42d2bb4c2c4ca19" id="r_a20ce748bb5f7f260d42d2bb4c2c4ca19"><td class="memTemplParams" colspan="2">template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </td></tr>
-<tr class="memitem:a20ce748bb5f7f260d42d2bb4c2c4ca19"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a20ce748bb5f7f260d42d2bb4c2c4ca19">Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf</a> (const uint8_t *input, size_t input_rows, int input_columns, OutputType *output)</td></tr>
-<tr class="separator:a20ce748bb5f7f260d42d2bb4c2c4ca19"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a16fd9b965676d778b4b6b81d55d70f20" id="r_a16fd9b965676d778b4b6b81d55d70f20"><td class="memTemplParams" colspan="2">template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </td></tr>
+<tr class="memitem:a16fd9b965676d778b4b6b81d55d70f20"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a16fd9b965676d778b4b6b81d55d70f20">Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf</a> (const uint8_t *input, size_t input_rows, int input_columns, OutputType *output, const bool scale_bias_last=true, const bool quant_padding_float_type=true)</td></tr>
+<tr class="separator:a16fd9b965676d778b4b6b81d55d70f20"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad89426896d5c7b1f1b5db8ebaf201547" id="r_ad89426896d5c7b1f1b5db8ebaf201547"><td class="memTemplParams" colspan="2">template&lt;typename InputType&gt; </td></tr>
 <tr class="memitem:ad89426896d5c7b1f1b5db8ebaf201547"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ad89426896d5c7b1f1b5db8ebaf201547">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef</a> (int bit_rate, const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output)</td></tr>
 <tr class="separator:ad89426896d5c7b1f1b5db8ebaf201547"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -302,9 +302,9 @@ Functions</h2></td></tr>
 <tr class="memitem:a4ac91c9d5806b57c70b0dc7fa6a55464" id="r_a4ac91c9d5806b57c70b0dc7fa6a55464"><td class="memTemplParams" colspan="2">template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </td></tr>
 <tr class="memitem:a4ac91c9d5806b57c70b0dc7fa6a55464"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a4ac91c9d5806b57c70b0dc7fa6a55464">FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef</a> (int bit_rate, const uint8_t *input, size_t input_rows, int input_columns, OutputType *output, bool scale_bias_last=true)</td></tr>
 <tr class="separator:a4ac91c9d5806b57c70b0dc7fa6a55464"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a43bf5c3f0eddf1703a61b7f3feec4243" id="r_a43bf5c3f0eddf1703a61b7f3feec4243"><td class="memTemplParams" colspan="2">template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </td></tr>
-<tr class="memitem:a43bf5c3f0eddf1703a61b7f3feec4243"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a43bf5c3f0eddf1703a61b7f3feec4243">Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef</a> (const uint8_t *input, size_t input_rows, int input_columns, OutputType *output)</td></tr>
-<tr class="separator:a43bf5c3f0eddf1703a61b7f3feec4243"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3499eced87afa89c95cc82c240a28add" id="r_a3499eced87afa89c95cc82c240a28add"><td class="memTemplParams" colspan="2">template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </td></tr>
+<tr class="memitem:a3499eced87afa89c95cc82c240a28add"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a3499eced87afa89c95cc82c240a28add">Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef</a> (const uint8_t *input, size_t input_rows, int input_columns, OutputType *output, const bool scale_bias_last=true, const bool quant_padding_float_type=true)</td></tr>
+<tr class="separator:a3499eced87afa89c95cc82c240a28add"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga53e986441f4188a7a412761b20737e8d" id="r_ga53e986441f4188a7a412761b20737e8d"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-avx2.html#ga53e986441f4188a7a412761b20737e8d">Xor128</a> ()</td></tr>
 <tr class="separator:ga53e986441f4188a7a412761b20737e8d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga92e2b96889b039f101e24855e163021b" id="r_ga92e2b96889b039f101e24855e163021b"><td class="memTemplParams" colspan="2">template&lt;bool A_SYMMETRIC, bool B_SYMMETRIC, QuantizationGranularity Q_GRAN, bool HAS_BIAS, bool FUSE_RELU, typename BIAS_TYPE = std::int32_t, bool DIRECT = false&gt; </td></tr>
@@ -1632,8 +1632,8 @@ template&lt;typename InputType&gt; </div>
 
 </div>
 </div>
-<a id="a20ce748bb5f7f260d42d2bb4c2c4ca19" name="a20ce748bb5f7f260d42d2bb4c2c4ca19"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a20ce748bb5f7f260d42d2bb4c2c4ca19">&#9670;&#160;</a></span>Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf()</h2>
+<a id="a16fd9b965676d778b4b6b81d55d70f20" name="a16fd9b965676d778b4b6b81d55d70f20"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a16fd9b965676d778b4b6b81d55d70f20">&#9670;&#160;</a></span>Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1658,7 +1658,17 @@ template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </div
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">OutputType *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>&#160;)</td>
+          <td class="paramtype">OutputType *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>scale_bias_last</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>quant_padding_float_type</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1667,8 +1677,8 @@ template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </div
 
 </div>
 </div>
-<a id="a43bf5c3f0eddf1703a61b7f3feec4243" name="a43bf5c3f0eddf1703a61b7f3feec4243"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a43bf5c3f0eddf1703a61b7f3feec4243">&#9670;&#160;</a></span>Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef()</h2>
+<a id="a3499eced87afa89c95cc82c240a28add" name="a3499eced87afa89c95cc82c240a28add"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3499eced87afa89c95cc82c240a28add">&#9670;&#160;</a></span>Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1693,7 +1703,17 @@ template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </div
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">OutputType *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>&#160;)</td>
+          <td class="paramtype">OutputType *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>scale_bias_last</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>quant_padding_float_type</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
