@@ -777,6 +777,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) {
+    auto read_count = count.scalar_type() == at::ScalarType::Long
+        ? *(count.data_ptr<int64_t>())
+        : *(count.data_ptr<int32_t>());
+    read_num_counts_ += read_count;
     // assuming get is called once each iteration and only by train
     // iteration(excluding state_dict)
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
@@ -1330,7 +1334,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<double> get_dram_kv_perf(
       const int64_t step,
       const int64_t interval) {
-    std::vector<double> ret(23, 0); // num metrics
+    std::vector<double> ret(24, 0); // num metrics
     if (step > 0 && step % interval == 0) {
       int reset_val = 0;
 
@@ -1377,6 +1381,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       auto dram_bwd_l1_cnflct_miss_write_missing_load_ =
           bwd_l1_cnflct_miss_write_missing_load_avg_.exchange(reset_val);
 
+      auto read_num_counts = read_num_counts_.exchange(reset_val);
+
       ret[0] = dram_read_total_duration / interval;
       ret[1] = dram_read_sharding_total_duration / interval;
       ret[2] = dram_read_cache_hit_copy_duration / interval;
@@ -1404,6 +1410,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       ret[21] = get_map_actual_used_chunk_in_bytes();
 
       ret[22] = get_num_rows();
+      ret[23] = read_num_counts / interval;
     }
     return ret;
   }
@@ -1658,6 +1665,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   std::atomic<int64_t> inplace_update_hit_cnt_{0};
   std::atomic<int64_t> inplace_update_miss_cnt_{0};
+
+  std::atomic<int64_t> read_num_counts_{0};
 
   bool disable_random_init_;
 }; // class DramKVEmbeddingCache
