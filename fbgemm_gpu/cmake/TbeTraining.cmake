@@ -75,6 +75,7 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
   CPU_SRCS
     src/config/feature_gates.cpp
+    src/config/feature_gates_torch_op.cpp
   DESTINATION
     fbgemm_gpu)
 
