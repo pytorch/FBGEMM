@@ -141,7 +141,7 @@ permute_1D_sparse_data_cuda(
                 const auto weights_value_contig = weights_value.contiguous();
                 permuted_weights =
                     at::empty(permuted_indices_size, weights_value.options());
-                FBGEMM_DISPATCH_ALL_TYPES(
+                FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
                     weights_value.scalar_type(),
                     "permute_1D_data_kernel_3",
                     [&] {
