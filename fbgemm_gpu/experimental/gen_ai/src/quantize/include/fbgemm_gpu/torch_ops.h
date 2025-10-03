@@ -38,6 +38,16 @@ at::Tensor mx8mx8bf16_grouped_mm(
     at::Tensor offsets,
     std::optional<at::Tensor> output = std::nullopt);
 
+// Torch compliant FP4 grouped GEMM.
+at::Tensor f4f4bf16_grouped_mm(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor offsets,
+    std::optional<at::Tensor> output = std::nullopt,
+    std::optional<at::Tensor> global_scale = std::nullopt);
+
 #endif
 
 } // namespace fbgemm_gpu
