@@ -405,6 +405,8 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
       OBJECT
     SRCS
       ${FBGEMM_AUTOVEC_SRCS}
+    CC_FLAGS
+      -ftree-vectorize
     ENABLE_IPO
       ${FBGEMM_USE_IPO}
     DEPS
