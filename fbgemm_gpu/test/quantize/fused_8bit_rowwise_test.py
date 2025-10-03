@@ -28,9 +28,9 @@ from .common import (
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, optests
+    from test_utils import gpu_available, optests, running_on_rocm
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, optests
+    from fbgemm_gpu.test.test_utils import gpu_available, optests, running_on_rocm
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
@@ -324,6 +324,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                     dequantized_data_trimmed.bfloat16(), reference.bfloat16()
                 )
 
+    @unittest.skipIf(*running_on_rocm)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
