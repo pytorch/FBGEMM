@@ -7,7 +7,7 @@
  */
 
 #include "fbgemm_gpu/config/feature_gates.h"
-#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/function_types.h"
 
 #ifdef FBGEMM_FBCODE
 #include "fbgemm_gpu/config/feature_gates_fb.h"
@@ -15,6 +15,7 @@
 
 #include <cstdlib>
 #include <map>
+#include <stdexcept>
 #include <string>
 
 namespace fbgemm_gpu::config {
@@ -80,9 +81,3 @@ DLL_PUBLIC bool is_feature_enabled(const FbFeatureGateName& feature) {
 #endif
 
 } // namespace fbgemm_gpu::config
-
-TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def(
-      "check_feature_gate_key(str key) -> bool",
-      fbgemm_gpu::config::check_feature_gate_key);
-}
