@@ -18,6 +18,7 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
+#include "fbgemm_gpu/config/feature_gates.h"
 
 #if defined(__x86_64__) || defined(__i386__) || (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
@@ -190,8 +191,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     {% else %}
     TORCH_CHECK(D > 0);
     {% endif %}
+    const static bool disablePinnedMemory = fbgemm_gpu::config::is_feature_enabled_from_env(fbgemm_gpu::config::FeatureGateName::TBE_CPU_OUTPUT_DISABLE_PINNED_MEMORY);
     bool pinned_memory = false;
-    if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
+    if (!disablePinnedMemory && at::Context::hasCUDA() && at::getNumGPUs() > 0) {
       pinned_memory = true;
     }
 
