@@ -278,15 +278,15 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
   auto res_client = get_res_client(res_server_port_);
   // 2. Split by shards
   for (int i = 0; i < res_store_shards_; ++i) {
-    auto shrad_mask = shard_indices_tensor.eq(i).nonzero().squeeze();
-    auto table_indices_masked = table_indices.index_select(0, shrad_mask);
+    auto shard_mask = shard_indices_tensor.eq(i).nonzero().squeeze();
+    auto table_indices_masked = table_indices.index_select(0, shard_mask);
     auto rows_in_shard = table_indices_masked.numel();
     if (rows_in_shard == 0) {
       continue;
     }
     auto global_indices_masked =
-        global_indices_tensor.index_select(0, shrad_mask);
-    auto weights_masked = filtered_weights.index_select(0, shrad_mask);
+        global_indices_tensor.index_select(0, shard_mask);
+    auto weights_masked = filtered_weights.index_select(0, shard_mask);
 
     if (weights_masked.size(0) != rows_in_shard ||
         global_indices_masked.numel() != rows_in_shard) {
@@ -307,7 +307,7 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
         torch::distributed::wireDumpTensor(global_indices_masked);
     req.weights() = torch::distributed::wireDumpTensor(weights_masked);
     if (filtered_identities.has_value()) {
-      auto identities_masked = filtered_identities->index_select(0, shrad_mask);
+      auto identities_masked = filtered_identities->index_select(0, shard_mask);
       req.identities() = torch::distributed::wireDumpTensor(identities_masked);
     }
     co_await res_client->co_setEmbeddings(req);
