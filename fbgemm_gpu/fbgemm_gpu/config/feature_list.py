@@ -11,7 +11,7 @@ from enum import auto, Enum
 import torch
 
 try:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:config_cpp")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:config_cpp_torch_op")
 except Exception:
     import fbgemm_gpu  # noqa F401
 

@@ -29,15 +29,8 @@ __builtin_ia32_serialize(void) {
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 
-/*
- * We annotate the public FBGEMM functions and hide the rest. Those
- * public symbols can be called via fbgemm_gpu::func() or pytorch
- * operator dispatcher. We'll hide other symbols, especially CUB APIs,
- * because different .so may include the same CUB CUDA kernels, which
- * results in confusion and libA may end up calling libB's CUB kernel,
- * causing failures when we static link libcudart_static.a
- */
-#define DLL_PUBLIC __attribute__((visibility("default")))
+// NOLINTNEXTLINE(misc-unused-using-decls)
+#include "fbgemm_gpu/utils/function_types.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Op Dispatch Macros
