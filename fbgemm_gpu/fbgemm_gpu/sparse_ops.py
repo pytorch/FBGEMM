@@ -49,7 +49,7 @@ except Exception:
 
 import torch.utils._pytree as pytree
 from torch import SymInt, Tensor
-from torch.fx.experimental.symbolic_shapes import guard_size_oblivious
+from torch.fx.experimental.symbolic_shapes import guard_or_true
 
 
 if hasattr(torch.library, "register_fake"):
@@ -251,7 +251,7 @@ def tbe_input_combine_abstract(
         torch._check(index.is_contiguous())
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
-        if guard_size_oblivious(weight.numel() > 0):
+        if guard_or_true(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -288,7 +288,7 @@ def tbe_input_combine_with_length_abstract(
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
         total_offsets = total_offsets + offset.numel()
-        if guard_size_oblivious(weight.numel() > 0):
+        if guard_or_true(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -807,7 +807,7 @@ def batch_index_select_dim0_forward_cpu_impl_abstract(
     torch._check(num_inputs == len(input_rows))
     torch._check(num_inputs == len(input_columns))
 
-    if permute_output_dim_0_1 and guard_size_oblivious(len(input_num_indices) > 0):
+    if permute_output_dim_0_1 and guard_or_true(len(input_num_indices) > 0):
         # All num_indices must be the same if permute_output_dim_0_1 is True
         for x in input_num_indices:
             torch._check(x == input_num_indices[0])
