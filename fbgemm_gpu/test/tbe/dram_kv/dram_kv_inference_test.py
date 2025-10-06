@@ -249,3 +249,67 @@ class DramKvInferenceTest(unittest.TestCase):
         self.assertTrue(equal_one_of(embs[5, :4], possible_embs))
         reader_thread.join()
         self.assertFalse(reader_failed_event.is_set())
+
+    def test_randomized_cache_miss_initialization(self) -> None:
+        """Test that cache misses use randomized data from existing blocks."""
+        num_shards = 8
+        uniform_init_lower: float = -0.01
+        uniform_init_upper: float = 0.01
+
+        # Create DRAM KV inference cache
+        kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
+            num_shards, uniform_init_lower, uniform_init_upper
+        )
+        kv_embedding_cache.init(
+            [(32, 4, SparseType.FP16.as_int())],
+            32,
+            4,
+            torch.tensor([0, 100], dtype=torch.int64),
+        )
+
+        # Setup: Populate the cache with many initial values for better randomization diversity
+        # Use 400 setup items to ensure each shard (8 shards) gets ~50 entries for good randomization
+        setup_indices = torch.arange(0, 400, dtype=torch.int64)  # 400 setup items
+        setup_weights = torch.randint(
+            1, 255, (400, 32), dtype=torch.uint8
+        )  # Non-zero values to ensure randomization source
+        print(f"setup_weights: {setup_weights}")
+
+        # Populate cache
+        kv_embedding_cache.set_embeddings(setup_indices, setup_weights)
+
+        # Execute: Request cache misses multiple times - these should get randomized initialization
+        # Use indices outside the range [0, 399] to ensure they are actual cache misses
+        miss_indices = torch.tensor([500, 501, 502, 503, 504], dtype=torch.int64)
+
+        # Get the cache miss results multiple times to check for randomization
+        results = []
+        for _ in range(5):
+            current_output = kv_embedding_cache.get_embeddings(miss_indices)
+            results.append(current_output.clone())
+
+        # Assert: Verify that randomization occurs
+        # The results should not all be identical if randomization is working
+        all_identical = True
+        for i in range(1, len(results)):
+            if not torch.equal(
+                results[0][:, :4], results[i][:, :4]
+            ):  # Only check first 4 columns (actual data)
+                all_identical = False
+                break
+
+        # Since we're using randomization, results should be different
+        # Note: There's a small chance they could be identical by random chance,
+        # but with 5 trials of 5 vectors of 4 bytes, this is extremely unlikely
+        self.assertFalse(
+            all_identical,
+            "Randomized cache miss initialization should produce different results",
+        )
+
+        # All results should be non-zero (since we populated the cache with non-zero random values)
+        for result in results:
+            # Check that at least some values are non-zero (indicating data came from existing blocks)
+            self.assertTrue(
+                torch.any(result[:, :4] != 0),
+                "Cache miss results should contain non-zero values when cache has data",
+            )
