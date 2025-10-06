@@ -22,6 +22,7 @@
 #include <thrift/lib/cpp2/protocol/CompactProtocol.h>
 #include <thrift/lib/cpp2/protocol/Serializer.h>
 #include <torch/script.h>
+#include <random>
 #include "common/time/Time.h"
 
 #include "../ssd_split_embeddings_cache/initializer.h"
@@ -419,9 +420,36 @@ class DramKVInferenceEmbedding {
                           before_read_lock_ts;
 
                       if (!wlmap->empty()) {
-                        row_storage_data_ptr =
-                            FixedBlockPool::data_ptr<weight_type>(
-                                wlmap->begin()->second);
+                        // Simple block-based randomization using get_block with
+                        // cursor
+                        auto* pool = kv_store_.pool_by(shard_id);
+
+                        // Random starting cursor based on map size for good
+                        // entropy
+                        size_t random_start =
+                            folly::Random::rand32(wlmap->size());
+
+                        // Try to find a used block starting from random
+                        // position
+                        weight_type* block = nullptr;
+                        for (int attempts = 0; attempts < 16; ++attempts) {
+                          block = pool->template get_block<weight_type>(
+                              random_start + attempts);
+                          if (block != nullptr) {
+                            // Block is used (not null)
+                            row_storage_data_ptr =
+                                FixedBlockPool::data_ptr<weight_type>(block);
+                            break;
+                          }
+                        }
+
+                        // Fallback: if no used block found, use first element
+                        // from map
+                        if (block == nullptr) {
+                          row_storage_data_ptr =
+                              FixedBlockPool::data_ptr<weight_type>(
+                                  wlmap->begin()->second);
+                        }
                       } else {
                         const auto& init_storage =
                             initializers_[shard_id]->row_storage_;
@@ -526,7 +554,9 @@ class DramKVInferenceEmbedding {
                   read_lookup_cache_total_duration / num_shards_;
               read_acquire_lock_avg_duration_ +=
                   read_acquire_lock_total_duration / num_shards_;
-              read_missing_load_avg_ += read_missing_load / num_shards_;
+              LOG_EVERY_MS(INFO, 5000)
+                  << "get_kv_db_async total read_missing_load per batch: "
+                  << read_missing_load;
               return std::vector<folly::Unit>(results.size());
             });
   };
