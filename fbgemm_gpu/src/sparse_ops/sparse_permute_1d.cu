@@ -133,7 +133,7 @@ permute_1D_sparse_data_cuda(
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_1D_data_kernel_1", [&] {
         using offsets_t = index_t;
-        FBGEMM_DISPATCH_ALL_TYPES(
+        FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
             indices.scalar_type(), "permute_1D_data_kernel_2", [&] {
               using indices_t = scalar_t;
               if (weights.has_value()) {
