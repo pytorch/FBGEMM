@@ -294,7 +294,7 @@ def skipIfRocmLessThan(min_version: int) -> Any:
         @wraps(testfn)
         # pyre-fixme[3]: Return annotation cannot be `Any`.
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            ROCM_VERSION_FILEPATH = "/opt/rocm/.info/version-dev"
+            ROCM_VERSION_FILEPATH = "/opt/rocm/.info/version"
             if TEST_WITH_ROCM:
                 # Fail if ROCm version file is missing.
                 if not os.path.isfile(ROCM_VERSION_FILEPATH):
