@@ -17,7 +17,6 @@ import fbgemm_gpu
 import numpy as np
 import tabulate
 import torch
-import math
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -102,6 +101,7 @@ def generate_requests(
 
 # pyre-fixme[3]: Return type must be annotated.
 
+
 def _get_random_tensor(
     num_ads: int,
     embedding_dimension: int,
@@ -109,8 +109,8 @@ def _get_random_tensor(
     data_type: str,
     gpu_idx: int,
     include_quantization: bool,
-    use_pitched: bool = True,
-    alignment: int = 256,   # alignment in bytes
+    use_pitched: bool,
+    alignment: int = 256,  # alignment in bytes
 ):
     device = torch.device(f"cuda:{gpu_idx}")
 
@@ -121,12 +121,14 @@ def _get_random_tensor(
 
         if use_pitched:
             width_bytes = width_elems * elem_size
-            pitch_bytes = math.ceil(width_bytes / alignment) * alignment
+            pitch_bytes = int(np.ceil(width_bytes / alignment) * alignment)
             pitch_elems = pitch_bytes // elem_size
             storage = torch.empty((num_ads, pitch_elems), dtype=dtype, device=device)
             result_tensor = storage[:, :width_elems]  # logical view
         else:
-            result_tensor = torch.randn(num_ads, width_elems, dtype=dtype, device=device)
+            result_tensor = torch.randn(
+                num_ads, width_elems, dtype=dtype, device=device
+            )
 
     elif data_type == "INT8":
         assert embedding_dimension % 2 == 0, "needs to align to 2 bytes for INT8"
@@ -136,12 +138,16 @@ def _get_random_tensor(
 
         if use_pitched:
             width_bytes = width_elems * elem_size
-            pitch_bytes = math.ceil(width_bytes / alignment) * alignment
+            pitch_bytes = int(np.ceil(width_bytes / alignment) * alignment)
             pitch_elems = pitch_bytes // elem_size
-            storage = torch.randint(0, 255, (num_ads, pitch_elems), dtype=dtype, device=device)
+            storage = torch.randint(
+                0, 255, (num_ads, pitch_elems), dtype=dtype, device=device
+            )
             result_tensor = storage[:, :width_elems]
         else:
-            result_tensor = torch.randint(0, 255, (num_ads, width_elems), dtype=dtype, device=device)
+            result_tensor = torch.randint(
+                0, 255, (num_ads, width_elems), dtype=dtype, device=device
+            )
 
     elif data_type == "INT4":
         assert embedding_dimension % 4 == 0, "needs to align to 2 bytes for INT4"
@@ -151,12 +157,16 @@ def _get_random_tensor(
 
         if use_pitched:
             width_bytes = width_elems * elem_size
-            pitch_bytes = math.ceil(width_bytes / alignment) * alignment
+            pitch_bytes = int(np.ceil(width_bytes / alignment) * alignment)
             pitch_elems = pitch_bytes // elem_size
-            storage = torch.randint(0, 255, (num_ads, pitch_elems), dtype=dtype, device=device)
+            storage = torch.randint(
+                0, 255, (num_ads, pitch_elems), dtype=dtype, device=device
+            )
             result_tensor = storage[:, :width_elems]
         else:
-            result_tensor = torch.randint(0, 255, (num_ads, width_elems), dtype=dtype, device=device)
+            result_tensor = torch.randint(
+                0, 255, (num_ads, width_elems), dtype=dtype, device=device
+            )
 
     else:
         raise ValueError
@@ -272,6 +282,7 @@ def benchmark(  # noqa C901
     num_ads: int,
     embedding_dimension: int,
     ads_tables: int,
+    use_pitched: bool,
     iters: int = 10,
     p2p_bw: bool = False,
     dst_device: int = 0,
@@ -317,6 +328,7 @@ def benchmark(  # noqa C901
             data_type,
             gpu_idx,
             include_quantization,
+            use_pitched,
         )
         for gpu_idx in range(num_gpus)
     ]
@@ -504,6 +516,7 @@ def benchmark(  # noqa C901
 @click.option("--num_of_embeddings", default=100000, type=int)
 @click.option("--pooling_factor", default=25, type=int)
 @click.option("--sweep", is_flag=True, default=False)
+@click.option("--use_pitched", is_flag=True, default=False)
 def cli(
     all_to_one_only: bool,
     sum_reduce_to_one_only: bool,
@@ -519,6 +532,7 @@ def cli(
     num_of_embeddings: int,
     pooling_factor: int,
     sweep: bool,
+    use_pitched: bool,
 ) -> None:
     csv_header = (
         "mode, data_type, num_ads, embedding_dimension, ads_tables, num_gpus, dst_device, all_to_one_only, "
@@ -553,6 +567,7 @@ def cli(
                             num_ads,
                             embedding_dimension,
                             ads_tables,
+                            use_pitched,
                             iters,
                             p2p_bw,
                             dst_device,
@@ -577,6 +592,7 @@ def cli(
         num_ads,
         embedding_dimension,
         ads_tables,
+        use_pitched,
         iters,
         p2p_bw,
         dst_device,

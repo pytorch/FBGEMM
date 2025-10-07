@@ -10,10 +10,11 @@
 
 import unittest
 from typing import Tuple
-import math
+
 import fbgemm_gpu
 
 import hypothesis.strategies as st
+import numpy as np
 import torch
 from hypothesis import given, settings, Verbosity
 
@@ -32,10 +33,15 @@ else:
 
 typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
 
+
 def make_pitched_tensor(height, width, dtype, device, alignment=256):
-    elem_size = torch.finfo(dtype).bits // 8 if dtype.is_floating_point else torch.iinfo(dtype).bits // 8
+    elem_size = (
+        torch.finfo(dtype).bits // 8
+        if dtype.is_floating_point
+        else torch.iinfo(dtype).bits // 8
+    )
     width_bytes = width * elem_size
-    pitch_bytes = math.ceil(width_bytes / alignment) * alignment
+    pitch_bytes = int(np.ceil(width_bytes / alignment) * alignment)
     pitch_elems = pitch_bytes // elem_size
     storage = torch.randn((height, pitch_elems), dtype=dtype, device=device)
     view = storage[:, :width]  # logical shape
@@ -123,6 +129,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_inputs=st.integers(min_value=1, max_value=10),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
         r=st.randoms(use_true_random=False),
+        use_pitched=st.booleans(),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
@@ -134,17 +141,18 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_gpus,
         # pyre-fixme[2]: Parameter must be annotated.
         r,
+        use_pitched,
     ) -> None:
         dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
         with torch.cuda.device(dst_device):
-            pitch = True
-            if pitch:
+            if use_pitched:
                 inputs = [
-                make_pitched_tensor(10, 20, torch.float32, "cpu", alignment=256)
-                for _ in range(num_inputs)]
+                    make_pitched_tensor(10, 20, torch.float32, "cpu", alignment=256)
+                    for _ in range(num_inputs)
+                ]
             else:
                 inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
-        
+
             cuda_inputs = [
                 input.to(f"cuda:{i % num_gpus}") for i, input in enumerate(inputs)
             ]
