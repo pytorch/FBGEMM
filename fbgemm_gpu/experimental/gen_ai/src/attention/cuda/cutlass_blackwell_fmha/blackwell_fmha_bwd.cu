@@ -41,10 +41,16 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
       causal = false; // Use local attention instead of causal
     }
     // Expand -1 window sizes to full sequence length if available
-    if (window_size_left < 0 && max_seq_len_k.has_value()) {
+    if (window_size_left < 0) {
+      TORCH_CHECK(
+          max_seq_len_k.has_value(),
+          "window_size_left is negative but max_seq_len_k is not provided");
       window_size_left = max_seq_len_k.value();
     }
-    if (window_size_right < 0 && max_seq_len_k.has_value()) {
+    if (window_size_right < 0) {
+      TORCH_CHECK(
+          max_seq_len_k.has_value(),
+          "window_size_right is negative but max_seq_len_k is not provided");
       window_size_right = max_seq_len_k.value();
     }
   }
