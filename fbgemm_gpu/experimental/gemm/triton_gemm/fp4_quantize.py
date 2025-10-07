@@ -1240,6 +1240,55 @@ def triton_rms_quantize_mx4_unpack(
 
 
 @triton.jit
+def _fp32_to_e8m0(
+    unscale,
+    mbits: tl.constexpr,
+    scale_round_mode: tl.constexpr,
+):
+    E8M0_EXPONENT_BIAS: tl.constexpr = 127  # type: ignore[Incompatible variable type]
+    sign = tl.where(unscale < 0, -1.0, 1.0)
+    abs_tensor = tl.abs(unscale)
+
+    # MBITS_F32 = 23
+    if scale_round_mode == "even":
+        val_to_add = (1 << (23 - mbits - 1)) - 1
+    elif scale_round_mode == "ceil":
+        val_to_add = (1 << 23) - 1
+    else:
+        val_to_add = 0
+
+    mask_exponent = ((1 << (8 + 1)) - 1) << 23
+    mask_mantissa = (1 << 23) - 1
+
+    fp32_bits = tl.extra.cuda.libdevice.float_as_int(abs_tensor)
+    fp32_bits_exp = (fp32_bits + val_to_add) & mask_exponent
+    exponent = (fp32_bits_exp >> 23) & 0xFF
+
+    if scale_round_mode == "nv_round":
+        mantissa = fp32_bits & mask_mantissa
+        is_denormal = (exponent == 0) & (mantissa != 0)
+        is_normal = ~is_denormal
+        condition1 = is_normal & (exponent < 254) & (mantissa > 0)
+        condition2 = is_denormal & (mantissa / (2**23) > 0.5)
+
+        exponent = tl.where(condition1 | condition2, exponent + 1, exponent)
+
+    exponent = exponent.to(tl.float32)
+    e8m0_values = sign * tl.exp2(exponent - E8M0_EXPONENT_BIAS)
+
+    unscale = e8m0_values
+    # In case unscale=0 (scale will be inf), or unscale=inf or nan, we set the scale to 1.0
+    unscale_invalid_mask = (
+        (e8m0_values == 0)
+        | (e8m0_values == float("inf"))
+        | (e8m0_values == float("nan"))
+    )
+    unscale = tl.where(unscale_invalid_mask, 1.0, unscale)
+
+    return unscale
+
+
+@triton.jit
 def _kernel_nvfp4_quantize(
     A,
     input_global_scale_tensor,
@@ -1261,6 +1310,7 @@ def _kernel_nvfp4_quantize(
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
     SCALE_K: tl.constexpr,
+    USE_E8M0_SCALE: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -1282,6 +1332,8 @@ def _kernel_nvfp4_quantize(
         FP4_EXP_BIAS (int): Exponent bias of target mx4 format.
         GROUP_LOAD (int): Number of groups to process simultaneously.
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
+        USE_E8M0_SCALE (bool): Whether to use E8M0 for quantization
+            (set to True when we want to mimic mx4's e8m0 scaling factor in nvfp4's fp8 local scale)
     """
     # Define Constant Expressions.
     BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
@@ -1347,7 +1399,12 @@ def _kernel_nvfp4_quantize(
         group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
 
         # Next we scale A in preparation for quantization.
-        scale_ = (group_max / 6.0 * input_global_scale).to(tl.float8e4nv)
+        if USE_E8M0_SCALE:
+            scale_fp32 = group_max / 4.0 * input_global_scale
+            scale_fp32 = _fp32_to_e8m0(scale_fp32, mbits=1, scale_round_mode="even")
+        else:
+            scale_fp32 = group_max / 6.0 * input_global_scale
+        scale_ = scale_fp32.to(tl.float8e4nv)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
@@ -1447,6 +1504,7 @@ def triton_scale_nvfp4_quant(
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
+    use_e8m0_scale: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to nvfp4 format using efficient triton kernels.
@@ -1459,7 +1517,8 @@ def triton_scale_nvfp4_quant(
         rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
-
+        use_e8m0_scale (bool): Whether to use E8M0 for quantization
+            (set to True when we want to mimic mx4's e8m0 scaling factor in nvfp4's fp8 local scale)
     Returns:
         torch.Tensor: [M / 2] nvfp4 scaled tensor packed into int8
         torch.Tensor: [M / group_size] nvfp4 shared exponents into int8
@@ -1567,6 +1626,8 @@ def triton_scale_nvfp4_quant(
         USE_INT64=use_int64,
         # pyre-ignore[6]
         SCALE_K=rounded_K,
+        # pyre-ignore[6]
+        USE_E8M0_SCALE=use_e8m0_scale,
     )
 
     scale = scale.flatten()
