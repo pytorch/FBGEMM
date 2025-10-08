@@ -13,6 +13,7 @@ import unittest
 import fbgemm_gpu
 
 import hypothesis.strategies as st
+import numpy as np
 import torch
 from hypothesis import given, settings, Verbosity
 
@@ -32,8 +33,29 @@ else:
 typed_gpu_unavailable: tuple[bool, str] = gpu_unavailable
 
 
-@unittest.skipIf(*gpu_unavailable)
-@unittest.skipIf(open_source, "Not supported in open source yet")
+def make_pitched_tensor(
+    height: int,
+    width: int,
+    dtype: torch.dtype,
+    # pyre-fixme[2]: Parameter must be annotated.
+    device,
+    alignment: int = 256,
+) -> torch.Tensor:
+    elem_size = (
+        torch.finfo(dtype).bits // 8
+        if dtype.is_floating_point
+        else torch.iinfo(dtype).bits // 8
+    )
+    width_bytes = width * elem_size
+    pitch_bytes = int(np.ceil(width_bytes / alignment) * alignment)
+    pitch_elems = pitch_bytes // elem_size
+    storage = torch.randn((height, pitch_elems), dtype=dtype, device=device)
+    view = storage[:, :width]  # logical shape
+    return view.contiguous() if alignment == 0 else view  # return pitched view
+
+
+# @unittest.skipIf(open_source, "Not supported in open source yet")
+@unittest.skipIf(*typed_gpu_unavailable)
 class MergePooledEmbeddingsTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
@@ -51,16 +73,11 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_merge(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_ads,
-        # pyre-fixme[2]: Parameter must be annotated.
-        embedding_dimension,
-        # pyre-fixme[2]: Parameter must be annotated.
-        ads_tables,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_gpus,
-        # pyre-fixme[2]: Parameter must be annotated.
-        non_default_stream,
+        num_ads: int,
+        embedding_dimension: int,
+        ads_tables: int,
+        num_gpus: int,
+        non_default_stream: bool,
         # pyre-fixme[2]: Parameter must be annotated.
         r,
         dim: int,
@@ -107,27 +124,32 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(output_ref, output_cpu)
 
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
-    #  10)` to decorator factory `hypothesis.given`.
     @given(
         num_inputs=st.integers(min_value=1, max_value=10),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
         r=st.randoms(use_true_random=False),
+        use_pitched=st.booleans(),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_all_to_one_device(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_inputs,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_gpus,
+        num_inputs: int,
+        num_gpus: int,
         # pyre-fixme[2]: Parameter must be annotated.
         r,
+        use_pitched: bool,
     ) -> None:
         dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
         with torch.cuda.device(dst_device):
-            inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
+            if use_pitched:
+                inputs = [
+                    make_pitched_tensor(10, 20, torch.float32, "cpu", alignment=256)
+                    for _ in range(num_inputs)
+                ]
+            else:
+                inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
+
             cuda_inputs = [
                 input.to(f"cuda:{i % num_gpus}") for i, input in enumerate(inputs)
             ]
@@ -150,8 +172,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(output, ref_output)
 
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
-    #  10)` to decorator factory `hypothesis.given`.
     @given(
         num_inputs=st.integers(min_value=1, max_value=8),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
@@ -234,7 +254,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 cuda_output.cpu(), torch.stack(inputs).sum(dim=0)
             )
 
-    @unittest.skipIf(*typed_gpu_unavailable)
     def test_merge_pooled_embeddings_meta(self) -> None:
         """
         Test that merge_pooled_embeddings works with meta tensor and
