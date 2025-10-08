@@ -827,18 +827,19 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     }
     OutputType* output_row = output + row * output_columns;
 
+    float scale = NAN, bias = NAN;
+    if (quant_padding_float_type) {
+      scale = *(reinterpret_cast<const float*>(input_row_scale_bias));
+      bias = *(reinterpret_cast<const float*>(
+          input_row_scale_bias + quant_padding_size));
+    } else {
+      scale = cpu_half2float_ref(
+          *(reinterpret_cast<const float16*>(input_row_scale_bias)));
+      bias = cpu_half2float_ref(*(reinterpret_cast<const float16*>(
+          input_row_scale_bias + quant_padding_size)));
+    }
+
     for (int col = 0; col < output_columns; ++col) {
-      float scale = NAN, bias = NAN;
-      if (quant_padding_float_type) {
-        scale = *(reinterpret_cast<const float*>(input_row_scale_bias));
-        bias = *(reinterpret_cast<const float*>(
-            input_row_scale_bias + quant_padding_size));
-      } else {
-        scale = cpu_half2float(
-            *(reinterpret_cast<const float16*>(input_row_scale_bias)));
-        bias = cpu_half2float(*(reinterpret_cast<const float16*>(
-            input_row_scale_bias + quant_padding_size)));
-      }
       float output_value = input_row[col] * scale + bias;
       if constexpr (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
