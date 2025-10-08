@@ -356,6 +356,61 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     KernelHardwareInfo hw_info;
   };
 
+  // Helper function to calculate number of previous K blocks that this block
+  // needs to wait for
+  template <class BlkCoord, class ProblemShape_>
+  CUTLASS_DEVICE int calculate_participating_k_blocks(
+      BlkCoord const& blk_coord,
+      ProblemShape_ const& problem_shape,
+      MainloopParams const& mainloop_params) {
+    auto
+        [blk_coord_q, blk_coord_k, blk_coord_d, blk_coord_dv, blk_coord_batch] =
+            blk_coord;
+
+    // For local attention, we need to calculate which K blocks actually
+    // participate. Due to attention window properties, only early blocks can
+    // exit, so we can loop backwards and stop at first non-participating block.
+    if constexpr (
+        std::is_base_of_v<cutlass::fmha::collective::LocalMask<true>, Mask> ||
+        std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask>) {
+      auto [Q, K, D, D_VO, HB] = problem_shape;
+
+      int total_k_blocks = ceil_div(K, TileShapeK{});
+      int offset = 0;
+      if constexpr (std::is_base_of_v<
+                        cutlass::fmha::collective::LocalMask<false>,
+                        Mask>) {
+        offset = K - Q;
+      }
+
+      // Loop backwards to find the first non-participating block
+      // This is efficient because participation is contiguous after the first
+      // participating block
+      for (int k_blk = blk_coord_k - 1; k_blk >= 0; --k_blk) {
+        int k_max = (k_blk + 1) * TileShapeK{};
+        int q_max = min(Q, k_max - offset + mainloop_params.window_size_left);
+        int iter_end_for_k = ceil_div(q_max, TileShapeQ{});
+
+        int k_min = k_blk * TileShapeK{};
+        int q_min = max(0, k_min - offset - mainloop_params.window_size_right);
+        int iter_start_for_k = q_min / (int)TileShapeQ{};
+
+        if (iter_end_for_k <= iter_start_for_k) {
+          // Found first non-participating block from the end
+          // Blocks 0 through k_blk don't participate
+          // Blocks k_blk+1 through blk_coord_k-1 participate
+          return blk_coord_k - 1 - k_blk;
+        }
+      }
+
+      // If we reach here, all previous blocks participate
+      return blk_coord_k;
+    } else {
+      // For causal, no mask or residual mask, block x waits for x previous
+      // blocks
+      return blk_coord_k;
+    }
+  }
 
   static bool can_implement(Arguments const& args) {
     auto [Q, K, D, D_VO, HB] = args.problem_shape;
@@ -367,6 +422,7 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     if (D % Alignment != 0 || D_VO % Alignment != 0) {
       return false;
     }
+
     return true;
   }
 
@@ -1498,23 +1554,26 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       ? nullptr
       : (mainloop_args.ptr_dq_semaphore + blx_b * H_R * H_K + blx_h_k * H_R);
 
-    // When IsDeterministic is true, we require each thread block to iterate
-    // over every K block.  This ensures that the semaphore flag is incremented
-    // exactly K times, matching the block's K coordinate.  This approach is
-    // conservative; we could optimize it by calculating the actual number of
-    // thread blocks participating in the reduction and adjusting the target
-    // value (blk_coord_k) accordingly.
+    // Calculate the actual number of participating K blocks for deterministic
+    // mode
+    int barrier_target = blk_coord_k; // Default for backward compatibility
+    if constexpr (IsDeterministic) {
+      barrier_target = calculate_participating_k_blocks(
+          blk_coord, problem_shape, mainloop_params);
+    }
+
     auto full_iter_count = IsDeterministic ? max_iter_count : iter_count;
     auto full_iter_index = 0;
 
     while (full_iter_count > 0) {
       if constexpr (IsDeterministic) {
-          // Wait until the semaphore flag become blk_coord_k
-          Barrier::wait_eq(
-              lock_ptr,
-              thread_idx,
-              full_iter_index * H_R * H_K * B + get<0, 0>(blk_coord_batch),
-              blk_coord_k);
+        // Wait until the semaphore flag reaches the actual number of
+        // participating blocks
+        Barrier::wait_eq(
+            lock_ptr,
+            thread_idx,
+            full_iter_index * H_R * H_K * B + get<0, 0>(blk_coord_batch),
+            barrier_target);
       }
       if (!IsDeterministic || (full_iter_index >= iter_start && full_iter_index < iter_end)) {
         pipeline_mma_reduce_dq.consumer_wait(pipeline_mma_reduce_dq_consumer_state);
@@ -1799,14 +1858,13 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     } else if constexpr (std::is_base_of_v<cutlass::fmha::collective::CausalMask<false>, Mask>) {
       int offset = get<1>(problem_shape) - get<0>(problem_shape);
       iter_start = max(0, (int(get<1>(blk_coord) * TileShapeK{}) - offset) / (int)TileShapeQ{});
-    }
-    else if constexpr (
+    } else if constexpr (
         std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask> ||
-        std::is_base_of_v<cutlass::fmha::collective::LocalMask<true>, Mask>
-    ) {
-      int offset = std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask>
-        ? get<1>(problem_shape) - get<0>(problem_shape)
-        : 0;
+        std::is_base_of_v<cutlass::fmha::collective::LocalMask<true>, Mask>) {
+      int offset =
+          std::is_base_of_v<cutlass::fmha::collective::LocalMask<false>, Mask>
+          ? get<1>(problem_shape) - get<0>(problem_shape)
+          : 0;
 
       int k_max = (get<1>(blk_coord) + 1) * TileShapeK{};
       int q_max = min(get<0>(problem_shape), k_max - offset + params.mainloop_params.window_size_left);
