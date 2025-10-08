@@ -10,12 +10,12 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor bf16bf16bf16_grouped_grad_128_16_128_1_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_grad_256_64_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> M_sizes) {
-  return bf16bf16bf16_grouped_grad_impl<128, 16, 128, 1, 1, 1, false>(
+  return bf16bf16bf16_grouped_grad_impl<256, 64, 128, 1, 4, 1, false>(
       X, W, output, M_sizes);
 }
 
