@@ -12,48 +12,6 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor bf16bf16bf16_grouped_128_16_128_1_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_16_128_1_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_16_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_16_128_2_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_16_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_16_128_4_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
 at::Tensor bf16bf16bf16_grouped_128_32_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
@@ -76,6 +34,48 @@ at::Tensor bf16bf16bf16_grouped_128_32_128_2_1_1_9_f(
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_128_32_128_2_1_1_9_f(
+    at::TensorList X, // BF16
+    at::TensorList W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_32_128_1_2_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_32_128_1_2_1_9_f(
+    at::TensorList X, // BF16
+    at::TensorList W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_32_128_1_4_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_32_128_1_4_1_9_f(
+    at::TensorList X, // BF16
+    at::TensorList W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_32_128_2_2_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_32_128_2_2_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -110,14 +110,14 @@ at::Tensor bf16bf16bf16_grouped_128_64_128_1_1_1_9_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_64_128_2_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_128_64_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_64_128_2_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_128_64_128_1_4_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -146,6 +146,20 @@ at::Tensor bf16bf16bf16_grouped_128_64_128_4_1_1_9_f(
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_128_64_128_4_1_1_9_f(
+    at::TensorList X, // BF16
+    at::TensorList W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_64_128_4_2_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_128_64_128_4_2_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -264,28 +278,28 @@ at::Tensor bf16bf16bf16_grouped_128_128_128_2_2_1_9_t(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_128_128_4_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_128_128_128_2_4_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_128_128_4_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_128_128_128_2_4_1_9_t(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_128_128_4_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_128_128_128_4_2_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_128_128_4_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_128_128_128_4_2_1_9_t(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -320,14 +334,14 @@ at::Tensor bf16bf16bf16_grouped_128_256_128_1_1_1_9_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_256_128_1_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_128_256_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_128_256_128_1_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_128_256_128_1_2_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -342,90 +356,6 @@ at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_9_f(
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_9_t(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_9_t(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_256_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_256_128_4_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_256_128_4_1_1_9_t(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_128_256_128_4_1_1_9_t(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_16_128_1_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_16_128_1_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_16_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_16_128_2_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_16_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_16_128_4_1_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -460,14 +390,28 @@ at::Tensor bf16bf16bf16_grouped_256_32_128_2_1_1_9_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_256_32_128_4_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_256_32_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_256_32_128_4_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_256_32_128_1_2_1_9_f(
+    at::TensorList X, // BF16
+    at::TensorList W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_256_32_128_4_2_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_256_32_128_4_2_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -502,20 +446,6 @@ at::Tensor bf16bf16bf16_grouped_256_64_128_2_1_1_9_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_256_64_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_64_128_4_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
 at::Tensor bf16bf16bf16_grouped_256_128_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
@@ -530,70 +460,14 @@ at::Tensor bf16bf16bf16_grouped_256_128_128_1_1_1_9_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_256_128_128_1_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_256_128_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_256_128_128_1_1_1_9_t(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_2_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_2_1_1_9_t(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_2_1_1_9_t(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_4_1_1_9_f(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_4_1_1_9_t(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_256_128_128_4_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_256_128_128_1_2_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
@@ -713,90 +587,72 @@ get_bf16bf16bf16_grouped_kernels(int arch) {
   static const std::
       unordered_map<std::string, Kernel_bf16bf16bf16_grouped<InputType>>
           kernelsSM90 = {
-              {"bf16bf16bf16_grouped_128_16_128_1_1_1_9_f",
-               bf16bf16bf16_grouped_128_16_128_1_1_1_9_f},
-              {"bf16bf16bf16_grouped_128_16_128_2_1_1_9_f",
-               bf16bf16bf16_grouped_128_16_128_2_1_1_9_f},
-              {"bf16bf16bf16_grouped_128_16_128_4_1_1_9_f",
-               bf16bf16bf16_grouped_128_16_128_4_1_1_9_f},
               {"bf16bf16bf16_grouped_128_32_128_1_1_1_9_f",
                bf16bf16bf16_grouped_128_32_128_1_1_1_9_f},
+              {"bf16bf16bf16_grouped_128_32_128_1_2_1_9_f",
+               bf16bf16bf16_grouped_128_32_128_1_2_1_9_f},
+              {"bf16bf16bf16_grouped_128_32_128_1_4_1_9_f",
+               bf16bf16bf16_grouped_128_32_128_1_4_1_9_f},
               {"bf16bf16bf16_grouped_128_32_128_2_1_1_9_f",
                bf16bf16bf16_grouped_128_32_128_2_1_1_9_f},
+              {"bf16bf16bf16_grouped_128_32_128_2_2_1_9_f",
+               bf16bf16bf16_grouped_128_32_128_2_2_1_9_f},
               {"bf16bf16bf16_grouped_128_32_128_4_1_1_9_f",
                bf16bf16bf16_grouped_128_32_128_4_1_1_9_f},
               {"bf16bf16bf16_grouped_128_64_128_1_1_1_9_f",
                bf16bf16bf16_grouped_128_64_128_1_1_1_9_f},
-              {"bf16bf16bf16_grouped_128_64_128_2_1_1_9_f",
-               bf16bf16bf16_grouped_128_64_128_2_1_1_9_f},
+              {"bf16bf16bf16_grouped_128_64_128_1_4_1_9_f",
+               bf16bf16bf16_grouped_128_64_128_1_4_1_9_f},
               {"bf16bf16bf16_grouped_128_64_128_2_2_1_9_f",
                bf16bf16bf16_grouped_128_64_128_2_2_1_9_f},
               {"bf16bf16bf16_grouped_128_64_128_4_1_1_9_f",
                bf16bf16bf16_grouped_128_64_128_4_1_1_9_f},
+              {"bf16bf16bf16_grouped_128_64_128_4_2_1_9_f",
+               bf16bf16bf16_grouped_128_64_128_4_2_1_9_f},
               {"bf16bf16bf16_grouped_128_128_128_1_1_1_9_f",
                bf16bf16bf16_grouped_128_128_128_1_1_1_9_f},
               {"bf16bf16bf16_grouped_128_128_128_1_1_1_9_t",
                bf16bf16bf16_grouped_128_128_128_1_1_1_9_t},
-              {"bf16bf16bf16_grouped_128_128_128_1_4_1_9_t",
-               bf16bf16bf16_grouped_128_128_128_1_4_1_9_t},
               {"bf16bf16bf16_grouped_128_128_128_1_2_1_9_f",
                bf16bf16bf16_grouped_128_128_128_1_2_1_9_f},
               {"bf16bf16bf16_grouped_128_128_128_1_2_1_9_t",
                bf16bf16bf16_grouped_128_128_128_1_2_1_9_t},
+              {"bf16bf16bf16_grouped_128_128_128_1_4_1_9_t",
+               bf16bf16bf16_grouped_128_128_128_1_4_1_9_t},
               {"bf16bf16bf16_grouped_128_128_128_2_1_1_9_f",
                bf16bf16bf16_grouped_128_128_128_2_1_1_9_f},
               {"bf16bf16bf16_grouped_128_128_128_2_1_1_9_t",
                bf16bf16bf16_grouped_128_128_128_2_1_1_9_t},
               {"bf16bf16bf16_grouped_128_128_128_2_2_1_9_t",
                bf16bf16bf16_grouped_128_128_128_2_2_1_9_t},
-              {"bf16bf16bf16_grouped_128_128_128_4_1_1_9_f",
-               bf16bf16bf16_grouped_128_128_128_4_1_1_9_f},
-              {"bf16bf16bf16_grouped_128_128_128_4_1_1_9_t",
-               bf16bf16bf16_grouped_128_128_128_4_1_1_9_t},
+              {"bf16bf16bf16_grouped_128_128_128_2_4_1_9_t",
+               bf16bf16bf16_grouped_128_128_128_2_4_1_9_t},
+              {"bf16bf16bf16_grouped_128_128_128_4_2_1_9_t",
+               bf16bf16bf16_grouped_128_128_128_4_2_1_9_t},
               {"bf16bf16bf16_grouped_128_128_128_4_4_1_9_t",
                bf16bf16bf16_grouped_128_128_128_4_4_1_9_t},
               {"bf16bf16bf16_grouped_128_256_128_1_1_1_9_f",
                bf16bf16bf16_grouped_128_256_128_1_1_1_9_f},
-              {"bf16bf16bf16_grouped_128_256_128_1_1_1_9_t",
-               bf16bf16bf16_grouped_128_256_128_1_1_1_9_t},
+              {"bf16bf16bf16_grouped_128_256_128_1_2_1_9_f",
+               bf16bf16bf16_grouped_128_256_128_1_2_1_9_f},
               {"bf16bf16bf16_grouped_128_256_128_2_1_1_9_f",
                bf16bf16bf16_grouped_128_256_128_2_1_1_9_f},
-              {"bf16bf16bf16_grouped_128_256_128_2_1_1_9_t",
-               bf16bf16bf16_grouped_128_256_128_2_1_1_9_t},
-              {"bf16bf16bf16_grouped_128_256_128_4_1_1_9_f",
-               bf16bf16bf16_grouped_128_256_128_4_1_1_9_f},
-              {"bf16bf16bf16_grouped_128_256_128_4_1_1_9_t",
-               bf16bf16bf16_grouped_128_256_128_4_1_1_9_t},
-              {"bf16bf16bf16_grouped_256_16_128_1_1_1_9_f",
-               bf16bf16bf16_grouped_256_16_128_1_1_1_9_f},
-              {"bf16bf16bf16_grouped_256_16_128_2_1_1_9_f",
-               bf16bf16bf16_grouped_256_16_128_2_1_1_9_f},
-              {"bf16bf16bf16_grouped_256_16_128_4_1_1_9_f",
-               bf16bf16bf16_grouped_256_16_128_4_1_1_9_f},
               {"bf16bf16bf16_grouped_256_32_128_1_1_1_9_f",
                bf16bf16bf16_grouped_256_32_128_1_1_1_9_f},
+              {"bf16bf16bf16_grouped_256_32_128_1_2_1_9_f",
+               bf16bf16bf16_grouped_256_32_128_1_2_1_9_f},
               {"bf16bf16bf16_grouped_256_32_128_2_1_1_9_f",
                bf16bf16bf16_grouped_256_32_128_2_1_1_9_f},
-              {"bf16bf16bf16_grouped_256_32_128_4_1_1_9_f",
-               bf16bf16bf16_grouped_256_32_128_4_1_1_9_f},
+              {"bf16bf16bf16_grouped_256_32_128_4_2_1_9_f",
+               bf16bf16bf16_grouped_256_32_128_4_2_1_9_f},
               {"bf16bf16bf16_grouped_256_64_128_1_1_1_9_f",
                bf16bf16bf16_grouped_256_64_128_1_1_1_9_f},
               {"bf16bf16bf16_grouped_256_64_128_2_1_1_9_f",
                bf16bf16bf16_grouped_256_64_128_2_1_1_9_f},
-              {"bf16bf16bf16_grouped_256_64_128_4_1_1_9_f",
-               bf16bf16bf16_grouped_256_64_128_4_1_1_9_f},
               {"bf16bf16bf16_grouped_256_128_128_1_1_1_9_f",
                bf16bf16bf16_grouped_256_128_128_1_1_1_9_f},
-              {"bf16bf16bf16_grouped_256_128_128_1_1_1_9_t",
-               bf16bf16bf16_grouped_256_128_128_1_1_1_9_t},
-              {"bf16bf16bf16_grouped_256_128_128_2_1_1_9_f",
-               bf16bf16bf16_grouped_256_128_128_2_1_1_9_f},
-              {"bf16bf16bf16_grouped_256_128_128_2_1_1_9_t",
-               bf16bf16bf16_grouped_256_128_128_2_1_1_9_t},
-              {"bf16bf16bf16_grouped_256_128_128_4_1_1_9_f",
-               bf16bf16bf16_grouped_256_128_128_4_1_1_9_f},
-              {"bf16bf16bf16_grouped_256_128_128_4_1_1_9_t",
-               bf16bf16bf16_grouped_256_128_128_4_1_1_9_t},
+              {"bf16bf16bf16_grouped_256_128_128_1_2_1_9_f",
+               bf16bf16bf16_grouped_256_128_128_1_2_1_9_f},
           };
 
   static const std::

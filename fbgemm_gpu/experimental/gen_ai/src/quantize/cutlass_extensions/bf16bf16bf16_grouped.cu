@@ -88,154 +88,605 @@ get_kernel_via_heuristic(int arch, int G, int total_M, int N, int K) {
       }
     }
     return bf16bf16bf16_grouped_256_256_128_2_1_1_10_f;
-  } else {
-    // Llama4 128E
-    if (G == 128) {
-      if (N == 5120 && K == 1024) {
-        if (total_M <= 128) {
-          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
-        } else if (total_M <= 256) {
+  } else { // arch == 9
+    if (total_M <= 128) {
+      if (N <= 128) {
+        if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 2048) {
           return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
-        } else if (total_M <= 2048) {
-          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
-        } else if (total_M <= 4096) {
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 256) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 8192) {
           return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
-        } else if (total_M <= 8192) {
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        }
+      } else if (N <= 512) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 1024) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 2048) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 4096) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 8192) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_4_2_1_9_f;
+        } else if (K <= 512) {
           return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
-        } else if (total_M <= 16384) {
-          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
         } else {
-          return bf16bf16bf16_grouped_128_256_128_2_1_1_9_f;
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
         }
       }
-
-      if (N == 2048 && K == 5120) {
-        if (total_M <= 2048) {
-          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+    } else if (total_M <= 256) {
+      if (N <= 128) {
+        if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
         } else {
-          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 256) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        }
+      } else if (N <= 512) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 1024) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 2048) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 4096) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 8192) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_4_2_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
         }
       }
-    }
-
-    // Llama4 64E
-    if (G == 16) {
-      if (N == 5120 && K == 1024) {
-        if (total_M <= 32) {
-          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
-        } else if (total_M <= 64) {
-          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
-        } else if (total_M <= 256) {
-          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
-        } else if (total_M <= 512) {
-          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
-        } else if (total_M <= 1024) {
-          return bf16bf16bf16_grouped_128_64_128_2_1_1_9_f;
-        } else {
-          return bf16bf16bf16_grouped_128_256_128_2_1_1_9_f;
-        }
-      }
-
-      if (N == 2048 && K == 5120) {
-        if (total_M <= 16) {
-          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
-        } else if (total_M <= 64) {
-          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
-        } else if (total_M <= 256) {
-          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
-        } else if (total_M <= 512) {
-          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
-        } else if (total_M <= 1024) {
-          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
-        } else {
-          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
-        }
-      }
-    }
-
-    // Llama4.x pretraining
-    if (N == 2560 && K == 5120) {
-      if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_64_128_2_2_1_9_f;
-      } else if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_f;
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      }
-    } else if (N == 5120 && K == 5120) {
-      if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_f;
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
-      } else if (total_M <= 4096) {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_4_4_1_9_t;
-      }
-    } else if (N == 3072 && K == 6144) {
-      if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_f;
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
-      } else if (total_M <= 2048) {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      }
-    } else if (N == 6144 && K == 6144) {
-      if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_128_128_4_1_1_9_f;
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_4_4_1_9_t;
-      }
-
-    } else if (N == 5120 && K == 1280) {
-      if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_128_128_4_1_1_9_f;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      }
-    } else if (N == 5120 && K == 2560) {
-      if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      }
-    } else if (N == 6144 && K == 1536) {
-      if (total_M <= 4096) {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      }
-    } else if (N == 6144 && K == 3072) {
-      if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
-      } else if (total_M <= 4096) {
-        return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_1_4_1_9_t;
-      }
-    }
-
-    // Fallback to legacy heuristic for now.
-    if (total_M <= 16) {
-      return bf16bf16bf16_grouped_128_16_128_1_1_1_9_f;
-    } else if (total_M <= 32) {
-      return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
-    } else if (total_M <= 64) {
-      return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
-    } else if (total_M <= 128) {
-      return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
     } else if (total_M <= 512) {
-      return bf16bf16bf16_grouped_256_128_128_2_1_1_9_f;
+      if (N <= 128) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_4_1_9_f;
+        }
+      } else if (N <= 256) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 512) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_4_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 1024) {
+        return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+      } else if (N <= 2048) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 4096) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 8192) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_4_2_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      }
+    } else if (total_M <= 1024) {
+      if (N <= 128) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_32_128_1_4_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 256) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_32_128_2_2_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_2_2_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 512) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_64_128_4_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 1024) {
+        if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_2_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        }
+      } else if (N <= 2048) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_64_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_256_64_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        }
+      } else if (N <= 4096) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_64_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_64_128_2_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_64_128_4_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_256_64_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        }
+      } else if (N <= 8192) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_64_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_4_2_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_64_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_64_128_4_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        }
+      }
+    } else if (total_M <= 2048) {
+      if (N <= 128) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_1_4_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 256) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_64_128_2_2_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 512) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        }
+      } else if (N <= 1024) {
+        if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        }
+      } else if (N <= 2048) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_256_128_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        }
+      } else if (N <= 4096) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_128_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        }
+      } else if (N <= 8192) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_128_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_64_128_4_2_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_1_2_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_64_128_4_2_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        }
+      }
+    } else if (total_M <= 4096) {
+      if (N <= 128) {
+        if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_64_128_1_4_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+        }
+      } else if (N <= 256) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_32_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        }
+      } else if (N <= 512) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 1024) {
+        if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 4096) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 8192) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_64_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_128_128_2_2_1_9_t;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_64_128_4_2_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
+        }
+      }
+    } else if (total_M <= 8192) {
+      if (N <= 128) {
+        return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+      } else if (N <= 256) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_64_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 512) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 1024) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 2048) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 4096) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_256_128_2_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_4_1_9_t;
+        }
+      } else if (N <= 8192) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_4_1_9_t;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_128_128_4_2_1_9_t;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_4_1_9_t;
+        }
+      }
     } else {
-      return bf16bf16bf16_grouped_128_256_128_2_1_1_9_f;
+      if (N <= 128) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 256) {
+        if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 512) {
+        if (K <= 512) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 1024) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_128_256_128_1_1_1_9_f;
+        } else if (K <= 1024) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        }
+      } else if (N <= 2048) {
+        if (K <= 256) {
+          return bf16bf16bf16_grouped_256_128_128_1_1_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_f;
+        }
+      } else if (N <= 4096) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_256_128_128_1_2_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_4_1_9_t;
+        }
+      } else if (N <= 8192) {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_256_128_128_1_1_1_9_f;
+        } else if (K <= 2048) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_128_128_2_4_1_9_t;
+        } else if (K <= 8192) {
+          return bf16bf16bf16_grouped_128_128_128_4_4_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_4_1_9_t;
+        }
+      } else {
+        if (K <= 128) {
+          return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+        } else if (K <= 256) {
+          return bf16bf16bf16_grouped_128_256_128_1_2_1_9_f;
+        } else if (K <= 512) {
+          return bf16bf16bf16_grouped_128_128_128_1_2_1_9_t;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_128_128_2_4_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_1_4_1_9_t;
+        }
+      }
     }
   }
 }
