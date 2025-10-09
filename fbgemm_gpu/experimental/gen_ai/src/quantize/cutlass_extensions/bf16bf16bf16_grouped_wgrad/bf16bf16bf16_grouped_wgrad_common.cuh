@@ -111,7 +111,8 @@ at::Tensor bf16bf16bf16_grouped_wgrad_impl(
     at::Tensor X,
     at::Tensor W,
     at::Tensor M_sizes,
-    at::Tensor output) {
+    at::Tensor output,
+    int sm_count) {
   int64_t G;
   at::TensorOptions options;
   G = M_sizes.size(0);
@@ -324,11 +325,6 @@ at::Tensor bf16bf16bf16_grouped_wgrad_impl(
        output_ptr,
        stride_c_ptr}};
 
-  int sm_count = at::cuda::getDeviceProperties(output.device().index())
-                     ->multiProcessorCount;
-  if (at::globalContext()._SMCarveout_EXPERIMENTAL().has_value()) {
-    sm_count -= at::globalContext()._SMCarveout_EXPERIMENTAL().value();
-  }
   arguments.hw_info.sm_count = sm_count;
 
   Gemm gemm;
@@ -379,7 +375,8 @@ at::Tensor bf16bf16bf16_grouped_wgrad_sm100_impl(
     at::Tensor X,
     at::Tensor W,
     at::Tensor M_sizes,
-    at::Tensor output) {
+    at::Tensor output,
+    int sm_count) {
   int64_t G;
   at::TensorOptions options;
   G = M_sizes.size(0);
@@ -586,11 +583,6 @@ at::Tensor bf16bf16bf16_grouped_wgrad_sm100_impl(
        output_ptr,
        stride_c_ptr}};
 
-  int sm_count = at::cuda::getDeviceProperties(output.device().index())
-                     ->multiProcessorCount;
-  if (at::globalContext()._SMCarveout_EXPERIMENTAL().has_value()) {
-    sm_count -= at::globalContext()._SMCarveout_EXPERIMENTAL().value();
-  }
   arguments.hw_info.sm_count = sm_count;
 
   Gemm gemm;
@@ -641,7 +633,8 @@ at::Tensor bf16bf16bf16_grouped_wgrad_sm100_impl(
     at::Tensor X,
     at::Tensor W,
     at::Tensor M_sizes,
-    at::Tensor output) {
+    at::Tensor output,
+    int sm_count) {
   return output;
 }
 #endif

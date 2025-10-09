@@ -15,13 +15,14 @@ at::Tensor bf16bf16bf16_grouped_wgrad_256_64_128_1_4_1_9_f(
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum) {
+    bool output_accum,
+    int sm_count) {
   if (output_accum) {
     return bf16bf16bf16_grouped_wgrad_impl<256, 64, 128, 1, 4, 1, true, false>(
-        X, W, M_sizes, output);
+        X, W, M_sizes, output, sm_count);
   } else {
     return bf16bf16bf16_grouped_wgrad_impl<256, 64, 128, 1, 4, 1, false, false>(
-        X, W, M_sizes, output);
+        X, W, M_sizes, output, sm_count);
   }
 }
 

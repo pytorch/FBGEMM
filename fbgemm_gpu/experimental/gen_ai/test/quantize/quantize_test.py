@@ -2506,12 +2506,18 @@ class BF16Tests(unittest.TestCase):
         else:
             wgrad_accum = None
 
+        sm_margin = 0
+        num_sms = (
+            torch.cuda.get_device_properties("cuda").multi_processor_count - sm_margin
+        )
+
         test_wgrad = torch.ops.fbgemm.bf16bf16bf16_grouped_wgrad(
             dy_bf16,
             x_bf16,
             m_sizes.to(torch.int64),
             output=wgrad_accum.clone() if output_accum else None,
             output_accum=output_accum,
+            num_sms=num_sms,
         )
 
         if output_accum:
@@ -2593,10 +2599,16 @@ class BF16Tests(unittest.TestCase):
         )
         m_sizes = BF16Tests.generate_random_splits(G, M)
 
+        sm_margin = 0
+        num_sms = (
+            torch.cuda.get_device_properties("cuda").multi_processor_count - sm_margin
+        )
+
         y_bf16 = torch.ops.fbgemm.bf16bf16bf16_grouped_grad(
             dy_bf16,
             w_bf16.permute(0, 2, 1),
             m_sizes.to(torch.int64),
+            num_sms=num_sms,
         )
 
         Y_preallocated = torch.empty(
@@ -2609,6 +2621,7 @@ class BF16Tests(unittest.TestCase):
             w_bf16.permute(0, 2, 1),
             m_sizes.to(torch.int64),
             Y_preallocated,
+            num_sms=num_sms,
         )
 
         # Reference
@@ -2662,8 +2675,13 @@ class BF16Tests(unittest.TestCase):
         )
         m_sizes = BF16Tests.generate_random_splits(G, M)
 
+        sm_margin = 0
+        num_sms = (
+            torch.cuda.get_device_properties("cuda").multi_processor_count - sm_margin
+        )
+
         y_bf16 = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
-            x_bf16, w_bf16, m_sizes.to(torch.int64)
+            x_bf16, w_bf16, m_sizes.to(torch.int64), num_sms=num_sms
         )
 
         Y_preallocated = torch.empty(
@@ -2672,7 +2690,7 @@ class BF16Tests(unittest.TestCase):
             device=torch.accelerator.current_accelerator(),
         )
         y_bf16_Y_preallocated = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
-            x_bf16, w_bf16, m_sizes.to(torch.int64), Y_preallocated
+            x_bf16, w_bf16, m_sizes.to(torch.int64), Y_preallocated, num_sms=num_sms
         )
 
         # Reference
