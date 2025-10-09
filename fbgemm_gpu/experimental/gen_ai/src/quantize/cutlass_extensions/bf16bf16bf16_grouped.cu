@@ -701,6 +701,7 @@ Kernel_bf16bf16bf16_grouped<InputType> get_kernel_via_tuning(
     InputType X, // BF16
     InputType W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
   auto& cache = getTuningCache();
@@ -712,7 +713,7 @@ Kernel_bf16bf16bf16_grouped<InputType> get_kernel_via_tuning(
       std::to_string(N) + "_" + std::to_string(K) + "_" + std::to_string(G);
   const auto& kernels = get_bf16bf16bf16_grouped_kernels<InputType>(arch);
   auto kernel = cache.findBestKernelMaybeAutotune(
-      shape_key, kernels, X, W, output, zero_start_index_M, M_sizes);
+      shape_key, kernels, X, W, output, sm_count, zero_start_index_M, M_sizes);
 
   return kernel;
 }
@@ -727,6 +728,7 @@ at::Tensor dispatch_bf16_grouped_kernel(
     InputType X, // BF16
     InputType W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
   const int arch = getDeviceArch();
@@ -735,13 +737,23 @@ at::Tensor dispatch_bf16_grouped_kernel(
   auto kernel = [&]() {
     if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
       return get_kernel_via_tuning(
-          arch, G, total_M, N, K, X, W, output, zero_start_index_M, M_sizes);
+          arch,
+          G,
+          total_M,
+          N,
+          K,
+          X,
+          W,
+          output,
+          sm_count,
+          zero_start_index_M,
+          M_sizes);
     } else {
       return get_kernel_via_heuristic<InputType>(arch, G, total_M, N, K);
     }
   }();
   // Invoke kernel
-  return kernel(X, W, output, zero_start_index_M, M_sizes);
+  return kernel(X, W, output, sm_count, zero_start_index_M, M_sizes);
 }
 
 template <typename OutputType>
@@ -768,9 +780,11 @@ OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
   }
   Y = at::empty(total_output_size, X[0].options().dtype(at::kBFloat16));
 
+  int64_t sm_count = getSMCount(Y.device().index(), std::nullopt);
+
   // Run kernel.
   at::Tensor g_out = dispatch_bf16_grouped_kernel<at::TensorList>(
-      G, total_M, max_N, max_K, X, W, Y);
+      G, total_M, max_N, max_K, X, W, Y, sm_count);
 
   // Return appropriate output type.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
@@ -800,7 +814,8 @@ at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor X,
     at::Tensor W,
     at::Tensor M_sizes,
-    std::optional<at::Tensor> out) {
+    std::optional<at::Tensor> out,
+    std::optional<int64_t> num_sms) {
   int64_t total_M = X.size(0);
   int64_t N = W.size(1);
   int64_t K = W.size(2);
@@ -822,9 +837,12 @@ at::Tensor bf16bf16bf16_grouped_stacked(
   if (total_M == 0) {
     return Y.view({total_M, N});
   }
+
+  int64_t sm_count = getSMCount(Y.device().index(), num_sms);
+
   // Return continuous view of output.
   at::Tensor output = dispatch_bf16_grouped_kernel<at::Tensor>(
-      G, total_M, N, K, X, W, Y, std::nullopt, M_sizes);
+      G, total_M, N, K, X, W, Y, sm_count, std::nullopt, M_sizes);
   return output.view({total_M, N});
 }
 
@@ -843,9 +861,11 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
   at::Tensor Y;
   Y = at::zeros(total_output_size, X.options().dtype(at::kBFloat16));
 
+  int64_t sm_count = getSMCount(Y.device().index(), std::nullopt);
+
   // Return continuous view of output.
   at::Tensor output = dispatch_bf16_grouped_kernel<at::Tensor>(
-      G, G * M, N, K, X, W, Y, zero_start_index_M);
+      G, G * M, N, K, X, W, Y, sm_count, zero_start_index_M);
   // View as proper shape.
   return output.view({G, M, N});
 }
@@ -876,7 +896,8 @@ at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor,
     at::Tensor,
     at::Tensor,
-    std::optional<at::Tensor>) {
+    std::optional<at::Tensor>,
+    std::optional<int64_t>) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

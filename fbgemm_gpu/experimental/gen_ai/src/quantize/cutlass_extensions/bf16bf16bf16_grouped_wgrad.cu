@@ -991,7 +991,8 @@ Kernel_bf16bf16bf16_grouped_wgrad get_kernel_via_tuning(
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum) {
+    bool output_accum,
+    int sm_count) {
   auto& cache = getTuningCache();
 
   // Reducing amount of auto tuning by rounding up total_m to next power of 2.
@@ -1001,7 +1002,7 @@ Kernel_bf16bf16bf16_grouped_wgrad get_kernel_via_tuning(
       std::to_string(N) + "_" + std::to_string(K) + "_" + std::to_string(G);
   const auto& kernels = get_bf16bf16bf16_grouped_wgrad_kernels(arch);
   auto kernel = cache.findBestKernelMaybeAutotune(
-      shape_key, kernels, X, W, M_sizes, output, output_accum);
+      shape_key, kernels, X, W, M_sizes, output, output_accum, sm_count);
 
   return kernel;
 }
@@ -1016,20 +1017,31 @@ at::Tensor dispatch_bf16_grouped_kernel(
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum) {
+    bool output_accum,
+    int sm_count) {
   const int arch = getDeviceArch();
 
   // Select kernel to run via heuristics or tuning.
   auto kernel = [&]() {
     if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
       return get_kernel_via_tuning(
-          arch, G, total_M, N, K, X, W, M_sizes, output, output_accum);
+          arch,
+          G,
+          total_M,
+          N,
+          K,
+          X,
+          W,
+          M_sizes,
+          output,
+          output_accum,
+          sm_count);
     } else {
       return get_wgrad_kernel_via_heuristic(arch, G, total_M, N, K);
     }
   }();
   // Invoke kernel
-  return kernel(X, W, M_sizes, output, output_accum);
+  return kernel(X, W, M_sizes, output, output_accum, sm_count);
 }
 
 at::Tensor bf16bf16bf16_grouped_wgrad(
@@ -1037,7 +1049,8 @@ at::Tensor bf16bf16bf16_grouped_wgrad(
     at::Tensor W,
     at::Tensor M_sizes,
     std::optional<at::Tensor> output,
-    bool output_accum) {
+    bool output_accum,
+    std::optional<int64_t> num_sms) {
   int64_t total_M = X.size(0);
   int64_t N = X.size(1);
   int64_t K = W.size(1);
@@ -1074,9 +1087,12 @@ at::Tensor bf16bf16bf16_grouped_wgrad(
   if (total_M == 0) {
     return Y.view({G, N, K});
   }
+
+  int64_t sm_count = getSMCount(Y.device().index(), num_sms);
+
   // Return continuous view of output.
   at::Tensor out = dispatch_bf16_grouped_kernel(
-      G, total_M, N, K, X, W, M_sizes, Y, output_accum);
+      G, total_M, N, K, X, W, M_sizes, Y, output_accum, sm_count);
   return out.view({G, N, K});
 }
 
@@ -1087,7 +1103,8 @@ at::Tensor bf16bf16bf16_grouped_wgrad(
     at::Tensor,
     at::Tensor,
     std::optional<at::Tensor>,
-    bool) {
+    bool,
+    std::optional<int64_t>) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -1099,7 +1116,8 @@ at::Tensor bf16bf16bf16_grouped_wgrad_meta(
     at::Tensor W,
     at::Tensor M_sizes,
     std::optional<at::Tensor> /* output = std::nullopt */,
-    bool /* output_accum = false */) {
+    bool /* output_accum = false */,
+    std::optional<int64_t> /* num_sms */) {
   const at::SymInt G = M_sizes.size(0);
   const at::SymInt N = X.sym_size(1);
   const at::SymInt K = W.sym_size(1);
@@ -1117,7 +1135,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "bf16bf16bf16_grouped_wgrad(Tensor X, Tensor W, Tensor M_sizes, Tensor(a!)? output=None, bool output_accum=False) -> Tensor");
+      "bf16bf16bf16_grouped_wgrad(Tensor X, Tensor W, Tensor M_sizes, Tensor(a!)? output=None, bool output_accum=False, int? num_sms=None) -> Tensor");
 }
 
 } // namespace fbgemm_gpu

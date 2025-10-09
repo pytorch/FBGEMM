@@ -13,6 +13,7 @@
 #include "bf16bf16bf16_grouped_grad/bf16bf16bf16_grouped_grad_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.cuh"
 #include "fbgemm_gpu/quantize/utils.h"
+#include "fbgemm_gpu/quantize/utils_gpu.h"
 
 namespace fbgemm_gpu {
 
@@ -787,6 +788,7 @@ Kernel_bf16bf16bf16_grouped_grad get_kernel_via_tuning(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
   auto& cache = getTuningCache();
 
@@ -797,7 +799,7 @@ Kernel_bf16bf16bf16_grouped_grad get_kernel_via_tuning(
       std::to_string(N) + "_" + std::to_string(K) + "_" + std::to_string(G);
   const auto& kernels = get_bf16bf16bf16_grouped_grad_kernels(arch);
   auto kernel = cache.findBestKernelMaybeAutotune(
-      shape_key, kernels, X, W, output, M_sizes);
+      shape_key, kernels, X, W, output, sm_count, M_sizes);
 
   return kernel;
 }
@@ -811,42 +813,29 @@ at::Tensor dispatch_bf16_grouped_kernel(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
-  static int arch = -1;
-  // Avoid expensive cudaGetDeviceProperties call.
-  if (arch < 0) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
-    if (prop.major >= 10) {
-      arch = 10;
-      int runtimeVersion;
-      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
-      TORCH_CHECK(
-          runtimeVersion >= 12080,
-          "FP8 grouped GEMM on sm100a or above requires cuda >= 12.8");
-    } else {
-      arch = 9;
-    }
-  }
+  const int arch = getDeviceArch();
 
   // Select kernel to run via heuristics or tuning.
   auto kernel = [&]() {
     if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
       return get_kernel_via_tuning(
-          arch, G, total_M, N, K, X, W, output, M_sizes);
+          arch, G, total_M, N, K, X, W, output, sm_count, M_sizes);
     } else {
       return get_kernel_via_heuristic(arch, G, total_M, N, K);
     }
   }();
   // Invoke kernel
-  return kernel(X, W, output, M_sizes);
+  return kernel(X, W, output, sm_count, M_sizes);
 }
 
 at::Tensor bf16bf16bf16_grouped_grad(
     at::Tensor X,
     at::Tensor W,
     at::Tensor M_sizes,
-    std::optional<at::Tensor> out) {
+    std::optional<at::Tensor> out,
+    std::optional<int64_t> num_sms) {
   int64_t total_M = X.size(0);
   int64_t N = W.size(1);
   int64_t K = W.size(2);
@@ -870,9 +859,12 @@ at::Tensor bf16bf16bf16_grouped_grad(
   if (total_M == 0) {
     return Y.view({total_M, N});
   }
+
+  int64_t sm_count = getSMCount(Y.device().index(), num_sms);
+
   // Return continuous view of output.
-  at::Tensor output =
-      dispatch_bf16_grouped_kernel(G, total_M, N, K, X, W, Y, M_sizes);
+  at::Tensor output = dispatch_bf16_grouped_kernel(
+      G, total_M, N, K, X, W, Y, sm_count, M_sizes);
   return output.view({total_M, N});
 }
 
@@ -882,9 +874,10 @@ at::Tensor bf16bf16bf16_grouped_grad(
     at::Tensor,
     at::Tensor,
     at::Tensor,
-    std::optional<at::Tensor>) {
-  throw std::runtime_error(
-      "CUDA version is older than 12.0"); // requires CUDA>=12
+    std::optional<at::Tensor>,
+    std::optional<int64_t>);
+throw std::runtime_error(
+    "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 #endif
@@ -893,7 +886,8 @@ at::Tensor bf16bf16bf16_grouped_grad_meta(
     at::Tensor X,
     at::Tensor W,
     at::Tensor /* M_sizes */,
-    std::optional<at::Tensor> out) {
+    std::optional<at::Tensor> out,
+    std::optional<int64_t> /* num_sms */) {
   const at::SymInt total_M = X.sym_size(0);
   const at::SymInt N = W.sym_size(1);
 
@@ -916,7 +910,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "bf16bf16bf16_grouped_grad(Tensor X, Tensor W, Tensor M_sizes, Tensor? out=None) -> Tensor");
+      "bf16bf16bf16_grouped_grad(Tensor X, Tensor W, Tensor M_sizes, Tensor? out=None, int? num_sms=None) -> Tensor");
 }
 
 } // namespace fbgemm_gpu

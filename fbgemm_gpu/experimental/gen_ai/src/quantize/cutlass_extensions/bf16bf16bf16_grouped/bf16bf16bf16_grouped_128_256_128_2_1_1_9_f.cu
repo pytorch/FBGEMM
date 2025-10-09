@@ -14,16 +14,18 @@ at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes) {
   return bf16bf16bf16_grouped_impl<at::Tensor, 128, 256, 128, 2, 1, 1, false>(
-      X, W, output, zero_start_index_M, M_sizes);
+      X, W, output, sm_count, zero_start_index_M, M_sizes);
 }
 
 at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_9_f(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes) {
   return bf16bf16bf16_grouped_impl<
@@ -34,7 +36,7 @@ at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_9_f(
       2,
       1,
       1,
-      false>(X, W, output, zero_start_index_M, M_sizes);
+      false>(X, W, output, sm_count, zero_start_index_M, M_sizes);
 }
 
 } // namespace fbgemm_gpu

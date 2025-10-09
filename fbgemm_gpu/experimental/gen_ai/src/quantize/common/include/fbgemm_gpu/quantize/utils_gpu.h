@@ -27,4 +27,19 @@ inline int getDeviceArch() {
   return arch;
 }
 
+inline int64_t getSMCount(int device_index, std::optional<int64_t> num_sms) {
+  if (num_sms.has_value()) {
+    return num_sms.value();
+  }
+
+  static int64_t cached_sm_count = []() {
+    int64_t sm_count = at::cuda::getDeviceProperties(0)->multiProcessorCount;
+    if (at::globalContext()._SMCarveout_EXPERIMENTAL().has_value()) {
+      sm_count -= at::globalContext()._SMCarveout_EXPERIMENTAL().value();
+    }
+    return sm_count;
+  }();
+  return cached_sm_count;
+}
+
 } // namespace fbgemm_gpu
