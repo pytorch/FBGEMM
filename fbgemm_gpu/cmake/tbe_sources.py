@@ -12,6 +12,7 @@ COMMON_OPTIMIZERS = [
     "adagrad",
     "rowwise_adagrad",
     "sgd",
+    "rowwise_adagrad_with_counter",
 ]
 
 # To be populated in the subsequent diffs
@@ -24,7 +25,6 @@ GPU_ONLY_OPTIMIZERS = [
     "partial_rowwise_adam",
     "partial_rowwise_lamb",
     "none",
-    "rowwise_adagrad_with_counter",
 ]
 
 DEPRECATED_OPTIMIZERS = [
