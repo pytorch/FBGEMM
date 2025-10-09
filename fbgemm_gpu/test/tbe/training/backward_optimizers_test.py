@@ -134,8 +134,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 ]
             )
             and (
-                use_cpu
-                or optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
+                optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
                 or weight_decay_mode
                 not in [
                     WeightDecayMode.COUNTER,
@@ -1205,7 +1204,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    @unittest.skipIf(*gpu_unavailable)
+    # @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_adagrad(  # noqa C901
         self,
         T: int,
@@ -1245,6 +1244,79 @@ class BackwardOptimizersTest(unittest.TestCase):
             weight_decay_mode,
             counter_weight_decay_mode=counter_weight_decay_mode,
             counter_halflife=counter_halflife,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=2, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        weight_decay_mode=st.sampled_from(
+            [
+                WeightDecayMode.COUNTER,
+                WeightDecayMode.COWCLIP,
+            ]
+        ),
+        counter_weight_decay_mode=st.sampled_from(
+            [
+                CounterWeightDecayMode.NONE,
+                CounterWeightDecayMode.L2,
+                CounterWeightDecayMode.DECOUPLE,
+                CounterWeightDecayMode.ADAGRADW,
+            ]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    # @unittest.skipIf(*gpu_unavailable)
+    def test_backward_optimizers_adagrad_with_counter_cpu(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        weight_decay_mode: WeightDecayMode,
+        counter_weight_decay_mode: CounterWeightDecayMode,
+    ) -> None:
+        if pooling_mode == PoolingMode.NONE:
+            mixed_B = False
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            long_segments,
+            pooling_mode,
+            True,  # use_cpu
+            weight_decay_mode,
+            counter_weight_decay_mode=counter_weight_decay_mode,
         )
 
     @given(
