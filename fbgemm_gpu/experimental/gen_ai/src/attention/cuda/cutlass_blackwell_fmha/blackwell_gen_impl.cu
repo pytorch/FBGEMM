@@ -6,8 +6,8 @@
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
- * 1. Redistributions of source code must retain the above copyright notice, this
- * list of conditions and the following disclaimer.
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *this list of conditions and the following disclaimer.
  *
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  * this list of conditions and the following disclaimer in the documentation
@@ -19,14 +19,15 @@
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ *ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ *LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ *CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ *INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ *CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *POSSIBILITY OF SUCH DAMAGE.
  *
  **************************************************************************************************/
 
@@ -89,7 +90,8 @@ struct GenRunner {
   using ElementOut = cutlass::bfloat16_t;
 
   using ProblemShape =
-      Shape<_1, int, int, Shape<Shape<int, int>, int>>; // (Sq, Sk, D, ((H, Hr), B))
+      Shape<_1, int, int, Shape<Shape<int, int>, int>>; // (Sq, Sk, D, ((H, Hr),
+                                                        // B))
 
   using StrideQ =
       Stride<_0, _1, Stride<Stride<int, int>, int>>; // Q D ((H, Hr), B)
@@ -114,10 +116,8 @@ struct GenRunner {
           StrideCacheV,
           StrideO>;
 
-  using Epilogue =
-      cutlass::fmha::collective::Sm100FmhaGenEpilogueWarpspecialized<
-          ElementOut,
-          StrideO>;
+  using Epilogue = cutlass::fmha::collective::
+      Sm100FmhaGenEpilogueWarpspecialized<ElementOut, StrideO>;
 
   using TileScheduler = std::conditional_t<
       kKernelType == KernelType::UMMA_P,
@@ -148,7 +148,6 @@ struct GenRunner {
       const at::Tensor& v_input,
       const at::Tensor& seqlen_kv_input,
       const at::Tensor& batch_idx_input) {
-
     this->q = q_input;
     this->k = k_input;
     this->v = v_input;
@@ -250,10 +249,7 @@ struct GenRunner {
       return;
     }
 
-
-    status = op.run(
-        at::cuda::getCurrentCUDAStream()
-    );
+    status = op.run(at::cuda::getCurrentCUDAStream());
     if (status != cutlass::Status::kSuccess) {
       std::cerr << "Failed to launch CUTLASS kernel." << std::endl;
       return;
@@ -263,28 +259,30 @@ struct GenRunner {
 
 // Dispatch macros for different element types
 // TODO(henrylhtsang / ayaoibrahim1123): Add support for other data types.
-#define DISPATCH_ELEMENT_TYPE(DTYPE, ELEMENT_TYPE, ...)                       \
-  [&] {                                                                       \
-    if (DTYPE == at::kFloat8_e4m3fn) {                                 \
-      using ELEMENT_TYPE = cutlass::float_e4m3_t;                             \
-      return __VA_ARGS__();                                                   \
-    } else {                                                                  \
-      throw std::runtime_error("Unsupported dtype: " + std::to_string(static_cast<int>(DTYPE))); \
-    }                                                                         \
+#define DISPATCH_ELEMENT_TYPE(DTYPE, ELEMENT_TYPE, ...)                     \
+  [&] {                                                                     \
+    if (DTYPE == at::kFloat8_e4m3fn) {                                      \
+      using ELEMENT_TYPE = cutlass::float_e4m3_t;                           \
+      return __VA_ARGS__();                                                 \
+    } else {                                                                \
+      throw std::runtime_error(                                             \
+          "Unsupported dtype: " + std::to_string(static_cast<int>(DTYPE))); \
+    }                                                                       \
   }()
 
 // Dispatch macro for different kernel types
-#define DISPATCH_KERNEL_TYPE(KTYPE, KERNEL_TYPE, ...)                         \
-  [&] {                                                                       \
-    if (KTYPE == static_cast<int>(KernelType::UMMA_P)) {                      \
-      constexpr auto KERNEL_TYPE = KernelType::UMMA_P;                        \
-      return __VA_ARGS__();                                                   \
-    } else if (KTYPE == static_cast<int>(KernelType::UMMA_I)) {               \
-      constexpr auto KERNEL_TYPE = KernelType::UMMA_I;                        \
-      return __VA_ARGS__();                                                   \
-    } else {                                                                  \
-      throw std::runtime_error("Unsupported kernel type: " + std::to_string(KTYPE)); \
-    }                                                                         \
+#define DISPATCH_KERNEL_TYPE(KTYPE, KERNEL_TYPE, ...)           \
+  [&] {                                                         \
+    if (KTYPE == static_cast<int>(KernelType::UMMA_P)) {        \
+      constexpr auto KERNEL_TYPE = KernelType::UMMA_P;          \
+      return __VA_ARGS__();                                     \
+    } else if (KTYPE == static_cast<int>(KernelType::UMMA_I)) { \
+      constexpr auto KERNEL_TYPE = KernelType::UMMA_I;          \
+      return __VA_ARGS__();                                     \
+    } else {                                                    \
+      throw std::runtime_error(                                 \
+          "Unsupported kernel type: " + std::to_string(KTYPE)); \
+    }                                                           \
   }()
 
 at::Tensor dispatch_fmha_gen_fwd(
@@ -306,20 +304,19 @@ at::Tensor dispatch_fmha_gen_fwd(
   });
 }
 
-
 // -------------------------------------------------------------------------------------------------
 // Op registration
 // -------------------------------------------------------------------------------------------------
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def("fmha_gen_fwd("
-        "    Tensor query, "
-        "    Tensor key, "
-        "    Tensor value, "
-        "    Tensor seqlen_kv, "
-        "    Tensor batch_idx, "
-        "    int kernel_type = 0"
-        ") -> Tensor"
-  );
+  m.def(
+      "fmha_gen_fwd("
+      "    Tensor query, "
+      "    Tensor key, "
+      "    Tensor value, "
+      "    Tensor seqlen_kv, "
+      "    Tensor batch_idx, "
+      "    int kernel_type = 0"
+      ") -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
