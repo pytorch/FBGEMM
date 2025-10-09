@@ -12,24 +12,6 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor bf16bf16bf16_grouped_grad_128_16_128_1_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_128_16_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_128_16_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
 at::Tensor bf16bf16bf16_grouped_grad_128_32_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
@@ -42,7 +24,13 @@ at::Tensor bf16bf16bf16_grouped_grad_128_32_128_2_1_1_9_f(
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_grad_128_32_128_4_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_grad_128_32_128_1_2_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_grad_128_32_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
@@ -60,13 +48,19 @@ at::Tensor bf16bf16bf16_grouped_grad_128_64_128_2_1_1_9_f(
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_grad_128_64_128_2_2_1_9_f(
+at::Tensor bf16bf16bf16_grouped_grad_128_64_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_grad_128_64_128_4_1_1_9_f(
+at::Tensor bf16bf16bf16_grouped_grad_128_64_128_1_4_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_grad_128_64_128_2_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
@@ -108,19 +102,19 @@ at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_1_1_9_t(
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
+at::Tensor bf16bf16bf16_grouped_grad_128_128_128_1_4_1_9_t(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> M_sizes);
+
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_2_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_grad_128_128_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_128_128_128_4_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_4_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
@@ -132,7 +126,13 @@ at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_f(
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_2_1_9_f(
+    at::Tensor X, // BF16
+    at::Tensor W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
@@ -144,109 +144,19 @@ at::Tensor bf16bf16bf16_grouped_grad_128_256_128_2_1_1_9_f(
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_grad_128_256_128_2_1_1_9_t(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_128_256_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_128_256_128_4_1_1_9_t(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_16_128_1_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_16_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_16_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_32_128_1_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_32_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_32_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
 at::Tensor bf16bf16bf16_grouped_grad_256_64_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
-at::Tensor bf16bf16bf16_grouped_grad_256_64_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_64_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_128_128_1_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_128_128_1_1_1_9_t(
+at::Tensor bf16bf16bf16_grouped_grad_256_64_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_t(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_128_128_4_1_1_9_f(
-    at::Tensor X, // BF16
-    at::Tensor W, // BF16
-    at::Tensor output,
-    std::optional<at::Tensor> M_sizes);
-
-at::Tensor bf16bf16bf16_grouped_grad_256_128_128_4_1_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
@@ -305,26 +215,24 @@ const std::unordered_map<std::string, Kernel_bf16bf16bf16_grouped_grad>&
 get_bf16bf16bf16_grouped_grad_kernels(int arch) {
   static const std::unordered_map<std::string, Kernel_bf16bf16bf16_grouped_grad>
       kernelsSM90 = {
-          {"bf16bf16bf16_grouped_grad_128_16_128_1_1_1_9_f",
-           bf16bf16bf16_grouped_grad_128_16_128_1_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_16_128_2_1_1_9_f",
-           bf16bf16bf16_grouped_grad_128_16_128_2_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_16_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_128_16_128_4_1_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_32_128_1_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_32_128_1_1_1_9_f},
+          {"bf16bf16bf16_grouped_grad_128_32_128_1_2_1_9_f",
+           bf16bf16bf16_grouped_grad_128_32_128_1_2_1_9_f},
+          {"bf16bf16bf16_grouped_grad_128_32_128_1_4_1_9_f",
+           bf16bf16bf16_grouped_grad_128_32_128_1_4_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_32_128_2_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_32_128_2_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_32_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_128_32_128_4_1_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_64_128_1_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_64_128_1_1_1_9_f},
+          {"bf16bf16bf16_grouped_grad_128_64_128_1_2_1_9_f",
+           bf16bf16bf16_grouped_grad_128_64_128_1_2_1_9_f},
+          {"bf16bf16bf16_grouped_grad_128_64_128_1_4_1_9_f",
+           bf16bf16bf16_grouped_grad_128_64_128_1_4_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_64_128_2_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_64_128_2_1_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_64_128_2_2_1_9_f",
            bf16bf16bf16_grouped_grad_128_64_128_2_2_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_64_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_128_64_128_4_1_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_128_128_1_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_128_128_1_1_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_128_128_1_1_1_9_t",
@@ -333,58 +241,30 @@ get_bf16bf16bf16_grouped_grad_kernels(int arch) {
            bf16bf16bf16_grouped_grad_128_128_128_1_2_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_128_128_1_2_1_9_t",
            bf16bf16bf16_grouped_grad_128_128_128_1_2_1_9_t},
+          {"bf16bf16bf16_grouped_grad_128_128_128_1_4_1_9_t",
+           bf16bf16bf16_grouped_grad_128_128_128_1_4_1_9_t},
           {"bf16bf16bf16_grouped_grad_128_128_128_2_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_128_128_2_1_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_128_128_2_1_1_9_t",
            bf16bf16bf16_grouped_grad_128_128_128_2_1_1_9_t},
           {"bf16bf16bf16_grouped_grad_128_128_128_2_2_1_9_t",
            bf16bf16bf16_grouped_grad_128_128_128_2_2_1_9_t},
-          {"bf16bf16bf16_grouped_grad_128_128_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_128_128_128_4_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_128_128_4_1_1_9_t",
-           bf16bf16bf16_grouped_grad_128_128_128_4_1_1_9_t},
+          {"bf16bf16bf16_grouped_grad_128_128_128_2_4_1_9_t",
+           bf16bf16bf16_grouped_grad_128_128_128_2_4_1_9_t},
           {"bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_t",
-           bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_t},
+          {"bf16bf16bf16_grouped_grad_128_256_128_1_2_1_9_f",
+           bf16bf16bf16_grouped_grad_128_256_128_1_2_1_9_f},
+          {"bf16bf16bf16_grouped_grad_128_256_128_1_4_1_9_f",
+           bf16bf16bf16_grouped_grad_128_256_128_1_4_1_9_f},
           {"bf16bf16bf16_grouped_grad_128_256_128_2_1_1_9_f",
            bf16bf16bf16_grouped_grad_128_256_128_2_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_256_128_2_1_1_9_t",
-           bf16bf16bf16_grouped_grad_128_256_128_2_1_1_9_t},
-          {"bf16bf16bf16_grouped_grad_128_256_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_128_256_128_4_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_128_256_128_4_1_1_9_t",
-           bf16bf16bf16_grouped_grad_128_256_128_4_1_1_9_t},
-          {"bf16bf16bf16_grouped_grad_256_16_128_1_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_16_128_1_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_16_128_2_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_16_128_2_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_16_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_16_128_4_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_32_128_1_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_32_128_1_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_32_128_2_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_32_128_2_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_32_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_32_128_4_1_1_9_f},
           {"bf16bf16bf16_grouped_grad_256_64_128_1_1_1_9_f",
            bf16bf16bf16_grouped_grad_256_64_128_1_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_64_128_2_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_64_128_2_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_64_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_64_128_4_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_128_128_1_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_128_128_1_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_128_128_1_1_1_9_t",
-           bf16bf16bf16_grouped_grad_256_128_128_1_1_1_9_t},
+          {"bf16bf16bf16_grouped_grad_256_64_128_1_4_1_9_f",
+           bf16bf16bf16_grouped_grad_256_64_128_1_4_1_9_f},
           {"bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_f",
            bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_t",
-           bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_t},
-          {"bf16bf16bf16_grouped_grad_256_128_128_4_1_1_9_f",
-           bf16bf16bf16_grouped_grad_256_128_128_4_1_1_9_f},
-          {"bf16bf16bf16_grouped_grad_256_128_128_4_1_1_9_t",
-           bf16bf16bf16_grouped_grad_256_128_128_4_1_1_9_t},
       };
 
   static const std::unordered_map<std::string, Kernel_bf16bf16bf16_grouped_grad>
