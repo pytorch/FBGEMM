@@ -14,9 +14,10 @@ at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes) {
   return bf16bf16bf16_grouped_grad_impl<128, 256, 128, 1, 1, 1, false>(
-      X, W, output, M_sizes);
+      X, W, output, sm_count, M_sizes);
 }
 
 } // namespace fbgemm_gpu

@@ -110,6 +110,7 @@ at::Tensor bf16bf16bf16_grouped_grad_impl(
     at::Tensor X,
     at::Tensor W,
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes) {
   int64_t G;
   at::TensorOptions options;
@@ -284,21 +285,13 @@ at::Tensor bf16bf16bf16_grouped_grad_impl(
   // non-zero rows.
   kernel_groups = int(std::min(M, G));
 
-  cutlass::KernelHardwareInfo hw_info;
-  // Change device_id to another value if you are running on a machine with
-  // multiple GPUs and wish to use a GPU other than that with device ID 0.
-  hw_info.device_id = 0;
-  hw_info.sm_count =
-      min(cutlass::KernelHardwareInfo::query_device_multiprocessor_count(
-              hw_info.device_id),
-          2147483647); // INT_MAX
-
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGrouped,
       {kernel_groups, problem_shape_ptr, nullptr},
       {x_ptr, stride_a_ptr, w_ptr, stride_b_ptr},
-      {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr},
-      hw_info};
+      {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr}};
+
+  arguments.hw_info.sm_count = sm_count;
 
   Gemm gemm;
 
@@ -347,6 +340,7 @@ at::Tensor bf16bf16bf16_grouped_grad_sm100_impl(
     at::Tensor X,
     at::Tensor W,
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes) {
   int64_t G;
   at::TensorOptions options;
@@ -516,21 +510,13 @@ at::Tensor bf16bf16bf16_grouped_grad_sm100_impl(
   // non-zero rows.
   kernel_groups = int(std::min(M, G));
 
-  cutlass::KernelHardwareInfo hw_info;
-  // Change device_id to another value if you are running on a machine with
-  // multiple GPUs and wish to use a GPU other than that with device ID 0.
-  hw_info.device_id = 0;
-  hw_info.sm_count =
-      min(cutlass::KernelHardwareInfo::query_device_multiprocessor_count(
-              hw_info.device_id),
-          2147483647); // INT_MAX
-
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGrouped,
       {kernel_groups, problem_shape_ptr, nullptr},
       {x_ptr, stride_a_ptr, w_ptr, stride_b_ptr},
-      {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr},
-      hw_info};
+      {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr}};
+
+  arguments.hw_info.sm_count = sm_count;
 
   Gemm gemm;
 
@@ -580,6 +566,7 @@ at::Tensor bf16bf16bf16_grouped_grad_sm100_impl(
     at::Tensor X,
     at::Tensor W,
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes) {
   return output;
 }
