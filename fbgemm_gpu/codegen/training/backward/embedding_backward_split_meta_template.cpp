@@ -159,7 +159,7 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     {%- endif %}
 
     // short-circuit if there are zero indices.
-    if (TORCH_GUARD_SIZE_OBLIVIOUS(indices.sym_numel().sym_eq(0))) {
+    if (TORCH_GUARD_OR_FALSE(indices.sym_numel().sym_eq(0))) {
         {%- if dense %}
         return grad_dev_weights;
         {%- elif optimizer == "none" %}
@@ -213,7 +213,7 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
 
     // Took allocation from https://www.internalfb.com/code/fbsource/fbcode/deeplearning/fbgemm/fbgemm_gpu/src/split_embeddings_utils.cu?lines=339-347
     Tensor sorted_linear_indices_run;
-    if (TORCH_GUARD_SIZE_OBLIVIOUS(total_unique_indices.sym_gt(0))) {
+    if (TORCH_GUARD_OR_TRUE(total_unique_indices.sym_gt(0))) {
         sorted_linear_indices_run = at::empty_symint({total_unique_indices}, indices.options());
     } else {
         sorted_linear_indices_run = at::empty_like(indices);
