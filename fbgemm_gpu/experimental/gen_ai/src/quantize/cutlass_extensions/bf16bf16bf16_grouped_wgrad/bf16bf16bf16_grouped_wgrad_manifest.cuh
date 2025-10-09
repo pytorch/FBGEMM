@@ -17,234 +17,267 @@ at::Tensor bf16bf16bf16_grouped_wgrad_128_32_128_1_1_1_9_f(
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_32_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_32_128_2_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_32_128_2_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_64_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_64_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_64_128_2_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_64_128_4_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_1_2_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_1_4_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_2_1_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_2_2_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_2_4_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_4_2_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_256_32_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_256_64_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_256_128_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_256_256_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_32_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_64_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_1_1_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_2_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_4_1_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_4_4_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_32_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_128_64_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_256_64_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_256_64_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 at::Tensor bf16bf16bf16_grouped_wgrad_256_64_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor M_sizes,
     at::Tensor output,
-    bool output_accum);
+    bool output_accum,
+    int sm_count);
 
 using Kernel_bf16bf16bf16_grouped_wgrad =
-    at::Tensor (*)(at::Tensor, at::Tensor, at::Tensor, at::Tensor, bool);
+    at::Tensor (*)(at::Tensor, at::Tensor, at::Tensor, at::Tensor, bool, int);
 
 const std::unordered_map<std::string, Kernel_bf16bf16bf16_grouped_wgrad>&
 get_bf16bf16bf16_grouped_wgrad_kernels(int arch) {

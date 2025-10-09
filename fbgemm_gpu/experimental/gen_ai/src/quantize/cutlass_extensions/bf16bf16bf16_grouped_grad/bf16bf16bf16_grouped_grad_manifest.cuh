@@ -16,150 +16,175 @@ at::Tensor bf16bf16bf16_grouped_grad_128_32_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_32_128_2_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_32_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_32_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_64_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_64_128_2_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_64_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_64_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_64_128_2_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_1_1_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_1_2_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_1_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_1_4_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_2_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_4_1_9_t(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_2_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_256_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_256_128_2_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_64_128_1_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_64_128_1_4_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 // SM100
@@ -167,48 +192,56 @@ at::Tensor bf16bf16bf16_grouped_grad_128_32_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_64_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_128_128_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_32_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_64_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_128_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 at::Tensor bf16bf16bf16_grouped_grad_256_256_128_2_1_1_10_f(
     at::Tensor X, // BF16
     at::Tensor W, // BF16
     at::Tensor output,
+    int sm_count,
     std::optional<at::Tensor> M_sizes);
 
 using Kernel_bf16bf16bf16_grouped_grad = at::Tensor (*)(
     at::Tensor,
     at::Tensor,
     at::Tensor,
+    int,
     std::optional<at::Tensor>);
 
 const std::unordered_map<std::string, Kernel_bf16bf16bf16_grouped_grad>&
