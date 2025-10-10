@@ -218,12 +218,21 @@ def construct_local_mask(
         if query_padding_mask is None
         else rearrange(query_padding_mask.sum(-1), "b -> b 1 1 1")
     )
-    if window_size[0] < 0:
-        return col_idx > row_idx + sk - sq + window_size[1]
+    sk = torch.full_like(col_idx, seqlen_k) if key_padding_mask is None else sk
+
+    if window_size[0] < 0 and window_size[1] < 0:
+        # Both windows infinite - no local masking
+        return torch.zeros_like(col_idx, dtype=torch.bool)
+    elif window_size[0] < 0:
+        # Left infinite, right finite - mask right only
+        return col_idx > torch.minimum(row_idx + sk - sq + window_size[1], sk - 1)
+    elif window_size[1] < 0:
+        # Left finite, right infinite - mask left only
+        return col_idx < row_idx + sk - sq - window_size[0]
     else:
-        sk = torch.full_like(col_idx, seqlen_k) if key_padding_mask is None else sk
+        # Both finite - mask both sides
         return torch.logical_or(
-            col_idx > torch.minimum(row_idx + sk - sq + window_size[1], sk),
+            col_idx > torch.minimum(row_idx + sk - sq + window_size[1], sk - 1),
             col_idx < row_idx + sk - sq - window_size[0],
         )
 
