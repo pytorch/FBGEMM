@@ -501,24 +501,19 @@ class FbgemmGpuInstall(PipInstall):
 
     @classmethod
     def generate_version_file(cls, build: FbgemmGpuBuild) -> None:
-        with open("fbgemm_gpu/docs/version.py", "w") as file:
+        with open(f"fbgemm_gpu/docs/target.{build.target()}.json", "w") as file:
             package_version = build.package_version()
 
             print(
-                f"[SETUP.PY] Generating version file at: {os.path.realpath(file.name)}"
+                f"[SETUP.PY] Generating target info file at: {os.path.realpath(file.name)}"
             )
             text = textwrap.dedent(
                 f"""
-                #!/usr/bin/env python3
-                # Copyright (c) Meta Platforms, Inc. and affiliates.
-                # All rights reserved.
-                #
-                # This source code is licensed under the BSD-style license found in the
-                # LICENSE file in the root directory of this source tree.
-
-                __version__: str = "{package_version}"
-                __target__: str = "{build.target()}"
-                __variant__: str = "{build.variant()}"
+                {{
+                    "version": "{package_version}",
+                    "target": "{build.target()}",
+                    "variant": "{build.variant()}"
+                }}
                 """
             )
             file.write(text)
