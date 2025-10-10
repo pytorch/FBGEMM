@@ -259,6 +259,7 @@ gpu_cpp_library(
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm_gpu_tbe_training_backward
+    fbgemm_gpu_config
   DESTINATION
     fbgemm_gpu)
 
