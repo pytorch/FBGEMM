@@ -501,6 +501,8 @@ class FbgemmGpuInstall(PipInstall):
 
     @classmethod
     def generate_version_file(cls, build: FbgemmGpuBuild) -> None:
+        # NOTE: The file needs to be saved with *.py extension or it will not
+        # be picked and packed into the wheel
         with open(f"fbgemm_gpu/docs/target.{build.target()}.json.py", "w") as file:
             package_version = build.package_version()
 
