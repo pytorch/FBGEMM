@@ -501,7 +501,7 @@ class FbgemmGpuInstall(PipInstall):
 
     @classmethod
     def generate_version_file(cls, build: FbgemmGpuBuild) -> None:
-        with open(f"fbgemm_gpu/docs/target.{build.target()}.json", "w") as file:
+        with open(f"fbgemm_gpu/docs/target.{build.target()}.json.py", "w") as file:
             package_version = build.package_version()
 
             print(

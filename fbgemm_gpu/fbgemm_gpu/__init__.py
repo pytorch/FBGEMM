@@ -28,7 +28,7 @@ _fbgemm_torch_compat_table = {
 
 def _load_target_info(target: str) -> dict[str, str]:
     try:
-        filepath = os.path.join(os.path.dirname(__file__), "docs", f"target.{target}.json")
+        filepath = os.path.join(os.path.dirname(__file__), "docs", f"target.{target}.json.py")
         with open(filepath, "r") as file:
             data = json.load(file)
     except Exception:
