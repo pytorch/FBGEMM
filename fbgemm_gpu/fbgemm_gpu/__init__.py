@@ -112,6 +112,8 @@ import fbgemm_gpu.docs  # noqa: F401, E402
 __targets_infos__ = { target : _load_target_info(target) for target in ["default", "genai", "hstu"] }
 __targets_infos__ = { k : v for (k, v) in __targets_infos__.items() if v }
 
+print(f"__targets_infos__ = {__targets_infos__}")
+
 try:
     __target__, __info__ = next(iter(__targets_infos__.items()))
     __variant__ = __info__["variant"]
