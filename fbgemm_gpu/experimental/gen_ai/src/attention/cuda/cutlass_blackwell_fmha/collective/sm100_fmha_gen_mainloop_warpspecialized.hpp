@@ -35,7 +35,11 @@
 #include "cutlass/cutlass.h"
 #include "cutlass/arch/memory_sm80.h"
 #include "cutlass/gemm/collective/collective_builder.hpp"
+#include "cutlass/cutlass.h"
+#include "cutlass/arch/memory_sm80.h"
+#include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cute/arch/simd_sm100.hpp"
+#include "cute/tensor.hpp"
 #include "cute/tensor.hpp"
 #include "cute/layout.hpp"
 
