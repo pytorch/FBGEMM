@@ -487,7 +487,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
       auto f =
           folly::via(executor_.get())
-              .thenValue([=, &indices, &weights](folly::Unit) {
+              .thenValue([=, this, &indices, &weights](folly::Unit) {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_set", [&] {
                       using value_t = scalar_t;
@@ -811,20 +811,22 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     int max_retries = 10;
     std::vector<folly::Future<bool>> futures;
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
-      auto f = folly::via(executor_.get()).thenValue([=](folly::Unit) -> bool {
-        for (int attempt = 0; attempt < max_retries; ++attempt) {
-          auto val = enable ? "false" : "true";
-          auto s = set_rocksdb_option(shard, "disable_auto_compactions", val);
-          if (s.ok()) {
-            return true;
-          }
-          LOG(WARNING) << "Failed to toggle compaction to " << enable
-                       << " for shard " << shard << ", attempt=" << attempt
-                       << ", max_retries=" << max_retries << std::endl;
-          std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        return false;
-      });
+      auto f =
+          folly::via(executor_.get()).thenValue([=, this](folly::Unit) -> bool {
+            for (int attempt = 0; attempt < max_retries; ++attempt) {
+              auto val = enable ? "false" : "true";
+              auto s =
+                  set_rocksdb_option(shard, "disable_auto_compactions", val);
+              if (s.ok()) {
+                return true;
+              }
+              LOG(WARNING) << "Failed to toggle compaction to " << enable
+                           << " for shard " << shard << ", attempt=" << attempt
+                           << ", max_retries=" << max_retries << std::endl;
+              std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            return false;
+          });
       futures.push_back(std::move(f));
     }
     auto results = folly::coro::blockingWait(folly::collectAll(futures));
@@ -1188,7 +1190,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       local_ro.snapshot = snapshot;
       auto f =
           folly::via(executor_.get())
-              .thenValue([=, &indices, &weights](folly::Unit) {
+              .thenValue([=, this, &indices, &weights](folly::Unit) {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_get", [&] {
                       using value_t = scalar_t;
@@ -1596,7 +1598,7 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
       auto local_ro = ro_;
       auto f =
           folly::via(executor_.get())
-              .thenValue([=, &indices, &weights](folly::Unit) {
+              .thenValue([=, this, &indices, &weights](folly::Unit) {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_get", [&] {
                       using value_t = scalar_t;
