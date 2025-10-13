@@ -113,7 +113,7 @@ EmbeddingKVDB::EmbeddingKVDB(
              << ", cache_size_gb:" << cache_size_gb;
 
   if (enable_async_update_) {
-    cache_filling_thread_ = std::make_unique<std::thread>([=] {
+    cache_filling_thread_ = std::make_unique<std::thread>([=, this] {
       while (!stop_) {
         auto filling_item_ptr = weights_to_fill_queue_.try_peek();
         if (!filling_item_ptr) {
@@ -266,7 +266,7 @@ void EmbeddingKVDB::set_feature_score_metadata_cuda(
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::set_feature_score_metadata_cuda ##");
   // take reference to self to avoid lifetime issues.
-  std::function<void()>* functor = new std::function<void()>([=]() {
+  std::function<void()>* functor = new std::function<void()>([=, this]() {
     set_kv_zch_eviction_metadata_async(
         std::move(indices), std::move(count), std::move(engage_show_count));
   });
@@ -518,24 +518,25 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
           .emplace_back(row_id);
     }
     for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
-      auto f = folly::via(executor_tp_.get())
-                   .thenValue([=, &indices_addr, &indices, &row_ids_per_shard](
-                                  folly::Unit) {
-                     for (const auto& row_id : row_ids_per_shard[shard_id]) {
-                       auto emb_idx = indices_addr[row_id];
-                       if (emb_idx < 0) {
-                         continue;
-                       }
-                       auto cached_addr_opt = l2_cache_->get(indices[row_id]);
-                       if (cached_addr_opt.has_value()) { // cache hit
-                         cache_context->cached_addr_list[row_id] =
-                             cached_addr_opt.value();
-                         indices_addr[row_id] = -1; // mark to sentinel value
-                       } else { // cache miss
-                         cache_context->num_misses += 1;
-                       }
-                     }
-                   });
+      auto f =
+          folly::via(executor_tp_.get())
+              .thenValue([=, &indices_addr, &indices, &row_ids_per_shard, this](
+                             folly::Unit) {
+                for (const auto& row_id : row_ids_per_shard[shard_id]) {
+                  auto emb_idx = indices_addr[row_id];
+                  if (emb_idx < 0) {
+                    continue;
+                  }
+                  auto cached_addr_opt = l2_cache_->get(indices[row_id]);
+                  if (cached_addr_opt.has_value()) { // cache hit
+                    cache_context->cached_addr_list[row_id] =
+                        cached_addr_opt.value();
+                    indices_addr[row_id] = -1; // mark to sentinel value
+                  } else { // cache miss
+                    cache_context->num_misses += 1;
+                  }
+                }
+              });
       futures.push_back(std::move(f));
     }
     folly::collect(futures).wait();
@@ -621,7 +622,8 @@ EmbeddingKVDB::set_cache(
                           &indices_addr,
                           &indices,
                           &weights,
-                          &row_ids_per_shard](folly::Unit) {
+                          &row_ids_per_shard,
+                          this](folly::Unit) {
                 for (const auto& row_id : row_ids_per_shard[shard_id]) {
                   auto emb_idx = indices_addr[row_id];
                   if (emb_idx < 0) {
@@ -661,21 +663,25 @@ folly::SemiFuture<std::vector<folly::Unit>> EmbeddingKVDB::cache_memcpy(
         auto weights_data_ptr = weights.data_ptr<scalar_t>();
         auto num_shards = executor_tp_->numThreads();
         for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
-          auto f = folly::via(executor_tp_.get()).thenValue([=](folly::Unit) {
-            for (int row_id = 0; row_id < cached_addr_list.size(); row_id++) {
-              if (row_id % num_shards != shard_id) {
-                continue;
-              }
-              if (cached_addr_list[row_id] == nullptr) {
-                continue;
-              }
-              std::copy(
-                  reinterpret_cast<const scalar_t*>(cached_addr_list[row_id]),
-                  reinterpret_cast<const scalar_t*>(cached_addr_list[row_id]) +
-                      max_D_,
-                  &weights_data_ptr[row_id * max_D_]); // dst_start
-            }
-          });
+          auto f =
+              folly::via(executor_tp_.get()).thenValue([=, this](folly::Unit) {
+                for (int row_id = 0; row_id < cached_addr_list.size();
+                     row_id++) {
+                  if (row_id % num_shards != shard_id) {
+                    continue;
+                  }
+                  if (cached_addr_list[row_id] == nullptr) {
+                    continue;
+                  }
+                  std::copy(
+                      reinterpret_cast<const scalar_t*>(
+                          cached_addr_list[row_id]),
+                      reinterpret_cast<const scalar_t*>(
+                          cached_addr_list[row_id]) +
+                          max_D_,
+                      &weights_data_ptr[row_id * max_D_]); // dst_start
+                }
+              });
           futures.push_back(std::move(f));
         }
       });
