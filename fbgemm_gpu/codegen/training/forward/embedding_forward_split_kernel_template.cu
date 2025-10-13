@@ -461,10 +461,10 @@ using namespace fbgemm_gpu;
         {%- endif %}
 
         {%- if is_rocm %}
-        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + (kThreadGroupSize) > L &&  l_start + j < L; ++j) {
+        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
         {%- else %}
         // Iterate over kThreadGroupSize indices
-        for (auto j = 0; j < (kThreadGroupSize) && l_start + j < L; ++j) {
+        for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
         {%- endif %}
             {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
             // Load index from thread j in the group
