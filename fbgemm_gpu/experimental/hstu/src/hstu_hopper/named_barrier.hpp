@@ -87,7 +87,10 @@ enum class BwdNamedBarriers {
   dQFull = 8,
   AddRabWG1 = 9,
   AddRabWG2 = 10,
-  AddRabWG3 = 11
+  AddRabWG3 = 11,
+  ProducerWG = 12,
+  ConsumerWG = 13,
+  ReduceMaxWG = 14
 };
 
 } // namespace flash

@@ -66,9 +66,8 @@ struct CollectiveEpilogueFwd {
       LayoutRight{}));
   using TiledCopyO = decltype(make_tiled_copy(
       TiledCopyOAtom{},
-      TiledCopyOThrLayout{}, // Thr layout
-      TiledCopyOValLayout{} // Val layout
-      ));
+      TiledCopyOThrLayout{},
+      TiledCopyOValLayout{}));
 
   // used for rmem -> smem O copy in fp8 kernel to undo column permutation
   using ThreadLayoutrO =
@@ -128,13 +127,6 @@ struct CollectiveEpilogueFwd {
     cutlass::arch::fence_view_async_shared(); // ensure smem writes are visible
                                               // to TMA
 
-    Tensor caccO = cute::make_identity_tensor(select<0, 2>(TileShape_MNK{}));
-    auto thread_mma = tiled_mma.get_thread_slice(thread_idx);
-    Tensor taccOcO = thread_mma.partition_C(caccO);
-    static_assert(decltype(size<0, 0>(taccOcO))::value == 2);
-    static_assert(decltype(size<0, 1>(taccOcO))::value == 2);
-    Tensor taccOcO_row = taccOcO(make_coord(_0{}, _, _0{}), _, _0{});
-
     cutlass::arch::NamedBarrier::sync(
         NumMmaThreads, cutlass::arch::ReservedNamedBarriers::EpilogueBarrier);
     TiledCopyO gmem_tiled_copy_O;
@@ -177,12 +169,6 @@ struct CollectiveEpilogueFwd {
     cute::copy(rmem_tiled_copy_O, taccOrO, taccOsO);
     cutlass::arch::fence_view_async_shared(); // ensure smem writes are visible
                                               // to TMA
-    Tensor caccO = cute::make_identity_tensor(select<0, 2>(TileShape_MNK{}));
-    auto thread_mma = tiled_mma.get_thread_slice(thread_idx);
-    Tensor taccOcO = thread_mma.partition_C(caccO);
-    static_assert(decltype(size<0, 0>(taccOcO))::value == 2);
-    static_assert(decltype(size<0, 1>(taccOcO))::value == 2);
-    Tensor taccOcO_row = taccOcO(make_coord(_0{}, _, _0{}), _, _0{});
 
     cutlass::arch::NamedBarrier::sync(
         NumMmaThreads, cutlass::arch::ReservedNamedBarriers::EpilogueBarrier);
@@ -229,7 +215,7 @@ struct CollectiveEpilogueFwd {
     // Repeat the partitioning with identity layouts
     Tensor tOcO = gmem_thr_copy_O.partition_D(cO);
     Tensor tOpO = make_tensor<bool>(make_shape(size<2>(tOgO)));
-#pragma unroll
+    CUTLASS_PRAGMA_UNROLL
     for (int k = 0; k < size(tOpO); ++k) {
       tOpO(k) = get<1>(tOcO(_0{}, _0{}, k)) <
           get<1>(epilogue_params.layout_O.shape());
@@ -245,7 +231,7 @@ struct CollectiveEpilogueFwd {
         tOgO,
         tOcO,
         tOpO,
-        seqlen_traits_q.actual_seq_len - m_block * kBlockM);
+        seqlen_traits_q.actual_seq_len_padded - m_block * kBlockM);
     static_assert(kBlockM <= NumMmaThreads);
   }
 };
