@@ -331,7 +331,7 @@ public:
   /// Supplied params struct must be construct by calling Kernel::to_underling_arguments()
   static Status
   run(Params& params, cudaStream_t stream = nullptr) {
-    CUTLASS_TRACE_HOST("FmhaDeviceBwd::run()");
+    CUTLASS_TRACE_HOST("FmhaDeviceBwd::run(), stream: " << (stream ? "non-null" : "null"));
 
     Status result = Status::kSuccess;
     result = params.op_sum_OdO.run(stream);
