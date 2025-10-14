@@ -258,11 +258,13 @@ struct GenRunner {
 };
 
 // Dispatch macros for different element types
-// TODO(henrylhtsang / ayaoibrahim1123): Add support for other data types.
 #define DISPATCH_ELEMENT_TYPE(DTYPE, ELEMENT_TYPE, ...)                     \
   [&] {                                                                     \
     if (DTYPE == at::kFloat8_e4m3fn) {                                      \
       using ELEMENT_TYPE = cutlass::float_e4m3_t;                           \
+      return __VA_ARGS__();                                                 \
+    } else if (DTYPE == at::kBFloat16) {                                    \
+      using ELEMENT_TYPE = cutlass::bfloat16_t;                             \
       return __VA_ARGS__();                                                 \
     } else {                                                                \
       throw std::runtime_error(                                             \
