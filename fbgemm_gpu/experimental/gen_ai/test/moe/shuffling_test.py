@@ -29,9 +29,6 @@ from pyre_extensions import none_throws
 try:
     # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
     from fbgemm_gpu import open_source
-
-    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
-    from fbgemm_gpu.docs.version import __version__  # noqa: F401
 except Exception:
     open_source: bool = False
 
