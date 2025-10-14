@@ -18,7 +18,17 @@ set(fbgemm_sources_normal
   "${FBGEMM}/src/Utils.cc")
 
 if(NOT DISABLE_FBGEMM_AUTOVEC)
-  list(APPEND fbgemm_sources_normal "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc" "${FBGEMM}/src/EmbeddingStatsTracker.cc")
+  list(APPEND fbgemm_sources_normal
+    "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
+    "${FBGEMM}/src/EmbeddingStatsTracker.cc")
+
+  # Set SVE flags for autovec if available
+  get_sve_compiler_flags(sve_compiler_flags)
+  if(sve_compiler_flags)
+    set_source_files_properties(${fbgemm_sources_normal}
+      PROPERTIES COMPILE_OPTIONS
+      "${sve_compiler_flags}")
+  endif()
 endif()
 
 set(fbgemm_sources_avx2
@@ -42,11 +52,13 @@ if(CXX_AVX512_FOUND)
 endif()
 
 set(fbgemm_sources ${fbgemm_sources_normal})
+
 if(CXX_AVX2_FOUND)
   set(fbgemm_sources
     ${fbgemm_sources}
     ${fbgemm_sources_avx2})
 endif()
+
 if(CXX_AVX512_FOUND)
   set(fbgemm_sources
     ${fbgemm_sources}
