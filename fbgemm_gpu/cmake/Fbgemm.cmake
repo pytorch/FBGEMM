@@ -21,6 +21,11 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
   list(APPEND fbgemm_sources_normal
     "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
     "${FBGEMM}/src/EmbeddingStatsTracker.cc")
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  list(APPEND fbgemm_sources_normal
+    "${FBGEMM}/src/QuantUtilsNeon.cc")
 
   # Set SVE flags for autovec if available
   get_sve_compiler_flags(sve_compiler_flags)
