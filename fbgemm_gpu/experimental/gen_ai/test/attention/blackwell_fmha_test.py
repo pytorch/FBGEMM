@@ -435,6 +435,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     @parameterized.expand(
         [
             (
+                dtype,
                 seqlen_k,
                 batch_size,
                 is_mqa,
@@ -442,9 +443,10 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 head_dim,
                 sm_scale,
             )
+            for dtype in [torch.bfloat16, torch.float8_e4m3fn]
             for seqlen_k in [64, 128, 256, 1024]
             for batch_size in [1, 2]
-            for is_mqa in [True]
+            for is_mqa in [True, False]
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
             for head_dim in [128]
             for sm_scale in [None, 1.0 / head_dim]
@@ -452,6 +454,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     )
     def test_decode(
         self,
+        dtype: torch.dtype,
         seqlen_k: int,
         batch_size: int,
         is_mqa: bool,
@@ -459,13 +462,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         head_dim: int,
         sm_scale: Optional[float],
         q_heads: int = 8,
-        dtype: torch.dtype = torch.float8_e4m3fn,
     ) -> None:
         seqlen_q = 1
         causal = True
-        assert (
-            dtype == torch.float8_e4m3fn
-        ), "Gen Kernel only supports float8_e4m3fn for now"
         self._execute_cutlass_blackwell_attn_dense(
             batch_size,
             seqlen_q,
