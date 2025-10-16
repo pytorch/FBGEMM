@@ -41,8 +41,10 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
       pooled_embs[0].scalar_type(), "permute_multi_embs_cpu", [&] {
         at::parallel_for(0, B, 0, [&](int32_t start, int32_t end) {
           int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
+          auto stride = permutes.stride(0);
           for (const auto i : c10::irange(permutes.size(0))) {
-            int32_t* __restrict__ pp = permutes[i].data_ptr<int32_t>();
+            int32_t* __restrict__ pp =
+                permutes.data_ptr<int32_t>() + i * stride;
             if (reverse_permute) {
               out_tensor = pp[PermuteParam::in_tensor];
               in_tensor = pp[PermuteParam::out_tensor];
@@ -58,20 +60,24 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
             length = pp[PermuteParam::length];
             if (reverse_permute && next < 0) {
               for (auto b : c10::irange(start, end)) {
-                auto outp =
-                    outputs[out_tensor][b].data_ptr<scalar_t>() + out_offset;
-                auto inp =
-                    inputs[in_tensor][b].data_ptr<scalar_t>() + in_offset;
+                auto out_stride = outputs[out_tensor].stride(0);
+                auto outp = outputs[out_tensor].data_ptr<scalar_t>() +
+                    out_stride * b + out_offset;
+                auto inp_stride = inputs[in_tensor].stride(0);
+                auto inp = inputs[in_tensor].data_ptr<scalar_t>() +
+                    inp_stride * b + in_offset;
                 for (const auto j : c10::irange(length)) {
                   outp[j] += inp[j];
                 }
               }
             } else {
               for (auto b : c10::irange(start, end)) {
-                auto outp =
-                    outputs[out_tensor][b].data_ptr<scalar_t>() + out_offset;
-                auto inp =
-                    inputs[in_tensor][b].data_ptr<scalar_t>() + in_offset;
+                auto out_stride = outputs[out_tensor].stride(0);
+                auto outp = outputs[out_tensor].data_ptr<scalar_t>() +
+                    out_stride * b + out_offset;
+                auto inp_stride = inputs[in_tensor].stride(0);
+                auto inp = inputs[in_tensor].data_ptr<scalar_t>() +
+                    inp_stride * b + in_offset;
                 std::memcpy(outp, inp, length * pooled_embs[0].itemsize());
               }
             }
