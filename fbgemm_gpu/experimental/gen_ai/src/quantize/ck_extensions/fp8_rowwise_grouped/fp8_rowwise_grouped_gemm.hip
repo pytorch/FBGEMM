@@ -23,7 +23,7 @@
 #include "kernels/fp8_rowwise_grouped_kernel_manifest.h"
 #include "kernels/fp8_rowwise_grouped_heuristic.hpp"
 
-#ifdef FBGEMM_FBCODE
+#if defined(FBGEMM_FBCODE) || !defined(HIPIFY_V2)
 #include "fbgemm_gpu/quantize/tuning_cache.cuh"
 #else
 #include "fbgemm_gpu/quantize/tuning_cache_hip.cuh"

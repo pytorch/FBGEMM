@@ -14,9 +14,26 @@
 
 #include <ATen/ATen.h>
 
+#if USE_ROCM && !defined(HIPIFY_V2)
+#include <ATen/hip/HIPEvent.h> // @manual
+#include <ATen/hip/HIPGraph.h> // @manual
+#include <hip/hip_runtime.h>
+#define GPUStream at::hip::HIPStreamMasqueradingAsCUDA
+#define GPUStreamGuard at::hip::HIPStreamGuardMasqueradingAsCUDA
+#define getStreamFromPool at::hip::getStreamFromPoolMasqueradingAsCUDA
+#define gpuStreamCaptureModeRelaxed hipStreamCaptureModeRelaxed
+#define gpuEventDefault hipEventDefault
+#else
+
 #include <ATen/cuda/CUDAEvent.h>
 #include <ATen/cuda/CUDAGraph.h>
 #include <cuda_runtime.h>
+#define GPUStream at::cuda::CUDAStream
+#define GPUStreamGuard at::cuda::CUDAStreamGuard
+#define getStreamFromPool at::cuda::getStreamFromPool
+#define gpuStreamCaptureModeRelaxed cudaStreamCaptureModeRelaxed
+#define gpuEventDefault cudaEventDefault
+#endif
 
 #include <ostream>
 
@@ -215,8 +232,8 @@ class TuningCache final {
       at::cuda::CUDAGraph graph;
       {
         // CUDAGraph capture must happen on non-default stream
-        at::cuda::CUDAStream stream = at::cuda::getStreamFromPool(true);
-        at::cuda::CUDAStreamGuard streamGuard(stream);
+        GPUStream stream = getStreamFromPool(true);
+        GPUStreamGuard streamGuard(stream);
 
         // For flexibility, we use cudaStreamCaptureModeRelaxed.
         // - cudaStreamCaptureModeGlobal prevents other threads from calling
@@ -225,7 +242,7 @@ class TuningCache final {
         // - cudaStreamCaptureModeThreadLocal prevents CCA from freeing memory.
         // Since CUDA graph is preferred for offline benchmark this should be
         // fine.
-        graph.capture_begin({0, 0}, cudaStreamCaptureModeRelaxed);
+        graph.capture_begin({0, 0}, gpuStreamCaptureModeRelaxed);
         for (int i = 0; i < num_iters; ++i) {
           kernel(std::forward<Args>(args)...);
         }
@@ -279,8 +296,8 @@ class TuningCache final {
 
   constexpr static std::string_view FBGEMM_CACHE_DIR = ".fbgemm";
 
-  at::cuda::CUDAEvent start_ = at::cuda::CUDAEvent(cudaEventDefault);
-  at::cuda::CUDAEvent stop_ = at::cuda::CUDAEvent(cudaEventDefault);
+  at::cuda::CUDAEvent start_ = at::cuda::CUDAEvent(gpuEventDefault);
+  at::cuda::CUDAEvent stop_ = at::cuda::CUDAEvent(gpuEventDefault);
 
   // If FBGEMM_AUTOTUNE_USE_CUDA_GRAPH is set, use CUDA graph for benchmarking.
   // CUDA graphs use a separate memory pool to do allocation in PyTorch
