@@ -91,14 +91,34 @@ inline std::string get_rocksdb_path(
     int db_shard_id,
     const std::string& tbe_uuid,
     bool default_path) {
+  std::string rocksdb_path;
   if (default_path) {
     int ssd_drive_idx = db_shard_id % num_ssd_drives;
     std::string ssd_idx_tbe_id_str =
         std::to_string(ssd_drive_idx) + std::string("/") + tbe_uuid;
-    return base_path + ssd_idx_tbe_id_str;
+    rocksdb_path = base_path + ssd_idx_tbe_id_str;
   } else {
-    return base_path + std::string("/") + tbe_uuid;
+    rocksdb_path = base_path + std::string("/") + tbe_uuid;
   }
+  LOG(INFO) << "[SSD Offloading] rocksdb path: " << rocksdb_path;
+
+  // check if the SSD is mounted
+  try {
+    std::filesystem::create_directories(rocksdb_path);
+  } catch (const std::filesystem::filesystem_error& e) {
+    if (e.code() == std::errc::permission_denied) {
+      // if no SSDs are mounted, override the path with prefix `/var/tmp`
+      rocksdb_path = std::string("/var/tmp") + rocksdb_path;
+      LOG(INFO) << "[SSD Offloading] No SSDs mounted, overriding using "
+                << rocksdb_path;
+    } else {
+      LOG(INFO) << "Failed to create directory " << rocksdb_path
+                << "with error " << e.what();
+    }
+  }
+
+  LOG(INFO) << "[SSD Offloading] Returning rocksdb path: " << rocksdb_path;
+  return rocksdb_path;
 }
 
 /// @ingroup embedding-ssd
