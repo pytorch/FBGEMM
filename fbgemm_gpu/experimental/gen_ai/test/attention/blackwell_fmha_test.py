@@ -465,6 +465,18 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     ) -> None:
         seqlen_q = 1
         causal = True
+        if DEBUG:
+            print(
+                f"Running test_decode with params: "
+                f"seqlen_k={seqlen_k}, batch_size={batch_size}, is_mqa={is_mqa}, "
+                f"window_size={window_size}, head_dim={head_dim}, sm_scale={sm_scale}, "
+                f"q_heads={q_heads}, dtype={dtype}"
+            )
+        is_local = window_size[0] >= 0 or window_size[1] >= 0
+        if dtype == torch.float8_e4m3fn and is_local:
+             self.skipTest("Ref FP8 attention does not support local attention")
+        if is_mqa and is_local:
+            self.skipTest("Packed GQA does not support local attention")
         self._execute_cutlass_blackwell_attn_dense(
             batch_size,
             seqlen_q,
@@ -474,8 +486,8 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             head_dim=head_dim,
             dtype=dtype,
             causal=causal,
-            # Decode kernel does not support sliding window attention yet
-            window_size=(-1, -1),
+            # Decode kernel now supports sliding window attention (local attention)
+            window_size=window_size,
             fwd_only=True,
             deterministic=False,
             # Decode kernel does not support sm_scale

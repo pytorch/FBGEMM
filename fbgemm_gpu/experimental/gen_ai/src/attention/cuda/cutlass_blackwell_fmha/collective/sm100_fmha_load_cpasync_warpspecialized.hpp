@@ -81,6 +81,9 @@ struct Sm100FmhaLoadCpAsyncWarpspecialized {
     StrideCacheK dCacheK;
     Element* ptr_cache_v;
     StrideCacheV dCacheV;
+
+    int window_size_left = -1;
+    int window_size_right = -1;
   };
 
   using Params = Arguments;
@@ -147,8 +150,13 @@ struct Sm100FmhaLoadCpAsyncWarpspecialized {
       typename PipelineQ::PipelineState& pipeline_q_producer_state,
       PipelineKV& pipeline_kv,
       typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
-    int mask_tile_count =
-        Mask{}.get_trip_count(blk_coord, TileShape{}, problem_shape);
+    auto min_max =
+        Mask(params.window_size_left, params.window_size_right)
+            .get_n_block_min_max(blk_coord, TileShape{}, problem_shape);
+    int n_block_min = get<0>(min_max);
+    int n_block_max = get<1>(min_max);
+
+    int mask_tile_count = n_block_max - n_block_min;
     mask_tile_count *= 2;
 
     int warp_idx = (threadIdx.x / 32) % 2;
@@ -399,8 +407,8 @@ struct Sm100FmhaLoadCpAsyncWarpspecialized {
     };
 
     // K1
-    int k_index = 0;
-    int v_index = 0;
+    int k_index = n_block_min * 2;
+    int v_index = n_block_min * 2;
 
     load_k(k_index, pipeline_kv_producer_state);
 

@@ -32,16 +32,12 @@
  **************************************************************************************************/
 #pragma once
 
-#include "cutlass/cutlass.h"
-#include "cutlass/arch/memory_sm80.h"
-#include "cutlass/gemm/collective/collective_builder.hpp"
-#include "cutlass/cutlass.h"
-#include "cutlass/arch/memory_sm80.h"
-#include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cute/arch/simd_sm100.hpp"
-#include "cute/tensor.hpp"
-#include "cute/tensor.hpp"
 #include "cute/layout.hpp"
+#include "cute/tensor.hpp"
+#include "cutlass/arch/memory_sm80.h"
+#include "cutlass/cutlass.h"
+#include "cutlass/gemm/collective/collective_builder.hpp"
 
 #include "collective/fmha_common.hpp"
 #include "collective/fmha_fusion.hpp"
@@ -90,7 +86,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
   using Mask = Mask_;
 
   static constexpr int StageCountQ = get<1>(TileShape{}) == 256 ? 1 : 2;
-  static constexpr int StageCountKV = StageCountQ * (sizeof(Element) == 1 ? 11 : 5) ;
+  static constexpr int StageCountKV =
+      StageCountQ * (sizeof(Element) == 1 ? 11 : 5);
 
   using StagesQ = cutlass::gemm::collective::StageCount<StageCountQ>;
   using StagesKV = cutlass::gemm::collective::StageCount<StageCountKV>;
@@ -242,6 +239,9 @@ struct Sm100FmhaGenMainloopWarpspecialized {
 
     // scaling factor to quantize O
     float inv_scale_o = 1.0f;
+
+    int window_size_left = -1;
+    int window_size_right = -1;
   };
 
   struct Params {
@@ -251,6 +251,9 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     float scale_softmax_log2;
 
     float scale_output;
+
+    int window_size_left;
+    int window_size_right;
   };
 
   template <class ProblemShape>
@@ -275,7 +278,9 @@ struct Sm100FmhaGenMainloopWarpspecialized {
         Load::to_underlying_arguments(problem_shape, args.load, workspace),
         args.scale_q * args.scale_k * scale_softmax,
         args.scale_q * args.scale_k * log2_e * scale_softmax,
-        args.scale_v * args.inv_scale_o};
+        args.scale_v * args.inv_scale_o,
+        args.window_size_left,
+        args.window_size_right};
   }
 
   CUTLASS_DEVICE
@@ -326,8 +331,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     auto pipeline_q_release_state = pipeline_q_consumer_state;
     auto pipeline_kv_release_state = pipeline_kv_consumer_state;
 
-    int mask_tile_count =
-        Mask{}.get_trip_count(blk_coord, TileShape{}, problem_shape);
+    int mask_tile_count = Mask(params.window_size_left, params.window_size_right)
+                  .get_trip_count(blk_coord, TileShape{}, problem_shape);
 
     typename CollectiveMmaQK::TiledMma mma_qk;
     ThrMMA thr_mma_qk = mma_qk.get_slice(0);
@@ -656,7 +661,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     copy(tiled_tmem_load, tTMEM_LOADtS, tTMEM_LOADrS);
 
     if constexpr (need_apply_mask) {
-      Mask{}.apply_mask(tTMEM_LOADrS, tTMEM_LOADcS, problem_shape);
+      Mask(params.window_size_left, params.window_size_right)
+          .apply_mask(tTMEM_LOADrS, tTMEM_LOADcS, problem_shape);
     }
 
     ElementQK old_row_max = row_max;
@@ -813,8 +819,15 @@ struct Sm100FmhaGenMainloopWarpspecialized {
       PipelineC& pipeline_c,
       typename PipelineC::PipelineState& pipeline_c_producer_state,
       OrderBarrierSoftmax& order_s) {
-    int mask_tile_count =
-        Mask{}.get_unmasked_trip_count(blk_coord, TileShape{}, problem_shape);
+    Mask mask(params.window_size_left, params.window_size_right);
+    auto min_max =
+        mask.get_n_block_min_max(blk_coord, TileShape{}, problem_shape);
+    int n_block_min = get<0>(min_max);
+    const int n_block_max = get<1>(min_max);
+    const int n_block_stop_unmask =
+        mask.get_n_block_stop_unmask(blk_coord, TileShape{}, problem_shape);
+    const int n_block_start_unmask =
+       min(mask.get_n_block_start_unmask(blk_coord, TileShape{}, problem_shape), n_block_max);
 
     ElementQK row_max = -INFINITY;
     ElementQK row_sum = 0;
@@ -823,20 +836,22 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     auto logical_offset = make_coord(
         get<0>(blk_coord) * get<0>(TileShape{}) +
             (stage % get<0>(ThreadShape{})) * get<0>(TileShapeQK{}),
-        0 + (stage % get<1>(ThreadShape{})) * get<1>(TileShapeQK{}));
+        0 + (stage % get<1>(ThreadShape{})) * get<1>(TileShapeQK{}) +
+            n_block_min * get<1>(TileShape{}));
     Tensor cS = domain_offset(logical_offset, cS_base);
 
     pipeline_c.producer_acquire(pipeline_c_producer_state);
 
+    int tile_index = n_block_min;
+
+    // Masked iterations (1)
     CUTLASS_PRAGMA_NO_UNROLL
-    for (; mask_tile_count > 0; mask_tile_count -= 1) {
-      softmax_step<false /* need_apply_mask */>(
+    for (; tile_index < n_block_start_unmask; ++tile_index) {
+      softmax_step<true /* need_apply_mask */>(
           row_max,
           row_sum,
           stage,
-          (mask_tile_count == 1) &&
-              (Mask{}.get_masked_trip_count(
-                   blk_coord, TileShape{}, problem_shape) == 0),
+          tile_index == n_block_max - 1,
           blk_coord,
           cS,
           params,
@@ -851,17 +866,36 @@ struct Sm100FmhaGenMainloopWarpspecialized {
           cS.data() + E<1>{} * get<1>(ThreadShape{}) * get<1>(TileShapeQK{});
     }
 
-    // Masked iterations
-    mask_tile_count =
-        Mask{}.get_masked_trip_count(blk_coord, TileShape{}, problem_shape);
+  //   // // Unmasked iterations
+  CUTLASS_PRAGMA_NO_UNROLL
+  for (; tile_index < n_block_stop_unmask; ++tile_index) {
+    softmax_step<false /* need_apply_mask */>(
+        row_max,
+        row_sum,
+        stage,
+        tile_index == n_block_max - 1,
+        blk_coord,
+        cS,
+        params,
+        problem_shape,
+        pipeline_s,
+        pipeline_s_consumer_state,
+        pipeline_c,
+        pipeline_c_producer_state,
+        order_s);
 
+    cS.data() =
+        cS.data() + E<1>{} * get<1>(ThreadShape{}) * get<1>(TileShapeQK{});
+  }
+
+    // Masked iterations (2)
     CUTLASS_PRAGMA_NO_UNROLL
-    for (; mask_tile_count > 0; mask_tile_count -= 1) {
+    for (; tile_index < n_block_max;  ++tile_index) {
       softmax_step<true /* need_apply_mask */>(
           row_max,
           row_sum,
           stage,
-          mask_tile_count == 1,
+          tile_index == n_block_max - 1,
           blk_coord,
           cS,
           params,
@@ -1108,7 +1142,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
       typename PipelineE::PipelineState& pipeline_epi_producer_state,
       Epilogue const& epilogue) {
     int mask_tile_count =
-        Mask{}.get_trip_count(blk_coord, TileShape{}, problem_shape);
+        Mask(params.window_size_left, params.window_size_right)
+            .get_trip_count(blk_coord, TileShape{}, problem_shape);
 
     int thread_idx = threadIdx.x % (4 * cutlass::NumThreadsPerWarp);
 

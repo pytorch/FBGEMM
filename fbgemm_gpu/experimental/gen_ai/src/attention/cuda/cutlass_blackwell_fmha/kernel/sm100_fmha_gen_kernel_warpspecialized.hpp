@@ -31,16 +31,16 @@
  *
  **************************************************************************************************/
 
-#include "cutlass/cutlass.h"
+#include "cute/arch/tmem_allocator_sm100.hpp"
 #include "cute/layout.hpp"
 #include "cutlass/arch/arch.h"
+#include "cutlass/cutlass.h"
 #include "cutlass/kernel_hardware_info.h"
 #include "cutlass/pipeline/pipeline.hpp"
-#include "cute/arch/tmem_allocator_sm100.hpp"
 
+#include "collective/fmha_fusion.hpp"
 #include "kernel/fmha_options.hpp"
 #include "kernel/fmha_tile_scheduler.hpp"
-#include "collective/fmha_fusion.hpp"
 
 namespace cutlass::fmha::kernel {
 
@@ -178,6 +178,9 @@ struct Sm100FmhaGenKernelWarpspecialized {
     cutlass::KernelHardwareInfo hw_info;
 
     ElementAcc scale_softmax = 0.0f;
+
+    int window_size_left = -1;
+    int window_size_right = -1;
   };
 
   struct Params {
@@ -239,8 +242,16 @@ struct Sm100FmhaGenKernelWarpspecialized {
             args.dCacheK,
             args.ptr_cache_v,
             args.dCacheV,
+            args.window_size_left,
+            args.window_size_right,
         },
-        args.scale_softmax};
+        args.scale_softmax,
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f,
+        args.window_size_left,
+        args.window_size_right};
 
     typename CollectiveEpilogue::Arguments epilogue_args{
         args.ptr_o,

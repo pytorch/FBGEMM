@@ -161,6 +161,8 @@ def _cutlass_blackwell_fmha_gen(
         seqlen_kv,
         batch_idx,
         kernel_type,
+        window_left,
+        window_right,
     )
 
 
@@ -262,8 +264,8 @@ def _cutlass_blackwell_fmha_decode_forward(
         seqlen_kv,
         batch_idx,
         kernel_type=GenKernelType.UMMA_I,
-        # window_left=window_left,
-        # window_right=window_right,
+        window_left=window_left,
+        window_right=window_right,
     )
 
     # Reshape output back to original format if needed
