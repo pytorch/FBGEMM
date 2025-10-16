@@ -86,8 +86,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
   using Mask = Mask_;
 
   static constexpr int StageCountQ = get<1>(TileShape{}) == 256 ? 1 : 2;
-  static constexpr int StageCountKV = 256 * 11 / get<1>(TileShape{});
-  
+  static constexpr int StageCountKV = StageCountQ * (sizeof(Element) == 1 ? 11 : 5) ;
+
   using StagesQ = cutlass::gemm::collective::StageCount<StageCountQ>;
   using StagesKV = cutlass::gemm::collective::StageCount<StageCountKV>;
   
@@ -541,9 +541,16 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     Tensor tScS_P = tScS.compose(make_layout(make_shape(_128{}, tilePlikeFP32)));
 
     // Each thread owns a single row
-    using TMEM_LOAD = conditional_t<size<1>(TileShapeQK{}) < _128{}, SM100_TMEM_LOAD_32dp32b8x, SM100_TMEM_LOAD_32dp32b32x>;  // 4x32 threads with 128 cols of 8b elem
-    using TMEM_STORE = conditional_t<size<1>(TileShapeQK{}) < _128{}, SM100_TMEM_STORE_32dp32b8x, SM100_TMEM_STORE_32dp32b32x>;  // 4x32 threads with 128 cols of 8b elem
-    using TMEM_STORE_V = SM100_TMEM_STORE_32dp32b2x;   // 4x32 threads with 2 cols of 32b elem
+    using TMEM_LOAD = conditional_t<
+        size<1>(TileShapeQK{}) < _128{},
+        SM100_TMEM_LOAD_32dp32b8x,
+        SM100_TMEM_LOAD_32dp32b32x>; // 4x32 threads with 128 cols of 8b elem
+    using TMEM_STORE = conditional_t<
+        size<1>(TileShapeQK{}) < _128{},
+        SM100_TMEM_STORE_32dp32b16x,
+        SM100_TMEM_STORE_32dp32b32x>; // 4x32 threads with 128 cols of 8b elem
+    using TMEM_STORE_V =
+        SM100_TMEM_STORE_32dp32b2x; // 4x32 threads with 2 cols of 32b elem
 
     int thread_idx = threadIdx.x % (4 * cutlass::NumThreadsPerWarp);
 
