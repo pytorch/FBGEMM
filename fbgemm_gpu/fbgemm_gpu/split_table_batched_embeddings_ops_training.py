@@ -1715,9 +1715,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
     @torch.jit.ignore
-    def _report_tbe_mem_usage(
-        self,
-    ) -> None:
+    def _report_tbe_mem_usage(self) -> None:
         if self.stats_reporter is None:
             return
 
