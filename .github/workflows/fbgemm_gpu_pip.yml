@@ -26,12 +26,12 @@ on:
   workflow_dispatch:
     inputs:
       pytorch-channel-version:
-        description: PyTorch Version (e.g. '2.8.0', 'nightly', 'test')
+        description: PyTorch Version (e.g. '2.9.0', 'nightly', 'test')
         type: string
         required: true
         default: "nightly"
       fbgemm-channel-version:
-        description: FBGEMM-GPU Channel + Version (e.g. '1.3.0', 'nightly', 'test/1.3.0')
+        description: FBGEMM-GPU Channel + Version (e.g. '1.4.0', 'nightly', 'test/1.4.0')
         type: string
         required: true
         default: "nightly"
@@ -94,7 +94,7 @@ jobs:
           { arch: x86, instance: "linux.4xlarge", timeout: 20 },
           { arch: arm, instance: "linux.arm64.m7g.4xlarge", timeout: 30 },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
 
     steps:
     - name: Setup Build Container
@@ -156,7 +156,7 @@ jobs:
           { arch: x86, instance: "linux.rocm.gpu.2" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
         rocm-version: [ "6.3", "6.4" ]
 
     steps:
