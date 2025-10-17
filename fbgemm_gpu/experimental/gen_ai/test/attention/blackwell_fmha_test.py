@@ -442,6 +442,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 window_size,
                 head_dim,
                 sm_scale,
+                num_groups,
             )
             for dtype in [torch.bfloat16, torch.float8_e4m3fn]
             for seqlen_k in [64, 128, 256, 1024]
@@ -450,6 +451,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
             for head_dim in [128]
             for sm_scale in [None, 1.0 / head_dim]
+            for num_groups in [1, 2]
         ]
     )
     def test_decode(
@@ -461,6 +463,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         window_size: tuple[int, int],
         head_dim: int,
         sm_scale: Optional[float],
+        num_groups: int = 1,
         q_heads: int = 8,
     ) -> None:
         seqlen_q = 1
@@ -470,7 +473,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             seqlen_q,
             seqlen_k,
             q_heads,
-            kv_heads=1 if is_mqa else q_heads,
+            kv_heads=num_groups if is_mqa else q_heads,
             head_dim=head_dim,
             dtype=dtype,
             causal=causal,
