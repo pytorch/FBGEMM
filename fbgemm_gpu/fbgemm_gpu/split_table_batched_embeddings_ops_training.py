@@ -1877,6 +1877,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             tbe_id=self.uuid,
         )
 
+        # Check if detailed memory breakdown is enabled via environment variable
+        # Set FBGEMM_TBE_MEM_BREAKDOWN=1 to enable expensive detailed breakdown
+        enable_detailed_breakdown = (
+            int(os.environ.get("FBGEMM_TBE_MEM_BREAKDOWN", "0")) == 1
+        )
+
+        if not enable_detailed_breakdown:
+            return
+
         # Tensor groups for sparse memory categorization
         weight_tensors = ["weights_dev", "weights_host", "weights_uvm"]
         optimizer_tensors = [
