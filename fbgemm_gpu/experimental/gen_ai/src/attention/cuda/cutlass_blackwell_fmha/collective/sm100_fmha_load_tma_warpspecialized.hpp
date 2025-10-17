@@ -65,6 +65,9 @@ struct Sm100FmhaLoadTmaWarpspecialized {
   using TileShapeQK = typename CollectiveMmaQK::TileShape;
   using TileShapePV = typename CollectiveMmaPV::TileShape;
 
+  using ProblemShapeK =
+      cute::tuple<int, int, int, cute::tuple<cute::tuple<int, int>, int>>;
+
   struct Arguments {
     const Element* ptr_Q;
     StrideQ dQ;
@@ -72,6 +75,11 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     StrideK dK;
     const Element* ptr_V;
     StrideV dV;
+    const int* ptr_page_table;
+    int page_table_stride;
+    int num_blocks;
+    int page_block_size;
+    int num_KV_tiles_per_page;
 
     int window_size_left = -1;
     int window_size_right = -1;
@@ -85,6 +93,13 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     TMA_Q tma_load_q;
     TMA_K tma_load_k;
     TMA_V tma_load_v;
+
+    const int* page_table;
+    int page_table_stride;
+    int num_blocks;
+    int page_block_size;
+    int num_KV_tiles_per_page;
+
     int window_size_left;
     int window_size_right;
   };
@@ -101,6 +116,8 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     auto dQ = args.dQ;
     auto dK = args.dK;
     auto dV = args.dV;
+    bool kIsPaged = args.ptr_page_table ? true : false;
+
 
     // Local changes (D79534034)
     int get_0 = int(get<0>(problem_shape));
@@ -117,27 +134,76 @@ struct Sm100FmhaLoadTmaWarpspecialized {
       get_1 = get<1>(problem_shape).total_length;
     }
 
-    auto problem_shape_qk = make_tuple(get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
+    TMA_Q tma_load_q;
+    TMA_K tma_load_k;
+    TMA_V tma_load_v;
 
-    auto params_qk = CollectiveMmaQK::to_underlying_arguments(
-        problem_shape_qk,
-        typename CollectiveMmaQK::Arguments {
-            ptr_Q, dQ,
-            ptr_K, dK,
-        }, /*workspace=*/ nullptr);
+    if (kIsPaged) { // Paged Case
+      //Create TMA Atom/Descriptor for Q, K, V
+      //Q
+      Layout layout_Q = make_layout(select<0,2,3>(problem_shape), dQ);
+      Tensor mQ = make_tensor(make_gmem_ptr(ptr_Q), layout_Q);
 
-    auto problem_shape_pv = select<0,2,1,3>(problem_shape_qk);
-    auto params_pv = CollectiveMmaPV::to_underlying_arguments(
-        problem_shape_pv,
-        typename CollectiveMmaPV::Arguments {
-            ptr_K, dK,  // never used, dummy
-            ptr_V, select<1,0,2>(dV),
-        }, /*workspace=*/ nullptr);
+      auto cluster_layout_vmnk =
+        tiled_divide(make_layout(Shape<_1, _1, _1>{}),
+                     make_tile(typename CollectiveMmaQK::TiledMma::AtomThrID{}));
+      tma_load_q = make_tma_atom_A_sm100<Element>(
+        cute::SM90_TMA_LOAD{}, mQ, SmemLayoutQ{}(_, _, _, _0{}), TileShapeQK{},
+        typename CollectiveMmaQK::TiledMma{}, cluster_layout_vmnk);
+
+      // K
+      auto problem_shape_paged_k =  make_tuple(get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
+      get<1> (problem_shape_paged_k) = args.page_block_size;
+      get<3, 1>(problem_shape_paged_k) = args.num_blocks;
+      Layout layout_k = make_layout(select<1,2,3>(problem_shape_paged_k), dK);
+      Tensor mK = make_tensor(make_gmem_ptr(ptr_K), layout_k);
+
+      tma_load_k = make_tma_atom_B_sm100<Element>(
+        cute::SM90_TMA_LOAD{}, mK, SmemLayoutK{}(_, _, _, _0{}), TileShapeQK{},
+        typename CollectiveMmaQK::TiledMma{}, cluster_layout_vmnk);
+
+      // V
+      auto problem_shape_paged_v =  make_tuple(get_0, get<2>(problem_shape), get_1, get<3>(problem_shape));
+      get<2> (problem_shape_paged_v) = args.page_block_size;
+      get<3, 1>(problem_shape_paged_v) = args.num_blocks;
+      Layout layout_v = make_layout(select<1,2,3>(problem_shape_paged_v), select<1,0,2>(dV));
+      Tensor mV = make_tensor(make_gmem_ptr(ptr_V), layout_v);
+
+      tma_load_v = make_tma_atom_B_sm100<Element>(
+        cute::SM90_TMA_LOAD{}, mV, SmemLayoutV{}(_, _, _, _0{}), TileShapePV{},
+        typename CollectiveMmaPV::TiledMma{}, cluster_layout_vmnk);
+    } else {
+      auto problem_shape_qk = make_tuple(get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
+
+      auto params_qk = CollectiveMmaQK::to_underlying_arguments(
+          problem_shape_qk,
+          typename CollectiveMmaQK::Arguments {
+              ptr_Q, dQ,
+              ptr_K, dK,
+          }, /*workspace=*/ nullptr);
+
+      auto problem_shape_pv = select<0,2,1,3>(problem_shape_qk);
+      auto params_pv = CollectiveMmaPV::to_underlying_arguments(
+          problem_shape_pv,
+          typename CollectiveMmaPV::Arguments {
+              ptr_K, dK,  // never used, dummy
+              ptr_V, select<1,0,2>(dV),
+          }, /*workspace=*/ nullptr);
+
+      tma_load_q = params_qk.tma_load_a;
+      tma_load_k = params_qk.tma_load_b;
+      tma_load_v = params_pv.tma_load_b;
+    }
 
     return Params{
-        params_qk.tma_load_a,
-        params_qk.tma_load_b,
-        params_pv.tma_load_b,
+        tma_load_q,
+        tma_load_k,
+        tma_load_v,
+        args.ptr_page_table,
+        args.page_table_stride,
+        args.num_blocks,
+        args.page_block_size,
+        args.num_KV_tiles_per_page,
         args.window_size_left,
         args.window_size_right
     };
@@ -297,6 +363,161 @@ struct Sm100FmhaLoadTmaWarpspecialized {
       if (lane_predicate) {
         auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
         copy(params.tma_load_v.with(*tma_barrier, 0), tVgV(_, k_index), tVsV(_, pipeline_kv_producer_state.index()));
+      }
+      ++pipeline_kv_producer_state;
+    }
+  }
+
+template<class BlkCoord, class ProblemShape, class ParamsProblemShape>
+  CUTLASS_DEVICE void
+  load_paged(
+      BlkCoord const& blk_coord_in, ProblemShape const& problem_shape,
+      Params const& params, ParamsProblemShape const& params_problem_shape,
+      TensorStorage& storage,
+      PipelineQ& pipeline_q, typename PipelineQ::PipelineState& pipeline_q_producer_state,
+      PipelineKV& pipeline_kv, typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
+
+    BlkCoord blk_coord_q = blk_coord_in;
+    BlkCoord blk_coord_kv = blk_coord_in;
+
+    auto min_max = Mask(params.window_size_left, params.window_size_right).get_n_block_min_max(blk_coord_in, TileShape{}, problem_shape);
+    int n_block_min = get<0>(min_max);
+    int n_block_max = get<1>(min_max);
+
+    using X = Underscore;
+
+    // this one is only executed by one thread, no need to elect_one
+
+    // Q1, K1, Q2, V1, K2, V2, K3, V3, ...
+    // two pipes: Q and KV
+    // from Memory (prod) to TensorCore (cons)
+
+    // compute gQ, sQ
+    // we load 2*get<0>(blk_coord), and 2*get<0>(blk_coord) + 1
+    ThrMMA mma_qk = typename CollectiveMmaQK::TiledMma{}.get_slice(0);
+    Tensor mQ_qdl_p = params.tma_load_q.get_tma_tensor(select<0,2,3>(problem_shape));
+
+    int q_offs_0 = 0;
+    int q_offs_2_1 = 0;
+    int batch_idx = get<2, 1>(blk_coord_q);
+    if constexpr (is_variable_length_v<tuple_element_t<0, ParamsProblemShape>>) {
+      auto cumulative_length_q = get<0>(params_problem_shape).cumulative_length;
+      q_offs_0 = cumulative_length_q[batch_idx];
+      get<2, 1>(blk_coord_q) = 0;
+    }
+
+    Tensor mQ_qdl = domain_offset(make_coord(q_offs_0, _0{}, make_coord(_0{}, q_offs_2_1)), mQ_qdl_p);
+
+    Tensor gQ_qdl = local_tile(mQ_qdl, TileShapeQK{}, make_coord(_, _, _), Step<_1, X, _1>{});
+    Tensor tSgQ_qdl = mma_qk.partition_A(gQ_qdl);
+    Tensor sQ = make_tensor(make_smem_ptr(storage.smem_q.data()), SmemLayoutQ{});
+    auto [tQgQ_qdl, tQsQ] = tma_partition(
+      params.tma_load_q, _0{}, make_layout(_1{}),
+      group_modes<0,3>(sQ), group_modes<0,3>(tSgQ_qdl)
+    );
+    Tensor tQgQ = tQgQ_qdl(_, _, _0{}, get<2>(blk_coord_q));
+
+    // compute gK, sK
+    ProblemShapeK problem_shape_k =  problem_shape;
+    get<1> (problem_shape_k) = params.page_block_size;
+    get<3, 1>(problem_shape_k) = params.num_blocks;
+
+    Tensor mK_kdl_p = params.tma_load_k.get_tma_tensor(select<1,2,3>(problem_shape_k));
+
+    Tensor gK_kdl = local_tile(mK_kdl_p, TileShapeQK{}, make_coord(_, _, _), Step<X, _1, _1>{});
+    Tensor tSgK_kdl = mma_qk.partition_B(gK_kdl);
+    Tensor sK = make_tensor(make_smem_ptr(storage.smem_k.data()), SmemLayoutK{});
+    auto [tKgK_kdl, tKsK] = tma_partition(
+      params.tma_load_k, _0{}, make_layout(_1{}),
+      group_modes<0,3>(sK), group_modes<0,3>(tSgK_kdl)
+    );
+
+    auto tKgK = tKgK_kdl(_, _, _0{}, make_coord(get<0>(get<2>(blk_coord_kv)), _));
+
+
+    // compute gV, sV
+    ThrMMA mma_pv = typename CollectiveMmaPV::TiledMma{}.get_slice(0);
+    ProblemShapeK problem_shape_v =  problem_shape;
+    get<1> (problem_shape_v) = params.page_block_size;
+    get<3, 1>(problem_shape_v) = params.num_blocks;
+    Tensor mV_dkl_p = params.tma_load_v.get_tma_tensor(select<2,1,3>(problem_shape_v));
+
+    Tensor gV_dkl = local_tile(mV_dkl_p, TileShapePV{}, make_coord(_, _, _), Step<X, _1, _1>{});
+    Tensor tOgV_dkl = mma_pv.partition_B(gV_dkl);
+    Tensor sV = make_tensor(make_smem_ptr(storage.smem_v.data()), SmemLayoutV{});
+    auto [tVgV_dkl, tVsV] = tma_partition(
+      params.tma_load_v, _0{}, make_layout(_1{}),
+      group_modes<0,3>(sV), group_modes<0,3>(tOgV_dkl)
+    );
+
+    auto tVgV = tVgV_dkl(_, _0{}, _, make_coord(get<0>(get<2>(blk_coord_kv)), _));
+
+    // blk_coord in decomposed in terms of TileShape, not TileShapeQK
+    // As such, it needs to be transformed as
+    // (a,b,c): a -> 2*a (Q0) 2*a+1 (Q1)
+    //          b -> 2*a (Ki i even) 2*a+1 (Ki i odd)
+
+    uint32_t lane_predicate = cute::elect_one_sync();
+
+    // Q1
+    int q0_index = 2 * get<0>(blk_coord_q);
+    int q1_index = 2 * get<0>(blk_coord_q) + 1;
+    pipeline_q.producer_acquire(pipeline_q_producer_state);
+    if (lane_predicate) {
+      auto tma_barrier = pipeline_q.producer_get_barrier(pipeline_q_producer_state);
+      copy(params.tma_load_q.with(*tma_barrier, 0), tQgQ(_, q0_index), tQsQ(_, pipeline_q_producer_state.index()));
+    }
+    ++pipeline_q_producer_state;
+
+    // K1
+    int k_index = n_block_min;
+    int logical_block_id = k_index / params.num_KV_tiles_per_page;
+    int page_id = params.page_table[batch_idx * params.page_table_stride + logical_block_id];
+    int n_block = k_index % params.num_KV_tiles_per_page; // TODO: Replace %
+
+    pipeline_kv.producer_acquire(pipeline_kv_producer_state);
+    if (lane_predicate) {
+      auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+      copy(params.tma_load_k.with(*tma_barrier, 0), tKgK(_, n_block, page_id), tKsK(_, pipeline_kv_producer_state.index()));
+    }
+    ++pipeline_kv_producer_state;
+
+    // Q2
+    pipeline_q.producer_acquire(pipeline_q_producer_state);
+    if (lane_predicate) {
+      auto tma_barrier = pipeline_q.producer_get_barrier(pipeline_q_producer_state);
+      copy(params.tma_load_q.with(*tma_barrier, 0), tQgQ(_, q1_index), tQsQ(_, pipeline_q_producer_state.index()));
+    }
+    ++pipeline_q_producer_state;
+
+    // V1
+    pipeline_kv.producer_acquire(pipeline_kv_producer_state);
+    if (lane_predicate) {
+      auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+      copy(params.tma_load_v.with(*tma_barrier, 0), tVgV(_, n_block, page_id), tVsV(_, pipeline_kv_producer_state.index()));
+    }
+    ++pipeline_kv_producer_state;
+    k_index += 1;
+
+    // loop:
+    for (; k_index < n_block_max; k_index += 1) {
+      logical_block_id = k_index / params.num_KV_tiles_per_page;
+      page_id = params.page_table[batch_idx * params.page_table_stride + logical_block_id];
+      n_block = k_index % params.num_KV_tiles_per_page; // TODO: Replace %
+
+      // Ki
+      pipeline_kv.producer_acquire(pipeline_kv_producer_state);
+      if (lane_predicate) {
+        auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+        copy(params.tma_load_k.with(*tma_barrier, 0), tKgK(_, n_block, page_id), tKsK(_, pipeline_kv_producer_state.index()));
+      }
+      ++pipeline_kv_producer_state;
+
+      // Vi
+      pipeline_kv.producer_acquire(pipeline_kv_producer_state);
+      if (lane_predicate) {
+        auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+        copy(params.tma_load_v.with(*tma_barrier, 0), tVgV(_, n_block, page_id), tVsV(_, pipeline_kv_producer_state.index()));
       }
       ++pipeline_kv_producer_state;
     }
