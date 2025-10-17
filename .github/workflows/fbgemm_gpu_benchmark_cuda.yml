@@ -39,7 +39,7 @@ jobs:
           "host-machine": [
             { "arch": "x86", "instance": "linux.24xlarge" },
           ],
-          "python-version": [ "3.14" ],
+          "python-version": [ "3.13" ],
           "cuda-version": [ "12.8.1" ],
           "compiler": [ "gcc" ],
         }
@@ -56,7 +56,7 @@ jobs:
           "host-machine": [
             { "arch": "x86", "instance": "linux.g5.4xlarge.nvidia.gpu" },
           ],
-          "python-version": [ "3.14" ],
+          "python-version": [ "3.13" ],
           "cuda-version": [ "12.8.1" ],
           "compiler": [ "gcc" ],
         }
