@@ -209,7 +209,7 @@ class TuningCache final {
     stop_.record();
     stop_.synchronize();
     const auto estimated_time_ms = start_.elapsed_time(stop_);
-    const int num_iters = std::max(1, int(10 / estimated_time_ms));
+    const int num_iters = std::max(1, int(500 / estimated_time_ms));
 
     if (useCudaGraph_) {
       at::cuda::CUDAGraph graph;

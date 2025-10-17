@@ -175,7 +175,7 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
             if use_cuda_graph:
                 with torch.cuda.stream(torch.cuda.Stream()):
                     t = triton.testing.do_bench_cudagraph(
-                        lambda: self.quantize_and_compute(*args, **kwargs)
+                        lambda: self.quantize_and_compute(*args, **kwargs), rep=200
                     )
             else:
                 t = triton.testing.do_bench(
@@ -188,7 +188,7 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
                 if use_cuda_graph:
                     with torch.cuda.stream(torch.cuda.Stream()):
                         t = triton.testing.do_bench_cudagraph(
-                            lambda: self.compute(*args, **kwargs)
+                            lambda: self.compute(*args, **kwargs), rep=200
                         )
                 else:
                     t = triton.testing.do_bench(lambda: self.compute(*args, **kwargs))

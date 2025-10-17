@@ -8,6 +8,8 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include "fbgemm_gpu/quantize/tuning_cache.cuh"
+#include "fbgemm_gpu/quantize/utils.h"
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 #include "f4f4bf16_grouped/f4f4bf16_grouped_manifest.cuh"
@@ -17,134 +19,261 @@ namespace fbgemm_gpu {
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 
-Kernel_f4f4bf16_grouped
-get_kernel_via_heuristics(int total_M, int N, int K, int G, bool use_mx) {
-  // MXFP4
-  if (use_mx) {
-    // Llama4 shapes
-    if (N == 5120 && K == 1024) {
-      if (G <= 8) {
-        if (total_M <= 256) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_t;
-        } else if (total_M <= 512) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_t;
-        } else if (total_M <= 1024) {
-          return f4f4bf16_grouped_128_128_256_1_1_1_t;
-        }
-      } else if (G <= 16) {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_t;
-        } else if (total_M <= 2048) {
-          return f4f4bf16_grouped_256_128_256_2_1_1_t;
-        }
+Kernel_f4f4bf16_grouped get_kernel_via_heuristics(int M, int N, int K) {
+  if (M <= 1) {
+    return f4f4bf16_grouped_256_64_256_2_1_1;
+  } else if (M <= 64) {
+    if (N <= 1024) {
+      return f4f4bf16_grouped_256_64_256_2_1_1;
+    } else if (N <= 2048) {
+      if (K <= 2048) {
+        return f4f4bf16_grouped_128_64_256_1_1_1;
       } else {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_t;
-        } else if (total_M <= 4096) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_t;
-        } else if (total_M <= 8192) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_t;
-        }
+        return f4f4bf16_grouped_256_64_256_2_1_1;
       }
-      return f4f4bf16_grouped_256_256_256_2_1_1_t;
-    } else if (N == 2048 && K == 5120) {
-      if (G <= 8) {
-        if (total_M <= 256) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_t;
-        } else if (total_M <= 512) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_t;
-        } else if (total_M <= 1024) {
-          return f4f4bf16_grouped_128_128_256_1_1_1_t;
-        }
-      } else if (G <= 16) {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_t;
-        } else if (total_M <= 2048) {
-          return f4f4bf16_grouped_128_128_256_1_1_1_t;
-        }
+    } else if (N <= 7168) {
+      return f4f4bf16_grouped_256_64_256_2_1_1;
+    } else if (N <= 8192) {
+      if (K <= 6144) {
+        return f4f4bf16_grouped_256_64_256_2_1_1;
+      } else if (K <= 7168) {
+        return f4f4bf16_grouped_128_64_256_1_1_1;
       } else {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_t;
-        } else if (total_M <= 16384) {
-          return f4f4bf16_grouped_256_128_256_2_1_1_t;
-        }
+        return f4f4bf16_grouped_256_64_256_2_1_1;
       }
-      return f4f4bf16_grouped_256_256_256_2_1_1_t;
-    }
-
-    // Fallback to legacy heuristic
-    if (total_M <= 1000) {
-      return f4f4bf16_grouped_256_128_256_2_1_1_t;
     } else {
-      return f4f4bf16_grouped_256_256_256_2_1_1_t;
+      return f4f4bf16_grouped_256_64_256_2_1_1;
     }
-  } // NVFP4
-  else {
-    // Llama4 shapes
-    if (N == 5120 && K == 1024) {
-      if (G <= 8) {
-        if (total_M <= 256) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_f;
-        } else if (total_M <= 512) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_f;
-        } else if (total_M <= 1024) {
-          return f4f4bf16_grouped_128_128_256_1_1_1_f;
-        }
-      } else if (G <= 16) {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_f;
-        } else if (total_M <= 2048) {
-          return f4f4bf16_grouped_256_128_256_2_1_1_f;
-        }
-      } else {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_f;
-        } else if (total_M <= 4096) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_f;
-        } else if (total_M <= 8192) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_f;
-        }
-      }
-      return f4f4bf16_grouped_256_256_256_2_1_1_f;
-    } else if (N == 2048 && K == 5120) {
-      if (G <= 8) {
-        if (total_M <= 256) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_f;
-        } else if (total_M <= 512) {
-          return f4f4bf16_grouped_128_64_256_1_1_1_f;
-        } else if (total_M <= 1024) {
-          return f4f4bf16_grouped_128_128_256_1_1_1_f;
-        }
-      } else if (G <= 16) {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_f;
-        } else if (total_M <= 2048) {
-          return f4f4bf16_grouped_128_128_256_1_1_1_f;
-        }
-      } else {
-        if (total_M <= 1024) {
-          return f4f4bf16_grouped_256_64_256_2_1_1_f;
-        } else if (total_M <= 16384) {
-          return f4f4bf16_grouped_256_128_256_2_1_1_f;
-        }
-      }
-      return f4f4bf16_grouped_256_256_256_2_1_1_f;
-    }
-
-    // Fallback to legacy heuristic
-    if (total_M <= 1000) {
-      return f4f4bf16_grouped_256_128_256_2_1_1_f;
+  } else if (M <= 128) {
+    if (N <= 8192) {
+      return f4f4bf16_grouped_256_128_256_2_1_1;
     } else {
-      return f4f4bf16_grouped_256_256_256_2_1_1_f;
+      if (K <= 8192) {
+        return f4f4bf16_grouped_256_128_256_2_1_1;
+      } else {
+        return f4f4bf16_grouped_128_128_256_1_1_1;
+      }
+    }
+  } else if (M <= 256) {
+    if (N <= 1024) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 2048) {
+      if (K <= 7168) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 8192) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 6144) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 7168) {
+      if (K <= 2048) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 4096) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 8192) {
+      if (K <= 2048) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 4096) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else if (K <= 7168) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 8192) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else {
+      if (K <= 5120) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 6144) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    }
+  } else if (M <= 512) {
+    if (N <= 5120) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 6144) {
+      if (K <= 6144) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 7168) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 7168) {
+      if (K <= 5120) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 6144) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 8192) {
+      if (K <= 6144) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 7168) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else {
+      if (K <= 4096) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 5120) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    }
+  } else if (M <= 1024) {
+    if (N <= 6144) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 7168) {
+      if (K <= 2048) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 4096) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 8192) {
+      if (K <= 8192) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      }
+    } else {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    }
+  } else if (M <= 2048) {
+    return f4f4bf16_grouped_256_256_256_2_1_1;
+  } else if (M <= 4096) {
+    if (N <= 4096) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 5120) {
+      if (K <= 1024) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 8192) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else {
+      if (K <= 6144) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 7168) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    }
+  } else if (M <= 6144) {
+    if (N <= 4096) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 5120) {
+      if (K <= 1024) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 7168) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 8192) {
+      if (K <= 1024) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    }
+  } else if (M <= 8192) {
+    if (N <= 5120) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 6144) {
+      if (K <= 1024) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else if (N <= 8192) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else {
+      if (K <= 2048) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 4096) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    }
+  } else {
+    if (N <= 1024) {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
+    } else if (N <= 2048) {
+      if (K <= 2048) {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      } else if (K <= 4096) {
+        return f4f4bf16_grouped_256_256_128_2_1_1;
+      } else {
+        return f4f4bf16_grouped_256_256_256_2_1_1;
+      }
+    } else {
+      return f4f4bf16_grouped_256_256_256_2_1_1;
     }
   }
 }
 
-at::Tensor dispatch_fp4_grouped_kernel(
-    int total_M,
+Kernel_f4f4bf16_grouped get_kernel_via_tuning(
+    int M,
     int N,
     int K,
-    int G,
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> offsets = std::nullopt,
+    std::optional<at::Tensor> M_sizes = std::nullopt,
+    std::optional<at::Tensor> global_scale = std::nullopt,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt) {
+  static TuningCache cache("f4f4bf16_grouped");
+
+  M = nextPowerOf2OrRoundUp(M, 1024, 1024);
+  N = nextPowerOf2OrRoundUp(N, 1024, 1024);
+  K = nextPowerOf2OrRoundUp(K, 1024, 1024);
+
+  const std::string shape_key =
+      std::to_string(M) + "_" + std::to_string(N) + "_" + std::to_string(K);
+
+  const auto& kernels = get_f4f4bf16_grouped_kernels();
+
+  auto kernel = cache.findBestKernelMaybeAutotune(
+      shape_key,
+      kernels,
+      XQ,
+      WQ,
+      x_scale,
+      w_scale,
+      output,
+      offsets,
+      M_sizes,
+      global_scale,
+      starting_row_after_padding);
+  return kernel;
+}
+
+at::Tensor dispatch_fp4_grouped_kernel(
+    int M,
+    int N,
+    int K,
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
@@ -160,7 +289,22 @@ at::Tensor dispatch_fp4_grouped_kernel(
       "Exactly one of M_sizes or offsets must be present.");
   // Select kernel to run via heuristics.
   auto kernel = [&]() {
-    return get_kernel_via_heuristics(total_M, N, K, G, use_mx);
+    if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
+      return get_kernel_via_tuning(
+          M,
+          N,
+          K,
+          XQ,
+          WQ,
+          x_scale,
+          w_scale,
+          output,
+          offsets,
+          M_sizes,
+          global_scale,
+          starting_row_after_padding);
+    }
+    return get_kernel_via_heuristics(M, N, K);
   }();
   // Invoke kernel
   return kernel(
@@ -214,10 +358,9 @@ at::Tensor f4f4bf16_grouped_stacked(
   }
   // Return continuous view of output.
   return dispatch_fp4_grouped_kernel(
-      total_M,
+      total_M / G,
       N,
       K * 2, // 2 FP4 values are packed into uint8
-      G,
       XQ,
       WQ,
       x_scale,
@@ -285,7 +428,8 @@ at::Tensor f4f4bf16_grouped_mm(
     TORCH_CHECK(
         out.dim() == 2 && out.size(0) == M && out.size(1) == N,
         "for 2d-3d grouped GEMM, output shape must be (total_M, N).");
-
+    // Normalize jagged M for heuristics
+    M /= G;
   } else if (XQ.dim() == 2 && WQ.dim() == 2) {
     out = output_maybe.has_value()
         ? output_maybe.value()
@@ -298,7 +442,8 @@ at::Tensor f4f4bf16_grouped_mm(
         out.dim() == 3 && out.size(0) == G && out.size(1) == M &&
             out.size(2) == N,
         "for 2d-2d grouped GEMM, output shape must be (G, M, N).");
-
+    // Normalize jagged K for heuristics
+    K /= G;
   } else {
     TORCH_CHECK(false, "Invalid input shapes. Must be one of 2D-2D, 2D-3D.");
   }
@@ -312,7 +457,6 @@ at::Tensor f4f4bf16_grouped_mm(
       M,
       N,
       K * 2, // 2 FP4 values are packed into float4_e2m1fn_x2
-      G,
       XQ,
       // WQ is shape (K, N) or (G, K, N) in column major layout, to align with
       // torch._scaled_grouped_mm. We transpose here to match cutlass kernel
