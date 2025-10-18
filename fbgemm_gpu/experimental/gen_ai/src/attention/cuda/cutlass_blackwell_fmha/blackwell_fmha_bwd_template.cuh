@@ -1,6 +1,7 @@
 // @nolint
 #pragma once
 #include "blackwell_fmha_utils.hpp"
+#include <ATen/cuda/CUDAContext.h>
 #if defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 
 template <
@@ -221,6 +222,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> fmha_bwd(
   hw_info.sm_count =
       cutlass::KernelHardwareInfo::query_device_multiprocessor_count(
           hw_info.device_id);
+
+  if (at::globalContext()._SMCarveout_EXPERIMENTAL().has_value()) {
+    hw_info.sm_count -= at::globalContext()._SMCarveout_EXPERIMENTAL().value();
+  }
 
   auto seqlen_q = kIsVarlen ? max_seq_len_q.value() : q.size(1);
 
