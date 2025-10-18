@@ -3215,8 +3215,9 @@ Tensor pack_segments_forward_cpu(
       t_in.dtype() == at::ScalarType::Float ||
           t_in.dtype() == at::ScalarType::Double ||
           t_in.dtype() == at::ScalarType::Half ||
-          t_in.dtype() == at::ScalarType::BFloat16,
-      "t_in must be of type float, double, half, or bfloat16");
+          t_in.dtype() == at::ScalarType::BFloat16 ||
+          t_in.dtype() == at::ScalarType::Int,
+      "t_in must be of type float, double, half, bfloat16, or int");
   TORCH_CHECK_GT(max_length, 0);
 
   const auto t_in_cont = t_in.expect_contiguous();
