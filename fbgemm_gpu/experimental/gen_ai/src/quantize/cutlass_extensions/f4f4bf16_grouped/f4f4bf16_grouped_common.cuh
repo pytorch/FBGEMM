@@ -25,6 +25,9 @@
 
 namespace fbgemm_gpu {
 
+using MXFP4 = cutlass::mx_float4_t<cutlass::float_e2m1_t>;
+using NVFP4 = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
+
 inline int64_t _byte_align(int64_t offset) {
   int64_t remainder = offset % 16;
   if (remainder != 0) {
@@ -233,8 +236,6 @@ at::Tensor f4f4bf16_grouped_impl(
           cutlass::epilogue::collective::EpilogueTileAuto,
           ElementAccumulator,
           ElementAccumulator,
-          //   void, // Indicate there is no beta scaling to save register
-          //   space.
           ElementC,
           typename cutlass::layout::LayoutTranspose<LayoutC>::type*,
           AlignmentC,

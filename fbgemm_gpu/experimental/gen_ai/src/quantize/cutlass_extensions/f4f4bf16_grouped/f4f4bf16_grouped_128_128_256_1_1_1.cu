@@ -12,7 +12,7 @@ namespace fbgemm_gpu {
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 
-at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_t(
+at::Tensor f4f4bf16_grouped_128_128_256_1_1_1(
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
@@ -22,23 +22,29 @@ at::Tensor f4f4bf16_grouped_256_128_256_2_1_1_t(
     std::optional<at::Tensor> M_sizes,
     std::optional<at::Tensor> global_scale,
     std::optional<at::Tensor> starting_row_after_padding) {
-  return f4f4bf16_grouped_impl<
-      cutlass::mx_float4_t<cutlass::float_e2m1_t>,
-      256,
-      128,
-      256,
-      2,
-      1,
-      1>(
-      XQ,
-      WQ,
-      x_scale,
-      w_scale,
-      output,
-      offsets,
-      M_sizes,
-      global_scale,
-      starting_row_after_padding);
+  if (global_scale) {
+    return f4f4bf16_grouped_impl<NVFP4, 128, 128, 256, 1, 1, 1>(
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        offsets,
+        M_sizes,
+        global_scale,
+        starting_row_after_padding);
+  } else {
+    return f4f4bf16_grouped_impl<MXFP4, 128, 128, 256, 1, 1, 1>(
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        offsets,
+        M_sizes,
+        global_scale,
+        starting_row_after_padding);
+  }
 }
 
 #endif
