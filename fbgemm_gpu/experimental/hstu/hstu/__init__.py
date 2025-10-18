@@ -15,4 +15,10 @@ from .cuda_hstu_attention import (  # noqa: F401
     cuda_hstu_attn_varlen,
     hstu_attn_varlen_func,
     HstuAttnVarlenFunc,
+    hstu_attn_qkvpacked_func,
+    quantize_for_two_directions,
+    quantize_for_block_scale,
+    get_bm_and_bn_block_size_fwd,
+    get_bm_and_bn_block_size_bwd,
+    quantize_for_head_batch_tensor,
 )

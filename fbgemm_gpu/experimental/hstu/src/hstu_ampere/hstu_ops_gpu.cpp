@@ -55,13 +55,18 @@ void set_params_fprop(
     const at::Tensor k,
     const at::Tensor v,
     const at::Tensor rab,
+    const at::Tensor kv_cache,
     at::Tensor out,
     void* num_contexts_d,
     void* cu_seqlens_q_d,
     void* cu_seqlens_k_d,
+    void* page_offsets,
+    void* page_ids,
+    void* last_page_lens,
     void* num_targets_d,
     bool has_rab,
-    bool is_delta_q,
+    bool is_paged_kv,
+    const at::Tensor& func,
     int window_size_left,
     int window_size_right) {
   // Reset the parameters
@@ -121,23 +126,6 @@ void set_params_fprop(
       "This hstu attention build does not support fp16.");
 #endif
 
-  // Set the block scheduling
-  // float coeff = 0.3;
-  params->is_balance_fwd = false;
-  params->is_balance_bwd = false;
-  // auto dprops = at::cuda::getCurrentDeviceProperties();
-  // int l2_size = dprops->l2CacheSize;
-  // int sm_count = dprops->multiProcessorCount;
-  // int num_KV = std::min(sm_count, int(b * h_k));
-  // int kv_cache_size = 2 * seqlen_k * num_KV * d * sizeof(k.dtype()) * coeff;
-  // int do_cache_size = seqlen_q * num_KV * d * sizeof(out.dtype()) * coeff;
-  // if (kv_cache_size < l2_size) {
-  //   params->is_balance_fwd = true;
-  // }
-  // if (kv_cache_size + do_cache_size < l2_size) {
-  //   params->is_balance_bwd = true;
-  // }
-
   // Set the dimensions.
   params->b = b;
   params->h = h;
@@ -168,25 +156,6 @@ void set_params_fprop(
       !params->is_context,
       "This hstu attention build does not support context mask.");
 #endif
-  params->is_delta_q = is_delta_q;
-#ifdef HSTU_DISABLE_DELTA_Q
-  TORCH_CHECK(
-      !params->is_delta_q,
-      "This hstu attention build does not support delta_q.");
-#endif
-  if (is_delta_q) {
-    TORCH_CHECK(
-        params->seqlen_q <= params->seqlen_k,
-        "For delta_q = True, seqlen_q must be less than or equal to seqlen_k.");
-    TORCH_CHECK(
-        !params->is_target, "For delta_q = True, target mask must be False.");
-    TORCH_CHECK(
-        !params->is_context, "For delta_q = True, context mask must be False.");
-  } else {
-    TORCH_CHECK(
-        params->seqlen_q == params->seqlen_k,
-        "For delta_q = False, seqlen_q must be equal to seqlen_k.");
-  }
 
   if (window_size_left < 0 || window_size_left > (int)seqlen_k) {
     window_size_left = seqlen_k;
@@ -218,6 +187,39 @@ void set_params_fprop(
       !params->is_local,
       "This hstu attention build does not support local mask.");
 #endif
+
+  params->is_arbitrary_mask = func.defined();
+  #ifdef HSTU_DISABLE_ARBITRARY
+    TORCH_CHECK(
+        !params->is_arbitrary_mask,
+        "This hstu attention build does not support arbitrary mask.");
+  #endif
+  if (params->is_arbitrary_mask) {
+    TORCH_CHECK(func.dtype() == torch::kInt32, "func must have dtype int32");
+    CHECK_DEVICE(func); // batch_size x heads x n_func x seqlen_q
+
+    params->func_ptr = func.data_ptr();
+    params->func_ids_stride = func.stride(-2);
+    params->func_head_stride = func.stride(-3);
+    params->n_func = func.size(-2);
+    TORCH_CHECK(
+        params->n_func == HSTU_ARBITRARY_NFUNC,
+        "n_func must be equal to HSTU_ARBITRARY_NFUNC");
+  }
+
+  params->is_paged_kv = is_paged_kv;
+  if (is_paged_kv) {
+    params->kv_cache_ptr         = kv_cache.data_ptr();
+    params->kv_cache_row_stride  = kv_cache.stride(-2);
+    params->kv_cache_head_stride = kv_cache.stride(-3);
+    params->kv_cache_page_stride = kv_cache.stride(-4);
+    params->kv_cache_kvtensor_stride = kv_cache.stride(-5);
+    params->page_size = kv_cache.size(-3);
+    params->total_pages = kv_cache.size(-5);
+  }
+  params->page_offsets = static_cast<int*>(page_offsets);
+  params->page_ids = static_cast<int*>(page_ids);
+  params->last_page_lens = static_cast<int*>(last_page_lens);
 }
 
 void set_params_dgrad(
@@ -245,6 +247,7 @@ void set_params_dgrad(
     at::Tensor dk,
     at::Tensor dv,
     at::Tensor dq_accum,
+    at::Tensor func,
     void* num_contexts_d,
     void* cu_seqlens_q_d,
     void* cu_seqlens_k_d,
@@ -253,8 +256,7 @@ void set_params_dgrad(
     int window_size_right,
     bool deterministic,
     bool has_rab,
-    bool has_drab,
-    bool is_delta_q) {
+    bool has_drab) {
   *params = {};
   set_params_fprop(
       params,
@@ -273,13 +275,18 @@ void set_params_dgrad(
       k,
       v,
       rab,
+      /*kv_cache=*/at::Tensor(),
       /*out=*/at::Tensor(),
       num_contexts_d,
       cu_seqlens_q_d,
       cu_seqlens_k_d,
+      /*page_offsets=*/nullptr,
+      /*page_ids=*/nullptr,
+      /*last_page_lens=*/nullptr,
       num_targets_d,
       has_rab,
-      is_delta_q,
+      false,
+      func,
       window_size_left,
       window_size_right);
 
@@ -316,7 +323,14 @@ void set_params_dgrad(
   params->dv_head_stride = dv.stride(-2);
 
   params->dq_accum_ptr = dq_accum.data_ptr();
+  params->dq_accum_row_stride = dq_accum.stride(-3);
+  params->dq_accum_head_stride = dq_accum.stride(-2);
+
   params->deterministic = deterministic;
+#ifdef HSTU_DISABLE_DETERMINISTIC
+  TORCH_CHECK(
+      !deterministic, "This hstu attention build does not support deterministic.");
+#endif
   params->dq_accum_split_stride = !deterministic ? 0 : dq_accum.stride(0);
 }
 
@@ -327,88 +341,92 @@ template <
     bool Is_causal,
     bool Is_context,
     bool Is_target,
-    bool Is_delta_q>
+    bool Is_arbitrary,
+    int kNFunc>
 void run_hstu_fwd_headdim(Hstu_fwd_params& params, cudaStream_t stream) {
+  ARCH_SWITCH(params.arch, Arch, [&] {
 #ifndef HSTU_DISABLE_HDIM32
-  if (params.d == 32) {
-    run_hstu_fwd_80<
-        Dtype,
-        32,
-        Has_rab,
-        Is_local,
-        Is_causal,
-        Is_context,
-        Is_target,
-        Is_delta_q>(params, stream);
-  }
+    if (params.d == 32) {
+      run_hstu_fwd_8x<
+          Arch,
+          Dtype,
+          32,
+          Has_rab,
+          Is_local,
+          Is_causal,
+          Is_context,
+          Is_target,
+          Is_arbitrary,
+          kNFunc>(params, stream);
+    }
 #endif
 #ifndef HSTU_DISABLE_HDIM64
-  if (params.d == 64) {
-    run_hstu_fwd_80<
-        Dtype,
-        64,
-        Has_rab,
-        Is_local,
-        Is_causal,
-        Is_context,
-        Is_target,
-        Is_delta_q>(params, stream);
-  }
+    if (params.d == 64) {
+      run_hstu_fwd_8x<
+          Arch,
+          Dtype,
+          64,
+          Has_rab,
+          Is_local,
+          Is_causal,
+          Is_context,
+          Is_target,
+          Is_arbitrary,
+          kNFunc>(params, stream);
+    }
 #endif
 #ifndef HSTU_DISABLE_HDIM128
-  if (params.d == 128) {
-    run_hstu_fwd_80<
-        Dtype,
-        128,
-        Has_rab,
-        Is_local,
-        Is_causal,
-        Is_context,
-        Is_target,
-        Is_delta_q>(params, stream);
-  }
+    if (params.d == 128) {
+      run_hstu_fwd_8x<
+          Arch,
+          Dtype,
+          128,
+          Has_rab,
+          Is_local,
+          Is_causal,
+          Is_context,
+          Is_target,
+          Is_arbitrary,
+          kNFunc>(params, stream);
+    }
 #endif
 #ifndef HSTU_DISABLE_HDIM256
-  if (params.d == 256) {
-    run_hstu_fwd_80<
-        Dtype,
-        256,
-        Has_rab,
-        Is_local,
-        Is_causal,
-        Is_context,
-        Is_target,
-        Is_delta_q>(params, stream);
-  }
+    if (params.d == 256) {
+      run_hstu_fwd_8x<
+          Arch,
+          Dtype,
+          256,
+          Has_rab,
+          Is_local,
+          Is_causal,
+          Is_context,
+          Is_target,
+          Is_arbitrary,
+          kNFunc>(params, stream);
+    }
 #endif
+  });
 }
 
 void run_hstu_fwd_ampere(Hstu_fwd_params& params, cudaStream_t stream) {
   RAB_SWITCH(params.has_rab, Has_rab, [&] {
     FP16_BF16_SWITCH(params.is_bf16, [&] {
-#ifndef HSTU_DISABLE_DELTA_Q
-      if (params.is_delta_q) {
-#ifndef HSTU_DISABLE_LOCAL
-        if (params.is_local) {
-          run_hstu_fwd_headdim<Dtype, Has_rab, true, false, false, false, true>(
-              params, stream);
-          return;
-        }
-#endif
-        run_hstu_fwd_headdim<Dtype, Has_rab, false, true, false, false, true>(
+#ifndef HSTU_DISABLE_ARBITRARY
+      if (params.is_arbitrary_mask) {
+        run_hstu_fwd_headdim<Dtype, Has_rab, false, false, false, false, true, HSTU_ARBITRARY_NFUNC>(
             params, stream);
         return;
       }
 #endif
 #ifndef HSTU_DISABLE_LOCAL
       if (params.is_local) {
-        run_hstu_fwd_headdim<Dtype, Has_rab, true, false, false, false, false>(
+        run_hstu_fwd_headdim<Dtype, Has_rab, true, false, false, false, false, 0>(
             params, stream);
         return;
       }
 #endif
       if (!params.is_causal) {
-        run_hstu_fwd_headdim<Dtype, Has_rab, false, false, false, false, false>(
+        run_hstu_fwd_headdim<Dtype, Has_rab, false, false, false, false, false, 0>(
             params, stream);
         return;
       } else {
@@ -422,7 +440,8 @@ void run_hstu_fwd_ampere(Hstu_fwd_params& params, cudaStream_t stream) {
                 true,
                 Is_context,
                 Is_target,
-                false>(params, stream);
+                false,
+                0>(params, stream);
           });
         });
 #endif
@@ -449,7 +468,11 @@ std::tuple<at::Tensor, at::Tensor> hstu_varlen_fwd_80(
     int64_t window_size_right,
     const double alpha,
     std::optional<at::Tensor> rab,
-    const bool is_delta_q) {
+    const std::optional<at::Tensor>& func,
+    const std::optional<at::Tensor>& kv_cache,
+    const std::optional<at::Tensor>& page_offsets,
+    const std::optional<at::Tensor>& page_ids,
+    const std::optional<at::Tensor>& last_page_lens) {
   auto dprops = at::cuda::getCurrentDeviceProperties();
   TORCH_CHECK(dprops->major >= 8, "HSTU only supports Ampere GPUs or newer.");
 
@@ -543,34 +566,40 @@ std::tuple<at::Tensor, at::Tensor> hstu_varlen_fwd_80(
     }
   }
 
+  bool is_paged_kv = kv_cache.has_value() && page_offsets.has_value() && page_ids.has_value() && last_page_lens.has_value();
   Hstu_fwd_params params;
   set_params_fprop(
-      &params, //
-      batch_size, //
-      max_seqlen_q, //
-      max_seqlen_k, //
-      target_group_size, //
-      seqlen_q_rounded, //
-      seqlen_k_rounded, //
-      num_heads, //
-      num_heads_k, //
-      num_heads_rab, //
-      head_size, //
-      alpha, //
-      q, //
-      k, //
-      v, //
-      has_rab ? rab.value() : at::Tensor(), //
-      out, //
-      num_contexts.has_value() ? num_contexts.value().data_ptr() : nullptr, //
-      cu_seqlens_q.data_ptr(), //
-      cu_seqlens_k.data_ptr(), //
-      num_targets.has_value() ? num_targets.value().data_ptr() : nullptr, //
-      has_rab, //
-      is_delta_q, //
-      window_size_left, //
-      window_size_right); //
-  if (max_seqlen_k > 0) {
+      &params,
+      batch_size,
+      max_seqlen_q,
+      max_seqlen_k,
+      target_group_size,
+      seqlen_q_rounded,
+      seqlen_k_rounded,
+      num_heads,
+      num_heads_k,
+      num_heads_rab,
+      head_size,
+      alpha,
+      q,
+      k,
+      v,
+      has_rab ? rab.value() : at::Tensor(),
+      kv_cache.has_value() ? kv_cache.value() : at::Tensor(),
+      out,
+      num_contexts.has_value() ? num_contexts.value().data_ptr() : nullptr,
+      cu_seqlens_q.data_ptr(),
+      cu_seqlens_k.data_ptr(),
+      page_offsets.has_value() ? page_offsets.value().data_ptr() : nullptr,
+      page_ids.has_value() ? page_ids.value().data_ptr() : nullptr,
+      last_page_lens.has_value() ? last_page_lens.value().data_ptr() : nullptr,
+      num_targets.has_value() ? num_targets.value().data_ptr() : nullptr,
+      has_rab,
+      is_paged_kv,
+      func.has_value() ? func.value() : torch::Tensor(),
+      window_size_left,
+      window_size_right);
+  if (total_k > 0) {
     auto stream = at::cuda::getCurrentCUDAStream().stream();
     run_hstu_fwd_ampere(params, stream);
   } else {
@@ -588,8 +617,10 @@ template <
     bool Is_causal,
     bool Is_context,
     bool Is_target,
-    bool Is_delta_q>
+    bool Is_arbitrary,
+    int kNFunc>
 void run_hstu_bwd_headdim(Hstu_bwd_params& params, cudaStream_t stream) {
+  DETERMINISTIC_SWITCH(params.deterministic, Is_deterministic, [&] {
 #ifndef HSTU_DISABLE_HDIM32
   if (params.d == 32) {
     run_hstu_bwd_80<
@@ -601,7 +632,9 @@ void run_hstu_bwd_headdim(Hstu_bwd_params& params, cudaStream_t stream) {
         Is_causal,
         Is_context,
         Is_target,
-        Is_delta_q>(params, stream);
+        Is_arbitrary,
+        kNFunc,
+        Is_deterministic>(params, stream);
   }
 #endif
 #ifndef HSTU_DISABLE_HDIM64
@@ -615,7 +648,9 @@ void run_hstu_bwd_headdim(Hstu_bwd_params& params, cudaStream_t stream) {
         Is_causal,
         Is_context,
         Is_target,
-        Is_delta_q>(params, stream);
+        Is_arbitrary,
+        kNFunc,
+        Is_deterministic>(params, stream);
   }
 #endif
 #ifndef HSTU_DISABLE_HDIM128
@@ -629,7 +664,9 @@ void run_hstu_bwd_headdim(Hstu_bwd_params& params, cudaStream_t stream) {
         Is_causal,
         Is_context,
         Is_target,
-        Is_delta_q>(params, stream);
+        Is_arbitrary,
+        kNFunc,
+        Is_deterministic>(params, stream);
   }
 #endif
 #ifndef HSTU_DISABLE_HDIM256
@@ -643,40 +680,30 @@ void run_hstu_bwd_headdim(Hstu_bwd_params& params, cudaStream_t stream) {
         Is_causal,
         Is_context,
         Is_target,
-        Is_delta_q>(params, stream);
+        Is_arbitrary,
+        kNFunc,
+        Is_deterministic>(params, stream);
   }
 #endif
+  });
 }
 
 void run_hstu_bwd_ampere(Hstu_bwd_params& params, cudaStream_t stream) {
 #ifndef HSTU_DISABLE_BACKWARD
   RAB_DRAB_SWITCH(params.has_rab, params.has_drab, Has_rab, Has_drab, [&] {
     FP16_BF16_SWITCH(params.is_bf16, [&] {
-#ifndef HSTU_DISABLE_DELTA_Q
-      if (params.is_delta_q) {
-#ifndef HSTU_DISABLE_LOCAL
-        if (params.is_local) {
-          run_hstu_bwd_headdim<
-              Dtype,
-              Has_rab,
-              Has_drab,
-              true,
-              false,
-              false,
-              false,
-              true>(params, stream);
-          return;
-        }
-#endif
+#ifndef HSTU_DISABLE_ARBITRARY
+      if (params.is_arbitrary_mask) {
         run_hstu_bwd_headdim<
             Dtype,
             Has_rab,
             Has_drab,
             false,
+            false,
+            false,
+            false,
             true,
-            false,
-            false,
-            true>(params, stream);
+            HSTU_ARBITRARY_NFUNC>(params, stream);
         return;
       }
 #endif
@@ -690,7 +717,8 @@ void run_hstu_bwd_ampere(Hstu_bwd_params& params, cudaStream_t stream) {
             false,
             false,
             false,
-            false>(params, stream);
+            false,
+            0>(params, stream);
         return;
       }
 #endif
@@ -703,7 +731,8 @@ void run_hstu_bwd_ampere(Hstu_bwd_params& params, cudaStream_t stream) {
             false,
             false,
             false,
-            false>(params, stream);
+            false,
+            0>(params, stream);
         return;
       } else {
 #ifndef HSTU_DISABLE_CAUSAL
@@ -717,7 +746,8 @@ void run_hstu_bwd_ampere(Hstu_bwd_params& params, cudaStream_t stream) {
                 true,
                 Is_context,
                 Is_target,
-                false>(params, stream);
+                false,
+                0>(params, stream);
           });
         });
 #endif
@@ -740,6 +770,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> hstu_varlen_bwd_80(
     const at::Tensor& cu_seqlens_k, // b+1
     const int64_t max_seqlen_q,
     const int64_t max_seqlen_k,
+    const std::optional<at::Tensor> &dq_,
+    const std::optional<at::Tensor> &dk_,
+    const std::optional<at::Tensor> &dv_,
     const std::optional<at::Tensor>& num_contexts, // b
     const std::optional<at::Tensor>& num_targets, // b
     const int64_t target_group_size,
@@ -748,10 +781,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> hstu_varlen_bwd_80(
     const double alpha,
     const std::optional<at::Tensor>& rab,
     const bool has_drab,
-    const bool is_delta_q,
+    const std::optional<at::Tensor>& func,
     const bool deterministic) {
   auto dprops = at::cuda::getCurrentDeviceProperties();
   TORCH_CHECK(dprops->major >= 8, "HSTU only supports Ampere GPUs or newer.");
+  TORCH_CHECK(
+      dprops->major == 8 && dprops->minor == 0,
+      "HSTU backward does not support sm86 or sm89.");
   auto stream = at::cuda::getCurrentCUDAStream().stream();
 
   auto q_dtype = q.dtype();
@@ -845,9 +881,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> hstu_varlen_bwd_80(
         rab.value(), batch_size, num_heads_rab, max_seqlen_k, seqlen_k_rounded);
   }
 
-  at::Tensor dq = torch::empty_like(q);
-  at::Tensor dk = torch::empty_like(k);
-  at::Tensor dv = torch::empty_like(v);
+  at::Tensor dq = dq_.has_value() ? dq_.value() : torch::empty_like(q);
+  at::Tensor dk = dk_.has_value() ? dk_.value() : torch::empty_like(k);
+  at::Tensor dv = dv_.has_value() ? dv_.value() : torch::empty_like(v);
 
   // Otherwise the kernel will be launched from cuda:0 device
   at::cuda::CUDAGuard device_guard{q.get_device()};
@@ -890,48 +926,47 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> hstu_varlen_bwd_80(
     zeros.
     */
     dRab = torch::zeros(
-        {batch_size, num_heads, max_seqlen_k, seqlen_k_rounded}, opts);
+        {batch_size, num_heads_rab, max_seqlen_k, seqlen_k_rounded}, opts);
   }
 
   set_params_dgrad(
       &params,
-      batch_size, //
-      max_seqlen_q, //
-      max_seqlen_k, //
-      target_group_size, //
-      seqlen_q_rounded, //
-      seqlen_k_rounded, //
-      num_heads, //
-      num_heads_k, //
-      num_heads_rab, //
-      head_size, //
-      alpha, //
-      q, //
-      k, //
-      v, //
-      dout, //
-      has_rab ? rab.value() : at::Tensor(), //
-      dRab, //
-      dq, //
-      dk, //
-      dv, //
-      dq_accum, //
-      num_contexts.has_value() ? num_contexts.value().data_ptr() : nullptr, //
-      cu_seqlens_q.data_ptr(), //
-      cu_seqlens_k.data_ptr(), //
-      num_targets.has_value() ? num_targets.value().data_ptr() : nullptr, //
-      window_size_left, //
-      window_size_right, //
-      deterministic, //
-      has_rab, //
-      has_drab, //
-      is_delta_q); //
+      batch_size,
+      max_seqlen_q,
+      max_seqlen_k,
+      target_group_size,
+      seqlen_q_rounded,
+      seqlen_k_rounded,
+      num_heads,
+      num_heads_k,
+      num_heads_rab,
+      head_size,
+      alpha,
+      q,
+      k,
+      v,
+      dout,
+      has_rab ? rab.value() : at::Tensor(),
+      dRab,
+      dq,
+      dk,
+      dv,
+      dq_accum,
+      func.has_value() ? func.value() : at::Tensor(),
+      num_contexts.has_value() ? num_contexts.value().data_ptr() : nullptr,
+      cu_seqlens_q.data_ptr(),
+      cu_seqlens_k.data_ptr(),
+      num_targets.has_value() ? num_targets.value().data_ptr() : nullptr,
+      window_size_left,
+      window_size_right,
+      deterministic,
+      has_rab,
+      has_drab);
 
-  if (max_seqlen_q > 0) {
+  if (total_q > 0) {
     run_hstu_bwd_ampere(params, stream);
   } else {
-    // If max_seqlen_q == 0, then we have an empty tensor. We need to set the
-    // output to 0.
+    // If total_q == 0, then we have an empty tensor. We need to set the output to 0.
     dk.zero_();
     dv.zero_();
     dRab.zero_();
@@ -965,7 +1000,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    int window_size_right=-1, "
       "    float alpha=1.0, "
       "    Tensor? rab=None, "
-      "    bool is_delta_q=False"
+      "    Tensor? func=None, "
+      "    Tensor? kv_cache=None, "
+      "    Tensor? page_offsets=None, "
+      "    Tensor? page_ids=None, "
+      "    Tensor? last_page_lens=None"
       ") -> (Tensor, Tensor)");
   m.def(
       "hstu_varlen_bwd_80("
@@ -977,6 +1016,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor cu_seqlens_k, "
       "    int max_seqlen_q, "
       "    int max_seqlen_k, "
+      "    Tensor? dq=None, "
+      "    Tensor? dk=None, "
+      "    Tensor? dv=None, "
       "    Tensor? num_contexts=None, "
       "    Tensor? num_targets=None, "
       "    int target_group_size=1, "
@@ -985,7 +1027,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    float alpha=1.0, "
       "    Tensor? rab=None, "
       "    bool has_drab=False, "
-      "    bool is_delta_q=False, "
+      "    Tensor? func=None, "
       "    bool deterministic=False"
       ") -> (Tensor, Tensor, Tensor, Tensor)");
 }
