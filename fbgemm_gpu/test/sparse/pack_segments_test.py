@@ -112,6 +112,7 @@ class PackedSegmentsTest(unittest.TestCase):
                 torch.float,
                 torch.half,
                 torch.bfloat16,
+                torch.int,
             ]
         ),
         torch_compile=st.booleans(),
@@ -143,7 +144,8 @@ class PackedSegmentsTest(unittest.TestCase):
         """
 
         input_raw = np.random.rand(batch_size, n, k)
-        input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
+        test_backward = dtype != torch.int
+        input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=test_backward)
         lengths = torch.tensor(
             get_n_rand_num_summing_to_k(divisions, batch_size),
             dtype=torch.int,
@@ -171,8 +173,9 @@ class PackedSegmentsTest(unittest.TestCase):
         ).to(dtype)
         grad_cpu_v2 = torch.clone(grad_cpu)
         # CPU backward
-        packed_tensor.backward(grad_cpu)
-        packed_tensor_v2.backward(grad_cpu_v2)
+        if test_backward:
+            packed_tensor.backward(grad_cpu)
+            packed_tensor_v2.backward(grad_cpu_v2)
 
         if gpu_available:
             pack_segments_fun = torch.ops.fbgemm.pack_segments
@@ -203,12 +206,15 @@ class PackedSegmentsTest(unittest.TestCase):
             self.assertTrue(torch.equal(packed_tensor_v2, packed_cuda_v2.cpu()))
 
             # GPU backward
-            packed_cuda.backward(grad_cpu.cuda())
-            packed_cuda_v2.backward(grad_cpu_v2.cuda())
+            if test_backward:
+                packed_cuda.backward(grad_cpu.cuda())
+                packed_cuda_v2.backward(grad_cpu_v2.cuda())
 
             # dynamic check
             input_raw = np.random.rand(batch_size, n + 1, k + 2)
-            input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
+            input_data = torch.tensor(
+                input_raw, dtype=dtype, requires_grad=test_backward
+            )
             lengths = torch.tensor(
                 get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
             )
@@ -233,8 +239,9 @@ class PackedSegmentsTest(unittest.TestCase):
             ).to(dtype)
             grad_cpu_v2 = torch.clone(grad_cpu)
             # CPU backward
-            packed_tensor.backward(grad_cpu)
-            packed_tensor_v2.backward(grad_cpu_v2)
+            if test_backward:
+                packed_tensor.backward(grad_cpu)
+                packed_tensor_v2.backward(grad_cpu_v2)
 
             # reusing the previously compiled kernel
             packed_cuda = pack_segments_fun(
@@ -251,8 +258,9 @@ class PackedSegmentsTest(unittest.TestCase):
             self.assertTrue(torch.equal(packed_tensor_v2, packed_cuda_v2.cpu()))
 
             # GPU backward
-            packed_cuda.backward(grad_cpu.cuda())
-            packed_cuda_v2.backward(grad_cpu_v2.cuda())
+            if test_backward:
+                packed_cuda.backward(grad_cpu.cuda())
+                packed_cuda_v2.backward(grad_cpu_v2.cuda())
 
     @given(
         n=st.integers(2, 10),
@@ -265,6 +273,7 @@ class PackedSegmentsTest(unittest.TestCase):
                 torch.float,
                 torch.half,
                 torch.bfloat16,
+                torch.int,
             ]
         ),
         torch_compile=st.booleans(),
