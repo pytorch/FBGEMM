@@ -33,7 +33,10 @@ class DramKvInferenceTest(unittest.TestCase):
         uniform_init_upper: float = 0.01
 
         kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            num_shards, uniform_init_lower, uniform_init_upper
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            False,  # disable_random_init
         )
         serialized_result = kv_embedding_cache.serialize()
 
@@ -48,12 +51,15 @@ class DramKvInferenceTest(unittest.TestCase):
         uniform_init_upper: float = 0.01
 
         kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            num_shards, uniform_init_lower, uniform_init_upper
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            False,  # disable_random_init
         )
         serialized_result = kv_embedding_cache.serialize()
 
         kv_embedding_cache_2 = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            0, 0.0, 0.0
+            0, 0.0, 0.0, False  # disable_random_init
         )
         kv_embedding_cache_2.deserialize(serialized_result)
 
@@ -65,7 +71,10 @@ class DramKvInferenceTest(unittest.TestCase):
         uniform_init_upper: float = 0.0
 
         kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            num_shards, uniform_init_lower, uniform_init_upper
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            False,  # disable_random_init
         )
         kv_embedding_cache.init(
             [(20, 4, SparseType.INT8.as_int())],
@@ -122,7 +131,10 @@ class DramKvInferenceTest(unittest.TestCase):
         uniform_init_upper: float = 0.0
 
         kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            num_shards, uniform_init_lower, uniform_init_upper
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            False,  # disable_random_init
         )
         kv_embedding_cache.init(
             [(20, 4, SparseType.INT8.as_int())],
@@ -258,7 +270,10 @@ class DramKvInferenceTest(unittest.TestCase):
 
         # Create DRAM KV inference cache
         kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            num_shards, uniform_init_lower, uniform_init_upper
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            False,  # disable_random_init
         )
         kv_embedding_cache.init(
             [(32, 4, SparseType.FP16.as_int())],
@@ -312,4 +327,61 @@ class DramKvInferenceTest(unittest.TestCase):
             self.assertTrue(
                 torch.any(result[:, :4] != 0),
                 "Cache miss results should contain non-zero values when cache has data",
+            )
+
+    def test_zero_cache_miss_initialization_with_embedding_cache_mode(self) -> None:
+        """Test that cache misses return all zero values when embedding_cache_mode=True."""
+        num_shards = 8
+        uniform_init_lower: float = -0.01
+        uniform_init_upper: float = 0.01
+
+        # Setup: Create DRAM KV inference cache with embedding_cache_mode=True (zero initialization)
+        kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            True,  # embedding_cache_mode=True for zero initialization
+        )
+        kv_embedding_cache.init(
+            [(32, 4, SparseType.FP16.as_int())],
+            32,
+            4,
+            torch.tensor([0, 100], dtype=torch.int64),
+        )
+
+        # Populate the cache with some initial non-zero values to ensure zero initialization
+        # is not just due to empty cache
+        setup_indices = torch.arange(0, 50, dtype=torch.int64)
+        setup_weights = torch.randint(
+            1, 255, (50, 32), dtype=torch.uint8
+        )  # Non-zero values
+        kv_embedding_cache.set_embeddings(setup_indices, setup_weights)
+
+        # Execute: Request cache misses - these should get zero initialization due to embedding_cache_mode=True
+        # Use indices outside the range [0, 49] to ensure they are actual cache misses
+        miss_indices = torch.tensor([100, 101, 102, 103, 104], dtype=torch.int64)
+        results = []
+
+        # Get cache miss results multiple times to ensure consistent behavior
+        for _ in range(3):
+            current_output = kv_embedding_cache.get_embeddings(miss_indices)
+            results.append(current_output.clone())
+
+        # Assert: Verify that all cache miss results are zeros when embedding_cache_mode=True
+        expected_zeros = torch.zeros((5, 32), dtype=torch.uint8)
+
+        for i, result in enumerate(results):
+            # Check that all cache miss results are zero
+            self.assertTrue(
+                torch.equal(result, expected_zeros),
+                f"Cache miss results should be all zeros when embedding_cache_mode=True, "
+                f"but got non-zero values in iteration {i}: {result[:, :4]}",
+            )
+
+        # Additional verification: all results should be identical since they're all zeros
+        for i in range(1, len(results)):
+            self.assertTrue(
+                torch.equal(results[0], results[i]),
+                f"All zero cache miss results should be identical across calls, "
+                f"but results[0] != results[{i}]",
             )
