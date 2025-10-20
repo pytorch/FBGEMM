@@ -7,18 +7,30 @@
  */
 
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_inference_wrapper.h"
+#include <gflags/gflags.h>
 #include <torch/custom_class.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/embedding_common.h" // @manual=//deeplearning/fbgemm/fbgemm_gpu:fbgemm_gpu
+
+DEFINE_int64(
+    dram_kv_embedding_num_shards,
+    32,
+    "Number of shards for DRAM KV inference embedding");
 
 namespace fbgemm_gpu {
 
 DramKVEmbeddingInferenceWrapper::DramKVEmbeddingInferenceWrapper(
     int64_t num_shards,
     double uniform_init_lower,
-    double uniform_init_upper)
+    double uniform_init_upper,
+    bool disable_random_init)
     : num_shards_(num_shards),
       uniform_init_lower_(uniform_init_lower),
-      uniform_init_upper_(uniform_init_upper) {}
+      uniform_init_upper_(uniform_init_upper),
+      disable_random_init_(disable_random_init) {
+  LOG(INFO)
+      << "DramKVEmbeddingInferenceWrapper created with disable_random_init = "
+      << disable_random_init_ << ", num_shards = " << num_shards_;
+}
 
 void DramKVEmbeddingInferenceWrapper::init(
     const std::vector<SerializedSepcType>& specs,
@@ -70,8 +82,8 @@ void DramKVEmbeddingInferenceWrapper::init(
       8 /* row_storage_bitwidth */,
       false /* enable_async_update */,
       std::nullopt /* table_dims */,
-      hash_size_cumsum);
-  return;
+      hash_size_cumsum,
+      disable_random_init_);
 }
 
 std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>>
@@ -96,7 +108,6 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings(
   }
   folly::coro::blockingWait(dram_kv_->inference_set_kv_db_async(
       indices, weights, count, inplacee_update_ts));
-  return;
 }
 
 at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
@@ -113,7 +124,7 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
 }
 
 void DramKVEmbeddingInferenceWrapper::log_inplace_update_stats() {
-  return dram_kv_->log_inplace_update_stats();
+  dram_kv_->log_inplace_update_stats();
 }
 
 void DramKVEmbeddingInferenceWrapper::trigger_evict(
@@ -159,8 +170,17 @@ static auto dram_kv_embedding_inference_wrapper =
     torch::class_<fbgemm_gpu::DramKVEmbeddingInferenceWrapper>(
         "fbgemm",
         "DramKVEmbeddingInferenceWrapper")
-        .def(torch::init<int64_t, double, double>())
-        .def("init", &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::init)
+        .def(torch::init<int64_t, double, double, bool>())
+        .def(
+            "init",
+            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::init,
+            "",
+            {
+                torch::arg("specs"),
+                torch::arg("row_alignment"),
+                torch::arg("scale_bias_size_in_bytes"),
+                torch::arg("hash_size_cumsum"),
+            })
         .def(
             "set_embeddings",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::set_embeddings,
