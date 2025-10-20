@@ -51,6 +51,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "fp8fp8bf16_fast_gemv(Tensor X, Tensor W, Tensor x_scale, Tensor w_scale, bool is_batched=False) -> Tensor");
   m.def("f8f8bf16_lite(Tensor XQ, Tensor WQ, Tensor scale) -> Tensor");
   m.def(
+      "f8f8bf16_conv(Tensor activation, Tensor filter, Tensor scale, int[] padding, int[] stride, int[] dilation) -> Tensor");
+  m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor W, Tensor w_scale_group, Tensor w_zero_group) -> Tensor");
   m.def(
       "bf16i4bf16_shuffled_batched(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
