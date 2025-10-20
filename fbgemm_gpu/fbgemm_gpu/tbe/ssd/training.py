@@ -4547,7 +4547,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ):
                 if len(self.ssd_scratch_pad_eviction_data) > 0:
                     self.ssd_scratch_pad_eviction_data.pop(0)
+                    if self.prefetch_pipeline:
+                        if len(self.ssd_scratch_pads) > 0:
+                            self.ssd_scratch_pads.pop(0)  # Keep in sync
+
+                        # Clear location update data since there is no backward flow for embedding cache.
+                        if len(self.ssd_location_update_data) > 0:
+                            self.ssd_location_update_data.pop(0)
+
                     if len(self.ssd_scratch_pad_eviction_data) > 0:
+                        # Wait for any pending backend reads to the next scratch pad
+                        # to complete before we write to it. Otherwise, stale backend data
+                        # will overwrite our direct_write updates.
+                        # The ssd_event_get marks completion of backend fetch operations.
+                        current_stream.wait_event(self.ssd_event_get)
+
                         # if scratch pad exists, write to next batch scratch pad
                         sp = self.ssd_scratch_pad_eviction_data[0][0]
                         sp_idx = self.ssd_scratch_pad_eviction_data[0][1].to(
