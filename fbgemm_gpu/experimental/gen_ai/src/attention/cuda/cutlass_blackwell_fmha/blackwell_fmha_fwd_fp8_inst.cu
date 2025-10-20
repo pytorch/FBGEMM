@@ -23,6 +23,8 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     std::optional<int64_t> max_seq_len_k,
     const std::optional<double> softmax_scale,
     const std::optional<const at::Tensor>& seqlen_kv,
+    const std::optional<const at::Tensor>& page_table,
+    std::optional<int64_t> seqlen_k,
     const int window_size_left,
     const int window_size_right);
 
@@ -42,6 +44,8 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     std::optional<int64_t> max_seq_len_k,
     const std::optional<double> softmax_scale,
     const std::optional<const at::Tensor>& seqlen_kv,
+    const std::optional<const at::Tensor>& page_table,
+    std::optional<int64_t> seqlen_k,
     const int window_size_left,
     const int window_size_right);
 
@@ -62,6 +66,8 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     std::optional<int64_t> max_seq_len_k,
     const std::optional<double> softmax_scale,
     const std::optional<const at::Tensor>& seqlen_kv,
+    const std::optional<const at::Tensor>& page_table,
+    std::optional<int64_t> seqlen_k,
     const int window_size_left,
     const int window_size_right);
 
@@ -81,6 +87,8 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     std::optional<int64_t> max_seq_len_k,
     const std::optional<double> softmax_scale,
     const std::optional<const at::Tensor>& seqlen_kv,
+    const std::optional<const at::Tensor>& page_table,
+    std::optional<int64_t> seqlen_k,
     const int window_size_left,
     const int window_size_right);
 
@@ -101,6 +109,8 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     std::optional<int64_t> max_seq_len_k,
     const std::optional<double> softmax_scale,
     const std::optional<const at::Tensor>& seqlen_kv,
+    const std::optional<const at::Tensor>& page_table,
+    std::optional<int64_t> seqlen_k,
     const int window_size_left,
     const int window_size_right);
 
@@ -120,6 +130,8 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     std::optional<int64_t> max_seq_len_k,
     const std::optional<double> softmax_scale,
     const std::optional<const at::Tensor>& seqlen_kv,
+    const std::optional<const at::Tensor>& page_table,
+    std::optional<int64_t> seqlen_k,
     const int window_size_left,
     const int window_size_right);
 
