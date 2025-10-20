@@ -18,7 +18,8 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   DramKVEmbeddingInferenceWrapper(
       int64_t num_shards = 32,
       double uniform_init_lower = 0.0,
-      double uniform_init_upper = 0.0);
+      double uniform_init_upper = 0.0,
+      bool disable_random_init = false);
 
   using SerializedSepcType =
       std::tuple<int64_t, int64_t, int64_t>; // (rows, dime, sparse_type)
@@ -55,6 +56,7 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   int64_t num_shards_ = 32;
   double uniform_init_lower_ = 0.0;
   double uniform_init_upper_ = 0.0;
+  bool disable_random_init_ = false;
 
   std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> dram_kv_;
   int64_t max_row_bytes_ = 0;
