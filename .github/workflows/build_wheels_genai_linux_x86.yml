@@ -81,4 +81,4 @@ jobs:
       trigger-event: ${{ github.event_name }}
       # Based on current measurements for CUDA 12.9 workflows, builds take
       # 2.5 hours while tests take 0.1 hours
-      timeout: 210
+      timeout: 270
