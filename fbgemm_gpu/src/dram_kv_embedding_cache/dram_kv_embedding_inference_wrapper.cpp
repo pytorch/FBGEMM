@@ -7,8 +7,14 @@
  */
 
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_inference_wrapper.h"
+#include <gflags/gflags.h>
 #include <torch/custom_class.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/embedding_common.h" // @manual=//deeplearning/fbgemm/fbgemm_gpu:fbgemm_gpu
+
+DEFINE_int64(
+    dram_kv_embedding_num_shards,
+    32,
+    "Number of shards for DRAM KV inference embedding");
 
 namespace fbgemm_gpu {
 
@@ -23,7 +29,7 @@ DramKVEmbeddingInferenceWrapper::DramKVEmbeddingInferenceWrapper(
       disable_random_init_(disable_random_init) {
   LOG(INFO)
       << "DramKVEmbeddingInferenceWrapper created with disable_random_init = "
-      << disable_random_init_;
+      << disable_random_init_ << ", num_shards = " << num_shards_;
 }
 
 void DramKVEmbeddingInferenceWrapper::init(

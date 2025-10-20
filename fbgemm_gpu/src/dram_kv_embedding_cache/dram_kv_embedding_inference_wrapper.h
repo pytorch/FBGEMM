@@ -8,15 +8,18 @@
 
 #pragma once
 
+#include <gflags/gflags_declare.h>
 #include <torch/custom_class.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_inference_embedding.h"
+
+DECLARE_int64(dram_kv_embedding_num_shards);
 
 namespace fbgemm_gpu {
 
 class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
  public:
   DramKVEmbeddingInferenceWrapper(
-      int64_t num_shards = 32,
+      int64_t num_shards = FLAGS_dram_kv_embedding_num_shards,
       double uniform_init_lower = 0.0,
       double uniform_init_upper = 0.0,
       bool disable_random_init = false);
