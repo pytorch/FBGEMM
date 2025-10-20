@@ -257,10 +257,17 @@ struct Sm100FmhaFwdMainloopTmaWarpspecialized {
       PipelineKV& pipeline_kv, typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
 
     Load load;
-    load.load(blk_coord, problem_shape, params.load, params_problem_shape,
-        storage,
-        pipeline_q, pipeline_q_producer_state,
-        pipeline_kv, pipeline_kv_producer_state);
+    if (params.load.page_table) {
+      load.load_paged(blk_coord, problem_shape, params.load, params_problem_shape,
+          storage,
+          pipeline_q, pipeline_q_producer_state,
+          pipeline_kv, pipeline_kv_producer_state);
+    } else {
+      load.load(blk_coord, problem_shape, params.load, params_problem_shape,
+          storage,
+          pipeline_q, pipeline_q_producer_state,
+          pipeline_kv, pipeline_kv_producer_state);
+    }
   }
 
   template<class BlkCoord, class ProblemShape>
