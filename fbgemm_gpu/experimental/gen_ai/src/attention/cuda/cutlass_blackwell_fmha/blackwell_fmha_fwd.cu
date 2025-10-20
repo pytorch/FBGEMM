@@ -4,8 +4,8 @@
 
 std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
     const at::Tensor& q,
-    const at::Tensor& k,
-    const at::Tensor& v,
+    const at::Tensor& k, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
+    const at::Tensor& v, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
     const std::optional<at::Tensor>& cu_seqlens_q,
     const std::optional<at::Tensor>& cu_seqlens_k,
     std::optional<int64_t> max_seq_len_q,
@@ -13,9 +13,17 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
     std::optional<double> softmax_scale,
     bool causal,
     const std::optional<at::Tensor>& seqlen_kv,
+    const std::optional<at::Tensor>& page_table, // dim: (batch_size, max_num_pages_per_seq) , null if non-paged
+    std::optional<int64_t> seqlen_k,
     int64_t window_size_left,
     int64_t window_size_right,
     bool bottom_right) {
+
+  bool kIsPaged = false;
+  if (page_table && page_table->defined()) {
+    kIsPaged = true;
+  }
+
   // Handle local attention parameters
   bool local = (window_size_left >= 0 || window_size_right >= 0);
   if (local) {
@@ -60,6 +68,8 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
         max_seq_len_k,
         softmax_scale,
         seqlen_kv,
+        page_table,
+        seqlen_k,
         window_size_left,
         window_size_right);
   };
@@ -94,6 +104,7 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
   };
 
   auto dispatch_mask = [&](auto varlen) {
+    int seq_k = kIsPaged ? static_cast<int>(*seqlen_k) : varlen ? k.size(0) : k.size(1);
     if (causal) {
       if (bottom_right) {
         return dispatch_head_dim(varlen, CausalMask</*kIsQBegin=*/false>{});
@@ -106,7 +117,7 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
       } else {
         return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/true>{});
       }
-    } else if (varlen || k.size(1) % 128 != 0) {
+    } else if (varlen || seq_k % 128 != 0) {
       // Use the residual mask for varlen or when K seqlen is not multiple of
       // blockN
       return dispatch_head_dim(varlen, ResidualMask{});
@@ -138,6 +149,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    float? softmax_scale=None, "
       "    bool causal=False, "
       "    Tensor? seqlen_kv=None, "
+      "    Tensor? page_table=None, "
+      "    int? seqlen_k=None, "
       "    int window_size_left=-1, "
       "    int window_size_right=-1, "
       "    bool bottom_right=True"
