@@ -82,9 +82,9 @@ struct Sm100FmhaCtxKernelWarpspecializedSchedule {
   static const int NumRegsCorrection = 96 - (kDebugUsingPrintf ? 16 : 0);
   static const int NumRegsOther = 32 + (kDebugUsingPrintf ? 16 : 0);
   static const int NumRegsEmpty = 24;
-  
+
   static const int NumWarps = 16;
-  
+
 };
 
 
@@ -148,7 +148,7 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
   static const int NumWarpsCorrection = KernelSchedule::NumWarpsCorrection;
   static const int NumWarpsEpilogue = KernelSchedule::NumWarpsEpilogue;
   static const int NumWarpsLoad = KernelSchedule::NumWarpsLoad;
-  
+
   static_assert(NumWarpsEpilogue == CollectiveEpilogue::NumWarpsEpilogue);
   static_assert(NumWarpsLoad == CollectiveEpilogue::NumWarpsLoad);
 
@@ -177,13 +177,13 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
     };
 
     static constexpr bool IsPersistent = std::is_same_v<TileScheduler, PersistentTileScheduler> || std::is_same_v<TileScheduler, CausalPersistentTileScheduler>;
-    using MainloopEpilogueStorage = std::conditional_t<IsPersistent, 
-                                                       std::conditional_t<IsMla, 
+    using MainloopEpilogueStorage = std::conditional_t<IsPersistent,
+                                                       std::conditional_t<IsMla,
                                                                           std::conditional_t<CollectiveMainloop::IsOrderLoadEpilogue, UnionType, StructType>,
                                                                           StructType>,
                                                        UnionType>;
 
-    MainloopEpilogueStorage mainloop_epilogue; 
+    MainloopEpilogueStorage mainloop_epilogue;
 
     struct PipelineStorage {
       alignas(16) typename CollectiveMainloop::PipelineQ::SharedStorage load_q;
@@ -305,7 +305,7 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
       shared_storage.pipelines.load_q,
       pipeline_load_q_params,
       ClusterShape{},  cute::true_type{}, /*mask calc*/cute::false_type{});
-    
+
     typename CollectiveMainloop::PipelineKV::Params pipeline_load_kv_params;
     if (role == WarpRole::Load) {
       pipeline_load_kv_params.role = CollectiveMainloop::PipelineKV::ThreadCategory::Producer;
@@ -565,7 +565,7 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
       warpgroup_reg_set<NumRegsOther>();
 
       if constexpr (IsMla && CollectiveMainloop::IsOrderLoadEpilogue) {
-        cutlass::arch::NamedBarrier::arrive((NumWarpsLoad + NumWarpsEpilogue) * NumThreadsPerWarp, 
+        cutlass::arch::NamedBarrier::arrive((NumWarpsLoad + NumWarpsEpilogue) * NumThreadsPerWarp,
                                       cutlass::arch::ReservedNamedBarriers::EpilogueBarrier);
       }
 

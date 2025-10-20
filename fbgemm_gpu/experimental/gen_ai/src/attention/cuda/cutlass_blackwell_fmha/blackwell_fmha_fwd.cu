@@ -104,7 +104,13 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
   };
 
   auto dispatch_mask = [&](auto varlen) {
-    int seq_k = kIsPaged ? static_cast<int>(*seqlen_k) : varlen ? k.size(0) : k.size(1);
+    int seq_k = kIsPaged
+        ? (varlen
+            ? static_cast<int>(*max_seq_len_k)
+            : static_cast<int>(*seqlen_k))
+        : (varlen
+            ? k.size(0)
+            : k.size(1));
     if (causal) {
       if (bottom_right) {
         return dispatch_head_dim(varlen, CausalMask</*kIsQBegin=*/false>{});
@@ -113,7 +119,7 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
       }
     } else if (local) {
       if (bottom_right) {
-        return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/false>{});
+          return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/false>{});
       } else {
         return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/true>{});
       }
