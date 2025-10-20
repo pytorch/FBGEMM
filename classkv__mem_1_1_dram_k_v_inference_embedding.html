@@ -99,14 +99,14 @@ $(function(){ initResizable(false); });
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:a944cfac0c79a5573d59c9940f48f8ffb" id="r_a944cfac0c79a5573d59c9940f48f8ffb"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a944cfac0c79a5573d59c9940f48f8ffb">DramKVInferenceEmbedding</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt; feature_evict_config, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt)</td></tr>
-<tr class="separator:a944cfac0c79a5573d59c9940f48f8ffb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab0c68a345d8e1601c5a8e487312e50a1" id="r_ab0c68a345d8e1601c5a8e487312e50a1"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab0c68a345d8e1601c5a8e487312e50a1">DramKVInferenceEmbedding</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt; feature_evict_config, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt, bool disable_random_init=false)</td></tr>
+<tr class="separator:ab0c68a345d8e1601c5a8e487312e50a1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a31225c0d4a54952f46db295152b22065" id="r_a31225c0d4a54952f46db295152b22065"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31225c0d4a54952f46db295152b22065">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt)</td></tr>
 <tr class="separator:a31225c0d4a54952f46db295152b22065"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="a944cfac0c79a5573d59c9940f48f8ffb" name="a944cfac0c79a5573d59c9940f48f8ffb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a944cfac0c79a5573d59c9940f48f8ffb">&#9670;&#160;</a></span>DramKVInferenceEmbedding()</h2>
+<a id="ab0c68a345d8e1601c5a8e487312e50a1" name="ab0c68a345d8e1601c5a8e487312e50a1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab0c68a345d8e1601c5a8e487312e50a1">&#9670;&#160;</a></span>DramKVInferenceEmbedding()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -164,7 +164,12 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>disable_random_init</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
   </td>
