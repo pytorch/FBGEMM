@@ -1192,7 +1192,6 @@ def device_with_spec(  # noqa C901
         "weights": [[] for _ in range(iters)],
     }
     # row = iter, column = tensor
-    
     if load:
         requests = []
         for i in range(iters):
@@ -1253,7 +1252,6 @@ def device_with_spec(  # noqa C901
             torch.save(req.offsets, f"{save}/{i}_offsets.pt")
             torch.save(req.per_sample_weights, f"{save}/{i}_per_sample_weights.pt")
             torch.save(req.Bs_per_feature_per_rank, f"{save}/{i}_Bs_per_feature_per_rank.pt")
-            
     sum_DLs = sum([d * l for d, l in zip(Ds, Ls)])
     if do_pooling:
         read_write_bytes = (
@@ -1280,23 +1278,22 @@ def device_with_spec(  # noqa C901
 
     # forward
     time_per_iter = benchmark_requests(
-            requests,
-            lambda indices, offsets, per_sample_weights: emb.forward(
-                indices,
-                offsets,
-                per_sample_weights,
-                feature_requires_grad=feature_requires_grad,
-            ),
-            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-            num_warmups=warmup_runs,
-        )
+        requests,
+        lambda indices, offsets, per_sample_weights: emb.forward(
+            indices,
+            offsets,
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        ),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        num_warmups=warmup_runs,
+    )
     logging.info(
-            f"Forward, B: {B}, "
-            f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, W: {weighted}, "
-            f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-            f"T: {time_per_iter * 1.0e6:.0f}us"
-        )
-
+        f"Forward, B: {B}, "
+        f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, W: {weighted}, "
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
 
     if output_dtype == SparseType.INT8:
         # backward bench not representative
@@ -1315,7 +1312,7 @@ def device_with_spec(  # noqa C901
             # pyre-ignore[19]
             # pyre-fixme[61]: `D` is undefined, or not always defined.
             grad_output = torch.randn(requests[0].indices.numel(), D).to(get_device())
-    
+
     if save:
         torch.save(grad_output, f"{save}/grad_output.pt")
     # backward
