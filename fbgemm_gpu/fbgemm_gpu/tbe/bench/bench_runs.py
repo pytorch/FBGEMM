@@ -305,11 +305,11 @@ def benchmark_requests(  # noqa: C901
                     torch.save(out, f)
             else:
                 torch.save(out, f"{save}/{it}_fwd_grad_out.pt")
-            
+
             out.backward(grad)
             torch.cuda.synchronize()
             torch.save(out, f"{save}/{it}_bwd_grad_out.pt")
- 
+
             if sliced:
                 for id, t in enumerate(emb.split_embedding_weights()):
                     if compressed:
