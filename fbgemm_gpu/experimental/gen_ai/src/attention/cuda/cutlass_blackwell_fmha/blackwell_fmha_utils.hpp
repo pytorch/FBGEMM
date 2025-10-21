@@ -121,7 +121,10 @@ static void launch_fmha_op(const typename Operation::Arguments& arguments) {
       "This kernel is not supported. Last CUDA error is: ",
       cudaGetErrorString(cudaGetLastError()));
 
-  status = op.initialize(arguments, workspace.mutable_data_ptr());
+  status = op.initialize(
+      arguments,
+      workspace.mutable_data_ptr(),
+      at::cuda::getCurrentCUDAStream());
   TORCH_CHECK(
       status == cutlass::Status::kSuccess,
       "Failed to initialize the CUTLASS kernel. Last CUDA error is: ",
