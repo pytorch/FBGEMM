@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import random
+from contextlib import nullcontext
 from dataclasses import dataclass
+from typing import Callable
 
 import click
 import fbgemm_gpu
@@ -542,6 +545,17 @@ def masked_select_jagged_1d(
 @click.option("--has-weights", is_flag=True, default=False)
 @click.option("--weight-type", type=str, default="float")
 @click.option("--use-selected-lengths-sum", is_flag=True, default=False)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="keyed_jagged_index_select_dim1_{phase}_trace_{ospid}.json",
+)
 def keyed_jagged_index_select_dim1(
     num_batches: int,
     max_seq_length: int,
@@ -551,6 +565,8 @@ def keyed_jagged_index_select_dim1(
     has_weights: bool,
     weight_type: str,
     use_selected_lengths_sum: bool,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     jagged_tensor_types = {
         "float": torch.float,
@@ -622,20 +638,28 @@ def keyed_jagged_index_select_dim1(
     if is_float:
         values.requires_grad = True
 
-    time, output = benchmark_torch_function(
-        torch.ops.fbgemm.keyed_jagged_index_select_dim1,
-        (
-            values,
-            lengths,
-            offsets,
-            indices,
-            input_batch_size,
-            weights,
-            selected_lengths_sum,
-        ),
-        iters=1000,
-    )
-    output = output[0]
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        time, output = benchmark_torch_function(
+            torch.ops.fbgemm.keyed_jagged_index_select_dim1,
+            (
+                values,
+                lengths,
+                offsets,
+                indices,
+                input_batch_size,
+                weights,
+                selected_lengths_sum,
+            ),
+            iters=1000,
+        )
+        output = output[0]
 
     # Prepare inputs for the reference run
     ref_inputs = []
@@ -687,9 +711,12 @@ def keyed_jagged_index_select_dim1(
         return
 
     grad = torch.rand_like(output)
-    time, _ = benchmark_torch_function(
-        functools.partial(output.backward, retain_graph=True), (grad,), iters=1000
-    )
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
+        time, _ = benchmark_torch_function(
+            functools.partial(output.backward, retain_graph=True), (grad,), iters=1000
+        )
+
     time_ref, _ = benchmark_torch_function(
         functools.partial(output_ref.backward, retain_graph=True), (grad,), iters=1000
     )
