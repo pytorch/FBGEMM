@@ -1989,6 +1989,61 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=9.0e-2, rtol=9.0e-2)
 
+    @unittest.skipIf(
+        not torch.cuda.is_available()
+        or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 10,
+        "Skip when SM100 (Blackwell) is not available",
+    )
+    def test_f8f8bf16_conv(self) -> None:
+        # Setup: Create simple 3D convolution test data
+        n, d, h, w, c = 1, 4, 8, 8, 16
+        k, t, r, s = 16, 3, 3, 3
+        fp8_max = E4M3_MAX_POS
+
+        # Create random activation (NDHWC) and filter (KTRSC)
+        activation = (
+            torch.randn(n, d, h, w, c, dtype=torch.bfloat16, device=self.device) * 0.1
+        )
+        filter_tensor = (
+            torch.randn(k, t, r, s, c, dtype=torch.bfloat16, device=self.device) * 0.01
+        )
+
+        # Quantize to FP8
+        act_max = torch.max(torch.abs(activation.to(torch.float)))
+        flt_max = torch.max(torch.abs(filter_tensor.to(torch.float)))
+        act_scale = act_max / fp8_max
+        flt_scale = flt_max / fp8_max
+
+        activation_q = (activation * fp8_max / act_max).to(fp8_e4m3)
+        filter_q = (filter_tensor * fp8_max / flt_max).to(fp8_e4m3)
+
+        # Execute: Run convolution with padding=1, stride=1, dilation=1
+        padding = [1, 1, 1]
+        stride = [1, 1, 1]
+        dilation = [1, 1, 1]
+
+        output = torch.ops.fbgemm.f8f8bf16_conv(
+            activation_q, filter_q, act_scale * flt_scale, padding, stride, dilation
+        )
+
+        # Assert: Check output shape is correct
+        # Output dimensions: z = 1 + (d + 2*pad_d - ((t-1)*dil_d + 1)) / stride_d
+        expected_z = (
+            1 + (d + 2 * padding[0] - ((t - 1) * dilation[0] + 1)) // stride[0]
+        )  # = 4
+        expected_p = (
+            1 + (h + 2 * padding[1] - ((r - 1) * dilation[1] + 1)) // stride[1]
+        )  # = 8
+        expected_q = (
+            1 + (w + 2 * padding[2] - ((s - 1) * dilation[2] + 1)) // stride[2]
+        )  # = 8
+
+        self.assertEqual(output.shape, (n, expected_z, expected_p, expected_q, k))
+        self.assertEqual(output.dtype, torch.bfloat16)
+
+        # Basic sanity check: output should not be all zeros
+        self.assertFalse(torch.all(output == 0))
+
 
 @unittest.skipIf(not torch.cuda.is_available(), "Skip when GPU is not available")
 @unittest.skipIf(not SM90_OR_LATER, "Skip when not SM90+")

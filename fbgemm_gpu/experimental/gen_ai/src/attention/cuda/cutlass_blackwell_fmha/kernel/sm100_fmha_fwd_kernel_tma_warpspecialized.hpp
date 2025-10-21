@@ -557,6 +557,9 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
         );
 
       }
+
+      cutlass::arch::NamedBarrier::arrive((1 + NumWarpsEpilogue) * NumThreadsPerWarp,
+                                    cutlass::arch::ReservedNamedBarriers::TmemAllocBarrier);
     }
     else if (role == WarpRole::Load) {
       warpgroup_reg_set<NumRegsOther>();
@@ -613,6 +616,9 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
         );
 
       }
+
+      cutlass::arch::NamedBarrier::arrive_and_wait((1 + NumWarpsEpilogue) * NumThreadsPerWarp,
+                                    cutlass::arch::ReservedNamedBarriers::TmemAllocBarrier);
 
       static_assert(NumWarpsEpilogue <= 1);
       if constexpr (NumWarpsEpilogue == 1) {
