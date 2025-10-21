@@ -118,7 +118,6 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     auto dV = args.dV;
     bool kIsPaged = args.ptr_page_table ? true : false;
 
-
     // Local changes (D79534034)
     int get_0 = int(get<0>(problem_shape));
     int get_1 = int(get<1>(problem_shape));
@@ -128,10 +127,12 @@ struct Sm100FmhaLoadTmaWarpspecialized {
       get_0 = get<0>(problem_shape).total_length;
     }
 
-    if constexpr (is_variable_length_v<tuple_element_t<1, ProblemShape>>) {
-      get<2, 1>(dK) = 0;
-      get<2, 1>(dV) = 0;
-      get_1 = get<1>(problem_shape).total_length;
+    if (!kIsPaged) {
+      if constexpr (is_variable_length_v<tuple_element_t<1, ProblemShape>>) {
+        get<2, 1>(dK) = 0;
+        get<2, 1>(dV) = 0;
+        get_1 = get<1>(problem_shape).total_length;
+      }
     }
 
     TMA_Q tma_load_q;
@@ -141,7 +142,8 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     if (kIsPaged) { // Paged Case
       //Create TMA Atom/Descriptor for Q, K, V
       //Q
-      Layout layout_Q = make_layout(select<0,2,3>(problem_shape), dQ);
+      auto problem_shape_q = make_tuple(get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
+      Layout layout_Q = make_layout(select<0,2,3>(problem_shape_q), dQ);
       Tensor mQ = make_tensor(make_gmem_ptr(ptr_Q), layout_Q);
 
       auto cluster_layout_vmnk =
@@ -152,10 +154,8 @@ struct Sm100FmhaLoadTmaWarpspecialized {
         typename CollectiveMmaQK::TiledMma{}, cluster_layout_vmnk);
 
       // K
-      auto problem_shape_paged_k =  make_tuple(get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
-      get<1> (problem_shape_paged_k) = args.page_block_size;
-      get<3, 1>(problem_shape_paged_k) = args.num_blocks;
-      Layout layout_k = make_layout(select<1,2,3>(problem_shape_paged_k), dK);
+      auto problem_shape_paged_kv =  make_tuple(get_0, args.page_block_size, get<2>(problem_shape), make_tuple(get<0>(get<3>(problem_shape)), args.num_blocks));
+      Layout layout_k = make_layout(select<1,2,3>(problem_shape_paged_kv), dK);
       Tensor mK = make_tensor(make_gmem_ptr(ptr_K), layout_k);
 
       tma_load_k = make_tma_atom_B_sm100<Element>(
@@ -163,10 +163,7 @@ struct Sm100FmhaLoadTmaWarpspecialized {
         typename CollectiveMmaQK::TiledMma{}, cluster_layout_vmnk);
 
       // V
-      auto problem_shape_paged_v =  make_tuple(get_0, get<2>(problem_shape), get_1, get<3>(problem_shape));
-      get<2> (problem_shape_paged_v) = args.page_block_size;
-      get<3, 1>(problem_shape_paged_v) = args.num_blocks;
-      Layout layout_v = make_layout(select<1,2,3>(problem_shape_paged_v), select<1,0,2>(dV));
+      Layout layout_v = make_layout(select<2,1,3>(problem_shape_paged_kv), select<1,0,2>(dV));
       Tensor mV = make_tensor(make_gmem_ptr(ptr_V), layout_v);
 
       tma_load_v = make_tma_atom_B_sm100<Element>(
@@ -368,7 +365,7 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     }
   }
 
-template<class BlkCoord, class ProblemShape, class ParamsProblemShape>
+  template<class BlkCoord, class ProblemShape, class ParamsProblemShape>
   CUTLASS_DEVICE void
   load_paged(
       BlkCoord const& blk_coord_in, ProblemShape const& problem_shape,
@@ -418,11 +415,8 @@ template<class BlkCoord, class ProblemShape, class ParamsProblemShape>
     Tensor tQgQ = tQgQ_qdl(_, _, _0{}, get<2>(blk_coord_q));
 
     // compute gK, sK
-    ProblemShapeK problem_shape_k =  problem_shape;
-    get<1> (problem_shape_k) = params.page_block_size;
-    get<3, 1>(problem_shape_k) = params.num_blocks;
-
-    Tensor mK_kdl_p = params.tma_load_k.get_tma_tensor(select<1,2,3>(problem_shape_k));
+    ProblemShapeK problem_shape_kv = make_tuple(get<0>(problem_shape), params.page_block_size, get<2>(problem_shape), make_tuple(get<0>(get<3>(problem_shape)), params.num_blocks));
+    Tensor mK_kdl_p = params.tma_load_k.get_tma_tensor(select<1,2,3>(problem_shape_kv));
 
     Tensor gK_kdl = local_tile(mK_kdl_p, TileShapeQK{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tSgK_kdl = mma_qk.partition_B(gK_kdl);
@@ -437,10 +431,7 @@ template<class BlkCoord, class ProblemShape, class ParamsProblemShape>
 
     // compute gV, sV
     ThrMMA mma_pv = typename CollectiveMmaPV::TiledMma{}.get_slice(0);
-    ProblemShapeK problem_shape_v =  problem_shape;
-    get<1> (problem_shape_v) = params.page_block_size;
-    get<3, 1>(problem_shape_v) = params.num_blocks;
-    Tensor mV_dkl_p = params.tma_load_v.get_tma_tensor(select<2,1,3>(problem_shape_v));
+    Tensor mV_dkl_p = params.tma_load_v.get_tma_tensor(select<2,1,3>(problem_shape_kv));
 
     Tensor gV_dkl = local_tile(mV_dkl_p, TileShapePV{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tOgV_dkl = mma_pv.partition_B(gV_dkl);
