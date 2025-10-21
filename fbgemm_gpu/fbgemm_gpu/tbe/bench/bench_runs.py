@@ -314,14 +314,13 @@ def benchmark_requests(  # noqa: C901
                 for id, t in enumerate(emb.split_embedding_weights()):
                     if compressed:
                         with gzip.open(f"{save}/{it}_{id}_bwd_weights_out.pt.gz", "wb") as f:
-                            torch.save(t[slice_min:slice_max,:].clone(), f)
+                            torch.save(t[slice_min:slice_max, :].clone(), f)
                     else:
-                        torch.save(t[slice_min:slice_max,:].clone(), f"{save}/{it}_{id}_bwd_weights_out.pt")
+                        torch.save(t[slice_min:slice_max, :].clone(), f"{save}/{it}_{id}_bwd_weights_out.pt")
                 else:
-                        torch.save(t[slice_min:slice_max,:].clone(), f"{save}/{it}_{id}_bwd_weights_out.pt")
+                    torch.save(t[slice_min:slice_max, :].clone(), f"{save}/{it}_{id}_bwd_weights_out.pt")
                 torch.save(emb.momentum1_dev, f"{save}/{it}_bwd_momentum1_dev_out.pt")
                 torch.save(emb.momentum1_uvm, f"{save}/{it}_bwd_momentum1_uvm_out.pt")
-            
             else:
                 if compressed:
                     with gzip.open(f"{save}/{it}_bwd_state_out.pth.gz", "wb") as f:
@@ -332,11 +331,9 @@ def benchmark_requests(  # noqa: C901
     if load and emb:
         for it in range(iters):
             req = requests[it % num_reqs]
-
             indices, offsets, weights = req.unpack_3()
             out = emb(indices, offsets, weights)
             torch.cuda.synchronize()
-            
             out.backward(grad)
             torch.cuda.synchronize()
             emb_ref = copy.deepcopy(emb)
@@ -346,8 +343,8 @@ def benchmark_requests(  # noqa: C901
                         emb_ref.load_state_dict(torch.load(f))
                 else:
                     emb_ref.load_state_dict(torch.load(f"{load}/{it}_bwd_state_out.pth"))
-
             print(f"[{it + 1}/{iters}] Backward weights check... ", end="", flush=True)
+
             if sliced:
                 for id, t in enumerate(emb.split_embedding_weights()):
                     if compressed:
@@ -355,15 +352,15 @@ def benchmark_requests(  # noqa: C901
                             w_ref = torch.load(f)
                     else:
                         w_ref = torch.load(f"{load}/{it}_{id}_bwd_weights_out.pt")
-                    torch.testing.assert_close(t[slice_min:slice_max,:], w_ref,
+                    torch.testing.assert_close(t[slice_min:slice_max, :], w_ref,
                                                msg=f"FAILED table = {id}", atol=1.0e-3, rtol=10e-3)
             else:
                 for id, t in enumerate(emb.split_embedding_weights()):
-                    torch.testing.assert_close(t, emb_ref.split_embedding_weights()[id], 
+                    torch.testing.assert_close(t, emb_ref.split_embedding_weights()[id],
                                                msg=f"FAILED table = {id}", atol=1.0e-3, rtol=10e-3)
             print("PASS")
-            
             print(f"[{it + 1}/{iters}] Backward momentum check... ", end="", flush=True)
+
             if sliced:
                 m_dev_ref = torch.load(f"{load}/{it}_bwd_momentum1_dev_out.pt")
                 m_uvm_ref = torch.load(f"{load}/{it}_bwd_momentum1_uvm_out.pt")
@@ -375,7 +372,6 @@ def benchmark_requests(  # noqa: C901
             print("PASS")
     for it in range(iters):
         req = requests[it % num_reqs]
-
         indices, offsets, weights = req.unpack_3()
         if bwd_only:
             # Run forward before profiling if does backward only
