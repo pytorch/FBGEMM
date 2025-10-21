@@ -81,7 +81,7 @@ def _load_library(filename: str, version: str, no_throw: bool = False) -> None:
             """
         )
 
-    elif str(torch.__version__) != _fbgemm_torch_compat_table[keys[0]]:
+    elif not str(torch.__version__).startswith(_fbgemm_torch_compat_table[keys[0]]):
         logging.warning(
             f"""
             \033[31m
