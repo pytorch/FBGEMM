@@ -213,7 +213,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                 2, offset_idx + D_emb <= weights_numel, offset_idx
             )
             {%- endif %}
-
+            {%- if is_rocm %}
             int32_t j = 0;
             {%- if not ssd and not dense and not use_vec_blocking and not vbe %}
             // Currently for split_embedding_codegen_grad_indice_weights_kernel only
@@ -335,6 +335,9 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
             }
             {%- endif %}
             for (; j < kWarpSize && l_start + j < L; ++j) {
+            {%- else %} // if is_rocm
+            for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
+            {%- endif %} // if is_rocm
                 const auto offset_idx_j = shfl_sync(offset_idx, j);
                 {%- if not dense %}
                 const auto {{ locs_or_addrs_idx }}_j = shfl_sync({{ locs_or_addrs_idx }}, j);
