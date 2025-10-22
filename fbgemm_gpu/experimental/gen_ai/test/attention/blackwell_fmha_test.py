@@ -124,7 +124,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             v = v.to(torch.float8_e4m3fn)
         return q, k, v
 
-    # Generates K and V for paged attention.
+    # Generates K and V for paged attention for fixed length sequences.
     def _generate_qkv_paged(
         self,
         batch_size: int,
@@ -194,6 +194,95 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             k_paged = k_paged.to(torch.float8_e4m3fn)
             v_paged = v_paged.to(torch.float8_e4m3fn)
         return q, k, v, k_paged, v_paged, page_table
+
+    # Reshapes K and V for paged attention for variable length sequences.
+    def _reshape_for_paged_attention(
+        self,
+        k_unpad: torch.Tensor,
+        v_unpad: torch.Tensor,
+        cu_seqlens_k: torch.Tensor,
+        page_block_size: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        batch_size = cu_seqlens_k.shape[0] - 1
+        num_heads = k_unpad.shape[1]
+        head_dim = k_unpad.shape[2]
+
+        # Compute number of blocks per sequence
+        seq_lens = [cu_seqlens_k[i + 1] - cu_seqlens_k[i] for i in range(batch_size)]
+        num_blocks_per_seq = [math.ceil(len / page_block_size) for len in seq_lens]
+        max_blocks = max(num_blocks_per_seq)
+
+        # Prepare block table: [batch_size, max_blocks], fill with -1 for unused blocks
+        page_table = torch.full(
+            (batch_size, max_blocks),
+            -1,
+            dtype=torch.int32,
+            device=k_unpad.device,
+        )
+
+        k_blocks_list = []
+        v_blocks_list = []
+        block_idx = 0
+        for i in range(batch_size):
+            start = cu_seqlens_k[i]
+            end = cu_seqlens_k[i + 1]
+            seq_len = end - start
+            num_blocks = num_blocks_per_seq[i]
+
+            # Pad sequence to multiple of page_block_size
+            pad_len = num_blocks * page_block_size - seq_len
+            k_seq = k_unpad[start:end]  # [seq_len, num_heads, head_dim]
+            v_seq = v_unpad[start:end]
+
+            if pad_len > 0:
+                k_seq = torch.cat(
+                    [
+                        k_seq,
+                        torch.zeros(
+                            (int(pad_len.item()), num_heads, head_dim),
+                            device=k_unpad.device,
+                            dtype=k_unpad.dtype,
+                        ),
+                    ],
+                    dim=0,
+                )
+                v_seq = torch.cat(
+                    [
+                        v_seq,
+                        torch.zeros(
+                            (int(pad_len.item()), num_heads, head_dim),
+                            device=v_unpad.device,
+                            dtype=v_unpad.dtype,
+                        ),
+                    ],
+                    dim=0,
+                )
+
+            # Reshape to [num_blocks, page_block_size, num_heads, head_dim]
+            k_seq_blocks = k_seq.view(num_blocks, page_block_size, num_heads, head_dim)
+            v_seq_blocks = v_seq.view(num_blocks, page_block_size, num_heads, head_dim)
+
+            k_blocks_list.append(k_seq_blocks)
+            v_blocks_list.append(v_seq_blocks)
+
+            # Fill page table
+            page_table[i, :num_blocks] = torch.arange(
+                block_idx,
+                block_idx + num_blocks,
+                device=k_unpad.device,
+                dtype=torch.int32,
+            )
+            block_idx += num_blocks
+
+        # Concatenate all blocks: [num_blocks_total, page_block_size, num_heads, head_dim]
+        k_blocks = torch.cat(k_blocks_list, dim=0).to(
+            device=k_unpad.device, dtype=k_unpad.dtype
+        )
+        v_blocks = torch.cat(v_blocks_list, dim=0).to(
+            device=v_unpad.device, dtype=v_unpad.dtype
+        )
+
+        return k_blocks, v_blocks, page_table
 
     def _execute_cutlass_blackwell_attn_dense(
         self,
@@ -403,6 +492,11 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
 
         torch.manual_seed(SEED)
 
+        out_paged: torch.Tensor | None = None
+        k_paged: torch.Tensor | None = None
+        v_paged: torch.Tensor | None = None
+        page_table: torch.Tensor | None = None
+
         # Initialize deterministic variables
         out_unpad_d = None
         q_ref, k_ref, v_ref = self._generate_qkv(
@@ -455,6 +549,11 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             key_unused_mask=None,
         )
 
+        if is_paged:
+            k_paged, v_paged, page_table = self._reshape_for_paged_attention(
+                k_unpad, v_unpad, cu_seqlens_k, page_block_size
+            )
+
         # Run attention forwards
         out_ref, _ = attention_ref(
             q_ref,
@@ -480,6 +579,24 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             softmax_scale=sm_scale,
         )
 
+        if is_paged:
+            assert k_paged is not None and v_paged is not None
+            out_unpad_paged = cutlass_blackwell_fmha_func(
+                q_unpad,
+                k_paged,
+                v_paged,
+                causal=causal,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seq_len_q=max_seqlen_q,
+                max_seq_len_k=max_seqlen_k,
+                page_table=page_table,
+                window_size=window_size,
+                deterministic=deterministic,
+                softmax_scale=sm_scale,
+            )
+            out_paged = output_pad_fn(out_unpad_paged)
+
         out_unpad = cutlass_blackwell_fmha_func(
             q_unpad,
             k_unpad,
@@ -489,6 +606,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             cu_seqlens_k=cu_seqlens_k,
             max_seq_len_q=max_seqlen_q,
             max_seq_len_k=max_seqlen_k,
+            page_table=None,
             window_size=window_size,
             deterministic=deterministic,
             softmax_scale=sm_scale,
@@ -497,19 +615,25 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
 
         # Follow FlashAttention's numerical evaluation
         # Compare outputs
-        self._allclose(out, out_ref, out_pt)
+        if is_paged:
+            # Compare paged output with both reference and non paged output
+            self._allclose(out_paged, out_ref, out_pt)
+            self._allclose(out_paged, out, out_pt)
+        else:
+            self._allclose(out, out_ref, out_pt)
 
         if deterministic:
             # Rerun the test. The outputs must be bit-wise exact
             out_unpad_d = cutlass_blackwell_fmha_func(
                 q_unpad,
-                k_unpad,
-                v_unpad,
+                cast(torch.Tensor, k_paged) if is_paged else k_unpad,
+                cast(torch.Tensor, v_paged) if is_paged else v_unpad,
                 causal=causal,
                 cu_seqlens_q=cu_seqlens_q,
                 cu_seqlens_k=cu_seqlens_k,
                 max_seq_len_q=max_seqlen_q,
                 max_seq_len_k=max_seqlen_k,
+                page_table=page_table,
                 window_size=window_size,
                 deterministic=deterministic,
                 softmax_scale=sm_scale,
@@ -891,9 +1015,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for batch_size in [1, 2, 8]
             for causal in [False, True]
             for is_gqa in [False, True]
-            for is_varlen in [
-                False
-            ]  # Variable length is not supported for paged attention.
+            for is_varlen in [False, True]
             for kv_heads in [1, 2, 3, 4]
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
             for head_dim in [64, 128]
@@ -919,9 +1041,13 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         seqlen_k = offset_q + seqlen_q
         if seqlen_k > seqlen_q:
             causal = True
-
+        test_func = (
+            self._execute_cutlass_blackwell_attn_varlen
+            if is_varlen
+            else self._execute_cutlass_blackwell_attn_dense
+        )
         q_heads_per_kv_head = random.randint(2, 8) if is_gqa else 1
-        self._execute_cutlass_blackwell_attn_dense(
+        test_func(
             batch_size,
             seqlen_q,
             seqlen_k,

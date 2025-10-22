@@ -205,7 +205,7 @@ public:
   /// Supplied params struct must be construct by calling Kernel::to_underling_arguments()
   static Status
   run(Params& params, cudaStream_t stream = nullptr) {
-    CUTLASS_TRACE_HOST("FMHA::run()");
+    CUTLASS_TRACE_HOST("FMHA::run(), stream: " << (stream ? "non-null" : "null"));
     dim3 const block = Kernel::get_block_shape();
     dim3 const grid = get_grid_shape(params);
 
