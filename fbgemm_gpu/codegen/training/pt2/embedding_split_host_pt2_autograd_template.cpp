@@ -743,7 +743,9 @@ class {{ autograd_func }} :
     TORCH_CHECK(aux_tensor[IDX_LXU_CACHE_LOCATIONS].has_value(), "lxu_cache_locations should have value.");
     const auto lxu_cache_locations = aux_tensor[IDX_LXU_CACHE_LOCATIONS].value();
     const auto is_experimental = aux_bool[IDX_IS_EXPERIMENTAL_TBE];
+    {% if is_rocm %}
     const auto mixed_D = aux_bool[IDX_MIXED_D];
+    {%- endif %}
     {%- endif %}
 
     // Default values for Dynamo tracing
@@ -1063,7 +1065,9 @@ static torch::autograd::variable_list backward(
     int32_t max_segment_length_per_warp = 64;
     // Workaround. Should not be upstreamed in any way.
     // Redistribute all cta_per_row work to warp_per_row.
+    {% if is_rocm %}
     int32_t total_L = indices.numel();
+    {%- endif %}
     {%- if (not nobag) and 
            (optimizer == "rowwise_adagrad") and 
            (not vbe) and 
