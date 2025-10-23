@@ -441,15 +441,18 @@ class DramKVInferenceEmbedding {
 
                         // Random starting cursor based on map size for good
                         // entropy
-                        size_t random_start =
-                            folly::Random::rand32(wlmap->size());
+                        size_t map_size = wlmap->size();
+                        size_t random_start = folly::Random::rand32(map_size);
 
                         // Try to find a used block starting from random
                         // position
                         weight_type* block = nullptr;
                         for (int attempts = 0; attempts < 16; ++attempts) {
+                          // Use modulo to prevent overflow beyond map size
+                          size_t block_index =
+                              (random_start + attempts) % map_size;
                           block = pool->template get_block<weight_type>(
-                              random_start + attempts);
+                              block_index);
                           if (block != nullptr) {
                             // Block is used (not null)
                             row_storage_data_ptr =
