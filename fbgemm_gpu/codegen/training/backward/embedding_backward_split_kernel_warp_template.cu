@@ -650,7 +650,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     opt_karg.weight_decay = weight_decay;
 
     rocm::split_tbe_backward_hip_kernel_{{kdesc}}<
-        rocm::{{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, weight_decay_mode_v>,
+        rocm::{{optimizer}}_optimizer_t<cache_t, emb_t, index_t, embedding_dim, weight_decay_mode_v>,
         rocm::{{optimizer}}_kernel_arg_t,
         emb_t,
         cache_t,
