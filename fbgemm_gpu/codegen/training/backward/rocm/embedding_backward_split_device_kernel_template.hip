@@ -27,7 +27,7 @@
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
 
 namespace fbgemm_gpu::rocm {
-template <typename cache_t, typename emb_t, int32_t embedding_dim, int32_t weight_decay_mode>
+template <typename cache_t, typename emb_t, typename index_t, int32_t embedding_dim, int32_t weight_decay_mode>
 struct rowwise_adagrad_optimizer_t
 {
     __device__ rowwise_adagrad_optimizer_t(const rowwise_adagrad_kernel_arg_t& karg_)
@@ -36,7 +36,7 @@ struct rowwise_adagrad_optimizer_t
     }
 
     template <int32_t thread_length, int32_t segment_split>
-    __device__ void update(cache_t* acc, emb_t* weight, uint32_t row_index)
+    __device__ void update(cache_t* acc, emb_t* weight, index_t row_index)
     {
         if constexpr(segment_split == 0)
         {

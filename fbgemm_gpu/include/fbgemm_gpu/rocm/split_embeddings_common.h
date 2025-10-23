@@ -24,6 +24,7 @@
 #include <c10/util/Half.h>
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime.h>
+#include <rocm-core/rocm_version.h>
 
 /******************************************************************************/
 typedef int32_t int32x4_t __attribute__((ext_vector_type(4)));
@@ -61,7 +62,7 @@ __device__ half llvm_amdgcn_raw_buffer_load_fp16(
     int32_t voffset,
     int32_t soffset,
     int32_t glc_slc)
-#if defined(__gfx950__)
+#if ROCM_VERSION_MAJOR >= 7
       __asm("llvm.amdgcn.raw.buffer.load.i16");
 #else
       __asm("llvm.amdgcn.raw.buffer.load.f16");
@@ -78,7 +79,7 @@ __device__ half2 llvm_amdgcn_raw_buffer_load_fp16x2(
     int32_t voffset,
     int32_t soffset,
     int32_t glc_slc)
-#if defined(__gfx950__)
+#if ROCM_VERSION_MAJOR >= 7
       __asm("llvm.amdgcn.raw.buffer.load.i32");
 #else
       __asm("llvm.amdgcn.raw.buffer.load.v2f16");
@@ -164,7 +165,7 @@ struct load_row_per_warp<half, 160, index_t> {
   static __device__ void
   run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
     int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 192);
+        amdgcn_make_buffer_resource(p_emb_table + row_index * 160);
     *reinterpret_cast<half2*>(emb_data) = llvm_amdgcn_raw_buffer_load_fp16x2(
         emb_res, lane_id * sizeof(half2), 0, 0);
     if ((lane_id + 128) % 192 < 160) {
