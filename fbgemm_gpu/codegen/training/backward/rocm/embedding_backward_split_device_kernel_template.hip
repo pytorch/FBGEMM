@@ -410,6 +410,6 @@ L_tail_grad_acc:
     optimizer_t optimizer(opt_karg);
     optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx);
 
-    store_row_per_warp<emb_t, embedding_dim, emb_t>::run(&emb_data[0], p_emb_table + emb_idx * embedding_dim, lane_id);
+    store_row_per_warp<emb_t, embedding_dim>::run(&emb_data[0], p_emb_table + emb_idx * embedding_dim, lane_id);
 }
 } // namespace fbgemm_gpu::rocm
