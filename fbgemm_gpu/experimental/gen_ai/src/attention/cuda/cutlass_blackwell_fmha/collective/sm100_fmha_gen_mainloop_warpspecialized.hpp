@@ -86,6 +86,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
   using Mask = Mask_;
 
   static constexpr int StageCountQ = get<1>(TileShape{}) == 256 ? 1 : 2;
+  // local changes
   static constexpr int StageCountKV = StageCountQ * (sizeof(Element) == 1 ? 11 : 5) ;
 
   using StagesQ = cutlass::gemm::collective::StageCount<StageCountQ>;
@@ -540,6 +541,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     tStS_P.data() = warp_uniform(uint32_t(stage == _0{} ? TmemAllocation::P0 : TmemAllocation::P1));
     Tensor tScS_P = tScS.compose(make_layout(make_shape(_128{}, tilePlikeFP32)));
 
+    // local changes
     // Each thread owns a single row
     using TMEM_LOAD = conditional_t<
         size<1>(TileShapeQK{}) < _128{},
@@ -802,7 +804,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     // good values would be either 32 or 64
     const int kCorrectionTileSize = 32 / sizeof(ElementOut);
 
-    using TMEM_LOAD = std::conditional_t<kCorrectionTileSize == 32, SM100_TMEM_LOAD_32dp32b32x, SM100_TMEM_LOAD_32dp32b16x>;  // 4x32 threads with 64 cols of 32b elem 
+    using TMEM_LOAD = std::conditional_t<kCorrectionTileSize == 32, SM100_TMEM_LOAD_32dp32b32x, SM100_TMEM_LOAD_32dp32b16x>;  // 4x32 threads with 64 cols of 32b elem
 
     typename CollectiveMmaPV::TiledMma mma;
     Tensor tOtO = partition_fragment_C(mma, select<0,1>(TileShapePV{}));

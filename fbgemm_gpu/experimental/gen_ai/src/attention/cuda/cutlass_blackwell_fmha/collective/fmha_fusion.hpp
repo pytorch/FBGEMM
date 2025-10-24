@@ -317,9 +317,8 @@ struct CausalMask : NoMask {
     if constexpr (IsQBegin) {
       return std::min(trip_count, int(ceil_div(size<0>(tile_shape), size<1>(tile_shape))));
     } else {
-      // Local changes (to be upstreamed https://github.com/NVIDIA/cutlass/pull/2480)
-      const int corner_count = int((get<1>(problem_size) % get<1>(tile_shape) || get<0>(problem_size) % get<0>(tile_shape))) ;
-      return std::min(trip_count, int(ceil_div(get<0>(tile_shape), get<1>(tile_shape))) + corner_count);
+      const int offset_tile_q = (get<1>(problem_size) - get<0>(problem_size)) % get<1>(tile_shape);
+      return std::min(trip_count, int(ceil_div(get<0>(tile_shape) + offset_tile_q, get<1>(tile_shape))));
     }
   }
 
@@ -676,7 +675,7 @@ struct LocalMaskForBackward : LocalMask<kIsQBegin>, ResidualMaskForBackward {
 };
 
 struct VariableLength {
-  int max_length = 0;
+  int max_length;
   int* cumulative_length = nullptr;
   int total_length = -1;
 
