@@ -8,7 +8,7 @@ For generation usage, use an M-blocking (Num-Groups) of 128 (although the limit 
 
 Context loads are done via TMA, whereas generation usage utilized `cp.async` and is thus more amenable to complex load patterns.
 
-For variable sequence lenght, the code requires a batch of valid (but never used) padding memory ahead of the first input batch. This is achieved with least overhead by leaving one batch free and then arranging QKV consecutively.
+For variable sequence length, the code requires a batch of valid (but never used) padding memory ahead of the first output batch. No padding is needed for the input tensor, but it requires that the input tensor contain no NaN or Inf values. Note that users should set `total_length` to the `problem_shape`.
 
 The approach of this implementation is to reuse the selection logic of the collective gemm builder and recombine the result into an FMHA kernel.
 The kernel and collective layer are then formulated to be fmha-specific.
@@ -37,13 +37,19 @@ There are three kernels to compute backwards:
 
 `Sm100FmhaBwdKernelTmaWarpSpecialized` is the main point of this sample, as it demonstrates how to use tensor cores to achieve a high performance fused kernel.
 
+## MLA Blackwell Backward
+
+The sample also provides the feature of MLA backward(d=192, d_vo=128). To enable MLA backward, please specify `--d=192 --d_vo=128` when running the bwd sample.
+
+`Sm100FmhaBwdMlaKernelTmaWarpSpecialized`is the main point for MLA backward. The MLA approach is slightly different from the original one to enable high performance with the MLA shape.
+
 # MLA Inference for Blackwell
 
 This sample provides code for fused multi-head latent attention inference in
 the weight-absorbed regime, i.e. for latent head dim 512, and rope head dim 64.
 It supports fp16, bf16, and fp8 input and output types.
 
-To accomodate the large output accumulator due to the large latent head dimension,
+To accommodate the large output accumulator due to the large latent head dimension,
 the sample demonstrates how to leverage 2Sm Blackwell tensor cores.
 
 Loading can be done via TMA (either without paging or with page size 128), or using `cp.async`
@@ -60,6 +66,8 @@ For detailed information on how to invoke them, check out either the tests in `C
 * 4.1.0: Enhanced testing of variable sequence length; disabled B2B mode in MLA
   to simplify the sample, clarified that `fmha_gen`  sample only supports head
   dim 128.
+
+* 4.3.0: For variable sequence length, the code requires a batch of valid (but never used) padding memory ahead of the first output batch. No padding is needed for the input tensor, but it requires that the input tensor contain no NaN or Inf values. Note that users should set `total_length` to the `problem_shape`.
 
 # Copyright
 
