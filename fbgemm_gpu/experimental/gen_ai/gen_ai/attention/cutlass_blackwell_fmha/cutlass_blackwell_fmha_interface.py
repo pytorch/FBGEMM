@@ -260,6 +260,8 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
         None,
         None,
         None,
+        None,
+        None,
     ]:
         if ctx.is_gen:
             # For gen case, no backward pass is needed (generation is inference only)
@@ -287,7 +289,23 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
             bottom_right=ctx.bottom_right,
             deterministic=ctx.deterministic,
         )
-        return dq, dk, dv, None, None, None, None, None, None, None, None, None, None
+        return (
+            dq,
+            dk,
+            dv,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 def cutlass_blackwell_fmha_func(
