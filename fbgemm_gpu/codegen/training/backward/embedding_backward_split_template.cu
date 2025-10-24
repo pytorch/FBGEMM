@@ -1234,9 +1234,7 @@ Tensor {{ embedding_cuda_op }}(
 
                     const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
 
-                    const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
-                                                      || dev_weights.scalar_type() == at::ScalarType::Float;
-
+                    constexpr bool supported_weights_type = std::is_same_v<emb_t, float> || std::is_same_v<emb_t, at::Half>;
                     constexpr bool supported_grad_type = std::is_same_v<grad_t, float> || std::is_same_v<grad_t, at::Half>;
 
                     if (use_hip_kernel && !mixed_D && supported_weights_type && supported_grad_type && rocm::is_supported_cdna())
