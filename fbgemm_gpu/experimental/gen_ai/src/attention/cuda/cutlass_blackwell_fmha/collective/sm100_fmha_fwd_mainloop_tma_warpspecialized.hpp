@@ -199,6 +199,7 @@ struct Sm100FmhaFwdMainloopTmaWarpspecialized {
     // scaling factor to quantize O
     float inv_scale_o = 1.0f;
 
+    // local changes
     int window_size_left = -1;
     int window_size_right = -1;
   };
@@ -211,6 +212,7 @@ struct Sm100FmhaFwdMainloopTmaWarpspecialized {
 
     float scale_output;
 
+    // local changes
     int window_size_left;
     int window_size_right;
   };

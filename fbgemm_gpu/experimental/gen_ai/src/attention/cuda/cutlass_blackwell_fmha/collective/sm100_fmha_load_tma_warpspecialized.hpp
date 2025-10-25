@@ -75,6 +75,7 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     StrideK dK;
     const Element* ptr_V;
     StrideV dV;
+    // local changes
     const int* ptr_page_table;
     int page_table_stride;
     int num_blocks;
@@ -267,15 +268,16 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     Tensor mK_kdl_p = params.tma_load_k.get_tma_tensor(select<1,2,3>(problem_shape));
 
     int kv_offs_0 = 0;
-    int kv_offs_2_1 = 0;
 
     if constexpr (is_variable_length_v<tuple_element_t<1, ParamsProblemShape>>) {
-      auto cumulative_length_k = get<1>(params_problem_shape).cumulative_length;
-      kv_offs_0 = cumulative_length_k[batch_idx];
-      get<2, 1>(blk_coord_kv) = 0;
+      auto cumulative_length = get<1>(params_problem_shape).cumulative_length;
+      if (cumulative_length != nullptr) {
+        kv_offs_0 = cumulative_length[get<2,1>(blk_coord_kv)];
+        get<2,1>(blk_coord_kv) = 0;
+      }
     }
 
-    Tensor mK_kdl = domain_offset(make_coord(kv_offs_0, _0{}, make_coord(_0{}, kv_offs_2_1)), mK_kdl_p);
+    Tensor mK_kdl = domain_offset(make_coord(kv_offs_0, _0{}, make_coord(_0{}, _0{})), mK_kdl_p);
 
     Tensor gK_kdl = local_tile(mK_kdl, TileShapeQK{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tSgK_kdl = mma_qk.partition_B(gK_kdl);
@@ -290,7 +292,7 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     ThrMMA mma_pv = typename CollectiveMmaPV::TiledMma{}.get_slice(0);
     Tensor mV_dkl_p = params.tma_load_v.get_tma_tensor(select<2,1,3>(problem_shape));
 
-    Tensor mV_dkl = domain_offset(make_coord(_0{}, kv_offs_0, make_coord(_0{}, kv_offs_2_1)), mV_dkl_p);
+    Tensor mV_dkl = domain_offset(make_coord(_0{}, kv_offs_0, make_coord(_0{}, _0{})), mV_dkl_p);
 
     Tensor gV_dkl = local_tile(mV_dkl, TileShapePV{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tOgV_dkl = mma_pv.partition_B(gV_dkl);
@@ -344,6 +346,7 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     ++pipeline_kv_producer_state;
     k_index += 1;
 
+    // local changes
     // loop:
     for (; k_index < n_block_max; k_index += 1) {
 
@@ -399,8 +402,10 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     int batch_idx = get<2, 1>(blk_coord_q);
     if constexpr (is_variable_length_v<tuple_element_t<0, ParamsProblemShape>>) {
       auto cumulative_length_q = get<0>(params_problem_shape).cumulative_length;
-      q_offs_0 = cumulative_length_q[batch_idx];
-      get<2, 1>(blk_coord_q) = 0;
+      if (cumulative_length_q != nullptr) {
+        q_offs_0 = cumulative_length_q[batch_idx];
+        get<2, 1>(blk_coord_q) = 0;
+      }
     }
 
     Tensor mQ_qdl = domain_offset(make_coord(q_offs_0, _0{}, make_coord(_0{}, q_offs_2_1)), mQ_qdl_p);
