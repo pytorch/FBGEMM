@@ -1378,6 +1378,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::vector<std::string> db_paths_;
 
   bool disable_random_init_;
+  bool enable_optimizer_offloading;
 }; // class EmbeddingRocksDB
 
 /// @ingroup embedding-ssd
