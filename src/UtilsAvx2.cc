@@ -15,6 +15,8 @@
 
 namespace fbgemm::internal {
 
+#ifdef __AVX2__
+
 template <>
 void transpose_avx2(
     int64_t M,
@@ -335,5 +337,7 @@ void transpose_avx2(
         src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, mrem, nrem);
   }
 }
+
+#endif // __AVX2__
 
 } // namespace fbgemm::internal

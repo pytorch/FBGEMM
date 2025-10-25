@@ -16,6 +16,8 @@ namespace fbgemm {
 
 namespace {
 
+#ifdef __AVX512F__
+
 // 16 * 6 = 96 instructions
 inline void transpose_kernel_16x16_avx512(
     const float* src,
@@ -2440,6 +2442,8 @@ void transpose_avx512(
     }
   }
 }
+
+#endif // __AVX512F__
 
 } // namespace internal
 
