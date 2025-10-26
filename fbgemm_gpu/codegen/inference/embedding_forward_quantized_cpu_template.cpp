@@ -209,7 +209,11 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     if (o_dtype == SparseType::INT8) {
       total_adjusted_D += T * kINT8QparamsBytes;
     }
-    output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    if (!output_is_int4 && !output_is_int8) {
+      output = at::zeros({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    } else {
+      output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    }
     {% else %}
     constexpr int kINT8QparamsBytes = 4; // no bag int8 output aligns with fbgemm weights storage size and layout
     constexpr int kINT4QparamsElems = 8; // scale + bias takes 4 bytes which are 8 int4 elements
@@ -219,8 +223,11 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     } else if (o_dtype == SparseType::INT4) {
       adjusted_D += kINT4QparamsElems;
     }
-    output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
-
+    if (!output_is_int4 && !output_is_int8) {
+      output = at::zeros({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    } else {
+      output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    }
     {% endif %}
 
 
