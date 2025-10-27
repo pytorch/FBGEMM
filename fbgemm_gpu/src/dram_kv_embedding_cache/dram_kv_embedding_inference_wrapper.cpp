@@ -10,6 +10,7 @@
 #include <gflags/gflags.h>
 #include <torch/custom_class.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/embedding_common.h" // @manual=//deeplearning/fbgemm/fbgemm_gpu:fbgemm_gpu
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_inference_impl.h"
 
 DEFINE_int64(
     dram_kv_embedding_num_shards,
@@ -26,10 +27,21 @@ DramKVEmbeddingInferenceWrapper::DramKVEmbeddingInferenceWrapper(
     : num_shards_(num_shards),
       uniform_init_lower_(uniform_init_lower),
       uniform_init_upper_(uniform_init_upper),
-      disable_random_init_(disable_random_init) {
-  LOG(INFO)
-      << "DramKVEmbeddingInferenceWrapper created with disable_random_init = "
-      << disable_random_init_ << ", num_shards = " << num_shards_;
+      disable_random_init_(disable_random_init) {}
+
+void DramKVEmbeddingInferenceWrapper::ensure_impl_initialized() {
+  if (impl_ == nullptr) {
+    LOG(INFO)
+        << "Lazy-initializing DramKVEmbeddingInferenceImpl with num_shards = "
+        << num_shards_ << ", uniform_init_lower = " << uniform_init_lower_
+        << ", uniform_init_upper = " << uniform_init_upper_
+        << ", disable_random_init = " << disable_random_init_;
+    impl_ = std::make_shared<DramKVEmbeddingInferenceImpl>(
+        num_shards_,
+        uniform_init_lower_,
+        uniform_init_upper_,
+        disable_random_init_);
+  }
 }
 
 void DramKVEmbeddingInferenceWrapper::init(
@@ -37,106 +49,66 @@ void DramKVEmbeddingInferenceWrapper::init(
     const int64_t row_alignment,
     const int64_t scale_bias_size_in_bytes,
     const std::optional<at::Tensor>& hash_size_cumsum) {
-  LOG(INFO) << "DramKVEmbeddingInferenceWrapper::init() starts";
-  int64_t max_D = 0;
-  for (auto i = 0; i < specs.size(); ++i) {
-    max_D = std::max(max_D, std::get<1>(specs[i]));
-  }
-  max_row_bytes_ = nbit::padded_row_size_in_bytes(
-      static_cast<int32_t>(max_D),
-      static_cast<fbgemm_gpu::SparseType>(std::get<2>(specs[0])),
-      static_cast<int32_t>(row_alignment),
-      static_cast<int32_t>(scale_bias_size_in_bytes));
-  LOG(INFO) << "Initialize dram_kv with max_D: " << max_D
-            << ", sparse_type: " << std::get<2>(specs[0])
-            << ", row_alignment: " << row_alignment
-            << ", scale_bias_size_in_bytes: " << scale_bias_size_in_bytes
-            << ", max_row_bytes_: " << max_row_bytes_;
-  if (dram_kv_ != nullptr) {
-    return;
-  }
-  dram_kv_ = std::make_shared<kv_mem::DramKVInferenceEmbedding<uint8_t>>(
-      max_row_bytes_,
-      uniform_init_lower_,
-      uniform_init_upper_,
-      c10::make_intrusive<kv_mem::FeatureEvictConfig>(
-          3 /* EvictTriggerMode.MANUAL */,
-          4 /* EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD */,
-          0 /* trigger_step_intervals */,
-          0 /* mem_util_threshold_in_GB */,
-          std::nullopt /* ttls_in_mins */,
-          std::nullopt /* counter_thresholds */,
-          std::nullopt /* counter_decay_rates */,
-          std::nullopt /* feature_score_counter_decay_rates */,
-          std::nullopt /* training_id_eviction_trigger_count */,
-          std::nullopt /* training_id_keep_count */,
-          std::nullopt /* l2_weight_thresholds */,
-          std::nullopt /* embedding_dims */,
-          std::nullopt /* threshold_calculation_bucket_stride */,
-          std::nullopt /* threshold_calculation_bucket_num */,
-          0 /* interval for insufficient eviction s*/,
-          0 /* interval for sufficient eviction s*/,
-          0 /* interval_for_feature_statistics_decay_s_*/),
-      num_shards_ /* num_shards */,
-      num_shards_ /* num_threads */,
-      8 /* row_storage_bitwidth */,
-      false /* enable_async_update */,
-      std::nullopt /* table_dims */,
-      hash_size_cumsum,
-      disable_random_init_);
+  ensure_impl_initialized();
+  impl_->init(specs, row_alignment, scale_bias_size_in_bytes, hash_size_cumsum);
 }
 
 std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>>
 DramKVEmbeddingInferenceWrapper::get_dram_kv() {
-  return dram_kv_;
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  return impl_->get_dram_kv();
 }
 
 void DramKVEmbeddingInferenceWrapper::set_dram_kv(
     std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> dram_kv) {
-  dram_kv_ = std::move(dram_kv);
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  impl_->set_dram_kv(std::move(dram_kv));
+}
+
+void DramKVEmbeddingInferenceWrapper::set_impl(
+    std::shared_ptr<KVEmbeddingInferenceInterface> impl) {
+  impl_ = std::move(impl);
+}
+
+std::shared_ptr<KVEmbeddingInferenceInterface>
+DramKVEmbeddingInferenceWrapper::get_impl() {
+  return impl_;
+}
+
+void DramKVEmbeddingInferenceWrapper::transfer_underlying_storage_from(
+    const c10::intrusive_ptr<DramKVEmbeddingInferenceWrapper>& other) {
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  impl_->transfer_underlying_storage_from(other->impl_);
 }
 
 void DramKVEmbeddingInferenceWrapper::set_embeddings(
     const at::Tensor& indices,
     const at::Tensor& weights,
     std::optional<int64_t> inplace_update_ts_opt) {
-  const auto count = at::tensor({indices.numel()}, at::ScalarType::Long);
-  std::optional<uint32_t> inplacee_update_ts = std::nullopt;
-  if (inplace_update_ts_opt.has_value()) {
-    inplacee_update_ts =
-        static_cast<std::uint32_t>(inplace_update_ts_opt.value());
-  }
-  folly::coro::blockingWait(dram_kv_->inference_set_kv_db_async(
-      indices, weights, count, inplacee_update_ts));
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  impl_->set_embeddings(indices, weights, inplace_update_ts_opt);
 }
 
 at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
     const at::Tensor& indices) {
-  const auto count = at::tensor({indices.numel()}, at::ScalarType::Long);
-  auto weights = at::empty(
-      {
-          indices.numel(),
-          max_row_bytes_,
-      },
-      at::kByte);
-  folly::coro::blockingWait(dram_kv_->get_kv_db_async(indices, weights, count));
-  return weights;
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  return impl_->get_embeddings(indices);
 }
 
 void DramKVEmbeddingInferenceWrapper::log_inplace_update_stats() {
-  dram_kv_->log_inplace_update_stats();
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  impl_->log_inplace_update_stats();
 }
 
 void DramKVEmbeddingInferenceWrapper::trigger_evict(
     int64_t inplace_update_ts_64b) {
-  uint32_t inplace_update_ts_32b =
-      static_cast<std::uint32_t>(inplace_update_ts_64b);
-  dram_kv_->trigger_feature_evict(inplace_update_ts_32b);
-  dram_kv_->resume_ongoing_eviction();
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  impl_->trigger_evict(inplace_update_ts_64b);
 }
 
 void DramKVEmbeddingInferenceWrapper::wait_evict_completion() {
-  dram_kv_->wait_until_eviction_done();
+  TORCH_CHECK(impl_ != nullptr, "impl_ is not initialized. Call init first");
+  impl_->wait_evict_completion();
 }
 
 c10::List<at::Tensor> DramKVEmbeddingInferenceWrapper::serialize() const {
