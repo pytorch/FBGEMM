@@ -663,11 +663,12 @@ GenEmbeddingSpMDMLookup<
 
             if (pref_dist && fused_block_size % CACHE_LINE_LEN > 0 &&
                 fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(float)) {
-              a->prefetcht0(x86::dword_ptr(
-                  input,
-                  scratchReg2_,
-                  0,
-                  fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
+              a->prefetcht0(
+                  x86::dword_ptr(
+                      input,
+                      scratchReg2_,
+                      0,
+                      fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
             }
           }
 
@@ -796,8 +797,9 @@ GenEmbeddingSpMDMLookup<
             constexpr int VLOAD_PER_CACHE_LINE =
                 CACHE_LINE_LEN / BYTES_PER_VLOAD;
             if (pref_dist && (vec_idx + v) % VLOAD_PER_CACHE_LINE == 0) {
-              a->prefetcht0(x86::dword_ptr(
-                  input, scratchReg2_, 0, (vec_idx + v) * BYTES_PER_VLOAD));
+              a->prefetcht0(
+                  x86::dword_ptr(
+                      input, scratchReg2_, 0, (vec_idx + v) * BYTES_PER_VLOAD));
             }
           }
 

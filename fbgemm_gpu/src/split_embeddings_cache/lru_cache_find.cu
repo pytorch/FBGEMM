@@ -55,9 +55,10 @@ DLL_PUBLIC Tensor emulate_cache_miss(
     return lxu_cache_locations;
   }
 
-  const dim3 blocks(std::min(
-      div_round_up(N, kMaxThreads),
-      get_max_thread_blocks_for_cache_kernels_()));
+  const dim3 blocks(
+      std::min(
+          div_round_up(N, kMaxThreads),
+          get_max_thread_blocks_for_cache_kernels_()));
 
   FBGEMM_LAUNCH_KERNEL(
       (emulate_cache_miss_kernel),
@@ -194,19 +195,20 @@ lru_cache_find_uncached_cuda(
     cache_set_inverse_indices = empty_like(cache_sets_positions);
   }
 
-#define INVOKE_CUB_SORT_PAIRS(                                            \
-    TEMP_STORAGE_PTR, VALUE_TENSOR, SORTED_VALUE_TENSOR)                  \
-  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
-      TEMP_STORAGE_PTR,                                                   \
-      temp_storage_bytes,                                                 \
-      cache_sets.data_ptr<int32_t>(),                                     \
-      sorted_cache_sets.data_ptr<int32_t>(),                              \
-      VALUE_TENSOR,                                                       \
-      SORTED_VALUE_TENSOR,                                                \
-      N,                                                                  \
-      0,                                                                  \
-      int(log2(float(lxu_cache_state.size(0) + 1)) + 1),                  \
-      at::cuda::getCurrentCUDAStream()))
+#define INVOKE_CUB_SORT_PAIRS(                                  \
+    TEMP_STORAGE_PTR, VALUE_TENSOR, SORTED_VALUE_TENSOR)        \
+  AT_CUDA_CHECK(                                                \
+      FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
+          TEMP_STORAGE_PTR,                                     \
+          temp_storage_bytes,                                   \
+          cache_sets.data_ptr<int32_t>(),                       \
+          sorted_cache_sets.data_ptr<int32_t>(),                \
+          VALUE_TENSOR,                                         \
+          SORTED_VALUE_TENSOR,                                  \
+          N,                                                    \
+          0,                                                    \
+          int(log2(float(lxu_cache_state.size(0) + 1)) + 1),    \
+          at::cuda::getCurrentCUDAStream()))
 
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {

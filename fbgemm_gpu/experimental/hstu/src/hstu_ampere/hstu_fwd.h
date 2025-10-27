@@ -564,13 +564,10 @@ inline __device__ void hstu_compute_attn_1rowblock(
   Tensor tOcO = gmem_thr_copy_O.partition_D(cO);
   Tensor tOpO = make_tensor<bool>(make_shape(size<2>(tOgO)));
   // Clear_OOB_K must be false since we don't want to write zeros to gmem
-  flash::
-      copy</*Is_even_MN=*/false, /*Clear_OOB_MN=*/false, /*Clear_OOB_K=*/false>(
-          gmem_tiled_copy_O,
-          tOrO,
-          tOgO,
-          tOcO,
-          actual_seqlen_q - m_block * kBlockM);
+  flash::copy</*Is_even_MN=*/false,
+              /*Clear_OOB_MN=*/false,
+              /*Clear_OOB_K=*/false>(
+      gmem_tiled_copy_O, tOrO, tOgO, tOcO, actual_seqlen_q - m_block * kBlockM);
 }
 
 template <typename Kernel_traits, typename Params>

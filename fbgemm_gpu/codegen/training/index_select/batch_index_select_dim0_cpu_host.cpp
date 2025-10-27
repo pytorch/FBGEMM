@@ -403,8 +403,9 @@ class BatchIndexSelectDim0TensorCPUOp
         input_columns,
         permute_output_dim_0_1);
     ctx->saved_data["permute_output_dim_0_1"] = permute_output_dim_0_1;
-    ctx->save_for_backward(std::vector<Tensor>{
-        indices, input_num_indices, input_rows, input_columns, res[1]});
+    ctx->save_for_backward(
+        std::vector<Tensor>{
+            indices, input_num_indices, input_rows, input_columns, res[1]});
     res.resize(1);
     return res;
   }

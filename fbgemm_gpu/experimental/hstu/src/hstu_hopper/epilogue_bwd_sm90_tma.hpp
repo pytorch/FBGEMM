@@ -155,11 +155,11 @@ struct CollectiveEpilogueBwd {
         tdKrdK_out); // ((Atom,AtomNum), MMA_M, MMA_N)
     Tensor taccdVrdV = smem_thr_copy_dKV.retile_S(
         tdVrdV_out); // ((Atom,AtomNum), MMA_M, MMA_N)
-    Tensor taccdKsdK =
-        smem_thr_copy_dKV.partition_D(cute::conditional_return<!dKV_swapAB>(
+    Tensor taccdKsdK = smem_thr_copy_dKV.partition_D(
+        cute::conditional_return<!dKV_swapAB>(
             sdK, sdKt)); // ((Atom,AtomNum),PIPE_M,PIPE_N)
-    Tensor taccdVsdV =
-        smem_thr_copy_dKV.partition_D(cute::conditional_return<!dKV_swapAB>(
+    Tensor taccdVsdV = smem_thr_copy_dKV.partition_D(
+        cute::conditional_return<!dKV_swapAB>(
             sdV, sdVt)); // ((Atom,AtomNum),PIPE_M,PIPE_N)
 
     // Make sure all WGs have finished reading K and V

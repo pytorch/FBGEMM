@@ -184,14 +184,18 @@ static ::testing::AssertionResult isQEmbeddingClose(
       float scaleTest = NAN, scaleRef = NAN, biasTest = NAN, biasRef = NAN;
       if constexpr (is_same_v<T, float16>) {
         // half scale and bias
-        scaleTest = cpu_half2float(reinterpret_cast<const float16*>(
-            res.data() + i * ld + out_emb_cols)[0]);
-        biasTest = cpu_half2float(reinterpret_cast<const float16*>(
-            res.data() + i * ld + out_emb_cols)[1]);
-        scaleRef = cpu_half2float(reinterpret_cast<const float16*>(
-            res_ref.data() + i * ld + out_emb_cols)[0]);
-        biasRef = cpu_half2float(reinterpret_cast<const float16*>(
-            res_ref.data() + i * ld + out_emb_cols)[1]);
+        scaleTest = cpu_half2float(
+            reinterpret_cast<const float16*>(
+                res.data() + i * ld + out_emb_cols)[0]);
+        biasTest = cpu_half2float(
+            reinterpret_cast<const float16*>(
+                res.data() + i * ld + out_emb_cols)[1]);
+        scaleRef = cpu_half2float(
+            reinterpret_cast<const float16*>(
+                res_ref.data() + i * ld + out_emb_cols)[0]);
+        biasRef = cpu_half2float(
+            reinterpret_cast<const float16*>(
+                res_ref.data() + i * ld + out_emb_cols)[1]);
       } else {
         // float scale and bias
         scaleTest = reinterpret_cast<const float*>(
@@ -629,40 +633,48 @@ TEST_P(EmbeddingQuantizeFixedNumberTest, embeddingFloatToQuantizedSBHalfTest) {
 
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float>(
       bit_rate, float_test_input.data(), row, col, outVectHalfTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate], outVectHalfTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate], outVectHalfTest, row, col));
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
       bit_rate, float_test_input.data(), row, col, outVectHalfTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate], outVectHalfTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate], outVectHalfTest, row, col));
 
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
       bit_rate, float16_test_input.data(), row, col, outVectHalfTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate], outVectHalfTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate], outVectHalfTest, row, col));
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
       bit_rate, float16_test_input.data(), row, col, outVectHalfTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate], outVectHalfTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate], outVectHalfTest, row, col));
 
   vector<uint8_t> outVecFloatTest(row * out_cols_float);
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float>(
       float_test_input.data(), row, col, outVecFloatTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float>(
-      expected_output_float, outVecFloatTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float>(
+          expected_output_float, outVecFloatTest, row, col));
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
       float_test_input.data(), row, col, outVecFloatTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float>(
-      expected_output_float, outVecFloatTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float>(
+          expected_output_float, outVecFloatTest, row, col));
 
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float16>(
       float16_test_input.data(), row, col, outVecFloatTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float>(
-      expected_output_float, outVecFloatTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float>(
+          expected_output_float, outVecFloatTest, row, col));
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float16>(
       float16_test_input.data(), row, col, outVecFloatTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float>(
-      expected_output_float, outVecFloatTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float>(
+          expected_output_float, outVecFloatTest, row, col));
 }
 
 // Scale and bias are of type float16
@@ -718,12 +730,14 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
       bit_rate, inpVec.data(), rows, cols, outVecRef.data());
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
       bit_rate, inpHalfVec.data(), rows, cols, outVecRefFromHalf.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      outVecRefFromHalf, outVecRef, rows, out_emb_cols));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          outVecRefFromHalf, outVecRef, rows, out_emb_cols));
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
       bit_rate, inpHalfVec.data(), rows, cols, outVecTestFromHalf.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      outVecRefFromHalf, outVecTestFromHalf, rows, out_emb_cols));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          outVecRefFromHalf, outVecTestFromHalf, rows, out_emb_cols));
 
   vector<float16> dequantOutHalfRef(rows * cols);
   vector<float16> dequantOutHalfTest(rows * cols);
@@ -798,8 +812,9 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
       isQEmbeddingClose<float16>(outVecRefFromHalf, outVecRef, rows, cols));
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float16>(
       inpHalfVec.data(), rows, cols, outVecTestFromHalf.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      outVecRefFromHalf, outVecTestFromHalf, rows, cols));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          outVecRefFromHalf, outVecTestFromHalf, rows, cols));
 
   vector<float16> dequantOutHalfRef(rows * cols);
   vector<float16> dequantOutHalfTest(rows * cols);
@@ -831,18 +846,21 @@ TEST_P(
       col,
       outVecFloatTest.data(),
       float_test_input_rowwise_min_max.data());
-  EXPECT_TRUE(isQEmbeddingClose<float>(
-      expected_output_float, outVecFloatTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float>(
+          expected_output_float, outVecFloatTest, row, col));
 
   // Confirm that quantization with and without rowwise_min_max produces similar
   // results.
   vector<uint8_t> outVecFloatTestNoRowwiseMinMax(row * out_cols_float);
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
       float_test_input.data(), row, col, outVecFloatTestNoRowwiseMinMax.data());
-  EXPECT_TRUE(isQEmbeddingClose<float>(
-      expected_output_float, outVecFloatTestNoRowwiseMinMax, row, col));
-  EXPECT_TRUE(isQEmbeddingClose<float>(
-      outVecFloatTest, outVecFloatTestNoRowwiseMinMax, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float>(
+          expected_output_float, outVecFloatTestNoRowwiseMinMax, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float>(
+          outVecFloatTest, outVecFloatTestNoRowwiseMinMax, row, col));
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   // Confirm that incorrect min and max values for each row in the input
@@ -861,13 +879,18 @@ TEST_P(
       col,
       outVecFloatTestIncorrectRowwiseMinMax.data(),
       float_test_input_rowwise_min_max.data());
-  EXPECT_FALSE(isQEmbeddingClose<float>(
-      expected_output_float, outVecFloatTestIncorrectRowwiseMinMax, row, col));
-  EXPECT_FALSE(isQEmbeddingClose<float>(
-      outVecFloatTestIncorrectRowwiseMinMax,
-      outVecFloatTestNoRowwiseMinMax,
-      row,
-      col));
+  EXPECT_FALSE(
+      isQEmbeddingClose<float>(
+          expected_output_float,
+          outVecFloatTestIncorrectRowwiseMinMax,
+          row,
+          col));
+  EXPECT_FALSE(
+      isQEmbeddingClose<float>(
+          outVecFloatTestIncorrectRowwiseMinMax,
+          outVecFloatTestNoRowwiseMinMax,
+          row,
+          col));
 #endif
 }
 
@@ -885,8 +908,9 @@ TEST_P(
       col,
       outVectFloatTest.data(),
       float_test_input_rowwise_min_max.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate], outVectFloatTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate], outVectFloatTest, row, col));
 
   vector<uint8_t> outVectHalfTest(row * out_cols_half);
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
@@ -896,8 +920,9 @@ TEST_P(
       col,
       outVectHalfTest.data(),
       float16_test_input_rowwise_min_max.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate], outVectHalfTest, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate], outVectHalfTest, row, col));
 
   // Confirm that quantization with and without rowwise_min_max produces
   // similar results.
@@ -908,13 +933,15 @@ TEST_P(
       row,
       col,
       outVecFloatTestNoRowwiseMinMax.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate],
-      outVecFloatTestNoRowwiseMinMax,
-      row,
-      col));
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      outVectFloatTest, outVecFloatTestNoRowwiseMinMax, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate],
+          outVecFloatTestNoRowwiseMinMax,
+          row,
+          col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          outVectFloatTest, outVecFloatTestNoRowwiseMinMax, row, col));
 
   vector<uint8_t> outVecHalfTestNoRowwiseMinMax(row * out_cols_half);
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
@@ -923,10 +950,15 @@ TEST_P(
       row,
       col,
       outVecHalfTestNoRowwiseMinMax.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate], outVecHalfTestNoRowwiseMinMax, row, col));
-  EXPECT_TRUE(isQEmbeddingClose<float16>(
-      outVectHalfTest, outVecHalfTestNoRowwiseMinMax, row, col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate],
+          outVecHalfTestNoRowwiseMinMax,
+          row,
+          col));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(
+          outVectHalfTest, outVecHalfTestNoRowwiseMinMax, row, col));
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   // Confirm that incorrect min and max values for each row in the input
@@ -955,16 +987,18 @@ TEST_P(
       col,
       outVecFloatTestIncorrectRowwiseMinMax.data(),
       float_test_input_incorrect_rowwise_min_max.data());
-  EXPECT_FALSE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate],
-      outVecFloatTestIncorrectRowwiseMinMax,
-      row,
-      col));
-  EXPECT_FALSE(isQEmbeddingClose<float16>(
-      outVecFloatTestIncorrectRowwiseMinMax,
-      outVecFloatTestNoRowwiseMinMax,
-      row,
-      col));
+  EXPECT_FALSE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate],
+          outVecFloatTestIncorrectRowwiseMinMax,
+          row,
+          col));
+  EXPECT_FALSE(
+      isQEmbeddingClose<float16>(
+          outVecFloatTestIncorrectRowwiseMinMax,
+          outVecFloatTestNoRowwiseMinMax,
+          row,
+          col));
 
   vector<uint8_t> outVecHalfTestIncorrectRowwiseMinMax(row * out_cols_half);
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
@@ -974,15 +1008,17 @@ TEST_P(
       col,
       outVecHalfTestIncorrectRowwiseMinMax.data(),
       float16_test_input_incorrect_rowwise_min_max.data());
-  EXPECT_FALSE(isQEmbeddingClose<float16>(
-      expected_output_half[bit_rate],
-      outVecHalfTestIncorrectRowwiseMinMax,
-      row,
-      col));
-  EXPECT_FALSE(isQEmbeddingClose<float16>(
-      outVecHalfTestIncorrectRowwiseMinMax,
-      outVecHalfTestNoRowwiseMinMax,
-      row,
-      col));
+  EXPECT_FALSE(
+      isQEmbeddingClose<float16>(
+          expected_output_half[bit_rate],
+          outVecHalfTestIncorrectRowwiseMinMax,
+          row,
+          col));
+  EXPECT_FALSE(
+      isQEmbeddingClose<float16>(
+          outVecHalfTestIncorrectRowwiseMinMax,
+          outVecHalfTestNoRowwiseMinMax,
+          row,
+          col));
 #endif
 }

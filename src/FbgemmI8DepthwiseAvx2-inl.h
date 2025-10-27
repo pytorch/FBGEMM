@@ -130,8 +130,8 @@ static ALWAYS_INLINE void requantize_(
       } else {
         row_offset_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
-                _mm256_castps128_ps256(
-                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(
                         row_offsets + (j + VLEN) / 2))),
                 permute_mask_v)));
       }
@@ -143,8 +143,8 @@ static ALWAYS_INLINE void requantize_(
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         B_zero_point_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
-                _mm256_castps128_ps256(
-                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(
                         B_zero_point + (j + VLEN) / 2))),
                 permute_mask_v)));
       }
@@ -166,8 +166,8 @@ static ALWAYS_INLINE void requantize_(
       } else {
         row_offset_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
-                _mm256_castps128_ps256(
-                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(
                         row_offsets + (j + 2 * VLEN) / 2))),
                 permute_mask_v)));
       }
@@ -179,8 +179,8 @@ static ALWAYS_INLINE void requantize_(
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         B_zero_point_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
-                _mm256_castps128_ps256(
-                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(
                         B_zero_point + (j + 2 * VLEN) / 2))),
                 permute_mask_v)));
       }
@@ -202,8 +202,8 @@ static ALWAYS_INLINE void requantize_(
       } else {
         row_offset_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
-                _mm256_castps128_ps256(
-                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(
                         row_offsets + (j + 3 * VLEN) / 2))),
                 permute_mask_v)));
       }
@@ -215,8 +215,8 @@ static ALWAYS_INLINE void requantize_(
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         B_zero_point_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
-                _mm256_castps128_ps256(
-                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(
                         B_zero_point + (j + 3 * VLEN) / 2))),
                 permute_mask_v)));
       }

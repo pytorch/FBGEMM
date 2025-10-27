@@ -124,17 +124,17 @@ TEST(RawEmbeddingStreamerTest, TestTensorStream) {
       at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
   EXPECT_CALL(*mock_service, co_setEmbeddings(_))
       .Times(3) // 3 shards with consistent hashing
-      .WillRepeatedly(folly::coro::gmock_helpers::CoInvoke(
-          [](std::unique_ptr<
-              aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest>
-                 request)
-              -> folly::coro::Task<
-                  std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
-                                      SetEmbeddingsResponse>> {
-            co_return std::make_unique<
-                aiplatform::gmpp::experimental::training_ps::
-                    SetEmbeddingsResponse>();
-          }));
+      .WillRepeatedly(
+          folly::coro::gmock_helpers::CoInvoke(
+              [](std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
+                                     SetEmbeddingsRequest> request)
+                  -> folly::coro::Task<
+                      std::unique_ptr<aiplatform::gmpp::experimental::
+                                          training_ps::SetEmbeddingsResponse>> {
+                co_return std::make_unique<
+                    aiplatform::gmpp::experimental::training_ps::
+                        SetEmbeddingsResponse>();
+              }));
   folly::coro::blockingWait(
       streamer->tensor_stream(valid_indices, weights, std::nullopt));
 }
@@ -302,19 +302,19 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithIdentities) {
   // Test that identities are properly handled in tensor_stream
   EXPECT_CALL(*mock_service, co_setEmbeddings(_))
       .Times(3) // 3 shards with consistent hashing
-      .WillRepeatedly(folly::coro::gmock_helpers::CoInvoke(
-          [](std::unique_ptr<
-              aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest>
-                 request)
-              -> folly::coro::Task<
-                  std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
-                                      SetEmbeddingsResponse>> {
-            // Verify that the request is properly formed
-            EXPECT_GT(request->fqns()->size(), 0);
-            co_return std::make_unique<
-                aiplatform::gmpp::experimental::training_ps::
-                    SetEmbeddingsResponse>();
-          }));
+      .WillRepeatedly(
+          folly::coro::gmock_helpers::CoInvoke(
+              [](std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
+                                     SetEmbeddingsRequest> request)
+                  -> folly::coro::Task<
+                      std::unique_ptr<aiplatform::gmpp::experimental::
+                                          training_ps::SetEmbeddingsResponse>> {
+                // Verify that the request is properly formed
+                EXPECT_GT(request->fqns()->size(), 0);
+                co_return std::make_unique<
+                    aiplatform::gmpp::experimental::training_ps::
+                        SetEmbeddingsResponse>();
+              }));
   folly::coro::blockingWait(
       streamer->tensor_stream(indices, weights, identities));
 

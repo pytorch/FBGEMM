@@ -264,8 +264,9 @@ class BatchIndexSelectDim0GPUOp
 
     ctx->saved_data["permute_output_dim_0_1"] = permute_output_dim_0_1;
 
-    ctx->save_for_backward(std::vector<Tensor>{
-        inputs, indices, res[1], res[2], res[3], res[4], res[5], res[6]});
+    ctx->save_for_backward(
+        std::vector<Tensor>{
+            inputs, indices, res[1], res[2], res[3], res[4], res[5], res[6]});
 
     res.resize(1);
     return res;
@@ -584,8 +585,9 @@ class BatchIndexSelectDim0TensorGPUOp
 
     ctx->saved_data["permute_output_dim_0_1"] = permute_output_dim_0_1;
 
-    ctx->save_for_backward(std::vector<Tensor>{
-        inputs, indices, res[1], res[2], res[3], res[4], res[5], res[6]});
+    ctx->save_for_backward(
+        std::vector<Tensor>{
+            inputs, indices, res[1], res[2], res[3], res[4], res[5], res[6]});
 
     // res.resize(1);
     return res;

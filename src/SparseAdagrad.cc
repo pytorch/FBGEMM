@@ -279,8 +279,9 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
       Ymm out_vreg = Ymm(v + 1);
       if (has_weight_decay && prefetch &&
           ((vec_idx + v) % (64 / (vlen_avx2 * sizeof(float))) == 0)) {
-        a->prefetchw(x86::dword_ptr(
-            w, temp2_, 0, (vec_idx + v) * vlen_avx2 * sizeof(float)));
+        a->prefetchw(
+            x86::dword_ptr(
+                w, temp2_, 0, (vec_idx + v) * vlen_avx2 * sizeof(float)));
       }
 
       auto g_ptr = x86::dword_ptr(g, (vec_idx + v) * vlen_avx2 * sizeof(float));

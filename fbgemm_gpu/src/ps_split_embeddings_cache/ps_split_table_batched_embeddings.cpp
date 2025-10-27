@@ -104,15 +104,16 @@ static auto embedding_parameter_server_wrapper =
     torch::class_<EmbeddingParameterServerWrapper>(
         "fbgemm",
         "EmbeddingParameterServerWrapper")
-        .def(torch::init<
-             const std::vector<std::string>,
-             const std::vector<int64_t>,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t>())
+        .def(
+            torch::init<
+                const std::vector<std::string>,
+                const std::vector<int64_t>,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t>())
         .def("set_cuda", &EmbeddingParameterServerWrapper::set_cuda)
         .def(
             "set_feature_score_metadata_cuda",
