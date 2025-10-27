@@ -147,8 +147,9 @@ TEST(WeightRow, update_optimizer_state) {
   const auto D = 32u;
   const auto rows = 4;
   const auto cols = utils::pad4(D);
-  const auto extra = pad4(static_cast<int32_t>(
-      ceil(sizeof(ExampleOptimizerState1) / sizeof(float))));
+  const auto extra = pad4(
+      static_cast<int32_t>(
+          ceil(sizeof(ExampleOptimizerState1) / sizeof(float))));
 
   const auto fW = 21.0f;
 
@@ -213,8 +214,9 @@ TEST(WeightRowAccessor, update_optimizer_state) {
   const auto D = 32u;
   const auto rows = 4;
   const auto cols = utils::pad4(D);
-  const auto extra = pad4(static_cast<int32_t>(
-      ceil(sizeof(ExampleOptimizerState2) / sizeof(float))));
+  const auto extra = pad4(
+      static_cast<int32_t>(
+          ceil(sizeof(ExampleOptimizerState2) / sizeof(float))));
 
   const auto fW = 13.7f;
 

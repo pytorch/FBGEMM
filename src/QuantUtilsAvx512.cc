@@ -123,8 +123,9 @@ void requantizeOutputProcessingGConvAvx512(
          j += VLEN) {
       __m512i x_v;
       if constexpr (C_PER_G != 8) {
-        x_v = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(
-            inp + (i - block.row_start) * ld_in + (j - block.col_start)));
+        x_v = _mm512_loadu_si512(
+            reinterpret_cast<const __m512i*>(
+                inp + (i - block.row_start) * ld_in + (j - block.col_start)));
       } else {
         // as of now we only have C_per_G = 2,4,8,16 thus this j loop all only
         // execute one iteration, the following point will be wrong if run more
@@ -157,8 +158,8 @@ void requantizeOutputProcessingGConvAvx512(
           row_offset_v =
               _mm512_castps_si512(_mm512_moveldup_ps(_mm512_permutexvar_ps(
                   permute_mask_v_g8,
-                  _mm512_castps256_ps512(
-                      _mm256_loadu_ps(reinterpret_cast<const float*>(
+                  _mm512_castps256_ps512(_mm256_loadu_ps(
+                      reinterpret_cast<const float*>(
                           r.row_offsets + (i - block.row_start) * 8))))));
 
         }
@@ -175,8 +176,8 @@ void requantizeOutputProcessingGConvAvx512(
           // groups 0,1,2,3
           row_offset_v = _mm512_permutexvar_epi32(
               permute_mask_v_g4,
-              _mm512_broadcast_i32x4(
-                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(
+              _mm512_broadcast_i32x4(_mm_loadu_si128(
+                  reinterpret_cast<const __m128i*>(
                       r.row_offsets + (i - block.row_start) * 4))));
         } else if constexpr (C_PER_G == 8) {
           row_offset_v =
@@ -200,14 +201,14 @@ void requantizeOutputProcessingGConvAvx512(
             B_zero_point_v =
                 _mm512_castps_si512(_mm512_moveldup_ps(_mm512_permutexvar_ps(
                     permute_mask_v_g8,
-                    _mm512_castps256_ps512(
-                        _mm256_loadu_ps(reinterpret_cast<const float*>(
+                    _mm512_castps256_ps512(_mm256_loadu_ps(
+                        reinterpret_cast<const float*>(
                             r.B_zero_point + quant_param_idx))))));
           } else if constexpr (C_PER_G == 4) {
             B_zero_point_v = _mm512_permutexvar_epi32(
                 permute_mask_v_g4,
-                _mm512_broadcast_i32x4(
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(
+                _mm512_broadcast_i32x4(_mm_loadu_si128(
+                    reinterpret_cast<const __m128i*>(
                         r.B_zero_point + quant_param_idx))));
           } else {
             B_zero_point_v = _mm512_set1_epi32(r.B_zero_point[quant_param_idx]);
@@ -452,7 +453,7 @@ void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
       RELU,                                            \
       2,                                               \
       BIAS_TYPE>(                                      \
-      uint8_t * out,                                   \
+      uint8_t* out,                                    \
       const int32_t* inp,                              \
       const block_type_t& block,                       \
       int ld_out,                                      \
@@ -466,7 +467,7 @@ void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
       RELU,                                            \
       4,                                               \
       BIAS_TYPE>(                                      \
-      uint8_t * out,                                   \
+      uint8_t* out,                                    \
       const int32_t* inp,                              \
       const block_type_t& block,                       \
       int ld_out,                                      \
@@ -480,7 +481,7 @@ void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
       RELU,                                            \
       8,                                               \
       BIAS_TYPE>(                                      \
-      uint8_t * out,                                   \
+      uint8_t* out,                                    \
       const int32_t* inp,                              \
       const block_type_t& block,                       \
       int ld_out,                                      \
@@ -494,7 +495,7 @@ void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
       RELU,                                            \
       16,                                              \
       BIAS_TYPE>(                                      \
-      uint8_t * out,                                   \
+      uint8_t* out,                                    \
       const int32_t* inp,                              \
       const block_type_t& block,                       \
       int ld_out,                                      \

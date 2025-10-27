@@ -681,11 +681,12 @@ GenEmbeddingSpMDMNBitLookup<
           constexpr unsigned int CACHE_LINE_LEN = 64;
           if (pref_dist && fused_block_size % CACHE_LINE_LEN > 0 &&
               fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(uint16_t)) {
-            a->prefetcht0(x86::dword_ptr(
-                input,
-                scratchReg2_,
-                0,
-                fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
+            a->prefetcht0(
+                x86::dword_ptr(
+                    input,
+                    scratchReg2_,
+                    0,
+                    fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
           }
 
           if (has_weight) {
@@ -803,8 +804,9 @@ GenEmbeddingSpMDMNBitLookup<
             int vload_per_cache_line = CACHE_LINE_LEN / bytes_per_vload;
             int v_aligned = ceil_div(vec_idx + v, 4) * 4;
             if (pref_dist && v_aligned % vload_per_cache_line == 0) {
-              a->prefetcht0(x86::dword_ptr(
-                  input, scratchReg2_, 0, v_aligned * bytes_per_vload));
+              a->prefetcht0(
+                  x86::dword_ptr(
+                      input, scratchReg2_, 0, v_aligned * bytes_per_vload));
             }
           }
 

@@ -1984,12 +1984,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     # Store info for evicting the previous iteration's
                     # scratch pad after the corresponding backward pass is
                     # done
-                    self.ssd_location_update_data.append(
-                        (
-                            sp_curr_prev_map_gpu,
-                            inserted_rows,
+                    if self.training:
+                        self.ssd_location_update_data.append(
+                            (
+                                sp_curr_prev_map_gpu,
+                                inserted_rows,
+                            )
                         )
-                    )
 
             # Ensure the previous iterations eviction is complete
             current_stream.wait_event(self.ssd_event_sp_evict)
@@ -2173,7 +2174,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             # Store scratch pad info for post backward eviction only for training
             # for eval job, no backward pass, so no need to store this info
-            if self.training and not self._embedding_cache_mode:
+            if self.training:
                 self.ssd_scratch_pad_eviction_data.append(
                     (
                         inserted_rows,
@@ -4548,6 +4549,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 if len(self.ssd_scratch_pad_eviction_data) > 0:
                     self.ssd_scratch_pad_eviction_data.pop(0)
                     if len(self.ssd_scratch_pad_eviction_data) > 0:
+                        # Wait for any pending backend reads to the next scratch pad
+                        # to complete before we write to it. Otherwise, stale backend data
+                        # will overwrite our direct_write updates.
+                        # The ssd_event_get marks completion of backend fetch operations.
+                        current_stream.wait_event(self.ssd_event_get)
+
                         # if scratch pad exists, write to next batch scratch pad
                         sp = self.ssd_scratch_pad_eviction_data[0][0]
                         sp_idx = self.ssd_scratch_pad_eviction_data[0][1].to(

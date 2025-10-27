@@ -102,8 +102,9 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
   for (int k1 = 0; k1 < OC; k1 += 32) {
     int remainder = OC - k1;
     if (remainder < 32) {
-      __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
-          internal::avx2_ps_or_epi32_masks[remainder / 4]));
+      __m256i mask_v = _mm256_load_si256(
+          reinterpret_cast<const __m256i*>(
+              internal::avx2_ps_or_epi32_masks[remainder / 4]));
       for (int i = 0; i < kernel_prod; ++i) {
         b_v[i] = _mm256_maskload_epi32(
             reinterpret_cast<const int*>(smat_transposed + i * OC + k1),

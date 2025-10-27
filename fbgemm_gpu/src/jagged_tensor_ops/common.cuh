@@ -442,8 +442,7 @@ struct VecType128 {
   typedef float4 TType; // Transaction Type
   typedef struct __align__(16) {
     __half a, b, c, d, w, x, y, z;
-  }
-  half8;
+  } half8;
 
   union Data {
     half8 val;
@@ -459,8 +458,7 @@ struct VecType64 {
   typedef float2 TType; // Transaction Type
   typedef struct __align__(8) {
     __half a, b, c, d;
-  }
-  half4;
+  } half4;
 
   union Data {
     half4 val;

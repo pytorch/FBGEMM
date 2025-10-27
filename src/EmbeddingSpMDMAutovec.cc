@@ -1797,24 +1797,23 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       NO_BAG,                                                                  \
       OUTPUT_BIT_RATE)
 
-#define SPECIALIZE_INPUT_RATE(     \
-    HAS_WEIGHT,                    \
-    NORMALIZE_BY_LENGTHS,          \
-    IS_WEIGHT_POSITIONAL,          \
-    USE_OFFSETS,                   \
-    SCALE_BIAS_LAST,               \
-    IS_BF16_OUT,                   \
-    NO_BAG)                        \
-  SPECIALIZE_BLOCK_SIZE(           \
-      /*INPUT_BIT_RATE*/ fixed(4), \
-      HAS_WEIGHT,                  \
-      NORMALIZE_BY_LENGTHS,        \
-      IS_WEIGHT_POSITIONAL,        \
-      USE_OFFSETS,                 \
-      SCALE_BIAS_LAST,             \
-      IS_BF16_OUT,                 \
-      NO_BAG,                      \
-      /*OUTPUT_BIT_RATE*/ fixed(int{8 * sizeof(OutType)}))
+#define SPECIALIZE_INPUT_RATE(                       \
+    HAS_WEIGHT,                                      \
+    NORMALIZE_BY_LENGTHS,                            \
+    IS_WEIGHT_POSITIONAL,                            \
+    USE_OFFSETS,                                     \
+    SCALE_BIAS_LAST,                                 \
+    IS_BF16_OUT,                                     \
+    NO_BAG)                                          \
+  SPECIALIZE_BLOCK_SIZE(/*INPUT_BIT_RATE*/ fixed(4), \
+                        HAS_WEIGHT,                  \
+                        NORMALIZE_BY_LENGTHS,        \
+                        IS_WEIGHT_POSITIONAL,        \
+                        USE_OFFSETS,                 \
+                        SCALE_BIAS_LAST,             \
+                        IS_BF16_OUT,                 \
+                        NO_BAG,                      \
+                        /*OUTPUT_BIT_RATE*/ fixed(int{8 * sizeof(OutType)}))
 
 #ifdef FBGEMM_MORE_SPECIALIZATION
   SPECIALIZE_INPUT_RATE(

@@ -382,12 +382,13 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const bool has_weights = weights.has_value();
     const size_t res_size = has_weights ? 3u : 2u;
     ctx->saved_data["has_weights"] = has_weights;
-    ctx->save_for_backward(std::vector<Tensor>{
-        offsets,
-        indices,
-        res[res_size + 0], // output_offsets
-        res[res_size + 1], // saved_data_tensor
-    });
+    ctx->save_for_backward(
+        std::vector<Tensor>{
+            offsets,
+            indices,
+            res[res_size + 0], // output_offsets
+            res[res_size + 1], // saved_data_tensor
+        });
 
     res.resize(res_size);
     return res;

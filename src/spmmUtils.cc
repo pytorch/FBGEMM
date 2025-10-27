@@ -87,7 +87,7 @@ FBGEMM_API void trRequantizeRef(
 
 #define CREATE_INSTANCE(FUSE_RELU, QGRAN)                     \
   template FBGEMM_API void trRequantizeRef<FUSE_RELU, QGRAN>( \
-      uint8_t * out,                                          \
+      uint8_t* out,                                           \
       const int32_t* inp,                                     \
       const block_type_t& block,                              \
       int ld_out,                                             \

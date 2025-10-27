@@ -95,17 +95,21 @@ FBGEMM_API void trRequantizeOpt(
     int j = block.col_start;
     for (; j < block.col_start + (block.col_size / (VLEN * 4) * (VLEN * 4));
          j += (VLEN * 4)) {
-      __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start)));
-      __m256i y_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start) +
-          1 * VLEN));
-      __m256i z_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start) +
-          2 * VLEN));
-      __m256i w_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start) +
-          3 * VLEN));
+      __m256i x_v = _mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(
+              inp + (i - block.row_start) * ld_in + (j - block.col_start)));
+      __m256i y_v = _mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(
+              inp + (i - block.row_start) * ld_in + (j - block.col_start) +
+              1 * VLEN));
+      __m256i z_v = _mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(
+              inp + (i - block.row_start) * ld_in + (j - block.col_start) +
+              2 * VLEN));
+      __m256i w_v = _mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(
+              inp + (i - block.row_start) * ld_in + (j - block.col_start) +
+              3 * VLEN));
 
       if constexpr (!ACT_SYMMETRIC) {
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
@@ -115,26 +119,30 @@ FBGEMM_API void trRequantizeOpt(
       }
       if constexpr (!WEIGHT_SYMMETRIC) {
         __m256i col_offset_v = _mm256_mullo_epi32(
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                r.act_col_offsets + j - block.col_start)),
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    r.act_col_offsets + j - block.col_start)),
             weight_zeropoint_v);
         x_v = _mm256_sub_epi32(x_v, col_offset_v);
 
         col_offset_v = _mm256_mullo_epi32(
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                r.act_col_offsets + VLEN + j - block.col_start)),
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    r.act_col_offsets + VLEN + j - block.col_start)),
             weight_zeropoint_v);
         y_v = _mm256_sub_epi32(y_v, col_offset_v);
 
         col_offset_v = _mm256_mullo_epi32(
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                r.act_col_offsets + 2 * VLEN + j - block.col_start)),
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    r.act_col_offsets + 2 * VLEN + j - block.col_start)),
             weight_zeropoint_v);
         z_v = _mm256_sub_epi32(z_v, col_offset_v);
 
         col_offset_v = _mm256_mullo_epi32(
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                r.act_col_offsets + 3 * VLEN + j - block.col_start)),
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    r.act_col_offsets + 3 * VLEN + j - block.col_start)),
             weight_zeropoint_v);
         w_v = _mm256_sub_epi32(w_v, col_offset_v);
       }
@@ -222,16 +230,18 @@ FBGEMM_API void trRequantizeOpt(
     } // j loop vectorized and unrolled 4x
 
     for (; j < block.col_start + (block.col_size / VLEN * VLEN); j += VLEN) {
-      __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start)));
+      __m256i x_v = _mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(
+              inp + (i - block.row_start) * ld_in + (j - block.col_start)));
 
       if constexpr (!ACT_SYMMETRIC) {
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
       }
       if constexpr (!WEIGHT_SYMMETRIC) {
         __m256i col_offset_v = _mm256_mullo_epi32(
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                r.act_col_offsets + j - block.col_start)),
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    r.act_col_offsets + j - block.col_start)),
             weight_zeropoint_v);
         x_v = _mm256_sub_epi32(x_v, col_offset_v);
       }
@@ -266,8 +276,9 @@ FBGEMM_API void trRequantizeOpt(
 
     int remainder = block.col_start + block.col_size - j;
     if (remainder > 0) {
-      __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
-          internal::avx2_ps_or_epi32_masks[remainder]));
+      __m256i mask_v = _mm256_load_si256(
+          reinterpret_cast<const __m256i*>(
+              internal::avx2_ps_or_epi32_masks[remainder]));
 
       __m256i x_v = _mm256_maskload_epi32(
           inp + (i - block.row_start) * ld_in + (j - block.col_start), mask_v);
@@ -324,7 +335,7 @@ FBGEMM_API void trRequantizeOpt(
       WEIGHT_SYMMETRIC,                                          \
       HAS_BIAS,                                                  \
       QGRAN>(                                                    \
-      uint8_t * out,                                             \
+      uint8_t* out,                                              \
       const int32_t* inp,                                        \
       const block_type_t& block,                                 \
       int ld_out,                                                \

@@ -674,11 +674,12 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             constexpr int VLOAD_PER_CACHE_LINE =
                 CACHE_LINE_LEN / BYTES_PER_VLOAD;
             if (prefetch && (vec_idx + v) % VLOAD_PER_CACHE_LINE == 0) {
-              a->prefetchw(x86::dword_ptr(
-                  w,
-                  scratchReg2,
-                  areWeightsFp16 ? 1 : 2,
-                  (vec_idx + v) * BYTES_PER_VLOAD));
+              a->prefetchw(
+                  x86::dword_ptr(
+                      w,
+                      scratchReg2,
+                      areWeightsFp16 ? 1 : 2,
+                      (vec_idx + v) * BYTES_PER_VLOAD));
             }
           }
         }

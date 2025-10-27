@@ -205,9 +205,10 @@ void lxu_cache_locking_counter_decrement_cuda(
   TORCH_CHECK(lxu_cache_locking_counter.size(1) == kWarpSize);
   auto fd = FixedDivisor(kWarpSize);
 
-  const dim3 blocks(std::min(
-      div_round_up(N, kMaxThreads),
-      get_max_thread_blocks_for_cache_kernels_()));
+  const dim3 blocks(
+      std::min(
+          div_round_up(N, kMaxThreads),
+          get_max_thread_blocks_for_cache_kernels_()));
 
   FBGEMM_LAUNCH_KERNEL(
       lxu_cache_locations_count_kernel,
@@ -539,9 +540,10 @@ DLL_PUBLIC void lxu_cache_locations_update_cuda(
     return;
   }
 
-  const dim3 blocks(std::min(
-      div_round_up(N, kMaxThreads),
-      get_max_thread_blocks_for_cache_kernels_()));
+  const dim3 blocks(
+      std::min(
+          div_round_up(N, kMaxThreads),
+          get_max_thread_blocks_for_cache_kernels_()));
 
   FBGEMM_LAUNCH_KERNEL(
       lxu_cache_locations_update_kernel,

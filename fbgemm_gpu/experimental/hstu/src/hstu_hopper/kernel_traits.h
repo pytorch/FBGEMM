@@ -562,7 +562,13 @@ struct Hstu_bwd_kernel_traits {
                    TileShapeAtomdKV,
                    GMMA::Major::K,
                    GMMA::Major::MN>()),
-          decltype(cute::GMMA::ss_op_selector < Element, Element, ElementAccum, TileShapeAtomdKV, !dKV_swapAB ? PdSt_Major : GMMA::Major::MN, !dKV_swapAB ? GMMA::Major::MN : PdSt_Major > ())>{},
+          decltype(cute::GMMA::ss_op_selector<
+                   Element,
+                   Element,
+                   ElementAccum,
+                   TileShapeAtomdKV,
+                   !dKV_swapAB ? PdSt_Major : GMMA::Major::MN,
+                   !dKV_swapAB ? GMMA::Major::MN : PdSt_Major>())>{},
       AtomLayoutdKV{}));
 
   using TileShapeAtomdQ = std::conditional_t<
@@ -592,7 +598,13 @@ struct Hstu_bwd_kernel_traits {
                    TileShapeAtomdQ,
                    GMMA::Major::K,
                    GMMA::Major::MN>()),
-          decltype(cute::GMMA::ss_op_selector < Element, Element, ElementAccum, TileShapeAtomdQ, !dQ_swapAB ? PdS_Major : GMMA::Major::MN, !dQ_swapAB ? GMMA::Major::MN : PdS_Major > ())>{},
+          decltype(cute::GMMA::ss_op_selector<
+                   Element,
+                   Element,
+                   ElementAccum,
+                   TileShapeAtomdQ,
+                   !dQ_swapAB ? PdS_Major : GMMA::Major::MN,
+                   !dQ_swapAB ? GMMA::Major::MN : PdS_Major>())>{},
       AtomLayoutdQ{}));
 
   using SmemLayoutAtomQdO =
