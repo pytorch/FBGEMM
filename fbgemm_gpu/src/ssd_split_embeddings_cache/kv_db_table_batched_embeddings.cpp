@@ -383,6 +383,14 @@ void EmbeddingKVDB::set_backend_return_whole_row(
   return;
 }
 
+void EmbeddingKVDB::trigger_feature_evict() {
+  return;
+}
+
+bool EmbeddingKVDB::is_evicting() {
+  return false;
+}
+
 void EmbeddingKVDB::set(
     const at::Tensor& indices,
     const at::Tensor& weights,

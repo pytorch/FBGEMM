@@ -1177,17 +1177,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   void compact() override {}
 
-  void trigger_feature_evict(
-      std::optional<uint32_t> inplace_update_ts = std::nullopt) {
+  void trigger_feature_evict() {
     if (feature_evict_) {
-      if (inplace_update_ts.has_value() &&
-          feature_evict_config_.value()->trigger_strategy_ ==
-              EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD) {
-        auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
-            feature_evict_.get());
-        CHECK(tt_evict != nullptr);
-        tt_evict->set_eviction_timestamp_threshold(inplace_update_ts.value());
-      }
       feature_evict_->trigger_evict();
     }
   }
@@ -1269,6 +1260,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         feature_evict_->pause();
       }
     }
+  }
+
+  bool is_evicting() override {
+    if (feature_evict_) {
+      return feature_evict_->is_evicting();
+    }
+    return false;
   }
 
   // for inference only, this logs the total hit/miss count
