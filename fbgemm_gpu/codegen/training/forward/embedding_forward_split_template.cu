@@ -472,7 +472,7 @@ batch_index_select_dim0_codegen_forward_cuda(
             TORCH_WARN_ONCE("Running on CDNA architecture");
         }
     {%- endif %}
-    
+
     {%- if not nobag %}
     int32_t T = D_offsets.numel() - 1;
     {%- else %}

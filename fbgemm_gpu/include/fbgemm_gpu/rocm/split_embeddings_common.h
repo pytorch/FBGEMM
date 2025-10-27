@@ -217,7 +217,7 @@ struct load_row_per_warp<half, 320, index_t> {
     *reinterpret_cast<half2*>(&emb_data[2]) =
         llvm_amdgcn_raw_buffer_load_fp16x2(
             emb_res, (lane_id + 64) * sizeof(half2), 0, 0);
-     emb_data[4] = p_emb_table[row_index * 320 + 256 + lane_id]; 
+     emb_data[4] = p_emb_table[row_index * 320 + 256 + lane_id];
   }
 };
 
@@ -335,7 +335,7 @@ struct store_row_per_warp<c10::Half, 320, c10::Half> {
     auto out = reinterpret_cast<half2*>(p_output);
     out[lane_id] = *reinterpret_cast<half2*>(acc);
     out[lane_id + 64] = *reinterpret_cast<half2*>(&acc[2]);
-    p_output[lane_id + 256] = acc[4]; 
+    p_output[lane_id + 256] = acc[4];
   }
 };
 

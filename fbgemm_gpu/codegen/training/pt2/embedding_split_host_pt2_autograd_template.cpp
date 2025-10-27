@@ -1068,18 +1068,18 @@ static torch::autograd::variable_list backward(
     {% if is_rocm %}
     int32_t total_L = indices.numel();
     {%- endif %}
-    {%- if (not nobag) and 
-           (optimizer == "rowwise_adagrad") and 
-           (not vbe) and 
-           (not is_gwd) and 
-           (not ssd) and 
-           (not is_index_select) and 
+    {%- if (not nobag) and
+           (optimizer == "rowwise_adagrad") and
+           (not vbe) and
+           (not is_gwd) and
+           (not ssd) and
+           (not is_index_select) and
            (not dense) %}
     const auto T = weights_offsets.sym_numel();
     auto total_B = (offsets.size(0) - 1);
     const auto B = total_B / T;
     {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
-    if(!mixed_D && total_L / total_B > 1 && (max_D == {{ kDimSize }})) 
+    if(!mixed_D && total_L / total_B > 1 && (max_D == {{ kDimSize }}))
     {
       max_segment_length_per_warp = 16384;
     }
