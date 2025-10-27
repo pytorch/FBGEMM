@@ -102,6 +102,15 @@ class SSDCheckpointTest(unittest.TestCase):
         elif backend_type == BackendType.DRAM:
             eviction_config = None
             if eviction_policy:
+                enable_eviction_for_feature_score_eviction_policy = (  # pytorch api in c++ doesn't support vertor<bool> convert to int here, 0: no_eviction 1: eviction
+                    [
+                        int(x)
+                        for x in eviction_policy.enable_eviction_for_feature_score_eviction_policy
+                    ]
+                    if eviction_policy.enable_eviction_for_feature_score_eviction_policy
+                    is not None
+                    else None
+                )
                 eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
                     eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual, 4: id count
                     eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter, 2: counter + timestamp, 3: feature l2 norm, 4: timestamp threshold 5: feature score
@@ -113,6 +122,7 @@ class SSDCheckpointTest(unittest.TestCase):
                     eviction_policy.feature_score_counter_decay_rates,  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
                     eviction_policy.training_id_eviction_trigger_count,  # training_id_eviction_trigger_count for each table
                     eviction_policy.training_id_keep_count,  # training_id_keep_count for each table
+                    enable_eviction_for_feature_score_eviction_policy,  # no eviction setting for feature score eviction policy
                     eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
                     feature_dims.tolist() if feature_dims is not None else None,
                     eviction_policy.threshold_calculation_bucket_stride,  # threshold_calculation_bucket_stride if eviction strategy is feature score
