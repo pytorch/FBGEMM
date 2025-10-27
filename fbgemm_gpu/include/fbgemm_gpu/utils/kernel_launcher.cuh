@@ -35,8 +35,7 @@ template <
     size_t N,
     size_t INB,
     bool P,
-    template <typename>
-    class PT>
+    template <typename> class PT>
 struct is_tensor_accessor_builder<TensorAccessorBuilder<T, N, INB, P, PT>>
     : std::true_type {};
 

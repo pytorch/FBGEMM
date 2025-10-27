@@ -91,26 +91,28 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
     size_t temp_storage_bytes = 0;
     AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
-          AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
-              nullptr,
-              temp_storage_bytes,
-              &(lengths_contig.data_ptr<index_t>()[t * B]),
-              offsets.data_ptr<index_t>() + 1,
-              B,
-              at::cuda::getCurrentCUDAStream()));
+          AT_CUDA_CHECK(
+              FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
+                  nullptr,
+                  temp_storage_bytes,
+                  &(lengths_contig.data_ptr<index_t>()[t * B]),
+                  offsets.data_ptr<index_t>() + 1,
+                  B,
+                  at::cuda::getCurrentCUDAStream()));
         });
     auto temp_storage = at::empty(
         {static_cast<int64_t>(temp_storage_bytes)},
         lengths.options().dtype(at::kByte));
     AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
-          AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
-              temp_storage.data_ptr(),
-              temp_storage_bytes,
-              &(lengths_contig.data_ptr<index_t>()[t * B]),
-              offsets.data_ptr<index_t>() + 1,
-              B,
-              at::cuda::getCurrentCUDAStream()));
+          AT_CUDA_CHECK(
+              FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
+                  temp_storage.data_ptr(),
+                  temp_storage_bytes,
+                  &(lengths_contig.data_ptr<index_t>()[t * B]),
+                  offsets.data_ptr<index_t>() + 1,
+                  B,
+                  at::cuda::getCurrentCUDAStream()));
         });
 
     padded_values_per_key.push_back(jagged_to_padded_dense_forward(
@@ -147,26 +149,28 @@ stacked_jagged_2d_to_dense_forward_cuda(
     offsets[0].zero_();
     AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
-          AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
-              nullptr,
-              temp_storage_bytes,
-              &(lengths_contig.data_ptr<index_t>()[t * B]),
-              offsets.data_ptr<index_t>() + 1,
-              B,
-              at::cuda::getCurrentCUDAStream()));
+          AT_CUDA_CHECK(
+              FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
+                  nullptr,
+                  temp_storage_bytes,
+                  &(lengths_contig.data_ptr<index_t>()[t * B]),
+                  offsets.data_ptr<index_t>() + 1,
+                  B,
+                  at::cuda::getCurrentCUDAStream()));
         });
     auto temp_storage = at::empty(
         {static_cast<int64_t>(temp_storage_bytes)},
         lengths.options().dtype(at::kByte));
     AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
-          AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
-              temp_storage.data_ptr(),
-              temp_storage_bytes,
-              &(lengths_contig.data_ptr<index_t>()[t * B]),
-              offsets.data_ptr<index_t>() + 1,
-              B,
-              at::cuda::getCurrentCUDAStream()));
+          AT_CUDA_CHECK(
+              FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
+                  temp_storage.data_ptr(),
+                  temp_storage_bytes,
+                  &(lengths_contig.data_ptr<index_t>()[t * B]),
+                  offsets.data_ptr<index_t>() + 1,
+                  B,
+                  at::cuda::getCurrentCUDAStream()));
         });
     offsets_tensor_per_key.push_back(offsets);
 
@@ -354,8 +358,9 @@ class JaggedDenseAddJaggedOutputGPUOp
     Tensor dense_values_grad = jagged_to_padded_dense_forward(
         grad_outputs[0],
         offsets,
-        c10::fromIntArrayRefKnownNonNegative(std::vector<int64_t>(
-            dense_shape.begin() + 1, dense_shape.end() - 1)),
+        c10::fromIntArrayRefKnownNonNegative(
+            std::vector<int64_t>(
+                dense_shape.begin() + 1, dense_shape.end() - 1)),
         /*padding_value=*/0);
     TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
 

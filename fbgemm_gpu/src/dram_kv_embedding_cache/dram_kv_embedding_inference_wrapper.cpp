@@ -142,8 +142,9 @@ void DramKVEmbeddingInferenceWrapper::wait_evict_completion() {
 c10::List<at::Tensor> DramKVEmbeddingInferenceWrapper::serialize() const {
   c10::List<at::Tensor> results;
   results.push_back(torch::tensor({num_shards_}, torch::kInt64));
-  results.push_back(torch::tensor(
-      {uniform_init_lower_, uniform_init_upper_}, torch::kDouble));
+  results.push_back(
+      torch::tensor(
+          {uniform_init_lower_, uniform_init_upper_}, torch::kDouble));
   return results;
 }
 

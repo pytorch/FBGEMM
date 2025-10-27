@@ -239,11 +239,12 @@ TEST(KernelLauncherTest, tensor_kernel_launch) {
   });
 
   EXPECT_EQ(
-      C.equal(torch::full(
-          {size},
-          5,
-          torch::dtype(torch::kFloat32)
-              .device(torch::kCUDA, at::cuda::current_device()))),
+      C.equal(
+          torch::full(
+              {size},
+              5,
+              torch::dtype(torch::kFloat32)
+                  .device(torch::kCUDA, at::cuda::current_device()))),
       true);
 }
 
@@ -449,8 +450,9 @@ TEST(KernelLauncherTest, throws_dsa_exception) {
 
       ASSERT_THAT(
           err_str,
-          HasSubstr("File containing kernel launch = [" __TEMPLATE_SOURCE_FILE__
-                    "] " __FILE__));
+          HasSubstr(
+              "File containing kernel launch = [" __TEMPLATE_SOURCE_FILE__
+              "] " __FILE__));
 
       ASSERT_THAT(
           err_str,

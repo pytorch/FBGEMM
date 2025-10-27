@@ -288,12 +288,14 @@ void spmdmKernelAvx2(
       __m256i a[4];
       a[0] = _mm256_load_si256(
           reinterpret_cast<const __m256i*>(&A_buffer[rowidx[k + 0] * 32]));
-      a[1] = remainder > 1 ? _mm256_load_si256(reinterpret_cast<const __m256i*>(
-                                 &A_buffer[rowidx[k + 1] * 32]))
-                           : _mm256_setzero_si256();
-      a[2] = remainder > 2 ? _mm256_load_si256(reinterpret_cast<const __m256i*>(
-                                 &A_buffer[rowidx[k + 2] * 32]))
-                           : _mm256_setzero_si256();
+      a[1] = remainder > 1
+          ? _mm256_load_si256(
+                reinterpret_cast<const __m256i*>(&A_buffer[rowidx[k + 1] * 32]))
+          : _mm256_setzero_si256();
+      a[2] = remainder > 2
+          ? _mm256_load_si256(
+                reinterpret_cast<const __m256i*>(&A_buffer[rowidx[k + 2] * 32]))
+          : _mm256_setzero_si256();
       a[3] = _mm256_setzero_si256();
 
       __m256i a01_lo = _mm256_unpacklo_epi8(a[0], a[1]);

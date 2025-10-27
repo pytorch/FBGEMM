@@ -254,8 +254,7 @@ class FlashAttnBwdPostprocessConvertdQ {
     TiledMma tiled_mma_dQ;
     Tensor taccdQrdQaccum = partition_fragment_C(
         tiled_mma_dQ,
-        select < !dQ_swapAB ? 0 : 1,
-        !dQ_swapAB ? 1 : 0 > (TileShape_MK{}));
+        select<!dQ_swapAB ? 0 : 1, !dQ_swapAB ? 1 : 0>(TileShape_MK{}));
     CUTE_STATIC_ASSERT_V(size(taccdQrdQaccum) == size(tdQsdQaccum));
     Tensor tdQrdQaccum = s2r_thr_copy_dQaccum.retile_D(taccdQrdQaccum);
     cute::copy(s2r_tiled_copy_dQaccum, tdQsdQaccum, tdQrdQaccum);

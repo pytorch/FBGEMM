@@ -427,12 +427,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
           at::detail::getDefaultCPUGenerator());
       {
         std::lock_guard<std::mutex> lock(gen->mutex_);
-        initializers_.push_back(std::make_unique<Initializer>(
-            gen->random64(),
-            max_D,
-            uniform_init_lower,
-            uniform_init_upper,
-            row_storage_bitwidth));
+        initializers_.push_back(
+            std::make_unique<Initializer>(
+                gen->random64(),
+                max_D,
+                uniform_init_lower,
+                uniform_init_upper,
+                row_storage_bitwidth));
       }
     }
     disable_random_init_ = disable_random_init;

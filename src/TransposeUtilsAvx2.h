@@ -458,8 +458,9 @@ static inline void load_with_remainders_i16(
     unsigned nrem) {
   if (nrem < 16) {
     uint16_t local_buffer[16] = {0};
-    __m256i mask_nrem_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
-        internal::avx2_ps_or_epi32_masks[nrem / 2]));
+    __m256i mask_nrem_v = _mm256_load_si256(
+        reinterpret_cast<const __m256i*>(
+            internal::avx2_ps_or_epi32_masks[nrem / 2]));
     unsigned half = nrem % 2;
     for (unsigned i = 0; i < mrem; ++i) {
       // mask load
@@ -489,8 +490,9 @@ static inline void store_with_remainders_i16(
     unsigned nrem) {
   if (mrem < 8) {
     uint16_t local_buffer[8] = {0};
-    __m256i mask_mrem_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
-        internal::avx2_ps_or_epi32_masks[mrem / 2]));
+    __m256i mask_mrem_v = _mm256_load_si256(
+        reinterpret_cast<const __m256i*>(
+            internal::avx2_ps_or_epi32_masks[mrem / 2]));
     unsigned half = mrem % 2;
     unsigned i = 0;
     for (; i < nrem; i += 1) {
@@ -723,8 +725,9 @@ static void transpose_kernel_mxn_avx2_uint8(
     int64_t ld_dst) {
   // load from src to registers
   // first load masks
-  __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
-      internal::avx2_ps_or_epi32_masks[N / 4]));
+  __m256i mask_v = _mm256_load_si256(
+      reinterpret_cast<const __m256i*>(
+          internal::avx2_ps_or_epi32_masks[N / 4]));
 
   __m256i input[8];
   unsigned i = 0, j = 0;
@@ -783,8 +786,9 @@ static void transpose_kernel_mxn_avx2_uint8(
   // 128-191 bit:  a16 -- h16,
   // 192-255 bit:   a17 -- h17
   uint64_t t = 0;
-  mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
-      internal::avx2_ps_or_epi32_masks[M / 4]));
+  mask_v = _mm256_load_si256(
+      reinterpret_cast<const __m256i*>(
+          internal::avx2_ps_or_epi32_masks[M / 4]));
   for (i = 0; i < N; ++i) {
     if (i < 16) {
       if (i % 2 == 0)

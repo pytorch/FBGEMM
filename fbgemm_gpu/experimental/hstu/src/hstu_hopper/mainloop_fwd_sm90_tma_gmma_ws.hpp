@@ -255,10 +255,13 @@ struct CollectiveMainloopFwd {
         args.layout_Rab,
         args.layout_K,
         args.layout_V,
-        cutlass::FastDivmod(cute::ceil_div(
-            get<2>(args.layout_Q.shape()), get<2>(args.layout_K.shape()))),
-        cutlass::FastDivmod(cute::ceil_div(
-            get<2>(args.layout_Q.shape()), get<2>(args.layout_Rab.shape()))),
+        cutlass::FastDivmod(
+            cute::ceil_div(
+                get<2>(args.layout_Q.shape()), get<2>(args.layout_K.shape()))),
+        cutlass::FastDivmod(
+            cute::ceil_div(
+                get<2>(args.layout_Q.shape()),
+                get<2>(args.layout_Rab.shape()))),
         tma_load_Q,
         tma_load_Rab,
         tma_load_K,

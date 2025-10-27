@@ -13,8 +13,7 @@
 
 #include <ATen/ATen.h>
 
-#define KERNEL_NAME_MAP_ENTRY(name) \
-  { #name, name }
+#define KERNEL_NAME_MAP_ENTRY(name) {#name, name}
 
 template <typename InputType, typename OutputType>
 using GroupedKernel =

@@ -86,8 +86,9 @@ TEST(UvmCacheMissEmulateTest, enforced_cache_miss) {
                 gather_cache_stats);
         auto lxu_cache_location_with_cache_misses =
             lxu_cache_location_with_cache_misses_and_uvm_cache_stats.first;
-        EXPECT_FALSE(at::equal(
-            lxu_cache_locations_cpu, lxu_cache_location_with_cache_misses));
+        EXPECT_FALSE(
+            at::equal(
+                lxu_cache_locations_cpu, lxu_cache_location_with_cache_misses));
 
         auto x = lxu_cache_locations_cpu.data_ptr<int32_t>();
         auto y = lxu_cache_location_with_cache_misses.data_ptr<int32_t>();

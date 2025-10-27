@@ -444,8 +444,9 @@ __global__ void scaleMatrix1(
     const int64_t lda) {
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel;
        i += (size_t)blockDim.x * gridDim.x) {
-    output[i] = T_OUT(scale<QUANTIZE>(
-        static_cast<float>(input[i]), static_cast<float>(input_scale[0])));
+    output[i] = T_OUT(
+        scale<QUANTIZE>(
+            static_cast<float>(input[i]), static_cast<float>(input_scale[0])));
   }
 }
 
@@ -534,9 +535,10 @@ __global__ void scaleMatrixRowwise1(
     const int64_t lda) {
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel;
        i += (size_t)blockDim.x * gridDim.x) {
-    output[i] = T_OUT(scale<QUANTIZE>(
-        static_cast<float>(input[i]),
-        static_cast<float>(input_scale[i / lda])));
+    output[i] = T_OUT(
+        scale<QUANTIZE>(
+            static_cast<float>(input[i]),
+            static_cast<float>(input_scale[i / lda])));
   }
 }
 
@@ -549,9 +551,10 @@ __global__ void scaleMatrixColwise(
     const int64_t lda) {
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel;
        i += (size_t)blockDim.x * gridDim.x) {
-    output[i] = T_OUT(scale<QUANTIZE>(
-        static_cast<float>(input[i]),
-        static_cast<float>(input_scale[i % lda])));
+    output[i] = T_OUT(
+        scale<QUANTIZE>(
+            static_cast<float>(input[i]),
+            static_cast<float>(input_scale[i % lda])));
   }
 }
 
@@ -1764,8 +1767,9 @@ __device__ __host__ __inline__ void compute_scale_with_global(
     const double two_level_scale =
         static_cast<double>(scale_format_max) * (elem_format_max / global_amax);
 
-    const double local_unscale_q = quantize_amax_e4m3(static_cast<float>(
-                                       local_unscale * two_level_scale)) /
+    const double local_unscale_q =
+        quantize_amax_e4m3(
+            static_cast<float>(local_unscale * two_level_scale)) /
         two_level_scale;
     double eps = FLT_MIN;
     scale = 1. / (local_unscale_q + eps);

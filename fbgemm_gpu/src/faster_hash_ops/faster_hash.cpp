@@ -554,26 +554,28 @@ REGISTER_NATIVE_OPERATOR_FUNCTOR(
     fbgemm::operators::zero_collision_hash_cpu,
     fb_zero_collision_hash_cpu,
     [](Node* n) -> SROperator {
-      if (!n->matches(torch::schema("fbgemm::zero_collision_hash("
-                                    "Tensor input, "
-                                    "Tensor identities, "
-                                    "int max_probe, "
-                                    "bool circular_probe=False, "
-                                    "int exp_hours=-1, "
-                                    "bool readonly=False, "
-                                    "Tensor? local_sizes=None, "
-                                    "Tensor? offsets=None, "
-                                    "Tensor? metadata=None, "
-                                    "bool output_on_uvm=False, "
-                                    "bool disable_fallback=False, "
-                                    "bool _modulo_identity_DPRECATED=False, "
-                                    "Tensor? input_metadata=None, "
-                                    "int eviction_threshold=-1, "
-                                    "int eviction_policy=0, "
-                                    "int opt_in_prob=-1, "
-                                    "int num_reserved_slots=-1, "
-                                    "Tensor? opt_in_rands=None"
-                                    ") -> (Tensor, Tensor)"))) {
+      if (!n->matches(
+              torch::schema(
+                  "fbgemm::zero_collision_hash("
+                  "Tensor input, "
+                  "Tensor identities, "
+                  "int max_probe, "
+                  "bool circular_probe=False, "
+                  "int exp_hours=-1, "
+                  "bool readonly=False, "
+                  "Tensor? local_sizes=None, "
+                  "Tensor? offsets=None, "
+                  "Tensor? metadata=None, "
+                  "bool output_on_uvm=False, "
+                  "bool disable_fallback=False, "
+                  "bool _modulo_identity_DPRECATED=False, "
+                  "Tensor? input_metadata=None, "
+                  "int eviction_threshold=-1, "
+                  "int eviction_policy=0, "
+                  "int opt_in_prob=-1, "
+                  "int num_reserved_slots=-1, "
+                  "Tensor? opt_in_rands=None"
+                  ") -> (Tensor, Tensor)"))) {
         LogAndDumpSchema(n);
         return nullptr;
       }
