@@ -770,7 +770,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       CHECK_EQ(indices.size(0), engege_rates.size(0));
                       auto indices_data_ptr = indices.data_ptr<index_t>();
                       auto engage_rate_ptr = engege_rates.data_ptr<float>();
-                      int64_t stride = 2;
                       {
                         auto before_write_lock_ts =
                             facebook::WallClockUtil::NowInUsecFast();
@@ -785,8 +784,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                              index_iter++) {
                           const auto& id_index = *index_iter;
                           auto id = int64_t(indices_data_ptr[id_index]);
-                          float engege_rate =
-                              float(engage_rate_ptr[id_index * stride + 0]);
+                          float engege_rate = float(engage_rate_ptr[id_index]);
                           // use mempool
                           weight_type* block = nullptr;
                           auto before_lookup_cache_ts =
