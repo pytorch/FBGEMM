@@ -240,6 +240,19 @@ class KVZCHParams(NamedTuple):
         ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
 
 
+class KVZCHEvictionTBEConfig(NamedTuple):
+    # Eviction trigger model for kvzch table: 0: disabled, 1: iteration, 2: mem_util, 3: manual, 4: id count, 5: free_mem
+    kvzch_eviction_trigger_mode: Optional[int] = None
+    # Minimum free memory (in GB) required before triggering eviction when using free_mem trigger mode.
+    eviction_free_mem_threshold_gb: Optional[int] = None
+    # Number of batches between checks for free memory threshold when using free_mem trigger mode.
+    eviction_free_mem_check_interval_batch: Optional[int] = None
+    # The width of each feature score bucket used for threshold calculation in feature score-based eviction.
+    threshold_calculation_bucket_stride: Optional[float] = None
+    # Total number of feature score buckets used for threshold calculation in feature score-based eviction.
+    threshold_calculation_bucket_num: Optional[int] = None
+
+
 class BackendType(enum.IntEnum):
     SSD = 0
     DRAM = 1
