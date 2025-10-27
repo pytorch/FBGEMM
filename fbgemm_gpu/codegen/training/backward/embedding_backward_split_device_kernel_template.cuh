@@ -14,6 +14,98 @@
 
 using namespace fbgemm_gpu;
 
+// Helper macro: Generate block_size grad_offset_j_i variables (i from 1 to block_size-1)
+#define GRAD_OFFSET(i, j) const auto grad_offset_j_##i = SHFL_SYNC(grad_offset, j + i);
+#define L(i, j) int32_t l_j_##i = SHFL_SYNC(l, j + i);
+#define B(i, j) int32_t b_j_##i = SHFL_SYNC(b, j + i);
+#define D_START(i, j) int32_t D_start_j_##i = SHFL_SYNC(D_start, j + i);
+#define IDX_WEIGHT(i, j) at::acc_type<cache_t, true> idx_weight_j_##i = SHFL_SYNC(idx_weight, j + i);
+
+#define REPEAT_8(X, j) X(1, j); X(2, j); X(3, j); X(4, j); X(5, j); X(6, j); X(7, j);
+#define REPEAT_4(X, j) X(1, j); X(2, j); X(3, j);
+#define REPEAT_2(X, j) X(1, j);
+#define REPEAT_1(X, j)  // No additional variables needed for block size 1
+
+#define REPEAT_I_S_8(X, j, m, n) X(1, j, m, n); X(2, j, m, n); X(3, j, m, n); X(4, j, m, n); X(5, j, m, n); X(6, j, m, n); X(7, j, m, n);
+#define REPEAT_I_S_4(X, j, m, n) X(1, j, m, n); X(2, j, m, n); X(3, j, m, n);
+#define REPEAT_I_S_2(X, j, m, n) X(1, j, m, n);
+#define REPEAT_I_S_1(X, j, m, n)  // No additional variables needed for block size 1
+
+// Helper macro: Generate block_size Vec4TAcc objects (i from 1 to block_size-1)
+// if nobag and is_index_select
+#define GRAD_VEC_N_I(i, grad_offset, grad_stride, d) Vec4TAcc<grad_t> grad_out_vec_##i(&grad_output[grad_offset + l_j_##i * grad_stride + d]);
+// elif nobag
+#define GRAD_VEC_N(i, d) Vec4TAcc<grad_t> grad_out_vec_##i(&grad_output[l_j_##i][d]);
+// elif vbe
+#define GRAD_VEC_V(i, d) Vec4TAcc<grad_t> grad_out_vec_##i(&grad_output[0][grad_offset_j_##i + d]);
+// else
+#define GRAD_VEC(i, d) Vec4TAcc<grad_t> grad_out_vec_##i(&grad_output[b_j_##i][0] + D_start_j_##i + d);
+
+// Helper macro: Generate block_size fma_ calls (i from 1 to block_size-1)
+#define FMA_GRAD(i, vec) grad_sum[vec].fma_(grad_out_vec_##i, idx_weight_j_##i);
+// Helper macro: Generate block_size add_ calls (i from 1 to block_size-1)
+#define ADD_GRAD(i, vec) grad_sum[vec].add_(grad_out_vec_##i);
+
+// Core macro: Process blocks of specified size (block_size = 8/4/2/1)
+// Parameters:
+// - block_size: Size of each block to process
+// - unroll_count: Number of unroll iterations for the inner loop
+#define PROCESS_BLOCK(block_size, unroll_count, grad_sum, grad_output, grad_offset, vec_start, kThreadGroupSize, threadIdx_x, VEC_WIDTH, D, j, sl, sl_end) \
+    for (; j + (block_size - 1) < kThreadGroupSize && sl + j + (block_size - 1) < sl_end; j += block_size) { \
+        {%- if nobag %}
+        int32_t l_j_0 = SHFL_SYNC(l, j); \
+        REPEAT_##block_size(L, j) \
+        {%- elif vbe %}
+        /* Generate block_size grad_offset_j_0 ~ grad_offset_j_(block_size-1) */ \
+        const auto grad_offset_j_0 = SHFL_SYNC(grad_offset, j); \
+        /* Generate subsequent grad_offset_j_1 ~ grad_offset_j_(block_size-1) based on block size */ \
+        REPEAT_##block_size(GRAD_OFFSET, j) \
+        {%- else %}
+        int32_t b_j_0 = SHFL_SYNC(b, j); \
+        REPEAT_##block_size(B, j) \
+        int32_t D_start_j_0 = SHFL_SYNC(D_start, j); \
+        REPEAT_##block_size(D_START, j) \
+        {%- endif %}
+        {%- if weighted %}
+        at::acc_type<cache_t, true> idx_weight_j_0 = SHFL_SYNC(idx_weight, j); \
+        REPEAT_##block_size(IDX_WEIGHT, j) \
+        {%- endif %}
+        {%- set d = "(((vec + vec_start) * kThreadGroupSize + threadIdx.x) * VEC_WIDTH)" %}
+        \
+        for (int32_t vec = 0; vec < unroll_count && (((vec + vec_start) * kThreadGroupSize + threadIdx_x) * VEC_WIDTH) < D; ++vec) { \
+            const int32_t d = (((vec + vec_start) * kThreadGroupSize + threadIdx_x) * VEC_WIDTH); \
+            /* Generate block_size Vec4TAcc objects and accumulate them */ \
+            Vec4TAcc<grad_t> grad_out_vec_0( \
+                {%- if nobag and is_index_select %}
+                &grad_output[grad_offset + l_j_0 * grad_stride + d] \
+                {%- elif nobag %}
+                &grad_output[l_j_0][d] \
+                {%- elif vbe %}
+                &grad_output[0][grad_offset_j_0 + d] \
+                {%- else %}
+                &grad_output[b_j_0][0] + D_start_j_0 + d \
+                {%- endif %}
+            ); \
+            {%- if nobag and is_index_select %}
+            REPEAT_I_S_##block_size(GRAD_VEC_N_I, grad_offset, grad_stride, d) \
+            {%- elif nobag %}
+            REPEAT_##block_size(GRAD_VEC_N, d) \
+            {%- elif vbe %}
+            REPEAT_##block_size(GRAD_VEC_V, d) \
+            {%- else %}
+            REPEAT_##block_size(GRAD_VEC, d) \
+            {%- endif %}
+            \
+            {%- if weighted %}
+            grad_sum[vec].fma_(grad_out_vec_0, idx_weight_j_0); \
+            REPEAT_##block_size(FMA_GRAD, vec) \
+            {%- else %}
+            grad_sum[vec].add_(grad_out_vec_0); \
+            REPEAT_##block_size(ADD_GRAD, vec) \
+            {%- endif %}
+        } \
+    }
+
 {%- if gen_once %}
 {#- /*
     The kernels in this section will be generated only once for all TBE configs
@@ -141,45 +233,21 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
                 ? sorted_indice_weights[segment_start + sl_j]
                 : 0.0;
             {%- endif %}
-            for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; ++j) {
-                {%- if nobag %}
-                int32_t l_j = SHFL_SYNC(l, j);
-                {%- elif vbe %}
-                const auto grad_offset_j = SHFL_SYNC(grad_offset, j);
-                {%- else %}
-                int32_t b_j = SHFL_SYNC(b, j);
-                int32_t D_start_j = SHFL_SYNC(D_start, j);
-                {%- endif %}
+            int32_t j = 0;
 
-                {%- if weighted %}
-                at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
-                {%- endif %}
-
-                {%- set d = "(((vec + vec_start) * kThreadGroupSize + threadIdx.x) * VEC_WIDTH)" %}
-
-                #pragma unroll kFixedMaxVecsPerThread
-                for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
-                    const int32_t d = {{ d }};
-                    Vec4TAcc<grad_t> grad_out_vec(
-                        {%- if nobag and is_index_select %}
-                        // grad_output is 1d
-                        &grad_output[grad_offset + l_j * grad_stride + d]
-                        {%- elif nobag %}
-                        &grad_output[l_j][d]
-                        {%- elif vbe %}
-                        &grad_output[0][grad_offset_j + d]
-                        {%- else %}
-                        &grad_output[b_j][0] + D_start_j + d
-                        {%- endif %} // if nobag
-                    );
-
-                    {%- if weighted %}
-                    grad_sum[vec].fma_(grad_out_vec, idx_weight_j);
-                    {%- else %}
-                    grad_sum[vec].add_(grad_out_vec);
-                    {%- endif %}
-                }
-            }
+            // Process blocks of different sizes with loop unrolling
+            #pragma unroll kFixedMaxVecsPerThread
+            PROCESS_BLOCK(8, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
+                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+            #pragma unroll kFixedMaxVecsPerThread
+            PROCESS_BLOCK(4, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
+                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+            #pragma unroll kFixedMaxVecsPerThread
+            PROCESS_BLOCK(2, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
+                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+            #pragma unroll kFixedMaxVecsPerThread
+            PROCESS_BLOCK(1, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
+                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
         }
         {%- set d_vec = "((vec + vec_start) * kThreadGroupSize + threadIdx.x)" %}
 
