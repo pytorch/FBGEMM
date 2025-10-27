@@ -122,8 +122,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
       int64_t flushing_block_size = 2000000000 /*2GB*/,
       bool disable_random_init = false,
-      bool enable_optimizer_offloading = false,
-      int64_t optimizer_D = 0)
+      std::optional<bool> enable_optimizer_offloading = std::nullopt,
+      std::optional<int64_t> optimizer_D = std::nullopt)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -426,8 +426,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       float uniform_init_upper,
       int64_t row_storage_bitwidth,
       bool disable_random_init,
-      bool enable_optimizer_offloading = false,
-      int64_t optimizer_D = 0) {
+      std::optional<bool> enable_optimizer_offloading = std::nullopt,
+      std::optional<int64_t> optimizer_D = std::nullopt) {
     for (auto i = 0; i < num_shards; ++i) {
       auto* gen = at::check_generator<at::CPUGeneratorImpl>(
           at::detail::getDefaultCPUGenerator());
@@ -442,9 +442,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
         // When Optimizer offloading is enabled, we want to initialize the last
         // optimizer_D columns(optimizer values) to zero
-        if (enable_optimizer_offloading) {
+        if (enable_optimizer_offloading.has_value() &&
+            enable_optimizer_offloading.value() && optimizer_D.has_value()) {
           auto& tensor = initializer->row_storage_;
-          tensor.index({"...", at::indexing::Slice(max_D - optimizer_D, max_D)})
+          tensor
+              .index(
+                  {"...",
+                   at::indexing::Slice(max_D - optimizer_D.value(), max_D)})
               .zero_();
         }
         initializers_.push_back(std::move(initializer));
@@ -1378,6 +1382,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::vector<std::string> db_paths_;
 
   bool disable_random_init_;
+  std::optional<bool> enable_optimizer_offloading = std::nullopt;
 }; // class EmbeddingRocksDB
 
 /// @ingroup embedding-ssd

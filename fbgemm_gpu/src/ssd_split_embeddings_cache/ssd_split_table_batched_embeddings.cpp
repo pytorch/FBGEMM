@@ -809,7 +809,9 @@ static auto embedding_rocks_db_wrapper =
                 std::optional<at::Tensor>,
                 std::optional<at::Tensor>,
                 int64_t,
-                bool>(),
+                bool,
+                std::optional<bool>,
+                std::optional<int64_t>>(),
             "",
             {
                 torch::arg("path"),
@@ -842,6 +844,8 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("hash_size_cumsum") = std::nullopt,
                 torch::arg("flushing_block_size") = 2000000000 /* 2GB */,
                 torch::arg("disable_random_init") = false,
+                torch::arg("enable_optimizer_offloading") = std::nullopt,
+                torch::arg("optimizer_D") = std::nullopt,
             })
         .def(
             "set_cuda",
