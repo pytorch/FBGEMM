@@ -293,7 +293,7 @@ public:
     ElementAccumulator* scaled_lse = reinterpret_cast<ElementAccumulator*>(workspace_scaled_lse);
     ElementAccumulator* dQ_acc = reinterpret_cast<ElementAccumulator*>(workspace_dQ);
     params_.dQ_acc = dQ_acc;
-    params_.dQ_acc_size = B*H*Q*D * sizeof(ElementAccumulator);
+    params_.dQ_acc_size = static_cast<size_t>(B)*H*Q*D * sizeof(ElementAccumulator);
     auto args_sum_OdO = to_sum_OdO_arguments(args, sum_OdO, scaled_lse);
     auto args_convert = to_convert_arguments(args, dQ_acc);
     params_.op_sum_OdO.initialize(args_sum_OdO, nullptr, stream);
@@ -320,9 +320,9 @@ public:
     int Q = cutlass::round_up(static_cast<int>(Q_), 8);  // Alignment
     char* workspace_chr = reinterpret_cast<char*>(workspace);
     ElementAccumulator* sum_OdO = reinterpret_cast<ElementAccumulator*>(workspace_chr);
-    workspace_chr += B*H*Q * sizeof(ElementAccumulator);
+    workspace_chr += static_cast<size_t>(B)*H*Q * sizeof(ElementAccumulator);
     ElementAccumulator* scaled_lse = reinterpret_cast<ElementAccumulator*>(workspace_chr);
-    workspace_chr += B*H*Q * sizeof(ElementAccumulator);
+    workspace_chr += static_cast<size_t>(B)*H*Q * sizeof(ElementAccumulator);
     ElementAccumulator* dQ_acc = reinterpret_cast<ElementAccumulator*>(workspace_chr);
     return initialize_split(args, dQ_acc, sum_OdO, scaled_lse, stream);
   }
