@@ -32,13 +32,13 @@
 
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
-{%- set is_optimized_hip_kernel_supported_mode = is_rocm and 
-                                                 optimizer == "rowwise_adagrad" and 
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
+                                                 optimizer == "rowwise_adagrad" and
                                                  not dense and
-                                                 not nobag and 
+                                                 not nobag and
                                                  not is_index_select and
-                                                 not is_gwd_kernel and 
-                                                 not vbe and 
+                                                 not is_gwd_kernel and
+                                                 not vbe and
                                                  not ssd %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
@@ -621,7 +621,6 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- endif %}
 ) {
     int32_t T = D_offsets.size(0) - 1;
-    
     auto p_output_grad = grad_output.data();
     auto p_emb_table = dev_weights.data();
     auto p_hash_size_cumsum = hash_size_cumsum.data();

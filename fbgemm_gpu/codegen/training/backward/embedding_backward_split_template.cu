@@ -48,13 +48,13 @@ using namespace fbgemm_gpu;
     has_global_weight_decay_support,
     ssd) %}
 {%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
-{%- set is_optimized_hip_kernel_supported_mode = is_rocm and 
-                                                 optimizer == "rowwise_adagrad" and 
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
+                                                 optimizer == "rowwise_adagrad" and
                                                  not dense and
-                                                 not nobag and 
+                                                 not nobag and
                                                  not is_index_select and
-                                                 not is_gwd_kernel and 
-                                                 not vbe and 
+                                                 not is_gwd_kernel and
+                                                 not vbe and
                                                  not ssd %}
 
 template <
@@ -669,7 +669,7 @@ Tensor {{ embedding_cuda_op }}(
             TORCH_WARN_ONCE("Running on CDNA architecture");
         }
     #endif
-    
+
     {%- if nobag and not is_index_select %}
     auto max_D = D;
     {%- endif %}
@@ -1199,7 +1199,6 @@ Tensor {{ embedding_cuda_op }}(
                     // Compute shared memory size for warp_per_row
                     {%- if is_rocm %}
                         int32_t num_warp_per_row_groups;
-                        
                         if (total_L/total_B > 1){
                             num_warp_per_row_groups = (kBackwardMaxThreads/2) / kThreadGroupSize;
                         }
