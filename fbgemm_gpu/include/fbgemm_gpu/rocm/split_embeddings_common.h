@@ -449,8 +449,7 @@ template <>
 struct store_row_per_warp<float, 64> {
   static __device__ void run(const float* acc, float* p_output, int lane_id) {
     int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[0], out_res, lane_id * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
   }
 };
 
@@ -458,10 +457,8 @@ template <>
 struct store_row_per_warp<float, 128> {
   static __device__ void run(const float* acc, float* p_output, int lane_id) {
     int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32x2(
-        *reinterpret_cast<const floatx2_t*>(acc),
-        out_res,
-        lane_id * sizeof(floatx2_t));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[1], out_res, (lane_id + 64) * sizeof(float));
   }
 };
 
@@ -469,12 +466,9 @@ template <>
 struct store_row_per_warp<float, 160> {
   static __device__ void run(const float* acc, float* p_output, int lane_id) {
     int32x4_t out_res = amdgcn_make_buffer_resource(p_output, sizeof(float) * 160);
-    llvm_amdgcn_raw_buffer_store_fp32x2(
-        *reinterpret_cast<const floatx2_t*>(acc),
-        out_res,
-        lane_id * sizeof(floatx2_t));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[2], out_res, (lane_id + 128) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[1], out_res, (lane_id + 64) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[2], out_res, (lane_id + 128) * sizeof(float));
   }
 };
 
@@ -482,12 +476,9 @@ template <>
 struct store_row_per_warp<float, 192> {
   static __device__ void run(const float* acc, float* p_output, int lane_id) {
     int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32x2(
-        *reinterpret_cast<const floatx2_t*>(acc),
-        out_res,
-        lane_id * sizeof(floatx2_t));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[2], out_res, (lane_id + 128) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[1], out_res, (lane_id + 64) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[2], out_res, (lane_id + 128) * sizeof(float));
   }
 };
 
@@ -495,14 +486,10 @@ template <>
 struct store_row_per_warp<float, 256> {
   static __device__ void run(const float* acc, float* p_output, int lane_id) {
     int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32x2(
-        *reinterpret_cast<const floatx2_t*>(acc),
-        out_res,
-        lane_id * sizeof(floatx2_t));
-    llvm_amdgcn_raw_buffer_store_fp32x2(
-        *reinterpret_cast<const floatx2_t*>(&acc[2]),
-        out_res,
-        (lane_id + 64) * sizeof(floatx2_t));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[1], out_res, (lane_id + 64) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[2], out_res, (lane_id + 128) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[3], out_res, (lane_id + 192) * sizeof(float));
   }
 };
 
@@ -510,16 +497,11 @@ template <>
 struct store_row_per_warp<float, 320> {
   static __device__ void run(const float* acc, float* p_output, int lane_id) {
     int32x4_t out_res = amdgcn_make_buffer_resource(p_output, sizeof(float) * 320);
-    llvm_amdgcn_raw_buffer_store_fp32x2(
-        *reinterpret_cast<const floatx2_t*>(acc),
-        out_res,
-        lane_id * sizeof(floatx2_t));
-    llvm_amdgcn_raw_buffer_store_fp32x2(
-        *reinterpret_cast<const floatx2_t*>(&acc[2]),
-        out_res,
-        (lane_id + 64) * sizeof(floatx2_t));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[4], out_res, (lane_id + 256) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[1], out_res, (lane_id + 64) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[2], out_res, (lane_id + 128) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[4], out_res, (lane_id + 192) * sizeof(float));
+    llvm_amdgcn_raw_buffer_store_fp32(acc[5], out_res, (lane_id + 256) * sizeof(float));
   }
 };
 
