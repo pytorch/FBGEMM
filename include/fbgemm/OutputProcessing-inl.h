@@ -125,7 +125,7 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
       }
     }
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
 
   } else if constexpr (
       instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
@@ -249,7 +249,7 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
       }
     }
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
   } else if constexpr (
       instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
     bool b_symmetric =

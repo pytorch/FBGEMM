@@ -8,6 +8,8 @@
 
 #pragma once
 
+#if !defined(__aarch64__)
+
 #include <cstdint>
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmBuild.h"
@@ -110,3 +112,5 @@ FBGEMM_API void depthwise_3d_same_pad(
     int num_threads = 1);
 
 } // namespace fbgemm
+
+#endif // !defined(__aarch64__)

@@ -35,7 +35,7 @@ namespace {
 // the restrictions of ymm register numbers (16).
 constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
     nullptr,
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
@@ -79,7 +79,7 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
