@@ -193,7 +193,7 @@ void SparseDenseMM(
     float* C,
     int ldc,
     bool accum) {
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
   // Run time CPU detection
   static const auto iset = fbgemmInstructionSet();
 
@@ -229,7 +229,7 @@ FBGEMM_API void fbgemmSparseDenseInt8MM(
     return;
   }
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
   // Run time CPU detection
   static const auto iset = fbgemmInstructionSet();
 
