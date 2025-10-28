@@ -76,6 +76,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
         feature_names_per_table: Optional[list[list[str]]] = None,
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
+        embedding_cache_mode: bool = False,  # True for zero initialization, False for randomized initialization
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(KVEmbeddingInference, self).__init__(
             embedding_specs=embedding_specs,
@@ -114,9 +115,13 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         num_shards = 32
         uniform_init_lower: float = -0.01
         uniform_init_upper: float = 0.01
+
         # pyre-fixme[4]: Attribute must be annotated.
         self.kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            num_shards, uniform_init_lower, uniform_init_upper
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            embedding_cache_mode,  # in embedding_cache_mode, we disable random init
         )
 
         self.specs: list[tuple[int, int, int]] = [

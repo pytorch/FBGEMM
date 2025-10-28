@@ -22,7 +22,6 @@
 #include <thrift/lib/cpp2/protocol/CompactProtocol.h>
 #include <thrift/lib/cpp2/protocol/Serializer.h>
 #include <torch/script.h>
-#include <random>
 #include "common/time/Time.h"
 
 #include "../ssd_split_embeddings_cache/initializer.h"
@@ -108,19 +107,22 @@ class DramKVInferenceEmbedding {
       int64_t row_storage_bitwidth = 32,
       bool enable_async_update = false,
       std::optional<at::Tensor> table_dims = std::nullopt,
-      std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
+      std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
+      bool disable_random_init = false)
       : max_D_(max_D),
         num_shards_(num_shards),
         block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
         block_alignment_(
             FixedBlockPool::calculate_block_alignment<weight_type>()),
-        kv_store_(SynchronizedShardedMap<int64_t, weight_type*>(
-            num_shards_,
-            block_size_,
-            block_alignment_,
-            /*blocks_per_chunk=*/8192)),
+        kv_store_(
+            SynchronizedShardedMap<int64_t, weight_type*>(
+                num_shards_,
+                block_size_,
+                block_alignment_,
+                /*blocks_per_chunk=*/8192)),
         elem_size_(row_storage_bitwidth / 8),
-        feature_evict_config_(std::move(feature_evict_config)) {
+        feature_evict_config_(std::move(feature_evict_config)),
+        disable_random_init_(disable_random_init) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(std::max<size_t>(
         num_threads, facebook::Proc::getCpuInfo().numCpuCores));
     initialize_initializers(
@@ -151,6 +153,8 @@ class DramKVInferenceEmbedding {
           sub_table_hash_cumsum_,
           false /* is_train */);
     }
+    LOG(INFO) << "DramKVInferenceEmbedding initialized: disable_random_init "
+              << disable_random_init_;
   }
 
   void initialize_initializers(
@@ -165,12 +169,13 @@ class DramKVInferenceEmbedding {
           at::detail::getDefaultCPUGenerator());
       {
         std::lock_guard<std::mutex> lock(gen->mutex_);
-        initializers_.push_back(std::make_unique<ssd::Initializer>(
-            gen->random64(),
-            max_D,
-            uniform_init_lower,
-            uniform_init_upper,
-            row_storage_bitwidth));
+        initializers_.push_back(
+            std::make_unique<ssd::Initializer>(
+                gen->random64(),
+                max_D,
+                uniform_init_lower,
+                uniform_init_upper,
+                row_storage_bitwidth));
       }
     }
     disable_random_init_ = disable_random_init;
@@ -327,14 +332,26 @@ class DramKVInferenceEmbedding {
     }
     return folly::collect(std::move(futures))
         .via(executor_.get())
-        .thenValue(
-            [this](const std::vector<std::tuple<int64_t, int64_t>>& tuples) {
-              for (const auto& pair : tuples) {
-                inplace_update_hit_cnt_ += std::get<0>(pair);
-                inplace_update_miss_cnt_ += std::get<1>(pair);
-              }
-              return std::vector<folly::Unit>(tuples.size());
-            });
+        .thenValue([this](
+                       const std::vector<std::tuple<int64_t, int64_t>>&
+                           tuples) {
+          auto hit_cnt = 0;
+          auto miss_cnt = 0;
+          for (const auto& pair : tuples) {
+            hit_cnt += std::get<0>(pair);
+            miss_cnt += std::get<1>(pair);
+          }
+          inplace_update_hit_cnt_ += hit_cnt;
+          inplace_update_miss_cnt_ += miss_cnt;
+          auto total_count = hit_cnt + miss_cnt;
+          LOG_EVERY_MS(INFO, 5000) << fmt::format(
+              "inference_set_kv_db_async: hit count {}, miss count {}, inplace update hit rate {}",
+              hit_cnt,
+              miss_cnt,
+              total_count ? static_cast<double>(hit_cnt) / total_count : 0.0);
+
+          return std::vector<folly::Unit>(tuples.size());
+        });
   }
 
   /// Get embeddings from kvstore.
@@ -391,7 +408,7 @@ class DramKVInferenceEmbedding {
                 int64_t local_read_missing_load = 0;
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
-                    "dram_kvstore_set",
+                    "get_kv_db_async_impl",
                     [this,
                      shard_id,
                      indexes,
@@ -419,37 +436,10 @@ class DramKVInferenceEmbedding {
                           facebook::WallClockUtil::NowInUsecFast() -
                           before_read_lock_ts;
 
-                      if (!wlmap->empty()) {
-                        // Simple block-based randomization using get_block with
-                        // cursor
-                        auto* pool = kv_store_.pool_by(shard_id);
-
-                        // Random starting cursor based on map size for good
-                        // entropy
-                        size_t random_start =
-                            folly::Random::rand32(wlmap->size());
-
-                        // Try to find a used block starting from random
-                        // position
-                        weight_type* block = nullptr;
-                        for (int attempts = 0; attempts < 16; ++attempts) {
-                          block = pool->template get_block<weight_type>(
-                              random_start + attempts);
-                          if (block != nullptr) {
-                            // Block is used (not null)
-                            row_storage_data_ptr =
-                                FixedBlockPool::data_ptr<weight_type>(block);
-                            break;
-                          }
-                        }
-
-                        // Fallback: if no used block found, use first element
-                        // from map
-                        if (block == nullptr) {
-                          row_storage_data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(
-                                  wlmap->begin()->second);
-                        }
+                      if (!wlmap->empty() && !disable_random_init_) {
+                        row_storage_data_ptr =
+                            FixedBlockPool::data_ptr<weight_type>(
+                                wlmap->begin()->second);
                       } else {
                         const auto& init_storage =
                             initializers_[shard_id]->row_storage_;
@@ -527,10 +517,10 @@ class DramKVInferenceEmbedding {
     return folly::collect(std::move(futures))
         .via(executor_.get())
         .thenValue(
-            [this,
-             start_ts](const std::vector<
-                       std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
-                           results) {
+            [this, start_ts](
+                const std::vector<
+                    std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
+                    results) {
               int64_t read_lookup_cache_total_duration = 0;
               int64_t read_fill_row_storage_total_duration = 0;
               int64_t read_cache_hit_copy_total_duration = 0;
@@ -554,9 +544,7 @@ class DramKVInferenceEmbedding {
                   read_lookup_cache_total_duration / num_shards_;
               read_acquire_lock_avg_duration_ +=
                   read_acquire_lock_total_duration / num_shards_;
-              LOG_EVERY_MS(INFO, 5000)
-                  << "get_kv_db_async total read_missing_load per batch: "
-                  << read_missing_load;
+              read_missing_load_avg_ += read_missing_load / num_shards_;
               return std::vector<folly::Unit>(results.size());
             });
   };
@@ -665,13 +653,12 @@ class DramKVInferenceEmbedding {
 
     auto inplace_update_hit_cnt = inplace_update_hit_cnt_.exchange(reset_val);
     auto inplace_update_miss_cnt = inplace_update_miss_cnt_.exchange(reset_val);
-    LOG(INFO) << "inplace update stats: hit count: " << inplace_update_hit_cnt
-              << ", miss count: " << inplace_update_miss_cnt
-              << ", total count: "
-              << inplace_update_hit_cnt + inplace_update_miss_cnt
-              << ", hit ratio: "
-              << (double)inplace_update_hit_cnt /
-            (inplace_update_hit_cnt + inplace_update_miss_cnt);
+    auto total_cnt = inplace_update_hit_cnt + inplace_update_miss_cnt;
+    LOG_EVERY_MS(INFO, 5000)
+        << "inplace update stats: hit count: " << inplace_update_hit_cnt
+        << ", miss count: " << inplace_update_miss_cnt
+        << ", total count: " << total_cnt << ", hit ratio: "
+        << (total_cnt > 0 ? (double)inplace_update_hit_cnt / total_cnt : 0.0);
   }
 
   std::optional<FeatureEvictMetricTensors> get_feature_evict_metric() const {
@@ -740,6 +727,7 @@ class DramKVInferenceEmbedding {
     auto copied_bytes = elem_size_ * copied_width;
     int64_t start_offset_bytes = elem_size_ * width_offset;
     int64_t row_index = 0;
+
     // TODO: fill the opt state as zeros for init value?
     std::copy(
         &(row_storage_data_ptr
@@ -901,6 +889,7 @@ class DramKVInferenceEmbedding {
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
   int current_iter_ = 0;
+  bool disable_random_init_ = false;
 
   // perf stats
   std::atomic<int64_t> read_total_duration_{0};
@@ -928,8 +917,6 @@ class DramKVInferenceEmbedding {
 
   std::atomic<int64_t> inplace_update_hit_cnt_{0};
   std::atomic<int64_t> inplace_update_miss_cnt_{0};
-
-  bool disable_random_init_;
 }; // class DramKVInferenceEmbedding
 
 } // namespace kv_mem

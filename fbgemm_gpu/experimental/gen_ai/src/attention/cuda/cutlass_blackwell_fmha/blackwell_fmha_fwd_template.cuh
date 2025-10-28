@@ -20,6 +20,8 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
     std::optional<int64_t> max_seq_len_k,
     const std::optional<double> softmax_scale,
     const std::optional<const at::Tensor>& seqlen_kv,
+    const std::optional<const at::Tensor>& page_table,
+    std::optional<int64_t> seqlen_k,
     const int window_size_left,
     const int window_size_right
   ) {
@@ -28,6 +30,11 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
 
   using ElementAccumulatorQK = float;
   using ElementAccumulatorPV = float;
+
+  bool kIsPaged = false;
+  if (page_table && page_table->defined()) {
+    kIsPaged = true;
+  }
 
   // Q K D (H_r H_k) B
   using ProblemShapeRegular =
@@ -84,7 +91,42 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
               StrideLSE>,
           TileScheduler>>;
 
-  if (kIsVarlen) {
+  if (kIsPaged) {
+    if (kIsVarlen) { // Variable length
+      TORCH_CHECK(
+          q.dim() == 3,
+          "Expect Q shape to be (total_Q_seqlen, num_Q_heads, head_dim) ",
+          "Found shape ", q.sizes());
+    }
+    else { // Fixed Length
+      TORCH_CHECK(
+          q.dim() == 4,
+          "Expect Q shape to be (batch_size, Q_seqlen, num_Q_heads, head_dim). ",
+          "Found shape ", q.sizes());
+    }
+    TORCH_CHECK(
+        k.dim() == 4,
+        "Expect K shape to be (num_blocks, page_block_size, num_KV_heads, head_dim) ",
+        "Found shape ", k.sizes());
+    TORCH_CHECK(
+        v.dim() == 4,
+        "Expect V shape to be (num_blocks, page_block_size, num_KV_heads, head_dim) ",
+        "Found shape ", v.sizes());
+    TORCH_CHECK(
+        page_table.value().dim() == 2,
+        "Expect page table shape to be (batch_size, max_num_blocks_per_batch)",
+        "Found shape ", page_table.value().sizes());
+
+    int tile_N = static_cast<long>(get<1>(TileShape{}).value);
+    TORCH_CHECK((k.size(1) % tile_N) == 0, "Page Block Size should be divisible by N tile size");
+    TORCH_CHECK((v.size(1) % tile_N) == 0, "Page Block Size should be divisible by N tile size");
+
+    // For fixed length sequences, seqlen_k should be set.
+    if (!kIsVarlen) {
+        TORCH_CHECK(seqlen_k.has_value(), "seqlen_k should be set");
+    }
+  }
+  else if (kIsVarlen) {
     TORCH_CHECK(
         q.dim() == 3,
         "Expect Q shape to be (total_Q_seqlen, num_Q_heads, head_dim) ",
@@ -122,7 +164,8 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
 
   // Extract dimensions from input tensors
   int H_Q = kIsVarlen ? q.size(1) : q.size(2); // Number of Q heads
-  int H_K = kIsVarlen ? k.size(1) : k.size(2); // Number of K heads
+  int H_K = (kIsPaged && kIsVarlen) ? k.size(2)
+          : (kIsVarlen ? k.size(1) : k.size(2)); // Number of K heads
   int D = q.size(q.dim() - 1); // Head dimension (D)
 
   TORCH_CHECK(H_Q % H_K == 0);
@@ -131,8 +174,21 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
 
   // SQ represents SumB(Q) for varlen (jagged len)
   int SQ = kIsVarlen ? q.size(0) : q.size(1);
-  int SK = kIsVarlen ? k.size(0) : k.size(1);
+  int SK = kIsPaged
+        ? (kIsVarlen
+            ? static_cast<int>(*max_seq_len_k)
+            : static_cast<int>(*seqlen_k))
+        : (kIsVarlen
+            ? k.size(0)
+            : k.size(1));
   int B = kIsVarlen ? cu_seqlens_q->size(0) - 1 : q.size(0);
+
+  // Parameters for paged attention.
+  int page_table_stride = kIsPaged ? page_table.value().size(1) : 0;
+  int num_blocks = kIsPaged ? k.size(0) : 1; // num_blocks
+  int page_block_size = kIsPaged ? k.size(1) : 1; // page_block_size
+  // num KV tiles > 1 within a page in the case of page_block_size > TileShapeN.
+  int num_KV_tiles_per_page = kIsPaged ? k.size(1) / (get<1>(TileShape{}).value) : 1;
 
   ProblemShapeType problem_shape;
   if constexpr (kIsVarlen) {
@@ -153,7 +209,8 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
   // Reshape to get strides
   auto B_ = kIsVarlen ? 1 : B;
   auto q_ = q.reshape({B_, SQ, H_K, H_R, D});
-  auto k_ = k.reshape({B_, SK, H_K, 1, D}).expand({B_, SK, H_K, H_R, D});
+  auto k_ = (kIsPaged) ? k.reshape({num_blocks, page_block_size, H_K, 1, D}).expand({num_blocks, page_block_size, H_K, H_R, D})
+                       : k.reshape({B_, SK, H_K, 1, D}).expand({B_, SK, H_K, H_R, D});
   auto ndim = q_.dim();
 
   TORCH_CHECK(q_.stride(ndim - 1) == 1, "The head dim in Q must be contiguous");
@@ -174,6 +231,8 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
         static_cast<int>(q_.stride(0))));
 
   // K shape = (B, K, H_K, 1, D)
+  // Strides expressed in logical layout, (K, D, ((H_R, H_K), B)) if non-paged
+  // or (page_block_size, D, (H_R, H_K), num_blocks) if paged.
   StrideK stride_K = make_stride(
       static_cast<int>(k_.stride(1)),
       _1{},
@@ -209,8 +268,10 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
   typename Operation::Arguments arguments;
   if constexpr (kIsVarlen) {
     get<2, 1>(stride_Q) = 0;
-    get<2, 1>(stride_K) = 0;
-    get<2, 1>(stride_V) = 0;
+    if (!kIsPaged) {
+        get<2, 1>(stride_K) = 0;
+        get<2, 1>(stride_V) = 0;
+    }
     get<2, 1>(stride_O) = 0;
     get<1, 1>(stride_LSE) = 0;
   }
@@ -224,6 +285,11 @@ std::tuple<at::Tensor, at::Tensor> fmha_fwd(
               static_cast<Element*>(q.data_ptr()), stride_Q,
               static_cast<Element*>(k.data_ptr()), stride_K,
               static_cast<Element*>(v.data_ptr()), stride_V,
+              kIsPaged
+                ? static_cast<int*>(page_table.value().data_ptr())
+                : nullptr,
+              page_table_stride, num_blocks,
+              page_block_size, num_KV_tiles_per_page,
               window_size_left, window_size_right
           },
           static_cast<float>(softmax_scale.value_or(0.0f)) /* softmax_scale */,

@@ -31,7 +31,7 @@ struct CUDAHostMappedContext {
   int cuda_device_;
 
   CUDAHostMappedContext(void* ptr, int cuda_device)
-      : ptr_(ptr), cuda_device_(cuda_device){};
+      : ptr_(ptr), cuda_device_(cuda_device) {};
 
   ~CUDAHostMappedContext() {
     at::cuda::OptionalCUDAGuard device_guard(cuda_device_);
@@ -49,7 +49,7 @@ struct CUDAManagedContext {
   int cuda_device_;
 
   CUDAManagedContext(void* ptr, int cuda_device)
-      : ptr_(ptr), cuda_device_(cuda_device){};
+      : ptr_(ptr), cuda_device_(cuda_device) {};
 
   ~CUDAManagedContext() {
     at::cuda::OptionalCUDAGuard device_guard(cuda_device_);
@@ -66,7 +66,7 @@ struct CUDAManagedContext {
 struct CUDAManagedIndirectContext {
   Storage storage_;
 
-  CUDAManagedIndirectContext(Storage storage) : storage_(std::move(storage)){};
+  CUDAManagedIndirectContext(Storage storage) : storage_(std::move(storage)) {};
 
   static void release(void* ptr) {
     delete static_cast<CUDAManagedIndirectContext*>(ptr);

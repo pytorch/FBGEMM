@@ -19,7 +19,6 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
-#include "cutlass_extensions/include/fp8_blockwise_cutlass_helpers.h"
 #include "cutlass_extensions/include/kernel_mode.h"
 
 namespace {
@@ -46,10 +45,7 @@ at::Tensor f8f8bf16_blockwise_impl(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
-    at::Tensor w_scale,
-    int64_t block_m,
-    int64_t block_n,
-    int64_t block_k) {
+    at::Tensor w_scale) {
   // XQ: M x K
   // WQ: N x K
   // output: M x N
@@ -71,19 +67,15 @@ at::Tensor f8f8bf16_blockwise_impl(
   TORCH_CHECK(WQ.stride(0) == K);
   TORCH_CHECK(WQ.stride(1) == 1);
 
-  TORCH_CHECK(block_m % TB_N == 0);
-  TORCH_CHECK(block_n % TB_M == 0);
-  TORCH_CHECK(block_k % TB_K == 0);
-
   TORCH_CHECK(x_scale.dim() == 2);
   TORCH_CHECK(w_scale.dim() == 2);
-  TORCH_CHECK(x_scale.size(0) == ceil_div(M, block_m));
-  TORCH_CHECK(x_scale.size(1) == ceil_div(K, block_k));
-  TORCH_CHECK(w_scale.size(0) == ceil_div(N, block_n));
-  TORCH_CHECK(w_scale.size(1) == ceil_div(K, block_k));
-  TORCH_CHECK(x_scale.stride(0) == ceil_div(K, block_k));
+  TORCH_CHECK(x_scale.size(0) == ceil_div(M, TB_M));
+  TORCH_CHECK(x_scale.size(1) == ceil_div(K, TB_K));
+  TORCH_CHECK(w_scale.size(0) == ceil_div(N, TB_N));
+  TORCH_CHECK(w_scale.size(1) == ceil_div(K, TB_K));
+  TORCH_CHECK(x_scale.stride(0) == ceil_div(K, TB_K));
   TORCH_CHECK(x_scale.stride(1) == 1);
-  TORCH_CHECK(w_scale.stride(0) == ceil_div(K, block_k));
+  TORCH_CHECK(w_scale.stride(0) == ceil_div(K, TB_K));
   TORCH_CHECK(w_scale.stride(1) == 1);
 
   TORCH_CHECK(XQ.dtype() == at::kFloat8_e4m3fn);
@@ -109,7 +101,7 @@ at::Tensor f8f8bf16_blockwise_impl(
   constexpr int AlignmentInputB = 16 / sizeof(ElementInputB);
 
   using ElementOutput = cutlass::bfloat16_t;
-  using LayoutOutput = cutlass::layout::ColumnMajor;
+  using LayoutOutput = cutlass::layout::RowMajor;
   constexpr int AlignmentOutput = 16 / sizeof(ElementOutput);
 
   using ElementAccumulator = float;
@@ -129,6 +121,15 @@ at::Tensor f8f8bf16_blockwise_impl(
                          // threadblocks in a
                          // cluster
 
+  using ScaleConfig = cutlass::detail::Sm90BlockwiseScaleConfig<
+      TB_M,
+      TB_N,
+      TB_K,
+      cute::GMMA::Major::K,
+      cute::GMMA::Major::K>;
+  using LayoutSFA = decltype(ScaleConfig::deduce_layoutSFA());
+  using LayoutSFB = decltype(ScaleConfig::deduce_layoutSFB());
+
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -147,17 +148,17 @@ at::Tensor f8f8bf16_blockwise_impl(
           cutlass::epilogue::TmaWarpSpecializedCooperative>::CollectiveOp;
 
   using MainLoopSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedCooperativeFP8BlockScaling;
+      cutlass::gemm::KernelTmaWarpSpecializedCooperativeFP8Blockwise;
 
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
           ArchTag,
           OperatorClass,
           ElementInputA,
-          LayoutInputA,
+          cute::tuple<LayoutInputA, LayoutSFA>,
           AlignmentInputA,
           ElementInputB,
-          LayoutInputB,
+          cute::tuple<LayoutInputB, LayoutSFB>,
           AlignmentInputB,
           ElementAccumulator,
           TileShape,
@@ -178,24 +179,27 @@ at::Tensor f8f8bf16_blockwise_impl(
   using StrideOutput = typename Gemm::GemmKernel::StrideD;
 
   StrideInputA stride_a = cutlass::make_cute_packed_stride(
-      StrideInputA{}, cute::make_shape(N, K, 1));
+      StrideInputA{}, cute::make_shape(M, K, 1));
   StrideInputB stride_b = cutlass::make_cute_packed_stride(
-      StrideInputB{}, cute::make_shape(M, K, 1));
+      StrideInputB{}, cute::make_shape(N, K, 1));
   StrideOutput stride_output = cutlass::make_cute_packed_stride(
-      StrideOutput{}, cute::make_shape(N, M, 1));
+      StrideOutput{}, cute::make_shape(M, N, 1));
+  LayoutSFA layout_SFA =
+      ScaleConfig::tile_atom_to_shape_SFA(cute::make_shape(M, N, K, 1));
+  LayoutSFB layout_SFB =
+      ScaleConfig::tile_atom_to_shape_SFB(cute::make_shape(M, N, K, 1));
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
-      {N, M, K},
-      {reinterpret_cast<cutlass::float_e4m3_t*>(WQ.data_ptr()),
+      {M, N, K},
+      {reinterpret_cast<cutlass::float_e4m3_t*>(XQ.data_ptr()),
        stride_a,
-       reinterpret_cast<cutlass::float_e4m3_t*>(XQ.data_ptr()),
+       reinterpret_cast<cutlass::float_e4m3_t*>(WQ.data_ptr()),
        stride_b,
-       w_scale.data_ptr<float>(),
        x_scale.data_ptr<float>(),
-       static_cast<uint8_t>(block_n / TB_M),
-       static_cast<uint8_t>(block_m / TB_N),
-       static_cast<uint8_t>(block_k / TB_K)},
+       layout_SFA,
+       w_scale.data_ptr<float>(),
+       layout_SFB},
       {{},
        (cutlass::bfloat16_t*)Y.data_ptr<at::BFloat16>(),
        stride_output,
@@ -244,16 +248,19 @@ at::Tensor dispatch_fp8_blockwise_kernel(
     int64_t block_m,
     int64_t block_n,
     int64_t block_k) {
+  TORCH_CHECK(
+      block_m == 128 && block_n == 128 && block_k == 128,
+      "Only 128x128x128 block size is supported");
   KernelMode kernel = get_kernel_mode(XQ, WQ);
   if (kernel == KernelMode::Small) {
     return f8f8bf16_blockwise_impl<128, 128, 128, 2, 1, 1>(
-        XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+        XQ, WQ, x_scale, w_scale);
   } else if (kernel == KernelMode::Large) {
     return f8f8bf16_blockwise_impl<128, 128, 128, 2, 1, 1>(
-        XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+        XQ, WQ, x_scale, w_scale);
   } else {
     return f8f8bf16_blockwise_impl<128, 128, 128, 1, 2, 1>(
-        XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+        XQ, WQ, x_scale, w_scale);
   }
 }
 
@@ -281,9 +288,9 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    int64_t block_m = 256,
-    int64_t block_n = 256,
-    int64_t block_k = 256) {
+    int64_t block_m = 128,
+    int64_t block_n = 128,
+    int64_t block_k = 128) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

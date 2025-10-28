@@ -123,11 +123,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
         block_alignment_(
             FixedBlockPool::calculate_block_alignment<weight_type>()),
-        kv_store_(SynchronizedShardedMap<int64_t, weight_type*>(
-            num_shards_,
-            block_size_,
-            block_alignment_,
-            /*blocks_per_chunk=*/8192)),
+        kv_store_(
+            SynchronizedShardedMap<int64_t, weight_type*>(
+                num_shards_,
+                block_size_,
+                block_alignment_,
+                /*blocks_per_chunk=*/8192)),
         elem_size_(row_storage_bitwidth / 8),
         backend_return_whole_row_(backend_return_whole_row),
         feature_evict_config_(std::move(feature_evict_config)),
@@ -176,12 +177,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           at::detail::getDefaultCPUGenerator());
       {
         std::lock_guard<std::mutex> lock(gen->mutex_);
-        initializers_.push_back(std::make_unique<ssd::Initializer>(
-            gen->random64(),
-            max_D,
-            uniform_init_lower,
-            uniform_init_upper,
-            row_storage_bitwidth));
+        initializers_.push_back(
+            std::make_unique<ssd::Initializer>(
+                gen->random64(),
+                max_D,
+                uniform_init_lower,
+                uniform_init_upper,
+                row_storage_bitwidth));
       }
     }
     disable_random_init_ = disable_random_init;
@@ -830,12 +832,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
     return folly::collect(std::move(futures))
         .via(executor_.get())
-        .thenValue([this, start_ts](const std::vector<std::tuple<
-                                        int64_t,
-                                        int64_t,
-                                        int64_t,
-                                        int64_t,
-                                        int64_t>>& results) {
+        .thenValue([this, start_ts](
+                       const std::vector<std::tuple<
+                           int64_t,
+                           int64_t,
+                           int64_t,
+                           int64_t,
+                           int64_t>>& results) {
           resume_ongoing_eviction();
           int total_updated_ids = 0;
           int64_t write_allocate_total_duration = 0;
@@ -1034,10 +1037,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return folly::collect(std::move(futures))
         .via(executor_.get())
         .thenValue(
-            [this,
-             start_ts](const std::vector<
-                       std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
-                           results) {
+            [this, start_ts](
+                const std::vector<
+                    std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
+                    results) {
               int64_t read_lookup_cache_total_duration = 0;
               int64_t read_fill_row_storage_total_duration = 0;
               int64_t read_cache_hit_copy_total_duration = 0;

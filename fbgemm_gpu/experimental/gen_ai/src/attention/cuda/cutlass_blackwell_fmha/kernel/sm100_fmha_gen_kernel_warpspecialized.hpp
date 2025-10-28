@@ -248,6 +248,9 @@ struct Sm100FmhaGenKernelWarpspecialized {
   }
 
   CUTLASS_DEVICE void operator()(const Params &params, char* smem) {
+#if (! defined(CUTLASS_ARCH_MMA_SM100A_ENABLED) && ! defined(CUTLASS_ARCH_MMA_SM100F_ENABLED))
+    printf("ERROR : Arch conditional MMA instruction used without targeting appropriate compute capability. Aborting.\n");
+#else
 
     TileScheduler tile_scheduler{params.tile_scheduler};
 
@@ -570,6 +573,7 @@ struct Sm100FmhaGenKernelWarpspecialized {
 
       /* no-op, donate regs and exit */
     }
+#endif
   }
 
 };

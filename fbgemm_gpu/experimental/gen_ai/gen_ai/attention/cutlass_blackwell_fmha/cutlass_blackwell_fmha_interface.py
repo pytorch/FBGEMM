@@ -12,10 +12,6 @@ try:
     # pyre-ignore[21]
     # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
     from fbgemm_gpu import open_source
-
-    # pyre-ignore[21]
-    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
-    from fbgemm_gpu.docs.version import __version__  # noqa: F401
 except Exception:
     open_source: bool = False
 
@@ -65,6 +61,8 @@ def _cutlass_blackwell_fmha_forward(
     softmax_scale: float | None = None,
     causal: bool = False,
     seqlen_kv: torch.Tensor | None = None,
+    page_table: torch.Tensor | None = None,
+    seqlen_k: int | None = None,
     window_left: int = -1,
     window_right: int = -1,
     bottom_right: bool = True,
@@ -83,6 +81,8 @@ def _cutlass_blackwell_fmha_forward(
         softmax_scale=softmax_scale,
         causal=causal,
         seqlen_kv=seqlen_kv,
+        page_table=page_table,
+        seqlen_k=seqlen_k,
         window_size_left=window_left,
         window_size_right=window_right,
         bottom_right=bottom_right,
@@ -175,6 +175,8 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
         max_seq_len_q: Optional[int] = None,
         max_seq_len_k: Optional[int] = None,
         seqlen_kv: Optional[torch.Tensor] = None,
+        page_table: Optional[torch.Tensor] = None,
+        seqlen_k: Optional[int] = None,
         window_size: tuple[int, int] = (-1, -1),
         bottom_right: bool = True,
         deterministic: bool = False,
@@ -224,6 +226,8 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
                 softmax_scale,
                 causal,
                 seqlen_kv,
+                page_table,
+                seqlen_k,
                 window_left,
                 window_right,
                 bottom_right,
@@ -246,6 +250,8 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        None,
+        None,
         None,
         None,
         None,
@@ -283,7 +289,23 @@ class CutlassBlackwellFmhaFunc(torch.autograd.Function):
             bottom_right=ctx.bottom_right,
             deterministic=ctx.deterministic,
         )
-        return dq, dk, dv, None, None, None, None, None, None, None, None, None, None
+        return (
+            dq,
+            dk,
+            dv,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 def cutlass_blackwell_fmha_func(
@@ -297,6 +319,8 @@ def cutlass_blackwell_fmha_func(
     max_seq_len_q: int | None = None,
     max_seq_len_k: int | None = None,
     seqlen_kv: torch.Tensor | None = None,
+    page_table: torch.Tensor | None = None,
+    seqlen_k: int | None = None,
     window_size: tuple[int, int] | None = (-1, -1),
     bottom_right: bool = True,
     deterministic: bool = False,
@@ -312,6 +336,8 @@ def cutlass_blackwell_fmha_func(
         max_seq_len_q,
         max_seq_len_k,
         seqlen_kv,
+        page_table,
+        seqlen_k,
         window_size,
         bottom_right,
         deterministic,

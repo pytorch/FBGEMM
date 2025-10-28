@@ -39,7 +39,7 @@ class Initializer {
     }
     // Sanity check
     CHECK_EQ(row_storage_.element_size(), row_storage_bitwidth / 8);
-    producer_ = std::make_unique<std::thread>([=] {
+    producer_ = std::make_unique<std::thread>([=, this] {
       const auto init = row_storage_.scalar_type() == at::ScalarType::Float ||
           row_storage_.scalar_type() == at::ScalarType::Half;
       if (init) {

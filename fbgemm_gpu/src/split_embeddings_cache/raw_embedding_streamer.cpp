@@ -35,8 +35,8 @@ std::unique_ptr<
                                TrainingParameterServerService>>
 get_res_client(int64_t res_server_port) {
   auto& factory = facebook::servicerouter::cpp2::getClientFactory();
-  auto params =
-      folly::copy(facebook::servicerouter::ClientParams().setSingleHost(
+  auto params = folly::copy(
+      facebook::servicerouter::ClientParams().setSingleHost(
           "::", res_server_port));
   return factory.getSRClientUnique<
       apache::thrift::Client<aiplatform::gmpp::experimental::training_ps::

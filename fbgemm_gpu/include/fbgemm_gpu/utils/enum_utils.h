@@ -46,8 +46,7 @@ namespace fbgemm_gpu {
       TORCH_FN(enum_query<FBGEMM_GPU_ENUM_TAG(module_name)>)
 // To work around (escape from) hipify_torch, the names of the idendifiers
 // are decoposed to `x` and `y`. `z` is supposed to be hipified.
-#define FBGEMM_GPU_ENUM_ITEM(x, y, z) \
-  { #x #y, z }
+#define FBGEMM_GPU_ENUM_ITEM(x, y, z) {#x #y, z}
 
 using enum_item = std::tuple<std::string, int64_t>;
 

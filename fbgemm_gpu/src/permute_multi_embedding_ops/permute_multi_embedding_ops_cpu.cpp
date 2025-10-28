@@ -93,8 +93,9 @@ std::vector<Tensor> permute_multi_embedding_function_meta(
   std::vector<Tensor> outputs;
   outputs.reserve(out_lengths.size());
   for (const auto i : c10::irange(out_lengths.size())) {
-    outputs.push_back(at::zeros_symint(
-        {batch_size, out_lengths[i]}, pooled_embs[0].options()));
+    outputs.push_back(
+        at::zeros_symint(
+            {batch_size, out_lengths[i]}, pooled_embs[0].options()));
   }
   return outputs;
 }

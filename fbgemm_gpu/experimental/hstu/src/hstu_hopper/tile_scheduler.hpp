@@ -137,7 +137,7 @@ class DynamicPersistentTileScheduler {
 
   CUTLASS_DEVICE
   DynamicPersistentTileScheduler(int* tile_count_smem_)
-      : tile_count_smem(tile_count_smem_){};
+      : tile_count_smem(tile_count_smem_) {};
 
   CUTLASS_DEVICE
   WorkTileInfo get_initial_work() const {

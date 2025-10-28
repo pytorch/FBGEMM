@@ -117,9 +117,8 @@ class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE auto operator[](const index_t i)
-      -> std::
-          enable_if_t<(M > 1), TensorAccessor<T, N - 1, PtrTraits, index_t>> {
+  C10_HOST_DEVICE auto operator[](const index_t i) -> std::
+      enable_if_t<(M > 1), TensorAccessor<T, N - 1, PtrTraits, index_t>> {
     return TensorAccessor<T, N - 1, PtrTraits, index_t>(
         this->data_ + this->strides_[0] * i,
         this->sizes_ + 1,
@@ -129,10 +128,8 @@ class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE auto operator[](const index_t i) const
-      -> std::enable_if_t<
-          (M > 1),
-          const TensorAccessor<T, N - 1, PtrTraits, index_t>> {
+  C10_HOST_DEVICE auto operator[](const index_t i) const -> std::
+      enable_if_t<(M > 1), const TensorAccessor<T, N - 1, PtrTraits, index_t>> {
     return TensorAccessor<T, N - 1, PtrTraits, index_t>(
         this->data_ + this->strides_[0] * i,
         this->sizes_ + 1,
@@ -248,9 +245,8 @@ class PackedTensorAccessor
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE auto operator[](const index_t i)
-      -> std::
-          enable_if_t<(M > 1), TensorAccessor<T, N - 1, PtrTraits, index_t>> {
+  C10_HOST_DEVICE auto operator[](const index_t i) -> std::
+      enable_if_t<(M > 1), TensorAccessor<T, N - 1, PtrTraits, index_t>> {
     return TensorAccessor<T, N - 1, PtrTraits, index_t>(
         this->data_ + this->strides_[0] * i,
         this->sizes_ + 1,
@@ -260,10 +256,8 @@ class PackedTensorAccessor
   }
 
   template <size_t M = N>
-  C10_HOST_DEVICE auto operator[](const index_t i) const
-      -> std::enable_if_t<
-          (M > 1),
-          const TensorAccessor<T, N - 1, PtrTraits, index_t>> {
+  C10_HOST_DEVICE auto operator[](const index_t i) const -> std::
+      enable_if_t<(M > 1), const TensorAccessor<T, N - 1, PtrTraits, index_t>> {
     return TensorAccessor<T, N - 1, PtrTraits, index_t>(
         this->data_ + this->strides_[0] * i,
         this->sizes_ + 1,
@@ -398,8 +392,7 @@ namespace pta = at;
 template <
     typename T,
     size_t N,
-    template <typename U>
-    class PtrTraits,
+    template <typename U> class PtrTraits,
     typename index_t>
 using PackedTensorAccessor =
     at::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>;

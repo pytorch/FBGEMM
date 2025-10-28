@@ -82,9 +82,9 @@ struct Sm100FmhaCtxKernelWarpspecializedSchedule {
   static const int NumRegsCorrection = 96 - (kDebugUsingPrintf ? 16 : 0);
   static const int NumRegsOther = 32 + (kDebugUsingPrintf ? 16 : 0);
   static const int NumRegsEmpty = 24;
-  
+
   static const int NumWarps = 16;
-  
+
 };
 
 
@@ -148,7 +148,7 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
   static const int NumWarpsCorrection = KernelSchedule::NumWarpsCorrection;
   static const int NumWarpsEpilogue = KernelSchedule::NumWarpsEpilogue;
   static const int NumWarpsLoad = KernelSchedule::NumWarpsLoad;
-  
+
   static_assert(NumWarpsEpilogue == CollectiveEpilogue::NumWarpsEpilogue);
   static_assert(NumWarpsLoad == CollectiveEpilogue::NumWarpsLoad);
 
@@ -177,13 +177,13 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
     };
 
     static constexpr bool IsPersistent = std::is_same_v<TileScheduler, PersistentTileScheduler> || std::is_same_v<TileScheduler, CausalPersistentTileScheduler>;
-    using MainloopEpilogueStorage = std::conditional_t<IsPersistent, 
-                                                       std::conditional_t<IsMla, 
+    using MainloopEpilogueStorage = std::conditional_t<IsPersistent,
+                                                       std::conditional_t<IsMla,
                                                                           std::conditional_t<CollectiveMainloop::IsOrderLoadEpilogue, UnionType, StructType>,
                                                                           StructType>,
                                                        UnionType>;
 
-    MainloopEpilogueStorage mainloop_epilogue; 
+    MainloopEpilogueStorage mainloop_epilogue;
 
     struct PipelineStorage {
       alignas(16) typename CollectiveMainloop::PipelineQ::SharedStorage load_q;
@@ -265,6 +265,9 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
   }
 
   CUTLASS_DEVICE void operator()(const Params &params, char* smem) {
+#if (! defined(CUTLASS_ARCH_MMA_SM100A_ENABLED) && ! defined(CUTLASS_ARCH_MMA_SM100F_ENABLED))
+    printf("ERROR : Arch conditional MMA instruction used without targeting appropriate compute capability. Aborting.\n");
+#else
 
     TileScheduler tile_scheduler{params.tile_scheduler};
 
@@ -305,7 +308,7 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
       shared_storage.pipelines.load_q,
       pipeline_load_q_params,
       ClusterShape{},  cute::true_type{}, /*mask calc*/cute::false_type{});
-    
+
     typename CollectiveMainloop::PipelineKV::Params pipeline_load_kv_params;
     if (role == WarpRole::Load) {
       pipeline_load_kv_params.role = CollectiveMainloop::PipelineKV::ThreadCategory::Producer;
@@ -479,6 +482,8 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
     else if (role == WarpRole::Correction) {
       cutlass::arch::warpgroup_reg_dealloc<NumRegsCorrection>();
 
+      bool has_valid = false;
+
       CUTLASS_PRAGMA_NO_UNROLL
       for (; tile_scheduler.is_valid(); ++tile_scheduler) {
         auto blk_coord = tile_scheduler.get_block_coord();
@@ -489,6 +494,8 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
           continue;
         }
+
+        has_valid = true;
 
         if (get<1>(logical_problem_shape) == 0) {
           mainloop.correction_empty(
@@ -519,16 +526,17 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
       if constexpr (NumWarpsEpilogue == 0) {
         static_assert(NumWarpsCorrection == 1);
 
-        uint32_t free_stage_ptr = shared_storage.tmem_base_ptr;
-        tmem_allocator.free(free_stage_ptr, TmemAllocator::Sm100TmemCapacityColumns);
+        if (has_valid) {
+          uint32_t free_stage_ptr = shared_storage.tmem_base_ptr;
+          tmem_allocator.free(free_stage_ptr, TmemAllocator::Sm100TmemCapacityColumns);
+        }
       }
 
     }
     else if (role == WarpRole::MMA) {
       warpgroup_reg_set<NumRegsOther>();
 
-      tmem_allocator.allocate(TmemAllocator::Sm100TmemCapacityColumns, &shared_storage.tmem_base_ptr);
-      __syncwarp();
+      bool allocated = false;
 
       CUTLASS_PRAGMA_NO_UNROLL
       for (; tile_scheduler.is_valid(); ++tile_scheduler) {
@@ -539,6 +547,12 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
 
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
           continue;
+        }
+
+        if (!allocated) {
+          tmem_allocator.allocate(TmemAllocator::Sm100TmemCapacityColumns, &shared_storage.tmem_base_ptr);
+          __syncwarp();
+          allocated = true;
         }
 
         if (get<1>(logical_problem_shape) == 0) {
@@ -562,7 +576,7 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
       warpgroup_reg_set<NumRegsOther>();
 
       if constexpr (IsMla && CollectiveMainloop::IsOrderLoadEpilogue) {
-        cutlass::arch::NamedBarrier::arrive((NumWarpsLoad + NumWarpsEpilogue) * NumThreadsPerWarp, 
+        cutlass::arch::NamedBarrier::arrive((NumWarpsLoad + NumWarpsEpilogue) * NumThreadsPerWarp,
                                       cutlass::arch::ReservedNamedBarriers::EpilogueBarrier);
       }
 
@@ -594,6 +608,8 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
     else if (role == WarpRole::Epilogue) {
       warpgroup_reg_set<NumRegsOther>();
 
+      bool has_valid = false;
+
       CUTLASS_PRAGMA_NO_UNROLL
       for (; tile_scheduler.is_valid(); ++tile_scheduler) {
         auto blk_coord = tile_scheduler.get_block_coord();
@@ -604,6 +620,8 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
           continue;
         }
+
+        has_valid = true;
 
         epilogue.store(
           blk_coord, logical_problem_shape,
@@ -616,8 +634,10 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
 
       static_assert(NumWarpsEpilogue <= 1);
       if constexpr (NumWarpsEpilogue == 1) {
-        uint32_t free_stage_ptr = shared_storage.tmem_base_ptr;
-        tmem_allocator.free(free_stage_ptr, TmemAllocator::Sm100TmemCapacityColumns);
+        if(has_valid) {
+          uint32_t free_stage_ptr = shared_storage.tmem_base_ptr;
+          tmem_allocator.free(free_stage_ptr, TmemAllocator::Sm100TmemCapacityColumns);
+        }
       }
 
     }
@@ -626,6 +646,7 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
 
       /* no-op, donate regs and exit */
     }
+#endif
   }
 
 };

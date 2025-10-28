@@ -87,8 +87,9 @@ void SparseDenseInt8MMAvx2(
       // Handle remainder
       int rem = N - j;
       if (rem > 0) {
-        __m256i mask_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-            &avx2_ps_or_epi32_combined_mask[VLEN_INT32 - rem]));
+        __m256i mask_v = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(
+                &avx2_ps_or_epi32_combined_mask[VLEN_INT32 - rem]));
         _mm256_maskstore_epi32(
             reinterpret_cast<int32_t*>(C_i32 + i * ldc + j), mask_v, c_v);
       }
@@ -116,9 +117,11 @@ void SparseDenseInt8MMAvx2(
           for (int idx = 0;
                idx < std::min(4, curKSize - acbr_block * colBlockSize);
                ++idx) {
-            br_v[idx] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                B + (acbr_block * colBlockSize + idx + kt * colTileSize) * ldb +
-                j));
+            br_v[idx] = _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    B +
+                    (acbr_block * colBlockSize + idx + kt * colTileSize) * ldb +
+                    j));
           }
 
           // interleave these 4 rows
@@ -127,8 +130,9 @@ void SparseDenseInt8MMAvx2(
           __m256i one_16bit_v = _mm256_set1_epi16(1);
           __m256i c_v[4];
           for (int idx = 0; idx < 4; ++idx) {
-            c_v[idx] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                C_i32 + i * ldc + j + idx * VLEN_INT32));
+            c_v[idx] = _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    C_i32 + i * ldc + j + idx * VLEN_INT32));
             __m256i c_i16_v = _mm256_maddubs_epi16(br_v[idx], a_v);
             __m256i c_i32_v = _mm256_madd_epi16(one_16bit_v, c_i16_v);
             c_v[idx] = _mm256_add_epi32(c_v[idx], c_i32_v);
@@ -160,14 +164,16 @@ void SparseDenseInt8MMAvx2(
           __m256i c_v[4] = {};
           int idx1 = 0;
           for (; idx1 < rem / VLEN_INT32; ++idx1) {
-            c_v[idx1] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                C_i32 + i * ldc + j + idx1 * 8));
+            c_v[idx1] = _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    C_i32 + i * ldc + j + idx1 * 8));
           }
           int rem_int32 = rem - idx1 * VLEN_INT32;
           __m256i mask_int32_v = _mm256_setzero_si256();
           if (rem_int32 > 0) {
-            mask_int32_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                &avx2_ps_or_epi32_combined_mask[VLEN_INT32 - rem_int32]));
+            mask_int32_v = _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(
+                    &avx2_ps_or_epi32_combined_mask[VLEN_INT32 - rem_int32]));
             c_v[idx1] = _mm256_maskload_epi32(
                 reinterpret_cast<const int*>(
                     C_i32 + i * ldc + j + idx1 * VLEN_INT32),

@@ -142,31 +142,35 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
 
         // Sort the cache sets and ids
         size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
-            nullptr,
-            temp_storage_bytes,
-            (uint64_t*)cache_sets.data_ptr<int64_t>(),
-            (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
-            unique_indices.data_ptr<index_t>(),
-            cache_set_sorted_unique_indices.data_ptr<index_t>(),
-            N,
-            0,
-            int(log2(float(lxu_cache_state.size(0) + 1)) + 1) + kLFUCounterBits,
-            at::cuda::getCurrentCUDAStream()));
+        AT_CUDA_CHECK(
+            FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+                nullptr,
+                temp_storage_bytes,
+                (uint64_t*)cache_sets.data_ptr<int64_t>(),
+                (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
+                unique_indices.data_ptr<index_t>(),
+                cache_set_sorted_unique_indices.data_ptr<index_t>(),
+                N,
+                0,
+                int(log2(float(lxu_cache_state.size(0) + 1)) + 1) +
+                    kLFUCounterBits,
+                at::cuda::getCurrentCUDAStream()));
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             unique_indices.options().dtype(at::kByte));
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
-            temp_storage.data_ptr(),
-            temp_storage_bytes,
-            (uint64_t*)cache_sets.data_ptr<int64_t>(),
-            (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
-            unique_indices.data_ptr<index_t>(),
-            cache_set_sorted_unique_indices.data_ptr<index_t>(),
-            N,
-            0,
-            int(log2(float(lxu_cache_state.size(0) + 1)) + 1) + kLFUCounterBits,
-            at::cuda::getCurrentCUDAStream()));
+        AT_CUDA_CHECK(
+            FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+                temp_storage.data_ptr(),
+                temp_storage_bytes,
+                (uint64_t*)cache_sets.data_ptr<int64_t>(),
+                (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
+                unique_indices.data_ptr<index_t>(),
+                cache_set_sorted_unique_indices.data_ptr<index_t>(),
+                N,
+                0,
+                int(log2(float(lxu_cache_state.size(0) + 1)) + 1) +
+                    kLFUCounterBits,
+                at::cuda::getCurrentCUDAStream()));
       });
   return {sorted_cache_sets, cache_set_sorted_unique_indices};
 }

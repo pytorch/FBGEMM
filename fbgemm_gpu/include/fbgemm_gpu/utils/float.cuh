@@ -103,8 +103,7 @@ using __nv_bfloat16 = hip_bfloat16;
 typedef struct __align__(4) {
   uint16_t x;
   uint16_t y;
-}
-__nv_bfloat162_raw;
+} __nv_bfloat162_raw;
 
 struct __align__(4) __nv_bfloat162 {
   __nv_bfloat16 x;
