@@ -9,7 +9,7 @@
 #pragma once
 
 #include "Types.h"
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
 
 #include <cstdint>
 #include "./FbgemmBuild.h" // @manual

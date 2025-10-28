@@ -52,6 +52,13 @@ struct FBGEMM_API RequantizationParams {
   TensorQuantizationParams target_qparams;
 };
 
+/// @ingroup fbgemm-quant-utils-avx2
+///
+/// @brief Find the min and max value in a float matrix.
+void FBGEMM_API FindMinMax(const float* m, float* min, float* max, int64_t len);
+
+#if !defined(__aarch64__)
+
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -76,11 +83,6 @@ void FusedQuantizeDequantizeAvx2(
 /// Random number generator in [0, 9] based on
 /// <a href="https://www.jstatsoft.org/v08/i14/paper">this paper</a>.
 uint32_t FBGEMM_API Xor128();
-
-/// @ingroup fbgemm-quant-utils-avx2
-///
-/// @brief Find the min and max value in a float matrix.
-void FBGEMM_API FindMinMax(const float* m, float* min, float* max, int64_t len);
 
 void RequantizeFixedPointAvx2(
     const std::int32_t* src,
@@ -175,5 +177,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     size_t input_rows,
     int input_columns,
     OutputType* output);
+
+#endif // !defined(__aarch64__)
 
 } // namespace fbgemm

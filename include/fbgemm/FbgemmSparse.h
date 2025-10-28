@@ -166,7 +166,7 @@ void SparseDenseMMAvx2(
     int ldc,
     bool accum = false);
 
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#if !defined(__aarch64__)
 void SparseDenseMMAvx512(
     int M,
     int N,

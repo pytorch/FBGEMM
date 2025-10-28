@@ -239,7 +239,7 @@ void fbgemmDirectConv(
     return;
   }
 
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
+#if defined(__aarch64__)
   throw std::runtime_error(
       "fbgemmDirectConv<SPATIAL_DIM, Q_GRAN, FUSE_RELU, BIAS_TYPE>(): No fallback available for aarch64");
 #else
@@ -459,7 +459,7 @@ void fbgemmDirectConv(
     }
   } // else SPATIAL_DIM
 
-#endif // defined(FBGEMM_FBCODE) || !defined(__aarch64__)
+#endif // !defined(__aarch64__)
 }
 
 #define INSTANTIATE_REQUANTIZE_SPATIAL_DIM(                        \

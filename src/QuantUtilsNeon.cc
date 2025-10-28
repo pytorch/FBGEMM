@@ -6,13 +6,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm/Utils.h"
+#if defined(__aarch64__)
 
-#if HAVE_SVE
+#include "fbgemm/Utils.h"
 
 #define FBGEMM_EXPORTS
 #include <arm_neon.h> // @manual
+#if HAVE_SVE
 #include <arm_sve.h> // @manual
+#endif
 
 #include <arm_neon_sve_bridge.h> // @manual
 #include <algorithm> //for std::min/std::max
@@ -30,6 +32,50 @@ namespace fbgemm {
 using namespace std;
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
+
+void FindMinMax(const float* m, float* min, float* max, int64_t len) {
+  if (__builtin_expect(len <= 0, 0)) {
+    *min = 0.0f;
+    *max = 0.0f;
+    return;
+  }
+
+  float first = *m;
+
+  float32x4_t temp_min_0 = vdupq_n_f32(first);
+  float32x4_t temp_min_1 = vdupq_n_f32(first);
+  float32x4_t temp_max_0 = vdupq_n_f32(first);
+  float32x4_t temp_max_1 = vdupq_n_f32(first);
+  uint64_t i = 0;
+  uint64_t count = static_cast<uint64_t>(len);
+  uint64_t loopBound = count - (count % 8);
+
+  for (; i < loopBound; i += 8) {
+    float32x4_t v0 = vld1q_f32(m + i);
+    float32x4_t v1 = vld1q_f32(m + i + 4);
+    temp_min_0 = vminq_f32(temp_min_0, v0);
+    temp_min_1 = vminq_f32(temp_min_1, v1);
+    temp_max_0 = vmaxq_f32(temp_max_0, v0);
+    temp_max_1 = vmaxq_f32(temp_max_1, v1);
+  }
+
+  temp_min_0 = vminq_f32(temp_min_0, temp_min_1);
+  temp_max_0 = vmaxq_f32(temp_max_0, temp_max_1);
+
+  float tmp_min_s = vminvq_f32(temp_min_0);
+  float tmp_max_s = vmaxvq_f32(temp_max_0);
+
+  for (; i < count; i++) {
+    float tmp = *m;
+    tmp_min_s = std::min(tmp_min_s, tmp);
+    tmp_max_s = std::max(tmp_max_s, tmp);
+  }
+
+  *min = tmp_min_s;
+  *max = tmp_max_s;
+}
+
+#if HAVE_SVE
 
 template <typename OutputType>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
@@ -140,6 +186,8 @@ INSTANTIATE_QuantizationNeonFunctions8Bits(float)
 INSTANTIATE_QuantizationNeonFunctions8Bits(float16)
 // clang-format on
 #undef INSTANTIATE_QuantizationNeonFunctions8Bits
+
+#endif // HAVE_SVE
 
 } // namespace fbgemm
 
