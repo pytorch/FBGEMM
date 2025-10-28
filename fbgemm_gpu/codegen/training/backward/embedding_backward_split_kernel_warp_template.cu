@@ -46,6 +46,7 @@
                                                  not dense and
                                                  not is_index_select and
                                                  not is_gwd_kernel and
+                                                 not nobag and 
                                                  not vbe and
                                                  not ssd %}
 
