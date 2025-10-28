@@ -743,9 +743,7 @@ class {{ autograd_func }} :
     TORCH_CHECK(aux_tensor[IDX_LXU_CACHE_LOCATIONS].has_value(), "lxu_cache_locations should have value.");
     const auto lxu_cache_locations = aux_tensor[IDX_LXU_CACHE_LOCATIONS].value();
     const auto is_experimental = aux_bool[IDX_IS_EXPERIMENTAL_TBE];
-    {% if is_rocm %}
-    const auto mixed_D = aux_bool[IDX_MIXED_D];
-    {%- endif %}
+    const auto mixed_D = static_cast<bool>(aux_bool[IDX_MIXED_D]);
     {%- endif %}
 
     // Default values for Dynamo tracing
@@ -860,7 +858,7 @@ class {{ autograd_func }} :
 
     {%- if not nobag %}
     ctx->saved_data["max_D"] = max_D;
-    ctx->saved_data["mixed_D"] = static_cast<bool>(aux_bool[IDX_MIXED_D]);
+    ctx->saved_data["mixed_D"] = mixed_D;
     ctx->saved_data["pooling_mode"] = pooling_mode;
     {%- else %}
     ctx->saved_data["D"] = D;
