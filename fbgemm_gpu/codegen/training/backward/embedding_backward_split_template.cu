@@ -62,7 +62,8 @@ using namespace fbgemm_gpu;
                                                  not dense and 
                                                  not is_index_select and
                                                  not is_gwd_kernel and 
-                                                 not vbe and 
+                                                 not vbe and
+                                                 not nobag and 
                                                  not ssd %}
 
 template <
@@ -1231,8 +1232,10 @@ Tensor {{ embedding_cuda_op }}(
                              kThreadGroupSize,
                              kUseVecBlocking>;
                     
+                    int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
                     {%- if is_optimized_hip_kernel_supported_mode %}
-                    if (!kUseVecBlocking) {
+                    auto cta_blockSize = dim3(kThreadGroupSize, num_cta_per_row_groups);
+                    if (max_D <= 128) {
                         backward_cta_per_row_kernel =
                         {{ cta_kernel }}
                             <emb_t,
@@ -1245,7 +1248,11 @@ Tensor {{ embedding_cuda_op }}(
                              1,
                              32,
                              false>;
+
+                        auto cta_blockSize = dim3(32, num_cta_per_row_groups);
                     }
+                    {%- else %}
+                    auto cta_blockSize = dim3(kThreadGroupSize, num_cta_per_row_groups);
                     {%- endif %}
 
                     // Compute shared memory size for cta_per_row
@@ -1282,7 +1289,7 @@ Tensor {{ embedding_cuda_op }}(
                     FBGEMM_LAUNCH_KERNEL(
                         backward_cta_per_row_kernel,
                         cta_per_row_grid_size,
-                        dim3(32, num_cta_per_row_groups),
+                        cta_blockSize,
                         cta_per_row_smem_bytes,
                         at::cuda::getCurrentCUDAStream(),
                         grad_output_accessor,
@@ -1384,9 +1391,10 @@ Tensor {{ embedding_cuda_op }}(
                              kThreadGroupSize,
                              kUseVecBlocking>;
 
+                    int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
                     {%- if is_optimized_hip_kernel_supported_mode %}
-                    if (!kUseVecBlocking) {
-                        printf("%s:%d call here\n", __FILE__, __LINE__);
+                    auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
+                    if (use_hip_kernel && mixed_D) {
                         backward_warp_per_row_kernel =
                         {{ hip_mixed_d_warp_kernel }}
                             <emb_t,
@@ -1396,13 +1404,31 @@ Tensor {{ embedding_cuda_op }}(
                              {%- for ph_name in args.placeholder_tensor_names %}
                              {{ ph_name + "_ph_t" }},
                              {%- endfor %}
-                             1,
-                             32,
-                             false>;
+                             kFixedMaxVecsPerThread,
+                             kThreadGroupSize,
+                             kUseVecBlocking>;
+                        if (max_D <= 128) {
+                            backward_warp_per_row_kernel =
+                            {{ hip_mixed_d_warp_kernel }}
+                                <emb_t,
+                                grad_t,
+                                cache_t,
+                                index_t,
+                                {%- for ph_name in args.placeholder_tensor_names %}
+                                {{ ph_name + "_ph_t" }},
+                                {%- endfor %}
+                                1,
+                                32,
+                                false>;
+
+                            blockSize = dim3(32, num_warp_per_row_groups);
+                        }
                     }
+                    {%- else %}
+                    // Compute shared memory size for warp_per_row
+                    auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
                     {%- endif %}
 
-                    // Compute shared memory size for warp_per_row
                     {%- if is_rocm %}
                         int32_t num_warp_per_row_groups;
                         if (total_L/total_B > 1){
@@ -1414,6 +1440,7 @@ Tensor {{ embedding_cuda_op }}(
                     {%- else %}
                         int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
                     {%- endif %}
+                    
                     int32_t warp_per_row_smem_bytes = 0;
 
                     if constexpr (kUseVecBlocking) {
@@ -1428,10 +1455,6 @@ Tensor {{ embedding_cuda_op }}(
                           backward_warp_per_row_kernel,
                           used_shared_bytes);
                     }
-
-                    auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
-                    // auto blockSize = dim3(32, num_warp_per_row_groups);
-
                     int32_t warp_per_row_grid_size = std::min(
                         div_round_up(total_unique_indices, num_warp_per_row_groups),
                         get_max_thread_blocks_());
