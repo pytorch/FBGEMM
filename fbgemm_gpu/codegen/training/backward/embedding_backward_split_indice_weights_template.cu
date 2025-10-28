@@ -23,6 +23,10 @@
 #include "fbgemm_gpu/utils/assert_macros.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
+{%- if is_rocm %}
+#include "fbgemm_gpu/rocm/cdna_guard.h"
+{%- endif %}
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -46,6 +50,87 @@ using namespace fbgemm_gpu;
        )
     -}}
   }()
+
+// Macro to process weights loop, with cache usage controlled by 'use_cache' (0 = no cache, 1 = use cache)
+#define PROCESS_WEIGHTS_LOOP(use_cache, unroll_count) \
+    for (; j < kWarpSize && l_start + j + 3 < L; j += 4) { \
+        /* Get offset indices (common logic) */ \
+        const auto offset_idx_j0 = shfl_sync(offset_idx, j); \
+        const auto offset_idx_j1 = shfl_sync(offset_idx, j+1); \
+        const auto offset_idx_j2 = shfl_sync(offset_idx, j+2); \
+        const auto offset_idx_j3 = shfl_sync(offset_idx, j+3); \
+        \
+        /* Get cache indices only if use_cache is 1 (using compile-time condition) */ \
+        const auto cache_idx_j0 = (use_cache) ? shfl_sync(cache_idx, j) : 0; \
+        const auto cache_idx_j1 = (use_cache) ? shfl_sync(cache_idx, j+1) : 0; \
+        const auto cache_idx_j2 = (use_cache) ? shfl_sync(cache_idx, j+2) : 0; \
+        const auto cache_idx_j3 = (use_cache) ? shfl_sync(cache_idx, j+3) : 0; \
+        \
+        /* Gradient weight variables (common) */ \
+        at::acc_type<cache_t, true> grad_indice_weight0 = 0.0; \
+        at::acc_type<cache_t, true> grad_indice_weight1 = 0.0; \
+        at::acc_type<cache_t, true> grad_indice_weight2 = 0.0; \
+        at::acc_type<cache_t, true> grad_indice_weight3 = 0.0; \
+        \
+        /* Weight row accessors (common) */ \
+        const auto weight_row0 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j0], D); \
+        const auto weight_row1 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j1], D); \
+        const auto weight_row2 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j2], D); \
+        const auto weight_row3 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j3], D); \
+        \
+        /* Loop over vectors to compute gradients */ \
+        for (int32_t vec = 0; vec < unroll_count && (kWarpSize * vec + threadIdx.x) * kVecWidth < D; ++vec) { \
+            const int32_t d = (kWarpSize * vec + threadIdx.x) * kVecWidth; \
+            \
+            Vec4T<at::acc_type<cache_t, true>> weight0, weight1, weight2, weight3; \
+            \
+            /* Load weights: choose logic based on use_cache (compile-time condition) */ \
+            if constexpr (use_cache) { \
+                /* Cache-aware loading (second code snippet logic) */ \
+                weight0 = (cache_idx_j0 != kCacheLocationMissing) ? \
+                    Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j0][d]) : \
+                    weight_row0.load(d); \
+                weight1 = (cache_idx_j1 != kCacheLocationMissing) ? \
+                    Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j1][d]) : \
+                    weight_row1.load(d); \
+                weight2 = (cache_idx_j2 != kCacheLocationMissing) ? \
+                    Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j2][d]) : \
+                    weight_row2.load(d); \
+                weight3 = (cache_idx_j3 != kCacheLocationMissing) ? \
+                    Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j3][d]) : \
+                    weight_row3.load(d); \
+            } else { \
+                /* Direct weight loading (first code snippet logic) */ \
+                weight0 = weight_row0.load(d); \
+                weight1 = weight_row1.load(d); \
+                weight2 = weight_row2.load(d); \
+                weight3 = weight_row3.load(d); \
+            } \
+            \
+            /* Gradient calculation (common) */ \
+            grad_indice_weight0 += weight0.acc.x * grad_out[vec].acc.x + weight0.acc.y * grad_out[vec].acc.y + \
+                weight0.acc.z * grad_out[vec].acc.z + weight0.acc.w * grad_out[vec].acc.w; \
+            grad_indice_weight1 += weight1.acc.x * grad_out[vec].acc.x + weight1.acc.y * grad_out[vec].acc.y + \
+                weight1.acc.z * grad_out[vec].acc.z + weight1.acc.w * grad_out[vec].acc.w; \
+            grad_indice_weight2 += weight2.acc.x * grad_out[vec].acc.x + weight2.acc.y * grad_out[vec].acc.y + \
+                weight2.acc.z * grad_out[vec].acc.z + weight2.acc.w * grad_out[vec].acc.w; \
+            grad_indice_weight3 += weight3.acc.x * grad_out[vec].acc.x + weight3.acc.y * grad_out[vec].acc.y + \
+                weight3.acc.z * grad_out[vec].acc.z + weight3.acc.w * grad_out[vec].acc.w; \
+        } \
+        \
+        /* Warp reduction and result assignment (common) */ \
+        grad_indice_weight0 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight0); \
+        grad_indice_weight1 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight1); \
+        grad_indice_weight2 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight2); \
+        grad_indice_weight3 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight3); \
+        \
+        if (threadIdx.x == 0) { \
+            grad_indice_weights[indices_start + l_start + j] = grad_indice_weight0; \
+            grad_indice_weights[indices_start + l_start + j+1] = grad_indice_weight1; \
+            grad_indice_weights[indices_start + l_start + j+2] = grad_indice_weight2; \
+            grad_indice_weights[indices_start + l_start + j+3] = grad_indice_weight3; \
+        } \
+    }
 
 {%- for vbe in ([True, False]) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
@@ -98,8 +183,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- endif %}
     ) {
     constexpr int32_t kVecWidth = 4;
-    [[maybe_unused]] int error_code = 0;
-    [[maybe_unused]] int64_t error_value = 0;
+    int error_code = 0;
+    int64_t error_value = 0;
 
     int32_t T = D_offsets.size(0) - 1;
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -210,7 +295,20 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
             )
             {%- endif %}
 
-            for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
+            int32_t j = 0;
+            {%- if not ssd and not dense and not use_vec_blocking and not vbe %}
+            // Currently for split_embedding_codegen_grad_indice_weights_kernel only
+            if (placement != PlacementType::MANAGED_CACHING) {
+                // no cache logic
+                #pragma unroll kFixedMaxVecsPerThread
+                PROCESS_WEIGHTS_LOOP(0, kFixedMaxVecsPerThread)
+            } else {
+                // with cache logic
+                #pragma unroll kFixedMaxVecsPerThread
+                PROCESS_WEIGHTS_LOOP(1, kFixedMaxVecsPerThread)
+            }
+            {%- endif %}
+            for (; j < kWarpSize && l_start + j < L; ++j) {
                 const auto offset_idx_j = shfl_sync(offset_idx, j);
                 {%- if not dense %}
                 const auto {{ locs_or_addrs_idx }}_j = shfl_sync({{ locs_or_addrs_idx }}, j);
@@ -359,6 +457,15 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     auto aligned_grad_output = aligned_grad_output_tensor_for_cuda_backwards(grad_output);
 
     CUDA_DEVICE_GUARD(dev_weights);
+    #ifdef USE_ROCM
+        if (!rocm::is_supported_cdna()) {
+            TORCH_WARN_ONCE("Running on non-CDNA architecture. Performance may be suboptimal.");
+        }
+        else {
+            // Ensure we're running on a supported CDNA architecture (including MI350)
+            TORCH_WARN_ONCE("Running on CDNA architecture");
+        }
+    #endif
 
     const auto T = D_offsets.size(0) - 1;
     TORCH_CHECK_GT(T, 0);
