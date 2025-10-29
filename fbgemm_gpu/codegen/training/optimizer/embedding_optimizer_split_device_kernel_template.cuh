@@ -251,7 +251,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {%- for tensor in args.split_tensors %}
     const int32_t {{ tensor }}_placement,
     const int64_t {{ tensor }}_offset,
-    const int64_t {{ tensor }}_val,
+    const {{ args.split_tensor_types[tensor] }} {{ tensor }}_val,
     {%- endfor %}
     {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {
