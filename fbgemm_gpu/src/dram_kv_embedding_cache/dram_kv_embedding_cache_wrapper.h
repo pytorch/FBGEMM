@@ -179,6 +179,14 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     impl_->set_backend_return_whole_row(backend_return_whole_row);
   }
 
+  void trigger_feature_evict() {
+    impl_->trigger_feature_evict();
+  }
+
+  bool is_evicting() {
+    return impl_->is_evicting();
+  }
+
   void set_feature_score_metadata_cuda(
       at::Tensor indices,
       at::Tensor count,

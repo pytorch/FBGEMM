@@ -301,6 +301,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
+  virtual void trigger_feature_evict();
+
+  virtual bool is_evicting();
+
   /**
    * @brief need to support set backend_return_whole_row from frontend
    * if one model changed from SSD to DRAM, or vice versa we need to
