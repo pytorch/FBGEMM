@@ -47,6 +47,7 @@ FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size);
 FBGEMM_API void
 Bfloat16ToFloat_simd(const bfloat16* src, float* dst, size_t size);
 
+#if !defined(__aarch64__)
 /**
  * @brief AVX2 implementation to convert fp32 numbers to bf16 numbers.
  *
@@ -58,10 +59,8 @@ FloatToBfloat16_avx2(const float* src, bfloat16* dst, size_t size);
  * @brief AVX512 implementation to convert fp32 numbers to bf16 numbers.
  *
  */
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 FBGEMM_API void
 FloatToBfloat16_avx512(const float* src, bfloat16* dst, size_t size);
-#endif
 
 /**
  * @brief AVX2 implementation to convert bf16 numbers to fp32 numbers.
@@ -74,7 +73,6 @@ Bfloat16ToFloat_avx2(const bfloat16* src, float* dst, size_t size);
  * @brief AVX512 implementation to convert bf16 numbers to fp32 numbers.
  *
  */
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 FBGEMM_API void
 Bfloat16ToFloat_avx512(const bfloat16* src, float* dst, size_t size);
 #endif
@@ -124,6 +122,7 @@ Float16ToFloat_simd(const float16* src, float* dst, size_t size);
  * @brief AVX2 implementation to convert fp32 numbers to fp16 numbers.
  *
  */
+#if !defined(__aarch64__)
 FBGEMM_API void FloatToFloat16_avx2(
     const float* src,
     float16* dst,
@@ -134,7 +133,6 @@ FBGEMM_API void FloatToFloat16_avx2(
  * @brief AVX512 implementation to convert fp32 numbers to fp16 numbers.
  *
  */
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 FBGEMM_API void FloatToFloat16_avx512(
     const float* src,
     float16* dst,
@@ -152,6 +150,7 @@ FBGEMM_API void FloatToFloat16_sve2(
     size_t size,
     bool do_clip = false);
 
+#if !defined(__aarch64__)
 /**
  * @brief AVX2 implementation to convert fp16 numbers to fp32 numbers.
  *
@@ -163,7 +162,6 @@ Float16ToFloat_avx2(const float16* src, float* dst, size_t size);
  * @brief AVX512 implementation to convert fp16 numbers to fp32 numbers.
  *
  */
-#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
 FBGEMM_API void
 Float16ToFloat_avx512(const float16* src, float* dst, size_t size);
 #endif
