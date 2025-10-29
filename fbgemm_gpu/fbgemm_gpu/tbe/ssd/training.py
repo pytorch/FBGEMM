@@ -2089,7 +2089,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         torch.tensor(
                             [weights.shape[0]], device="cpu", dtype=torch.long
                         ),
-                        weights.cpu().view(torch.float32).view(-1, 2),
+                        weights.cpu(),
                     )
 
             # Generate row addresses (pointing to either L1 or the current
