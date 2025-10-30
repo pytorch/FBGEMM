@@ -179,6 +179,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         table_names: Optional[list[str]] = None,
         use_rowwise_bias_correction: bool = False,  # For Adam use
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
+        enable_optimizer_offloading: bool = False,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
