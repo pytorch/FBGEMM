@@ -880,6 +880,10 @@ static auto embedding_rocks_db_wrapper =
             {
                 torch::arg("backend_return_whole_row"),
             })
+        .def(
+            "trigger_feature_evict",
+            &EmbeddingRocksDBWrapper::trigger_feature_evict)
+        .def("is_evicting", &EmbeddingRocksDBWrapper::is_evicting)
         .def("stream_sync_cuda", &EmbeddingRocksDBWrapper::stream_sync_cuda)
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
         .def("compact", &EmbeddingRocksDBWrapper::compact)
@@ -980,6 +984,10 @@ static auto dram_kv_embedding_cache_wrapper =
             {
                 torch::arg("backend_return_whole_row"),
             })
+        .def(
+            "trigger_feature_evict",
+            &DramKVEmbeddingCacheWrapper::trigger_feature_evict)
+        .def("is_evicting", &DramKVEmbeddingCacheWrapper::is_evicting)
         .def("set", &DramKVEmbeddingCacheWrapper::set)
         .def(
             "set_range_to_storage",
