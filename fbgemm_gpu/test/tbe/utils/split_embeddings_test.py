@@ -178,17 +178,17 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
                 ["t1", "t2"]
             ),
-            "<2 tables>",
+            "<2 tables>: {'t1', 't2'}",
         )
         self.assertEqual(
             SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
                 ["t1", "t2", "t1"]
             ),
-            "<2 tables>",
+            "<2 tables>: {'t1', 't2'}",
         )
         self.assertEqual(
             SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging([]),
-            "<0 tables>",
+            "<0 tables>: set()",
         )
 
     @unittest.skipIf(*gpu_unavailable)
