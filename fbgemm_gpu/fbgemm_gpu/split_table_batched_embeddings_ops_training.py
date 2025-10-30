@@ -1556,7 +1556,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         table_name_set = set(table_names)
         if len(table_name_set) == 1:
             return next(iter(table_name_set))
-        return f"<{len(table_name_set)} tables>"
+        return f"<{len(table_name_set)} tables>: {table_name_set}"
 
     @staticmethod
     def get_prefetch_passes(
