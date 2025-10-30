@@ -48,6 +48,8 @@ class JaggedToPaddedDenseOp
                 const std::vector<Tensor>& offsets,
                 at::ArrayRef<at::SymInt> max_lengths,
                 const double padding_value)>();
+
+    at::AutoDispatchBelowAutograd mode;
     Tensor padded_values = op.call(values, offsets, max_lengths, padding_value);
 
     return {padded_values};
@@ -286,6 +288,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
                 const Tensor& dense,
                 const std::vector<Tensor>& offsets,
                 std::optional<at::SymInt> total_L)>();
+    at::AutoDispatchBelowAutograd mode;
     auto output = op.call(dense, offsets, total_L);
 
     return {output};
@@ -785,13 +788,29 @@ class JaggedSliceOp : public torch::autograd::Function<JaggedSliceOp> {
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
-Tensor jagged_to_padded_dense(
+Tensor jagged_to_padded_dense_forward_autograd(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
     const c10::SymIntArrayRef max_lengths,
     const double padding_value) {
   return JaggedToPaddedDenseOp::apply(
       values, offsets, max_lengths, padding_value)[0];
+}
+Tensor jagged_to_padded_dense(
+    const Tensor& values,
+    const std::vector<Tensor>& offsets,
+    const c10::SymIntArrayRef max_lengths,
+    const double padding_value) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_to_padded_dense_forward", "")
+          .typed<at::Tensor(
+              const Tensor& values,
+              const std::vector<Tensor>& offsets,
+              at::ArrayRef<at::SymInt> max_lengths,
+              const double padding_value)>();
+  Tensor output = op.call(values, offsets, max_lengths, padding_value);
+  return output;
 }
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -855,7 +874,20 @@ std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
     std::optional<at::SymInt> total_L) {
-  return {DenseToJaggedOp::apply(dense, offsets, total_L)[0], offsets};
+  static auto op = c10::Dispatcher::singleton()
+                       .findSchemaOrThrow("fbgemm::dense_to_jagged_forward", "")
+                       .typed<Tensor(
+                           const Tensor& dense,
+                           const std::vector<Tensor>& offsets,
+                           std::optional<at::SymInt> total_L)>();
+  auto output = op.call(dense, offsets, total_L);
+  return {output, offsets};
+}
+Tensor dense_to_jagged_forward_autograd(
+    const Tensor& dense,
+    const std::vector<Tensor>& offsets,
+    std::optional<at::SymInt> total_L) {
+  return DenseToJaggedOp::apply(dense, offsets, total_L)[0];
 }
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -973,6 +1005,12 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl("jagged_jagged_bmm", TORCH_FN(fbgemm_gpu::jagged_jagged_bmm));
   m.impl("jagged_dense_bmm", TORCH_FN(fbgemm_gpu::jagged_dense_bmm));
   m.impl("jagged_slice", TORCH_FN(fbgemm_gpu::jagged_slice));
+  m.impl(
+      "jagged_to_padded_dense_forward",
+      TORCH_FN(fbgemm_gpu::jagged_to_padded_dense_forward_autograd));
+  m.impl(
+      "dense_to_jagged_forward",
+      TORCH_FN(fbgemm_gpu::dense_to_jagged_forward_autograd));
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CompositeImplicitAutograd, m) {

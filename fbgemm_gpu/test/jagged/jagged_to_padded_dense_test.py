@@ -113,6 +113,50 @@ class JaggedToPaddedDenseTest(unittest.TestCase):
             rtol=1e-3,
         )
 
+        class Mod(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+
+            def forward(self, a, b, c, d):
+                return torch.ops.fbgemm.jagged_to_padded_dense(a, b, c, d)
+
+        with torch.inference_mode():
+            gm = torch.export.export(
+                Mod(),
+                (
+                    x_values.float().requires_grad_(True),
+                    x_offsets,
+                    max_lengths.astype(int).tolist(),
+                    padding_value,
+                ),
+            ).run_decompositions()
+        num_fw_ops = len(
+            [
+                x
+                for x in gm.graph.nodes
+                if x.target is torch.ops.fbgemm.jagged_to_padded_dense_forward.default
+            ]
+        )
+        num_composite_ops = len(
+            [
+                x
+                for x in gm.graph.nodes
+                if x.target is torch.ops.fbgemm.jagged_to_padded_dense.default
+            ]
+        )
+        self.assertEqual(num_fw_ops, 1)
+        self.assertEqual(num_composite_ops, 0)
+
+        torch.library.opcheck(
+            torch.ops.fbgemm.jagged_to_padded_dense,
+            (
+                x_values.float().requires_grad_(True),
+                x_offsets,
+                max_lengths,
+                padding_value,
+            ),
+        )
+
     @given(
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),

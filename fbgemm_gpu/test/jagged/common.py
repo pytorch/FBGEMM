@@ -10,7 +10,6 @@
 
 import itertools
 import sys
-import unittest
 from typing import Callable
 
 import fbgemm_gpu
@@ -43,15 +42,7 @@ settings.load_profile("suppress_differing_executors_check")
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
 # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: dict[str, list[Callable]] = {
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
-    "test_pt2_compliant_tag_fbgemm_jagged_to_padded_dense": [
-        unittest.expectedFailure,
-    ],
-}
+additional_decorators: dict[str, list[Callable]] = {}
 
 
 def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
