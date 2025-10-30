@@ -1818,13 +1818,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense);
   DISPATCH_TO_CPU("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense);
-  DISPATCH_TO_CPU("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
   DISPATCH_TO_CPU(
       "dense_to_jagged_forward", fbgemm_gpu::dense_to_jagged_forward);
-  DISPATCH_TO_CPU("jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
   DISPATCH_TO_CPU(
       "jagged_to_padded_dense_forward",
-      fbgemm_gpu::jagged_to_padded_dense_forward);
+      fbgemm_gpu::jagged_to_padded_dense_forward_cpu);
   DISPATCH_TO_CPU(
       "jagged_to_padded_dense_backward",
       fbgemm_gpu::jagged_to_padded_dense_backward);
