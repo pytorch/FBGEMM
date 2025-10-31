@@ -80,6 +80,11 @@ class DenseToJaggedTest(unittest.TestCase):
         jagged_values.backward(ref_output_values)
         torch.testing.assert_close(dense.grad, ref_values)
 
+        torch.library.opcheck(
+            torch.ops.fbgemm.dense_to_jagged,
+            (dense.detach().requires_grad_(True), offsets),
+        )
+
     @given(
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),

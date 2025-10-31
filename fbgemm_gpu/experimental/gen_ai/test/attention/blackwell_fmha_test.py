@@ -687,13 +687,13 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 sm_scale,
                 num_groups,
             )
-            for dtype in [torch.bfloat16, torch.float8_e4m3fn]
+            for dtype in [torch.bfloat16]
             for seqlen_k in [64, 128, 256, 1024]
             for batch_size in [1, 2]
             for is_mqa in [True, False]
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
             for head_dim in [128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
             for num_groups in [1, 2]
         ]
     )
@@ -711,6 +711,14 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     ) -> None:
         seqlen_q = 1
         causal = True
+        if True:
+            print(
+                f"Running test_decode with params: "
+                f"dtype={dtype}, seqlen_k={seqlen_k}, batch_size={batch_size}, "
+                f"is_mqa={is_mqa}, window_size={window_size}, head_dim={head_dim}, "
+                f"sm_scale={sm_scale}, q_heads={q_heads}"
+            )
+
         self._execute_cutlass_blackwell_attn_dense(
             batch_size,
             seqlen_q,

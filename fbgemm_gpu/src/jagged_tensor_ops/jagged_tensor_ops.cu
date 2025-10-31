@@ -8,11 +8,6 @@
 
 #include "common.cuh"
 
-FBGEMM_OP_DISPATCH(CUDA, "dense_to_jagged", fbgemm_gpu::dense_to_jagged);
-FBGEMM_OP_DISPATCH(
-    CUDA,
-    "jagged_to_padded_dense",
-    fbgemm_gpu::jagged_to_padded_dense);
 FBGEMM_OP_DISPATCH(
     CUDA,
     "jagged_dense_elementwise_add",

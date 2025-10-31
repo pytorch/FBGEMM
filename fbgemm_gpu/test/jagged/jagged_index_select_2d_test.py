@@ -158,6 +158,26 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
             rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
+        if known_shape:
+            with torch.no_grad():
+                tmp_output, _ = torch.ops.fbgemm.jagged_index_select(
+                    values, lengths, indices
+                )
+            num_dense_output_rows = tmp_output.shape[0]
+            torch.library.opcheck(
+                torch.ops.fbgemm.jagged_index_select.default,
+                (
+                    values.detach().requires_grad_(),
+                    lengths,
+                    indices,
+                    num_dense_output_rows,
+                ),
+            )
+        else:
+            torch.library.opcheck(
+                torch.ops.fbgemm.jagged_index_select.default,
+                (values.detach().requires_grad_(), lengths, indices),
+            )
 
     @given(
         max_seq_length=st.integers(5, 10),
