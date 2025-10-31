@@ -616,7 +616,7 @@ class FBGEMM_API PackWeightsForConv {
     return W_im2col_packed_;
   }
 
-#if !defined(__aarch64__)
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWForDepthwise() {
     return W_dw_packed_;
   }
@@ -672,7 +672,7 @@ class FBGEMM_API PackWeightsForConv {
   const conv_param_t<SPATIAL_DIM> conv_param_;
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
-#if !defined(__aarch64__)
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   // Packed weights if we use depthwise convolution implementation
   std::shared_ptr<PackedDepthWiseConvMatrix> W_dw_packed_;
 #endif // __aarch64__
