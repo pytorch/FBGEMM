@@ -96,6 +96,8 @@ void RequantizeAvx2(
     int len,
     const RequantizationParams& params);
 
+#endif // !defined(__aarch64__)
+
 /// @ingroup fbgemm-quant-utils-avx2
 ///
 /// Requantize with avx2 and bias is fused.
@@ -144,6 +146,8 @@ FBGEMM_API void requantizeForFloatAvx2(
     int ld_out,
     int ld_in,
     const requantizationForFloatParams_t& r);
+
+#if !defined(__aarch64__)
 
 template <typename InputType, int BIT_RATE>
 void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
