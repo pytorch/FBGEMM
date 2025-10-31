@@ -239,7 +239,7 @@ void fbgemmDirectConv(
     return;
   }
 
-#if defined(__aarch64__)
+#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
   throw std::runtime_error(
       "fbgemmDirectConv<SPATIAL_DIM, Q_GRAN, FUSE_RELU, BIAS_TYPE>(): No fallback available for aarch64");
 #else

@@ -280,6 +280,8 @@ SPECIALIZE_FUSEDDQAVX2(int8_t)
 
 #undef SPECIALIZE_FUSEDDQAVX2
 
+#ifndef __aarch64__
+
 void FindMinMax(const float* m, float* min, float* max, int64_t len) {
   if (len <= 0) {
     *min = 0.0f;
@@ -316,6 +318,8 @@ void FindMinMax(const float* m, float* min, float* max, int64_t len) {
   *min = temp_min;
   *max = temp_max;
 }
+
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // Requantization (with floats)

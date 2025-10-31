@@ -25,7 +25,7 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
   // FbgemmConv.cc
   switch (ConvFastPath<SPATIAL_DIM, accT>(conv_p)) {
     case optimized_conv_t::depthwise: {
-#if defined(__aarch64__)
+#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
       throw std::runtime_error(
           "PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(): No fallback available for aarch64");
 #else
@@ -61,7 +61,7 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
       break;
     }
     case optimized_conv_t::directconv: {
-#if defined(__aarch64__)
+#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
       throw std::runtime_error(
           "PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(): No fallback available for aarch64");
 #else
@@ -98,7 +98,7 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
 
 template <int SPATIAL_DIM, typename T, typename accT>
 void PackWeightsForConv<SPATIAL_DIM, T, accT>::unpack(T* origin_buf) {
-#if !defined(__aarch64__)
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
   if (W_dw_packed_) {
     W_dw_packed_->unpack(origin_buf);
   } else
