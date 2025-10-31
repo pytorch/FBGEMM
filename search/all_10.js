@@ -5,5 +5,7 @@ var searchData=
   ['krowwiseminmaxnumcols_2',['kRowwiseMinMaxNumCols',['../namespacefbgemm.html#a445d75e731f0af7f60e375c34d3dbdb5',1,'fbgemm']]],
   ['kt_5fregroup_5farguments_5fcpu_3',['kt_regroup_arguments_cpu',['../namespacefbgemm__gpu.html#a8ee4a87df31fced027e10cd1bfb649ee',1,'fbgemm_gpu']]],
   ['kt_5fregroup_5farguments_5fgpu_4',['kt_regroup_arguments_gpu',['../namespacefbgemm__gpu.html#ac785a168bee4c98b8993d5cadf846267',1,'fbgemm_gpu']]],
-  ['kt_5fregroup_5farguments_5fimpl_5',['kt_regroup_arguments_impl',['../namespacefbgemm__gpu.html#a0b0cc504f8b357b0ca086e2c78d9b54c',1,'fbgemm_gpu']]]
+  ['kt_5fregroup_5farguments_5fimpl_5',['kt_regroup_arguments_impl',['../namespacefbgemm__gpu.html#a0b0cc504f8b357b0ca086e2c78d9b54c',1,'fbgemm_gpu']]],
+  ['kvinferenceembeddinginterface_6',['KVInferenceEmbeddingInterface',['../classkv__mem_1_1_k_v_inference_embedding_interface.html',1,'kv_mem']]],
+  ['kvinferenceembeddinginterface_3c_20uint8_5ft_20_3e_7',['KVInferenceEmbeddingInterface&lt; uint8_t &gt;',['../classkv__mem_1_1_k_v_inference_embedding_interface.html',1,'kv_mem']]]
 ];

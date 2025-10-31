@@ -103,6 +103,7 @@ $(function(){ initResizable(false); });
 
 <h3><a id="index_c" name="index_c"></a>- c -</h3><ul>
 <li>CodeGenBase()&#160;:&#160;<a class="el" href="classfbgemm_1_1_code_gen_base.html#a843f4289cb9de379bac477ed0dcba1cf">CodeGenBase&lt; TA, TB, TC, accT &gt;</a></li>
+<li>compact()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a0268ace19e30db99b8666bbb627fdd3b">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#ade91db6c9e31225c0060d93407ce0a2b">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>conv_param_t()&#160;:&#160;<a class="el" href="structfbgemm_1_1conv__param__t.html#a926431139532f74306f6cd6dc08d171a">conv_param_t&lt; SPATIAL_DIM &gt;</a></li>
 </ul>
 
@@ -123,6 +124,7 @@ $(function(){ initResizable(false); });
 
 <h3><a id="index_f" name="index_f"></a>- f -</h3><ul>
 <li>flush()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5">EmbeddingKVDB</a></li>
+<li>flush_or_compact()&#160;:&#160;<a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a3dd24f09ec79e799cb3efdba544d339e">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 </ul>
 
 
@@ -130,13 +132,18 @@ $(function(){ initResizable(false); });
 <li>genComputeBlock()&#160;:&#160;<a class="el" href="classfbgemm_1_1_code_gen_base.html#ad484ccc8d38f033d49aea9d8da754774">CodeGenBase&lt; TA, TB, TC, accT &gt;</a></li>
 <li>get()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#abd9970c497076f72cba47c2ac6a2c712">EmbeddingKVDB</a>, <a class="el" href="classl2__cache_1_1_cache_lib_cache.html#a0367ff113cdb04618fd43f27ce53baa0">CacheLibCache</a></li>
 <li>get_cache_usage()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#a8c0140e23c5c731c6b036ab89e33bd49">CacheLibCache</a></li>
+<li>get_dram_kv_perf()&#160;:&#160;<a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a278de6afe5f4c5357030652d07e552bc">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
+<li>get_feature_evict_metric()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#aa646d094604ab3ded4eb79d789d8b253">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a15d598b52a359b4e9e541ebde63e2fb0">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>get_keys_in_range_impl()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a3ec3ec693cdf42996def471797fcbba9">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
-<li>get_kv_db_async()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#ac346e4fb361109aa7b64c7ee70582704">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a21db5ba27d58aedfbc4dbd8997975135">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classps_1_1_embedding_parameter_server.html#a83db85ef892160e1f176fa3725290f0e">EmbeddingParameterServer</a></li>
+<li>get_kv_db_async()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#ac346e4fb361109aa7b64c7ee70582704">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a21db5ba27d58aedfbc4dbd8997975135">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a21db5ba27d58aedfbc4dbd8997975135">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#ac346e4fb361109aa7b64c7ee70582704">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a>, <a class="el" href="classps_1_1_embedding_parameter_server.html#a83db85ef892160e1f176fa3725290f0e">EmbeddingParameterServer</a></li>
 <li>get_kv_db_async_impl()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a31225c0d4a54952f46db295152b22065">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a31225c0d4a54952f46db295152b22065">DramKVInferenceEmbedding&lt; weight_type &gt;</a></li>
+<li>get_kv_db_sync()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#adbfb164892af25a7ee57e0e0eb3d3d97">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a20050d43486676ac326f530cc01bee58">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>get_kv_zch_eviction_metadata_impl()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#ab2c591925dc2266f13188a321f1578d0">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
 <li>get_l2cache_perf()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a52afc11e0dda55903f95469edb66ab6c">EmbeddingKVDB</a></li>
-<li>get_map_used_memsize_in_bytes()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a9ef4e4f1a94c7994e58011a3c276c9cf">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#ab046b99f3345b44e6ff583b776c4a3d1">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
+<li>get_map_actual_used_chunk_in_bytes()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a3bb540a1816220c9fcbeaa6d60a5af5d">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#ad95407045f6e9e18e6e5fd0ad5a03295">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
+<li>get_map_used_memsize_in_bytes()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a9ef4e4f1a94c7994e58011a3c276c9cf">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#ab046b99f3345b44e6ff583b776c4a3d1">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#ab046b99f3345b44e6ff583b776c4a3d1">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a850d5c94ddabe014ab85a73154bc2506">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>get_n_items()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#aa5f7e7afcf451ee0a0f572d358d344f6">CacheLibCache</a></li>
+<li>get_num_rows()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a55e12f0ce6f52ca464e6eb7c382a3dda">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a07bf031cfe8aca76ddbd05df51602023">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>get_pool_id()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#a35f4ec049ea4846946a6f6f2205b4280">CacheLibCache</a></li>
 <li>get_shard_id()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#acdafef20baf1a45ec1295ba332a065d1">CacheLibCache</a></li>
 <li>get_tensors_and_reset()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#a734581f1e255fb1521a8241c27a230c2">CacheLibCache</a></li>
@@ -157,7 +164,9 @@ $(function(){ initResizable(false); });
 
 <h3><a id="index_i" name="index_i"></a>- i -</h3><ul>
 <li>ICs()&#160;:&#160;<a class="el" href="classfbgemm_1_1_compressed_sparse_column.html#a639afa1bb5bcdb507506ee50ef8f93e7">CompressedSparseColumn</a></li>
+<li>inference_set_kv_db_async()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a30aa95516d24b96c3cb0d95d5388a99a">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#adf5b1b467367fa75894c265535eb3ac2">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>init_tensor_for_l2_eviction()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#a7c647623fef9959bd482911050ba9711">CacheLibCache</a></li>
+<li>initialize_initializers()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a79b8b6ccaad97e6cf989a4051d6b3ac2">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#abe63965b47917fc335c543c40cec1bc0">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>isA()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_a_matrix.html#a16921c92359f31fbdc4968c875c90ae2">PackAMatrix&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_im2_col.html#a16921c92359f31fbdc4968c875c90ae2">PackAWithIm2Col&lt; T, accT, SPATIAL_DIM &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_quant_row_offset.html#a16921c92359f31fbdc4968c875c90ae2">PackAWithQuantRowOffset&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_row_offset.html#a16921c92359f31fbdc4968c875c90ae2">PackAWithRowOffset&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_b_matrix.html#a16921c92359f31fbdc4968c875c90ae2">PackBMatrix&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_matrix.html#a8966fd6f18f7a88736628c84c2ed51b8">PackMatrix&lt; PT, inpType, accType &gt;</a></li>
 <li>IsHyperSparse()&#160;:&#160;<a class="el" href="classfbgemm_1_1_compressed_sparse_column.html#a5deac9b9ff0e1d7b22c7a887d40b4c8c">CompressedSparseColumn</a></li>
 <li>isPackingCompliant()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_weights_for_conv.html#a5e78c80fc33d5b40be198d920a194193">PackWeightsForConv&lt; SPATIAL_DIM, T, accT &gt;</a></li>
@@ -170,11 +179,12 @@ $(function(){ initResizable(false); });
 <h3><a id="index_l" name="index_l"></a>- l -</h3><ul>
 <li>lastBcol()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_matrix.html#a5eebab135ee2071673af06c8b873780f">PackMatrix&lt; PT, inpType, accType &gt;</a></li>
 <li>lastBrow()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_matrix.html#a81943a2293634fdf6c88237797525732">PackMatrix&lt; PT, inpType, accType &gt;</a></li>
+<li>log_inplace_update_stats()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a58f587670e5fcd3605db3e7b1b2b1e2e">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a295cb967eff46a07931417d45a1f3536">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 </ul>
 
 
 <h3><a id="index_m" name="index_m"></a>- m -</h3><ul>
-<li>maybe_evict()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a15046e704688bd9fc930567ec176e866">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a089b321f90b6319a7c99cf01406cbd76">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
+<li>maybe_evict()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a15046e704688bd9fc930567ec176e866">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a089b321f90b6319a7c99cf01406cbd76">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a089b321f90b6319a7c99cf01406cbd76">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#ac987c114dfb448ed737b7bd23ce7957c">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>metaEquals()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_b_matrix.html#aa03364175cb684a60f52bc80215e907b">PackBMatrix&lt; T, accT &gt;</a></li>
 <li>mismatchingParams()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_weights_for_conv.html#ac8508d632e224b9a8ee2432c5b012393">PackWeightsForConv&lt; SPATIAL_DIM, T, accT &gt;</a></li>
 </ul>
@@ -204,7 +214,7 @@ $(function(){ initResizable(false); });
 <li>packedRowStart()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_matrix.html#ae9e47d9b93f5049504203ff55472e075">PackMatrix&lt; PT, inpType, accType &gt;</a></li>
 <li>PackMatrix()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_matrix.html#ac15276b97315df2567c4ab36d48b8da0">PackMatrix&lt; PT, inpType, accType &gt;</a></li>
 <li>PackWeightMatrixForGConv()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_weight_matrix_for_g_conv.html#ac4aac545b455c64f161fc78ac724d3e3">PackWeightMatrixForGConv&lt; T, accT, SPATIAL_DIM &gt;</a></li>
-<li>pause_ongoing_eviction()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a2ff1dfc470540680bb0395bba2577272">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a700a279c2f2a7f119eff580812bb5d3d">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
+<li>pause_ongoing_eviction()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a2ff1dfc470540680bb0395bba2577272">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a700a279c2f2a7f119eff580812bb5d3d">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a700a279c2f2a7f119eff580812bb5d3d">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a548df3bb20e168703a567da43e8509cd">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>print_usage()&#160;:&#160;<a class="el" href="struct_options.html#aed3dd898b8e5604abd6d3f66ab8d6076">Options</a></li>
 <li>printPackedMatrix()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_a_matrix.html#a25aff3ba1f5867f214e895f32600e8c3">PackAMatrix&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_im2_col.html#a25aff3ba1f5867f214e895f32600e8c3">PackAWithIm2Col&lt; T, accT, SPATIAL_DIM &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_quant_row_offset.html#a25aff3ba1f5867f214e895f32600e8c3">PackAWithQuantRowOffset&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_row_offset.html#a25aff3ba1f5867f214e895f32600e8c3">PackAWithRowOffset&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_b_matrix.html#adc8d3af55deafe06ad14cb05558130bd">PackBMatrix&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_matrix.html#a25aff3ba1f5867f214e895f32600e8c3">PackMatrix&lt; PT, inpType, accType &gt;</a></li>
 <li>put()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#a2ccaca2055ff3bd52a63d88b70bdf03b">CacheLibCache</a></li>
@@ -217,7 +227,7 @@ $(function(){ initResizable(false); });
 <li>ReQuantizeOutput()&#160;:&#160;<a class="el" href="classfbgemm_1_1_re_quantize_output.html#ab36806f951ba9ce3733448d78633de16">ReQuantizeOutput&lt; FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType &gt;</a></li>
 <li>reset()&#160;:&#160;<a class="el" href="classfbgemm_1_1_embedding_stats_tracker.html#ad20897c5c8bd47f5d4005989bead0e55">EmbeddingStatsTracker</a></li>
 <li>reset_eviction_states()&#160;:&#160;<a class="el" href="classl2__cache_1_1_cache_lib_cache.html#a59d4800235bf477ae8b2da78001519dd">CacheLibCache</a></li>
-<li>resume_ongoing_eviction()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a22d18b766b8b856b80519794602d4287">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a3467f940c7df2c2f71d0ec9c69a2f3fd">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
+<li>resume_ongoing_eviction()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a22d18b766b8b856b80519794602d4287">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a3467f940c7df2c2f71d0ec9c69a2f3fd">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a3467f940c7df2c2f71d0ec9c69a2f3fd">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a97dc5bfa90b30c588d6034e5f0dade79">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>rowOffsetBufferSize()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_a_with_im2_col.html#aa77e3ad795b908ab26006e954e19fa19">PackAWithIm2Col&lt; T, accT, SPATIAL_DIM &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_quant_row_offset.html#aa77e3ad795b908ab26006e954e19fa19">PackAWithQuantRowOffset&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_row_offset.html#aa77e3ad795b908ab26006e954e19fa19">PackAWithRowOffset&lt; T, accT &gt;</a></li>
 </ul>
 
@@ -226,6 +236,7 @@ $(function(){ initResizable(false); });
 <li>set()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adb957639fad4dbeac745636e51721feb">EmbeddingKVDB</a></li>
 <li>set_backend_return_whole_row()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a2e3d0e80c76be17061f53f471caf32e4">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#ae300ce9172480e46a037b03b2de8e4eb">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
 <li>set_kv_db_async()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#ac9425a7b97cdf874e79bcad3455ad27a">EmbeddingKVDB</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#ab197c34bb53bdad19a2521898a341ffc">DramKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classps_1_1_embedding_parameter_server.html#ab197c34bb53bdad19a2521898a341ffc">EmbeddingParameterServer</a></li>
+<li>set_kv_db_sync()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#ae3d32d5c92b760ca5e7295de11bcf6e9">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a148e1a8f12d97d9c0570e82d7623a242">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 <li>set_kv_zch_eviction_metadata_async()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a4eb65d9a5a4941744d3d00bfbf8ef210">DramKVEmbeddingCache&lt; weight_type &gt;</a></li>
 <li>SpMDM()&#160;:&#160;<a class="el" href="classfbgemm_1_1_compressed_sparse_column.html#a9f8530a8442a8fd99bfe3896d0fff5de">CompressedSparseColumn</a></li>
 <li>storeCRegs()&#160;:&#160;<a class="el" href="classfbgemm_1_1_code_gen_base.html#a29fd5aa33d852e20fcc2930719fb1d4e">CodeGenBase&lt; TA, TB, TC, accT &gt;</a></li>
@@ -234,11 +245,17 @@ $(function(){ initResizable(false); });
 
 <h3><a id="index_t" name="index_t"></a>- t -</h3><ul>
 <li>toString()&#160;:&#160;<a class="el" href="structfbgemm_1_1conv__param__t.html#a1fe5121d6528fdea3f243321b3fa3a49">conv_param_t&lt; SPATIAL_DIM &gt;</a></li>
+<li>trigger_feature_evict()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a729463a55576cfeac84d26ecee925571">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a6ea6cba4fe2f20e3a79aefe4c0a1dae6">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 </ul>
 
 
 <h3><a id="index_u" name="index_u"></a>- u -</h3><ul>
 <li>unpack()&#160;:&#160;<a class="el" href="structfbgemm_1_1_b_c_s_r_matrix.html#a90f1c4d7dcaa5d19eb8ac45ecf623fb0">BCSRMatrix&lt; T, ROW_BLOCK, COL_BLOCK &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_b_matrix.html#ac8f794c5364686a01f4da2d63577c936">PackBMatrix&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_weight_matrix_for_g_conv.html#a0e595cb06818cbfc4c664bf4a543d6de">PackWeightMatrixForGConv&lt; T, accT, SPATIAL_DIM &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_weights_for_conv.html#a0e595cb06818cbfc4c664bf4a543d6de">PackWeightsForConv&lt; SPATIAL_DIM, T, accT &gt;</a></li>
+</ul>
+
+
+<h3><a id="index_w" name="index_w"></a>- w -</h3><ul>
+<li>wait_until_eviction_done()&#160;:&#160;<a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a6825b29f83c9352cce6974e324f447f8">DramKVInferenceEmbedding&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#adfbe3f5553b972faca15f9766a7b29aa">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->

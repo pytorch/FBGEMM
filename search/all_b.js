@@ -51,13 +51,14 @@ var searchData=
   ['floattofloat16_5fsve2_48',['FloatToFloat16_sve2',['../namespacefbgemm.html#a150beacb26a913c4a012ec1d4a092eaf',1,'fbgemm']]],
   ['floattofloat8_5fref_49',['FloatToFloat8_ref',['../namespacefbgemm.html#a8f285102b347c914bcaefe51e1186f06',1,'fbgemm']]],
   ['flush_50',['flush',['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB']]],
-  ['fmha_2ehpp_51',['fmha.hpp',['../fmha_8hpp.html',1,'']]],
-  ['forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_52',['43 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
-  ['fp8_2016_2032_53',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
-  ['fused8bitrowwisequantizedsbfloattofloatorhalf_54',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a16fd9b965676d778b4b6b81d55d70f20',1,'fbgemm']]],
-  ['fused8bitrowwisequantizedsbfloattofloatorhalfref_55',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a3499eced87afa89c95cc82c240a28add',1,'fbgemm']]],
-  ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_56',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga18fbbbcd643061657cf2575a816435cc',1,'fbgemm_gpu']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalf_57',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a512483b4cf064a2938fdaa4067a476ac',1,'fbgemm']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_58',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a4ac91c9d5806b57c70b0dc7fa6a55464',1,'fbgemm']]],
-  ['fusedquantizedequantize_59',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
+  ['flush_5for_5fcompact_51',['flush_or_compact',['../classkv__mem_1_1_k_v_inference_embedding_interface.html#a3dd24f09ec79e799cb3efdba544d339e',1,'kv_mem::KVInferenceEmbeddingInterface']]],
+  ['fmha_2ehpp_52',['fmha.hpp',['../fmha_8hpp.html',1,'']]],
+  ['forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_53',['43 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['fp8_2016_2032_54',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
+  ['fused8bitrowwisequantizedsbfloattofloatorhalf_55',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a16fd9b965676d778b4b6b81d55d70f20',1,'fbgemm']]],
+  ['fused8bitrowwisequantizedsbfloattofloatorhalfref_56',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a3499eced87afa89c95cc82c240a28add',1,'fbgemm']]],
+  ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_57',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga18fbbbcd643061657cf2575a816435cc',1,'fbgemm_gpu']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalf_58',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a512483b4cf064a2938fdaa4067a476ac',1,'fbgemm']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_59',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a4ac91c9d5806b57c70b0dc7fa6a55464',1,'fbgemm']]],
+  ['fusedquantizedequantize_60',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
 ];
