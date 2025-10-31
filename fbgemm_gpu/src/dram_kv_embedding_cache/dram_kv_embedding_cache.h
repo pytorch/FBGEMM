@@ -1212,6 +1212,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         }
         break;
       }
+      case EvictTriggerMode::FREE_MEM: {
+        // For free mem eviction, all conditions checked in frontend, no check
+        // option in backend
+        return;
+      }
       default:
         break;
     }
