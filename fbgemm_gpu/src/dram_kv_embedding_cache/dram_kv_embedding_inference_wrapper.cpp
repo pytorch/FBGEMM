@@ -10,11 +10,17 @@
 #include <gflags/gflags.h>
 #include <torch/custom_class.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/embedding_common.h" // @manual=//deeplearning/fbgemm/fbgemm_gpu:fbgemm_gpu
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_inference_embedding.h"
 
 DEFINE_int64(
     dram_kv_embedding_num_shards,
     32,
     "Number of shards for DRAM KV inference embedding");
+DEFINE_bool(
+    kv_embedding_async_get_set,
+    true,
+    "Whether to use async get/set for DRAM KV inference embedding."
+    "This should be true for dram but might be different for other non-Dram backends.");
 
 namespace fbgemm_gpu {
 
@@ -52,10 +58,10 @@ void DramKVEmbeddingInferenceWrapper::init(
             << ", row_alignment: " << row_alignment
             << ", scale_bias_size_in_bytes: " << scale_bias_size_in_bytes
             << ", max_row_bytes_: " << max_row_bytes_;
-  if (dram_kv_ != nullptr) {
+  if (kv_backend_ != nullptr) {
     return;
   }
-  dram_kv_ = std::make_shared<kv_mem::DramKVInferenceEmbedding<uint8_t>>(
+  kv_backend_ = std::make_shared<kv_mem::DramKVInferenceEmbedding<uint8_t>>(
       max_row_bytes_,
       uniform_init_lower_,
       uniform_init_upper_,
@@ -86,14 +92,19 @@ void DramKVEmbeddingInferenceWrapper::init(
       disable_random_init_);
 }
 
-std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>>
-DramKVEmbeddingInferenceWrapper::get_dram_kv() {
-  return dram_kv_;
+int64_t DramKVEmbeddingInferenceWrapper::get_max_row_bytes() const {
+  return max_row_bytes_;
 }
 
-void DramKVEmbeddingInferenceWrapper::set_dram_kv(
-    std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> dram_kv) {
-  dram_kv_ = std::move(dram_kv);
+std::shared_ptr<kv_mem::KVInferenceEmbeddingInterface<uint8_t>>
+DramKVEmbeddingInferenceWrapper::get_kv_backend() {
+  return kv_backend_;
+}
+
+void DramKVEmbeddingInferenceWrapper::set_kv_backend(
+    std::shared_ptr<kv_mem::KVInferenceEmbeddingInterface<uint8_t>>
+        kv_backend) {
+  kv_backend_ = std::move(kv_backend);
 }
 
 void DramKVEmbeddingInferenceWrapper::set_embeddings(
@@ -106,8 +117,13 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings(
     inplacee_update_ts =
         static_cast<std::uint32_t>(inplace_update_ts_opt.value());
   }
-  folly::coro::blockingWait(dram_kv_->inference_set_kv_db_async(
-      indices, weights, count, inplacee_update_ts));
+
+  if (FLAGS_kv_embedding_async_get_set) {
+    folly::coro::blockingWait(kv_backend_->inference_set_kv_db_async(
+        indices, weights, count, inplacee_update_ts));
+  } else {
+    kv_backend_->set_kv_db_sync(indices, weights, count, inplacee_update_ts);
+  }
 }
 
 at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
@@ -119,24 +135,30 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
           max_row_bytes_,
       },
       at::kByte);
-  folly::coro::blockingWait(dram_kv_->get_kv_db_async(indices, weights, count));
+
+  if (FLAGS_kv_embedding_async_get_set) {
+    folly::coro::blockingWait(
+        kv_backend_->get_kv_db_async(indices, weights, count));
+  } else {
+    kv_backend_->get_kv_db_sync(indices, weights, count);
+  }
   return weights;
 }
 
 void DramKVEmbeddingInferenceWrapper::log_inplace_update_stats() {
-  dram_kv_->log_inplace_update_stats();
+  kv_backend_->log_inplace_update_stats();
 }
 
 void DramKVEmbeddingInferenceWrapper::trigger_evict(
     int64_t inplace_update_ts_64b) {
   uint32_t inplace_update_ts_32b =
       static_cast<std::uint32_t>(inplace_update_ts_64b);
-  dram_kv_->trigger_feature_evict(inplace_update_ts_32b);
-  dram_kv_->resume_ongoing_eviction();
+  kv_backend_->trigger_feature_evict(inplace_update_ts_32b);
+  kv_backend_->resume_ongoing_eviction();
 }
 
 void DramKVEmbeddingInferenceWrapper::wait_evict_completion() {
-  dram_kv_->wait_until_eviction_done();
+  kv_backend_->wait_until_eviction_done();
 }
 
 c10::List<at::Tensor> DramKVEmbeddingInferenceWrapper::serialize() const {

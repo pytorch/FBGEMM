@@ -30,6 +30,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
+#include "kv_inference_embedding_interface.h"
 
 namespace kv_mem {
 
@@ -64,7 +65,8 @@ namespace kv_mem {
 /// @brief An implementation of EmbeddingKVDB for ZCH v.Next
 ///
 template <typename weight_type>
-class DramKVInferenceEmbedding {
+class DramKVInferenceEmbedding
+    : public KVInferenceEmbeddingInterface<weight_type> {
  public:
   /// DramKVInferenceEmbedding constructor
   ///
@@ -163,7 +165,7 @@ class DramKVInferenceEmbedding {
       double uniform_init_lower,
       double uniform_init_upper,
       int64_t row_storage_bitwidth,
-      bool disable_random_init) {
+      bool disable_random_init) override {
     for (auto i = 0; i < num_shards; ++i) {
       auto* gen = at::check_generator<at::CPUGeneratorImpl>(
           at::detail::getDefaultCPUGenerator());
@@ -181,11 +183,26 @@ class DramKVInferenceEmbedding {
     disable_random_init_ = disable_random_init;
   }
 
+  void set_kv_db_sync(
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*weights*/,
+      const at::Tensor& /*count*/,
+      std::optional<uint32_t> /*inplace_update_ts*/) override {
+    throw std::runtime_error("set_kv_db_sync is not implemented for DRAM");
+  }
+
+  void get_kv_db_sync(
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*weights*/,
+      const at::Tensor& /*count*/) override {
+    throw std::runtime_error("get_kv_db_sync is not implemented for DRAM");
+  }
+
   folly::SemiFuture<std::vector<folly::Unit>> inference_set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
-      std::optional<uint32_t> inplace_update_ts) {
+      std::optional<uint32_t> inplace_update_ts) override {
     std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
 
@@ -552,15 +569,15 @@ class DramKVInferenceEmbedding {
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) {
+      const at::Tensor& count) override {
     current_iter_++;
     return get_kv_db_async_impl(indices, weights, count);
   }
 
-  void compact() {}
+  void compact() override {}
 
   void trigger_feature_evict(
-      std::optional<uint32_t> inplace_update_ts = std::nullopt) {
+      std::optional<uint32_t> inplace_update_ts = std::nullopt) override {
     if (feature_evict_) {
       if (inplace_update_ts.has_value() &&
           feature_evict_config_.value()->trigger_strategy_ ==
@@ -574,7 +591,7 @@ class DramKVInferenceEmbedding {
     }
   }
 
-  void maybe_evict() {
+  void maybe_evict() override {
     if (!feature_evict_config_.has_value()) {
       return;
     }
@@ -603,25 +620,25 @@ class DramKVInferenceEmbedding {
   }
 
   // wait until eviction finishes, if any
-  void wait_until_eviction_done() {
+  void wait_until_eviction_done() override {
     if (feature_evict_) {
       feature_evict_->wait_until_eviction_done();
     }
   }
 
-  size_t get_map_used_memsize_in_bytes() const {
+  size_t get_map_used_memsize_in_bytes() const override {
     return kv_store_.getUsedMemSizeInBytes();
   }
 
-  size_t get_map_actual_used_chunk_in_bytes() const {
+  size_t get_map_actual_used_chunk_in_bytes() const override {
     return kv_store_.getActualUsedChunkInBytes();
   }
 
-  size_t get_num_rows() const {
+  size_t get_num_rows() const override {
     return kv_store_.getNumRows();
   }
 
-  void resume_ongoing_eviction(bool force_resume = false) {
+  void resume_ongoing_eviction(bool force_resume = false) override {
     if (!force_resume) {
       return;
     }
@@ -630,7 +647,7 @@ class DramKVInferenceEmbedding {
     }
   }
 
-  void pause_ongoing_eviction(bool force_pause = false) {
+  void pause_ongoing_eviction(bool force_pause = false) override {
     if (!force_pause) {
       return;
     }
@@ -648,7 +665,7 @@ class DramKVInferenceEmbedding {
   // for inference only, this logs the total hit/miss count
   // this should be called at the end of full/delta snapshot chunk by chunk
   // update
-  void log_inplace_update_stats() {
+  void log_inplace_update_stats() override {
     int reset_val = 0;
 
     auto inplace_update_hit_cnt = inplace_update_hit_cnt_.exchange(reset_val);
@@ -661,7 +678,8 @@ class DramKVInferenceEmbedding {
         << (total_cnt > 0 ? (double)inplace_update_hit_cnt / total_cnt : 0.0);
   }
 
-  std::optional<FeatureEvictMetricTensors> get_feature_evict_metric() const {
+  std::optional<FeatureEvictMetricTensors> get_feature_evict_metric()
+      const override {
     if (!feature_evict_config_.has_value()) {
       return std::nullopt;
     }
@@ -789,11 +807,11 @@ class DramKVInferenceEmbedding {
     return shardid_to_indexes;
   }
 
-  void flush_or_compact(const int64_t timestep) {}
+  void flush_or_compact(const int64_t timestep) override {}
 
   std::vector<double> get_dram_kv_perf(
       const int64_t step,
-      const int64_t interval) {
+      const int64_t interval) override {
     std::vector<double> ret(23, 0); // num metrics
     if (step > 0 && step % interval == 0) {
       int reset_val = 0;
