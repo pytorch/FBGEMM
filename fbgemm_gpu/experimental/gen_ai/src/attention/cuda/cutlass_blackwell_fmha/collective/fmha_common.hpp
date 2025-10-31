@@ -78,10 +78,10 @@ to_tiled_mma_sm100_ts(
     TiledMMA<MMA_Atom<
       MMA_Traits<SM100_MMA_F8F6F4_SS, a_type, b_type, c_type,
                     cute::C<M>, cute::C<N>,
-                    cute::integral_constant<UMMA::Major, a_major>,
-                    cute::integral_constant<UMMA::Major, b_major>,
-                    cute::integral_constant<UMMA::ScaleIn, a_neg>,
-                    cute::integral_constant<UMMA::ScaleIn, b_neg>>,
+                cute::integral_constant<UMMA::Major, a_major>,
+                cute::integral_constant<UMMA::Major, b_major>,
+                cute::integral_constant<UMMA::ScaleIn, a_neg>,
+                cute::integral_constant<UMMA::ScaleIn, b_neg>>,
       TAs...>, TMs...>) {
 
   return TiledMMA<MMA_Atom<
@@ -101,10 +101,10 @@ to_tiled_mma_sm100_ts(
     TiledMMA<MMA_Atom<
       SM100_MMA_F16BF16_SS<a_type, b_type, c_type,
                     M, N,
-                    a_major,
-                    b_major,
-                    a_neg,
-                    b_neg>,
+                                                              a_major,
+                                                              b_major,
+                                                              a_neg,
+                                                              b_neg>,
       TAs...>, TMs...>) {
   return TiledMMA<MMA_Atom<
     SM100_MMA_F16BF16_TS<a_type, b_type, c_type,
@@ -125,4 +125,75 @@ void warpgroup_reg_set() {
   }
 }
 
-}  // namespace cutlass::fmha::collective
+} // namespace cutlass::fmha::collective
+
+namespace constexpr_type_map {
+/*
+ * The following utility type_traits allow mapping constexpr variable to type at
+ * compile time.
+ * The default return type defined for each map would be returned if queried key
+ * does not exist in the map.
+ */
+
+template <auto keyVal, typename _valueT>
+struct kValTyPair {
+  static constexpr auto key = keyVal;
+  using valueT = _valueT;
+};
+
+template <typename Default, typename FirstMapping, typename... OtherMapping>
+struct kValTyMap {
+  template <auto QueryKey>
+  using query = std::conditional_t<
+      QueryKey == FirstMapping::key,
+      typename FirstMapping::valueT,
+      typename kValTyMap<Default, OtherMapping...>::template query<QueryKey>>;
+};
+
+template <typename Default, typename LastMapping>
+struct kValTyMap<Default, LastMapping> {
+  template <auto QueryKey>
+  using query = std::conditional_t<
+      QueryKey == LastMapping::key,
+      typename LastMapping::valueT,
+      Default>;
+};
+
+} // namespace constexpr_type_map
+
+namespace constexpr_constexpr_map {
+
+template <auto keyVal, auto valueVal>
+struct kValValPair {
+  static constexpr auto key = keyVal;
+  static constexpr auto value = valueVal;
+};
+
+template <auto Default, typename FirstMapping, typename... OtherMapping>
+struct kValValMap {
+  using ValType = std::add_const_t<decltype(Default)>;
+  static_assert(
+      std::is_same_v<ValType, decltype(FirstMapping::value)>,
+      "Map value type mismatch");
+  static_assert(
+      (std::is_same_v<ValType, decltype(OtherMapping::value)> && ...),
+      "Map value type mismatch");
+  template <decltype(FirstMapping::key) QueryKey>
+  static constexpr decltype(FirstMapping::value) query =
+      (QueryKey == FirstMapping::key)
+      ? FirstMapping::value
+      : kValValMap<Default, OtherMapping...>::template query<QueryKey>;
+};
+
+template <auto Default, typename LastMapping>
+struct kValValMap<Default, LastMapping> {
+  using ValType = std::add_const_t<decltype(Default)>;
+  static_assert(
+      std::is_same_v<ValType, decltype(LastMapping::value)>,
+      "Map value type mismatch");
+  template <decltype(LastMapping::key) QueryKey>
+  static constexpr decltype(LastMapping::value) query =
+      (QueryKey == LastMapping::key) ? LastMapping::value : Default;
+};
+
+} // namespace constexpr_constexpr_map
