@@ -10,9 +10,10 @@
 
 #include <gflags/gflags_declare.h>
 #include <torch/custom_class.h>
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_inference_embedding.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/kv_inference_embedding_interface.h"
 
 DECLARE_int64(dram_kv_embedding_num_shards);
+DECLARE_bool(kv_embedding_async_get_set);
 
 namespace fbgemm_gpu {
 
@@ -46,14 +47,18 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
 
   void wait_evict_completion();
 
-  std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> get_dram_kv();
+  std::shared_ptr<kv_mem::KVInferenceEmbeddingInterface<uint8_t>>
+  get_kv_backend();
 
-  void set_dram_kv(
-      std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> dram_kv);
+  void set_kv_backend(
+      std::shared_ptr<kv_mem::KVInferenceEmbeddingInterface<uint8_t>>
+          kv_backend);
 
   c10::List<at::Tensor> serialize() const;
 
   void deserialize(const c10::List<at::Tensor>& states);
+
+  int64_t get_max_row_bytes() const;
 
  private:
   int64_t num_shards_ = 32;
@@ -61,7 +66,7 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   double uniform_init_upper_ = 0.0;
   bool disable_random_init_ = false;
 
-  std::shared_ptr<kv_mem::DramKVInferenceEmbedding<uint8_t>> dram_kv_;
+  std::shared_ptr<kv_mem::KVInferenceEmbeddingInterface<uint8_t>> kv_backend_;
   int64_t max_row_bytes_ = 0;
 };
 
