@@ -975,6 +975,13 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
       else if (tail_warp_size <= 16) {
         INVOKE_PROCESS_ALL_INDICES(large_Ls, 16, 0x55)
       }
+#if defined(USE_ROCM)
+      // not sure step mask value to set when group size is 32
+      // while use_lxu_cache is false step mask makes no sense
+      else if (tail_warp_size <= 32 && !use_lxu_cache) {
+        INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, 0xf)
+      }
+#endif
       else {
         INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
       }
