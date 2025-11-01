@@ -18,8 +18,9 @@ import threading
 import time
 from functools import cached_property
 from math import floor, log2
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, ClassVar, Optional, Union
 import torch  # usort:skip
+import weakref
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
@@ -34,6 +35,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
     EmbeddingLocation,
+    EvictionPolicy,
     get_bounds_check_version_for_platform,
     KVZCHParams,
     PoolingMode,
@@ -53,6 +55,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
 )
 from torch import distributed as dist, nn, Tensor  # usort:skip
 from dataclasses import dataclass
+
+import psutil
 
 from torch.autograd.profiler import record_function
 
@@ -100,6 +104,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     _local_instance_index: int = -1
     res_params: RESParams
     table_names: list[str]
+    _all_tbe_instances: ClassVar[weakref.WeakSet] = weakref.WeakSet()
+    _first_instance_ref: ClassVar[weakref.ref] = None
+    _eviction_triggered: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -179,6 +186,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         table_names: Optional[list[str]] = None,
         use_rowwise_bias_correction: bool = False,  # For Adam use
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
+        pg: Optional[dist.ProcessGroup] = None,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -567,6 +575,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # loading checkpoint flag, set by checkpoint loader, and cleared after weight is applied to backend
         self.load_state_dict: bool = False
 
+        SSDTableBatchedEmbeddingBags._all_tbe_instances.add(self)
+        if SSDTableBatchedEmbeddingBags._first_instance_ref is None:
+            SSDTableBatchedEmbeddingBags._first_instance_ref = weakref.ref(self)
+
         # create tbe unique id using rank index | local tbe idx
         if tbe_unique_id == -1:
             SSDTableBatchedEmbeddingBags._local_instance_index += 1
@@ -584,6 +596,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.tbe_unique_id = tbe_unique_id
         self.l2_cache_size = l2_cache_size
         logging.info(f"tbe_unique_id: {tbe_unique_id}")
+        self.enable_free_mem_trigger_eviction: bool = False
         if self.backend_type == BackendType.SSD:
             logging.info(
                 f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, "
@@ -688,25 +701,31 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if self.kv_zch_params.eviction_policy.eviction_mem_threshold_gb
                     else self.l2_cache_size
                 )
+                kv_zch_params = self.kv_zch_params
+                eviction_policy = self.kv_zch_params.eviction_policy
+                if eviction_policy.eviction_trigger_mode == 5:
+                    # If trigger mode is free_mem(5), populate config
+                    self.set_free_mem_eviction_trigger_config(eviction_policy)
+
                 # Please refer to https://fburl.com/gdoc/nuupjwqq for the following eviction parameters.
                 eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
-                    self.kv_zch_params.eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual, 4: id count
-                    self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter, 2: counter + timestamp, 3: feature l2 norm, 4: timestamp threshold 5: feature score
-                    self.kv_zch_params.eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
+                    eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual, 4: id count
+                    eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter, 2: counter + timestamp, 3: feature l2 norm, 4: timestamp threshold 5: feature score
+                    eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
                     eviction_mem_threshold_gb,  # mem_util_threshold_in_GB if trigger mode is mem_util
-                    self.kv_zch_params.eviction_policy.ttls_in_mins,  # ttls_in_mins for each table if eviction strategy is timestamp
-                    self.kv_zch_params.eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is counter
-                    self.kv_zch_params.eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is counter
-                    self.kv_zch_params.eviction_policy.feature_score_counter_decay_rates,  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
-                    self.kv_zch_params.eviction_policy.training_id_eviction_trigger_count,  # training_id_eviction_trigger_count for each table
-                    self.kv_zch_params.eviction_policy.training_id_keep_count,  # training_id_keep_count for each table
-                    self.kv_zch_params.eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+                    eviction_policy.ttls_in_mins,  # ttls_in_mins for each table if eviction strategy is timestamp
+                    eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is counter
+                    eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is counter
+                    eviction_policy.feature_score_counter_decay_rates,  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
+                    eviction_policy.training_id_eviction_trigger_count,  # training_id_eviction_trigger_count for each table
+                    eviction_policy.training_id_keep_count,  # training_id_keep_count for each table
+                    eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
                     table_dims.tolist() if table_dims is not None else None,
-                    self.kv_zch_params.eviction_policy.threshold_calculation_bucket_stride,  # threshold_calculation_bucket_stride if eviction strategy is feature score
-                    self.kv_zch_params.eviction_policy.threshold_calculation_bucket_num,  # threshold_calculation_bucket_num if eviction strategy is feature score
-                    self.kv_zch_params.eviction_policy.interval_for_insufficient_eviction_s,
-                    self.kv_zch_params.eviction_policy.interval_for_sufficient_eviction_s,
-                    self.kv_zch_params.eviction_policy.interval_for_feature_statistics_decay_s,
+                    eviction_policy.threshold_calculation_bucket_stride,  # threshold_calculation_bucket_stride if eviction strategy is feature score
+                    eviction_policy.threshold_calculation_bucket_num,  # threshold_calculation_bucket_num if eviction strategy is feature score
+                    eviction_policy.interval_for_insufficient_eviction_s,
+                    eviction_policy.interval_for_sufficient_eviction_s,
+                    eviction_policy.interval_for_feature_statistics_decay_s,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -1064,6 +1083,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
 
         self.bounds_check_version: int = get_bounds_check_version_for_platform()
+
+        self._pg = pg
 
     @cached_property
     def cache_row_dim(self) -> int:
@@ -2041,6 +2062,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 # only report metrics from rank0 to avoid flooded logging
                 if dist.get_rank() == 0:
                     self._report_kv_backend_stats()
+
+            # May trigger eviction if free mem trigger mode enabled before get cuda
+            self.may_trigger_eviction()
 
             # Fetch data from SSD
             if linear_cache_indices.numel() > 0:
@@ -4650,3 +4674,91 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         )
 
                 # Return control to the main stream without waiting for the backend operation to complete
+
+    def get_free_cpu_memory_gb(self) -> float:
+        mem = psutil.virtual_memory()
+        return mem.available / (1024**3)
+
+    @classmethod
+    def trigger_evict_in_all_tbes(cls) -> None:
+        for tbe in cls._all_tbe_instances:
+            tbe.ssd_db.trigger_feature_evict()
+
+    @classmethod
+    def tbe_has_ongoing_eviction(cls) -> bool:
+        for tbe in cls._all_tbe_instances:
+            if tbe.ssd_db.is_evicting():
+                return True
+        return False
+
+    def set_free_mem_eviction_trigger_config(
+        self, eviction_policy: EvictionPolicy
+    ) -> None:
+        self.enable_free_mem_trigger_eviction = True
+        self.eviction_trigger_mode: int = eviction_policy.eviction_trigger_mode
+        assert (
+            eviction_policy.eviction_free_mem_check_interval_batch is not None
+        ), "eviction_free_mem_check_interval_batch is unexpected none for free_mem eviction trigger mode"
+        self.eviction_free_mem_check_interval_batch: int = (
+            eviction_policy.eviction_free_mem_check_interval_batch
+        )
+        assert (
+            eviction_policy.eviction_free_mem_threshold_gb is not None
+        ), "eviction_policy.eviction_free_mem_threshold_gb is unexpected none for free_mem eviction trigger mode"
+        self.eviction_free_mem_threshold_gb: int = (
+            eviction_policy.eviction_free_mem_threshold_gb
+        )
+        logging.info(
+            f"[FREE_MEM Eviction] eviction config, trigger model: FREE_MEM, {self.eviction_free_mem_check_interval_batch=}, {self.eviction_free_mem_threshold_gb=}"
+        )
+
+    def may_trigger_eviction(self) -> None:
+        def is_first_tbe() -> bool:
+            first = SSDTableBatchedEmbeddingBags._first_instance_ref
+            return first is not None and first() is self
+
+        # We assume that the eviction time is less than free mem check interval time
+        # So every time we reach this check, all evictions in all tbes should be finished.
+        # We only need to check the first tbe because all tbes share the same free mem,
+        # once the first tbe detect need to trigger eviction, it will call trigger func
+        # in all tbes from _all_tbe_instances
+        if (
+            self.enable_free_mem_trigger_eviction
+            and self.step % self.eviction_free_mem_check_interval_batch == 0
+            and self.training
+            and is_first_tbe()
+        ):
+            if not SSDTableBatchedEmbeddingBags.tbe_has_ongoing_eviction():
+                SSDTableBatchedEmbeddingBags._eviction_triggered = False
+
+            free_cpu_mem_gb = self.get_free_cpu_memory_gb()
+            local_evict_trigger = int(
+                free_cpu_mem_gb < self.eviction_free_mem_threshold_gb
+            )
+            tensor_flag = torch.tensor(
+                local_evict_trigger,
+                device=self.current_device,
+                dtype=torch.int,
+            )
+            world_size = dist.get_world_size(self._pg)
+            if world_size > 1:
+                dist.all_reduce(tensor_flag, op=dist.ReduceOp.SUM, group=self._pg)
+                global_evict_trigger = tensor_flag.item()
+            else:
+                global_evict_trigger = local_evict_trigger
+            if (
+                global_evict_trigger >= 1
+                and SSDTableBatchedEmbeddingBags._eviction_triggered
+            ):
+                logging.warning(
+                    f"[FREE_MEM Eviction] {global_evict_trigger} ranks triggered eviction, but SSDTableBatchedEmbeddingBags._eviction_triggered is true"
+                )
+            if (
+                global_evict_trigger >= 1
+                and not SSDTableBatchedEmbeddingBags._eviction_triggered
+            ):
+                SSDTableBatchedEmbeddingBags._eviction_triggered = True
+                SSDTableBatchedEmbeddingBags.trigger_evict_in_all_tbes()
+                logging.info(
+                    f"[FREE_MEM Eviction] Evict all at batch {self.step}, {free_cpu_mem_gb} GB free CPU memory, {global_evict_trigger} ranks triggered eviction"
+                )

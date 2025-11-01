@@ -34,7 +34,8 @@ enum class EvictTriggerMode {
   ITERATION, // Trigger based on iteration steps
   MEM_UTIL, // Trigger based on memory usage
   MANUAL, // Manually triggered by upstream
-  ID_COUNT // Trigger based on id count
+  ID_COUNT, // Trigger based on id count
+  FREE_MEM, // Trigger based on free memory
 };
 inline std::string to_string(EvictTriggerMode mode) {
   switch (mode) {
@@ -48,6 +49,8 @@ inline std::string to_string(EvictTriggerMode mode) {
       return "MANUAL";
     case EvictTriggerMode::ID_COUNT:
       return "ID_COUNT";
+    case EvictTriggerMode::FREE_MEM:
+      return "FREE_MEM";
   }
 }
 
@@ -184,6 +187,9 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         eviction_trigger_stats_log += "]";
         break;
       }
+      case EvictTriggerMode::FREE_MEM: {
+        break;
+      }
       default:
         throw std::runtime_error("Unknown evict trigger mode");
     }
@@ -202,7 +208,6 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
 
       case EvictTriggerStrategy::BY_FEATURE_SCORE: {
         CHECK(feature_score_counter_decay_rates_.has_value());
-        CHECK(training_id_eviction_trigger_count_.has_value());
         CHECK(training_id_keep_count_.has_value());
         CHECK(threshold_calculation_bucket_stride_.has_value());
         CHECK(threshold_calculation_bucket_num_.has_value());
@@ -210,8 +215,6 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         LOG(INFO) << "eviction config, trigger mode:"
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
-                  << ", training_id_eviction_trigger_count: "
-                  << training_id_eviction_trigger_count_.value()
                   << ", training_id_keep_count:"
                   << training_id_keep_count_.value()
                   << ", ttls_in_mins: " << ttls_in_mins_.value()
