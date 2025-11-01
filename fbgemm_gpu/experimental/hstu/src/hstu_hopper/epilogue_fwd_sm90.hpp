@@ -66,9 +66,8 @@ struct CollectiveEpilogueFwd {
       LayoutRight{}));
   using TiledCopyO = decltype(make_tiled_copy(
       TiledCopyOAtom{},
-      TiledCopyOThrLayout{}, // Thr layout
-      TiledCopyOValLayout{} // Val layout
-      ));
+      TiledCopyOThrLayout{},
+      TiledCopyOValLayout{}));
 
   // used for rmem -> smem O copy in fp8 kernel to undo column permutation
   using ThreadLayoutrO =
@@ -229,7 +228,7 @@ struct CollectiveEpilogueFwd {
     // Repeat the partitioning with identity layouts
     Tensor tOcO = gmem_thr_copy_O.partition_D(cO);
     Tensor tOpO = make_tensor<bool>(make_shape(size<2>(tOgO)));
-#pragma unroll
+    CUTLASS_PRAGMA_UNROLL
     for (int k = 0; k < size(tOpO); ++k) {
       tOpO(k) = get<1>(tOcO(_0{}, _0{}, k)) <
           get<1>(epilogue_params.layout_O.shape());
