@@ -687,7 +687,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 sm_scale,
                 num_groups,
             )
-            for dtype in [torch.bfloat16]
+            for dtype in [torch.bfloat16, torch.float8_e4m3fn]
             for seqlen_k in [64, 128, 256, 1024]
             for batch_size in [1, 2]
             for is_mqa in [True, False]
