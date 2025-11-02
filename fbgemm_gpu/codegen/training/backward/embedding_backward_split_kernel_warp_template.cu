@@ -41,14 +41,13 @@
                                                  not vbe and
                                                  not ssd %}
 
-{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
-                                                 optimizer == "rowwise_adagrad" and
-                                                 not dense and
-                                                 not is_index_select and
-                                                 not is_gwd_kernel and
-                                                 not nobag and 
-                                                 not vbe and
-                                                 not ssd %}
+{%- set enable_optimized_hip_mixed_D_kernel  = is_rocm and
+                                               optimizer == "rowwise_adagrad" and
+                                               not dense and
+                                               not is_index_select and
+                                               not is_gwd_kernel and
+                                               not nobag and 
+                                               not ssd %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -350,7 +349,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     }
 }
 
-{%- if is_optimized_hip_kernel_supported_mode %}
+{%- if enable_optimized_hip_mixed_D_kernel  %}
 template <
     typename emb_t,
     typename grad_t,
@@ -453,7 +452,6 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
     auto num_run_id = min(sorted_linear_indices_run.size(0), sorted_linear_indices_num_runs[0]);
 
     for (uint32_t out_run_id = start_run_id * num_unroll; out_run_id < num_run_id; out_run_id += gridDim.x * blockDim.y * num_unroll) {
-        auto stride = gridDim.x * blockDim.y;
         auto num_valid_id = min(num_unroll, num_run_id - out_run_id);
         auto is_valid = threadIdx.x < num_valid_id;
 
@@ -767,7 +765,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     {%- endif %}
 );
 
-{%- if is_optimized_hip_kernel_supported_mode %}
+{%- if enable_optimized_hip_mixed_D_kernel  %}
 
 template __global__ __launch_bounds__(kBackwardMaxThreads) void
 hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1
