@@ -48,7 +48,7 @@ using namespace fbgemm_gpu;
     has_global_weight_decay_support,
     ssd) %}
 {%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
-{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
+{%- set is_optimized_hip_kernel_supported_mode_ori = is_rocm and
                                                  optimizer == "rowwise_adagrad" and
                                                  not dense and
                                                  not nobag and
@@ -236,7 +236,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- endif %}
 );
 
-{%- if is_optimized_hip_kernel_supported_mode %}
+{%- if is_optimized_hip_kernel_supported_mode_ori %}
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
 template <
     typename emb_t,
@@ -870,7 +870,7 @@ Tensor {{ embedding_cuda_op }}(
     }
     {%- endif %}
 
-    {%- if is_optimized_hip_kernel_supported_mode %}
+    {%- if is_optimized_hip_kernel_supported_mode_ori %}
     {%- set hip_kernel = "hip_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
             ndesc,
             optimizer,
@@ -1230,7 +1230,7 @@ Tensor {{ embedding_cuda_op }}(
                         get_max_thread_blocks_());
 
 #ifdef USE_ROCM
-                    {%- if is_optimized_hip_kernel_supported_mode %}
+                    {%- if is_optimized_hip_kernel_supported_mode_ori %}
 
                     const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
 

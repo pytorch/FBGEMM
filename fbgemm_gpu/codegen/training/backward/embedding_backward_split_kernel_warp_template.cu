@@ -32,7 +32,7 @@
 
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
-{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
+{%- set is_optimized_hip_kernel_supported_mode_ori = is_rocm and
                                                  optimizer == "rowwise_adagrad" and
                                                  not dense and
                                                  not nobag and
@@ -546,7 +546,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 
 {%- endif %}
 
-{%- if is_optimized_hip_kernel_supported_mode %}
+{%- if is_optimized_hip_kernel_supported_mode_ori %}
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
