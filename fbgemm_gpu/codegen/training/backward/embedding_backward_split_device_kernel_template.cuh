@@ -236,9 +236,11 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
             int32_t j = 0;
 
             // Process blocks of different sizes with loop unrolling
-            #pragma unroll kFixedMaxVecsPerThread
-            PROCESS_BLOCK(8, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
-                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+            if constexpr (sizeof(grad_t) <= 2) {
+                #pragma unroll kFixedMaxVecsPerThread
+                PROCESS_BLOCK(8, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
+                    vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+            }
             #pragma unroll kFixedMaxVecsPerThread
             PROCESS_BLOCK(4, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
                 vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)

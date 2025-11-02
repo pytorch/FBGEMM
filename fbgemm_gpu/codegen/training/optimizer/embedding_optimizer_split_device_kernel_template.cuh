@@ -11,13 +11,13 @@
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
-{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
-                                                 optimizer == "rowwise_adagrad" and
-                                                 not dense and
-                                                 not is_index_select and
-                                                 not is_gwd_kernel and
-                                                 not vbe and
-                                                 not ssd %}
+{%- set enable_optimized_hip_mixed_D_kernel  = is_rocm and
+                                               optimizer == "rowwise_adagrad" and
+                                               not dense and
+                                               not is_index_select and
+                                               not is_gwd_kernel and
+                                               not nobag and
+                                               not ssd %}
 
 template<int32_t kThreadGroupSize, typename T>
 DEVICE_INLINE __device__ T subwarp_reduce_add(T value) {
@@ -210,7 +210,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {{ split_post_update }}
 }
 
-{%- if is_optimized_hip_kernel_supported_mode %}
+{%- if enable_optimized_hip_mixed_D_kernel  %}
 template <
     typename emb_t,
     typename cache_t,
