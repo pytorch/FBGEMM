@@ -200,6 +200,13 @@ class RESParams:
     )  # table sizes for the global rows the TBE holds
 
 
+@dataclass(frozen=True)
+class PrefetchedInfo:
+    linear_unique_indices: torch.Tensor
+    linear_unique_indices_length: torch.Tensor
+    hash_zch_identities: Optional[torch.Tensor]
+
+
 def construct_split_state(
     embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]],
     rowwise: bool,
@@ -2100,6 +2107,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 requires this information for allocating the weight gradient
                 tensor in the backward pass.
 
+            hash_zch_identities (Optional[Tensor]): The original raw IDs before
+                remapping to ZCH (Zero-Collision Hash) table slots. This tensor is
+                populated when using Multi-Probe Zero Collision Hash (MPZCH) modules
+                and is required for Raw Embedding Streaming (RES) to maintain
+                consistency between training and inference.
+
         Returns:
             A 2D-tensor containing looked up data. Shape `(B, total_D)` where `B` =
             batch size and `total_D` = the sum of all embedding dimensions in the
@@ -2217,7 +2230,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # In forward, we don't enable multi-pass prefetch as we want the process
             # to be as fast as possible and memory usage doesn't matter (will be recycled
             # by dense fwd/bwd)
-            # TODO: Properly pass in the hash_zch_identities
             self._prefetch(
                 indices,
                 offsets,
@@ -4140,6 +4152,60 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 False,  # blocking_tensor_copy
             )
 
+    @staticmethod
+    @torch.jit.ignore
+    def _get_prefetched_info(
+        linear_cache_indices_merged: torch.Tensor,
+        total_cache_hash_size: int,
+        hash_zch_identities: Optional[torch.Tensor],
+    ) -> PrefetchedInfo:
+        compute_inverse_indices = hash_zch_identities is not None
+        (
+            linear_unique_indices,
+            linear_unique_indices_length,
+            linear_unique_indices_cnt,
+            linear_unique_inverse_indices,
+        ) = torch.ops.fbgemm.get_unique_indices_with_inverse(
+            linear_cache_indices_merged,
+            total_cache_hash_size,
+            compute_count=compute_inverse_indices,
+            compute_inverse_indices=compute_inverse_indices,
+        )
+        # linear_unique_indices is the result after deduplication and sorting
+        linear_unique_indices = linear_unique_indices.narrow(
+            0, 0, linear_unique_indices_length[0]
+        )
+
+        if hash_zch_identities is None:
+            return PrefetchedInfo(
+                linear_unique_indices,
+                linear_unique_indices_length,
+                None,
+            )
+
+        # Compute cumulative sum as indices for selecting unique elements to
+        # map hash_zch_identities to linear_unique_indices
+        count_cum_sum = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            linear_unique_indices_cnt
+        )
+        count_cum_sum = count_cum_sum.narrow(0, 0, linear_unique_indices_length[0])
+
+        # Select indices corresponding to first occurrence of each unique element
+        linear_unique_inverse_indices = linear_unique_inverse_indices.index_select(
+            dim=0, index=count_cum_sum
+        )
+
+        # Map hash_zch_identities to unique indices
+        hash_zch_identities_cpu = hash_zch_identities.index_select(
+            dim=0, index=linear_unique_inverse_indices
+        ).to(device=torch.device("cpu"))
+
+        return PrefetchedInfo(
+            linear_unique_indices,
+            linear_unique_indices_length,
+            hash_zch_identities_cpu,
+        )
+
     @torch.jit.ignore
     def _store_prefetched_tensors(
         self,
@@ -4150,35 +4216,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         NOTE: this needs to be a method with jit.ignore as the identities tensor is conditional.
         This function stores the prefetched tensors for the raw embedding streaming.
         """
-        if self.enable_raw_embedding_streaming:
-            with record_function(
-                "## uvm_save_prefetched_rows {} {} ##".format(self.timestep, self.uuid)
-            ):
+        if not self.enable_raw_embedding_streaming:
+            return
+
+        with record_function(
+            "## uvm_save_prefetched_rows {} {} ##".format(self.timestep, self.uuid)
+        ):
+            # Process hash_zch_identities using helper function
+            prefetched_info = self._get_prefetched_info(
+                linear_cache_indices_merged,
+                self.total_cache_hash_size,
+                hash_zch_identities,
+            )
+
+            self.prefetched_info.append(
                 (
-                    linear_unique_indices,
-                    linear_unique_indices_length,
-                    _,
-                ) = torch.ops.fbgemm.get_unique_indices(
-                    linear_cache_indices_merged,
-                    self.total_cache_hash_size,
-                    compute_count=False,
+                    prefetched_info.linear_unique_indices,
+                    prefetched_info.linear_unique_indices_length,
+                    prefetched_info.hash_zch_identities,
                 )
-                linear_unique_indices = linear_unique_indices.narrow(
-                    0, 0, linear_unique_indices_length[0]
-                )
-                self.prefetched_info.append(
-                    (
-                        linear_unique_indices,
-                        linear_unique_indices_length,
-                        (
-                            hash_zch_identities.index_select(
-                                dim=0, index=linear_unique_indices
-                            ).to(device=torch.device("cpu"))
-                            if hash_zch_identities is not None
-                            else None
-                        ),
-                    )
-                )
+            )
 
     @torch.jit.ignore
     def __report_input_params_factory(
