@@ -48,7 +48,7 @@ using namespace fbgemm_gpu;
     has_global_weight_decay_support,
     ssd) %}
 {%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
-{%- set is_optimized_hip_kernel_supported_mode_ori = is_rocm and
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
                                                  optimizer == "rowwise_adagrad" and
                                                  not dense and
                                                  not nobag and
@@ -244,7 +244,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- endif %}
 );
 
-{%- if is_optimized_hip_kernel_supported_mode_ori %}
+{%- if is_optimized_hip_kernel_supported_mode %}
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
 template <
     typename emb_t,
@@ -1019,7 +1019,7 @@ Tensor {{ embedding_cuda_op }}(
     }
     {%- endif %}
 
-    {%- if is_optimized_hip_kernel_supported_mode_ori %}
+    {%- if is_optimized_hip_kernel_supported_mode %}
     {%- set hip_kernel = "hip_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
             ndesc,
             optimizer,
@@ -1261,7 +1261,6 @@ Tensor {{ embedding_cuda_op }}(
                     auto cta_blockSize = dim3(kThreadGroupSize, num_cta_per_row_groups);
                     {%- endif %}
 
-                    //  printf("%s:%d %d\n", __FILE__, __LINE__, num_cta_per_row_groups);
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
@@ -1426,7 +1425,6 @@ Tensor {{ embedding_cuda_op }}(
                                 32,
                                 false>;
                             blockSize = dim3(32, num_warp_per_row_groups);
-                            // printf("%s:%d warp kernel %d\n", __FILE__, __LINE__, num_warp_per_row_groups);
                         }
                     }
                     {%- endif %}
@@ -1449,7 +1447,7 @@ Tensor {{ embedding_cuda_op }}(
                         get_max_thread_blocks_());
 
 #ifdef USE_ROCM
-                    {%- if is_optimized_hip_kernel_supported_mode_ori %}
+                    {%- if is_optimized_hip_kernel_supported_mode %}
 
                     const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
 
