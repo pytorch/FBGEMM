@@ -32,7 +32,7 @@
 
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
-{%- set is_optimized_hip_kernel_supported_mode_ori = is_rocm and
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
                                                  optimizer == "rowwise_adagrad" and
                                                  not dense and
                                                  not nobag and
@@ -934,7 +934,7 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
 
 {%- endif %}
 
-{%- if is_optimized_hip_kernel_supported_mode_ori %}
+{%- if is_optimized_hip_kernel_supported_mode %}
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
@@ -1150,10 +1150,10 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
 
 {%- macro hip_bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
-    {%- for emb_type in (['float', 'at::Half', 'at::BFloat16'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
-    {%- for cache_type in ['float', 'at::Half', 'at::BFloat16'] %}
-    {%- for index_type in ['int32_t', 'int64_t', 'at::BFloat16'] %}
-    {%- for kEmbeddingDim in [64, 128, 160, 192, 256] %}
+    {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
+    {%- for cache_type in ['float', 'at::Half'] %}
+    {%- for index_type in ['int32_t', 'int64_t'] %}
+    {%- for kEmbeddingDim in [64, 128, 160, 192, 256, 320] %}
     {%- for kWeighDecayMode in [0, 1, 2] %}
         {{ hip_template_instantiation(
             emb_type,
