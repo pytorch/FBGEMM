@@ -12,9 +12,13 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
+#ifdef USE_ROCM
 // The wave size is forced to be 32 on ROCm devices in favor 
 // of granularity losses reduction.
 constexpr int EMULATED_WARP_SIZE = 32;
+#else
+constexpr int EMULATED_WARP_SIZE = kWarpSize;
+#endif
 // TODO: Update UNROLL_FACTOR
 constexpr int GROUP_INDEX_SELECT_UNROLL_FACTOR = 1;
 constexpr int GROUP_INDEX_SELECT_COLS_PER_WARP =
