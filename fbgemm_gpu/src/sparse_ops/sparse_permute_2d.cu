@@ -20,7 +20,7 @@ template <
     typename indices_t,
     typename weights_t>
 __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
-    int32_t len,
+    int64_t len,
     int32_t T,
     int32_t B,
     const indices_t* __restrict__ indices,
