@@ -289,7 +289,7 @@ inline float cpu_half2float_ref(const float16 h) {
 // Same as the previous function, but use the built-in fp16 to fp32
 // conversion provided by the compiler
 inline float cpu_half2float(const float16 h) {
-#if defined(HAS_NATIVE_FP16_TYPE) && not defined(MISSING_GNU_F2H_IEEE)
+#if defined(HAS_NATIVE_FP16_TYPE) && !defined(MISSING_GNU_F2H_IEEE)
   __fp16 h_fp16 = NAN;
   std::memcpy(&h_fp16, &h, sizeof(__fp16));
   return h_fp16;
@@ -299,7 +299,7 @@ inline float cpu_half2float(const float16 h) {
 }
 
 inline float16 cpu_float2half(const float f) {
-#if defined(HAS_NATIVE_FP16_TYPE) && not defined(MISSING_GNU_F2H_IEEE)
+#if defined(HAS_NATIVE_FP16_TYPE) && !defined(MISSING_GNU_F2H_IEEE)
   __fp16 h = f;
   float16 res = 0;
   std::memcpy(&res, &h, sizeof(__fp16));
