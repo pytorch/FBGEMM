@@ -42,7 +42,7 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 {%- endif %}
 
-{# This macro generates a code blob to pack Tensor arguments into a TensorList 
+{# This macro generates a code blob to pack Tensor arguments into a TensorList
     as number of arguments for some optimizers exceed 64 #}
 {%- macro pack_tensors(arg) %}
     {{ arg }}_list = [
@@ -58,7 +58,7 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 {%- endmacro %}
 
 {# This macro generates a code blob to pack optim optional tensor into an optional TensorList.
-    All optim optional tensors are packed together into `optim_tensor`. 
+    All optim optional tensors are packed together into `optim_tensor`.
     This poses challenge to handle unpacking in autograd if we do per device (i.e, 3 for cpu and 4 for cuda).
     Hence, we pack unified args (i.e., 5 items) for readability and programmability.
  #}
@@ -92,14 +92,14 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
         "Please check the frontend and backend version. "
     )
     {{ arg_type }}.append(dict_{{ arg_type }}["{{ var }}"])
-    
+
     {%- endfor %}
 {%- endmacro %}
 
 
 {%- if is_prototype_optimizer %}
 # Decorate the prototype optimizers which may be deprecated in the future with jit.ignore to avoid
-# possible errors from torch.jit.script. 
+# possible errors from torch.jit.script.
 # Note that backends can be removed but the lookup invoker is still needed for backward compatibility
 @torch.jit.ignore
 {%- endif %}
@@ -187,14 +187,15 @@ def invoke(
         "vbe_B_offsets_rank_per_feature": vbe_metadata.B_offsets_rank_per_feature,
         "lxu_cache_locations": common_args.lxu_cache_locations,
         "uvm_cache_stats": common_args.uvm_cache_stats,
+        "vbe_output_offsets" : None,
     }
 
     dict_aux_int: Dict[str, int] = {
-        "iter": iter, 
-        "info_B_num_bits": common_args.info_B_num_bits, 
+        "iter": iter,
+        "info_B_num_bits": common_args.info_B_num_bits,
         "info_B_mask": common_args.info_B_mask,
     }
-    
+
     dict_aux_float: Dict[str, float] = {
         "gwd_lower_bound": gwd_lower_bound,
     }
@@ -219,7 +220,7 @@ def invoke(
     {%- else %}
     dict_aux_tensor["prev_iter_dev"] = prev_iter.dev
     {%- endif %}
-    
+
 
     # optimizer_args
     {%- if optimizer == "none" %}
@@ -302,13 +303,13 @@ def invoke(
     {{ pack_tensors("row_counter") }}
     {%- endif %}
     {%- if "row_counter" in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
-    
+
     if optimizer_args.use_rowwise_bias_correction and row_counter is not None:
         row_counter_host = None # not supported on CPU
         row_counter_dev = row_counter.dev
         row_counter_uvm = row_counter.uvm
         row_counter_offsets = row_counter.offsets
-        row_counter_placements = row_counter.placements   
+        row_counter_placements = row_counter.placements
     elif optimizer_args.use_rowwise_bias_correction:
         assert False, "`use_rowwise_bias_correction` is set, `row_counter` cannot be None"
     else:
@@ -316,7 +317,7 @@ def invoke(
         row_counter_dev = None
         row_counter_uvm = None
         row_counter_offsets = None
-        row_counter_placements = None  
+        row_counter_placements = None
     {%- endif %}
 
     {{ pack_to_list("aux_tensor") }}
@@ -358,7 +359,7 @@ def invoke(
     {%- for name in args_pt2.unified_pt2.split_args_dict["optim_bool"] %}
     optim_bool.append(dict_optim_bool["{{ name }}"])
     {%- endfor %}
-    {%- endif %} 
+    {%- endif %}
 
     return torch.ops.fbgemm.{{ mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
         # common_args

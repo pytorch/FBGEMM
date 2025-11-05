@@ -109,7 +109,12 @@ enum SSDTensor {
       gwd_lower_bound,
       {%- endif %} {# /* if is_gwd */ #}
       {%- endif %} {# /* if not nobag */ #}
+      {%- if vbe and not dense %}
+      {{ "is_experimental" if has_experimental else "false" }},
+      std::nullopt /* vbe_output */
+      {%- else %}
       {{ "is_experimental" if has_experimental else "false" }}
+      {%- endif %}
     );
 
     if (is_annotate_trace_enabled) {
@@ -474,7 +479,12 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward{{ desc_suffix }}_cud
     const int64_t iter,
     const double gwd_lower_bound,
     {%- endif %}
+    {%- if vbe and not dense %}
+    const bool is_experimental,
+    std::optional<Tensor> vbe_output = std::nullopt
+    {%- else %}
     const bool is_experimental
+    {%- endif %}
 );
 
 Tensor
@@ -708,7 +718,7 @@ class {{ autograd_func }} :
     static auto generate_vbe_metadata_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::generate_vbe_metadata", "")
-            .typed<std::tuple<Tensor, Tensor>(const Tensor&, const Tensor&, const Tensor&, const Tensor&, const int64_t, const bool, const c10::SymInt, const int64_t, const c10::SymInt)>();
+            .typed<std::tuple<Tensor, Tensor>(const Tensor&, const Tensor&, const Tensor&, const Tensor&, const int64_t, const bool, const c10::SymInt, const int64_t, const c10::SymInt, const std::optional<Tensor>&)>();
 
     auto [
         vbe_row_output_offsets,
@@ -729,7 +739,8 @@ class {{ autograd_func }} :
         {%- endif %}
         max_B_feature_rank,
         info_B_num_bits,
-        /*total_B=*/offsets.sym_size(0) - 1
+        /*total_B=*/offsets.sym_size(0) - 1,
+        std::nullopt /* pre-allocated vbe_output is not supported in TBE interface V1 or Dense TBE */
         );
     {%- endif %}
 
