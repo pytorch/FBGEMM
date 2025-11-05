@@ -102,6 +102,7 @@ function(prepare_target_sources)
             (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "13.0") )
             set(_nvcc_flags ${args_NVCC_FLAGS}
                 -cudart=shared
+                -static-global-template-stub=false
                 --device-entity-has-hidden-visibility=false)
         else()
             set(_nvcc_flags ${args_NVCC_FLAGS})
