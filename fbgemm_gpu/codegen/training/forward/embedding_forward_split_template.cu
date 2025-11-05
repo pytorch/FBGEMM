@@ -720,12 +720,7 @@ batch_index_select_dim0_codegen_forward_cuda(
             // kFixedMaxVecsPerThread instead of kMaxVecsPerThread. But
             // kMaxVecsPerThread and kFixedMaxVecsPerThread are the same
             // forward
-            {%- if is_rocm %}
-            // Account for Vec2 load for ROCm
-            constexpr auto kMaxVecsPerThread = 2 * kFixedMaxVecsPerThread;
-            {%- else %}
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
-            {%- endif %}
 
             const auto grid = min(
               div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
@@ -799,9 +794,14 @@ batch_index_select_dim0_codegen_forward_cuda(
         // if (!is_experimental)
         } else {
             // Allocate num warps per table based on max_D
+            
             const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
-            const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
-
+            #ifdef USE_ROCM
+              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2);
+            #else
+              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
+            #endif
+            
             const auto kernel_func =
               (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
                                   emb_t, cache_t, output_t, index_t, true>
