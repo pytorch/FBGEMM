@@ -72,7 +72,11 @@ __global__ __launch_bounds__(kMaxThreads) void _batched_complete_cumsum_kernel(
       data = (val_t)values[blockIdx.x][i];
     }
     BlockScan(temp_storage).InclusiveSum(data, data, prefix_op);
-    cub::CTA_SYNC();
+#if CUDA_VERSION >= 13000
+  __syncthreads();
+#else
+  cub::CTA_SYNC();
+#endif
     if (i < len) {
       out[blockIdx.x][i + 1] = data;
     }
