@@ -422,6 +422,7 @@ class BackwardSplitGenerator:
                 "lxu_cache_locations",  # 3
                 "uvm_cache_stats",  # 4
                 "prev_iter_dev",  # 5
+                "vbe_output_offsets",  # 6
             ],
             "aux_int": [
                 "iter",  # 0
