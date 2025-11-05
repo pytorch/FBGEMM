@@ -57,7 +57,7 @@ template <
     typename index_t,
     size_t kThreadGroupSize
     >
-__launch_bounds__(kForwardMaxThreads) __global__ void
+__launch_bounds__(kForwardMaxThreads) __global__ __attribute__((visibility("default"))) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_small_kernel(
 {%- else %}
