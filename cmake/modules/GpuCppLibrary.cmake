@@ -87,14 +87,30 @@ function(prepare_target_sources)
             list(APPEND ${args_PREFIX}_sources_cu ${args_CUDA_SPECIFIC_SRCS})
         endif()
 
-        # Set source properties
-        set_source_files_properties(${${args_PREFIX}_sources_cu}
-            PROPERTIES COMPILE_OPTIONS
-            "${args_NVCC_FLAGS}")
-
+        # Set include directories
         set_source_files_properties(${${args_PREFIX}_sources_cu}
             PROPERTIES INCLUDE_DIRECTORIES
             "${args_INCLUDE_DIRS}")
+
+        # Starting with CUDA 13.0, nvcc changed the default visibility of
+        # __global__ functions to `hidden`, which causes symbol lookup errors
+        # during linking.  This can be worked around by setting -cudart=shared
+        # and --device-entity-has-hidden-visibility=false.
+        #
+        # https://developer.nvidia.com/blog/cuda-c-compiler-updates-impacting-elf-visibility-and-linkage/
+        if( (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA) AND
+            (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "13.0") )
+            set(_nvcc_flags ${args_NVCC_FLAGS}
+                -cudart=shared
+                --device-entity-has-hidden-visibility=false)
+        else()
+            set(_nvcc_flags ${args_NVCC_FLAGS})
+        endif()
+
+        # Set compilation flags
+        set_source_files_properties(${${args_PREFIX}_sources_cu}
+            PROPERTIES COMPILE_OPTIONS
+            "${_nvcc_flags}")
 
         # Append to the full sources list
         list(APPEND ${args_PREFIX}_sources_combined ${${args_PREFIX}_sources_cu})
