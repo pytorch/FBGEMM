@@ -4762,3 +4762,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 logging.info(
                     f"[FREE_MEM Eviction] Evict all at batch {self.step}, {free_cpu_mem_gb} GB free CPU memory, {global_evict_trigger} ranks triggered eviction"
                 )
+
+    def reset_inference_mode(self) -> None:
+        """
+        Reset the inference mode
+        """
+        self.eval()
