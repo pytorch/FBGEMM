@@ -22,6 +22,13 @@ namespace fbgemm {
 // Utility functions
 ////////////////////////////////////////////////////////////////////////////////
 
+template <typename InputType>
+void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon(
+    const InputType* input,
+    size_t input_rows,
+    int input_columns,
+    uint8_t* output);
+
 template <typename OutputType>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
     const std::uint8_t* input,
