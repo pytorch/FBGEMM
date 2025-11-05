@@ -304,8 +304,10 @@ __configure_fbgemm_gpu_build_cuda () {
         local arch_list="7.5;8.0"
       fi
 
-    elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
-          [[ $cuda_version_nvcc == *"V12.9"* ]] ||
+    elif  [[ $cuda_version_nvcc == *"V13.0"* ]]; then
+      local arch_list="8.0;9.0a;10.0a;12.0a"
+
+    elif  [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
       local arch_list="7.5;8.0;9.0a;10.0a;12.0a"
 
