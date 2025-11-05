@@ -132,6 +132,9 @@ jobs:
       #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
       run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
 
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
