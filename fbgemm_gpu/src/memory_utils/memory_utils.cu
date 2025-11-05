@@ -165,11 +165,25 @@ Tensor new_managed_tensor(
 
   // Set preferred memory location to host memory
   AT_CUDA_CHECK(cudaMemAdvise(
-      ptr, size_bytes, cudaMemAdviseSetPreferredLocation, new_mem_location_from_device(cudaCpuDeviceId)));
+      ptr, size_bytes, cudaMemAdviseSetPreferredLocation,
+#if CUDA_VERSION >= 13000
+      new_mem_location_from_device(cudaCpuDeviceId)
+#else
+      cudaCpuDeviceId
+#endif
+    ));
+
   // User hints with "accessed by": GPU will establish direct mapping of data
   // in CPU memory, no page faults will be generated
   AT_CUDA_CHECK(cudaMemAdvise(
-      ptr, size_bytes, cudaMemAdviseSetAccessedBy, new_mem_location_from_device(at::cuda::current_device())));
+      ptr, size_bytes, cudaMemAdviseSetAccessedBy,
+#if CUDA_VERSION >= 13000
+      new_mem_location_from_device(at::cuda::current_device())
+#else
+      at::cuda::current_device()
+#endif
+    ));
+
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   // Work around fork issue - see uvm_mem_advice_dont_fork for details
@@ -360,7 +374,12 @@ void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
       ptr,
       size_bytes,
       static_cast<enum cudaMemoryAdvise>(cuda_memory_advise),
-      new_mem_location_from_device(hint_device)));
+#if CUDA_VERSION >= 13000
+      new_mem_location_from_device(hint_device)
+#else
+      hint_device
+#endif
+  ));
   return;
 }
 
@@ -386,7 +405,13 @@ void uvm_cuda_mem_prefetch_async(
 
   auto stream = at::cuda::getCurrentCUDAStream();
 
-  AT_CUDA_CHECK(cudaMemPrefetchAsync(ptr, size_bytes, new_mem_location_from_device(prefetch_device), stream));
+  AT_CUDA_CHECK(cudaMemPrefetchAsync(ptr, size_bytes,
+#if CUDA_VERSION >= 13000
+    new_mem_location_from_device(prefetch_device), 0,
+#else
+    prefetch_device,
+#endif
+    stream));
 
   return;
 }
