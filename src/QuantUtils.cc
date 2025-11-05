@@ -714,6 +714,10 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
     int input_columns,
     std::uint8_t* output,
     const InputType* rowwise_min_max) {
+#if HAVE_SVE
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon<InputType>(
+      input, input_rows, input_columns, output);
+#else
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<InputType>(
@@ -723,6 +727,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
     FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<InputType>(
         input, input_rows, input_columns, output);
   }
+#endif
 }
 
 template <typename OutputType, bool is_uint16_t_of_type_bf16>
