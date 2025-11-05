@@ -1560,7 +1560,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return "<Unknown>"
         # Do this because sometimes multiple shards of the same table could appear
         # in one TBE.
-        table_name_set = set(table_names)
+        table_name_set = sorted(set(table_names))
         if len(table_name_set) == 1:
             return next(iter(table_name_set))
         return f"<{len(table_name_set)} tables>: {table_name_set}"
