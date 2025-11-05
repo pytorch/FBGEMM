@@ -4,8 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# @licenselint-loose-mode
-
 import argparse
 import logging
 import os
@@ -655,7 +653,7 @@ def main(argv: list[str]) -> None:
         ]
         + [
             f"Programming Language :: Python :: {x}"
-            for x in ["3", "3.9", "3.10", "3.11", "3.12", "3.13"]
+            for x in ["3", "3.10", "3.11", "3.12", "3.13"]
         ],
     )
 
