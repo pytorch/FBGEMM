@@ -1063,20 +1063,20 @@ Tensor {{ embedding_cuda_op }}(
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
                     {% if is_rocm %}
-                        int32_t total_L = indices.numel();
-                        int32_t num_cta_per_row_groups;
-                        int32_t work_group_size;
-                        if (total_L/total_B > 1){
-                            num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
-                            work_group_size = (kMaxThreads/4);
-                        }
-                        else{
-                            num_cta_per_row_groups = kMaxThreads / kWarpSize;
-                            work_group_size = kMaxThreads;
-                        }
+                    int32_t total_L = indices.numel();
+                    int32_t num_cta_per_row_groups;
+                    int32_t work_group_size;
+                    if (total_L/total_B > 1) {
+                        num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
+                        work_group_size = (kMaxThreads/4);
+                    }
+                    else {
+                        num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                        work_group_size = kMaxThreads;
+                    }
                     {%- else %}
-                        int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
-                        int32_t work_group_size = kMaxThreads;
+                    int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                    const int32_t work_group_size = kMaxThreads;
                     {%- endif %}
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
