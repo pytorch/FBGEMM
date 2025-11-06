@@ -1061,8 +1061,6 @@ static torch::autograd::variable_list backward(
 #ifdef USE_ROCM
     constexpr int32_t BT_block_size = 64;
     int32_t max_segment_length_per_warp = 64;
-    // Workaround. Should not be upstreamed in any way.
-    // Redistribute all cta_per_row work to warp_per_row.
     int32_t total_L = indices.numel();
     {%- if (not nobag) and
            (optimizer == "rowwise_adagrad") and
