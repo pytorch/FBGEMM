@@ -93,9 +93,9 @@ struct GenRunner {
 
   using StrideQ =
       Stride<_0, _1, Stride<Stride<int, int>, int>>; // Q D ((H, Hr), B)
-  using StrideNewK = Stride<_0, _1, Stride<Stride<_0, int>, int>>;
+  using StrideNewK = Stride<_0, _1, Stride<Stride<_0, int64_t>, int64_t>>;
   using StrideCacheK =
-      Stride<int, _1, Stride<Stride<_0, int>, int>>; // K D ((H, Hr), B)
+      Stride<int, _1, Stride<Stride<_0, int64_t>, int64_t>>; // K D ((H, Hr), B)
   using StrideNewV = StrideNewK;
   using StrideCacheV = StrideCacheK;
   using StrideO = StrideQ;
@@ -198,13 +198,13 @@ struct GenRunner {
     stride_new_k = make_stride(
         _0{},
         _1{},
-        make_stride(make_stride(_0{}, options.d), options.d * options.h_k));
+        make_stride(make_stride(_0{}, static_cast<int64_t>(options.d)), static_cast<int64_t>(options.d * options.h_k)));
     stride_cache_k = make_stride(
         options.d * options.h_k,
         _1{},
         make_stride(
-            make_stride(_0{}, options.d),
-            options.d * options.h_k * options.sk));
+            make_stride(_0{}, static_cast<int64_t>(options.d)),
+            static_cast<int64_t>(options.d * options.h_k * options.sk)));
 
     stride_new_v = stride_new_k;
     stride_cache_v = stride_cache_k;
