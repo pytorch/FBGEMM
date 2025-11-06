@@ -333,9 +333,9 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     }
                 }
             }
-            {%- endif %}
+            {%- endif %}{#-/* if not ssd and not dense and not use_vec_blocking and not vbe */#}
             for (; j < kWarpSize && l_start + j < L; ++j) {
-            {%- else %} // if is_rocm
+            {%- else %}{#-/* if is_rocm*/#}
             for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
             {%- endif %} // if is_rocm
                 const auto offset_idx_j = shfl_sync(offset_idx, j);
