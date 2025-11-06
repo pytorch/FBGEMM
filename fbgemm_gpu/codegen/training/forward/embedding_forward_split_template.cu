@@ -6,10 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-{#
 // @lint-ignore LINTIGNORE
 // @lint-ignore-every CLANGFORMAT
 // clang-format off
+{#
 // Note: clang-format off doesn't work with this templaterized code,
 // so we need to keep lint-ignore-every.
 // See https://fburl.com/dw9ljh4h
@@ -391,7 +391,12 @@ batch_index_select_dim0_codegen_forward_cuda(
     const int64_t iter,
     const double gwd_lower_bound,
     {%- endif %}
+    {%- if vbe and not dense %}
+    const bool is_experimental,
+    std::optional<Tensor> vbe_output
+    {%- else %}
     const bool is_experimental
+    {%- endif %}
     {%- endif %} {#- /*if is_index_select*/ #}
 ) {
     {%- if not nobag or is_index_select %}
@@ -529,11 +534,24 @@ batch_index_select_dim0_codegen_forward_cuda(
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
 
     {%- if vbe %}
-    // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
+    {%- if dense %}
     output = at::empty(
         {1, vbe_output_size},
         dev_weights.options().dtype(getScalarType(o_dtype))
-    );
+      );
+    {%- else %}
+    // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
+    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(vbe_row_output_offsets, vbe_output);
+    if (vbe_output.has_value()){
+      output = vbe_output.value().reshape({1, -1});
+    }
+    else {
+      output = at::empty(
+        {1, vbe_output_size},
+        dev_weights.options().dtype(getScalarType(o_dtype))
+      );
+    }
+    {%- endif %} {#-/* if dense */#}
     {%- else %}
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
@@ -702,12 +720,7 @@ batch_index_select_dim0_codegen_forward_cuda(
             // kFixedMaxVecsPerThread instead of kMaxVecsPerThread. But
             // kMaxVecsPerThread and kFixedMaxVecsPerThread are the same
             // forward
-            {%- if is_rocm %}
-            // Account for Vec2 load for ROCm
-            constexpr auto kMaxVecsPerThread = 2 * kFixedMaxVecsPerThread;
-            {%- else %}
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
-            {%- endif %}
 
             const auto grid = min(
               div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
@@ -781,9 +794,14 @@ batch_index_select_dim0_codegen_forward_cuda(
         // if (!is_experimental)
         } else {
             // Allocate num warps per table based on max_D
+            
             const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
-            const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
-
+            #ifdef USE_ROCM
+              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2);
+            #else
+              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
+            #endif
+            
             const auto kernel_func =
               (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
                                   emb_t, cache_t, output_t, index_t, true>
@@ -877,7 +895,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    int iter, "
           "    float gwd_lower_bound, "
           {%- endif %}
+          {%- if vbe and not dense %}
+          "    bool is_experimental,"
+          "    Tensor? vbe_output"
+          {%- else %}
           "    bool is_experimental"
+          {%- endif %}
           ") -> Tensor"
           {%- if not dense and not nobag and not vbe %}
           // only split_embedding_codegen_forward_[un]weighted_cuda

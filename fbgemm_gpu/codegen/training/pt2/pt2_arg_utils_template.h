@@ -21,7 +21,7 @@ enum ArgIndex_{{ name }} {
   {%- for var in aux_args[name] %}
   IDX_{{ var | upper }} = {{ loop.index - 1 }},
   {%- endfor %}
-  {{ name | upper }}_SIZE = {{ name | length }}
+  {{ name | upper }}_SIZE = {{ aux_args[name] | length }}
 };
 {%- endfor %}
 

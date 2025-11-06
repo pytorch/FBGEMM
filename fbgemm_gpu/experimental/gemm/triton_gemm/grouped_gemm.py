@@ -509,14 +509,13 @@ def _fbgemm_grouped_gemm_ws(
             num_tiles = num_m_tiles * NUM_N_TILES
 
             if USE_TMA_STORE:
-                with tl.async_task([0]):
-                    c_desc_ptr = tl.make_tensor_descriptor(
-                        c_ptr + M_start_offset * N,
-                        shape=[m_size, N],
-                        # pyre-ignore
-                        strides=[N, 1],
-                        block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
-                    )
+                c_desc_ptr = tl.make_tensor_descriptor(
+                    c_ptr + M_start_offset * N,
+                    shape=[m_size, N],
+                    # pyre-ignore
+                    strides=[N, 1],
+                    block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
+                )
 
             # Move across tiles
             next_iterated_tiles = iterated_tiles + num_tiles
@@ -534,72 +533,59 @@ def _fbgemm_grouped_gemm_ws(
                     m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
                     n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
                     for k_offset in range(0, K, BLOCK_SIZE_K):
-                        with tl.async_task([0]):
-                            a = tl._experimental_descriptor_load(
-                                a_desc_ptr,
-                                [m_offset, k_offset],
-                                [BLOCK_SIZE_M, BLOCK_SIZE_K],
-                                dtype,
-                            )
-                            b = tl._experimental_descriptor_load(
-                                b_desc_ptr,
-                                [n_offset, k_offset],
-                                [BLOCK_SIZE_N, BLOCK_SIZE_K],
-                                dtype,
-                            )
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            if USE_FAST_ACCUM:
-                                accumulator = tl.dot(a, b.T, accumulator)
-                            else:
-                                accumulator += tl.dot(a, b.T)
+                        a = tl._experimental_descriptor_load(
+                            a_desc_ptr,
+                            [m_offset, k_offset],
+                            [BLOCK_SIZE_M, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        b = tl._experimental_descriptor_load(
+                            b_desc_ptr,
+                            [n_offset, k_offset],
+                            [BLOCK_SIZE_N, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        if USE_FAST_ACCUM:
+                            accumulator = tl.dot(a, b.T, accumulator)
+                        else:
+                            accumulator += tl.dot(a, b.T)
 
                     if USE_TMA_STORE:
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                            n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
-                            # pyre-ignore
-                            c_desc_ptr.store(
-                                [m_offset, n_offset],
-                                accumulator.to(c_ptr.dtype.element_ty),
-                            )
+                        m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                        n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                        # pyre-ignore
+                        c_desc_ptr.store(
+                            [m_offset, n_offset],
+                            accumulator.to(c_ptr.dtype.element_ty),
+                        )
                     elif FUSE_SCATTER_ADD:
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
-                                0, BLOCK_SIZE_M
-                            )
-                            mask = offs_am < m_size
-                            m_offsets = tl.load(
-                                scatter_add_indices + M_start_offset + offs_am,
-                                mask=mask,
-                                cache_modifier=".ca",
-                            )
-                            offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(
-                                0, BLOCK_SIZE_N
-                            )
-                            c = accumulator.to(c_ptr.dtype.element_ty)
-                            tl.atomic_add(
-                                c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
-                                c,
-                                mask=mask[:, None],
-                                sem="relaxed",
-                            )
+                        offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                        mask = offs_am < m_size
+                        m_offsets = tl.load(
+                            scatter_add_indices + M_start_offset + offs_am,
+                            mask=mask,
+                            cache_modifier=".ca",
+                        )
+                        offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                        c = accumulator.to(c_ptr.dtype.element_ty)
+                        tl.atomic_add(
+                            c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
+                            c,
+                            mask=mask[:, None],
+                            sem="relaxed",
+                        )
                     else:
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
-                                0, BLOCK_SIZE_M
-                            )
-                            offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(
-                                0, BLOCK_SIZE_N
-                            )
-                            c = accumulator.to(c_ptr.dtype.element_ty)
-                            tl.store(
-                                c_ptr
-                                + (M_start_offset + offs_am[:, None]) * N
-                                + offs_bn[None, :],
-                                c,
-                                mask=offs_am[:, None] < m_size,
-                                cache_modifier=".cs",
-                            )
+                        offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                        offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                        c = accumulator.to(c_ptr.dtype.element_ty)
+                        tl.store(
+                            c_ptr
+                            + (M_start_offset + offs_am[:, None]) * N
+                            + offs_bn[None, :],
+                            c,
+                            mask=offs_am[:, None] < m_size,
+                            cache_modifier=".cs",
+                        )
                     tidx += NUM_SMS
 
             iterated_tiles += num_tiles
@@ -841,14 +827,13 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
             num_tiles = num_m_tiles * NUM_N_TILES
 
             if USE_TMA_STORE:
-                with tl.async_task([0]):
-                    c_desc_ptr = tl.make_tensor_descriptor(
-                        c_ptr + M_start_offset * N,
-                        shape=[m_size, N],
-                        # pyre-ignore
-                        strides=[N, 1],
-                        block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
-                    )
+                c_desc_ptr = tl.make_tensor_descriptor(
+                    c_ptr + M_start_offset * N,
+                    shape=[m_size, N],
+                    # pyre-ignore
+                    strides=[N, 1],
+                    block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
+                )
 
             # Move across tiles
             next_iterated_tiles = iterated_tiles + num_tiles
@@ -867,107 +852,85 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
                     m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
                     n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
                     for k_offset in range(0, K, BLOCK_SIZE_K):
-                        with tl.async_task([0]):
-                            a = tl._experimental_descriptor_load(
-                                a_desc_ptr,
-                                [m_offset, k_offset],
-                                [BLOCK_SIZE_M, BLOCK_SIZE_K],
-                                dtype,
-                            )
-                            b = tl._experimental_descriptor_load(
-                                b_desc_ptr,
-                                [n_offset, k_offset],
-                                [BLOCK_SIZE_N, BLOCK_SIZE_K],
-                                dtype,
-                            )
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            if USE_FAST_ACCUM:
-                                accumulator = tl.dot(a, b.T, accumulator)
-                            else:
-                                accumulator += tl.dot(a, b.T)
+                        a = tl._experimental_descriptor_load(
+                            a_desc_ptr,
+                            [m_offset, k_offset],
+                            [BLOCK_SIZE_M, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        b = tl._experimental_descriptor_load(
+                            b_desc_ptr,
+                            [n_offset, k_offset],
+                            [BLOCK_SIZE_N, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        if USE_FAST_ACCUM:
+                            accumulator = tl.dot(a, b.T, accumulator)
+                        else:
+                            accumulator += tl.dot(a, b.T)
 
                     if USE_TMA_LOAD_ON_SCALES:
-                        with tl.async_task([0]):
-                            b_scale = tl._experimental_descriptor_load(
-                                b_scale_desc_ptr,
-                                [n_offset],
-                                [BLOCK_SIZE_N],
-                                tl.float32,
-                            )
+                        b_scale = tl._experimental_descriptor_load(
+                            b_scale_desc_ptr,
+                            [n_offset],
+                            [BLOCK_SIZE_N],
+                            tl.float32,
+                        )
 
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
-                                0, BLOCK_SIZE_M
-                            )
-                            a_scale = tl.load(
-                                a_scale_ptr + M_start_offset + offs_am[:, None],
-                                mask=offs_am[:, None] < m_size,
-                                cache_modifier=".ca",
-                            )
-                            c = accumulator.to(tl.float32) * a_scale * b_scale[None, :]
+                        offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                        a_scale = tl.load(
+                            a_scale_ptr + M_start_offset + offs_am[:, None],
+                            mask=offs_am[:, None] < m_size,
+                            cache_modifier=".ca",
+                        )
+                        c = accumulator.to(tl.float32) * a_scale * b_scale[None, :]
                     else:
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
-                                0, BLOCK_SIZE_M
-                            )
-                            offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(
-                                0, BLOCK_SIZE_N
-                            )
-                            a_scale = tl.load(
-                                a_scale_ptr + M_start_offset + offs_am[:, None],
-                                mask=offs_am[:, None] < m_size,
-                                cache_modifier=".ca",
-                            )
-                            b_scale = tl.load(
-                                b_scale_ptr + N_start_offset + offs_bn[None, :],
-                                cache_modifier=".ca",
-                            )
-                            c = accumulator.to(tl.float32) * a_scale * b_scale
+                        offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                        offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                        a_scale = tl.load(
+                            a_scale_ptr + M_start_offset + offs_am[:, None],
+                            mask=offs_am[:, None] < m_size,
+                            cache_modifier=".ca",
+                        )
+                        b_scale = tl.load(
+                            b_scale_ptr + N_start_offset + offs_bn[None, :],
+                            cache_modifier=".ca",
+                        )
+                        c = accumulator.to(tl.float32) * a_scale * b_scale
 
                     if USE_TMA_STORE:
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                            n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
-                            # pyre-ignore
-                            c_desc_ptr.store(
-                                [m_offset, n_offset], c.to(c_ptr.dtype.element_ty)
-                            )
+                        m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                        n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                        # pyre-ignore
+                        c_desc_ptr.store(
+                            [m_offset, n_offset], c.to(c_ptr.dtype.element_ty)
+                        )
                     elif FUSE_SCATTER_ADD:
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
-                                0, BLOCK_SIZE_M
-                            )
-                            mask = offs_am < m_size
-                            m_offsets = tl.load(
-                                scatter_add_indices + M_start_offset + offs_am,
-                                mask=mask,
-                                cache_modifier=".ca",
-                            )
-                            offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(
-                                0, BLOCK_SIZE_N
-                            )
-                            tl.atomic_add(
-                                c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
-                                c,
-                                mask=mask[:, None],
-                                sem="relaxed",
-                            )
+                        offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                        mask = offs_am < m_size
+                        m_offsets = tl.load(
+                            scatter_add_indices + M_start_offset + offs_am,
+                            mask=mask,
+                            cache_modifier=".ca",
+                        )
+                        offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                        tl.atomic_add(
+                            c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
+                            c,
+                            mask=mask[:, None],
+                            sem="relaxed",
+                        )
                     else:
-                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
-                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
-                                0, BLOCK_SIZE_M
-                            )
-                            offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(
-                                0, BLOCK_SIZE_N
-                            )
-                            tl.store(
-                                c_ptr
-                                + (M_start_offset + offs_am[:, None]) * N
-                                + offs_bn[None, :],
-                                c,
-                                mask=offs_am[:, None] < m_size,
-                                cache_modifier=".cs",
-                            )
+                        offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                        offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                        tl.store(
+                            c_ptr
+                            + (M_start_offset + offs_am[:, None]) * N
+                            + offs_bn[None, :],
+                            c,
+                            mask=offs_am[:, None] < m_size,
+                            cache_modifier=".cs",
+                        )
                     tidx += NUM_SMS
 
             iterated_tiles += num_tiles
