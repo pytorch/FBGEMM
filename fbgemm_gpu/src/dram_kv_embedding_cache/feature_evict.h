@@ -110,6 +110,9 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
       std::optional<std::vector<double>> feature_score_counter_decay_rates,
       std::optional<std::vector<int64_t>> training_id_eviction_trigger_count,
       std::optional<std::vector<int64_t>> training_id_keep_count,
+      std::optional<std::vector<int8_t>>
+          enable_eviction_for_feature_score_eviction_policy, // 0: no eviction,
+                                                             // 1: evict
       std::optional<std::vector<double>> l2_weight_thresholds,
       std::optional<std::vector<int64_t>> embedding_dims,
       std::optional<double> threshold_calculation_bucket_stride = 0.2,
@@ -129,6 +132,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         training_id_eviction_trigger_count_(
             std::move(training_id_eviction_trigger_count)),
         training_id_keep_count_(std::move(training_id_keep_count)),
+        enable_eviction_for_feature_score_eviction_policy_(
+            std::move(enable_eviction_for_feature_score_eviction_policy)),
         l2_weight_thresholds_(l2_weight_thresholds),
         embedding_dims_(embedding_dims),
         threshold_calculation_bucket_stride_(
@@ -169,10 +174,17 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         CHECK(
             training_id_eviction_trigger_count_.has_value() &&
             !training_id_eviction_trigger_count_.value().empty());
+        CHECK(enable_eviction_for_feature_score_eviction_policy_.has_value());
+        const auto& enable_eviction_vec =
+            enable_eviction_for_feature_score_eviction_policy_.value();
         const auto& vec = training_id_eviction_trigger_count_.value();
         eviction_trigger_stats_log = ", training_id_eviction_trigger_count: [";
         total_id_eviction_trigger_count_ = 0;
         for (size_t i = 0; i < vec.size(); ++i) {
+          if (enable_eviction_vec[i] == 0) {
+            throw std::runtime_error(
+                "ID_COUNT trigger mode doesn't not support enable_eviction=False, please use FREE_MEM trigger mode instead");
+          }
           total_id_eviction_trigger_count_ =
               total_id_eviction_trigger_count_.value() + vec[i];
           if (vec[i] <= 0) {
@@ -212,6 +224,7 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         CHECK(threshold_calculation_bucket_stride_.has_value());
         CHECK(threshold_calculation_bucket_num_.has_value());
         CHECK(ttls_in_mins_.has_value());
+        CHECK(enable_eviction_for_feature_score_eviction_policy_.has_value());
         LOG(INFO) << "eviction config, trigger mode:"
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
@@ -223,7 +236,9 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << ", threshold_calculation_bucket_num: "
                   << threshold_calculation_bucket_num_.value()
                   << ", feature_score_counter_decay_rates: "
-                  << feature_score_counter_decay_rates_.value();
+                  << feature_score_counter_decay_rates_.value()
+                  << ", enable_eviction_for_feature_score_eviction_policy: "
+                  << enable_eviction_for_feature_score_eviction_policy_.value();
         return;
       }
 
@@ -281,6 +296,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
   std::optional<std::vector<double>> feature_score_counter_decay_rates_;
   std::optional<std::vector<int64_t>> training_id_eviction_trigger_count_;
   std::optional<std::vector<int64_t>> training_id_keep_count_;
+  std::optional<std::vector<int8_t>>
+      enable_eviction_for_feature_score_eviction_policy_;
   std::optional<int64_t> total_id_eviction_trigger_count_;
   std::optional<std::vector<double>> l2_weight_thresholds_;
   std::optional<std::vector<int64_t>> embedding_dims_;
@@ -984,6 +1001,8 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       const std::vector<int64_t>& training_id_eviction_trigger_count,
       const std::vector<int64_t>& training_id_keep_count,
       const std::vector<int64_t>& ttls_in_mins,
+      const std::vector<int8_t>&
+          enable_eviction_for_feature_score_eviction_policy,
       const double threshold_calculation_bucket_stride,
       const int64_t threshold_calculation_bucket_num,
       int64_t interval_for_insufficient_eviction_s,
@@ -1003,6 +1022,8 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         training_id_eviction_trigger_count_(training_id_eviction_trigger_count),
         training_id_keep_count_(training_id_keep_count),
         ttls_in_mins_(ttls_in_mins),
+        enable_eviction_for_feature_score_eviction_policy_(
+            enable_eviction_for_feature_score_eviction_policy),
         threshold_calculation_bucket_stride_(
             threshold_calculation_bucket_stride),
         num_buckets_(threshold_calculation_bucket_num),
@@ -1071,6 +1092,13 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
  protected:
   bool evict_block(weight_type* block, int sub_table_id, int shard_id)
       override {
+    int8_t enable_eviction =
+        enable_eviction_for_feature_score_eviction_policy_[sub_table_id];
+    if (enable_eviction == 0) {
+      // If enable_eviction is set to 0, we don't evict any block.
+      return false;
+    }
+
     double ttls_threshold = ttls_in_mins_[sub_table_id];
     if (ttls_threshold > 0) {
       auto current_time = FixedBlockPool::current_timestamp();
@@ -1145,6 +1173,15 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
   void compute_thresholds_from_buckets() {
     for (size_t table_id = 0; table_id < num_tables_; ++table_id) {
+      int8_t enable_eviction =
+          enable_eviction_for_feature_score_eviction_policy_[table_id];
+      if (enable_eviction == 0) {
+        // If enable_eviction is set to 0, we don't evict any block.
+        thresholds_[table_id] = 0.0;
+        evict_modes_[table_id] = EvictMode::NONE;
+        continue;
+      }
+
       int64_t total = 0;
 
       if (ttls_in_mins_[table_id] > 0) {
@@ -1209,7 +1246,8 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
                 << " threshold bucket: " << threshold_bucket
                 << " actual evict count: " << acc_count
                 << " target evict count: " << evict_count
-                << " total count: " << total;
+                << " total count: " << total
+                << " evict mode: " << to_string(evict_modes_[table_id]);
 
       for (int table_id = 0; table_id < num_tables_; ++table_id) {
         this->metrics_.eviction_threshold_with_dry_run[table_id] =
@@ -1226,6 +1264,16 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
     THRESHOLD // blocks with scores below the computed threshold will be
               // evicted
   };
+  inline std::string to_string(EvictMode mode) {
+    switch (mode) {
+      case EvictMode::NONE:
+        return "NONE";
+      case EvictMode::ONLY_ZERO:
+        return "ONLY_ZERO";
+      case EvictMode::THRESHOLD:
+        return "THRESHOLD";
+    }
+  }
   std::vector<EvictMode> evict_modes_;
 
   const int num_tables_ = static_cast<int>(this->sub_table_hash_cumsum_.size());
@@ -1240,6 +1288,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
                                // eviction.
 
   const std::vector<int64_t>& ttls_in_mins_; // Time-to-live for eviction.
+  const std::vector<int8_t>& enable_eviction_for_feature_score_eviction_policy_;
   std::vector<std::vector<std::vector<size_t>>>
       local_buckets_per_shard_per_table_;
   std::vector<std::vector<size_t>> local_blocks_num_per_shard_per_table_;
@@ -1489,6 +1538,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->training_id_eviction_trigger_count_.value(),
           config->training_id_keep_count_.value(),
           config->ttls_in_mins_.value(),
+          config->enable_eviction_for_feature_score_eviction_policy_.value(),
           config->threshold_calculation_bucket_stride_.value(),
           config->threshold_calculation_bucket_num_.value(),
           config->interval_for_insufficient_eviction_s_,
