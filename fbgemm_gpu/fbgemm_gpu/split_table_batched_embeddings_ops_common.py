@@ -253,7 +253,7 @@ class KVZCHParams(NamedTuple):
         ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
 
 
-class KVZCHEvictionTBEConfig(NamedTuple):
+class KVZCHTBEConfig(NamedTuple):
     # Eviction trigger model for kvzch table: 0: disabled, 1: iteration, 2: mem_util, 3: manual, 4: id count, 5: free_mem
     kvzch_eviction_trigger_mode: int = 2  # mem_util
     # Minimum free memory (in GB) required before triggering eviction when using free_mem trigger mode.
