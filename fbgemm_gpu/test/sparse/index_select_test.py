@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
@@ -238,6 +238,34 @@ class IndexSelectTest(unittest.TestCase):
             "gradient",
             {"rtol": 1e-02, "atol": 1e-02} if dtype == torch.half else {},
         )
+
+    @unittest.skipIf(not gpu_available, "CUDA not available")
+    def test_group_index_select_dim0_duplicate_gradients(self) -> None:
+        device = torch.device("cuda")
+        dtype = torch.float
+
+        num_rows = 4
+        num_cols = 9
+        indices = torch.tensor([0, 1, 2, 1, 0, 2], dtype=torch.long, device=device)
+
+        input_tensor = torch.randn(
+            (num_rows, num_cols), dtype=dtype, device=device
+        ).requires_grad_(True)
+
+        output_group = torch.ops.fbgemm.group_index_select_dim0(
+            [input_tensor], [indices]
+        )
+        output = output_group[0]
+
+        grad = torch.arange(
+            output.numel(), dtype=dtype, device=device
+        ).view_as(output)
+        output.backward(grad)
+
+        ref_grad = torch.zeros_like(input_tensor)
+        ref_grad.index_add_(0, indices, grad)
+
+        torch.testing.assert_close(input_tensor.grad, ref_grad)
 
     @given(
         num_inputs=st.integers(0, 100),
