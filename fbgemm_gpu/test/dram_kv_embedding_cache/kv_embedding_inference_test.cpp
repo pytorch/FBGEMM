@@ -39,6 +39,7 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
         std::nullopt,
         std::nullopt,
         std::nullopt,
+        std::nullopt,
         std::vector<int64_t>{EMBEDDING_DIM},
         std::nullopt,
         std::nullopt,
