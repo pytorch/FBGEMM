@@ -140,14 +140,15 @@ struct GenRunner {
   StrideO stride_o;
 
   at::Tensor block_o;
-  at::Tensor q, k, v, seqlen_kv, batch_idx;
+  at::Tensor q, k, v, seqlen_kv;
+  std::optional<at::Tensor> batch_idx;
 
   at::Tensor fmha_fwd(
       const at::Tensor& q_input,
       const at::Tensor& k_input,
       const at::Tensor& v_input,
       const at::Tensor& seqlen_kv_input,
-      const at::Tensor& batch_idx_input) {
+      const std::optional<at::Tensor>& batch_idx_input) {
 
     this->q = q_input;
     this->k = k_input;
@@ -227,7 +228,7 @@ struct GenRunner {
     typename Operation::Arguments arguments{
         problem_shape,
         static_cast<int*>(seqlen_kv.data_ptr()),
-        static_cast<int*>(batch_idx.data_ptr()),
+        static_cast<int*>(batch_idx? batch_idx.value().data_ptr() : nullptr),
         static_cast<Element*>(q.data_ptr()),
         stride_q,
         nullptr,
@@ -294,8 +295,9 @@ at::Tensor dispatch_fmha_gen_fwd(
     const at::Tensor& k,
     const at::Tensor& v,
     const at::Tensor& seqlen_kv,
-    const at::Tensor& batch_idx,
-    int64_t kernel_type) {
+    const std::optional<at::Tensor>& batch_idx,
+    int64_t kernel_type
+  ) {
   const auto device = q.device();
   at::cuda::CUDAGuard device_guard(device);
 
@@ -318,7 +320,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor key, "
         "    Tensor value, "
         "    Tensor seqlen_kv, "
-        "    Tensor batch_idx, "
+        "    Tensor? batch_idx = None,"
         "    int kernel_type = 0"
         ") -> Tensor"
   );

@@ -19,6 +19,8 @@
 
 using namespace cutlass;
 
+#include <optional>
+
 enum class KernelType { UMMA_I = 0, UMMA_P = 1 };
 
 // Template function definition for type conversion
@@ -44,5 +46,5 @@ at::Tensor dispatch_fmha_gen_fwd(
     const at::Tensor& k,
     const at::Tensor& v,
     const at::Tensor& seqlen_kv,
-    const at::Tensor& batch_idx,
+    const std::optional<at::Tensor>& batch_idx,
     int64_t kernel_type);
