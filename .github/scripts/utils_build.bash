@@ -132,7 +132,7 @@ __conda_install_gcc () {
   # https://gcc.gnu.org/onlinedocs/libstdc++/manual/status.html#manual.intro.status.iso
   #
   # shellcheck disable=SC2155
-  local gcc_version="${GCC_VERSION:-14.3.0}"
+  local gcc_version="${GCC_VERSION:-11.4.0}"
 
   echo "[INSTALL] Installing GCC (${gcc_version}, ${COMPILER_ARCHNAME}) through Conda ..."
   # shellcheck disable=SC2086

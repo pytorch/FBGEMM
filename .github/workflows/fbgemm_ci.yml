@@ -48,7 +48,7 @@ jobs:
         compiler: [
           # NOTE: GCC 9 is still used when building FBGEMM as part of PyTorch
           { name: gcc, version: 9.5.0 },
-          { name: gcc, version: 14.1.0 },
+          { name: gcc, version: 14.3.0 },
           { name: clang, version: 16.0.6 }
         ]
         exclude:
