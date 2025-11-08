@@ -15,18 +15,11 @@ from einops import rearrange
 from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
     cutlass_blackwell_fmha_func,
 )
-from hypothesis import HealthCheck, Verbosity
 from parameterized import parameterized
 
 from .attention_ref_fp8 import attention_ref_fp8
 from .test_utils import attention_ref, generate_qkv, generate_random_padding_mask
 
-common_settings = {
-    "verbosity": Verbosity.normal,
-    "max_examples": 200,
-    "deadline": None,
-    "suppress_health_check": [HealthCheck.filter_too_much, HealthCheck.data_too_large],
-}
 
 DEBUG = False
 SEED = 2

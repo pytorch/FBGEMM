@@ -737,6 +737,7 @@ static auto feature_evict_config =
                 std::optional<std::vector<double>>,
                 std::optional<std::vector<int64_t>>,
                 std::optional<std::vector<int64_t>>,
+                std::optional<std::vector<int8_t>>,
                 std::optional<std::vector<double>>,
                 std::optional<std::vector<int64_t>>,
                 std::optional<double>,
@@ -756,6 +757,9 @@ static auto feature_evict_config =
                 torch::arg("feature_score_counter_decay_rates") = std::nullopt,
                 torch::arg("training_id_eviction_trigger_count") = std::nullopt,
                 torch::arg("training_id_keep_count") = std::nullopt,
+                torch::arg(
+                    "enable_eviction_for_feature_score_eviction_policy") =
+                    std::nullopt,
                 torch::arg("l2_weight_thresholds") = std::nullopt,
                 torch::arg("embedding_dims") = std::nullopt,
                 torch::arg("threshold_calculation_bucket_stride") = 0.2,

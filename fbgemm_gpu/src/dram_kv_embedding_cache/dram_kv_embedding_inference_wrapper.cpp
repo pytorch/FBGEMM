@@ -76,6 +76,7 @@ void DramKVEmbeddingInferenceWrapper::init(
           std::nullopt /* feature_score_counter_decay_rates */,
           std::nullopt /* training_id_eviction_trigger_count */,
           std::nullopt /* training_id_keep_count */,
+          std::nullopt /* enable_eviction_for_feature_score_eviction_policy */,
           std::nullopt /* l2_weight_thresholds */,
           std::nullopt /* embedding_dims */,
           std::nullopt /* threshold_calculation_bucket_stride */,

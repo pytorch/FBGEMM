@@ -120,6 +120,9 @@ class EvictionPolicy(NamedTuple):
     eviction_free_mem_check_interval_batch: Optional[int] = (
         None  # Number of batches between checks for free memory threshold when using free_mem trigger mode.
     )
+    enable_eviction_for_feature_score_eviction_policy: Optional[list[bool]] = (
+        None  # enable eviction if eviction policy is feature score, false means no eviction
+    )
 
     def validate(self) -> None:
         assert self.eviction_trigger_mode in [0, 1, 2, 3, 4, 5], (
@@ -217,13 +220,17 @@ class EvictionPolicy(NamedTuple):
                 "threshold_calculation_bucket_num must be set if eviction_strategy is 5,"
                 f"actual {self.threshold_calculation_bucket_num}"
             )
+            assert self.enable_eviction_for_feature_score_eviction_policy is not None, (
+                "enable_eviction_for_feature_score_eviction_policy must be set if eviction_strategy is 5,"
+                f"actual {self.enable_eviction_for_feature_score_eviction_policy}"
+            )
             assert (
-                len(self.training_id_keep_count)
+                len(self.enable_eviction_for_feature_score_eviction_policy)
+                == len(self.training_id_keep_count)
                 == len(self.feature_score_counter_decay_rates)
-                == len(self.training_id_eviction_trigger_count)
             ), (
-                "feature_score_thresholds, training_id_eviction_trigger_count and training_id_keep_count must have the same length, "
-                f"actual {self.training_id_keep_count} vs {self.feature_score_counter_decay_rates} vs {self.training_id_eviction_trigger_count}"
+                "feature_score_thresholds, enable_eviction_for_feature_score_eviction_policy, and training_id_keep_count must have the same length, "
+                f"actual {self.training_id_keep_count} vs {self.feature_score_counter_decay_rates} vs {self.enable_eviction_for_feature_score_eviction_policy}"
             )
 
 
