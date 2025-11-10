@@ -232,17 +232,13 @@ def cutlass_blackwell_fmha_decode_forward(
     q, k, v, batch_size, needs_reshape_output, original_shape = _prepare_decode_inputs(
         q, k, v
     )
-
-    # Create batch_idx tensor
-    batch_idx = torch.arange(batch_size, dtype=torch.int32, device=q.device)
-
     # Call the gen kernel (optimized for decode)
     out = torch.ops.fbgemm.fmha_gen_fwd(
         q,
         k,
         v,
         seqlen_kv,
-        batch_idx,
+        None,
         kernel_type=GenKernelType.UMMA_I,
         # window_left=window_left,
         # window_right=window_right,
