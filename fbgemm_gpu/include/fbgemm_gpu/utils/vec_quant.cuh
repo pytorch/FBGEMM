@@ -253,8 +253,30 @@ DEVICE_INLINE T warpReduceSum(T val, uint32_t warp_mask = FINAL_MASK) {
 template <typename T>
 DEVICE_INLINE T warpReduceMax(T val, uint32_t warp_mask = FINAL_MASK) {
 #pragma unroll
-  for (int mask = 16; mask > 0; mask >>= 1)
-    val = max(val, shfl_xor(warp_mask, val, mask, 32));
+  for (int offset = 16; offset > 0; offset >>= 1) {
+#ifdef __HIP_PLATFORM_AMD__
+    val = max(val, shfl_xor(warp_mask, val, offset, 32));
+#else
+    val = fmaxf(val, __shfl_down_sync(warp_mask, val, offset));
+#endif
+  }
+  return val;
+}
+
+__inline__ __device__ float blockReduceMax(float val) {
+  static __shared__ float shared[32];
+  uint32_t lane = threadIdx.x & 31;
+  uint32_t wid = threadIdx.x >> 5;
+  val = warpReduceMax(val);
+  if (lane == 0)
+    shared[wid] = val; // write per‑warp result
+  __syncthreads();
+  // read by first warp
+  if (wid == 0) {
+    int numWarps = (blockDim.x + 31) >> 5;
+    val = (lane < numWarps) ? shared[lane] : -1e20f;
+    val = warpReduceMax(val);
+  }
   return val;
 }
 

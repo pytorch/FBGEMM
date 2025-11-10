@@ -647,13 +647,14 @@ class FP8RowwiseGemm(QuantizeOpBase):
     def __init__(self):
         self.fast_accum = True
         self.gemm_op = torch.ops.fbgemm.f8f8bf16_rowwise
+        self.quantize_op = quantize_fp8_row
 
     def preprocess(self, x, w):
         # Prequantize weights.
         if isinstance(w, (list, tuple)):
-            wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
+            wq, w_scale = zip(*[self.quantize_op(i) for i in w])
         else:
-            wq, w_scale = quantize_fp8_row(w)
+            wq, w_scale = self.quantize_op(w)
             if wq.dim() == 3:
                 w_scale = w_scale.view(wq.size(0), -1)
         return x, wq, w_scale
@@ -662,9 +663,9 @@ class FP8RowwiseGemm(QuantizeOpBase):
         # Quantize both input tensors.
         # Handle both grouped and standard gemm.
         if isinstance(x, (list, tuple)):
-            xq, x_scale = zip(*[quantize_fp8_row(i) for i in x])
+            xq, x_scale = zip(*[self.quantize_op(i) for i in x])
         else:
-            xq, x_scale = quantize_fp8_row(x)
+            xq, x_scale = self.quantize_op(x)
             # Set proper batch dimension shapes.
             if xq.dim() == 3:
                 x_scale = x_scale.view(xq.size(0), -1)
