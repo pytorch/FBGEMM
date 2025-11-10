@@ -565,6 +565,7 @@ class SSDCheckpointTest(unittest.TestCase):
             ],  # count_decay_rates for each table if eviction strategy is feature score
             interval_for_insufficient_eviction_s=0,
             interval_for_sufficient_eviction_s=0,
+            enable_eviction_for_feature_score_eviction_policy=[True, True, True, True],
         )
         dram_kv_backend = self.generate_fbgemm_kv_backend(
             max_D=max_D,
@@ -837,6 +838,7 @@ class SSDCheckpointTest(unittest.TestCase):
             ],  # count_decay_rates for each table if eviction strategy is feature score
             interval_for_insufficient_eviction_s=0,
             interval_for_sufficient_eviction_s=0,
+            enable_eviction_for_feature_score_eviction_policy=[True, True, True, True],
         )
         dram_kv_backend = self.generate_fbgemm_kv_backend(
             max_D=max_D,
@@ -969,6 +971,7 @@ class SSDCheckpointTest(unittest.TestCase):
             interval_for_insufficient_eviction_s=0,
             interval_for_sufficient_eviction_s=0,
             interval_for_feature_statistics_decay_s=10000,
+            enable_eviction_for_feature_score_eviction_policy=[True, True, True, True],
         )
         dram_kv_backend = self.generate_fbgemm_kv_backend(
             max_D=max_D,
@@ -1118,6 +1121,7 @@ class SSDCheckpointTest(unittest.TestCase):
             interval_for_insufficient_eviction_s=0,
             interval_for_sufficient_eviction_s=0,
             interval_for_feature_statistics_decay_s=10000,
+            enable_eviction_for_feature_score_eviction_policy=[True, True, True, True],
         )
         dram_kv_backend = self.generate_fbgemm_kv_backend(
             max_D=max_D,
