@@ -1206,6 +1206,16 @@ def all_to_one_device(
     ]
 
 
+def sum_reduce_to_one(
+    input_tensors: list[Tensor],
+    target_device: torch.device,
+) -> Tensor:
+    torch._check(len(input_tensors) > 0, lambda: "reducing no tensor is undefined")
+    # All tensors should have the same shape
+    first_tensor = input_tensors[0]
+    return torch.empty_like(first_tensor, device=torch.device("meta"))
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1281,6 +1291,7 @@ def _setup() -> None:
         impl_abstract("fbgemm::segment_sum_csr", segment_sum_csr_abstract)
         impl_abstract("fbgemm::dense_to_jagged_forward", dense_to_jagged_forward)
         impl_abstract("fbgemm::all_to_one_device", all_to_one_device)
+        impl_abstract("fbgemm::sum_reduce_to_one", sum_reduce_to_one)
         impl_abstract(
             "fbgemm::batch_index_select_dim0", batch_index_select_dim0_abstract
         )
