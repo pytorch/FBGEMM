@@ -36,7 +36,7 @@ typedef float floatx2_t __attribute__((ext_vector_type(2)));
 #define AMDGCN_BUFFER_RES_3 0x00027000
 #define AMDGCN_WAVE_SIZE 64
 #define THREADS_PER_ROW 64
-#define BLOCK_SIZE 256
+#define BLOCK_SIZE_ROCM 256
 
 namespace fbgemm_gpu::rocm {
 template <typename T>

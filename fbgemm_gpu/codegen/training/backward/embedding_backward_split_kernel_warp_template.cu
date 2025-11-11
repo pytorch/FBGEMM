@@ -655,7 +655,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
         cache_t,
         grad_t,
         index_t,
-        BLOCK_SIZE,
+        BLOCK_SIZE_ROCM,
         embedding_dim,
         segment_prefetch,
         segment_unroll,
