@@ -290,37 +290,6 @@ struct GenRunner {
     }                                                                         \
   }()
 
-// Dispatch macro for head dimension
-#define DISPATCH_HEAD_DIM(HEAD_DIM, HEAD_DIM_VALUE, ...)        \
-  [&] {                                                         \
-    if (HEAD_DIM == 128) {                                      \
-      constexpr int HEAD_DIM_VALUE = 128;                       \
-      return __VA_ARGS__();                                     \
-    } else if (HEAD_DIM == 64) {                                \
-      constexpr int HEAD_DIM_VALUE = 64;                        \
-      return __VA_ARGS__();                                     \
-    } else {                                                    \
-      throw std::runtime_error(                                 \
-          "Unsupported head dim: " + std::to_string(HEAD_DIM)); \
-    }                                                           \
-  }()
-
-template <typename Element, KernelType KType, int HeadDim>
-at::Tensor run_gen_runner_fwd(
-    const at::Tensor& q,
-    const at::Tensor& k,
-    const at::Tensor& v,
-    const at::Tensor& seqlen_kv,
-    const at::Tensor& batch_idx) {
-  if constexpr (HeadDim == 128) {
-    GenRunner<Element, KType, Shape<_64, _128, _128>, Shape<_1, _1, _1>> runner;
-    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx);
-  } else if constexpr (HeadDim == 64) {
-    GenRunner<Element, KType, Shape<_64, _128, _64>, Shape<_1, _1, _1>> runner;
-    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx);
-  }
-}
-
 at::Tensor dispatch_fmha_gen_fwd(
     const at::Tensor& q,
     const at::Tensor& k,
@@ -331,17 +300,16 @@ at::Tensor dispatch_fmha_gen_fwd(
   ) {
   const auto device = q.device();
   at::cuda::CUDAGuard device_guard(device);
-  const int head_dim = q.size(q.dim() - 1);
 
   return DISPATCH_ELEMENT_TYPE(q.scalar_type(), Element, [&] {
     return DISPATCH_KERNEL_TYPE(static_cast<int>(kernel_type), KType, [&] {
-      return DISPATCH_HEAD_DIM(head_dim, HeadDim, [&] {
-        return run_gen_runner_fwd<Element, KType, HeadDim>(
-            q, k, v, seqlen_kv, batch_idx);
-      });
+      GenRunner<Element, KType, Shape<_64, _128, _128>, Shape<_1, _1, _1>>
+          runner;
+      return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx);
     });
   });
 }
+
 
 // -------------------------------------------------------------------------------------------------
 // Op registration
