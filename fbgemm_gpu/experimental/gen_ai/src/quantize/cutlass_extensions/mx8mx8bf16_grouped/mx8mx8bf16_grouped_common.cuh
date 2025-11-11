@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cutlass/util/device_memory.h>
 #include <cutlass/util/packed_stride.hpp>
 
@@ -62,6 +63,7 @@ at::Tensor mx8mx8bf16_grouped_impl(
     at::Tensor output,
     int64_t G,
     at::Tensor offsets) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
   // The number of groups the kernel uses may vary.
   int kernel_groups = G;
 

@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 
 #include "cutlass_extensions/include/threadblock.h"
 
@@ -19,6 +20,8 @@ at::Tensor i8i8bf16_impl(
     at::Tensor WQ, // INT8
     double scale,
     int64_t split_k) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   auto M = XQ.size(0);
   auto N = WQ.size(0);
   auto K = XQ.size(1);
@@ -257,7 +260,8 @@ at::Tensor i8i8bf16sm90a_impl(
   size_t workspace_size = Gemm::get_workspace_size(arguments);
 
   // Allocate workspace memory
-  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+  at::Tensor workspace =
+      at::empty(workspace_size, XQ.options().dtype(at::kByte));
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm.can_implement(arguments);
@@ -266,7 +270,7 @@ at::Tensor i8i8bf16sm90a_impl(
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.get());
+  status = gemm.initialize(arguments, workspace.data_ptr());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }

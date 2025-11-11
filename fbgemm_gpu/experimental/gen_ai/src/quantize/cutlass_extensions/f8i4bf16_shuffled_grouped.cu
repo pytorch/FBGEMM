@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 
 #include "cutlass/cutlass.h"
 
@@ -134,6 +135,8 @@ void _f8i4bf16_shuffled_grouped(
     at::Tensor w_scale_group,
     at::Tensor M_sizes,
     at::Tensor Y) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   // Get basic shape information.
   int64_t G = M_sizes.size(0);
   // XQ is shape [total_M, K]
@@ -479,6 +482,8 @@ at::Tensor f8i4bf16_shuffled_grouped(
     at::Tensor w_scale,
     at::Tensor w_scale_group,
     at::Tensor M_sizes) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   // X should be shape [total_M, K], W should be shape [G, N, K/2]
   int64_t total_M = XQ.size(0);
   int64_t K = XQ.size(1);
