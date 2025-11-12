@@ -26,6 +26,22 @@ at::Tensor f8f8bf16_conv_128x128x128_1x1x1(
     std::vector<int64_t> stride, // [stride_d, stride_h, stride_w]
     std::vector<int64_t> dilation);
 
+at::Tensor f8f8bf16_conv_128x256x128_1x2x1(
+    at::Tensor activation, // FP8 - NDHWC layout
+    at::Tensor filter, // FP8 - KTRSC layout
+    at::Tensor scale,
+    std::vector<int64_t> padding, // [pad_d, pad_h, pad_w]
+    std::vector<int64_t> stride, // [stride_d, stride_h, stride_w]
+    std::vector<int64_t> dilation);
+
+at::Tensor f8f8bf16_conv_256x128x128_4x1x1(
+    at::Tensor activation, // FP8 - NDHWC layout
+    at::Tensor filter, // FP8 - KTRSC layout
+    at::Tensor scale,
+    std::vector<int64_t> padding, // [pad_d, pad_h, pad_w]
+    std::vector<int64_t> stride, // [stride_d, stride_h, stride_w]
+    std::vector<int64_t> dilation);
+
 at::Tensor f8f8bf16_conv_128x256x128_2x1x1(
     at::Tensor activation, // FP8 - NDHWC layout
     at::Tensor filter, // FP8 - KTRSC layout
@@ -51,6 +67,14 @@ at::Tensor f8f8bf16_conv_256x256x128_2x1x1(
     std::vector<int64_t> dilation);
 
 at::Tensor f8f8bf16_conv_256x256x128_4x1x1(
+    at::Tensor activation, // FP8 - NDHWC layout
+    at::Tensor filter, // FP8 - KTRSC layout
+    at::Tensor scale,
+    std::vector<int64_t> padding, // [pad_d, pad_h, pad_w]
+    std::vector<int64_t> stride, // [stride_d, stride_h, stride_w]
+    std::vector<int64_t> dilation);
+
+at::Tensor f8f8bf16_conv_256x256x128_4x2x1(
     at::Tensor activation, // FP8 - NDHWC layout
     at::Tensor filter, // FP8 - KTRSC layout
     at::Tensor scale,
