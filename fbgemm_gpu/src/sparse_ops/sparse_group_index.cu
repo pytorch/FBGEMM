@@ -35,12 +35,10 @@ constexpr int GROUP_INDEX_SELECT_COLS_PER_WARP_BWD =
 constexpr int GROUP_INDEX_SELECT_LOG_COLS_PER_WARP_BWD =
     log2_calc<GROUP_INDEX_SELECT_COLS_PER_WARP_BWD>::value;
 
-
 int get_group_index_select_cols_per_warp() {
   return GROUP_INDEX_SELECT_COLS_PER_WARP_BWD;
 }
 
-// New: explicit selector
 int get_group_index_select_cols_per_warp(bool use_index_select) {
   return use_index_select ? GROUP_INDEX_SELECT_COLS_PER_WARP_FWD
                           : GROUP_INDEX_SELECT_COLS_PER_WARP_BWD;
@@ -61,7 +59,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     const int64_t* indices_ptrs,
     const int64_t* warp_offsets_group,
     const int32_t* num_cols_group,
-    const int64_t num_work_rows, // number of rows to work on per member
+    const int64_t num_work_rows, 
     const int64_t group_size) {
   const auto total_num_warps = warp_offsets_group[group_size];
   
@@ -87,7 +85,6 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         warps_per_row = (num_cols + COLS_PER_WARP - 1) >> LOG_COLS_PER_WARP;
         member_warp_id = warp_id - warp_offsets_group[member_id];
       } else {
-        // All columns are the same
         num_cols = num_cols_group[0];
         warps_per_row = (num_cols + COLS_PER_WARP - 1) >> LOG_COLS_PER_WARP;
         member_id = warp_id / (warps_per_row * num_work_rows);
@@ -110,8 +107,6 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       }
     }
   } else {
-    // Cache a handful of scatter destinations per warp so we can merge
-    // consecutive updates that hit the same index before touching global memory.
     constexpr int kCacheSlots = 2;
     index_t cached_idx[kCacheSlots];
     scalar_t cached_vals[kCacheSlots][UNROLL_FACTOR];
@@ -299,7 +294,6 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       warps_per_row = (num_cols + COLS_PER_WARP - 1) >> LOG_COLS_PER_WARP;
       member_warp_id = warp_id - warp_offsets_group[member_id];
     } else {
-      // All columns are the same
       num_cols = num_cols_group[0];
       warps_per_row = (num_cols + COLS_PER_WARP - 1) >> LOG_COLS_PER_WARP;
       member_id = warp_id / (warps_per_row * num_work_rows);
@@ -327,7 +321,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       }
     }
   }
-#endif  // USE_ROCM
+#endif 
 }
 
 DLL_PUBLIC void group_index_select_or_add_cuda(
@@ -349,9 +343,7 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
   }
 
   at::cuda::OptionalCUDAGuard device_guard(device);
-
-  // Partition work based on num_work_rows
- uint32_t num_warps_per_threadblock = kMaxThreads / kWarpSize;
+  uint32_t num_warps_per_threadblock = kMaxThreads / kWarpSize;
   uint32_t max_grid_size =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount * 8;
   uint32_t grid_size = std::min(
