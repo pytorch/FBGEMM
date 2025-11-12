@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cutlass/util/device_memory.h>
 #include <cutlass/util/packed_stride.hpp>
 
@@ -139,6 +140,8 @@ at::Tensor f8f8bf16_groupwise_grouped_impl(
     InputType w_scale,
     at::Tensor output,
     at::Tensor M_sizes) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   int64_t G;
   at::TensorOptions options;
   static_assert(

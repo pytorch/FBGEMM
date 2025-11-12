@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 
 #include "bf16bf16bf16_grouped/bf16bf16bf16_grouped_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.cuh"
@@ -758,6 +759,8 @@ at::Tensor dispatch_bf16_grouped_kernel(
 
 template <typename OutputType>
 OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
+  c10::cuda::CUDAGuard deviceGuard(X[0].device());
+
   at::Tensor Y;
   int64_t total_M = 0;
   int64_t G = X.size();
@@ -816,6 +819,8 @@ at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor M_sizes,
     std::optional<at::Tensor> out,
     std::optional<int64_t> num_sms) {
+  c10::cuda::CUDAGuard deviceGuard(X.device());
+
   int64_t total_M = X.size(0);
   int64_t N = W.size(1);
   int64_t K = W.size(2);
@@ -853,6 +858,8 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
   TORCH_CHECK(
       zero_start_index_M.device() == X.device(),
       "zero_start_index_M must be on same device as inputs.");
+  c10::cuda::CUDAGuard deviceGuard(X.device());
+
   int64_t G = X.size(0);
   int64_t M = X.size(1);
   int64_t N = W.size(1);

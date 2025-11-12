@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cutlass/util/host_tensor.h>
 #include <cutlass/util/packed_stride.hpp>
 
@@ -44,6 +45,8 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias,
     std::optional<at::Tensor> output) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   // XQ: M x K
   // WQ: N x K
   // output: M x N
