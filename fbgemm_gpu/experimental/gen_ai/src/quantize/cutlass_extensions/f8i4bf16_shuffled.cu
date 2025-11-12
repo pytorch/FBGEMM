@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 
 #include "cutlass/cutlass.h"
 
@@ -34,6 +35,8 @@ at::Tensor _f8i4bf16_shuffled(
     at::Tensor w_scale,
     at::Tensor w_scale_group,
     at::Tensor Y) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   // Get shape information from input tensors.
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int K = XQ.size(-1);

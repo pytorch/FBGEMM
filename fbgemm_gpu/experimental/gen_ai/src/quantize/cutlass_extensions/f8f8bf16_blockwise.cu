@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cutlass/util/host_tensor.h>
 #include <cutlass/util/packed_stride.hpp>
 
@@ -46,6 +47,7 @@ at::Tensor f8f8bf16_blockwise_impl(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
   // XQ: M x K
   // WQ: N x K
   // output: M x N
@@ -214,7 +216,8 @@ at::Tensor f8f8bf16_blockwise_impl(
   size_t workspace_size = Gemm::get_workspace_size(arguments);
 
   // Allocate workspace memory
-  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+  at::Tensor workspace =
+      at::empty(workspace_size, XQ.options().dtype(at::kByte));
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm.can_implement(arguments);
@@ -223,7 +226,7 @@ at::Tensor f8f8bf16_blockwise_impl(
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.get());
+  status = gemm.initialize(arguments, workspace.data_ptr());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }

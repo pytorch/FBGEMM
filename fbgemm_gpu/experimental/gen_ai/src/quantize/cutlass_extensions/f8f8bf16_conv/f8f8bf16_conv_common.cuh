@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cutlass/util/host_tensor.h>
 #include <cutlass/util/packed_stride.hpp>
 
@@ -42,6 +43,7 @@ at::Tensor f8f8bf16_conv_impl(
     std::vector<int64_t> padding, // [pad_d, pad_h, pad_w]
     std::vector<int64_t> stride, // [stride_d, stride_h, stride_w]
     std::vector<int64_t> dilation) { // [dilation_d, dilation_h, dilation_w]
+  c10::cuda::CUDAGuard deviceGuard(activation.device());
 
   // Extract dimensions from activation (NDHWC)
   TORCH_CHECK(activation.dim() == 5, "Activation must be 5D tensor (NDHWC)");
@@ -218,14 +220,15 @@ at::Tensor f8f8bf16_conv_impl(
   Conv conv;
 
   size_t workspace_size = Conv::get_workspace_size(arguments);
-  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+  at::Tensor workspace =
+      at::empty(workspace_size, activation.options().dtype(at::kByte));
 
   cutlass::Status status = conv.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot implement convolution");
   }
 
-  status = conv.initialize(arguments, workspace.get());
+  status = conv.initialize(arguments, workspace.data_ptr());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize convolution");
   }
