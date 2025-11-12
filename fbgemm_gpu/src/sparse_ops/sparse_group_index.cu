@@ -62,10 +62,11 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     const int64_t num_work_rows, 
     const int64_t group_size) {
   const auto total_num_warps = warp_offsets_group[group_size];
-  
+  int32_t num_cols = 0; 
+  int32_t warps_per_row = 0;
 #ifdef USE_ROCM
   // USE_INDEX_SELECT is a template argument; the compiler prunes the unused branch.
-  if (USE_INDEX_SELECT) {
+  if constexpr (USE_INDEX_SELECT) {
     for (int64_t warp_id = threadIdx.y * gridDim.x + blockIdx.x;
          warp_id < total_num_warps;
          warp_id += gridDim.x * blockDim.y) {
@@ -343,13 +344,25 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
   }
 
   at::cuda::OptionalCUDAGuard device_guard(device);
-  uint32_t num_warps_per_threadblock = kMaxThreads / kWarpSize;
+  uint32_t num_warps_per_threadblock;
+  dim3 block_size;
+  
+  if (use_index_select) {
+    // Forward pass uses EMULATED_WARP_SIZE
+    num_warps_per_threadblock = kMaxThreads / EMULATED_WARP_SIZE;
+    block_size = dim3(EMULATED_WARP_SIZE, num_warps_per_threadblock, 1);
+  } else {
+    // Backward pass uses kWarpSize
+    num_warps_per_threadblock = kMaxThreads / kWarpSize;
+    block_size = dim3(kWarpSize, num_warps_per_threadblock, 1);
+  }
+
   uint32_t max_grid_size =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount * 8;
   uint32_t grid_size = std::min(
       cuda_calc_xblock_count(total_num_warps, num_warps_per_threadblock),
       max_grid_size);
-  dim3 block_size(EMULATED_WARP_SIZE, num_warps_per_threadblock, 1);
+  
 
 #define INVOKE_GROUP_INDEX_SELECT_OR_ADD(USE_INDEX_SELECT, USE_VAR_COLS) \
   FBGEMM_LAUNCH_KERNEL(                                                  \
