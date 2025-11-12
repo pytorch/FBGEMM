@@ -1236,13 +1236,15 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
 
   {%- if has_gpu_support or has_cpu_support %}
 
-  TORCH_WARN_ONCE(aux_tensor.size() <= AUX_TENSOR_SIZE, 
-    "aux_tensor.size() should not be larger than ", 
-    AUX_TENSOR_SIZE,
-    "but found to be  ", 
-    aux_tensor.size(),
-    ". This means frontend package does not match with backend package, so some functionalities might be missing. Please contact FBGEMM team for any assistance."
-  );
+  if (aux_tensor.size() > AUX_TENSOR_SIZE){
+    TORCH_WARN_ONCE( 
+      "aux_tensor.size() should not be larger than ", 
+      AUX_TENSOR_SIZE,
+      " but found to be  ", 
+      aux_tensor.size(),
+      ". This is possibly due to frontend package does not match with backend package, so some functionalities from the backend might be missing. Please contact FBGEMM team for any assistance."
+    );
+  }
 
     {%- if not dense %}
     // Load the config value from JK once
