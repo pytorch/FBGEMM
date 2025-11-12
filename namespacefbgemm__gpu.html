@@ -259,6 +259,8 @@ Functions</h2></td></tr>
 <tr class="separator:a82c2bc63d382fd3881bcb6794b8d5e1d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1c01df2b7cf0269422559226a406c49b" id="r_a1c01df2b7cf0269422559226a406c49b"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, std::optional&lt; Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c01df2b7cf0269422559226a406c49b">pack_segments_forward_cuda_v2</a> (const Tensor &amp;t_in, const Tensor &amp;lengths, const int64_t max_length, const bool pad_minf, const bool return_presence_mask)</td></tr>
 <tr class="separator:a1c01df2b7cf0269422559226a406c49b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1e0d0b15352cec6fd53b0cc2193fc970" id="r_a1e0d0b15352cec6fd53b0cc2193fc970"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, Tensor, std::optional&lt; Tensor &gt;, std::optional&lt; Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e0d0b15352cec6fd53b0cc2193fc970">get_unique_indices_cpu_impl</a> (const Tensor &amp;linear_indices, const int64_t max_indices, const bool compute_count, const bool compute_inverse_indices)</td></tr>
+<tr class="separator:a1e0d0b15352cec6fd53b0cc2193fc970"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>This is a placeholder source file that is used to force compilation and generation of an .SO file. </p>
@@ -459,6 +461,56 @@ template&lt;int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F&
 <p>dev_weights: the loaded tables on device in TBE format uvm_weights: the loaded tables on UVM in TBE format weights_placements: placements for each table weights_offsets: physical offsets for each table weights_tys: weight types for each table D_offsets: table dimensions update_weights: new update weights tensor in TBE format update_table_idx: table indices for every new row update_row_idx: row indices for every new row update_offsets: offsets of new update weights row_alignment: alignment byte for embedding row lxu_cache_weights: the loaded cache weights lxu_cache_locations: the loaded cache location info</p>
 <p>it's guaranteed from upper service level that each row of table will only receive one update at a time.</p>
 <p>This function has embedding update parameters (update_weights, update_table_idx, updata_offsets) and delta embedding weights on the CUDA devices. </p>
+
+</div>
+</div>
+<a id="a1e0d0b15352cec6fd53b0cc2193fc970" name="a1e0d0b15352cec6fd53b0cc2193fc970"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1e0d0b15352cec6fd53b0cc2193fc970">&#9670;&#160;</a></span>get_unique_indices_cpu_impl()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::tuple&lt; Tensor, Tensor, std::optional&lt; Tensor &gt;, std::optional&lt; Tensor &gt; &gt; get_unique_indices_cpu_impl </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>linear_indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em></em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>compute_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>compute_inverse_indices</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>CPU implementation for computing unique indices from a 1D tensor of linear indices.</p>
+<p>This function processes a tensor of linear indices and returns the unique values along with optional metadata (counts and inverse mapping). The implementation uses stable sorting to ensure deterministic ordering of duplicate values, matching the reference Python implementation.</p>
+<p>Example: Input: linear_indices = [20, 0, 10, 10, 0] max_indices = 20 compute_count = true compute_inverse_indices = true Output: unique_indices = [0, 10, 20, x, x] (dtype: int64, x is uninitialized) unique_indices_length = [3] (dtype: int32) unique_indices_count = [2, 2, 1, x, x] (dtype: int32, 0 appears 2 times, 10 appears 2 times, 20 appears 1 time) linear_index_positions_sorted = [1, 4, 2, 3, 0] (dtype: int32, positions that sort the input: linear_indices[[1,4,2,3,0]] = [0,0,10,10,20])</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">linear_indices</td><td>1D input tensor containing linear indices to process (dtype: int32 or int64). Must be 1D and have at most INT32_MAX elements. </td></tr>
+    <tr><td class="paramname">max_indices</td><td>Maximum number of unique indices expected (dtype: int64, currently unused, present to match GPU interface and API compatibility). </td></tr>
+    <tr><td class="paramname">compute_count</td><td>If true, computes and returns the count of each unique index in the output (dtype: bool). </td></tr>
+    <tr><td class="paramname">compute_inverse_indices</td><td>If true, computes the original positions of elements in sorted order using stable sort (dtype: bool).</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>A tuple containing:<ul>
+<li>unique_indices_output: Tensor of size <code>linear_indices</code> that stores unique values in sorted order (dtype: same as input; first <code>num_unique</code> elements are valid, rest are uninitialized)</li>
+<li>unique_indices_length: Tensor of size 1 containing number of unique indices (dtype: int32)</li>
+<li>unique_indices_count: Optional tensor (if compute_count=true) of size <code>linear_indices</code> that contains an occurrence count for each unique value (dtype: int32), else std::nullopt</li>
+<li>linear_index_positions_sorted: Optional tensor (dtype: int32) (if compute_inverse_indices=true) of size <code>linear_indices</code> that contains original positions such that linear_indices[linear_index_positions_sorted[i]] is the i postion in the sorted order. </li>
+</ul>
+</dd></dl>
 
 </div>
 </div>
