@@ -17,8 +17,15 @@ at::Tensor bf16bf16bf16_grouped_128_128_128_2_1_1_9_t(
     int sm_count,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes) {
-  return bf16bf16bf16_grouped_impl<at::Tensor, 128, 128, 128, 2, 1, 1, true>(
-      X, W, output, sm_count, zero_start_index_M, M_sizes);
+  return bf16bf16bf16_grouped_impl_dispatch<
+      at::Tensor,
+      128,
+      128,
+      128,
+      2,
+      1,
+      1,
+      true>(X, W, output, sm_count, zero_start_index_M, M_sizes);
 }
 
 at::Tensor bf16bf16bf16_grouped_128_128_128_2_1_1_9_t(
@@ -28,7 +35,7 @@ at::Tensor bf16bf16bf16_grouped_128_128_128_2_1_1_9_t(
     int sm_count,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes) {
-  return bf16bf16bf16_grouped_impl<
+  return bf16bf16bf16_grouped_impl_dispatch<
       at::TensorList,
       128,
       128,

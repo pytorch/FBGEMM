@@ -853,7 +853,7 @@ at::Tensor bf16bf16bf16_grouped_grad(
   if (out.has_value()) {
     Y = out.value();
   } else {
-    Y = at::empty(total_M * N, X.options().dtype(at::kBFloat16));
+    Y = at::empty(total_M * N, X.options());
   }
   // Early exit for empty inputs.
   if (total_M == 0) {
@@ -894,8 +894,7 @@ at::Tensor bf16bf16bf16_grouped_grad_meta(
   if (out.has_value()) {
     return out.value();
   } else {
-    at::Tensor output =
-        at::empty_symint({total_M, N}, X.options().dtype(at::kBFloat16));
+    at::Tensor output = at::empty_symint({total_M, N}, X.options());
     return output;
   }
 }

@@ -1016,6 +1016,59 @@ class FP8Tests(unittest.TestCase):
 
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: FP16 GMM ops not yet suported."
+    )
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 8]),
+        M=st.sampled_from([512, 1024, 2048]),
+        N=st.sampled_from([512, 1024, 2048]),
+        K=st.sampled_from([512, 1024, 2048]),
+        dtype=st.sampled_from([torch.float16, torch.bfloat16]),
+    )
+    def test_grouped_gemm_fp16_bf16_support(
+        self, G: int, M: int, N: int, K: int, dtype: torch.dtype
+    ):
+        """Test that CUTLASS grouped GEMM supports both FP16 and BF16 dtypes."""
+        # Setup: Create input tensors with specified dtype
+        ms = torch.randint(1, (M // 64) + 1, (G,), dtype=torch.int64) * 64
+
+        x_group = []
+        w_group = []
+
+        for m in ms:
+            x = torch.rand(size=(m, K), dtype=dtype, device=self.device)
+            w = torch.rand(size=(N, K), dtype=dtype, device=self.device)
+            x_group.append(x)
+            w_group.append(w)
+
+        # Execute: Run CUTLASS grouped GEMM
+        y_cutlass = torch.ops.fbgemm.bf16bf16bf16_grouped(x_group, w_group)
+
+        # Assert: Verify output dtype matches input dtype
+        if not isinstance(y_cutlass, (tuple, list)):
+            y_cutlass = torch.split(y_cutlass, tuple(ms.tolist()), dim=0)
+
+        for i, y in enumerate(y_cutlass):
+            # Verify output dtype matches input dtype
+            self.assertEqual(
+                y.dtype,
+                dtype,
+                f"Output dtype {y.dtype} does not match input dtype {dtype} for group {i}",
+            )
+
+            # Compute reference output
+            y_ref = torch.matmul(x_group[i], w_group[i].t())
+
+            # Verify numerical correctness
+            torch.testing.assert_close(
+                y,
+                y_ref,
+                atol=1e-2 if dtype == torch.float16 else 8e-3,
+                rtol=1e-2 if dtype == torch.float16 else 8e-3,
+            )
+
     @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
     @settings(deadline=None)
     @given(
