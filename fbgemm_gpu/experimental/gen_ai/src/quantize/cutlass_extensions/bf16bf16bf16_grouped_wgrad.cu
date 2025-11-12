@@ -1076,11 +1076,11 @@ at::Tensor bf16bf16bf16_grouped_wgrad(
           "Output tensor must be Float32 when output_accum=True");
     } else {
       TORCH_CHECK(
-          Y.dtype() == at::kBFloat16,
-          "Output tensor must be BFloat16 when output_accum=False");
+          Y.dtype() == at::kBFloat16 || Y.dtype() == at::kHalf,
+          "Output tensor must be BFloat16 or Float16 when output_accum=False");
     }
   } else {
-    Y = at::empty(G * N * K, X.options().dtype(at::kBFloat16));
+    Y = at::empty(G * N * K, X.options());
   }
 
   // Early exit for empty inputs.
@@ -1121,7 +1121,7 @@ at::Tensor bf16bf16bf16_grouped_wgrad_meta(
   const at::SymInt G = M_sizes.size(0);
   const at::SymInt N = X.sym_size(1);
   const at::SymInt K = W.sym_size(1);
-  at::Tensor Y = at::empty_symint({G, N, K}, X.options().dtype(at::kBFloat16));
+  at::Tensor Y = at::empty_symint({G, N, K}, X.options());
   return Y;
 }
 
