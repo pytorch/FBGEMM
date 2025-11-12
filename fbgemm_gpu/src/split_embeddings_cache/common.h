@@ -120,4 +120,23 @@ Tensor direct_mapped_lxu_cache_lookup_cpu(
     bool gather_cache_stats,
     std::optional<Tensor> uvm_cache_stats);
 
+std::tuple<Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
+get_unique_indices_cpu_impl(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count,
+    const bool compute_inverse_indices);
+
+std::tuple<Tensor, Tensor, std::optional<Tensor>> get_unique_indices_cpu(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count);
+
+std::tuple<Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
+get_unique_indices_with_inverse_cpu(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count,
+    const bool compute_inverse_indices);
+
 } // namespace fbgemm_gpu

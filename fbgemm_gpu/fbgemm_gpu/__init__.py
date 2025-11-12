@@ -131,6 +131,7 @@ fbgemm_gpu_libraries = [
     "fbgemm_gpu_config",
     "fbgemm_gpu_tbe_utils",
     "fbgemm_gpu_tbe_index_select",
+    "fbgemm_gpu_tbe_cache",
     "fbgemm_gpu_tbe_optimizers",
     "fbgemm_gpu_tbe_inference",
     "fbgemm_gpu_tbe_training_forward",
