@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cutlass/util/host_tensor.h>
 #include <cutlass/util/packed_stride.hpp>
 
@@ -39,6 +40,8 @@ at::Tensor f8f8bf16_groupwise_impl(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   // XQ: M x K
   // WQ: N x K
   // output: M x N

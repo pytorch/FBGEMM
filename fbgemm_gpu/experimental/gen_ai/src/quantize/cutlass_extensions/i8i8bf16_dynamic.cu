@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 
 #include "cutlass_extensions/include/threadblock.h"
 
@@ -19,6 +20,8 @@ at::Tensor i8i8bf16_dynamic_impl(
     at::Tensor WQ, // INT8
     at::Tensor scale,
     int64_t split_k) {
+  c10::cuda::CUDAGuard deviceGuard(XQ.device());
+
   auto M = XQ.size(0);
   auto N = WQ.size(0);
   auto K = XQ.size(1);

@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 
 #include "bf16bf16bf16_grouped/bf16bf16bf16_grouped_manifest.cuh"
 #include "fbgemm_gpu/quantize/tuning_cache.cuh"
@@ -718,20 +719,34 @@ Kernel_bf16bf16bf16_grouped<InputType> get_kernel_via_tuning(
   return kernel;
 }
 
-// BF16 grouped cutlass kernel dispatch.
+// BF16/FP16 grouped cutlass kernel dispatch.
 template <typename InputType>
 at::Tensor dispatch_bf16_grouped_kernel(
     int G,
     int total_M,
     int N,
     int K,
-    InputType X, // BF16
-    InputType W, // BF16
+    InputType X, // BF16 or FP16
+    InputType W, // BF16 or FP16
     at::Tensor output,
     int sm_count,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
   const int arch = getDeviceArch();
+
+  // Get dtype from input
+  at::ScalarType dtype;
+  if constexpr (std::is_same_v<InputType, at::TensorList>) {
+    dtype = X[0].scalar_type();
+  } else {
+    dtype = X.scalar_type();
+  }
+
+  // Validate dtype is supported
+  TORCH_CHECK(
+      dtype == at::kBFloat16 || dtype == at::kHalf,
+      "Only BFloat16 and Float16 dtypes are supported, got ",
+      dtype);
 
   // Select kernel to run via heuristics or tuning.
   auto kernel = [&]() {
@@ -758,6 +773,8 @@ at::Tensor dispatch_bf16_grouped_kernel(
 
 template <typename OutputType>
 OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
+  c10::cuda::CUDAGuard deviceGuard(X[0].device());
+
   at::Tensor Y;
   int64_t total_M = 0;
   int64_t G = X.size();
@@ -778,7 +795,7 @@ OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
     total_output_size += output_size;
     output_sizes.push_back(output_size);
   }
-  Y = at::empty(total_output_size, X[0].options().dtype(at::kBFloat16));
+  Y = at::empty(total_output_size, X[0].options());
 
   int64_t sm_count = getSMCount(Y.device().index(), std::nullopt);
 
@@ -816,6 +833,8 @@ at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor M_sizes,
     std::optional<at::Tensor> out,
     std::optional<int64_t> num_sms) {
+  c10::cuda::CUDAGuard deviceGuard(X.device());
+
   int64_t total_M = X.size(0);
   int64_t N = W.size(1);
   int64_t K = W.size(2);
@@ -830,7 +849,7 @@ at::Tensor bf16bf16bf16_grouped_stacked(
   if (out.has_value()) {
     Y = out.value();
   } else {
-    Y = at::empty(total_M * N, X.options().dtype(at::kBFloat16));
+    Y = at::empty(total_M * N, X.options());
   }
 
   // Early exit for empty inputs.
@@ -853,13 +872,15 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
   TORCH_CHECK(
       zero_start_index_M.device() == X.device(),
       "zero_start_index_M must be on same device as inputs.");
+  c10::cuda::CUDAGuard deviceGuard(X.device());
+
   int64_t G = X.size(0);
   int64_t M = X.size(1);
   int64_t N = W.size(1);
   int64_t K = W.size(2);
   int64_t total_output_size = G * M * N;
   at::Tensor Y;
-  Y = at::zeros(total_output_size, X.options().dtype(at::kBFloat16));
+  Y = at::zeros(total_output_size, X.options());
 
   int64_t sm_count = getSMCount(Y.device().index(), std::nullopt);
 
