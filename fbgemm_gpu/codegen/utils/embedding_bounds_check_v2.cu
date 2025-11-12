@@ -31,6 +31,10 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   index_t invalid_i = -1, invalid_idx = -1;
   int32_t invalid_b_t = -1;
   int64_t warning_inc = 0;
+  extern __shared__ int64_t block_warning_buffer[];
+  const int linear_tid = threadIdx.z * (blockDim.y * blockDim.x) +
+      threadIdx.y * blockDim.x + threadIdx.x;
+  const int active_threads = blockDim.x * blockDim.y * blockDim.z;
 
   // Check the last element
   if (b_t_start == 0 && threadIdx.x == 0) {
@@ -142,9 +146,21 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     }
   } // for b_t
 
-  if (warning_inc > 0) {
-    gpuAtomicAdd(&warning[0], warning_inc);
+  // Accumulate per-thread warning counts in shared memory and reduce once per block.
+  block_warning_buffer[linear_tid] = warning_inc;
+  __syncthreads();
+
+  if (linear_tid == 0) {
+    int64_t block_warning_sum = 0;
+    for (int idx = 0; idx < active_threads; ++idx) {
+      block_warning_sum += block_warning_buffer[idx];
+    }
+    block_warning_buffer[0] = block_warning_sum;
+    if (block_warning_sum > 0) {
+      gpuAtomicAdd(&warning[0], block_warning_sum);
+    }
   }
+  __syncthreads();
   if (bounds_check_mode == BoundsCheckMode::WARNING && invalid_i != -1 &&
       static_cast<int64_t>(atomicAdd(
           reinterpret_cast<unsigned long long int*>(&warning[0]), 0)) == 0) {
@@ -227,7 +243,7 @@ void _bounds_check_indices_cuda_v2(
               grid_dim,                                                        \
               dim3(                                                            \
                   fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
-              0,                                                               \
+              sizeof(int64_t) * kNumThreads,                               \
               at::cuda::getCurrentCUDAStream(),                                \
               PTA_B(rows_per_table, int64_t, 1, 32),                           \
               PTA_B(indices, index_t, 1, 32),                                  \
