@@ -29,6 +29,24 @@ Follow the instructions to set up the Conda environment:
 #. :ref:`fbgemm-gpu.build.setup.tools.install`
 #. :ref:`fbgemm-gpu.build.setup.pytorch.install`
 
+Installing PyTorch for CUDA Builds
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For CUDA builds, install PyTorch with matching CUDA version support:
+
+.. code:: sh
+
+  # !! Run inside the Conda environment !!
+
+  # For CUDA 12.9 with PyTorch nightly (recommended for latest features)
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu129
+
+  # For CUDA 12.8 with PyTorch stable
+  pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+  # Verify PyTorch installation
+  python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda}')"
+
 
 Other Pre-Build Setup
 ---------------------
@@ -56,6 +74,31 @@ Clone the repo along with its submodules, and install ``requirements_genai.txt``
   # Install additional required packages for building and testing
   cd fbgemm_${FBGEMM_VERSION}/fbgemm_gpu
   pip install -r requirements_genai.txt
+
+Initialize Git Submodules
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FBGEMM GenAI relies on several submodules, including CUTLASS for optimized CUDA kernels.
+If you didn't use ``--recursive`` when cloning, initialize the submodules:
+
+.. code:: sh
+
+  # Sync and initialize all submodules including CUTLASS
+  git submodule sync
+  git submodule update --init --recursive
+
+  # Verify CUTLASS is available
+  ls external/cutlass/include
+
+Install NCCL for Distributed Support
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For distributed communication support, install NCCL via conda:
+
+.. code:: sh
+
+  # !! Run inside the Conda environment !!
+  conda install -c conda-forge nccl -y
 
 Set Wheel Build Variables
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -97,17 +140,53 @@ Similar to CPU-only builds, building with Clang + ``libstdc++`` can be enabled
 by appending ``--cxxprefix=$CONDA_PREFIX`` to the build command, presuming the
 toolchains have been properly installed.
 
+Environment Setup for CUDA Builds
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set up the necessary environment variables for a CUDA build:
+
 .. code:: sh
 
   # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
-  # [OPTIONAL] Specify the CUDA installation paths
-  # This may be required if CMake is unable to find nvcc
-  export CUDACXX=/path/to/nvcc
-  export CUDA_BIN_PATH=/path/to/cuda/installation
+  # Specify CUDA paths (adjust to your CUDA installation)
+  export CUDA_HOME="/usr/local/cuda"
+  export CUDACXX="${CUDA_HOME}/bin/nvcc"
+  export PATH="${CUDA_HOME}/bin:${PATH}"
+  export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}"
 
-  # [OPTIONAL] Provide the CUB installation directory (applicable only to CUDA versions prior to 11.1)
-  export CUB_DIR=/path/to/cub
+  # Specify NVML filepath (usually in CUDA stubs directory)
+  export NVML_LIB_PATH="${CUDA_HOME}/lib64/stubs/libnvidia-ml.so"
+
+  # Specify NCCL filepath (installed via conda)
+  export NCCL_LIB_PATH="${CONDA_PREFIX}/lib/libnccl.so"
+
+CUDA Architecture Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Configure the target CUDA architectures for your hardware:
+
+.. code:: sh
+
+  # Build for SM70/80 (V100/A100 GPU); update as needed
+  # If not specified, only the CUDA architecture supported by current system will be targeted
+  # If not specified and no CUDA device is present either, all CUDA architectures will be targeted
+  cuda_arch_list=7.0;8.0
+
+  # For NVIDIA Blackwell architecture (GB100, GB200):
+  # cuda_arch_list=10.0a
+  # export TORCH_CUDA_ARCH_LIST="10.0a"
+
+  # Unset TORCH_CUDA_ARCH_LIST if it exists, bc it takes precedence over
+  # -DTORCH_CUDA_ARCH_LIST during the invocation of setup.py
+  unset TORCH_CUDA_ARCH_LIST
+
+Optional NVCC Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Additional NVCC configuration options:
+
+.. code:: sh
 
   # [OPTIONAL] Allow NVCC to use host compilers that are newer than what NVCC officially supports
   nvcc_prepend_flags=(
@@ -126,24 +205,17 @@ toolchains have been properly installed.
   # [OPTIONAL] Enable verbose NVCC logs
   export NVCC_VERBOSE=1
 
-  # Specify cuDNN header and library paths
-  export CUDNN_INCLUDE_DIR=/path/to/cudnn/include
-  export CUDNN_LIBRARY=/path/to/cudnn/lib
+Building the Package
+~~~~~~~~~~~~~~~~~~~~
 
-  # Specify NVML filepath
-  export NVML_LIB_PATH=/path/to/libnvidia-ml.so
+.. code:: sh
 
-  # Specify NCCL filepath
-  export NCCL_LIB_PATH=/path/to/libnccl.so.2
+  # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
-  # Build for SM70/80 (V100/A100 GPU); update as needed
-  # If not specified, only the CUDA architecture supported by current system will be targeted
-  # If not specified and no CUDA device is present either, all CUDA architectures will be targeted
-  cuda_arch_list=7.0;8.0
-
-  # Unset TORCH_CUDA_ARCH_LIST if it exists, bc it takes precedence over
-  # -DTORCH_CUDA_ARCH_LIST during the invocation of setup.py
-  unset TORCH_CUDA_ARCH_LIST
+  # [OPTIONAL] Specify the CUDA installation paths
+  # This may be required if CMake is unable to find nvcc
+  export CUDACXX=/path/to/nvcc
+  export CUDA_BIN_PATH=/path/to/cuda/installation
 
   # Build the wheel artifact only
   python setup.py bdist_wheel \
@@ -215,3 +287,36 @@ Post-Build Checks (For Developers)
 As FBGEMM GenAI leverages the same build process as FBGEMM_GPU, please refer to
 :ref:`fbgemm-gpu.build.process.post-build` for information on additional
 post-build checks.
+
+Troubleshooting Build Issues
+-----------------------------
+
+Common Issues and Solutions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. **CUTLASS not found**: Ensure git submodules are initialized:
+
+   .. code:: sh
+
+     git submodule sync
+     git submodule update --init --recursive
+
+2. **CUDA version mismatch**: Ensure PyTorch CUDA version matches your system CUDA:
+
+   .. code:: sh
+
+     # Check system CUDA version
+     nvcc --version
+
+     # Check PyTorch CUDA version
+     python -c "import torch; print(torch.version.cuda)"
+
+3. **NVML/NCCL library not found**: Verify the library paths are correct:
+
+   .. code:: sh
+
+     # Check NVML exists
+     ls -la ${NVML_LIB_PATH}
+
+     # Check NCCL exists
+     ls -la ${NCCL_LIB_PATH}
