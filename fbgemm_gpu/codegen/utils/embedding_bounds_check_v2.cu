@@ -31,7 +31,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   index_t invalid_i = -1, invalid_idx = -1;
   int32_t invalid_b_t = -1;
   int64_t warning_inc = 0;
-  extern __shared__ int64_t block_warning_buffer[];
+  __shared__ int64_t block_warning_buffer[kMaxThreads];
   const int linear_tid = threadIdx.z * (blockDim.y * blockDim.x) +
       threadIdx.y * blockDim.x + threadIdx.x;
   const int active_threads = blockDim.x * blockDim.y * blockDim.z;
@@ -243,7 +243,7 @@ void _bounds_check_indices_cuda_v2(
               grid_dim,                                                        \
               dim3(                                                            \
                   fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
-              sizeof(int64_t) * kNumThreads,                               \
+              0                                ,                               \
               at::cuda::getCurrentCUDAStream(),                                \
               PTA_B(rows_per_table, int64_t, 1, 32),                           \
               PTA_B(indices, index_t, 1, 32),                                  \
