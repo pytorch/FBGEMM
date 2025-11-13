@@ -14,6 +14,7 @@
 
 using namespace fbgemm_gpu;
 
+{%- if is_rocm %}
 // Helper macro: Generate block_size grad_offset_j_i variables (i from 1 to block_size-1)
 #define GRAD_OFFSET(i, j) const auto grad_offset_j_##i = SHFL_SYNC(grad_offset, j + i);
 #define L(i, j) int32_t l_j_##i = SHFL_SYNC(l, j + i);
@@ -105,6 +106,7 @@ using namespace fbgemm_gpu;
             {%- endif %}
         } \
     }
+{%- endif %}
 
 {%- if gen_once %}
 {#- /*
@@ -235,6 +237,7 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
             {%- endif %}
             int32_t j = 0;
 
+            {%- if is_rocm %}
             // Process blocks of different sizes with loop unrolling
             if constexpr (sizeof(grad_t) <= 2) {
                 PROCESS_BLOCK(8, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
@@ -246,6 +249,50 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
                 vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
             PROCESS_BLOCK(1, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
                 vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+
+#undef PROCESS_BLOCK
+
+            {%- else %}            
+            for (; j < kThreadGroupSize && sl + j < sl_end; ++j) {
+                {%- if nobag %}
+                int32_t l_j = SHFL_SYNC(l, j);
+                {%- elif vbe %}
+                const auto grad_offset_j = SHFL_SYNC(grad_offset, j);
+                {%- else %}
+                int32_t b_j = SHFL_SYNC(b, j);
+                int32_t D_start_j = SHFL_SYNC(D_start, j);
+                {%- endif %}
+
+                {%- if weighted %}
+                at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
+                {%- endif %}
+
+                {%- set d = "(((vec + vec_start) * kThreadGroupSize + threadIdx.x) * VEC_WIDTH)" %}
+
+                #pragma unroll kFixedMaxVecsPerThread
+                for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
+                    const int32_t d = {{ d }};
+                    Vec4TAcc<grad_t> grad_out_vec(
+                        {%- if nobag and is_index_select %}
+                        // grad_output is 1d
+                        &grad_output[grad_offset + l_j * grad_stride + d]
+                        {%- elif nobag %}
+                        &grad_output[l_j][d]
+                        {%- elif vbe %}
+                        &grad_output[0][grad_offset_j + d]
+                        {%- else %}
+                        &grad_output[b_j][0] + D_start_j + d
+                        {%- endif %} // if nobag
+                    );
+
+                    {%- if weighted %}
+                    grad_sum[vec].fma_(grad_out_vec, idx_weight_j);
+                    {%- else %}
+                    grad_sum[vec].add_(grad_out_vec);
+                    {%- endif %}
+                }
+            }
+            {%- endif %}
         }
         {%- set d_vec = "((vec + vec_start) * kThreadGroupSize + threadIdx.x)" %}
 
@@ -262,7 +309,6 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
     }
 }
 
-#undef PROCESS_BLOCK
 {%- endif %}
 
     // clang-format on
