@@ -150,12 +150,17 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   block_warning_buffer[linear_tid] = warning_inc;
   __syncthreads();
 
-  if (linear_tid == 0) {
-    int64_t block_warning_sum = 0;
-    for (int idx = 0; idx < active_threads; ++idx) {
-      block_warning_sum += block_warning_buffer[idx];
+  // Parallel tree reduction
+  for (int stride = active_threads / 2; stride > 0; stride >>= 1) {
+    if (linear_tid < stride) {
+      block_warning_buffer[linear_tid] += block_warning_buffer[linear_tid + stride];
     }
-    block_warning_buffer[0] = block_warning_sum;
+    __syncthreads();
+  }
+
+  // Thread 0 has the final sum
+  if (linear_tid == 0) {
+    int64_t block_warning_sum = block_warning_buffer[0];
     if (block_warning_sum > 0) {
       gpuAtomicAdd(&warning[0], block_warning_sum);
     }
