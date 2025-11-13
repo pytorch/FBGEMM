@@ -248,7 +248,7 @@ void _bounds_check_indices_cuda_v2(
               grid_dim,                                                        \
               dim3(                                                            \
                   fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
-              0                                ,                               \
+              0,                                                               \
               at::cuda::getCurrentCUDAStream(),                                \
               PTA_B(rows_per_table, int64_t, 1, 32),                           \
               PTA_B(indices, index_t, 1, 32),                                  \
