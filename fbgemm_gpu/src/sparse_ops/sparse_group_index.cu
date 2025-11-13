@@ -12,18 +12,10 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-#ifdef USE_ROCM
-// The wave size is forced to be 32 on ROCm devices in favor
-// of granularity losses reduction.
-constexpr int EMULATED_WARP_SIZE = 32;
-#else
-constexpr int EMULATED_WARP_SIZE = kWarpSize;
-#endif
-
 // TODO: Update UNROLL_FACTOR
 constexpr int GROUP_INDEX_SELECT_UNROLL_FACTOR = 1;
 constexpr int GROUP_INDEX_SELECT_COLS_PER_WARP =
-    GROUP_INDEX_SELECT_UNROLL_FACTOR * EMULATED_WARP_SIZE;
+    GROUP_INDEX_SELECT_UNROLL_FACTOR * kWarpSize;
 
 // GROUP_INDEX_SELECT_COLS_PER_WARP must be power of two
 constexpr int GROUP_INDEX_SELECT_LOG_COLS_PER_WARP =
@@ -287,13 +279,13 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
   at::cuda::OptionalCUDAGuard device_guard(device);
 
   // Partition work based on num_work_rows
-  uint32_t num_warps_per_threadblock = kMaxThreads / EMULATED_WARP_SIZE;
+  uint32_t num_warps_per_threadblock = kMaxThreads / kWarpSize;
   uint32_t max_grid_size =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount * 8;
   uint32_t grid_size = std::min(
       cuda_calc_xblock_count(total_num_warps, num_warps_per_threadblock),
       max_grid_size);
-  dim3 block_size(EMULATED_WARP_SIZE, num_warps_per_threadblock, 1);
+  dim3 block_size(kWarpSize, num_warps_per_threadblock, 1);
 
 #define INVOKE_GROUP_INDEX_SELECT_OR_ADD(USE_INDEX_SELECT, USE_VAR_COLS) \
   FBGEMM_LAUNCH_KERNEL(                                                  \
