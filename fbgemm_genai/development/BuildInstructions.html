@@ -480,6 +480,22 @@ scripts bundled in the FBGEMM repo under
 <li><p><a class="reference internal" href="../../fbgemm_gpu/development/BuildInstructions.html#fbgemm-gpu-build-setup-tools-install"><span class="std std-ref">Install the Build Tools</span></a></p></li>
 <li><p><a class="reference internal" href="../../fbgemm_gpu/development/BuildInstructions.html#fbgemm-gpu-build-setup-pytorch-install"><span class="std std-ref">Install PyTorch</span></a></p></li>
 </ol>
+<section id="installing-pytorch-for-cuda-builds">
+<h3>Installing PyTorch for CUDA Builds<a class="headerlink" href="#installing-pytorch-for-cuda-builds" title="Permalink to this heading">¶</a></h3>
+<p>For CUDA builds, install PyTorch with matching CUDA version support:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># For CUDA 12.9 with PyTorch nightly (recommended for latest features)</span>
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu129
+
+<span class="c1"># For CUDA 12.8 with PyTorch stable</span>
+pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128
+
+<span class="c1"># Verify PyTorch installation</span>
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(f&#39;PyTorch version: {torch.__version__}&#39;); print(f&#39;CUDA available: {torch.cuda.is_available()}&#39;); print(f&#39;CUDA version: {torch.version.cuda}&#39;)&quot;</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="other-pre-build-setup">
 <h2>Other Pre-Build Setup<a class="headerlink" href="#other-pre-build-setup" title="Permalink to this heading">¶</a></h2>
@@ -499,6 +515,27 @@ git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="
 <span class="c1"># Install additional required packages for building and testing</span>
 <span class="nb">cd</span><span class="w"> </span>fbgemm_<span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span>/fbgemm_gpu
 pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements_genai.txt
+</pre></div>
+</div>
+</section>
+<section id="initialize-git-submodules">
+<h3>Initialize Git Submodules<a class="headerlink" href="#initialize-git-submodules" title="Permalink to this heading">¶</a></h3>
+<p>FBGEMM GenAI relies on several submodules, including CUTLASS for optimized CUDA kernels.
+If you didn’t use <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> when cloning, initialize the submodules:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Sync and initialize all submodules including CUTLASS</span>
+git<span class="w"> </span>submodule<span class="w"> </span>sync
+git<span class="w"> </span>submodule<span class="w"> </span>update<span class="w"> </span>--init<span class="w"> </span>--recursive
+
+<span class="c1"># Verify CUTLASS is available</span>
+ls<span class="w"> </span>external/cutlass/include
+</pre></div>
+</div>
+</section>
+<section id="install-nccl-for-distributed-support">
+<h3>Install NCCL for Distributed Support<a class="headerlink" href="#install-nccl-for-distributed-support" title="Permalink to this heading">¶</a></h3>
+<p>For distributed communication support, install NCCL via conda:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>nccl<span class="w"> </span>-y
 </pre></div>
 </div>
 </section>
@@ -536,17 +573,47 @@ CUDA device, however, is not required for building the package.</p>
 <p>Similar to CPU-only builds, building with Clang + <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> can be enabled
 by appending <code class="docutils literal notranslate"><span class="pre">--cxxprefix=$CONDA_PREFIX</span></code> to the build command, presuming the
 toolchains have been properly installed.</p>
+<section id="environment-setup-for-cuda-builds">
+<h3>Environment Setup for CUDA Builds<a class="headerlink" href="#environment-setup-for-cuda-builds" title="Permalink to this heading">¶</a></h3>
+<p>Set up the necessary environment variables for a CUDA build:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
-<span class="c1"># [OPTIONAL] Specify the CUDA installation paths</span>
-<span class="c1"># This may be required if CMake is unable to find nvcc</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDACXX</span><span class="o">=</span>/path/to/nvcc
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_BIN_PATH</span><span class="o">=</span>/path/to/cuda/installation
+<span class="c1"># Specify CUDA paths (adjust to your CUDA installation)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_HOME</span><span class="o">=</span><span class="s2">&quot;/usr/local/cuda&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDACXX</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_HOME</span><span class="si">}</span><span class="s2">/bin/nvcc&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_HOME</span><span class="si">}</span><span class="s2">/bin:</span><span class="si">${</span><span class="nv">PATH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">LD_LIBRARY_PATH</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_HOME</span><span class="si">}</span><span class="s2">/lib64:</span><span class="si">${</span><span class="nv">CONDA_PREFIX</span><span class="si">}</span><span class="s2">/lib:</span><span class="si">${</span><span class="nv">LD_LIBRARY_PATH</span><span class="si">}</span><span class="s2">&quot;</span>
 
-<span class="c1"># [OPTIONAL] Provide the CUB installation directory (applicable only to CUDA versions prior to 11.1)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUB_DIR</span><span class="o">=</span>/path/to/cub
+<span class="c1"># Specify NVML filepath (usually in CUDA stubs directory)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">NVML_LIB_PATH</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_HOME</span><span class="si">}</span><span class="s2">/lib64/stubs/libnvidia-ml.so&quot;</span>
 
-<span class="c1"># [OPTIONAL] Allow NVCC to use host compilers that are newer than what NVCC officially supports</span>
+<span class="c1"># Specify NCCL filepath (installed via conda)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">NCCL_LIB_PATH</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONDA_PREFIX</span><span class="si">}</span><span class="s2">/lib/libnccl.so&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="cuda-architecture-configuration">
+<h3>CUDA Architecture Configuration<a class="headerlink" href="#cuda-architecture-configuration" title="Permalink to this heading">¶</a></h3>
+<p>Configure the target CUDA architectures for your hardware:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Build for SM70/80 (V100/A100 GPU); update as needed</span>
+<span class="c1"># If not specified, only the CUDA architecture supported by current system will be targeted</span>
+<span class="c1"># If not specified and no CUDA device is present either, all CUDA architectures will be targeted</span>
+<span class="nv">cuda_arch_list</span><span class="o">=</span><span class="m">7</span>.0<span class="p">;</span><span class="m">8</span>.0
+
+<span class="c1"># For NVIDIA Blackwell architecture (GB100, GB200):</span>
+<span class="c1"># cuda_arch_list=10.0a</span>
+<span class="c1"># export TORCH_CUDA_ARCH_LIST=&quot;10.0a&quot;</span>
+
+<span class="c1"># Unset TORCH_CUDA_ARCH_LIST if it exists, bc it takes precedence over</span>
+<span class="c1"># -DTORCH_CUDA_ARCH_LIST during the invocation of setup.py</span>
+<span class="nb">unset</span><span class="w"> </span>TORCH_CUDA_ARCH_LIST
+</pre></div>
+</div>
+</section>
+<section id="optional-nvcc-configuration">
+<h3>Optional NVCC Configuration<a class="headerlink" href="#optional-nvcc-configuration" title="Permalink to this heading">¶</a></h3>
+<p>Additional NVCC configuration options:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># [OPTIONAL] Allow NVCC to use host compilers that are newer than what NVCC officially supports</span>
 <span class="nv">nvcc_prepend_flags</span><span class="o">=(</span>
 <span class="w">  </span>-allow-unsupported-compiler
 <span class="o">)</span>
@@ -562,25 +629,17 @@ toolchains have been properly installed.</p>
 
 <span class="c1"># [OPTIONAL] Enable verbose NVCC logs</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">NVCC_VERBOSE</span><span class="o">=</span><span class="m">1</span>
+</pre></div>
+</div>
+</section>
+<section id="building-the-package">
+<h3>Building the Package<a class="headerlink" href="#building-the-package" title="Permalink to this heading">¶</a></h3>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
-<span class="c1"># Specify cuDNN header and library paths</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDNN_INCLUDE_DIR</span><span class="o">=</span>/path/to/cudnn/include
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDNN_LIBRARY</span><span class="o">=</span>/path/to/cudnn/lib
-
-<span class="c1"># Specify NVML filepath</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">NVML_LIB_PATH</span><span class="o">=</span>/path/to/libnvidia-ml.so
-
-<span class="c1"># Specify NCCL filepath</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">NCCL_LIB_PATH</span><span class="o">=</span>/path/to/libnccl.so.2
-
-<span class="c1"># Build for SM70/80 (V100/A100 GPU); update as needed</span>
-<span class="c1"># If not specified, only the CUDA architecture supported by current system will be targeted</span>
-<span class="c1"># If not specified and no CUDA device is present either, all CUDA architectures will be targeted</span>
-<span class="nv">cuda_arch_list</span><span class="o">=</span><span class="m">7</span>.0<span class="p">;</span><span class="m">8</span>.0
-
-<span class="c1"># Unset TORCH_CUDA_ARCH_LIST if it exists, bc it takes precedence over</span>
-<span class="c1"># -DTORCH_CUDA_ARCH_LIST during the invocation of setup.py</span>
-<span class="nb">unset</span><span class="w"> </span>TORCH_CUDA_ARCH_LIST
+<span class="c1"># [OPTIONAL] Specify the CUDA installation paths</span>
+<span class="c1"># This may be required if CMake is unable to find nvcc</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDACXX</span><span class="o">=</span>/path/to/nvcc
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_BIN_PATH</span><span class="o">=</span>/path/to/cuda/installation
 
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
@@ -601,6 +660,7 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
+</section>
 </section>
 <section id="rocm-build">
 <span id="fbgemm-gpu-build-process-rocm"></span><h2>ROCm Build<a class="headerlink" href="#rocm-build" title="Permalink to this heading">¶</a></h2>
@@ -649,6 +709,38 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <a class="reference internal" href="../../fbgemm_gpu/development/BuildInstructions.html#fbgemm-gpu-build-process-post-build"><span class="std std-ref">Post-Build Checks (For Developers)</span></a> for information on additional
 post-build checks.</p>
 </section>
+<section id="troubleshooting-build-issues">
+<h2>Troubleshooting Build Issues<a class="headerlink" href="#troubleshooting-build-issues" title="Permalink to this heading">¶</a></h2>
+<section id="common-issues-and-solutions">
+<h3>Common Issues and Solutions<a class="headerlink" href="#common-issues-and-solutions" title="Permalink to this heading">¶</a></h3>
+<ol class="arabic">
+<li><p><strong>CUTLASS not found</strong>: Ensure git submodules are initialized:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>submodule<span class="w"> </span>sync
+git<span class="w"> </span>submodule<span class="w"> </span>update<span class="w"> </span>--init<span class="w"> </span>--recursive
+</pre></div>
+</div>
+</li>
+<li><p><strong>CUDA version mismatch</strong>: Ensure PyTorch CUDA version matches your system CUDA:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check system CUDA version</span>
+nvcc<span class="w"> </span>--version
+
+<span class="c1"># Check PyTorch CUDA version</span>
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(torch.version.cuda)&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>NVML/NCCL library not found</strong>: Verify the library paths are correct:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check NVML exists</span>
+ls<span class="w"> </span>-la<span class="w"> </span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span>
+
+<span class="c1"># Check NCCL exists</span>
+ls<span class="w"> </span>-la<span class="w"> </span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span>
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+</section>
 </section>
 
 
@@ -695,15 +787,30 @@ post-build checks.</p>
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">Build Instructions</a><ul>
-<li><a class="reference internal" href="#set-up-an-isolated-build-environment">Set Up an Isolated Build Environment</a></li>
+<li><a class="reference internal" href="#set-up-an-isolated-build-environment">Set Up an Isolated Build Environment</a><ul>
+<li><a class="reference internal" href="#installing-pytorch-for-cuda-builds">Installing PyTorch for CUDA Builds</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#other-pre-build-setup">Other Pre-Build Setup</a><ul>
 <li><a class="reference internal" href="#preparing-the-build">Preparing the Build</a></li>
+<li><a class="reference internal" href="#initialize-git-submodules">Initialize Git Submodules</a></li>
+<li><a class="reference internal" href="#install-nccl-for-distributed-support">Install NCCL for Distributed Support</a></li>
 <li><a class="reference internal" href="#set-wheel-build-variables">Set Wheel Build Variables</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#cuda-build">CUDA Build</a></li>
+<li><a class="reference internal" href="#cuda-build">CUDA Build</a><ul>
+<li><a class="reference internal" href="#environment-setup-for-cuda-builds">Environment Setup for CUDA Builds</a></li>
+<li><a class="reference internal" href="#cuda-architecture-configuration">CUDA Architecture Configuration</a></li>
+<li><a class="reference internal" href="#optional-nvcc-configuration">Optional NVCC Configuration</a></li>
+<li><a class="reference internal" href="#building-the-package">Building the Package</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#rocm-build">ROCm Build</a></li>
 <li><a class="reference internal" href="#post-build-checks-for-developers">Post-Build Checks (For Developers)</a></li>
+<li><a class="reference internal" href="#troubleshooting-build-issues">Troubleshooting Build Issues</a><ul>
+<li><a class="reference internal" href="#common-issues-and-solutions">Common Issues and Solutions</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
