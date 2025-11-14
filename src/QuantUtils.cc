@@ -636,6 +636,26 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
     throw std::runtime_error("Unsupported number of columns");
   }
 
+#if HAVE_SVE
+  switch (bit_rate) {
+    case 2:
+      FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon<InputType, 2>(
+          input, input_rows, input_columns, output);
+      break;
+    case 4:
+      FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon<InputType, 4>(
+          input, input_rows, input_columns, output);
+      break;
+    case 8:
+      FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon<InputType, 8>(
+          input, input_rows, input_columns, output);
+      break;
+    default:
+      FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<InputType>(
+          bit_rate, input, input_rows, input_columns, output);
+  }
+#else
+
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     switch (bit_rate) {
@@ -660,6 +680,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
     FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<InputType>(
         bit_rate, input, input_rows, input_columns, output);
   }
+
+#endif
 }
 
 template <typename InputType>
