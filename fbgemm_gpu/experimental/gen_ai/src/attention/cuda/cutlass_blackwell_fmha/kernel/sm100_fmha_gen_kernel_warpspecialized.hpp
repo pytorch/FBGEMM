@@ -248,7 +248,8 @@ struct Sm100FmhaGenKernelWarpspecialized {
   }
 
   CUTLASS_DEVICE void operator()(const Params &params, char* smem) {
-#if (! defined(CUTLASS_ARCH_MMA_SM100A_ENABLED) && ! defined(CUTLASS_ARCH_MMA_SM100F_ENABLED))
+#if (! defined(CUTLASS_ARCH_MMA_SM100A_ENABLED) && \
+     ! defined(CUTLASS_ARCH_MMA_SM100F_ENABLED) && ! defined(CUTLASS_ARCH_MMA_SM103A_ENABLED))
     printf("ERROR : Arch conditional MMA instruction used without targeting appropriate compute capability. Aborting.\n");
 #else
 
@@ -280,7 +281,7 @@ struct Sm100FmhaGenKernelWarpspecialized {
       shared_storage.pipelines.load_q,
       pipeline_load_q_params,
       ClusterShape{},  cute::true_type{}, /*mask calc*/cute::false_type{});
-    
+
     typename CollectiveMainloop::PipelineKV::Params pipeline_load_kv_params;
     if (role == WarpRole::Load) {
       pipeline_load_kv_params.role = CollectiveMainloop::PipelineKV::ThreadCategory::Producer;
