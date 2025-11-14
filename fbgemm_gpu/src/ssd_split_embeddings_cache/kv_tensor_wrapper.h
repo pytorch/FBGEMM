@@ -65,7 +65,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       int64_t width_offset = 0,
       const std::optional<c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>
           checkpoint_handle = std::nullopt,
-      bool read_only = false);
+      bool read_only = false,
+      bool only_load_weight = false);
 
   explicit KVTensorWrapper(const std::string& serialized);
 
@@ -153,6 +154,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   int64_t max_D{};
   std::string checkpoint_uuid;
   bool read_only_{};
+  bool only_load_weight_{};
 };
 
 void to_json(json& j, const KVTensorWrapper& kvt);
