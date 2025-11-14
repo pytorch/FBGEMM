@@ -293,6 +293,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         deterministic: bool,
         sm_scale: Optional[float],
         is_paged: Optional[bool],
+        use_compile: bool = False,
     ) -> None:
         device = torch.accelerator.current_accelerator()
         assert device is not None
@@ -369,9 +370,12 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             )
 
         # Run tested kernel
+        func_to_test = cutlass_blackwell_fmha_func
+        if use_compile:
+            func_to_test = torch.compile(func_to_test, fullgraph=True)
         if is_paged:
             assert k_paged is not None and v_paged is not None
-            out_paged = cutlass_blackwell_fmha_func(
+            out_paged = func_to_test(
                 q,
                 k_paged,
                 v_paged,
@@ -384,7 +388,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 softmax_scale=sm_scale,
             )
 
-        out = cutlass_blackwell_fmha_func(
+        out = func_to_test(
             q,
             k,
             v,
@@ -411,7 +415,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
 
         if deterministic:
             # Rerun the test. The outputs must be bit-wise exact
-            out_d = cutlass_blackwell_fmha_func(
+            out_d = func_to_test(
                 q,
                 cast(torch.Tensor, k_paged) if is_paged else k,
                 cast(torch.Tensor, v_paged) if is_paged else v,
@@ -479,6 +483,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         deterministic: bool,
         sm_scale: Optional[float],
         is_paged: Optional[bool],
+        use_compile: bool = False,
     ) -> None:
         device = torch.accelerator.current_accelerator()
         assert device is not None
@@ -572,9 +577,12 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             softmax_scale=sm_scale,
         )
 
+        func_to_test = cutlass_blackwell_fmha_func
+        if use_compile:
+            func_to_test = torch.compile(func_to_test, fullgraph=True)
         if is_paged:
             assert k_paged is not None and v_paged is not None
-            out_unpad_paged = cutlass_blackwell_fmha_func(
+            out_unpad_paged = func_to_test(
                 q_unpad,
                 k_paged,
                 v_paged,
@@ -590,7 +598,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             )
             out_paged = output_pad_fn(out_unpad_paged)
 
-        out_unpad = cutlass_blackwell_fmha_func(
+        out_unpad = func_to_test(
             q_unpad,
             k_unpad,
             v_unpad,
@@ -617,7 +625,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
 
         if deterministic:
             # Rerun the test. The outputs must be bit-wise exact
-            out_unpad_d = cutlass_blackwell_fmha_func(
+            out_unpad_d = func_to_test(
                 q_unpad,
                 cast(torch.Tensor, k_paged) if is_paged else k_unpad,
                 cast(torch.Tensor, v_paged) if is_paged else v_unpad,
@@ -1161,6 +1169,65 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             causal=causal,
             window_size=window_size,
             fwd_only=False,
+            deterministic=deterministic,
+            sm_scale=sm_scale,
+            is_paged=False,
+        )
+
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    @parameterized.expand(
+        [
+            (
+                is_varlen,
+                is_mqa,
+                seqlen_q,
+            )
+            for is_varlen in [False, True]
+            for is_mqa in [False, True]
+            for seqlen_q in [1, 64]
+        ]
+    )
+    def test_compile(
+        self,
+        is_varlen: bool,
+        is_mqa: bool,
+        seqlen_q: int,
+    ):
+        test_func = (
+            self._execute_cutlass_blackwell_attn_varlen
+            if is_varlen
+            else self._execute_cutlass_blackwell_attn_dense
+        )
+        q_heads = 8
+        kv_heads = 2 if is_mqa else q_heads
+        batch_size = 2
+        seqlen_k = 128
+        kv_heads = 2
+        head_dim = 128
+        dtype = torch.bfloat16
+        causal = True
+        # Decode kernel does not support sliding window attention yet
+        window_size = (-1, -1)
+        deterministic = False
+        # Backward pass is not supported for generation phase (sq=1)
+        is_decode = seqlen_q == 1
+        fwd_only = is_decode
+        # Decode kernel does not support sm_scale
+        sm_scale = None if is_decode else 1.0 / head_dim
+
+        test_func(
+            batch_size,
+            seqlen_q,
+            seqlen_k,
+            q_heads=q_heads,
+            kv_heads=kv_heads,
+            head_dim=head_dim,
+            page_block_size=0,
+            dtype=dtype,
+            causal=causal,
+            window_size=window_size,
+            fwd_only=fwd_only,
             deterministic=deterministic,
             sm_scale=sm_scale,
             is_paged=False,
