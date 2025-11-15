@@ -278,16 +278,16 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(
         asmjit::RegGroup::kVec,
-        asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
-    frame.setDirtyRegs(
+        asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+            asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(
+    args.assign_all(
         a_addr,
         b_addr,
         c_addr,
@@ -299,11 +299,11 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
         a_zero_point,
         b_zero_point_addr);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    e->emitProlog(frame);
-    e->emitArgsAssignment(frame, args);
+    e->emit_prolog(frame);
+    e->emit_args_assignment(frame, args);
 
     // Assign vector registers
     Ymm a[4];
@@ -382,7 +382,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     e->sar(ic_loop_count, asmjit::Imm(oc_per_g == 1 ? 5 : 4));
 
     e->mov(a_addr_save, a_addr);
-    asmjit::Label ic_loop_begin = e->newLabel(), ic_loop_end = e->newLabel();
+    asmjit::Label ic_loop_begin = e->new_label(), ic_loop_end = e->new_label();
 
     // main_loop == false: the last vector iteration across input channels
     for (bool main_loop : {true, false}) {
@@ -554,15 +554,15 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       }
     }
 
-    e->emitEpilog(frame);
+    e->emit_epilog(frame);
 
     jit_kernel_signature fn = nullptr;
-    asmjit::Error err = 0;
+    asmjit::Error err = asmjit::Error::kOk;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
     }
-    if (err) {
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
