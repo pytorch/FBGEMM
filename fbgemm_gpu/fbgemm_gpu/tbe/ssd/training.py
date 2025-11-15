@@ -249,6 +249,30 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 assert self.optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD
                 ], f"only EXACT_ROWWISE_ADAGRAD supports embedding cache mode, but got {self.optimizer}"
+            if self.is_st_publish:
+                if (
+                    # pyre-ignore [16]
+                    self.kv_zch_params.optimizer_type_for_st
+                    == OptimType.PARTIAL_ROWWISE_ADAM.value
+                ):
+                    self.optimizer = OptimType.PARTIAL_ROWWISE_ADAM
+                    logging.info(
+                        f"Override optimizer type with {self.optimizer=} for st publish"
+                    )
+                if (
+                    # pyre-ignore [16]
+                    self.kv_zch_params.optimizer_state_dtypes_for_st
+                    is not None
+                ):
+                    optimizer_state_dtypes = {}
+                    for k, v in dict(
+                        self.kv_zch_params.optimizer_state_dtypes_for_st
+                    ).items():
+                        optimizer_state_dtypes[k] = SparseType.from_int(v)
+                    self.optimizer_state_dtypes = optimizer_state_dtypes
+                    logging.info(
+                        f"Override optimizer_state_dtypes with {self.optimizer_state_dtypes=} for st publish"
+                    )
 
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
