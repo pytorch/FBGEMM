@@ -203,6 +203,8 @@ void fbgemmPacked(
 
 template <int SPATIAL_DIM>
 bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   if constexpr (SPATIAL_DIM == 1)
     return false;
 
@@ -255,6 +257,9 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
              return areEqual(std::forward<decltype(PH1)>(PH1), 2);
            })) &&
       !conv_p.transposed;
+#else
+  return false;
+#endif
 }
 
 template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<1>& conv_p);

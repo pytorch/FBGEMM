@@ -15,12 +15,12 @@
 #include <cassert>
 
 #include "./DirectConv.h" // @manual
+#include "./OptimizedKernelsAvx2.h" // @manual
+#include "RefImplementations.h"
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/UtilsAvx2.h"
-
-#include "./OptimizedKernelsAvx2.h" // @manual
 
 namespace fbgemm {
 
@@ -29,6 +29,8 @@ PackedDirectConvMatrix::PackedDirectConvMatrix(
     int OC_per_G,
     int filter_prod,
     const int8_t* smat) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   // Allocate packed arrays
   int kernel_prod_aligned = (filter_prod + 1) / 2 * 2;
   pmat_ = static_cast<int8_t*>(fbgemmAlignedAlloc(
@@ -58,6 +60,23 @@ PackedDirectConvMatrix::PackedDirectConvMatrix(
       }
     }
   }
+#else
+  pmat_ = static_cast<int8_t*>(fbgemmAlignedAlloc(
+      64, OC_per_G * filter_prod * IC_per_G * sizeof(int8_t)));
+
+  // Transforms weights from  G K/G (T R S C/G) to G (T R S C/G) K/G format,
+  // same as what transposeConvWeights does.
+  for (int g = 0; g < /* G */ 1; ++g) {
+    for (int k = 0; k < OC_per_G; ++k) {
+      for (int f = 0; f < filter_prod; ++f) {
+        for (int c = 0; c < IC_per_G; ++c) {
+          pmat_[((g * filter_prod + f) * IC_per_G + c) * OC_per_G + k] =
+              smat[((g * OC_per_G + k) * filter_prod + f) * IC_per_G + c];
+        }
+      }
+    }
+  }
+#endif
 }
 
 PackedDirectConvMatrix::~PackedDirectConvMatrix() {
@@ -70,6 +89,8 @@ void PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT(
     std::int32_t* B_zero_point,
     std::vector<int32_t>& col_offsets,
     int ncols_per_quant_group) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   // if use direct convolution implementation, compute the col_offsets
   // of the weight matrix at the first time of inference.
   // We need to know the shape of output matrix
@@ -131,6 +152,24 @@ void PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT(
       }
     }
   }
+#else
+  int R = kSpatialDim == 1 ? 1 : conv_p.K[kSpatialDim - 2];
+  int S = conv_p.K[kSpatialDim - 1];
+  int G = conv_p.G;
+  int IC_per_G = conv_p.IC / conv_p.G;
+  int OC_per_G = conv_p.OC / conv_p.G;
+
+  for (int g = 0; g < G; ++g) {
+    col_offsets_with_zero_pt_s8acc32_ref(
+        R * S * IC_per_G,
+        OC_per_G,
+        OC_per_G,
+        PackedMat() + g * R * S * IC_per_G * OC_per_G,
+        B_zero_point + g * OC_per_G / ncols_per_quant_group,
+        col_offsets.data() + g * OC_per_G,
+        ncols_per_quant_group);
+  }
+#endif
 
   first_call = false;
 }
@@ -239,14 +278,11 @@ void fbgemmDirectConv(
     return;
   }
 
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-  throw std::runtime_error(
-      "fbgemmDirectConv<SPATIAL_DIM, Q_GRAN, FUSE_RELU, BIAS_TYPE>(): No fallback available for aarch64");
-#else
-
   if constexpr (SPATIAL_DIM != 2) {
     static_assert(false && SPATIAL_DIM, "1d/3d direct conv not supported");
   } else {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     if (conv_p.transposed) {
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
           jit_micro_kernel_fp_convT fn = nullptr;
@@ -457,9 +493,33 @@ void fbgemmDirectConv(
     else { // non-transposed conv
       assert(false && "non-transposed direct conv not integrated yet.");
     }
-  } // else SPATIAL_DIM
+#else
+    DoNothing<> doNothingObj{};
+    ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE> reqObj(
+        doNothingObj,
+        outProcess.getCMultiplier(),
+        outProcess.getCZeroPoint(),
+        outProcess.getAZeroPoint(),
+        outProcess.getBZeroPoint(),
+        nullptr, /* row offset buffer */
+        outProcess.getColOffsets(),
+        bias,
+        conv_p.OC,
+        conv_p.G,
+        outProcess.getActWScale());
 
-#endif // !defined(__aarch64__)
+    conv_requant_ref(
+        conv_p,
+        Aint8,
+        Bint8_tr.PackedMat(),
+        true,
+        C,
+        C_buffer,
+        reqObj,
+        thread_id,
+        num_threads);
+#endif // !defined(x86_64)
+  } // else SPATIAL_DIM
 }
 
 #define INSTANTIATE_REQUANTIZE_SPATIAL_DIM(                        \

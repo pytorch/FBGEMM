@@ -206,7 +206,8 @@ static int run_benchmark(
         /*output_bit_rate=*/-1);
 #endif
 
-    vector<OutType>& output = has_weight ? output_slws : output_sls;
+    [[maybe_unused]] vector<OutType>& output =
+        has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
       bool success_ref = false;
       // Reference implementation

@@ -751,6 +751,9 @@ static void runRequantizeTest(
     // conv_ref expects weights to be in G (R S C/G) K/G
     transposeConvWeights(conv_p, Bint8.data(), Bint8_tr.data());
     int8_t* rightBData = Bint8_tr.data();
+    conv_ref(
+        conv_p, Aint8.data(), Aint8_zero_point, rightBData, Cint32_ref.data());
+
     for (int g = 0; g < G; ++g) {
       col_offsets_with_zero_pt_s8acc32_ref(
           R * S * IC_per_G,
@@ -760,11 +763,7 @@ static void runRequantizeTest(
           Bint8_zero_point.data() + g * OC_per_G / ncols_per_quant_group,
           col_offsets.data() + g * OC_per_G,
           ncols_per_quant_group);
-    }
-    conv_ref(
-        conv_p, Aint8.data(), Aint8_zero_point, rightBData, Cint32_ref.data());
 
-    for (int g = 0; g < G; ++g) {
       row_offsets_u8acc32_ref(
           MDim,
           KDim,

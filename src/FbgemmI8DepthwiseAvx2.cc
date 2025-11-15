@@ -41,8 +41,16 @@ void depthwise_2d_same_pad(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
+#if !(                                          \
+    defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))))
+  DoNothing<> doNothingObj{};
+#endif
+
   if (B.GetKernelProduct() == 3 * 3) {
     if (fuse_relu) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
       depthwise_2d_<3, true /* FUSE_RELU */, Q_GRAN>(
           N,
           H,
@@ -63,7 +71,36 @@ void depthwise_2d_same_pad(
           act_times_w_scale,
           thread_id,
           num_threads);
+#else
+      conv_param_t<2> conv_p(
+          N, IC, OC, {H, W}, IC, {3, 3}, {stride_h, stride_w}, {1, 1, 1, 1});
+      ReQuantizeOutput<true, Q_GRAN, BIAS_TYPE> reqObj(
+          doNothingObj,
+          C_multiplier,
+          C_zero_point,
+          A_zero_point,
+          B_zero_point,
+          nullptr, /* row offset buffer */
+          col_offsets,
+          bias,
+          conv_p.OC,
+          conv_p.G,
+          act_times_w_scale);
+
+      conv_requant_ref(
+          conv_p,
+          A,
+          B.PackedMat(),
+          false,
+          C,
+          nullptr,
+          reqObj,
+          thread_id,
+          num_threads);
+#endif
     } else {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
       depthwise_2d_<3, false /* FUSE_RELU */, Q_GRAN>(
           N,
           H,
@@ -84,12 +121,42 @@ void depthwise_2d_same_pad(
           act_times_w_scale,
           thread_id,
           num_threads);
+#else
+      conv_param_t<2> conv_p(
+          N, IC, OC, {H, W}, IC, {3, 3}, {stride_h, stride_w}, {1, 1, 1, 1});
+      ReQuantizeOutput<false, Q_GRAN, BIAS_TYPE> reqObj(
+          doNothingObj,
+          C_multiplier,
+          C_zero_point,
+          A_zero_point,
+          B_zero_point,
+          nullptr, /* row offset buffer */
+          col_offsets,
+          bias,
+          conv_p.OC,
+          conv_p.G,
+          act_times_w_scale);
+
+      conv_requant_ref(
+          conv_p,
+          A,
+          B.PackedMat(),
+          false,
+          C,
+          nullptr,
+          reqObj,
+          thread_id,
+          num_threads);
+
+#endif
     }
     return;
   }
 
   if (B.GetKernelProduct() == 5 * 5) {
     if (fuse_relu) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
       depthwise_2d_<5, true /* FUSE_RELU */, Q_GRAN>(
           N,
           H,
@@ -110,7 +177,37 @@ void depthwise_2d_same_pad(
           act_times_w_scale,
           thread_id,
           num_threads);
+#else
+      conv_param_t<2> conv_p(
+          N, IC, OC, {H, W}, IC, {5, 5}, {stride_h, stride_w}, {2, 2, 2, 2});
+      ReQuantizeOutput<true, Q_GRAN, BIAS_TYPE> reqObj(
+          doNothingObj,
+          C_multiplier,
+          C_zero_point,
+          A_zero_point,
+          B_zero_point,
+          nullptr, /* row offset buffer */
+          col_offsets,
+          bias,
+          conv_p.OC,
+          conv_p.G,
+          act_times_w_scale);
+
+      conv_requant_ref(
+          conv_p,
+          A,
+          B.PackedMat(),
+          false,
+          C,
+          nullptr,
+          reqObj,
+          thread_id,
+          num_threads);
+
+#endif
     } else {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
       depthwise_2d_<5, false /* FUSE_RELU */, Q_GRAN>(
           N,
           H,
@@ -131,6 +228,33 @@ void depthwise_2d_same_pad(
           act_times_w_scale,
           thread_id,
           num_threads);
+#else
+      conv_param_t<2> conv_p(
+          N, IC, OC, {H, W}, IC, {5, 5}, {stride_h, stride_w}, {2, 2, 2, 2});
+      ReQuantizeOutput<false, Q_GRAN, BIAS_TYPE> reqObj(
+          doNothingObj,
+          C_multiplier,
+          C_zero_point,
+          A_zero_point,
+          B_zero_point,
+          nullptr, /* row offset buffer */
+          col_offsets,
+          bias,
+          conv_p.OC,
+          conv_p.G,
+          act_times_w_scale);
+
+      conv_requant_ref(
+          conv_p,
+          A,
+          B.PackedMat(),
+          false,
+          C,
+          nullptr,
+          reqObj,
+          thread_id,
+          num_threads);
+#endif
     }
     return;
   }
@@ -143,6 +267,8 @@ void depthwise_2d_same_pad(
   }
 
   if (fuse_relu) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     depthwise_2d_<7, true /* FUSE_RELU */, Q_GRAN>(
         N,
         H,
@@ -163,7 +289,36 @@ void depthwise_2d_same_pad(
         act_times_w_scale,
         thread_id,
         num_threads);
+#else
+    conv_param_t<2> conv_p(
+        N, IC, OC, {H, W}, IC, {7, 7}, {stride_h, stride_w}, {3, 3, 3, 3});
+    ReQuantizeOutput<true, Q_GRAN, BIAS_TYPE> reqObj(
+        doNothingObj,
+        C_multiplier,
+        C_zero_point,
+        A_zero_point,
+        B_zero_point,
+        nullptr, /* row offset buffer */
+        col_offsets,
+        bias,
+        conv_p.OC,
+        conv_p.G,
+        act_times_w_scale);
+
+    conv_requant_ref(
+        conv_p,
+        A,
+        B.PackedMat(),
+        false,
+        C,
+        nullptr,
+        reqObj,
+        thread_id,
+        num_threads);
+#endif
   } else {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     depthwise_2d_<7, false /* FUSE_RELU */, Q_GRAN>(
         N,
         H,
@@ -184,6 +339,33 @@ void depthwise_2d_same_pad(
         act_times_w_scale,
         thread_id,
         num_threads);
+#else
+    conv_param_t<2> conv_p(
+        N, IC, OC, {H, W}, IC, {7, 7}, {stride_h, stride_w}, {3, 3, 3, 3});
+    ReQuantizeOutput<false, Q_GRAN, BIAS_TYPE> reqObj(
+        doNothingObj,
+        C_multiplier,
+        C_zero_point,
+        A_zero_point,
+        B_zero_point,
+        nullptr, /* row offset buffer */
+        col_offsets,
+        bias,
+        conv_p.OC,
+        conv_p.G,
+        act_times_w_scale);
+
+    conv_requant_ref(
+        conv_p,
+        A,
+        B.PackedMat(),
+        false,
+        C,
+        nullptr,
+        reqObj,
+        thread_id,
+        num_threads);
+#endif
   }
 }
 
