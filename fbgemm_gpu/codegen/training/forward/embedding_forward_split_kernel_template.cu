@@ -141,7 +141,7 @@ using namespace fbgemm_gpu;
 {%- endmacro %}
 
 {#-/*
-    Splitted version of load_and_accumulate macro. This code chunk describes
+    Split version of load_and_accumulate macro. This code chunk describes
     the weights load in forward kernel. Set up the WeightRow and load quantization
     parameters. Shortcut store for nobag mode.
 
@@ -221,7 +221,7 @@ using namespace fbgemm_gpu;
 {%- endmacro %}
 
 {#-/*
-    Splitted version of load_and_accumulate macro. This code chunk
+    Split version of load_and_accumulate macro. This code chunk
     describes the weights accumulate step in the forward kernel.
     Accumulate the slices of values from the row. Does nothing for
     nobag mode assuming all the work is done in load() macro.
