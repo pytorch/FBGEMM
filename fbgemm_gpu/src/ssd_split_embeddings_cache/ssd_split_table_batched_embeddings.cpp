@@ -374,12 +374,14 @@ KVTensorWrapper::KVTensorWrapper(
     int64_t width_offset_,
     const std::optional<c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>
         checkpoint_handle,
-    bool read_only)
+    bool read_only,
+    bool only_load_weight)
     : db_(nullptr),
       shape_(std::move(shape)),
       row_offset_(row_offset),
       width_offset_(width_offset_),
-      read_only_(read_only) {
+      read_only_(read_only),
+      only_load_weight_(only_load_weight) {
   CHECK_GE(width_offset_, 0);
   CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
   options_ = at::TensorOptions()
@@ -558,7 +560,10 @@ void KVTensorWrapper::set_range(
   CHECK(db_) << "EmbeddingRocksDB must be a valid pointer to call set_range";
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
-  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+  if (!only_load_weight_) {
+    CHECK_GE(
+        db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+  }
 
   if (db_->get_backend_return_whole_row()) {
     // backend returns whole row, so we need to replace the first 8 bytes with
@@ -576,6 +581,10 @@ void KVTensorWrapper::set_range(
       db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
     db_->set_range_to_storage(weights, start + row_offset_, length);
+  } else if (pad_right < 0 && only_load_weight_) {
+    int64_t cut_dim = db_->get_max_D() + db_->get_metaheader_width_in_front();
+    at::Tensor new_weights = weights.narrow(1, 0, cut_dim).contiguous();
+    db_->set_range_to_storage(new_weights, start + row_offset_, length);
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
@@ -1080,6 +1089,7 @@ static auto kv_tensor_wrapper =
                 int64_t,
                 std::optional<
                     c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>,
+                bool,
                 bool>(),
             "",
             {torch::arg("shape"),
@@ -1091,7 +1101,8 @@ static auto kv_tensor_wrapper =
              torch::arg("sorted_indices") = std::nullopt,
              torch::arg("width_offset") = 0,
              torch::arg("checkpoint_handle") = std::nullopt,
-             torch::arg("read_only") = false})
+             torch::arg("read_only") = false,
+             torch::arg("only_load_weight") = false})
         .def(
             "set_embedding_rocks_dp_wrapper",
             &KVTensorWrapper::set_embedding_rocks_dp_wrapper,

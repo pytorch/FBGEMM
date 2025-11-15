@@ -217,8 +217,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.enable_optimizer_offloading: bool = False
         self.backend_return_whole_row: bool = False
         self._embedding_cache_mode: bool = False
+        self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
+            self.load_ckpt_without_opt = (
+                # pyre-ignore [16]
+                self.kv_zch_params.load_ckpt_without_opt
+            )
             self.enable_optimizer_offloading = (
                 # pyre-ignore [16]
                 self.kv_zch_params.enable_optimizer_offloading
@@ -1105,7 +1110,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         padding to the nearest 4 elements and the optimizer state appended to
         the back of the row
         """
-        if self.enable_optimizer_offloading:
+
+        # For st publish, we only need to load weight for publishing and bulk eval
+        if self.enable_optimizer_offloading and not self.load_ckpt_without_opt:
             return self.max_D + pad4(
                 # Compute the number of elements of cache_dtype needed to store
                 # the optimizer state
@@ -3092,6 +3099,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.flush(force=should_flush)
         return snapshot_handle, checkpoint_handle
 
+    def get_embedding_dim_for_kvt(
+        self, metaheader_dim: int, emb_dim: int, is_loading_checkpoint: bool
+    ) -> int:
+        if self.load_ckpt_without_opt:
+            # For silvertorch publish, we don't want to load opt into backend due to limited cpu memory in publish host.
+            # So we need to load the whole row into state dict which loading the checkpoint in st publish, then only save weight into backend, after that
+            # backend will only have metaheader + weight.
+            # For the first loading, we need to set dim with metaheader_dim + emb_dim + optimizer_state_dim, otherwise the checkpoint loadding will throw size mismatch error
+            # after the first loading, we only need to get metaheader+weight from backend for state dict, so we can set dim with metaheader_dim + emb
+            if is_loading_checkpoint:
+                return (
+                    (
+                        metaheader_dim  # metaheader is already padded
+                        + pad4(emb_dim)
+                        + pad4(self.optimizer_state_dim)
+                    )
+                    if self.backend_return_whole_row
+                    else emb_dim
+                )
+            else:
+                return metaheader_dim + pad4(emb_dim)
+        else:
+            return (
+                (
+                    metaheader_dim  # metaheader is already padded
+                    + pad4(emb_dim)
+                    + pad4(self.optimizer_state_dim)
+                )
+                if self.backend_return_whole_row
+                else emb_dim
+            )
+
     @torch.jit.export
     def split_embedding_weights(
         self,
@@ -3149,6 +3188,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         table_offset = 0
         for i, (emb_height, emb_dim) in enumerate(self.embedding_specs):
+            is_loading_checkpoint = False
             bucket_ascending_id_tensor = None
             bucket_t = None
             metadata_tensor = None
@@ -3214,6 +3254,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                             dtype=torch.int64,
                         )
                     skip_metadata = True
+                    is_loading_checkpoint = True
 
                     # self.local_weight_counts[i] = 0  # Reset the count
 
@@ -3238,14 +3279,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         if bucket_ascending_id_tensor is not None
                         else emb_height
                     ),
-                    (
-                        (
-                            metaheader_dim  # metaheader is already padded
-                            + pad4(emb_dim)
-                            + pad4(self.optimizer_state_dim)
-                        )
-                        if self.backend_return_whole_row
-                        else emb_dim
+                    self.get_embedding_dim_for_kvt(
+                        metaheader_dim, emb_dim, is_loading_checkpoint
                     ),
                 ],
                 dtype=dtype,
@@ -3257,6 +3292,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     bucket_ascending_id_tensor if self.kv_zch_params else None
                 ),
                 checkpoint_handle=checkpoint_handle,
+                only_load_weight=(
+                    True
+                    if self.load_ckpt_without_opt and is_loading_checkpoint
+                    else False
+                ),
             )
             (
                 tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
