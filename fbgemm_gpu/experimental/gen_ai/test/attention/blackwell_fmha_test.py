@@ -704,7 +704,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     ) -> None:
         seqlen_q = 1
         causal = True
-        if True:
+        if DEBUG:
             print(
                 f"Running test_decode with params: "
                 f"dtype={dtype}, seqlen_k={seqlen_k}, batch_size={batch_size}, "

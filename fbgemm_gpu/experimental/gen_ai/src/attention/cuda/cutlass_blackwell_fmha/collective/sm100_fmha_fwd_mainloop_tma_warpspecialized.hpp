@@ -686,7 +686,7 @@ struct Sm100FmhaFwdMainloopTmaWarpspecialized {
 
     pipeline_c.producer_acquire(pipeline_c_producer_state);
 
-    ElementQK acc_scale = 0.5f * ::exp2f(scale * (old_row_max - row_max_safe));
+    ElementQK acc_scale = (old_row_max == row_max_safe) ? 0.5f : 0.5f * ::exp2f(scale * (old_row_max - row_max_safe));
     row_sum *= acc_scale;
     // row_sum = sum(reg_S)
     float2 local_row_sum_f32x2 = make_float2(row_sum, row_sum);
@@ -995,13 +995,16 @@ struct Sm100FmhaFwdMainloopTmaWarpspecialized {
       }
 
       Tensor tTMrO_i = tTMrO(_, i).compose(make_layout(shape<0>(tTMrO)));
-      CUTLASS_PRAGMA_UNROLL
-      for (int j = 0; j < size(tTMrO_i); j += 2) {
-        float2 in = make_float2(tTMrO_i(j), tTMrO_i(j+1));
-        float2 out;
-        cute::mul(out, scale_f32x2, in);
-        tTMrO_i(j) = out.x;
-        tTMrO_i(j+1) = out.y;
+
+      if (scale != 1.0f) {
+        CUTLASS_PRAGMA_UNROLL
+        for (int j = 0; j < size(tTMrO_i); j += 2) {
+          float2 in = make_float2(tTMrO_i(j), tTMrO_i(j+1));
+          float2 out;
+          cute::mul(out, scale_f32x2, in);
+          tTMrO_i(j) = out.x;
+          tTMrO_i(j+1) = out.y;
+        }
       }
 
       copy_out(i);
@@ -1070,11 +1073,14 @@ struct Sm100FmhaFwdMainloopTmaWarpspecialized {
       copy(tiled_tmem_loadv, tTMEM_LOADVtS0, tTMEM_LOADVrS);
 
       // e^(scale * (old_max - new_max)
-      float scale = ::exp2f(params.scale_softmax_log2 * (tTMEM_LOADVrS(kIdxOldRowMax) - tTMEM_LOADVrS(kIdxNewRowMax)));
+      float scale = (tTMEM_LOADVrS(kIdxOldRowMax) == tTMEM_LOADVrS(kIdxNewRowMax)) ? 1.0f : ::exp2f(params.scale_softmax_log2 * (tTMEM_LOADVrS(kIdxOldRowMax) - tTMEM_LOADVrS(kIdxNewRowMax)));
 
       pipeline_o.consumer_wait(pipeline_o_consumer_state);
 
-      correction_rescale(scale, uint32_t(TmemAllocation::O0));
+      bool warp_do_correction = __any_sync(0xFFFFFFFF, scale != 1.0f);
+      if (warp_do_correction) {
+        correction_rescale(scale, uint32_t(TmemAllocation::O0));
+      }
 
       pipeline_s1_c.consumer_release(pipeline_s1_c_consumer_state);
       ++pipeline_s1_c_consumer_state;
@@ -1088,11 +1094,14 @@ struct Sm100FmhaFwdMainloopTmaWarpspecialized {
 
       copy(tiled_tmem_loadv, tTMEM_LOADVtS1, tTMEM_LOADVrS);
 
-      scale = ::exp2f(params.scale_softmax_log2 * (tTMEM_LOADVrS(kIdxOldRowMax) - tTMEM_LOADVrS(kIdxNewRowMax)));
+      scale = (tTMEM_LOADVrS(kIdxOldRowMax) == tTMEM_LOADVrS(kIdxNewRowMax)) ? 1.0f : ::exp2f(params.scale_softmax_log2 * (tTMEM_LOADVrS(kIdxOldRowMax) - tTMEM_LOADVrS(kIdxNewRowMax)));
 
       pipeline_o.consumer_wait(pipeline_o_consumer_state);
 
-      correction_rescale(scale, uint32_t(TmemAllocation::O1));
+      warp_do_correction = __any_sync(0xFFFFFFFF, scale != 1.0f);
+      if (warp_do_correction) {
+        correction_rescale(scale, uint32_t(TmemAllocation::O1));
+      }
 
       pipeline_s0_c.consumer_release(pipeline_s0_c_consumer_state);
       ++pipeline_s0_c_consumer_state;
