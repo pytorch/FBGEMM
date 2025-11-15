@@ -249,7 +249,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 assert self.optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD
                 ], f"only EXACT_ROWWISE_ADAGRAD supports embedding cache mode, but got {self.optimizer}"
-            if self.is_st_publish:
+            if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
                     self.kv_zch_params.optimizer_type_for_st
