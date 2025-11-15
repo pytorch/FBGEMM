@@ -15,6 +15,9 @@
 #include <mutex>
 #include <tuple>
 #include "./CodeCache.h" // @manual
+#include "./CodeCache.h" // @manual
+#include "./CodeGenHelpers.h" // @manual
+#include "./CodeStorage.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
@@ -55,11 +58,11 @@ class GenSparseAdagrad {
       int num_vec_regs_per_block,
       int remainder,
       int prefetch,
-      const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
-      const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-      const Ymm& mask_vreg,
-      const typename simd_info<instSet>::vec_reg_t& temp_vreg,
-      const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
+      const x86::Vec& epsilon_vreg,
+      const x86::Vec& lr_vreg,
+      const x86::Vec& mask_vreg,
+      const x86::Vec& temp_vreg,
+      const x86::Vec& weight_decay_vreg,
       bool has_weight_decay);
 
   void genRowwiseSparseAdagrad(
@@ -69,11 +72,11 @@ class GenSparseAdagrad {
       int num_vec_regs_per_block,
       int remainder,
       int prefetch,
-      const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
-      const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-      const Ymm& mask_vreg,
-      const typename simd_info<instSet>::vec_reg_t& temp_vreg,
-      const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
+      const x86::Vec& epsilon_vreg,
+      const x86::Vec& lr_vreg,
+      const x86::Vec& mask_vreg,
+      const x86::Vec& temp_vreg,
+      const x86::Vec& weight_decay_vreg,
       bool has_weight_decay);
 
   typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
@@ -84,13 +87,6 @@ class GenSparseAdagrad {
       bool has_weight_decay);
 
  private:
-  static asmjit::JitRuntime& runtime() {
-    static asmjit::JitRuntime rt; // JIT Runtime for asmjit
-    return rt;
-  }
-
-  inline static std::mutex rtMutex_; /// Controll access to runtime;
-
   // The hash depends on embedding dimension (block size), prefetch distance,
   // rowwise, and has_weight_decay
   inline static CodeCache<
@@ -118,11 +114,11 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
     int num_vec_regs_per_block,
     int remainder,
     int prefetch,
-    const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
-    const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-    const Ymm& mask_vreg,
-    const typename simd_info<instSet>::vec_reg_t& temp_vreg,
-    const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
+    const x86::Vec& epsilon_vreg,
+    const x86::Vec& lr_vreg,
+    const x86::Vec& mask_vreg,
+    const x86::Vec& temp_vreg,
+    const x86::Vec& weight_decay_vreg,
     bool has_weight_decay) {
   // NOTE: temp_vreg is defined only when remainder is true and instSet == avx2
   using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
@@ -175,24 +171,24 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
 
           a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
         } else if constexpr (instSet == inst_set_t::avx512) {
-          a->k(x86::k(1)).vmovups(g_vreg, g_ptr);
+          a->k(x86::k1).vmovups(g_vreg, g_ptr);
           if (has_weight_decay) {
-            a->k(x86::k(1)).vfmadd231ps(g_vreg, weight_decay_vreg, w_ptr);
+            a->k(x86::k1).vfmadd231ps(g_vreg, weight_decay_vreg, w_ptr);
           }
-          a->k(x86::k(1)).vmulps(out_vreg, g_vreg, g_vreg);
-          a->k(x86::k(1)).vaddps(out_vreg, out_vreg, h_ptr);
+          a->k(x86::k1).vmulps(out_vreg, g_vreg, g_vreg);
+          a->k(x86::k1).vaddps(out_vreg, out_vreg, h_ptr);
 
-          a->k(x86::k(1)).vmovups(h_ptr, out_vreg);
+          a->k(x86::k1).vmovups(h_ptr, out_vreg);
 
-          a->k(x86::k(1)).vsqrtps(out_vreg, out_vreg);
-          a->k(x86::k(1)).vaddps(out_vreg, out_vreg, epsilon_vreg);
+          a->k(x86::k1).vsqrtps(out_vreg, out_vreg);
+          a->k(x86::k1).vaddps(out_vreg, out_vreg, epsilon_vreg);
 
-          a->k(x86::k(1)).vmulps(g_vreg, lr_vreg, g_vreg);
-          a->k(x86::k(1)).vdivps(out_vreg, g_vreg, out_vreg);
+          a->k(x86::k1).vmulps(g_vreg, lr_vreg, g_vreg);
+          a->k(x86::k1).vdivps(out_vreg, g_vreg, out_vreg);
 
-          a->k(x86::k(1)).vaddps(out_vreg, out_vreg, w_ptr);
+          a->k(x86::k1).vaddps(out_vreg, out_vreg, w_ptr);
 
-          a->k(x86::k(1)).vmovups(w_ptr, out_vreg);
+          a->k(x86::k1).vmovups(w_ptr, out_vreg);
         }
       } else {
         a->vmovups(g_vreg, g_ptr);
@@ -226,11 +222,11 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     int num_vec_regs_per_block,
     int remainder,
     int prefetch,
-    const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
-    const typename simd_info<instSet>::vec_reg_t& lr_vreg,
-    const Ymm& mask_vreg,
-    const typename simd_info<instSet>::vec_reg_t& temp_vreg,
-    const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
+    const x86::Vec& epsilon_vreg,
+    const x86::Vec& lr_vreg,
+    const x86::Vec& mask_vreg,
+    const x86::Vec& temp_vreg,
+    const x86::Vec& weight_decay_vreg,
     bool has_weight_decay) {
   using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
   constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
@@ -254,7 +250,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     a->imul(
         areIndices64b ? base_offset : base_offset.r32(),
         indices_ptr,
-        static_cast<asmjit::Imm>(block_size * sizeof(float)));
+        block_size * sizeof(float));
   }
 
   // Even with avx512, we only need to use avx2 registers when computing
@@ -264,9 +260,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
   int num_vec_regs_per_block_avx2 = (block_size + vlen_avx2 - 1) / vlen_avx2;
 
   // Use YMM/XMMs with smaller ids for AVX2 specific instructions like vhaddps
-  Ymm partial_sum_vreg_avx2(0);
-  Xmm partial_sum_xmm0(partial_sum_vreg_avx2.id());
-
+  x86::Vec partial_sum_vreg_avx2 = x86::ymm0;
   a->vxorps(
       partial_sum_vreg_avx2, partial_sum_vreg_avx2, partial_sum_vreg_avx2);
 
@@ -313,33 +307,18 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
       a->vaddps(partial_sum_vreg_avx2, partial_sum_vreg_avx2, out_vreg);
     }
   }
-  // Reduce sum to 1 value
-  // __m256 partial_sum_2 = _mm256_hadd_ps(partial_sum, partial_sum);
-  // __m256 partial_sum_3 = _mm256_hadd_ps(partial_sum_2, partial_sum_2);
-  a->vhaddps(
-      partial_sum_vreg_avx2, partial_sum_vreg_avx2, partial_sum_vreg_avx2);
-  a->vhaddps(
-      partial_sum_vreg_avx2, partial_sum_vreg_avx2, partial_sum_vreg_avx2);
 
-  Xmm partial_sum_xmm1(1);
-
-  //_mm_cvtss_f32(_mm256_castps256_ps128(partial_sum_3))
-  a->movss(partial_sum_xmm1, partial_sum_xmm0);
-  //_mm_cvtss_f32(_mm256_extractf128_ps(partial_sum_3, 1))
-  a->vextractf128(partial_sum_xmm0, partial_sum_vreg_avx2, 1);
-
-  // final_sum = _mm_cvtss_f32(_mm256_castps256_ps128(partial_sum_3)) +
-  //    _mm_cvtss_f32(_mm256_extractf128_ps(partial_sum_3, 1));
-  a->addss(partial_sum_xmm0, partial_sum_xmm1);
+  // Reduce sum to a single value.
+  x86::Vec tmpXmm = x86::xmm1;
+  emitReduceAddF32<instSet>(a, partial_sum_vreg_avx2, tmpXmm);
 
   // This fragment moves block size (N) to stack and bcasts it to xmm reg
   a->lea(
       x86::rsp,
       x86::dword_ptr(x86::rsp, -1 * static_cast<int>(sizeof(int32_t))));
   a->mov(x86::dword_ptr(x86::rsp), block_size);
-  a->vbroadcastss(
-      partial_sum_xmm1, x86::dword_ptr(x86::rsp)); // N is partial_sum_xmm1
-  a->vcvtdq2ps(partial_sum_xmm1, partial_sum_xmm1);
+  a->vbroadcastss(tmpXmm, x86::dword_ptr(x86::rsp)); // N is partial_sum_xmm1
+  a->vcvtdq2ps(tmpXmm, tmpXmm);
   a->lea(x86::rsp, x86::dword_ptr(x86::rsp, sizeof(int32_t)));
 
   if (has_weight_decay) {
@@ -347,21 +326,21 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     a->imul(
         areIndices64b ? base_offset : base_offset.r32(),
         indices_ptr,
-        static_cast<asmjit::Imm>(sizeof(float)));
+        sizeof(float));
   }
 
   // final_sum /= N
-  a->divss(partial_sum_xmm0, partial_sum_xmm1);
+  a->vdivss(partial_sum_vreg_avx2.xmm(), partial_sum_vreg_avx2.xmm(), tmpXmm);
   // load h
-  a->movss(partial_sum_xmm1, x86::dword_ptr(h, base_offset));
+  a->vmovss(tmpXmm, x86::dword_ptr(h, base_offset));
   // *h + final_sum
-  a->addss(partial_sum_xmm0, partial_sum_xmm1);
+  a->vaddss(partial_sum_vreg_avx2.xmm(), partial_sum_vreg_avx2.xmm(), tmpXmm);
   // store h
-  a->movss(x86::dword_ptr(h, base_offset), partial_sum_xmm0);
+  a->vmovss(x86::dword_ptr(h, base_offset), partial_sum_vreg_avx2.xmm());
   // sqrt(hi)
-  a->sqrtss(partial_sum_xmm0, partial_sum_xmm0);
+  a->vsqrtss(partial_sum_vreg_avx2.xmm(), partial_sum_vreg_avx2.xmm(), partial_sum_vreg_avx2.xmm());
   // bcast partial to all of ymm/zmm reg
-  a->vpbroadcastd(partial_sum_vreg, partial_sum_xmm0);
+  a->vpbroadcastd(partial_sum_vreg, partial_sum_vreg_avx2.xmm());
   // lr / sqrt(hi) + epsilon
   a->vaddps(partial_sum_vreg, partial_sum_vreg, epsilon_vreg);
   a->vdivps(partial_sum_vreg, lr_vreg, partial_sum_vreg);
@@ -371,7 +350,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
   a->imul(
       areIndices64b ? base_offset : base_offset.r32(),
       indices_ptr,
-      static_cast<asmjit::Imm>(block_size * sizeof(float)));
+      block_size * sizeof(float));
 
   for (int vec_idx = 0; vec_idx < num_vec_regs_per_block;
        vec_idx += unroll_factor) {
@@ -406,14 +385,14 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
           a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
         } else {
           if (has_weight_decay) {
-            a->k(x86::k(1)).vmovups(out_vreg, g_ptr);
-            a->k(x86::k(1)).vfmadd231ps(out_vreg, weight_decay_vreg, w_ptr);
-            a->k(x86::k(1)).vmulps(out_vreg, partial_sum_vreg, out_vreg);
+            a->k(x86::k1).vmovups(out_vreg, g_ptr);
+            a->k(x86::k1).vfmadd231ps(out_vreg, weight_decay_vreg, w_ptr);
+            a->k(x86::k1).vmulps(out_vreg, partial_sum_vreg, out_vreg);
           } else {
-            a->k(x86::k(1)).vmulps(out_vreg, partial_sum_vreg, g_ptr);
+            a->k(x86::k1).vmulps(out_vreg, partial_sum_vreg, g_ptr);
           }
-          a->k(x86::k(1)).vaddps(out_vreg, out_vreg, w_ptr);
-          a->k(x86::k(1)).vmovups(w_ptr, out_vreg);
+          a->k(x86::k1).vaddps(out_vreg, out_vreg, w_ptr);
+          a->k(x86::k1).vmovups(w_ptr, out_vreg);
         }
       } else {
         if (has_weight_decay) {
@@ -444,8 +423,9 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
       kernelSig,
       [&]() ->
       typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel {
+        asmjit::JitRuntime& runtime = CodeStorage::getRuntime();
         asmjit::CodeHolder code;
-        code.init(runtime().environment());
+        code.init(runtime.environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
         constexpr bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
@@ -465,28 +445,29 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
-        auto codeLogger = std::make_unique<asmjit::FileLogger>(codeLogFile);
-        code.setLogger(codeLogger.get());
+
+        auto codeLogger = std::make_unique<asmjit::FileLoggerWithClose>(codeLogFile);
+        code.set_logger(codeLogger.get());
 #endif
 
-        auto num_rows = a->zdi().r32();
-        x86::Gp param_size = a->zsi();
-        w = a->zdx();
-        g = a->zcx();
-        h = a->gpz(8);
-        indices = a->gpz(9);
-        Xmm epsilon(0);
-        Xmm lr(1);
-        x86::Gp mask_avx2 = a->gpz(10);
-        Xmm weight_decay(2);
-        x86::Gp counter = a->gpz(11);
-        x86::Gp counter_halflife = a->gpz(12);
+        auto num_rows = x86::edi;
+        x86::Gp param_size = x86::rsi;
+        w = x86::rdx;
+        g = x86::rcx;
+        h = x86::r8;
+        indices = x86::r9;
+        x86::Vec epsilon = x86::xmm0;
+        x86::Vec lr = x86::xmm1;
+        x86::Vec weight_decay = x86::xmm2;
+        x86::Gp mask_avx2 = x86::r10;
+        x86::Gp counter = x86::r11;
+        x86::Gp counter_halflife = x86::r12;
 
         // reuse mask_avx2 because mask_avx2 is used only at the beginning
-        base_offset = a->gpz(10);
-        temp1_ = a->gpz(13);
-        temp2_ = a->gpz(14);
-        temp3_ = a->gpz(15);
+        base_offset = x86::r10;
+        temp1_ = x86::r13;
+        temp2_ = x86::r14;
+        temp3_ = x86::r15;
 
         asmjit::FuncDetail func;
         func.init(
@@ -510,25 +491,25 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         frame.init(func);
 
         if constexpr (instSet == inst_set_t::avx2) {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+              asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
         } else {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-                  asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-                  asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
+              asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15) |
+                  asmjit::Support::bit_mask<uint32_t>(16, 17, 18, 19, 20, 21, 22, 23) |
+                  asmjit::Support::bit_mask<uint32_t>(24, 25, 26, 27, 28, 29, 30, 31));
         }
 
-        frame.setDirtyRegs(
+        frame.set_dirty_regs(
             asmjit::RegGroup::kGp,
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+            asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
 
         asmjit::FuncArgsAssignment args(&func);
-        args.assignAll(
+        args.assign_all(
             num_rows,
             param_size,
             w,
@@ -542,10 +523,10 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
             counter,
             counter_halflife);
 
-        args.updateFuncFrame(frame);
+        args.update_func_frame(frame);
         frame.finalize();
-        a->emitProlog(frame);
-        a->emitArgsAssignment(frame, args);
+        a->emit_prolog(frame);
+        a->emit_args_assignment(frame, args);
 
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
@@ -560,7 +541,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         vec_reg_t lr_vreg;
         vec_reg_t weight_decay_vreg;
         vec_reg_t adjusted_weight_decay_vreg;
-        Ymm mask_vreg; // mask for avx2
+        x86::Vec mask_vreg; // mask for avx2
         vec_reg_t
             temp_vreg; // temp vreg for avx2 to handle remainder computation
 
@@ -584,18 +565,18 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           // Creating masks for non multiples of vlen iterations
           if constexpr (instSet == inst_set_t::avx2) {
             --unroll_factor;
-            mask_vreg = Ymm(unroll_factor);
+            mask_vreg = x86::ymm(unroll_factor);
             a->vmovups(mask_vreg, x86::dword_ptr(mask_avx2));
           } else {
             a->mov(temp1_, (1 << remainder) - 1);
-            a->kmovw(x86::k(1), temp1_);
+            a->kmovw(x86::k1, temp1_);
           }
         }
         // Need an extra mask for computing sum of gradients
         int remainder_avx2 =
             block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
         if (remainder_avx2 && instSet == inst_set_t::avx512 && rowwise) {
-          reduce_mask_avx512_ = x86::k(2);
+          reduce_mask_avx512_ = x86::k2;
           a->mov(temp1_, (1 << remainder_avx2) - 1);
           a->kmovw(reduce_mask_avx512_, temp1_);
         }
@@ -604,9 +585,9 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           unroll_factor = unroll_factor / 2; // accont for g_vreg
         }
 
-        asmjit::Label exit = a->newLabel();
-        asmjit::Label LoopRangeIndexBegin = a->newLabel();
-        asmjit::Label LoopRangeIndexEnd = a->newLabel();
+        asmjit::Label exit = a->new_label();
+        asmjit::Label LoopRangeIndexBegin = a->new_label();
+        asmjit::Label LoopRangeIndexEnd = a->new_label();
 
         a->vpbroadcastd(epsilon_vreg, epsilon);
         a->vpbroadcastd(lr_vreg, lr);
@@ -628,8 +609,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         a->imul(
             areIndices64b ? base_offset : base_offset.r32(),
             indices_ptr,
-            static_cast<asmjit::Imm>(
-                (rowwise ? 1 : block_size) * sizeof(float)));
+            (rowwise ? 1 : block_size) * sizeof(float));
 
         // Perform this check
         // if (block_size + offsetIdx > param_size) {
@@ -645,7 +625,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           // Check counter != nullptr && counter[idx] > 0
           a->vmovaps(adjusted_weight_decay_vreg, weight_decay_vreg);
 
-          asmjit::Label skip_adjust_freq = a->newLabel();
+          asmjit::Label skip_adjust_freq = a->new_label();
 
           a->cmp(counter, 0);
           a->je(skip_adjust_freq);
@@ -658,10 +638,10 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           // OK to use Xmm registers with small ids that are reserved for temp
           // values in the inner most loop.
           vec_reg_t counter_halflife_vreg(0);
-          Xmm counter_vreg(1);
-          a->cvtsi2sd(counter_halflife_vreg.xmm(), counter_halflife);
-          a->movq(counter_vreg, temp3_);
-          a->divpd(counter_halflife_vreg.xmm(), counter_vreg);
+          x86::Vec counter_vreg = x86::xmm1;
+          a->vcvtsi2sd(counter_halflife_vreg.xmm(), counter_halflife_vreg.xmm(), counter_halflife);
+          a->vmovq(counter_vreg, temp3_);
+          a->vdivpd(counter_halflife_vreg.xmm(), counter_halflife_vreg.xmm(), counter_vreg);
           a->vcvtpd2ps(
               counter_halflife_vreg.xmm(), counter_halflife_vreg.ymm());
           a->vbroadcastss(counter_halflife_vreg, counter_halflife_vreg.xmm());
@@ -674,15 +654,13 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         }
 
         a->inc(temp2_);
-        a->imul(
-            temp2_,
-            static_cast<asmjit::Imm>(block_size)); //(offsetIdx+1)*blocksize
+        a->imul(temp2_, block_size); //(offsetIdx+1)*blocksize
         a->cmp(temp2_, param_size);
         a->jg(exit);
 
         if (prefetch) {
-          asmjit::Label pref_dist_reset_start = a->newLabel();
-          asmjit::Label pref_dist_reset_end = a->newLabel();
+          asmjit::Label pref_dist_reset_start = a->new_label();
+          asmjit::Label pref_dist_reset_end = a->new_label();
 
           a->mov(temp2_, temp1_);
           a->add(temp2_, prefetch);
@@ -696,12 +674,12 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
             a->imul(
                 areIndices64b ? temp3_ : temp3_.r32(),
                 pref_indices_ptr,
-                static_cast<asmjit::Imm>(sizeof(float)));
+                sizeof(float));
           }
           a->imul(
               areIndices64b ? temp2_ : temp2_.r32(),
               pref_indices_ptr,
-              static_cast<asmjit::Imm>(block_size * sizeof(float)));
+              block_size * sizeof(float));
 
           a->jmp(pref_dist_reset_end);
 
@@ -709,12 +687,12 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           a->imul(
               areIndices64b ? temp2_ : temp2_.r32(),
               indices_ptr,
-              static_cast<asmjit::Imm>(block_size * sizeof(float)));
+              block_size * sizeof(float));
           if (rowwise) {
             a->imul(
                 areIndices64b ? temp3_ : temp3_.r32(),
                 indices_ptr,
-                static_cast<asmjit::Imm>(sizeof(float)));
+                sizeof(float));
           }
 
           a->bind(pref_dist_reset_end);
@@ -749,30 +727,24 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
               has_weight_decay);
         }
 
-        a->add(g, static_cast<asmjit::Imm>(block_size * sizeof(float)));
+        a->add(g, block_size * sizeof(float));
         a->inc(temp1_);
         a->jmp(LoopRangeIndexBegin);
         a->bind(LoopRangeIndexEnd);
 
         a->bind(exit);
         a->mov(x86::eax, temp1_.r32());
-        a->emitEpilog(frame);
+        a->emit_epilog(frame);
 
         typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
             fn;
-        asmjit::Error err = 0;
-        {
-          std::unique_lock<std::mutex> lock(rtMutex_);
-          err = runtime().add(&fn, &code);
-        }
-        if (err) {
+        asmjit::Error err = runtime.add(&fn, &code);
+
+        if (err != asmjit::Error::kOk) {
           std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 
-#if defined(FBGEMM_LOG_CODE)
-        fclose(codeLogFile);
-#endif
         return fn;
       });
 } // getOrCreate

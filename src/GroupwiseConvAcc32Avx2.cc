@@ -19,34 +19,33 @@ namespace x86 = asmjit::x86;
 GCONV_INST_DEF_AVX2_HEADER
 GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
   if (this->C_per_G_ == 4) {
-    x86::Gp permute_const_reg = a->gpz(12);
+    x86::Gp permute_const_reg = x86::r12;
     auto const_reg_xmm = x86::xmm11;
     // We have 1st group in even lanes and 2nd group in odd lanes.
     // Permute to put 1st group to lower 128-bit and 2nd group in upper
     // 128-bit.
     // load 7, 5, 3, 1, 6, 4, 2, 0 in a 64-bit reg
-    a->mov(permute_const_reg, static_cast<asmjit::Imm>(0x0705030106040200));
-    a->movq(const_reg_xmm, permute_const_reg);
+    a->mov(permute_const_reg, 0x0705030106040200);
+    a->vmovq(const_reg_xmm, permute_const_reg);
     // Zero extend 8 packed 8-bit integers in the low 8 bytes of const_reg_xmm
     // to 8 packed 32-bit integers in stPermReg_V_
     a->vpmovzxbd(stPermReg_V_, const_reg_xmm);
   } else {
     // this->C_per_G_ == 2
-    x86::Gp permute_const_reg = a->gpz(12);
+    x86::Gp permute_const_reg = x86::r12;
     auto const_reg_xmm = x86::xmm11;
     // We have 1st group in position 0 and 4, 2nd group 1 and 5 and so on.
     // Permute to put 1st group to lower 64-bit and 2nd group to next
     // 64-bit and so on.
     // load 7, 3, 6, 2, 5, 1, 4, 0 in a 64-bit reg
-    a->mov(permute_const_reg, static_cast<asmjit::Imm>(0x0703060205010400));
-    a->movq(const_reg_xmm, permute_const_reg);
+    a->mov(permute_const_reg, 0x0703060205010400);
+    a->vmovq(const_reg_xmm, permute_const_reg);
     a->vpmovzxbd(stPermReg_V_, const_reg_xmm);
   }
 }
 
 GCONV_INST_DEF_AVX2_HEADER
 GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(x86::Emitter* a) {
-  using WRegs = Ymm;
   int paddedICPerG = (this->C_per_G_ + 3) / 4 * 4;
   // load weights
   for (int r = 0; r < this->R_; ++r) {
@@ -55,7 +54,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(x86::Emitter* a) {
       // and are loaded as they are used.
       if (this->C_per_G_ == 4 || this->C_per_G_ == 2) {
         a->vmovaps(
-            WRegs(r * this->S_ + s),
+            x86::ymm(r * this->S_ + s),
             x86::dword_ptr(
                 wghts_R_,
                 (r * this->S_ + s) * this->K_per_G_ * GTogether_ *
@@ -69,45 +68,45 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(
     x86::Emitter* a) {
   if (GTogether_ > 1) {
     // store with permutation
-    a->vpermd(Ymm(9), stPermReg_V_, Ymm(9));
+    a->vpermd(x86::ymm9, stPermReg_V_, x86::ymm9);
     if (this->accum_) {
-      a->vpaddd(Ymm(9), Ymm(9), x86::dword_ptr(out_acts_R_));
+      a->vpaddd(x86::ymm9, x86::ymm9, x86::dword_ptr(out_acts_R_));
     }
-    a->vmovups(x86::dword_ptr(out_acts_R_), Ymm(9));
+    a->vmovups(x86::dword_ptr(out_acts_R_), x86::ymm9);
   } else {
     // horizontal add and store
     if (this->C_per_G_ == 8) {
-      a->vphaddd(Ymm(9), Ymm(9), Ymm(8));
-      a->vpermq(Ymm(9), Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(x86::ymm9, x86::ymm9, x86::ymm8);
+      a->vpermq(x86::ymm9, x86::ymm9, 0xd8);
       if (this->accum_) {
-        a->vpaddd(Ymm(9), Ymm(9), x86::dword_ptr(out_acts_R_));
+        a->vpaddd(x86::ymm9, x86::ymm9, x86::dword_ptr(out_acts_R_));
       }
-      a->vmovups(x86::dword_ptr(out_acts_R_), Ymm(9));
+      a->vmovups(x86::dword_ptr(out_acts_R_), x86::ymm9);
     } else if (this->K_per_G_ == 16) {
-      a->vphaddd(Ymm(9), Ymm(9), Ymm(8));
-      a->vpermq(Ymm(9), Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(x86::ymm9, x86::ymm9, x86::ymm8);
+      a->vpermq(x86::ymm9, x86::ymm9, 0xd8);
 
-      a->vphaddd(Ymm(7), Ymm(7), Ymm(6));
-      a->vpermq(Ymm(7), Ymm(7), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(x86::ymm7, x86::ymm7, x86::ymm6);
+      a->vpermq(x86::ymm7, x86::ymm7, 0xd8);
 
-      a->vphaddd(Ymm(5), Ymm(5), Ymm(4));
-      a->vpermq(Ymm(5), Ymm(5), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(x86::ymm5, x86::ymm5, x86::ymm4);
+      a->vpermq(x86::ymm5, x86::ymm5, 0xd8);
 
-      a->vphaddd(Ymm(3), Ymm(3), Ymm(2));
-      a->vpermq(Ymm(3), Ymm(3), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(x86::ymm3, x86::ymm3, x86::ymm2);
+      a->vpermq(x86::ymm3, x86::ymm3, 0xd8);
 
-      a->vphaddd(Ymm(9), Ymm(9), Ymm(7));
-      a->vpermq(Ymm(9), Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(x86::ymm9, x86::ymm9, x86::ymm7);
+      a->vpermq(x86::ymm9, x86::ymm9, 0xd8);
 
-      a->vphaddd(Ymm(5), Ymm(5), Ymm(3));
-      a->vpermq(Ymm(5), Ymm(5), static_cast<asmjit::Imm>(0xd8));
+      a->vphaddd(x86::ymm5, x86::ymm5, x86::ymm3);
+      a->vpermq(x86::ymm5, x86::ymm5, 0xd8);
 
       if (this->accum_) {
-        a->vpaddd(Ymm(9), Ymm(9), x86::dword_ptr(out_acts_R_));
-        a->vpaddd(Ymm(5), Ymm(5), x86::dword_ptr(out_acts_R_, 32));
+        a->vpaddd(x86::ymm9, x86::ymm9, x86::dword_ptr(out_acts_R_));
+        a->vpaddd(x86::ymm5, x86::ymm5, x86::dword_ptr(out_acts_R_, 32));
       }
-      a->vmovups(x86::dword_ptr(out_acts_R_), Ymm(9));
-      a->vmovups(x86::dword_ptr(out_acts_R_, 32), Ymm(5));
+      a->vmovups(x86::dword_ptr(out_acts_R_), x86::ymm9);
+      a->vmovups(x86::dword_ptr(out_acts_R_, 32), x86::ymm5);
     }
   }
 }
@@ -161,8 +160,6 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
     int s,
     int act_s,
     bool use_zero_reg) {
-  using WRegs = Ymm;
-
   if (GTogether_ > 1) {
     if (this->C_per_G_ == 2) { // group together = 4
       if (use_zero_reg) {
@@ -196,8 +193,8 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
     genU8I8S32FMA<INST_SET>(
         a,
         actReg_V_,
-        WRegs(r * this->S_ + s),
-        Ymm(9),
+        x86::ymm(r * this->S_ + s),
+        x86::ymm9,
         oneReg16Bit_V_,
         tmpReg1_V_);
   } else {
@@ -226,7 +223,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
     int kLoopMultiplier = 32 / this->C_per_G_;
     for (int k = 0; k < kLoopIters_; ++k) {
       a->vmovaps(
-          WRegs(0),
+          x86::ymm0,
           x86::dword_ptr(
               wghts_R_,
               (((r * this->S_ + s) * this->K_per_G_) + k * kLoopMultiplier) *
@@ -235,7 +232,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
       // which consectutive 2 elements if summedforms one final output over
       // K_Per_G dimension
       genU8I8S32FMA<INST_SET>(
-          a, actReg_V_, WRegs(0), Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
+          a, actReg_V_, x86::ymm0, x86::ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
     }
   }
 }

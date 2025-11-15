@@ -53,7 +53,7 @@ endfunction()
 project(
   fbgemm
   VERSION 1.4.0
-  LANGUAGES CXX)
+  LANGUAGES C CXX)
 
 # Add C++ compiler flag detection
 include(CheckCXXCompilerFlag)

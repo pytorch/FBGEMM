@@ -13,6 +13,8 @@
 #include <memory>
 #include <mutex>
 #include "./CodeCache.h" // @manual
+#include "./CodeGenHelpers.h" // @manual
+#include "./CodeStorage.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
@@ -61,13 +63,6 @@ class GenRowWiseSparseAdagradFused {
           int grad_stride);
 
  private:
-  static asmjit::JitRuntime& runtime() {
-    static asmjit::JitRuntime rt; // JIT Runtime for asmjit
-    return rt;
-  }
-
-  inline static mutex rtMutex_; /// Control access to runtime;
-
   // The hash depends on:
   // avx2 mask array, embedding dimension (block size), prefetch distance,
   // use_offsets and use_stochastic_rouding switch
@@ -107,8 +102,9 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 indxType,
                 offsetType,
                 dataType>::jit_sparse_adagrad_kernel {
+        asmjit::JitRuntime& runtime = CodeStorage::getRuntime();
         asmjit::CodeHolder code;
-        code.init(runtime().environment());
+        code.init(runtime.environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
         constexpr bool areIndices64b = is_same_v<indxType, int64_t>;
@@ -125,24 +121,25 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
-        auto codeLogger = std::make_unique<asmjit::FileLogger>(codeLogFile);
-        code.setLogger(codeLogger.get());
+
+        auto codeLogger = std::make_unique<asmjit::FileLoggerWithClose>(codeLogFile);
+        code.set_logger(codeLogger.get());
 #endif
 
-        x86::Gp rand_buffer = a->zax();
-        x86::Gp output_size = a->zdi();
-        x86::Gp index_size = a->zsi();
-        x86::Gp data_size = a->zdx();
-        x86::Gp w = a->zcx();
-        x86::Gp g = a->gpz(8);
-        x86::Gp h = a->gpz(9);
-        x86::Gp indices = a->gpz(10);
-        x86::Gp lengths = a->gpz(11);
-        Xmm epsilon(0);
-        Xmm lr(1);
-        auto lengths_R = a->gpz(12).r32();
-        x86::Gp scratchReg1 = a->gpz(13);
-        x86::Gp scratchReg2 = a->gpz(14); // for prefetching
+        x86::Gp rand_buffer = x86::rax;
+        x86::Gp output_size = x86::rdi;
+        x86::Gp index_size = x86::rsi;
+        x86::Gp data_size = x86::rdx;
+        x86::Gp w = x86::rcx;
+        x86::Gp g = x86::r8;
+        x86::Gp h = x86::r9;
+        x86::Gp indices = x86::r10;
+        x86::Gp lengths = x86::r11;
+        x86::Vec epsilon = x86::xmm0;
+        x86::Vec lr = x86::xmm1;
+        auto lengths_R = x86::r12d;
+        x86::Gp scratchReg1 = x86::r13;
+        x86::Gp scratchReg2 = x86::r14; // for prefetching
 
         asmjit::FuncDetail func;
         func.init(
@@ -165,25 +162,25 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         frame.init(func);
 
         if constexpr (instSet == inst_set_t::avx2) {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+              asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
         } else {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-                  asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-                  asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
+              asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15) |
+                  asmjit::Support::bit_mask<uint32_t>(16, 17, 18, 19, 20, 21, 22, 23) |
+                  asmjit::Support::bit_mask<uint32_t>(24, 25, 26, 27, 28, 29, 30, 31));
         }
 
-        frame.setDirtyRegs(
+        frame.set_dirty_regs(
             asmjit::RegGroup::kGp,
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
+            asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
-        args.assignAll(
+        args.assign_all(
             output_size,
             index_size,
             data_size,
@@ -196,10 +193,10 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             lr,
             rand_buffer);
 
-        args.updateFuncFrame(frame);
+        args.update_func_frame(frame);
         frame.finalize();
-        a->emitProlog(frame);
-        a->emitArgsAssignment(frame, args);
+        a->emit_prolog(frame);
+        a->emit_args_assignment(frame, args);
 
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
@@ -210,13 +207,13 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         int remainder = block_size % vlen;
 
         vec_reg_t src_vreg; // for holding embedding value temporarily
-        Ymm mask_vreg;
+        x86::Vec mask_vreg;
 
         // Reserve registers with small ids first because some of them need to
         // be used with an instruction not supported in avx512 for which a big
         // register id won't work.
         int first_available_vec_reg_id = 0;
-        Ymm partial_sum_vreg = Ymm(first_available_vec_reg_id);
+        x86::Vec partial_sum_vreg = x86::ymm(first_available_vec_reg_id);
         ++first_available_vec_reg_id;
         vec_reg_t float_step_vreg = vec_reg_t(first_available_vec_reg_id);
         ++first_available_vec_reg_id;
@@ -281,7 +278,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             src_vreg = vec_reg_t(first_available_vec_reg_id);
             ++first_available_vec_reg_id;
 
-            mask_vreg = Ymm(first_available_vec_reg_id);
+            mask_vreg = x86::ymm(first_available_vec_reg_id);
             ++first_available_vec_reg_id;
             // Use scratchReg1 as temp
             a->mov(scratchReg1, asmjit::imm(mask_avx2));
@@ -291,7 +288,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                     scratchReg1, (vlen - remainder) % vlen * sizeof(int32_t)));
           } else {
             a->mov(scratchReg1, (1 << remainder) - 1);
-            a->kmovw(x86::k(1), scratchReg1);
+            a->kmovw(x86::k1, scratchReg1);
           }
         }
         // Need an extra mask for computing sum of gradients
@@ -299,7 +296,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
         x86::KReg reduce_mask_avx512;
         if (remainder_avx2 && instSet == inst_set_t::avx512) {
-          reduce_mask_avx512 = x86::k(2);
+          reduce_mask_avx512 = x86::k2;
           a->mov(scratchReg1, (1 << remainder_avx2) - 1);
           a->kmovw(reduce_mask_avx512, scratchReg1);
         }
@@ -307,17 +304,14 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         int unroll_factor = NUM_VEC_REG - first_available_vec_reg_id;
 
         // Compute the end address of indices
-        a->imul(
-            scratchReg1,
-            index_size,
-            static_cast<asmjit::Imm>(sizeof(indxType)));
+        a->imul(scratchReg1, index_size, sizeof(indxType));
         a->add(scratchReg1, indices);
         a->mov(index_size, scratchReg1);
 
-        asmjit::Label exit = a->newLabel();
-        asmjit::Label error = a->newLabel();
-        asmjit::Label LoopRangeIndexBegin = a->newLabel();
-        asmjit::Label LoopRangeIndexEnd = a->newLabel();
+        asmjit::Label exit = a->new_label();
+        asmjit::Label error = a->new_label();
+        asmjit::Label LoopRangeIndexBegin = a->new_label();
+        asmjit::Label LoopRangeIndexEnd = a->new_label();
 
         // rangeIndex loop begin (iterate output_size times)
         a->bind(LoopRangeIndexBegin);
@@ -342,7 +336,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           int cur_unroll_factor =
               std::min(unroll_factor, num_vec_regs_per_block_avx2 - vec_idx);
           for (int v = 0; v < cur_unroll_factor; ++v) {
-            Ymm out_vreg = Ymm(v + first_available_vec_reg_id);
+            x86::Vec out_vreg = x86::ymm(v + first_available_vec_reg_id);
 
             auto g_ptr =
                 x86::dword_ptr(g, (vec_idx + v) * vlen_avx2 * sizeof(float));
@@ -360,25 +354,9 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             a->vaddps(partial_sum_vreg, partial_sum_vreg, out_vreg);
           }
         }
-        // Reduce sum to 1 value
-        // __m256 partial_sum_2 = _mm256_hadd_ps(partial_sum, partial_sum);
-        // __m256 partial_sum_3 = _mm256_hadd_ps(partial_sum_2, partial_sum_2);
-        // Use YMM/XMMs with smaller ids for AVX2 specific instructions like
-        // vhaddps
-        Xmm partial_sum_xmm(partial_sum_vreg.id());
-        Xmm float_step_xmm(float_step_vreg.id());
-        // a->vmovups(partial_sum_temp0_ymm, partial_sum_vreg);
-        a->vhaddps(partial_sum_vreg, partial_sum_vreg, partial_sum_vreg);
-        a->vhaddps(partial_sum_vreg, partial_sum_vreg, partial_sum_vreg);
 
-        //_mm_cvtss_f32(_mm256_castps256_ps128(partial_sum_3))
-        a->movss(float_step_xmm, partial_sum_xmm);
-        //_mm_cvtss_f32(_mm256_extractf128_ps(partial_sum_3, 1))
-        a->vextractf128(partial_sum_xmm, partial_sum_vreg, 1);
-
-        // final_sum = _mm_cvtss_f32(_mm256_castps256_ps128(partial_sum_3)) +
-        //    _mm_cvtss_f32(_mm256_extractf128_ps(partial_sum_3, 1));
-        a->addss(partial_sum_xmm, float_step_xmm);
+        // Reduce sum to a single value.
+        emitReduceAddF32<instSet>(a, partial_sum_vreg, float_step_vreg);
 
         // This fragment moves block size (N) to stack and bcasts it to xmm reg
         a->lea(
@@ -386,13 +364,13 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             x86::dword_ptr(x86::rsp, -1 * static_cast<int>(sizeof(int32_t))));
         a->mov(x86::dword_ptr(x86::rsp), block_size);
         a->vbroadcastss(
-            float_step_xmm,
+            float_step_vreg.xmm(),
             x86::dword_ptr(x86::rsp)); // N is partial_sum_xmm1
-        a->vcvtdq2ps(float_step_xmm, float_step_xmm);
+        a->vcvtdq2ps(float_step_vreg.xmm(), float_step_vreg.xmm());
         a->lea(x86::rsp, x86::dword_ptr(x86::rsp, sizeof(int32_t)));
 
         // final_sum /= N
-        a->divss(partial_sum_xmm, float_step_xmm);
+        a->vdivss(partial_sum_vreg.xmm(), partial_sum_vreg.xmm(), float_step_vreg.xmm());
 
         if (use_offsets) {
           a->mov(lengths_R, x86::dword_ptr(lengths, sizeof(offsetType)));
@@ -402,15 +380,14 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         }
 
         // Array out of bound check
-        a->imul(
-            scratchReg1, lengths_R, static_cast<asmjit::Imm>(sizeof(indxType)));
+        a->imul(scratchReg1, lengths_R, sizeof(indxType));
 
         a->add(scratchReg1, indices);
         a->cmp(scratchReg1, index_size);
         a->jg(error);
 
-        asmjit::Label LoopDataIndexBegin = a->newLabel();
-        asmjit::Label LoopDataIndexEnd = a->newLabel();
+        asmjit::Label LoopDataIndexBegin = a->new_label();
+        asmjit::Label LoopDataIndexEnd = a->new_label();
 
         // dataIndex loop begins (iterate lengths_R_ times)
         a->bind(LoopDataIndexBegin);
@@ -430,13 +407,11 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->jae(error);
 
         if (prefetch) {
-          asmjit::Label pref_dist_reset_start = a->newLabel();
-          asmjit::Label pref_dist_reset_end = a->newLabel();
+          asmjit::Label pref_dist_reset_start = a->new_label();
+          asmjit::Label pref_dist_reset_end = a->new_label();
           // out of bound handling for prefetch
           a->mov(scratchReg2, indices);
-          a->add(
-              scratchReg2,
-              static_cast<asmjit::Imm>(prefetch * sizeof(indxType)));
+          a->add(scratchReg2, prefetch * sizeof(indxType));
           a->cmp(scratchReg2, index_size);
           a->jge(pref_dist_reset_start);
 
@@ -464,28 +439,28 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           a->bind(pref_dist_reset_end);
         }
 
-        a->add(indices, static_cast<asmjit::Imm>(sizeof(indxType)));
+        a->add(indices, sizeof(indxType));
 
         if (prefetch) {
           a->prefetchw(x86::dword_ptr(h, scratchReg2, 2));
         }
         // load h
-        a->movss(float_step_xmm, x86::dword_ptr(h, scratchReg1, 2));
+        a->vmovss(float_step_vreg.xmm(), x86::dword_ptr(h, scratchReg1, 2));
         // *h + final_sum
-        a->addss(float_step_xmm, partial_sum_xmm);
+        a->vaddss(float_step_vreg.xmm(), float_step_vreg.xmm(), partial_sum_vreg.xmm());
         // store h
-        a->movss(x86::dword_ptr(h, scratchReg1, 2), float_step_xmm);
+        a->vmovss(x86::dword_ptr(h, scratchReg1, 2), float_step_vreg.xmm());
         // sqrt(hi)
-        a->sqrtss(float_step_xmm, float_step_xmm);
+        a->vsqrtss(float_step_vreg.xmm(), float_step_vreg.xmm(), float_step_vreg.xmm());
         // bcast partial to all of ymm/zmm reg
-        a->vpbroadcastd(float_step_vreg, float_step_xmm);
+        a->vpbroadcastd(float_step_vreg, float_step_vreg.xmm());
         // lr / sqrt(hi) + epsilon
         a->vaddps(float_step_vreg, float_step_vreg, epsilon_vreg);
         a->vdivps(float_step_vreg, lr_vreg, float_step_vreg);
 
-        a->imul(scratchReg1, static_cast<asmjit::Imm>(block_size));
+        a->imul(scratchReg1, block_size);
         if (prefetch) {
-          a->imul(scratchReg2, static_cast<asmjit::Imm>(block_size));
+          a->imul(scratchReg2, block_size);
         }
 
         for (int vec_idx = 0; vec_idx < num_vec_regs_per_block;
@@ -512,9 +487,9 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
                   a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
                 } else {
-                  a->k(x86::k(1)).vmulps(out_vreg, float_step_vreg, g_ptr);
-                  a->k(x86::k(1)).vaddps(out_vreg, out_vreg, w_ptr);
-                  a->k(x86::k(1)).vmovups(w_ptr, out_vreg);
+                  a->k(x86::k1).vmulps(out_vreg, float_step_vreg, g_ptr);
+                  a->k(x86::k1).vaddps(out_vreg, out_vreg, w_ptr);
+                  a->k(x86::k1).vmovups(w_ptr, out_vreg);
                 }
               } else {
                 a->vmulps(out_vreg, float_step_vreg, g_ptr);
@@ -552,37 +527,20 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   a->vpaddd(r0_vreg, S0_vreg, S3_vreg);
                   a->vpslld(r1_vreg, r0_vreg, 7);
                   a->vpsrld(r0_vreg, r0_vreg, 25);
-                  if constexpr (instSet == inst_set_t::avx2) {
-                    a->vpor(R_vreg.ymm(), r0_vreg.ymm(), r1_vreg.ymm());
-                  } else {
-                    a->vpord(R_vreg, r0_vreg, r1_vreg);
-                  }
+                  emitVecOr<instSet>(a, R_vreg, r0_vreg, r1_vreg);
                   a->vpaddd(R_vreg, R_vreg, S0_vreg);
 
                   a->vpslld(r0_vreg, S1_vreg, 9);
 
-                  if constexpr (instSet == inst_set_t::avx2) {
-                    a->vpxor(S2_vreg.ymm(), S2_vreg.ymm(), S0_vreg.ymm());
-                    a->vpxor(S3_vreg.ymm(), S3_vreg.ymm(), S1_vreg.ymm());
-                    a->vpxor(S1_vreg.ymm(), S1_vreg.ymm(), S2_vreg.ymm());
-                    a->vpxor(S0_vreg.ymm(), S0_vreg.ymm(), S3_vreg.ymm());
+                  emitVecXor<instSet>(a, S2_vreg, S2_vreg, S0_vreg);
+                  emitVecXor<instSet>(a, S3_vreg, S3_vreg, S1_vreg);
+                  emitVecXor<instSet>(a, S1_vreg, S1_vreg, S2_vreg);
+                  emitVecXor<instSet>(a, S0_vreg, S0_vreg, S3_vreg);
+                  emitVecXor<instSet>(a, S2_vreg, S2_vreg, r0_vreg);
 
-                    a->vpxor(S2_vreg.ymm(), S2_vreg.ymm(), r0_vreg.ymm());
-                  } else {
-                    a->vpxord(S2_vreg, S2_vreg, S0_vreg);
-                    a->vpxord(S3_vreg, S3_vreg, S1_vreg);
-                    a->vpxord(S1_vreg, S1_vreg, S2_vreg);
-                    a->vpxord(S0_vreg, S0_vreg, S3_vreg);
-
-                    a->vpxord(S2_vreg, S2_vreg, r0_vreg);
-                  }
                   a->vpslld(r0_vreg, S3_vreg, 11);
                   a->vpsrld(r1_vreg, S3_vreg, 21);
-                  if constexpr (instSet == inst_set_t::avx2) {
-                    a->vpor(S3_vreg.ymm(), r0_vreg.ymm(), r1_vreg.ymm());
-                  } else {
-                    a->vpord(S3_vreg, r0_vreg, r1_vreg);
-                  }
+                  emitVecOr<instSet>(a, S3_vreg, r0_vreg, r1_vreg);
 
                   // Extract byte 0 and shift to bits[5..13]
                   a->vpslld(r0_vreg, R_vreg, 24);
@@ -650,13 +608,13 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   a->mov(h, x86::ptr(x86::rsp));
                   a->lea(x86::rsp, x86::ptr(x86::rsp, 8));
                 } else {
-                  a->k(x86::k(1)).vcvtph2ps(out_vreg, w_ptr);
-                  a->k(x86::k(1)).vfmadd231ps(out_vreg, float_step_vreg, g_ptr);
+                  a->k(x86::k1).vcvtph2ps(out_vreg, w_ptr);
+                  a->k(x86::k1).vfmadd231ps(out_vreg, float_step_vreg, g_ptr);
                   if (use_stochastic_rounding) {
                     a->vpaddd(out_vreg, r0_vreg, out_vreg);
                   }
                   // Truncate rounding
-                  a->k(x86::k(1)).vcvtps2ph(w_ptr, out_vreg, 11);
+                  a->k(x86::k1).vcvtps2ph(w_ptr, out_vreg, 11);
                 }
               } else {
                 a->vcvtph2ps(out_vreg, w_ptr);
@@ -687,8 +645,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->jmp(LoopDataIndexBegin);
         a->bind(LoopDataIndexEnd);
 
-        a->add(lengths, static_cast<asmjit::Imm>(sizeof(offsetType)));
-        a->add(g, static_cast<asmjit::Imm>(grad_stride * sizeof(float)));
+        a->add(lengths, sizeof(offsetType));
+        a->add(g, grad_stride * sizeof(float));
 
         a->jmp(LoopRangeIndexBegin);
         a->bind(LoopRangeIndexEnd);
@@ -702,50 +660,25 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->bind(exit);
 
         if (areWeightsFp16 && use_stochastic_rounding) {
-          if constexpr (instSet == inst_set_t::avx2) {
-            a->vmovdqa(x86::dword_ptr(rand_buffer), S0_vreg.ymm());
-            a->vmovdqa(
-                x86::dword_ptr(rand_buffer, 1 * vlen * sizeof(uint32_t)),
-                S1_vreg.ymm());
-            a->vmovdqa(
-                x86::dword_ptr(rand_buffer, 2 * vlen * sizeof(uint32_t)),
-                S2_vreg.ymm());
-            a->vmovdqa(
-                x86::dword_ptr(rand_buffer, 3 * vlen * sizeof(uint32_t)),
-                S3_vreg.ymm());
-          } else {
-            a->vmovdqa32(x86::dword_ptr(rand_buffer), S0_vreg);
-            a->vmovdqa32(
-                x86::dword_ptr(rand_buffer, 1 * vlen * sizeof(uint32_t)),
-                S1_vreg);
-            a->vmovdqa32(
-                x86::dword_ptr(rand_buffer, 2 * vlen * sizeof(uint32_t)),
-                S2_vreg);
-            a->vmovdqa32(
-                x86::dword_ptr(rand_buffer, 3 * vlen * sizeof(uint32_t)),
-                S3_vreg);
-          }
+          emitVecMove<instSet>(a, x86::ptr(rand_buffer), S0_vreg);
+          emitVecMove<instSet>(a, x86::ptr(rand_buffer, 1 * vlen * sizeof(uint32_t)), S1_vreg);
+          emitVecMove<instSet>(a, x86::ptr(rand_buffer, 2 * vlen * sizeof(uint32_t)), S2_vreg);
+          emitVecMove<instSet>(a, x86::ptr(rand_buffer, 3 * vlen * sizeof(uint32_t)), S3_vreg);
         }
 
         a->mov(x86::eax, scratchReg1.r32());
-        a->emitEpilog(frame);
+        a->emit_epilog(frame);
 
         // jit_fused8bitembedding_kernel fn;
         typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             jit_sparse_adagrad_kernel fn;
-        asmjit::Error err = 0;
-        {
-          unique_lock<mutex> lock(rtMutex_);
-          err = runtime().add(&fn, &code);
-        }
-        if (err) {
+        asmjit::Error err = runtime.add(&fn, &code);
+
+        if (err != asmjit::Error::kOk) {
           cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 
-#if defined(FBGEMM_LOG_CODE)
-        fclose(codeLogFile);
-#endif
         return fn;
       });
 } // getOrCreate

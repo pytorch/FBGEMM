@@ -17,15 +17,12 @@ namespace x86 = asmjit::x86;
  * Accumulation kernel.
  */
 void initCRegs(x86::Emitter* a, int rowRegs, int colRegs) {
-  using CRegs = Xmm;
   // Take advantage of implicit zeroing out
   // i.e., zero out xmm and ymm will be zeroed out too
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
-      a->vpxor(
-          CRegs(i * colRegs + j),
-          CRegs(i * colRegs + j),
-          CRegs(i * colRegs + j));
+      x86::Vec reg = x86::xmm(unsigned(i * colRegs + j));
+      a->vpxor(reg, reg, reg);
     }
   }
 }

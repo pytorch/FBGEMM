@@ -130,16 +130,6 @@ class CodeGenBase {
   }
 
  private:
-  static asmjit::JitRuntime& runtime() {
-    static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
-                                  // depents on other static
-                                  // variables.  Required to prevent
-                                  // initialization order fiasco
-    return rt;
-  }
-
-  inline static std::mutex rtMutex_; ///< Controll access to runtime;
-
   // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr
   inline static CodeCache<
       std::tuple<bool, int, int, int, int, int, int>,

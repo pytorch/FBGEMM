@@ -7,7 +7,9 @@
  */
 
 #include <iostream>
+#include "./CodeStorage.h" // @manual
 #include "./CodeGenHelpers.h" // @manual
+#include "./CodeStorage.h" // @manual
 #include "./DirectConv.h" // @manual
 
 namespace fbgemm {
@@ -62,10 +64,10 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
             VecT(i * colRegs + j),
             VecT(i * colRegs + j),
             x86::dword_ptr(
-                a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)));
+                x86::rcx, C_Offset, 0, j * vectorLen * sizeof(int8_t)));
       }
       a->vmovups(
-          x86::dword_ptr(a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)),
+          x86::dword_ptr(x86::rcx, C_Offset, 0, j * vectorLen * sizeof(int8_t)),
           VecT(i * colRegs + j));
     }
   }
@@ -100,7 +102,7 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
   for (int j = 0; j < colRegs; ++j) {
     // load B
-    emitLoadDWord<instSet, VecRegT>(
+    emitVecMove<instSet>(
         a, BReg, x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
     // load A, broadcast and fmas
     for (int i = 0; i < rowRegs; ++i) {
@@ -190,8 +192,9 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       accum, O1, i1Xich, strideXich, i1Xich, mRegBlockSize, nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
+    asmjit::JitRuntime& runtime = CodeStorage::getRuntime();
     asmjit::CodeHolder code;
-    code.init(runtime().environment());
+    code.init(runtime.environment());
     x86::Assembler assembler(&code);
     x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
@@ -201,10 +204,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
             accum, O1, i1Xich, strideXich, i1Xich, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
-    asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
-    if (codeLogger) {
-      code.setLogger(codeLogger);
-    }
+    auto codeLogger = std::make_unique<asmjit::FileLoggerWithClose>(codeLogFile);
+    code.set_logger(codeLogger.get());
 #endif
 
     const int maxMRegs [[maybe_unused]] = mRegBlockSize;
@@ -217,12 +218,12 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     int O1RegBlocksRem = O1 % mRegBlockSize;
 
     // arguments to the function created
-    x86::Gp buffer_A = a->zdi();
-    x86::Gp buffer_B = a->zsi();
-    x86::Gp B_pf = a->zdx();
-    x86::Gp CBase = a->zcx();
-    x86::Gp ichXk1 = a->gpz(8);
-    x86::Gp ldcReg = a->gpz(9);
+    x86::Gp buffer_A = x86::rdi;
+    x86::Gp buffer_B = x86::rsi;
+    x86::Gp B_pf = x86::rdx;
+    x86::Gp CBase = x86::rcx;
+    x86::Gp ichXk1 = x86::r8;
+    x86::Gp ldcReg = x86::r9;
 
     asmjit::FuncDetail func;
     func.init(
@@ -233,43 +234,43 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
+    auto dirtyVecRegs = asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+        asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15);
     if (numRegs >= 16) {
-      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-          asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+      dirtyVecRegs |= asmjit::Support::bit_mask<uint32_t>(16, 17, 18, 19, 20, 21, 22, 23) |
+          asmjit::Support::bit_mask<uint32_t>(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(asmjit::RegGroup::kVec, dirtyVecRegs);
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(buffer_A, buffer_B, B_pf, CBase, ichXk1, ldcReg);
+    args.assign_all(buffer_A, buffer_B, B_pf, CBase, ichXk1, ldcReg);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    a->emitProlog(frame);
-    a->emitArgsAssignment(frame, args);
+    a->emit_prolog(frame);
+    a->emit_args_assignment(frame, args);
 
-    asmjit::Label LoopMBlocks = a->newLabel();
-    // asmjit::Label LoopOBlocks = a->newLabel();
-    // asmjit::Label LoopNBlocks = a->newLabel();
+    asmjit::Label LoopMBlocks = a->new_label();
+    // asmjit::Label LoopOBlocks = a->new_label();
+    // asmjit::Label LoopNBlocks = a->new_label();
 
-    const x86::Gp& buffer_B_saved = a->gpz(10);
-    const x86::Gp& C_Offset = a->gpz(11);
-    // const x86::Gp& B_pf_saved = a->gpz(12);
-    const x86::Gp& iIdx = a->gpz(13);
-    // const x86::Gp& jIdx = a->gpz(14);
-    const x86::Gp& kIdx = a->gpz(15);
-    // const x86::Gp& B_pf = a->gpz(8);
+    const x86::Gp& buffer_B_saved = x86::r10;
+    const x86::Gp& C_Offset = x86::r11;
+    // const x86::Gp& B_pf_saved = x86::r12;
+    const x86::Gp& iIdx = x86::r13;
+    // const x86::Gp& jIdx = x86::r14;
+    const x86::Gp& kIdx = x86::r15;
+    // const x86::Gp& B_pf = x86::r8;
 
     VecRegT oneReg(numRegs - 3);
 
-    gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
-    a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
+    gen16BitVectorOne<instSet>(a, oneReg);
+    a->imul(ldcReg, ldcReg, sizeof(int32_t));
     // a->xor_(C_Offset.r32(), C_Offset.r32());
 
     // a->mov(B_pf_saved, B_pf);
@@ -279,8 +280,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     auto issueLoopOverK = [&](int rowRegs) {
       // loopKLabel: corresponds to loop "r" where r = 0
       // loopK0Label: corresponds to loop "r" where r = 1
-      asmjit::Label LoopKLabel = a->newLabel();
-      asmjit::Label LoopK0Label = a->newLabel();
+      asmjit::Label LoopKLabel = a->new_label();
+      asmjit::Label LoopK0Label = a->new_label();
 
       // Init C (result) vector registers
       initCRegs(a, rowRegs, colRegs);
@@ -292,7 +293,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       a->bind(LoopKLabel);
 
       // k is incremented by row_interleave
-      a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
+      a->add(kIdx, row_interleave);
 
       // this ComputeBlock generates code correspondent to
       // the above psedu-code since the kernel_height loop (loop "r").
@@ -303,25 +304,24 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
           a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, strideXich);
 
       // update buffer_A address for next k iteration
-      a->add(
-          buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
+      a->add(buffer_A, row_interleave * sizeof(uint8_t));
 
       // update buffer_B address for next k iteration
-      a->add(buffer_B, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-      a->add(B_pf, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+      a->add(buffer_B, 8 * sizeof(int32_t));
+      a->add(B_pf, 8 * sizeof(int32_t));
 
       a->cmp(kIdx, ichXk1);
       a->jl(LoopKLabel);
 
       a->sub(buffer_A, ichXk1);
 
-      a->add(buffer_A, static_cast<asmjit::Imm>(i1Xich));
+      a->add(buffer_A, i1Xich);
 
       a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(LoopK0Label);
 
       // k is incremented by row_interleave
-      a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
+      a->add(kIdx, row_interleave);
 
       // this ComputeBlock generates code that corresponds
       // to the kernel_height loop (loop "r") in the psedu-code above.
@@ -331,12 +331,11 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
           a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, strideXich);
 
       // update buffer_A address for next k iteration
-      a->add(
-          buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
+      a->add(buffer_A, row_interleave * sizeof(uint8_t));
 
       // update buffer_B address for next k iteration
-      a->add(buffer_B, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-      a->add(B_pf, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+      a->add(buffer_B, 8 * sizeof(int32_t));
+      a->add(B_pf, 8 * sizeof(int32_t));
 
       a->cmp(kIdx, ichXk1);
       a->jl(LoopK0Label);
@@ -364,12 +363,10 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       int rowRegs = mRegBlockSize;
 
       // reset A
-      a->sub(buffer_A, static_cast<asmjit::Imm>(i1Xich));
+      a->sub(buffer_A, i1Xich);
 
       // increment A for next block
-      a->add(
-          buffer_A,
-          static_cast<asmjit::Imm>(rowRegs * strideXich * sizeof(uint8_t)));
+      a->add(buffer_A, rowRegs * strideXich * sizeof(uint8_t));
 
       // B for next block
       a->mov(buffer_B, buffer_B_saved);
@@ -377,7 +374,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       // increment C for next B block
       // ldcReg already multiplied with 4 (sizeof(int32_t))
       a->imul(
-          C_Offset, ldcReg, static_cast<asmjit::Imm>(rowRegs * sizeof(int8_t)));
+          C_Offset, ldcReg, rowRegs * sizeof(int8_t));
       a->add(CBase, C_Offset);
 
       // a->add(CBase, static_cast<asmjit::Imm>(12*16*4));
@@ -392,23 +389,15 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       issueLoopOverK(O1RegBlocksRem);
     }
 
-    a->emitEpilog(frame);
+    a->emit_epilog(frame);
 
     jit_micro_kernel_fp fn = nullptr;
-    asmjit::Error err = 0;
-    {
-      std::unique_lock<std::mutex> lock(rtMutex_);
-      err = runtime().add(&fn, &code);
-    }
-    if (err) {
+    asmjit::Error err = runtime.add(&fn, &code);
+
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
-
-#if defined(FBGEMM_LOG_CODE)
-    fclose(codeLogfile);
-    delete codeLogger;
-#endif
 
     return fn;
   });
@@ -438,9 +427,9 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegsTrans(
         a->vpaddd(
             VecT(i * colRegs + j),
             VecT(i * colRegs + j),
-            x86::dword_ptr(a->zcx(), C_offset));
+            x86::dword_ptr(x86::rcx, C_offset));
       }
-      a->vmovups(x86::dword_ptr(a->zcx(), C_offset), VecT(i * colRegs + j));
+      a->vmovups(x86::dword_ptr(x86::rcx, C_offset), VecT(i * colRegs + j));
       a->add(C_offset, ldcReg);
     }
     a->add(C_offset, o1XocReg);
@@ -509,7 +498,7 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       // load B, broadcast and fmas
-      emitLoadDWord<instSet, VecRegT>(
+      emitVecMove<instSet>(
           a, BReg, x86::dword_ptr(buffer_B, C_offset, 3, 0));
       a->vpmaddubsw(res1, AReg, BReg);
       a->vpmaddwd(res1, oneReg, res1);
@@ -611,8 +600,9 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
   auto kernelSig = std::make_tuple(accum, stride, mRegBlockSize, nRegBlockSize);
 
   return codeCacheT_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp_convT {
+    asmjit::JitRuntime& runtime = CodeStorage::getRuntime();
     asmjit::CodeHolder code;
-    code.init(runtime().environment());
+    code.init(runtime.environment());
     x86::Assembler assembler(&code);
     x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
@@ -621,10 +611,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         getCodeLoggingFile<instSet>(accum, stride, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
-    asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
-    if (codeLogger) {
-      code.setLogger(codeLogger);
-    }
+    auto codeLogger = std::make_unique<asmjit::FileLoggerWithClose>(codeLogFile);
+    code.set_logger(codeLogger.get());
 #endif
 
     const int maxMRegs [[maybe_unused]] = mRegBlockSize;
@@ -634,13 +622,13 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         "MRegs x NRegs is above available registers (MAX_REGS - 4)");
 
     // arguments to the function created
-    const x86::Gp& buffer_A = a->zdi();
-    const x86::Gp& buffer_B = a->zsi();
-    const x86::Gp& CBase = a->zcx();
-    const x86::Gp& ic = a->gpz(8);
-    const x86::Gp& ldcReg = a->gpz(9);
-    const x86::Gp& o1Xoc = a->gpz(10);
-    const x86::Gp& i1 = a->gpz(11);
+    const x86::Gp& buffer_A = x86::rdi;
+    const x86::Gp& buffer_B = x86::rsi;
+    const x86::Gp& CBase = x86::rcx;
+    const x86::Gp& ic = x86::r8;
+    const x86::Gp& ldcReg = x86::r9;
+    const x86::Gp& o1Xoc = x86::r10;
+    const x86::Gp& i1 = x86::r11;
 
     asmjit::FuncDetail func;
     func.init(
@@ -651,43 +639,43 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
+    auto dirtyVecRegs = asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+        asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15);
     if (numRegs >= 16) {
-      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-          asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+      dirtyVecRegs |= asmjit::Support::bit_mask<uint32_t>(16, 17, 18, 19, 20, 21, 22, 23) |
+          asmjit::Support::bit_mask<uint32_t>(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(asmjit::RegGroup::kVec, dirtyVecRegs);
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(buffer_A, buffer_B, CBase, ic, ldcReg, o1Xoc, i1);
+    args.assign_all(buffer_A, buffer_B, CBase, ic, ldcReg, o1Xoc, i1);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    a->emitProlog(frame);
-    a->emitArgsAssignment(frame, args);
+    a->emit_prolog(frame);
+    a->emit_args_assignment(frame, args);
 
-    asmjit::Label LoopMBlocks = a->newLabel();
+    asmjit::Label LoopMBlocks = a->new_label();
 
-    const x86::Gp& C_offset = a->gpz(12);
-    const x86::Gp& buffer_B_saved = a->gpz(13);
-    const x86::Gp& iIdx = a->gpz(14);
-    const x86::Gp& kIdx = a->gpz(15);
+    const x86::Gp& C_offset = x86::r12;
+    const x86::Gp& buffer_B_saved = x86::r13;
+    const x86::Gp& iIdx = x86::r14;
+    const x86::Gp& kIdx = x86::r15;
 
     VecRegT oneReg(numRegs - 3);
 
-    gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
-    a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
+    gen16BitVectorOne<instSet>(a, oneReg);
+    a->imul(ldcReg, ldcReg, sizeof(int32_t));
 
     int colRegs = maxNRegs;
 
     auto issueLoopOverK = [&](int rowRegs) {
-      asmjit::Label LoopKLabel = a->newLabel();
+      asmjit::Label LoopKLabel = a->new_label();
 
       // Init C (result) vector registers
       initCRegs(a, rowRegs, colRegs);
@@ -708,11 +696,10 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
           mColRegBlockSize);
 
       // update buffer_A address for next k iteration
-      a->add(
-          buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
+      a->add(buffer_A, row_interleave * sizeof(uint8_t));
 
       // update buffer_B address for next k iteration
-      a->add(buffer_B, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+      a->add(buffer_B, 8 * sizeof(int32_t));
 
       a->cmp(kIdx, ic);
       a->jl(LoopKLabel);
@@ -743,33 +730,22 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
       // B for next block
       a->mov(buffer_B, buffer_B_saved);
       // increment C for next B block
-      a->imul(
-          C_offset,
-          ldcReg,
-          static_cast<asmjit::Imm>(stride)); // ldcReg already multiplied by 4
+      a->imul(C_offset, ldcReg, stride); // ldcReg already multiplied by 4
       a->add(CBase, C_offset);
 
       a->cmp(iIdx, i1);
       a->jl(LoopMBlocks);
     }
 
-    a->emitEpilog(frame);
+    a->emit_epilog(frame);
 
     jit_micro_kernel_fp_convT fn = nullptr;
-    asmjit::Error err = 0;
-    {
-      std::unique_lock<std::mutex> lock(rtMutex_);
-      err = runtime().add(&fn, &code);
-    }
-    if (err) {
+    asmjit::Error err = runtime.add(&fn, &code);
+
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
-
-#if defined(FBGEMM_LOG_CODE)
-    fclose(codeLogfile);
-    delete codeLogger;
-#endif
 
     return fn;
   });

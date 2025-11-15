@@ -14,21 +14,12 @@
 
 #include "./CodeCache.h" // @manual
 #include "./CodeGenHelpers.h" // @manual
+#include "./CodeStorage.h" // @manual
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
 namespace {
-asmjit::JitRuntime& runtime() {
-  static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
-                                // depents on other static
-                                // variables.  Required to prevent
-                                // initialization order fiasco
-  return rt;
-}
-
-// Controll access to runtime;
-std::mutex rtMutex_;
 
 // The hash depends on D, K_T, K_H, K_W, oc_per_g, compute_a_sum,
 // remainder, prev_skip, next_skip, top_skip, bottom_skip, left_skip, and
@@ -52,19 +43,23 @@ namespace x86 = asmjit::x86;
 // c3_v: c[12:16], c[28:32]
 static void genMaddEpi16xNPacked(
     x86::Emitter* e,
-    Ymm a[4],
+    x86::Vec a[4],
     const x86::Gp& b,
-    Ymm c[4],
-    Ymm* a_sum,
+    x86::Vec c[4],
+    x86::Vec* a_sum,
     int n,
     int remainder,
     bool accumulation,
-    const Ymm& one_epi8,
-    const Ymm& one_epi16,
-    const Ymm& zero) {
+    const x86::Vec& one_epi8,
+    const x86::Vec& one_epi16,
+    const x86::Vec& zero) {
   // Interleave inputs corresponding to 4 filter positions.
   // Reuse a[1] and a[3] to save registers
-  Ymm a01_lo(0), a01_hi(1), a23_lo(a[1]), a23_hi(a[3]);
+  x86::Vec a01_lo = x86::ymm0;
+  x86::Vec a01_hi = x86::ymm1;
+  x86::Vec a23_lo(a[1]);
+  x86::Vec a23_hi(a[3]);
+
   e->vpunpcklbw(a01_lo, a[0], n == 1 ? zero : a[1]);
   if (remainder >= 8) {
     e->vpunpckhbw(a01_hi, a[0], n == 1 ? zero : a[1]);
@@ -203,8 +198,9 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
           right_skip);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_kernel_signature {
+    asmjit::JitRuntime& runtime = CodeStorage::getRuntime();
     asmjit::CodeHolder code;
-    code.init(runtime().environment());
+    code.init(runtime.environment());
     x86::Assembler assembler(&code);
     x86::Emitter* e = assembler.as<x86::Emitter>();
 #ifdef FBGEMM_LOG_CODE
@@ -212,7 +208,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     for (int i = 3 - D; i < 3; ++i) {
       filename += std::to_string(K[i]);
       if (i < 2) {
-        filename += "x"
+        filename += "x";
       }
     }
     filename += "_" + std::to_string(oc_per_g);
@@ -242,22 +238,22 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     }
     filename += ".txt";
     FILE* codeLogFile = fopen(filename.c_str(), "w");
-    asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
-    code.setLogger(codeLogger);
+    auto codeLogger = std::make_unique<asmjit::FileLoggerWithClose>(codeLogFile);
+    code.set_logger(codeLogger.get());
 #endif
 
-    x86::Gp a_addr = e->zdi();
-    x86::Gp b_addr = e->zsi();
-    x86::Gp c_addr = e->zdx();
-    x86::Gp a_sum_addr = e->zcx();
-    x86::Gp h = e->gpz(8);
-    x86::Gp w = e->gpz(9);
-    x86::Gp ic = e->gpz(10);
-    x86::Gp mask_addr = e->gpz(11);
-    x86::Gp a_zero_point = e->gpz(12);
-    x86::Gp b_zero_point_addr = e->gpz(13);
-    x86::Gp ic_loop_count = e->gpz(14);
-    x86::Gp a_addr_save = e->gpz(15);
+    x86::Gp a_addr = x86::rdi;
+    x86::Gp b_addr = x86::rsi;
+    x86::Gp c_addr = x86::rdx;
+    x86::Gp a_sum_addr = x86::rcx;
+    x86::Gp h = x86::r8;
+    x86::Gp w = x86::r9;
+    x86::Gp ic = x86::r10;
+    x86::Gp mask_addr = x86::r11;
+    x86::Gp a_zero_point = x86::r12;
+    x86::Gp b_zero_point_addr = x86::r13;
+    x86::Gp ic_loop_count = x86::r14;
+    x86::Gp a_addr_save = x86::r15;
 
     asmjit::FuncDetail func;
     func.init(
@@ -278,16 +274,16 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(
         asmjit::RegGroup::kVec,
-        asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
-    frame.setDirtyRegs(
+        asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+            asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(
+    args.assign_all(
         a_addr,
         b_addr,
         c_addr,
@@ -299,31 +295,31 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
         a_zero_point,
         b_zero_point_addr);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    e->emitProlog(frame);
-    e->emitArgsAssignment(frame, args);
+    e->emit_prolog(frame);
+    e->emit_args_assignment(frame, args);
 
     // Assign vector registers
-    Ymm a[4];
-    Ymm c[4];
-    Ymm a_sum[2];
+    x86::Vec a[4];
+    x86::Vec c[4];
+    x86::Vec a_sum[2];
 
-    int vreg_id = 2; // reserve 2 for temp vreg
+    unsigned vreg_id = 2; // reserve 2 for temp vreg
     for (int i = 0; i < 4; ++i, ++vreg_id) {
-      a[i] = Ymm(vreg_id);
+      a[i] = x86::ymm(vreg_id);
     }
     for (int i = 0; i < 4; ++i, ++vreg_id) {
-      c[i] = Ymm(vreg_id);
+      c[i] = x86::ymm(vreg_id);
     }
     if (compute_a_sum) {
-      a_sum[0] = Ymm(vreg_id);
+      a_sum[0] = x86::ymm(vreg_id);
       ++vreg_id;
-      a_sum[1] = Ymm(vreg_id);
+      a_sum[1] = x86::ymm(vreg_id);
       ++vreg_id;
     }
-    Ymm mask_vreg(vreg_id);
+    x86::Vec mask_vreg = x86::ymm(vreg_id);
     constexpr int vlen = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
     if (remainder != simd_info<inst_set_t::avx2>::WIDTH_BYTES) {
       ++vreg_id;
@@ -333,17 +329,17 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
               mask_addr,
               (vlen - remainder / 4 / oc_per_g) % vlen * sizeof(int32_t)));
     }
-    Ymm one_epi8(vreg_id);
+    x86::Vec one_epi8 = x86::ymm(vreg_id);
     if (compute_a_sum) {
       ++vreg_id;
-      gen8BitVectorOne(e, one_epi8);
+      gen8BitVectorOne<inst_set_t::avx2>(e, one_epi8);
     }
 
     int K = std::accumulate(F.begin(), F.end(), 1, std::multiplies<int>());
-    Ymm one_epi16(vreg_id);
+    x86::Vec one_epi16 = x86::ymm(vreg_id);
     if (K > 2) {
       ++vreg_id;
-      gen16BitVectorOne<inst_set_t::avx2, Ymm>(e, one_epi16);
+      gen16BitVectorOne<inst_set_t::avx2>(e, one_epi16);
     }
 
     bool has_pad = prev_skip || next_skip || top_skip || bottom_skip ||
@@ -352,15 +348,16 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     // When out of registers, zero and A_zero_point_vreg need to share.
     bool recompute_zero = vreg_id == 15 && need_zero;
 
-    Ymm a_zero_point_vreg(vreg_id);
+    x86::Vec a_zero_point_vreg = x86::ymm(vreg_id);
     if (!recompute_zero && has_pad) {
-      e->movq(a_zero_point_vreg.half(), a_zero_point);
+      e->vmovq(a_zero_point_vreg.half(), a_zero_point);
       e->vpbroadcastb(a_zero_point_vreg, a_zero_point_vreg.half());
     }
     if (vreg_id < 15) {
       ++vreg_id;
     }
-    Ymm zero(vreg_id);
+
+    x86::Vec zero = x86::ymm(vreg_id);
     if (need_zero && (!recompute_zero || !has_pad)) {
       e->vpxor(zero.xmm(), zero.xmm(), zero.xmm());
     }
@@ -378,11 +375,11 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     e->sub(w, a_addr_save); // w * ic - F[2] * ic
 
     e->mov(ic_loop_count, ic);
-    e->add(ic_loop_count, asmjit::Imm(32 / oc_per_g - 1));
-    e->sar(ic_loop_count, asmjit::Imm(oc_per_g == 1 ? 5 : 4));
+    e->add(ic_loop_count, 32 / oc_per_g - 1);
+    e->sar(ic_loop_count, oc_per_g == 1 ? 5 : 4);
 
     e->mov(a_addr_save, a_addr);
-    asmjit::Label ic_loop_begin = e->newLabel(), ic_loop_end = e->newLabel();
+    asmjit::Label ic_loop_begin = e->new_label(), ic_loop_end = e->new_label();
 
     // main_loop == false: the last vector iteration across input channels
     for (bool main_loop : {true, false}) {
@@ -393,7 +390,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       }
 
       if (recompute_zero && has_pad) {
-        e->movq(a_zero_point_vreg.half(), a_zero_point);
+        e->vmovq(a_zero_point_vreg.half(), a_zero_point);
         e->vpbroadcastb(a_zero_point_vreg, a_zero_point_vreg.half());
       }
 
@@ -504,7 +501,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
           e->vmovups(x86::ymmword_ptr(a_sum_addr), a[0]);
         } else {
           // Rollback duplication
-          e->vpsrld(a_sum[0], a_sum[0], asmjit::Imm(16));
+          e->vpsrld(a_sum[0], a_sum[0], 16);
           e->vmovups(x86::xmmword_ptr(a_sum_addr), a_sum[0].half());
         }
 
@@ -514,13 +511,13 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
             e->vmovups(x86::ymmword_ptr(a_sum_addr, 32), a[1]);
           } else {
             // Rollback duplication
-            e->vpsrld(a_sum[1], a_sum[1], asmjit::Imm(16));
+            e->vpsrld(a_sum[1], a_sum[1], 16);
             e->vmovups(x86::xmmword_ptr(a_sum_addr, 16), a_sum[1].half());
           }
         }
 
         if (main_loop || remainder >= 16) {
-          e->vextracti128(a_sum[0].half(), a_sum[0], asmjit::Imm(1));
+          e->vextracti128(a_sum[0].half(), a_sum[0], 1);
           if (oc_per_g == 1) {
             e->vpmovsxwd(a_sum[0], a_sum[0].half());
             e->vmovups(x86::ymmword_ptr(a_sum_addr, 64), a_sum[0]);
@@ -530,7 +527,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
         }
 
         if (main_loop || remainder >= 24) {
-          e->vextracti128(a_sum[1].half(), a_sum[1], asmjit::Imm(1));
+          e->vextracti128(a_sum[1].half(), a_sum[1], 1);
           if (oc_per_g == 1) {
             e->vpmovsxwd(a_sum[1], a_sum[1].half());
             e->vmovups(x86::ymmword_ptr(a_sum_addr, 96), a_sum[1]);
@@ -540,13 +537,13 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
         }
 
         if (main_loop) {
-          e->add(a_sum_addr, asmjit::Imm(128 / oc_per_g));
+          e->add(a_sum_addr, 128 / oc_per_g);
         }
       }
 
       if (main_loop) {
-        e->add(c_addr, asmjit::Imm(128));
-        e->add(a_addr_save, asmjit::Imm(32 / oc_per_g));
+        e->add(c_addr, 128);
+        e->add(a_addr_save, 32 / oc_per_g);
         e->mov(a_addr, a_addr_save);
         e->jmp(ic_loop_begin);
 
@@ -554,23 +551,15 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       }
     }
 
-    e->emitEpilog(frame);
+    e->emit_epilog(frame);
 
     jit_kernel_signature fn = nullptr;
-    asmjit::Error err = 0;
-    {
-      std::unique_lock<std::mutex> lock(rtMutex_);
-      err = runtime().add(&fn, &code);
-    }
-    if (err) {
+    asmjit::Error err = runtime.add(&fn, &code);
+
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
-
-#ifdef FBGEMM_LOG_CODE
-    fclose(codeLogFile);
-    delete codeLogger;
-#endif
 
     return fn;
   });

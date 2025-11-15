@@ -163,16 +163,6 @@ class GenConvKernelBase {
     return oss.str();
   }
 
-  static asmjit::JitRuntime& runtime() {
-    static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
-                                  // depents on other static
-                                  // variables.  Required to prevent
-                                  // initialization order fiasco
-    return rt;
-  }
-
-  inline static std::mutex rtMutex_; ///< Control access to runtime;
-
   inline static CodeCache<
       kernel_sig_t,
       jit_conv_kernel_fp>
