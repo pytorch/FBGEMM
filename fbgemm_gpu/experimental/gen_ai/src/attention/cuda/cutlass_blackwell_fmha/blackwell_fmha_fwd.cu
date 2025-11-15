@@ -139,6 +139,31 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
   }
 }
 
+std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd_meta(
+    const at::Tensor& q,
+    const at::Tensor& k, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
+    const at::Tensor& v, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
+    const std::optional<at::Tensor>& cu_seqlens_q,
+    const std::optional<at::Tensor>& cu_seqlens_k,
+    std::optional<c10::SymInt> max_seq_len_q,
+    std::optional<c10::SymInt> max_seq_len_k,
+    std::optional<double> softmax_scale,
+    bool causal,
+    const std::optional<at::Tensor>& seqlen_kv,
+    const std::optional<at::Tensor>& page_table, // dim: (batch_size, max_num_pages_per_seq) , null if non-paged
+    std::optional<c10::SymInt> seqlen_k,
+    c10::SymInt window_size_left,
+    c10::SymInt window_size_right,
+    bool bottom_right) {
+  auto output = at::empty_like(q);
+  bool k_is_varlen = max_seq_len_q.has_value();
+  auto SQ = k_is_varlen ? q.sym_size(0) : q.sym_size(1);
+  auto H_Q = k_is_varlen ? q.sym_size(1) : q.sym_size(2);
+  auto B = k_is_varlen ? 1 : q.sym_size(0);
+  auto logsumexp = q.new_empty_symint({B, H_Q, SQ}, q.options());
+  return std::make_tuple(output, logsumexp);
+}
+
 // -------------------------------------------------------------------------------------------------
 // Op registration
 // -------------------------------------------------------------------------------------------------
@@ -150,20 +175,23 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor value, "
       "    Tensor? cu_seqlens_q=None, "
       "    Tensor? cu_seqlens_k=None, "
-      "    int? max_seq_len_q=None, "
-      "    int? max_seq_len_k=None, "
+      "    SymInt? max_seq_len_q=None, "
+      "    SymInt? max_seq_len_k=None, "
       "    float? softmax_scale=None, "
       "    bool causal=False, "
       "    Tensor? seqlen_kv=None, "
       "    Tensor? page_table=None, "
-      "    int? seqlen_k=None, "
-      "    int window_size_left=-1, "
-      "    int window_size_right=-1, "
+      "    SymInt? seqlen_k=None, "
+      "    SymInt window_size_left=-1, "
+      "    SymInt window_size_right=-1, "
       "    bool bottom_right=True"
       ") -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("fmha_fwd", dispatch_fmha_fwd);
+}
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("fmha_fwd", dispatch_fmha_fwd_meta);
 }
 #endif // CUTLASS_ARCH_MMA_SM100_SUPPORTED
