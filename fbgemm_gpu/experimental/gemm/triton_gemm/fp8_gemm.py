@@ -1212,6 +1212,8 @@ def matmul_fp8_row(
     imprecise_acc: bool = False,
     tma_persistent: bool = True,
     no_use_persistent: Optional[bool] = None,
+    # add an option to explicitly require the use of persistent process
+    use_persistent: Optional[bool] = None,
     use_warp_specialization: bool = False,
 ) -> torch.Tensor:
     """
@@ -1238,6 +1240,9 @@ def matmul_fp8_row(
             no_use_persistent = True
         else:
             no_use_persistent = False
+    # if use_persistent is explicitly requested, set o_use_persistent to False
+    if use_persistent:
+        no_use_persistent = False
     # Get datatypes and constants to use.
     pt_fp8_dtype, _, _, _ = get_fp8_constants()
     # Handle 3D+ a shape
