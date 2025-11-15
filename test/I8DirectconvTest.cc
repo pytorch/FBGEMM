@@ -108,6 +108,7 @@ static void transposeConvWeights_KwIchO8I4(
   }
 }
 
+#if 0
 static void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
     const conv_param_t<2>& conv_p,
     const int8_t* Bint8,
@@ -159,6 +160,7 @@ static void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
     }
   }
 }
+#endif
 
 /*
 
@@ -532,16 +534,21 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
 
     // computing column offset
     vector<int32_t> col_offsetsT(conv_p.OC * MDim);
-    for (int g = 0; g < conv_p.G; ++g) {
-      col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
-          conv_p,
-          Bint8_tr_vec.data() + g * KDimPerGroup * OC_per_G,
-          Bint8_zero_point.data(),
-          col_offsetsT.data() + g * OC_per_G,
-          conv_p.OC);
-    }
+    // for (int g = 0; g < conv_p.G; ++g) {
+    //   col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
+    //       conv_p,
+    //       Bint8_tr_vec.data() + g * KDimPerGroup * OC_per_G,
+    //       Bint8_zero_point.data(),
+    //       col_offsetsT.data() + g * OC_per_G,
+    //       conv_p.OC);
+    // }
 
     PackedDirectConvMatrix packedB(conv_p.IC, conv_p.OC, kernel_dim, Bint8.data());
+    packedB.col_offsets_with_zero_pt_s8acc32_DirectConvT(
+          conv_p,
+          Bint8_zero_point.data(),
+          col_offsetsT,
+          conv_p.OC);
 
     DoNothing<> doNothingObj{};
     ReQuantizeOutput<false, QuantizationGranularity::TENSOR> outputProcObj(
