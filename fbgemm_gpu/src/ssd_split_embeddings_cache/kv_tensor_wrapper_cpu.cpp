@@ -38,7 +38,8 @@ KVTensorWrapper::KVTensorWrapper(
     [[maybe_unused]] int64_t width_offset,
     [[maybe_unused]] const std::optional<
         c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>,
-    [[maybe_unused]] bool read_only)
+    [[maybe_unused]] bool read_only,
+    [[maybe_unused]] bool only_load_weight)
     // @lint-ignore CLANGTIDY clang-diagnostic-missing-noreturn
     : shape_(std::move(shape)), row_offset_(row_offset) {
   FBEXCEPTION("Not implemented");
