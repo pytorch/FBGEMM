@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import NamedTuple, Optional
+from typing import FrozenSet, NamedTuple, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -248,6 +248,9 @@ class KVZCHParams(NamedTuple):
     backend_return_whole_row: bool = False
     eviction_policy: EvictionPolicy = EvictionPolicy()
     embedding_cache_mode: bool = False
+    load_ckpt_without_opt: bool = False
+    optimizer_type_for_st: Optional[str] = None
+    optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
@@ -271,6 +274,12 @@ class KVZCHTBEConfig(NamedTuple):
     threshold_calculation_bucket_stride: float = 0.2
     # Total number of feature score buckets used for threshold calculation in feature score-based eviction.
     threshold_calculation_bucket_num: Optional[int] = 1000000  # 1M
+    # When true, we only save weight to kvzch backend and not optimizer state.
+    load_ckpt_without_opt: bool = False
+    # [DO NOT USE] This is for st publish only, do not set it in your config
+    optimizer_type_for_st: Optional[str] = None
+    # [DO NOT USE] This is for st publish only, do not set it in your config
+    optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
 
 
 class BackendType(enum.IntEnum):
