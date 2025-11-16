@@ -197,6 +197,9 @@ def rowwise_adagrad() -> Dict[str, Any]:
 
     at::acc_type<cache_t, true> multiplier = 0.0;
     at::acc_type<cache_t, true> correction = 0.0;
+    """
+    split_precomputation_preload = split_precomputation
+    split_precomputation += """
     if (threadIdx.x == 0) {
         auto new_sum_square_grads = g_avg_square;
 
@@ -210,6 +213,38 @@ def rowwise_adagrad() -> Dict[str, Any]:
 
         } else {
             new_sum_square_grads += momentum1[idx];
+            momentum1[idx] = new_sum_square_grads;
+        }
+
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        if (weight_decay_mode == 1) {
+            // L2 regularization
+            correction = 1.0 - multiplier * weight_decay;
+        } else if (weight_decay_mode == 2 || weight_decay_mode == 5) {
+            // Decoupled weight decay
+            correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
+        }
+    }
+    multiplier = SHFL_SYNC(multiplier, 0);
+    correction = SHFL_SYNC(correction, 0);
+    """
+    split_precomputation_preload += """
+    if (threadIdx.x == 0) {
+        auto new_sum_square_grads = g_avg_square;
+
+        // Update the optimizer state.  Use optimizer state offloading only if
+        // SSD and if enabled by the user
+        if (enable_optimizer_offloading) {
+            // Fetch the pointer to the optimizer state along the cache row
+            auto* optimizer = weight_row_template.template optimizer_state_ptr<OptimizerState>();
+            new_sum_square_grads += optimizer->momentum;
+            optimizer->momentum = new_sum_square_grads;
+
+        } else {
+            new_sum_square_grads += momentum1_val;
             momentum1[idx] = new_sum_square_grads;
         }
 
@@ -275,6 +310,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
             },
         ),
         "split_precomputation": split_precomputation,
+        "split_precomputation_preload": split_precomputation_preload,
         "split_weight_update": split_weight_update,
         "split_post_update": split_post_update,
         "split_weight_update_cpu": split_weight_update_cpu,
