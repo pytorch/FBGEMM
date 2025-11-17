@@ -54,9 +54,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     is_torchdynamo_compiling,
 )
 from torch import distributed as dist, nn, Tensor  # usort:skip
+import sys
 from dataclasses import dataclass
-
-import psutil
 
 from torch.autograd.profiler import record_function
 
@@ -4798,8 +4797,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 # Return control to the main stream without waiting for the backend operation to complete
 
     def get_free_cpu_memory_gb(self) -> float:
-        mem = psutil.virtual_memory()
-        return mem.available / (1024**3)
+        def _get_mem_available() -> float:
+            if sys.platform.startswith("linux"):
+                info = {}
+                with open("/proc/meminfo") as f:
+                    for line in f:
+                        p = line.split()
+                        info[p[0].strip(":").lower()] = int(p[1]) * 1024
+                if "memavailable" in info:
+                    # Linux >= 3.14
+                    return info["memavailable"]
+                else:
+                    return info["memfree"] + info["cached"]
+            else:
+                raise RuntimeError(
+                    "Unsupported platform for free memory eviction, pls use ID count eviction tirgger mode"
+                )
+
+        mem = _get_mem_available()
+        return mem / (1024**3)
 
     @classmethod
     def trigger_evict_in_all_tbes(cls) -> None:
