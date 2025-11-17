@@ -25,6 +25,8 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     const int8_t* smat)
     : OC_(OC), kernel_prod_(kernel_prod) {
   // The input is in OC T R S layout.
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   // Transpose the input matrix to make packing faster.
   int8_t* smat_transposed = static_cast<int8_t*>(
       fbgemmAlignedAlloc(64, OC * kernel_prod * sizeof(int8_t)));
@@ -158,9 +160,16 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
   fbgemmAlignedFree(b_interleaved_epi16);
   fbgemmAlignedFree(b_interleaved_epi32);
   fbgemmAlignedFree(smat_transposed);
+#else
+  pmat_ = static_cast<int8_t*>(
+      fbgemmAlignedAlloc(64, OC * kernel_prod * sizeof(int8_t)));
+  memcpy(pmat_, smat, OC * kernel_prod * sizeof(int8_t));
+#endif
 }
 
 int PackedDepthWiseConvMatrix::addr(int r, int c) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   int kernel_prod_aligned = (kernel_prod_ + 1) / 2 * 2;
   if (c >= kernel_prod_ / 4 * 4 &&
       (kernel_prod_ % 4 == 1 || kernel_prod_ % 4 == 2)) {
@@ -187,6 +196,9 @@ int PackedDepthWiseConvMatrix::addr(int r, int c) {
     int in_blk_idx = (r % 32) / 16 * 16 + 4 * r_ + c_;
     return blk_idx * 32 + in_blk_idx;
   }
+#else
+  return r * kernel_prod_ + c;
+#endif
 }
 
 void PackedDepthWiseConvMatrix::unpack(int8_t* unpacked_data) {

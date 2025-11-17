@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
@@ -62,6 +63,33 @@ FBGEMM_API void requantize_u8acc32_ref(
     const std::int32_t* row_offsets,
     const std::int32_t* col_offsets,
     const std::int32_t* bias,
+    int ncols_per_quant_group,
+    bool fuse_relu = false);
+
+/**
+ * @brief Reference implementation of requantization step.
+ * float multiplier
+ * @param bias can be nullptr
+ * @param ncols_per_quant_group the number of columns share the same
+ *        quantization parameter.
+ *        ncols_per_quant_group == N : per-tensor quantization
+ *        ncols_per_quant_group == N / groups : per-group quantization
+ *        ncols_per_quant_group == 1 : per-channel quantization
+ */
+FBGEMM_API void requantize_u8acc32_ref(
+    int M,
+    int N,
+    int ld,
+    const std::int32_t* inp,
+    std::uint8_t* out,
+    const float* C_multiplier,
+    std::int32_t C_zero_point,
+    std::int32_t A_zero_point,
+    const std::int32_t* B_zero_point,
+    const std::int32_t* row_offsets,
+    const std::int32_t* col_offsets,
+    const float* bias,
+    const float* act_times_w_scale,
     int ncols_per_quant_group,
     bool fuse_relu = false);
 
@@ -189,6 +217,157 @@ FBGEMM_API void conv_ref(
     std::int32_t A_zero_point,
     const std::int8_t* B,
     std::int32_t* C);
+
+/*
+ * @brief Reference implementation of convolution operation with requantization.
+ * The implmenetation is a wrapper of conv_ref and requantize_u8acc32_ref.
+ */
+template <typename processOutputType, int SPATIAL_DIM>
+static void conv_requant_ref(
+    const conv_param_t<SPATIAL_DIM>& conv_p,
+    const std::uint8_t* activations,
+    const std::int8_t* packed_weights,
+    bool weights_transposed,
+    typename processOutputType::outType* out,
+    std::int32_t* outBuffer,
+    processOutputType& outProcess,
+    int thread_id,
+    int num_threads) {
+  // The reference implementation is for simplicity, so only allow one thread to
+  // proceed and process all data.
+  if (thread_id != 0) {
+    return;
+  }
+  int filter_prod = std::accumulate(
+      conv_p.K.begin(),
+      conv_p.K.begin() + SPATIAL_DIM,
+      1,
+      std::multiplies<int>());
+  int output_dim_prod = std::accumulate(
+      conv_p.OUT_DIM.begin(),
+      conv_p.OUT_DIM.begin() + SPATIAL_DIM,
+      1,
+      std::multiplies<int>());
+
+  int G = conv_p.G;
+  int OC = conv_p.OC;
+  int IC_per_G = conv_p.IC / conv_p.G;
+  int OC_per_G = conv_p.OC / conv_p.G;
+  int MDim = conv_p.MB * output_dim_prod;
+  int NDim = OC_per_G;
+  int KDim = filter_prod * IC_per_G;
+
+  int ncols_per_quant_group = OC;
+  if constexpr (
+      processOutputType::QGRANType == fbgemm::QuantizationGranularity::GROUP) {
+    ncols_per_quant_group = OC_per_G;
+  } else if (
+      processOutputType::QGRANType ==
+      fbgemm::QuantizationGranularity::OUT_CHANNEL) {
+    ncols_per_quant_group = 1;
+  }
+
+  std::vector<int32_t> outBuffer_local;
+  if (outBuffer == nullptr) {
+    outBuffer_local.resize(MDim * OC, 0);
+    outBuffer = outBuffer_local.data();
+  }
+
+  const int8_t* rightBData = packed_weights;
+  std::vector<int8_t> B_tr;
+  if (!weights_transposed) {
+    B_tr.resize(OC_per_G * IC_per_G * G * filter_prod, 0);
+    transposeConvWeights(conv_p, packed_weights, B_tr.data());
+    rightBData = B_tr.data();
+  }
+
+  conv_ref(
+      conv_p, activations, outProcess.getAZeroPoint(), rightBData, outBuffer);
+
+  std::vector<uint8_t> Aint8_im2col(MDim * KDim * G);
+  im2col_ref(
+      conv_p, activations, outProcess.getAZeroPoint(), Aint8_im2col.data());
+
+  std::vector<int32_t> row_offsets(MDim);
+  const int32_t* col_offsets = outProcess.getColOffsets();
+  std::vector<int32_t> col_offsets_local;
+  if (col_offsets == nullptr) {
+    col_offsets_local.resize(OC, 0);
+
+    for (int g = 0; g < G; ++g) {
+      col_offsets_with_zero_pt_s8acc32_ref(
+          filter_prod * IC_per_G,
+          OC_per_G,
+          OC_per_G,
+          rightBData + g * filter_prod * IC_per_G * OC_per_G,
+          outProcess.getBZeroPoint() + g * OC_per_G / ncols_per_quant_group,
+          col_offsets_local.data() + g * OC_per_G,
+          ncols_per_quant_group);
+    }
+    col_offsets = col_offsets_local.data();
+  }
+
+  for (int g = 0; g < G; ++g) {
+    row_offsets_u8acc32_ref(
+        MDim,
+        KDim,
+        KDim * G,
+        Aint8_im2col.data() + g * KDim,
+        row_offsets.data());
+
+    if constexpr (std::is_same_v<typename processOutputType::BIAS_T, float>) {
+      const float* bias = reinterpret_cast<const float*>(outProcess.getBias());
+      const float* act_times_w_scale = outProcess.getActWScale();
+      if (bias) {
+        bias += g * NDim;
+        if constexpr (
+            processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
+          // Do nothing
+        } else if constexpr (
+            processOutputType::QGRANType == QuantizationGranularity::GROUP) {
+          act_times_w_scale += g;
+        } else {
+          act_times_w_scale += g * NDim;
+        }
+      }
+
+      requantize_u8acc32_ref(
+          MDim,
+          NDim,
+          G * NDim,
+          outBuffer + g * NDim,
+          out + g * NDim,
+          outProcess.getCMultiplier() + g * NDim / ncols_per_quant_group,
+          outProcess.getCZeroPoint(),
+          outProcess.getAZeroPoint(),
+          outProcess.getBZeroPoint() + g * NDim / ncols_per_quant_group,
+          row_offsets.data(),
+          col_offsets + g * NDim,
+          bias,
+          act_times_w_scale,
+          ncols_per_quant_group,
+          processOutputType::RELU_FUSED);
+    } else {
+      const std::int32_t* bias =
+          reinterpret_cast<const std::int32_t*>(outProcess.getBias());
+      requantize_u8acc32_ref(
+          MDim,
+          NDim,
+          G * NDim,
+          outBuffer + g * NDim,
+          out + g * NDim,
+          outProcess.getCMultiplier() + g * NDim / ncols_per_quant_group,
+          outProcess.getCZeroPoint(),
+          outProcess.getAZeroPoint(),
+          outProcess.getBZeroPoint() + g * NDim / ncols_per_quant_group,
+          row_offsets.data(),
+          col_offsets + g * NDim,
+          bias != nullptr ? bias + g * NDim : nullptr,
+          ncols_per_quant_group,
+          processOutputType::RELU_FUSED);
+    }
+  }
+}
 
 /*
  * @brief Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.

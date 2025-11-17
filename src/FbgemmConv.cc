@@ -12,6 +12,7 @@
 #include <numeric>
 #include <stdexcept> // for logic_error
 #include <vector>
+#include "RefImplementations.h"
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
@@ -138,10 +139,6 @@ int fbgemmConv(
 
   switch (ConvFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     case optimized_conv_t::depthwise: {
-#if defined(__aarch64__)
-      throw std::runtime_error(
-          "fbgemmConv<processOutputType, SPATIAL_DIM, ACC_T>(): No fallback available for aarch64");
-#else
       // 2D and 3D depthwise fast path
       // std::cout << "Depthwise fast path" << std::endl;
       if constexpr (SPATIAL_DIM == 3) {
@@ -220,7 +217,6 @@ int fbgemmConv(
         throw std::runtime_error(msg);
       }
       break;
-#endif // __aarch64__
     }
     case optimized_conv_t::groupwise: {
       // optimized groupwise convolution
@@ -242,6 +238,8 @@ int fbgemmConv(
       break;
     }
     case optimized_conv_t::pointwise: {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
       std::vector<int32_t> row_offset_buf(
           PackAWithRowOffset<uint8_t>::rowOffsetBufferSize(blocking_params));
       int image_dim = std::accumulate(
@@ -271,16 +269,42 @@ int fbgemmConv(
           thread_id,
           num_threads,
           blocking_params);
+#else
+      DoNothing<> doNothingObj{};
+      ReQuantizeOutput<
+          processOutputType::RELU_FUSED,
+          processOutputType::QGRANType,
+          typename processOutputType::BIAS_T>
+          reqObj(
+              doNothingObj,
+              outProcess.getCMultiplier(),
+              outProcess.getCZeroPoint(),
+              outProcess.getAZeroPoint(),
+              outProcess.getBZeroPoint(),
+              nullptr, /* row offset buffer */
+              outProcess.getColOffsets(),
+              outProcess.getBias(),
+              conv_p.OC,
+              conv_p.G,
+              outProcess.getActWScale());
+
+      conv_requant_ref(
+          conv_p,
+          activations,
+          packed_weights.getPackedWForPointwise()->getBuf(),
+          false,
+          out,
+          outBuffer,
+          reqObj,
+          thread_id,
+          num_threads);
+#endif
       break;
     }
     case optimized_conv_t::directconv: {
       // specialized direct convolution path
       // std::cout << "Directconv fast path" << std::endl;
       if constexpr (SPATIAL_DIM == 2) {
-#if defined(__aarch64__)
-        throw std::runtime_error(
-            "fbgemmConv<processOutputType, SPATIAL_DIM, ACC_T>(): No fallback available for aarch64");
-#else
         fbgemmDirectConv<SPATIAL_DIM, processOutputType::QGRANType>(
             conv_p,
             // Aint8,
@@ -292,7 +316,6 @@ int fbgemmConv(
             outProcess.getBias(),
             thread_id,
             num_threads);
-#endif
       } else {
         assert(false && "1d/3d direct conv not supported");
       }
@@ -302,6 +325,8 @@ int fbgemmConv(
       break;
     }
     case optimized_conv_t::im2col: {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
       // All other convolutions go through im2col-based implementation
       // std::cout << "Im2col path" << std::endl;
       std::vector<int32_t> row_offset_buf(
@@ -352,6 +377,36 @@ int fbgemmConv(
           thread_id,
           num_threads,
           blocking_params);
+#else
+      DoNothing<> doNothingObj{};
+      ReQuantizeOutput<
+          processOutputType::RELU_FUSED,
+          processOutputType::QGRANType,
+          typename processOutputType::BIAS_T>
+          reqObj(
+              doNothingObj,
+              outProcess.getCMultiplier(),
+              outProcess.getCZeroPoint(),
+              outProcess.getAZeroPoint(),
+              outProcess.getBZeroPoint(),
+              nullptr, /* row offset buffer */
+              outProcess.getColOffsets(),
+              outProcess.getBias(),
+              conv_p.OC,
+              conv_p.G,
+              outProcess.getActWScale());
+
+      conv_requant_ref(
+          conv_p,
+          activations,
+          packed_weights.getPackedWForIm2col()->getBuf(),
+          false,
+          out,
+          outBuffer,
+          reqObj,
+          thread_id,
+          num_threads);
+#endif
       break;
     }
   } // switch

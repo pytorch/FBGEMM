@@ -188,6 +188,9 @@ PackBMatrix<T, accT>::PackBMatrix(
       trans_(trans),
       smat_(smat),
       ld_(ld) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
+
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
@@ -231,6 +234,13 @@ PackBMatrix<T, accT>::PackBMatrix(
         throw std::runtime_error("unknown architecure");
     }
   }
+#else
+
+  BaseType::brow_ = 1;
+  BaseType::bcol_ = 1;
+  row_interleave_ = 1;
+
+#endif
 
   if (BaseType::numRows() % groups != 0) {
     throw std::runtime_error(
@@ -261,6 +271,8 @@ void PackBMatrix<T, accT>::pack_unpack_(
     T* pack_buf,
     bool ispack,
     const BlockingFactors* params) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   assert((BaseType::blockRowSize() % row_interleave_) == 0);
   assert((block.row_start % BaseType::blockRowSize()) == 0);
   assert((block.col_start % BaseType::blockColSize()) == 0);
@@ -348,6 +360,21 @@ void PackBMatrix<T, accT>::pack_unpack_(
       }
     }
   } // for each group
+#else
+  if (ispack) {
+    memcpy(
+        pack_buf,
+        unpack_buf,
+        BaseType::numGroups() * BaseType::blockRows() * BaseType::brow_ *
+            BaseType::blockCols() * BaseType::bcol_ * sizeof(T));
+  } else {
+    memcpy(
+        unpack_buf,
+        pack_buf,
+        BaseType::numGroups() * BaseType::blockRows() * BaseType::brow_ *
+            BaseType::blockCols() * BaseType::bcol_ * sizeof(T));
+  }
+#endif
 }
 
 template <typename T, typename accT>
@@ -371,6 +398,8 @@ void PackBMatrix<T, accT>::unpack(
 
 template <typename T, typename accT>
 int32_t PackBMatrix<T, accT>::addr(int32_t i, int32_t j) const {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   int32_t block_row_id = i / BaseType::blockRowSize();
   int32_t brow_offset = (block_row_id * BaseType::blockCols()) *
       (BaseType::blockRowSize() * BaseType::blockColSize());
@@ -386,6 +415,9 @@ int32_t PackBMatrix<T, accT>::addr(int32_t i, int32_t j) const {
   int32_t index = block_offset + inblock_offset;
 
   return index;
+#else
+  return i * this->numCols() + j;
+#endif
 }
 
 template <typename T, typename accT>

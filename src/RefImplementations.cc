@@ -253,6 +253,49 @@ void requantize_u8acc32_ref(
   }
 }
 
+template <typename BIAS_TYPE>
+void requantize_u8acc32_ref_(
+    int M,
+    int N,
+    int ld,
+    const int32_t* inp,
+    uint8_t* out,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    int32_t A_zero_point,
+    const int32_t* B_zero_point,
+    const int32_t* row_offsets,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale,
+    int ncols_per_quant_group,
+    bool fuse_relu) {
+  for (int i = 0; i < M; ++i) {
+    for (int j = 0; j < N; ++j) {
+      int32_t raw = inp[i * ld + j];
+      if (A_zero_point) {
+        raw -= A_zero_point * col_offsets[j];
+      }
+      raw -= B_zero_point[j / ncols_per_quant_group] * row_offsets[i];
+
+      float raw_f = raw;
+      if (bias) {
+        if constexpr (std::is_same_v<BIAS_TYPE, float>) {
+          raw_f += bias[j] / act_times_w_scale[j / ncols_per_quant_group];
+        } else {
+          raw_f += bias[j];
+        }
+      }
+
+      float result = raw_f * C_multiplier[j / ncols_per_quant_group];
+      long rounded = lrintf(result) + C_zero_point;
+      out[i * ld + j] = std::max(
+          fuse_relu ? static_cast<long>(C_zero_point) : 0l,
+          std::min(255l, rounded));
+    }
+  }
+}
+
 void requantize_u8acc32_ref(
     int M,
     int N,
@@ -268,24 +311,56 @@ void requantize_u8acc32_ref(
     const int32_t* bias,
     int ncols_per_quant_group,
     bool fuse_relu) {
-  for (int i = 0; i < M; ++i) {
-    for (int j = 0; j < N; ++j) {
-      int32_t raw = inp[i * ld + j];
-      if (A_zero_point) {
-        raw -= A_zero_point * col_offsets[j];
-      }
-      raw -= B_zero_point[j / ncols_per_quant_group] * row_offsets[i];
-      if (bias) {
-        raw += bias[j];
-      }
+  return requantize_u8acc32_ref_(
+      M,
+      N,
+      ld,
+      inp,
+      out,
+      C_multiplier,
+      C_zero_point,
+      A_zero_point,
+      B_zero_point,
+      row_offsets,
+      col_offsets,
+      bias,
+      nullptr,
+      ncols_per_quant_group,
+      fuse_relu);
+}
 
-      float result = raw * C_multiplier[j / ncols_per_quant_group];
-      long rounded = lrintf(result) + C_zero_point;
-      out[i * ld + j] = std::max(
-          fuse_relu ? static_cast<long>(C_zero_point) : 0l,
-          std::min(255l, rounded));
-    }
-  }
+void requantize_u8acc32_ref(
+    int M,
+    int N,
+    int ld,
+    const int32_t* inp,
+    uint8_t* out,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    int32_t A_zero_point,
+    const int32_t* B_zero_point,
+    const int32_t* row_offsets,
+    const int32_t* col_offsets,
+    const float* bias,
+    const float* act_times_w_scale,
+    int ncols_per_quant_group,
+    bool fuse_relu) {
+  return requantize_u8acc32_ref_(
+      M,
+      N,
+      ld,
+      inp,
+      out,
+      C_multiplier,
+      C_zero_point,
+      A_zero_point,
+      B_zero_point,
+      row_offsets,
+      col_offsets,
+      bias,
+      act_times_w_scale,
+      ncols_per_quant_group,
+      fuse_relu);
 }
 
 void matmul_u8i8acc32_ref(

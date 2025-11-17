@@ -980,6 +980,9 @@ void depthwise_3d_same_pad(
     // In C2, batch size 0 is allowed, so we should just early return.
     return;
   }
+
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   if (fuse_relu) {
     depthwise_3d_same_pad_<true /*FUSE_RELU*/, Q_GRAN>(
         conv_p,
@@ -1011,24 +1014,76 @@ void depthwise_3d_same_pad(
         thread_id,
         num_threads);
   }
+#else
+  DoNothing<> doNothingObj{};
+  if (fuse_relu) {
+    ReQuantizeOutput<true, Q_GRAN, BIAS_TYPE> reqObj(
+        doNothingObj,
+        C_multiplier,
+        C_zero_point,
+        A_zero_point,
+        B_zero_point,
+        nullptr, /* row offset buffer */
+        col_offsets,
+        bias,
+        conv_p.OC,
+        conv_p.G,
+        act_times_w_scale);
+
+    conv_requant_ref(
+        conv_p,
+        A,
+        B.PackedMat(),
+        false,
+        C,
+        nullptr,
+        reqObj,
+        thread_id,
+        num_threads);
+  } else {
+    ReQuantizeOutput<false, Q_GRAN, BIAS_TYPE> reqObj(
+        doNothingObj,
+        C_multiplier,
+        C_zero_point,
+        A_zero_point,
+        B_zero_point,
+        nullptr, /* row offset buffer */
+        col_offsets,
+        bias,
+        conv_p.OC,
+        conv_p.G,
+        act_times_w_scale);
+
+    conv_requant_ref(
+        conv_p,
+        A,
+        B.PackedMat(),
+        false,
+        C,
+        nullptr,
+        reqObj,
+        thread_id,
+        num_threads);
+  }
+#endif
 }
 
-#define INSTANTIATE_BASE(Q_GRAN, BIAS_TYPE)               \
-  template FBGEMM_API void                                \
-  depthwise_3d_same_pad<QuantizationGranularity::Q_GRAN>( \
-      const conv_param_t<3>& conv_p,                      \
-      int32_t A_zero_point,                               \
-      const uint8_t* A,                                   \
-      const int32_t* B_zero_point,                        \
-      const PackedDepthWiseConvMatrix& B,                 \
-      const float* C_multiplier,                          \
-      int32_t C_zero_point,                               \
-      uint8_t* C,                                         \
-      const int32_t* col_offsets,                         \
-      const BIAS_TYPE* bias,                              \
-      bool fuse_relu,                                     \
-      const float* act_times_w_scale,                     \
-      int thread_id,                                      \
+#define INSTANTIATE_BASE(Q_GRAN, BIAS_TYPE)                       \
+  template FBGEMM_API void                                        \
+  depthwise_3d_same_pad<fbgemm::QuantizationGranularity::Q_GRAN>( \
+      const fbgemm::conv_param_t<3>& conv_p,                      \
+      int32_t A_zero_point,                                       \
+      const uint8_t* A,                                           \
+      const int32_t* B_zero_point,                                \
+      const fbgemm::PackedDepthWiseConvMatrix& B,                 \
+      const float* C_multiplier,                                  \
+      int32_t C_zero_point,                                       \
+      uint8_t* C,                                                 \
+      const int32_t* col_offsets,                                 \
+      const BIAS_TYPE* bias,                                      \
+      bool fuse_relu,                                             \
+      const float* act_times_w_scale,                             \
+      int thread_id,                                              \
       int num_threads);
 
 #define INSTANTIATE_BIAS_T(Q_GRAN)  \

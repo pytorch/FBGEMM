@@ -15,6 +15,7 @@
 #include <tuple>
 #include <type_traits>
 #include "./CodeGenHelpers.h" // @manual
+#include "RefImplementations.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/SimdUtils.h"
@@ -993,6 +994,8 @@ void fbgemmGroupwiseConv(
     const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
     int thread_id,
     int num_threads) {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   using processOutputType = ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>;
 
   if (!cpuinfo_initialize()) {
@@ -1315,6 +1318,32 @@ void fbgemmGroupwiseConv(
       } // for each g
     } // for each i
   } // SPATIAL_DIM == 3
+#else
+  DoNothing<> doNothingObj{};
+  ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE> reqObj(
+      doNothingObj,
+      outProcess.getCMultiplier(),
+      outProcess.getCZeroPoint(),
+      outProcess.getAZeroPoint(),
+      outProcess.getBZeroPoint(),
+      nullptr, /* row offset buffer */
+      outProcess.getColOffsets(),
+      outProcess.getBias(),
+      conv_param.OC,
+      conv_param.G,
+      outProcess.getActWScale());
+
+  conv_requant_ref(
+      conv_param,
+      activations,
+      packed_weights.getBuf(),
+      true,
+      out,
+      outBuffer,
+      reqObj,
+      thread_id,
+      num_threads);
+#endif
 }
 
 template <int SPATIAL_DIM>
