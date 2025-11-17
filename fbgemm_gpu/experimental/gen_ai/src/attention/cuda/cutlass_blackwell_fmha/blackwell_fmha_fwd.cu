@@ -4,8 +4,12 @@
 
 std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
     const at::Tensor& q,
-    const at::Tensor& k, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
-    const at::Tensor& v, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
+    const at::Tensor&
+        k, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or
+           // (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
+    const at::Tensor&
+        v, // (batch_size, KV_seqlen, num_KV_heads, head_dim) if non-paged or
+           // (num_blocks, page_block_size, num_KV_heads, head_dim) if paged
     const std::optional<at::Tensor>& cu_seqlens_q,
     const std::optional<at::Tensor>& cu_seqlens_k,
     std::optional<int64_t> max_seq_len_q,
@@ -13,15 +17,22 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
     std::optional<double> softmax_scale,
     bool causal,
     const std::optional<at::Tensor>& seqlen_kv,
-    const std::optional<at::Tensor>& page_table, // dim: (batch_size, max_num_pages_per_seq) , null if non-paged
+    const std::optional<at::Tensor>&
+        page_table, // dim: (batch_size, max_num_pages_per_seq) , null if
+                    // non-paged
     std::optional<int64_t> seqlen_k,
+    const std::optional<at::Tensor>& num_targets,
     int64_t window_size_left,
     int64_t window_size_right,
     bool bottom_right) {
-
   bool kIsPaged = false;
   if (page_table && page_table->defined()) {
     kIsPaged = true;
+  }
+
+  bool kIsROO = false;
+  if (num_targets && num_targets->defined()) {
+    kIsROO = true;
   }
 
   // Handle local attention parameters
@@ -70,6 +81,7 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
         seqlen_kv,
         page_table,
         seqlen_k,
+        num_targets,
         window_size_left,
         window_size_right);
   };
@@ -104,22 +116,26 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd(
   };
 
   auto dispatch_mask = [&](auto varlen) {
-    int seq_k = kIsPaged
-        ? (varlen
-            ? static_cast<int>(*max_seq_len_k)
-            : static_cast<int>(*seqlen_k))
-        : (varlen
-            ? k.size(0)
-            : k.size(1));
+    int seq_k = kIsPaged ? (varlen ? static_cast<int>(*max_seq_len_k)
+                                   : static_cast<int>(*seqlen_k))
+                         : (varlen ? k.size(0) : k.size(1));
     if (causal) {
       if (bottom_right) {
-        return dispatch_head_dim(varlen, CausalMask</*kIsQBegin=*/false>{});
+        return kIsROO
+            ? dispatch_head_dim(
+                  varlen, CausalMask</*kIsQBegin=*/false, /*kIsROO=*/true>{})
+            : dispatch_head_dim(
+                  varlen, CausalMask</*kIsQBegin=*/false, /*kIsROO=*/false>{});
       } else {
-        return dispatch_head_dim(varlen, CausalMask</*kIsQBegin=*/true>{});
+        return kIsROO
+            ? dispatch_head_dim(
+                  varlen, CausalMask</*kIsQBegin=*/true, /*kIsROO=*/true>{})
+            : dispatch_head_dim(
+                  varlen, CausalMask</*kIsQBegin=*/true, /*kIsROO=*/false>{});
       }
     } else if (local) {
       if (bottom_right) {
-          return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/false>{});
+        return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/false>{});
       } else {
         return dispatch_head_dim(varlen, LocalMask</*kIsQBegin=*/true>{});
       }
@@ -157,6 +173,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor? seqlen_kv=None, "
       "    Tensor? page_table=None, "
       "    int? seqlen_k=None, "
+      "    Tensor? num_targets=None, "
       "    int window_size_left=-1, "
       "    int window_size_right=-1, "
       "    bool bottom_right=True"

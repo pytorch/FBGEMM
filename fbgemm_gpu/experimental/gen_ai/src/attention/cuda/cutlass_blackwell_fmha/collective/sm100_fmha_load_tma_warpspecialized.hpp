@@ -1,13 +1,13 @@
 // @nolint
 /***************************************************************************************************
- * Copyright (c) 2024 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright (c) 2024 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
- * 1. Redistributions of source code must retain the above copyright notice, this
- * list of conditions and the following disclaimer.
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
  *
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  * this list of conditions and the following disclaimer in the documentation
@@ -19,23 +19,24 @@
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  *
  **************************************************************************************************/
 #pragma once
 
-#include "cutlass/cutlass.h"
-#include "cutlass/arch/memory_sm80.h"
-#include "cutlass/gemm/collective/collective_builder.hpp"
-#include "cute/tensor.hpp"
 #include "cute/layout.hpp"
+#include "cute/tensor.hpp"
+#include "cutlass/arch/memory_sm80.h"
+#include "cutlass/cutlass.h"
+#include "cutlass/gemm/collective/collective_builder.hpp"
 
 #include "collective/fmha_common.hpp"
 #include "collective/fmha_fusion.hpp"
@@ -44,24 +45,22 @@ namespace cutlass::fmha::collective {
 
 using namespace cute;
 
-template<
-  class Element,
-  class StrideQ,
-  class StrideK,
-  class StrideV,
-  class CollectiveMmaQK,
-  class CollectiveMmaPV,
-  class SmemLayoutQ,
-  class SmemLayoutK,
-  class SmemLayoutV,
-  class TensorStorage,
-  class PipelineQ,
-  class PipelineKV,
-  class Mask,
-  class TileShape
->
+template <
+    class Element,
+    class StrideQ,
+    class StrideK,
+    class StrideV,
+    class CollectiveMmaQK,
+    class CollectiveMmaPV,
+    class SmemLayoutQ,
+    class SmemLayoutK,
+    class SmemLayoutV,
+    class TensorStorage,
+    class PipelineQ,
+    class PipelineKV,
+    class Mask,
+    class TileShape>
 struct Sm100FmhaLoadTmaWarpspecialized {
-
   using TileShapeQK = typename CollectiveMmaQK::TileShape;
   using TileShapePV = typename CollectiveMmaPV::TileShape;
 
@@ -82,6 +81,7 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     int page_block_size;
     int num_KV_tiles_per_page;
 
+    const int* num_targets = nullptr;
     int window_size_left = -1;
     int window_size_right = -1;
   };
@@ -101,16 +101,16 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     int page_block_size;
     int num_KV_tiles_per_page;
 
+    const int* num_targets;
     int window_size_left;
     int window_size_right;
   };
 
-  template<class ProblemShape>
+  template <class ProblemShape>
   static Params to_underlying_arguments(
       ProblemShape const& problem_shape,
       Arguments const& args,
       void* workspace) {
-
     auto ptr_Q = args.ptr_Q;
     auto ptr_K = args.ptr_K;
     auto ptr_V = args.ptr_V;
@@ -141,52 +141,78 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     TMA_V tma_load_v;
 
     if (kIsPaged) { // Paged Case
-      //Create TMA Atom/Descriptor for Q, K, V
-      //Q
-      auto problem_shape_q = make_tuple(get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
-      Layout layout_Q = make_layout(select<0,2,3>(problem_shape_q), dQ);
+      // Create TMA Atom/Descriptor for Q, K, V
+      // Q
+      auto problem_shape_q = make_tuple(
+          get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
+      Layout layout_Q = make_layout(select<0, 2, 3>(problem_shape_q), dQ);
       Tensor mQ = make_tensor(make_gmem_ptr(ptr_Q), layout_Q);
 
-      auto cluster_layout_vmnk =
-        tiled_divide(make_layout(Shape<_1, _1, _1>{}),
-                     make_tile(typename CollectiveMmaQK::TiledMma::AtomThrID{}));
+      auto cluster_layout_vmnk = tiled_divide(
+          make_layout(Shape<_1, _1, _1>{}),
+          make_tile(typename CollectiveMmaQK::TiledMma::AtomThrID{}));
       tma_load_q = make_tma_atom_A_sm100<Element>(
-        cute::SM90_TMA_LOAD{}, mQ, SmemLayoutQ{}(_, _, _, _0{}), TileShapeQK{},
-        typename CollectiveMmaQK::TiledMma{}, cluster_layout_vmnk);
+          cute::SM90_TMA_LOAD{},
+          mQ,
+          SmemLayoutQ{}(_, _, _, _0{}),
+          TileShapeQK{},
+          typename CollectiveMmaQK::TiledMma{},
+          cluster_layout_vmnk);
 
       // K
-      auto problem_shape_paged_kv =  make_tuple(get_0, args.page_block_size, get<2>(problem_shape), make_tuple(get<0>(get<3>(problem_shape)), args.num_blocks));
-      Layout layout_k = make_layout(select<1,2,3>(problem_shape_paged_kv), dK);
+      auto problem_shape_paged_kv = make_tuple(
+          get_0,
+          args.page_block_size,
+          get<2>(problem_shape),
+          make_tuple(get<0>(get<3>(problem_shape)), args.num_blocks));
+      Layout layout_k =
+          make_layout(select<1, 2, 3>(problem_shape_paged_kv), dK);
       Tensor mK = make_tensor(make_gmem_ptr(ptr_K), layout_k);
 
       tma_load_k = make_tma_atom_B_sm100<Element>(
-        cute::SM90_TMA_LOAD{}, mK, SmemLayoutK{}(_, _, _, _0{}), TileShapeQK{},
-        typename CollectiveMmaQK::TiledMma{}, cluster_layout_vmnk);
+          cute::SM90_TMA_LOAD{},
+          mK,
+          SmemLayoutK{}(_, _, _, _0{}),
+          TileShapeQK{},
+          typename CollectiveMmaQK::TiledMma{},
+          cluster_layout_vmnk);
 
       // V
-      Layout layout_v = make_layout(select<2,1,3>(problem_shape_paged_kv), select<1,0,2>(dV));
+      Layout layout_v = make_layout(
+          select<2, 1, 3>(problem_shape_paged_kv), select<1, 0, 2>(dV));
       Tensor mV = make_tensor(make_gmem_ptr(ptr_V), layout_v);
 
       tma_load_v = make_tma_atom_B_sm100<Element>(
-        cute::SM90_TMA_LOAD{}, mV, SmemLayoutV{}(_, _, _, _0{}), TileShapePV{},
-        typename CollectiveMmaPV::TiledMma{}, cluster_layout_vmnk);
+          cute::SM90_TMA_LOAD{},
+          mV,
+          SmemLayoutV{}(_, _, _, _0{}),
+          TileShapePV{},
+          typename CollectiveMmaPV::TiledMma{},
+          cluster_layout_vmnk);
     } else {
-      auto problem_shape_qk = make_tuple(get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
+      auto problem_shape_qk = make_tuple(
+          get_0, get_1, get<2>(problem_shape), get<3>(problem_shape));
 
       auto params_qk = CollectiveMmaQK::to_underlying_arguments(
           problem_shape_qk,
-          typename CollectiveMmaQK::Arguments {
-              ptr_Q, dQ,
-              ptr_K, dK,
-          }, /*workspace=*/ nullptr);
+          typename CollectiveMmaQK::Arguments{
+              ptr_Q,
+              dQ,
+              ptr_K,
+              dK,
+          },
+          /*workspace=*/nullptr);
 
-      auto problem_shape_pv = select<0,2,1,3>(problem_shape_qk);
+      auto problem_shape_pv = select<0, 2, 1, 3>(problem_shape_qk);
       auto params_pv = CollectiveMmaPV::to_underlying_arguments(
           problem_shape_pv,
-          typename CollectiveMmaPV::Arguments {
-              ptr_K, dK,  // never used, dummy
-              ptr_V, select<1,0,2>(dV),
-          }, /*workspace=*/ nullptr);
+          typename CollectiveMmaPV::Arguments{
+              ptr_K,
+              dK, // never used, dummy
+              ptr_V,
+              select<1, 0, 2>(dV),
+          },
+          /*workspace=*/nullptr);
 
       tma_load_q = params_qk.tma_load_a;
       tma_load_k = params_qk.tma_load_b;
@@ -202,11 +228,10 @@ struct Sm100FmhaLoadTmaWarpspecialized {
         args.num_blocks,
         args.page_block_size,
         args.num_KV_tiles_per_page,
+        args.num_targets,
         args.window_size_left,
-        args.window_size_right
-    };
+        args.window_size_right};
   }
-
 
   CUTLASS_DEVICE
   static void prefetch_tma_descriptors(Params const& params) {
@@ -215,19 +240,23 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     cute::prefetch_tma_descriptor(params.tma_load_v.get_tma_descriptor());
   }
 
-  template<class BlkCoord, class ProblemShape, class ParamsProblemShape>
-  CUTLASS_DEVICE void
-  load(
-      BlkCoord const& blk_coord_in, ProblemShape const& problem_shape,
-      Params const& params, ParamsProblemShape const& params_problem_shape,
+  template <class BlkCoord, class ProblemShape, class ParamsProblemShape>
+  CUTLASS_DEVICE void load(
+      BlkCoord const& blk_coord_in,
+      ProblemShape const& problem_shape,
+      Params const& params,
+      ParamsProblemShape const& params_problem_shape,
       TensorStorage& storage,
-      PipelineQ& pipeline_q, typename PipelineQ::PipelineState& pipeline_q_producer_state,
-      PipelineKV& pipeline_kv, typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
-
+      PipelineQ& pipeline_q,
+      typename PipelineQ::PipelineState& pipeline_q_producer_state,
+      PipelineKV& pipeline_kv,
+      typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
     BlkCoord blk_coord_q = blk_coord_in;
     BlkCoord blk_coord_kv = blk_coord_in;
 
-    auto min_max = Mask(params.window_size_left, params.window_size_right).get_n_block_min_max(blk_coord_in, TileShape{}, problem_shape);
+    auto min_max =
+        Mask(params.window_size_left, params.window_size_right)
+            .get_n_block_min_max(blk_coord_in, TileShape{}, problem_shape);
     int n_block_min = get<0>(min_max);
     int n_block_max = get<1>(min_max);
 
@@ -242,65 +271,85 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     // compute gQ, sQ
     // we load 2*get<0>(blk_coord), and 2*get<0>(blk_coord) + 1
     ThrMMA mma_qk = typename CollectiveMmaQK::TiledMma{}.get_slice(0);
-    Tensor mQ_qdl_p = params.tma_load_q.get_tma_tensor(select<0,2,3>(problem_shape));
+    Tensor mQ_qdl_p =
+        params.tma_load_q.get_tma_tensor(select<0, 2, 3>(problem_shape));
 
     int q_offs_0 = 0;
     int q_offs_2_1 = 0;
     int batch_idx = get<2, 1>(blk_coord_q);
-    if constexpr (is_variable_length_v<tuple_element_t<0, ParamsProblemShape>>) {
+    if constexpr (is_variable_length_v<
+                      tuple_element_t<0, ParamsProblemShape>>) {
       auto cumulative_length_q = get<0>(params_problem_shape).cumulative_length;
       q_offs_0 = cumulative_length_q[batch_idx];
       get<2, 1>(blk_coord_q) = 0;
     }
 
-    Tensor mQ_qdl = domain_offset(make_coord(q_offs_0, _0{}, make_coord(_0{}, q_offs_2_1)), mQ_qdl_p);
+    Tensor mQ_qdl = domain_offset(
+        make_coord(q_offs_0, _0{}, make_coord(_0{}, q_offs_2_1)), mQ_qdl_p);
 
-    Tensor gQ_qdl = local_tile(mQ_qdl, TileShapeQK{}, make_coord(_, _, _), Step<_1, X, _1>{});
+    Tensor gQ_qdl = local_tile(
+        mQ_qdl, TileShapeQK{}, make_coord(_, _, _), Step<_1, X, _1>{});
     Tensor tSgQ_qdl = mma_qk.partition_A(gQ_qdl);
-    Tensor sQ = make_tensor(make_smem_ptr(storage.smem_q.data()), SmemLayoutQ{});
+    Tensor sQ =
+        make_tensor(make_smem_ptr(storage.smem_q.data()), SmemLayoutQ{});
     auto [tQgQ_qdl, tQsQ] = tma_partition(
-      params.tma_load_q, _0{}, make_layout(_1{}),
-      group_modes<0,3>(sQ), group_modes<0,3>(tSgQ_qdl)
-    );
+        params.tma_load_q,
+        _0{},
+        make_layout(_1{}),
+        group_modes<0, 3>(sQ),
+        group_modes<0, 3>(tSgQ_qdl));
     Tensor tQgQ = tQgQ_qdl(_, _, _0{}, get<2>(blk_coord_q));
 
     // compute gK, sK
-    Tensor mK_kdl_p = params.tma_load_k.get_tma_tensor(select<1,2,3>(problem_shape));
+    Tensor mK_kdl_p =
+        params.tma_load_k.get_tma_tensor(select<1, 2, 3>(problem_shape));
 
     int kv_offs_0 = 0;
 
-    if constexpr (is_variable_length_v<tuple_element_t<1, ParamsProblemShape>>) {
+    if constexpr (is_variable_length_v<
+                      tuple_element_t<1, ParamsProblemShape>>) {
       auto cumulative_length = get<1>(params_problem_shape).cumulative_length;
       if (cumulative_length != nullptr) {
-        kv_offs_0 = cumulative_length[get<2,1>(blk_coord_kv)];
-        get<2,1>(blk_coord_kv) = 0;
+        kv_offs_0 = cumulative_length[get<2, 1>(blk_coord_kv)];
+        get<2, 1>(blk_coord_kv) = 0;
       }
     }
 
-    Tensor mK_kdl = domain_offset(make_coord(kv_offs_0, _0{}, make_coord(_0{}, _0{})), mK_kdl_p);
+    Tensor mK_kdl = domain_offset(
+        make_coord(kv_offs_0, _0{}, make_coord(_0{}, _0{})), mK_kdl_p);
 
-    Tensor gK_kdl = local_tile(mK_kdl, TileShapeQK{}, make_coord(_, _, _), Step<X, _1, _1>{});
+    Tensor gK_kdl = local_tile(
+        mK_kdl, TileShapeQK{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tSgK_kdl = mma_qk.partition_B(gK_kdl);
-    Tensor sK = make_tensor(make_smem_ptr(storage.smem_k.data()), SmemLayoutK{});
+    Tensor sK =
+        make_tensor(make_smem_ptr(storage.smem_k.data()), SmemLayoutK{});
     auto [tKgK_kdl, tKsK] = tma_partition(
-      params.tma_load_k, _0{}, make_layout(_1{}),
-      group_modes<0,3>(sK), group_modes<0,3>(tSgK_kdl)
-    );
+        params.tma_load_k,
+        _0{},
+        make_layout(_1{}),
+        group_modes<0, 3>(sK),
+        group_modes<0, 3>(tSgK_kdl));
     Tensor tKgK = tKgK_kdl(_, _, _0{}, get<2>(blk_coord_kv));
 
     // compute gV, sV
     ThrMMA mma_pv = typename CollectiveMmaPV::TiledMma{}.get_slice(0);
-    Tensor mV_dkl_p = params.tma_load_v.get_tma_tensor(select<2,1,3>(problem_shape));
+    Tensor mV_dkl_p =
+        params.tma_load_v.get_tma_tensor(select<2, 1, 3>(problem_shape));
 
-    Tensor mV_dkl = domain_offset(make_coord(_0{}, kv_offs_0, make_coord(_0{}, _0{})), mV_dkl_p);
+    Tensor mV_dkl = domain_offset(
+        make_coord(_0{}, kv_offs_0, make_coord(_0{}, _0{})), mV_dkl_p);
 
-    Tensor gV_dkl = local_tile(mV_dkl, TileShapePV{}, make_coord(_, _, _), Step<X, _1, _1>{});
+    Tensor gV_dkl = local_tile(
+        mV_dkl, TileShapePV{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tOgV_dkl = mma_pv.partition_B(gV_dkl);
-    Tensor sV = make_tensor(make_smem_ptr(storage.smem_v.data()), SmemLayoutV{});
+    Tensor sV =
+        make_tensor(make_smem_ptr(storage.smem_v.data()), SmemLayoutV{});
     auto [tVgV_dkl, tVsV] = tma_partition(
-      params.tma_load_v, _0{}, make_layout(_1{}),
-      group_modes<0,3>(sV), group_modes<0,3>(tOgV_dkl)
-    );
+        params.tma_load_v,
+        _0{},
+        make_layout(_1{}),
+        group_modes<0, 3>(sV),
+        group_modes<0, 3>(tOgV_dkl));
     auto tVgV = tVgV_dkl(_, _0{}, _, get<2>(blk_coord_kv));
 
     // blk_coord in decomposed in terms of TileShape, not TileShapeQK
@@ -315,8 +364,12 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     int q1_index = 2 * get<0>(blk_coord_q) + 1;
     pipeline_q.producer_acquire(pipeline_q_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_q.producer_get_barrier(pipeline_q_producer_state);
-      copy(params.tma_load_q.with(*tma_barrier, 0), tQgQ(_, q0_index), tQsQ(_, pipeline_q_producer_state.index()));
+      auto tma_barrier =
+          pipeline_q.producer_get_barrier(pipeline_q_producer_state);
+      copy(
+          params.tma_load_q.with(*tma_barrier, 0),
+          tQgQ(_, q0_index),
+          tQsQ(_, pipeline_q_producer_state.index()));
     }
     ++pipeline_q_producer_state;
 
@@ -324,24 +377,36 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     int k_index = n_block_min;
     pipeline_kv.producer_acquire(pipeline_kv_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-      copy(params.tma_load_k.with(*tma_barrier, 0), tKgK(_, k_index), tKsK(_, pipeline_kv_producer_state.index()));
+      auto tma_barrier =
+          pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+      copy(
+          params.tma_load_k.with(*tma_barrier, 0),
+          tKgK(_, k_index),
+          tKsK(_, pipeline_kv_producer_state.index()));
     }
     ++pipeline_kv_producer_state;
 
     // Q2
     pipeline_q.producer_acquire(pipeline_q_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_q.producer_get_barrier(pipeline_q_producer_state);
-      copy(params.tma_load_q.with(*tma_barrier, 0), tQgQ(_, q1_index), tQsQ(_, pipeline_q_producer_state.index()));
+      auto tma_barrier =
+          pipeline_q.producer_get_barrier(pipeline_q_producer_state);
+      copy(
+          params.tma_load_q.with(*tma_barrier, 0),
+          tQgQ(_, q1_index),
+          tQsQ(_, pipeline_q_producer_state.index()));
     }
     ++pipeline_q_producer_state;
 
     // V1
     pipeline_kv.producer_acquire(pipeline_kv_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-      copy(params.tma_load_v.with(*tma_barrier, 0), tVgV(_, k_index), tVsV(_, pipeline_kv_producer_state.index()));
+      auto tma_barrier =
+          pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+      copy(
+          params.tma_load_v.with(*tma_barrier, 0),
+          tVgV(_, k_index),
+          tVsV(_, pipeline_kv_producer_state.index()));
     }
     ++pipeline_kv_producer_state;
     k_index += 1;
@@ -349,38 +414,49 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     // local changes
     // loop:
     for (; k_index < n_block_max; k_index += 1) {
-
       // Ki
       pipeline_kv.producer_acquire(pipeline_kv_producer_state);
       if (lane_predicate) {
-        auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-        copy(params.tma_load_k.with(*tma_barrier, 0), tKgK(_, k_index), tKsK(_, pipeline_kv_producer_state.index()));
+        auto tma_barrier =
+            pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+        copy(
+            params.tma_load_k.with(*tma_barrier, 0),
+            tKgK(_, k_index),
+            tKsK(_, pipeline_kv_producer_state.index()));
       }
       ++pipeline_kv_producer_state;
 
       // Vi
       pipeline_kv.producer_acquire(pipeline_kv_producer_state);
       if (lane_predicate) {
-        auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-        copy(params.tma_load_v.with(*tma_barrier, 0), tVgV(_, k_index), tVsV(_, pipeline_kv_producer_state.index()));
+        auto tma_barrier =
+            pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+        copy(
+            params.tma_load_v.with(*tma_barrier, 0),
+            tVgV(_, k_index),
+            tVsV(_, pipeline_kv_producer_state.index()));
       }
       ++pipeline_kv_producer_state;
     }
   }
 
-  template<class BlkCoord, class ProblemShape, class ParamsProblemShape>
-  CUTLASS_DEVICE void
-  load_paged(
-      BlkCoord const& blk_coord_in, ProblemShape const& problem_shape,
-      Params const& params, ParamsProblemShape const& params_problem_shape,
+  template <class BlkCoord, class ProblemShape, class ParamsProblemShape>
+  CUTLASS_DEVICE void load_paged(
+      BlkCoord const& blk_coord_in,
+      ProblemShape const& problem_shape,
+      Params const& params,
+      ParamsProblemShape const& params_problem_shape,
       TensorStorage& storage,
-      PipelineQ& pipeline_q, typename PipelineQ::PipelineState& pipeline_q_producer_state,
-      PipelineKV& pipeline_kv, typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
-
+      PipelineQ& pipeline_q,
+      typename PipelineQ::PipelineState& pipeline_q_producer_state,
+      PipelineKV& pipeline_kv,
+      typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
     BlkCoord blk_coord_q = blk_coord_in;
     BlkCoord blk_coord_kv = blk_coord_in;
 
-    auto min_max = Mask(params.window_size_left, params.window_size_right).get_n_block_min_max(blk_coord_in, TileShape{}, problem_shape);
+    auto min_max =
+        Mask(params.window_size_left, params.window_size_right)
+            .get_n_block_min_max(blk_coord_in, TileShape{}, problem_shape);
     int n_block_min = get<0>(min_max);
     int n_block_max = get<1>(min_max);
 
@@ -395,12 +471,14 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     // compute gQ, sQ
     // we load 2*get<0>(blk_coord), and 2*get<0>(blk_coord) + 1
     ThrMMA mma_qk = typename CollectiveMmaQK::TiledMma{}.get_slice(0);
-    Tensor mQ_qdl_p = params.tma_load_q.get_tma_tensor(select<0,2,3>(problem_shape));
+    Tensor mQ_qdl_p =
+        params.tma_load_q.get_tma_tensor(select<0, 2, 3>(problem_shape));
 
     int q_offs_0 = 0;
     int q_offs_2_1 = 0;
     int batch_idx = get<2, 1>(blk_coord_q);
-    if constexpr (is_variable_length_v<tuple_element_t<0, ParamsProblemShape>>) {
+    if constexpr (is_variable_length_v<
+                      tuple_element_t<0, ParamsProblemShape>>) {
       auto cumulative_length_q = get<0>(params_problem_shape).cumulative_length;
       if (cumulative_length_q != nullptr) {
         q_offs_0 = cumulative_length_q[batch_idx];
@@ -408,45 +486,65 @@ struct Sm100FmhaLoadTmaWarpspecialized {
       }
     }
 
-    Tensor mQ_qdl = domain_offset(make_coord(q_offs_0, _0{}, make_coord(_0{}, q_offs_2_1)), mQ_qdl_p);
+    Tensor mQ_qdl = domain_offset(
+        make_coord(q_offs_0, _0{}, make_coord(_0{}, q_offs_2_1)), mQ_qdl_p);
 
-    Tensor gQ_qdl = local_tile(mQ_qdl, TileShapeQK{}, make_coord(_, _, _), Step<_1, X, _1>{});
+    Tensor gQ_qdl = local_tile(
+        mQ_qdl, TileShapeQK{}, make_coord(_, _, _), Step<_1, X, _1>{});
     Tensor tSgQ_qdl = mma_qk.partition_A(gQ_qdl);
-    Tensor sQ = make_tensor(make_smem_ptr(storage.smem_q.data()), SmemLayoutQ{});
+    Tensor sQ =
+        make_tensor(make_smem_ptr(storage.smem_q.data()), SmemLayoutQ{});
     auto [tQgQ_qdl, tQsQ] = tma_partition(
-      params.tma_load_q, _0{}, make_layout(_1{}),
-      group_modes<0,3>(sQ), group_modes<0,3>(tSgQ_qdl)
-    );
+        params.tma_load_q,
+        _0{},
+        make_layout(_1{}),
+        group_modes<0, 3>(sQ),
+        group_modes<0, 3>(tSgQ_qdl));
     Tensor tQgQ = tQgQ_qdl(_, _, _0{}, get<2>(blk_coord_q));
 
     // compute gK, sK
-    ProblemShapeK problem_shape_kv = make_tuple(get<0>(problem_shape), params.page_block_size, get<2>(problem_shape), make_tuple(get<0>(get<3>(problem_shape)), params.num_blocks));
-    Tensor mK_kdl_p = params.tma_load_k.get_tma_tensor(select<1,2,3>(problem_shape_kv));
+    ProblemShapeK problem_shape_kv = make_tuple(
+        get<0>(problem_shape),
+        params.page_block_size,
+        get<2>(problem_shape),
+        make_tuple(get<0>(get<3>(problem_shape)), params.num_blocks));
+    Tensor mK_kdl_p =
+        params.tma_load_k.get_tma_tensor(select<1, 2, 3>(problem_shape_kv));
 
-    Tensor gK_kdl = local_tile(mK_kdl_p, TileShapeQK{}, make_coord(_, _, _), Step<X, _1, _1>{});
+    Tensor gK_kdl = local_tile(
+        mK_kdl_p, TileShapeQK{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tSgK_kdl = mma_qk.partition_B(gK_kdl);
-    Tensor sK = make_tensor(make_smem_ptr(storage.smem_k.data()), SmemLayoutK{});
+    Tensor sK =
+        make_tensor(make_smem_ptr(storage.smem_k.data()), SmemLayoutK{});
     auto [tKgK_kdl, tKsK] = tma_partition(
-      params.tma_load_k, _0{}, make_layout(_1{}),
-      group_modes<0,3>(sK), group_modes<0,3>(tSgK_kdl)
-    );
+        params.tma_load_k,
+        _0{},
+        make_layout(_1{}),
+        group_modes<0, 3>(sK),
+        group_modes<0, 3>(tSgK_kdl));
 
-    auto tKgK = tKgK_kdl(_, _, _0{}, make_coord(get<0>(get<2>(blk_coord_kv)), _));
-
+    auto tKgK =
+        tKgK_kdl(_, _, _0{}, make_coord(get<0>(get<2>(blk_coord_kv)), _));
 
     // compute gV, sV
     ThrMMA mma_pv = typename CollectiveMmaPV::TiledMma{}.get_slice(0);
-    Tensor mV_dkl_p = params.tma_load_v.get_tma_tensor(select<2,1,3>(problem_shape_kv));
+    Tensor mV_dkl_p =
+        params.tma_load_v.get_tma_tensor(select<2, 1, 3>(problem_shape_kv));
 
-    Tensor gV_dkl = local_tile(mV_dkl_p, TileShapePV{}, make_coord(_, _, _), Step<X, _1, _1>{});
+    Tensor gV_dkl = local_tile(
+        mV_dkl_p, TileShapePV{}, make_coord(_, _, _), Step<X, _1, _1>{});
     Tensor tOgV_dkl = mma_pv.partition_B(gV_dkl);
-    Tensor sV = make_tensor(make_smem_ptr(storage.smem_v.data()), SmemLayoutV{});
+    Tensor sV =
+        make_tensor(make_smem_ptr(storage.smem_v.data()), SmemLayoutV{});
     auto [tVgV_dkl, tVsV] = tma_partition(
-      params.tma_load_v, _0{}, make_layout(_1{}),
-      group_modes<0,3>(sV), group_modes<0,3>(tOgV_dkl)
-    );
+        params.tma_load_v,
+        _0{},
+        make_layout(_1{}),
+        group_modes<0, 3>(sV),
+        group_modes<0, 3>(tOgV_dkl));
 
-    auto tVgV = tVgV_dkl(_, _0{}, _, make_coord(get<0>(get<2>(blk_coord_kv)), _));
+    auto tVgV =
+        tVgV_dkl(_, _0{}, _, make_coord(get<0>(get<2>(blk_coord_kv)), _));
 
     // blk_coord in decomposed in terms of TileShape, not TileShapeQK
     // As such, it needs to be transformed as
@@ -460,37 +558,54 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     int q1_index = 2 * get<0>(blk_coord_q) + 1;
     pipeline_q.producer_acquire(pipeline_q_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_q.producer_get_barrier(pipeline_q_producer_state);
-      copy(params.tma_load_q.with(*tma_barrier, 0), tQgQ(_, q0_index), tQsQ(_, pipeline_q_producer_state.index()));
+      auto tma_barrier =
+          pipeline_q.producer_get_barrier(pipeline_q_producer_state);
+      copy(
+          params.tma_load_q.with(*tma_barrier, 0),
+          tQgQ(_, q0_index),
+          tQsQ(_, pipeline_q_producer_state.index()));
     }
     ++pipeline_q_producer_state;
 
     // K1
     int k_index = n_block_min;
     int logical_block_id = k_index / params.num_KV_tiles_per_page;
-    int page_id = params.page_table[batch_idx * params.page_table_stride + logical_block_id];
+    int page_id = params.page_table
+                      [batch_idx * params.page_table_stride + logical_block_id];
     int n_block = k_index % params.num_KV_tiles_per_page; // TODO: Replace %
 
     pipeline_kv.producer_acquire(pipeline_kv_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-      copy(params.tma_load_k.with(*tma_barrier, 0), tKgK(_, n_block, page_id), tKsK(_, pipeline_kv_producer_state.index()));
+      auto tma_barrier =
+          pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+      copy(
+          params.tma_load_k.with(*tma_barrier, 0),
+          tKgK(_, n_block, page_id),
+          tKsK(_, pipeline_kv_producer_state.index()));
     }
     ++pipeline_kv_producer_state;
 
     // Q2
     pipeline_q.producer_acquire(pipeline_q_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_q.producer_get_barrier(pipeline_q_producer_state);
-      copy(params.tma_load_q.with(*tma_barrier, 0), tQgQ(_, q1_index), tQsQ(_, pipeline_q_producer_state.index()));
+      auto tma_barrier =
+          pipeline_q.producer_get_barrier(pipeline_q_producer_state);
+      copy(
+          params.tma_load_q.with(*tma_barrier, 0),
+          tQgQ(_, q1_index),
+          tQsQ(_, pipeline_q_producer_state.index()));
     }
     ++pipeline_q_producer_state;
 
     // V1
     pipeline_kv.producer_acquire(pipeline_kv_producer_state);
     if (lane_predicate) {
-      auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-      copy(params.tma_load_v.with(*tma_barrier, 0), tVgV(_, n_block, page_id), tVsV(_, pipeline_kv_producer_state.index()));
+      auto tma_barrier =
+          pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+      copy(
+          params.tma_load_v.with(*tma_barrier, 0),
+          tVgV(_, n_block, page_id),
+          tVsV(_, pipeline_kv_producer_state.index()));
     }
     ++pipeline_kv_producer_state;
     k_index += 1;
@@ -498,26 +613,35 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     // loop:
     for (; k_index < n_block_max; k_index += 1) {
       logical_block_id = k_index / params.num_KV_tiles_per_page;
-      page_id = params.page_table[batch_idx * params.page_table_stride + logical_block_id];
+      page_id = params.page_table
+                    [batch_idx * params.page_table_stride + logical_block_id];
       n_block = k_index % params.num_KV_tiles_per_page; // TODO: Replace %
 
       // Ki
       pipeline_kv.producer_acquire(pipeline_kv_producer_state);
       if (lane_predicate) {
-        auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-        copy(params.tma_load_k.with(*tma_barrier, 0), tKgK(_, n_block, page_id), tKsK(_, pipeline_kv_producer_state.index()));
+        auto tma_barrier =
+            pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+        copy(
+            params.tma_load_k.with(*tma_barrier, 0),
+            tKgK(_, n_block, page_id),
+            tKsK(_, pipeline_kv_producer_state.index()));
       }
       ++pipeline_kv_producer_state;
 
       // Vi
       pipeline_kv.producer_acquire(pipeline_kv_producer_state);
       if (lane_predicate) {
-        auto tma_barrier = pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
-        copy(params.tma_load_v.with(*tma_barrier, 0), tVgV(_, n_block, page_id), tVsV(_, pipeline_kv_producer_state.index()));
+        auto tma_barrier =
+            pipeline_kv.producer_get_barrier(pipeline_kv_producer_state);
+        copy(
+            params.tma_load_v.with(*tma_barrier, 0),
+            tVgV(_, n_block, page_id),
+            tVsV(_, pipeline_kv_producer_state.index()));
       }
       ++pipeline_kv_producer_state;
     }
   }
 };
 
-}  // namespace cutlass::fmha::collective
+} // namespace cutlass::fmha::collective
