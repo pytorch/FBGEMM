@@ -25,6 +25,7 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     const std::optional<const at::Tensor>& seqlen_kv,
     const std::optional<const at::Tensor>& page_table,
     std::optional<int64_t> seqlen_k,
+    const std::optional<const at::Tensor>& num_targets,
     const int window_size_left,
     const int window_size_right);
 
@@ -46,6 +47,7 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     const std::optional<const at::Tensor>& seqlen_kv,
     const std::optional<const at::Tensor>& page_table,
     std::optional<int64_t> seqlen_k,
+    const std::optional<const at::Tensor>& num_targets,
     const int window_size_left,
     const int window_size_right);
 
@@ -68,6 +70,7 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     const std::optional<const at::Tensor>& seqlen_kv,
     const std::optional<const at::Tensor>& page_table,
     std::optional<int64_t> seqlen_k,
+    const std::optional<const at::Tensor>& num_targets,
     const int window_size_left,
     const int window_size_right);
 
@@ -89,6 +92,7 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     const std::optional<const at::Tensor>& seqlen_kv,
     const std::optional<const at::Tensor>& page_table,
     std::optional<int64_t> seqlen_k,
+    const std::optional<const at::Tensor>& num_targets,
     const int window_size_left,
     const int window_size_right);
 
@@ -111,6 +115,7 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     const std::optional<const at::Tensor>& seqlen_kv,
     const std::optional<const at::Tensor>& page_table,
     std::optional<int64_t> seqlen_k,
+    const std::optional<const at::Tensor>& num_targets,
     const int window_size_left,
     const int window_size_right);
 
@@ -132,6 +137,7 @@ template std::tuple<at::Tensor, at::Tensor> fmha_fwd<
     const std::optional<const at::Tensor>& seqlen_kv,
     const std::optional<const at::Tensor>& page_table,
     std::optional<int64_t> seqlen_k,
+    const std::optional<const at::Tensor>& num_targets,
     const int window_size_left,
     const int window_size_right);
 
