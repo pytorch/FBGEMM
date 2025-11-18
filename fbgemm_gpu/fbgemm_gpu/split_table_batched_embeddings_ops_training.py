@@ -710,6 +710,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
         )
 
+        self.table_names: Optional[list[str]] = table_names
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.enable_raw_embedding_streaming: bool = enable_raw_embedding_streaming
         self.pooling_mode = pooling_mode
