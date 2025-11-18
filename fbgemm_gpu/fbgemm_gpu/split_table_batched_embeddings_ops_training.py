@@ -2054,6 +2054,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
         total_unique_indices: Optional[int] = None,
+        hash_zch_identities: Optional[Tensor] = None,
     ) -> Tensor:
         """
         The forward pass function that
@@ -2235,7 +2236,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 vbe_metadata,
                 multipass_prefetch_config=None,
-                hash_zch_identities=None,
+                hash_zch_identities=hash_zch_identities,
             )
 
         if len(self.timesteps_prefetched) > 0:
