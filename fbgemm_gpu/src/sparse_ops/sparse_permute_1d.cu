@@ -40,7 +40,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel(
     const offsets_t* __restrict__ input_offsets,
     const offsets_t* __restrict__ output_offsets,
     indices_t* __restrict__ permuted_indices,
-    weights_t* __restrict__ permuted_weights) {
+    weights_t* __restrict__ permuted_weights,
+    int32_t weights_columns) {
   auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
   const auto stride = gridDim.x * blockDim.y;
   for (int b_t = b_t_start; b_t < permuted_lengths_size; b_t += stride) {
@@ -55,7 +56,10 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel(
     for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
-        permuted_weights[output_start + i] = weights[input_start + i];
+        for (int col = 0; col < weights_columns; ++col) {
+          permuted_weights[(output_start + i) * weights_columns + col] =
+              weights[(input_start + i) * weights_columns + col];
+        }
       }
     }
   }
@@ -139,8 +143,16 @@ permute_1D_sparse_data_cuda(
               if (weights.has_value()) {
                 const Tensor weights_value = weights.value();
                 const auto weights_value_contig = weights_value.contiguous();
-                permuted_weights =
-                    at::empty(permuted_indices_size, weights_value.options());
+                int32_t weights_columns = 1;
+                if (weights_value.dense_dim() > 1) {
+                  weights_columns = weights_value.size(1);
+                  permuted_weights = at::empty(
+                      {permuted_indices_size, weights_columns},
+                      weights_value.options());
+                } else {
+                  permuted_weights =
+                      at::empty(permuted_indices_size, weights_value.options());
+                }
                 FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
                     weights_value.scalar_type(),
                     "permute_1D_data_kernel_3",
@@ -164,7 +176,8 @@ permute_1D_sparse_data_cuda(
                           input_offsets.data_ptr<offsets_t>(),
                           output_offsets.data_ptr<offsets_t>(),
                           permuted_indices.data_ptr<indices_t>(),
-                          permuted_weights.data_ptr<weights_t>());
+                          permuted_weights.data_ptr<weights_t>(),
+                          weights_columns);
                     }); // for each weights_t
               } else {
                 FBGEMM_LAUNCH_KERNEL(
@@ -185,7 +198,8 @@ permute_1D_sparse_data_cuda(
                     input_offsets.data_ptr<offsets_t>(),
                     output_offsets.data_ptr<offsets_t>(),
                     permuted_indices.data_ptr<indices_t>(),
-                    nullptr);
+                    nullptr,
+                    0);
               }
             }); // for each indices_t
       }); // for each offsets_t
