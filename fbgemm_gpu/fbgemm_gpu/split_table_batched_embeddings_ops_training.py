@@ -710,6 +710,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
         )
 
+        self.table_names: Optional[list[str]] = table_names
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.enable_raw_embedding_streaming: bool = enable_raw_embedding_streaming
         self.pooling_mode = pooling_mode
@@ -2054,6 +2055,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
         total_unique_indices: Optional[int] = None,
+        hash_zch_identities: Optional[Tensor] = None,
     ) -> Tensor:
         """
         The forward pass function that
@@ -2235,7 +2237,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 vbe_metadata,
                 multipass_prefetch_config=None,
-                hash_zch_identities=None,
+                hash_zch_identities=hash_zch_identities,
             )
 
         if len(self.timesteps_prefetched) > 0:
