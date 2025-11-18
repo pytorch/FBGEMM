@@ -351,12 +351,22 @@ class ForwardTest(unittest.TestCase):
 
         batch_size_per_feature_per_rank = Bs_rank_feature if mixed_B else None
 
+        hash_zch_identities = to_device(
+            torch.randint(
+                low=0,
+                high=E * 10,  # The upper-bound doesn't matter
+                size=(B * T * L,),  # Matches dimension 0 of indices
+                dtype=torch.int64,
+            ),
+            use_cpu,
+        )
         # Run TBE
         fc2 = (
             cc(
                 indices,
                 offsets,
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                hash_zch_identities=hash_zch_identities,
             )
             if not weighted
             else cc(
@@ -364,6 +374,7 @@ class ForwardTest(unittest.TestCase):
                 offsets,
                 to_device(xw.contiguous().view(-1), use_cpu),
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                hash_zch_identities=hash_zch_identities,
             )
         )
 
