@@ -310,6 +310,16 @@ at::Tensor dispatch_fmha_gen_fwd(
   });
 }
 
+at::Tensor dispatch_fmha_gen_fwd_meta(
+    const at::Tensor& q,
+    const at::Tensor& k,
+    const at::Tensor& v,
+    const at::Tensor& seqlen_kv,
+    const std::optional<at::Tensor>& batch_idx,
+    int64_t kernel_type
+  ) {
+  return at::empty_like(q);
+}
 
 // -------------------------------------------------------------------------------------------------
 // Op registration
@@ -328,5 +338,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("fmha_gen_fwd", dispatch_fmha_gen_fwd);
+}
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("fmha_gen_fwd", dispatch_fmha_gen_fwd_meta);
 }
 #endif // CUTLASS_ARCH_MMA_SM100_SUPPORTED
