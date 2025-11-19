@@ -36,6 +36,13 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
     int input_columns,
     OutputType* output);
 
+template <typename InputType, int BIT_RATE>
+void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
+    const InputType* input,
+    size_t input_rows,
+    int input_columns,
+    std::uint8_t* output);
+
 } // namespace fbgemm
 
 #endif // __aarch64__

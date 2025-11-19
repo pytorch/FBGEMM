@@ -12,7 +12,7 @@
 #include <stdexcept> // for logic_error
 #include <string>
 
-#include "./FbgemmI8DepthwiseAvx2-inl.h" // @manual
+#include "./FbgemmI8DepthwiseUtils.h" // @manual
 #include "./GenerateI8Depthwise.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "fbgemm/Utils.h"

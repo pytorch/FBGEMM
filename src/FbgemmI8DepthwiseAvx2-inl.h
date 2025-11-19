@@ -8,25 +8,21 @@
 
 #pragma once
 
-#include <algorithm> // for min and max
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
+
 #include <cassert>
 #include <cmath> // for lrintf and sqrt
 #include <cstdint>
 #include <type_traits> // for is_same
 
-#if defined(__x86_64__) || defined(__i386__) || \
-    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
-#include <math.h>
-#endif
 
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
 
-// Almost same as ReQuantizeOutput in OutputProcessing-inh.h but different
-// row_offsets for each row because of depth-wise convolution
 template <
     bool FUSE_RELU,
     bool HAS_BIAS,
@@ -47,6 +43,8 @@ static ALWAYS_INLINE void requantize_(
     const std::int32_t* col_offsets,
     const BIAS_TYPE* bias [[maybe_unused]],
     const float* act_times_w_scale = nullptr) {
+  int j = 0;
+#ifdef __AVX2__
   __m256 multiplier_v = _mm256_setzero_ps();
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v [[maybe_unused]] = _mm256_setzero_ps();
@@ -73,7 +71,6 @@ static ALWAYS_INLINE void requantize_(
       _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
 
   constexpr int VLEN = 8;
-  int j = 0;
   for (; j < n / (VLEN * 4) * (VLEN * 4); j += (VLEN * 4)) {
     __m256i x_v =
         _mm256_loadu_si256(reinterpret_cast<const __m256i*>(C_int32 + j));
@@ -502,51 +499,30 @@ static ALWAYS_INLINE void requantize_(
         reinterpret_cast<__m128i*>(C_uint8 + j),
         _mm256_castsi256_si128(x_clamped_v));
   } // j loop vectorized
+#endif
 
-  for (; j < n; ++j) {
-    std::int32_t raw = C_int32[j];
-    int quant_param_idx = 0;
-    if constexpr (
-        Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
-        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
-      quant_param_idx = j;
-    } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
-      quant_param_idx = j / 2;
-    }
-    if constexpr (!B_SYMMETRIC) {
-      raw -= B_zero_point[quant_param_idx] * row_offsets[j / K_PER_G];
-    }
-    if constexpr (!A_SYMMETRIC) {
-      raw -= A_zero_point * col_offsets[j];
-    }
-    float raw_f = NAN;
-    if constexpr (HAS_BIAS) { // static if
-      if constexpr (std::is_same_v<BIAS_TYPE, float>) {
-        raw_f = raw;
-        raw_f += bias[j] / act_times_w_scale[quant_param_idx];
-      } else {
-        raw += bias[j];
-        raw_f = raw;
-      }
-    } else {
-      raw_f = raw;
-    }
-
-    float ab = raw_f * C_multiplier[quant_param_idx];
-    long rounded = lrintf(ab) + C_zero_point;
-
-    C_uint8[j] = std::max(
-        FUSE_RELU ? static_cast<long>(C_zero_point) : 0l,
-        std::min(255l, rounded));
-  }
-}
-
-static inline std::pair<int, int> closest_factors_(int n) {
-  int a = static_cast<int>(std::sqrt(n));
-  while (n % a != 0) {
-    a--;
-  }
-  return {a, n / a}; // a <= n / a
+  requantize_i8dw_ref_<
+      FUSE_RELU,
+      HAS_BIAS,
+      Q_GRAN,
+      A_SYMMETRIC,
+      B_SYMMETRIC,
+      K_PER_G,
+      BIAS_TYPE>(
+      A_zero_point,
+      B_zero_point,
+      C_multiplier,
+      C_zero_point,
+      C_int32,
+      C_uint8,
+      n,
+      j,
+      row_offsets,
+      col_offsets,
+      bias,
+      act_times_w_scale);
 }
 
 } // namespace fbgemm
+
+#endif
