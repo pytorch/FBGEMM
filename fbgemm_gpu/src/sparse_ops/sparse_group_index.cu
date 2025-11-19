@@ -13,12 +13,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 namespace {
 
-#ifdef USE_ROCM
 constexpr int kGroupIndexWarpSize = kWarpSize;
-#else
-constexpr int kGroupIndexWarpSize = kWarpSize;
-#endif
-
 constexpr int GROUP_INDEX_SELECT_UNROLL_FACTOR = 1;
 constexpr int GROUP_INDEX_SELECT_COLS_PER_WARP =
     GROUP_INDEX_SELECT_UNROLL_FACTOR * kGroupIndexWarpSize;
