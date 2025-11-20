@@ -711,210 +711,212 @@ TEST_P(FBGemmDepthWisePackUnpackTest, TestPackUnpack) {
 } // TestPackUnpack
 
 static void runRequantizeI8DepthWiseTest() {
-  const int n = 70; // OC == 70
-  aligned_vector<int32_t> B_zero_point(n, 0);
-  aligned_vector<float> C_multiplier(n, 0.0f);
-  aligned_vector<int32_t> C_int32(n, 0);
-  aligned_vector<int32_t> row_offsets(n, 0);
-  aligned_vector<int32_t> col_offsets(n, 0);
-  aligned_vector<float> act_times_w_scale(n, 0.0f);
-  aligned_vector<int32_t> bias(n, 0);
-  aligned_vector<float> fbias(n, 0.0f);
-  aligned_vector<uint8_t> C_int8_scalar(n, 0);
-  aligned_vector<uint8_t> C_int8_vector(n, 0);
-  int32_t A_zero_point = 0;
-  int32_t C_zero_point = 0;
-  aligned_vector<int32_t> Zero_point(2, 0);
+  const int max_size = 71; // OC == 71
+  for (int n = 0; n < max_size; n++) {
+    aligned_vector<int32_t> B_zero_point(n, 0);
+    aligned_vector<float> C_multiplier(n, 0.0f);
+    aligned_vector<int32_t> C_int32(n, 0);
+    aligned_vector<int32_t> row_offsets(n, 0);
+    aligned_vector<int32_t> col_offsets(n, 0);
+    aligned_vector<float> act_times_w_scale(n, 0.0f);
+    aligned_vector<int32_t> bias(n, 0);
+    aligned_vector<float> fbias(n, 0.0f);
+    aligned_vector<uint8_t> C_int8_scalar(n, 0);
+    aligned_vector<uint8_t> C_int8_vector(n, 0);
+    int32_t A_zero_point = 0;
+    int32_t C_zero_point = 0;
+    aligned_vector<int32_t> Zero_point(2, 0);
 
-  randFill(Zero_point, 0, 10);
-  A_zero_point = Zero_point[0];
-  C_zero_point = Zero_point[1];
-  randFill(B_zero_point, -3, 3);
-  randFill(C_multiplier, 0.1234f / 2, 0.1234f * 3 / 2);
-  randFill(C_int32, -5, 5);
-  randFill(row_offsets, -100, 100);
-  randFill(col_offsets, -100, 100);
-  randFill(bias, -8, 8);
+    randFill(Zero_point, 0, 10);
+    A_zero_point = Zero_point[0];
+    C_zero_point = Zero_point[1];
+    randFill(B_zero_point, -3, 3);
+    randFill(C_multiplier, 0.1234f / 2, 0.1234f * 3 / 2);
+    randFill(C_int32, -5, 5);
+    randFill(row_offsets, -100, 100);
+    randFill(col_offsets, -100, 100);
+    randFill(bias, -8, 8);
 
-  randFill(act_times_w_scale, 0.1234f / 2, 0.1234f * 3 / 2);
+    randFill(act_times_w_scale, 0.1234f / 2, 0.1234f * 3 / 2);
 
-  requantize_i8dw_ref_<
-      true,
-      true,
-      QuantizationGranularity::GROUP,
-      false,
-      false,
-      1>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_scalar.data(),
-      n,
-      0,
-      row_offsets.data(),
-      col_offsets.data(),
-      bias.data(),
-      act_times_w_scale.data());
+    requantize_i8dw_ref_<
+        true,
+        true,
+        QuantizationGranularity::GROUP,
+        false,
+        false,
+        1>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_scalar.data(),
+        n,
+        0,
+        row_offsets.data(),
+        col_offsets.data(),
+        bias.data(),
+        act_times_w_scale.data());
 
-  requantize_<true, true, QuantizationGranularity::GROUP, false, false, 1>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_vector.data(),
-      n,
-      row_offsets.data(),
-      col_offsets.data(),
-      bias.data(),
-      act_times_w_scale.data());
+    requantize_<true, true, QuantizationGranularity::GROUP, false, false, 1>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_vector.data(),
+        n,
+        row_offsets.data(),
+        col_offsets.data(),
+        bias.data(),
+        act_times_w_scale.data());
 
-  compare_validate_buffers(
-      C_int8_scalar.data(),
-      C_int8_vector.data(),
-      n,
-      1,
-      1,
-      static_cast<uint8_t>(0));
+    compare_validate_buffers(
+        C_int8_scalar.data(),
+        C_int8_vector.data(),
+        n,
+        1,
+        1,
+        static_cast<uint8_t>(0));
 
-  requantize_i8dw_ref_<
-      true,
-      true,
-      QuantizationGranularity::GROUP,
-      false,
-      false,
-      2>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_scalar.data(),
-      n,
-      0,
-      row_offsets.data(),
-      col_offsets.data(),
-      bias.data(),
-      act_times_w_scale.data());
+    requantize_i8dw_ref_<
+        true,
+        true,
+        QuantizationGranularity::GROUP,
+        false,
+        false,
+        2>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_scalar.data(),
+        n,
+        0,
+        row_offsets.data(),
+        col_offsets.data(),
+        bias.data(),
+        act_times_w_scale.data());
 
-  requantize_<true, true, QuantizationGranularity::GROUP, false, false, 2>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_vector.data(),
-      n,
-      row_offsets.data(),
-      col_offsets.data(),
-      bias.data(),
-      act_times_w_scale.data());
+    requantize_<true, true, QuantizationGranularity::GROUP, false, false, 2>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_vector.data(),
+        n,
+        row_offsets.data(),
+        col_offsets.data(),
+        bias.data(),
+        act_times_w_scale.data());
 
-  compare_validate_buffers(
-      C_int8_scalar.data(),
-      C_int8_vector.data(),
-      n,
-      1,
-      1,
-      static_cast<uint8_t>(0));
+    compare_validate_buffers(
+        C_int8_scalar.data(),
+        C_int8_vector.data(),
+        n,
+        1,
+        1,
+        static_cast<uint8_t>(0));
 
-  transform(
-      act_times_w_scale.begin(),
-      act_times_w_scale.end(),
-      bias.begin(),
-      fbias.begin(),
-      multiplies<float>());
+    transform(
+        act_times_w_scale.begin(),
+        act_times_w_scale.end(),
+        bias.begin(),
+        fbias.begin(),
+        multiplies<float>());
 
-  requantize_i8dw_ref_<
-      true,
-      true,
-      QuantizationGranularity::GROUP,
-      false,
-      false,
-      1>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_scalar.data(),
-      n,
-      0,
-      row_offsets.data(),
-      col_offsets.data(),
-      fbias.data(),
-      act_times_w_scale.data());
+    requantize_i8dw_ref_<
+        true,
+        true,
+        QuantizationGranularity::GROUP,
+        false,
+        false,
+        1>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_scalar.data(),
+        n,
+        0,
+        row_offsets.data(),
+        col_offsets.data(),
+        fbias.data(),
+        act_times_w_scale.data());
 
-  requantize_<true, true, QuantizationGranularity::GROUP, false, false, 1>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_vector.data(),
-      n,
-      row_offsets.data(),
-      col_offsets.data(),
-      fbias.data(),
-      act_times_w_scale.data());
+    requantize_<true, true, QuantizationGranularity::GROUP, false, false, 1>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_vector.data(),
+        n,
+        row_offsets.data(),
+        col_offsets.data(),
+        fbias.data(),
+        act_times_w_scale.data());
 
-  compare_validate_buffers(
-      C_int8_scalar.data(),
-      C_int8_vector.data(),
-      n,
-      1,
-      1,
-      static_cast<uint8_t>(0));
+    compare_validate_buffers(
+        C_int8_scalar.data(),
+        C_int8_vector.data(),
+        n,
+        1,
+        1,
+        static_cast<uint8_t>(0));
 
-  for (int g = 0; g < 2; ++g) {
-    for (int c = 0; c < n / 2; ++c) {
-      fbias[g * n / 2 + c] =
-          act_times_w_scale[g] * static_cast<float>(bias[g * n / 2 + c]);
+    for (int g = 0; g < 2; ++g) {
+      for (int c = 0; c < n / 2; ++c) {
+        fbias[g * n / 2 + c] =
+            act_times_w_scale[g] * static_cast<float>(bias[g * n / 2 + c]);
+      }
     }
+
+    requantize_i8dw_ref_<
+        true,
+        true,
+        QuantizationGranularity::GROUP,
+        false,
+        false,
+        2>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_scalar.data(),
+        n,
+        0,
+        row_offsets.data(),
+        col_offsets.data(),
+        fbias.data(),
+        act_times_w_scale.data());
+
+    requantize_<true, true, QuantizationGranularity::GROUP, false, false, 2>(
+        A_zero_point,
+        B_zero_point.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_int32.data(),
+        C_int8_vector.data(),
+        n,
+        row_offsets.data(),
+        col_offsets.data(),
+        fbias.data(),
+        act_times_w_scale.data());
+
+    compare_validate_buffers(
+        C_int8_scalar.data(),
+        C_int8_vector.data(),
+        n,
+        1,
+        1,
+        static_cast<uint8_t>(0));
   }
-
-  requantize_i8dw_ref_<
-      true,
-      true,
-      QuantizationGranularity::GROUP,
-      false,
-      false,
-      2>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_scalar.data(),
-      n,
-      0,
-      row_offsets.data(),
-      col_offsets.data(),
-      fbias.data(),
-      act_times_w_scale.data());
-
-  requantize_<true, true, QuantizationGranularity::GROUP, false, false, 2>(
-      A_zero_point,
-      B_zero_point.data(),
-      C_multiplier.data(),
-      C_zero_point,
-      C_int32.data(),
-      C_int8_vector.data(),
-      n,
-      row_offsets.data(),
-      col_offsets.data(),
-      fbias.data(),
-      act_times_w_scale.data());
-
-  compare_validate_buffers(
-      C_int8_scalar.data(),
-      C_int8_vector.data(),
-      n,
-      1,
-      1,
-      static_cast<uint8_t>(0));
 }
 
 TEST(FbgemmI8DepthwiseRequantizationTest, requantizeI8DepthWiseTest) {
