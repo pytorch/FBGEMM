@@ -314,7 +314,6 @@ static ALWAYS_INLINE void requantize_(
     vst1q_u8(C_uint8 + j, xyzw_clamped_v);
   } // j loop vectorized and unrolled 4x
 
-vec_tail:
   for (; j < n / VLEN * VLEN; j += VLEN) {
     int32x4_t x_v = vld1q_s32(C_int32 + j);
 
@@ -401,15 +400,92 @@ vec_tail:
     vst1_lane_u32(C_uint8 + j, vreinterpret_u32_u8(x_clamped_v), 0);
   } // j loop vectorized
 
-  // There are some leftovers that cannot fit in one full vector. Instead of
-  // doing a scalar loop, we prepare j to be n - VLEN and jump back to the
-  // above loop for one extra iteration. Compared to a scalar loop, this reuses
-  // vector loop code so code size bloat is minimal. Another alternative is
-  // to use a partial vector register, but that also bloats code size more than
-  // reusing the above loop body.
-  if (j < n) {
-    j = n - VLEN;
-    goto vec_tail;
+  // leftover handling using minimal code size
+#ifdef __clang__
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+#elif defined(__GNUC__)
+#pragma GCC novector unroll 0
+#endif
+  while (j < n) {
+    int32x4_t x_v;
+    x_v[0] = C_int32[j];
+
+    if constexpr (!B_SYMMETRIC) {
+      int32x4_t row_offset_v;
+      row_offset_v[0] = row_offsets[j / K_PER_G];
+      if constexpr (
+          Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+          (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
+        B_zero_point_v[0] = B_zero_point[j];
+      } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+        static_assert(K_PER_G == 2);
+        B_zero_point_v[0] = B_zero_point[j / 2];
+      }
+      x_v = vmlsq_s32(x_v, row_offset_v, B_zero_point_v);
+    }
+    if constexpr (!A_SYMMETRIC) {
+      int32x4_t col_offsets_v;
+      col_offsets_v[0] = col_offsets[j];
+      x_v = vmlsq_s32(x_v, A_zero_point_v, col_offsets_v);
+    }
+
+    // Convert to float
+    float32x4_t xf_v;
+    if constexpr (HAS_BIAS) { // static if
+      if constexpr (std::is_same_v<BIAS_TYPE, float>) {
+        float32x4_t x_bias_v;
+        float32x4_t biasfp_v;
+        float32x4_t act_times_w_scale_v;
+        if constexpr (
+            Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+            (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
+          act_times_w_scale_v[0] = act_times_w_scale[j];
+          biasfp_v[0] = bias[j];
+          x_bias_v = vdivq_f32(biasfp_v, act_times_w_scale_v);
+        } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+          act_times_w_scale_v[0] = act_times_w_scale[j / 2];
+          biasfp_v[0] = bias[j];
+          x_bias_v = vdivq_f32(biasfp_v, act_times_w_scale_v);
+        } else {
+          biasfp_v[0] = bias[j];
+          x_bias_v = vmulq_f32(biasfp_v, act_times_w_rcp_v);
+        }
+        xf_v = vaddq_f32(vcvtq_f32_s32(x_v), x_bias_v);
+      } else {
+        int32x4_t biasint_v;
+        biasint_v[0] = bias[j];
+        x_v = vaddq_s32(x_v, biasint_v);
+        xf_v = vcvtq_f32_s32(x_v);
+      }
+    } else {
+      xf_v = vcvtq_f32_s32(x_v);
+    }
+
+    if constexpr (
+        Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
+      multiplier_v[0] = C_multiplier[j];
+    } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+      multiplier_v[0] = C_multiplier[j / 2];
+    }
+    float32x4_t x_scaled_v = vmulq_f32(xf_v, multiplier_v);
+    // vcvtnq_s32_f32 always rounds to nearest, which is slightly different
+    // from x86's _mm256_cvtps_epi32 which rounds according to the current
+    // rounding mode, which may not be round to nearest. To help catch issues
+    // and debug, we add an assertion here.
+    assert(fegetround() == FE_TONEAREST);
+    int32x4_t x_rounded_v = vcvtnq_s32_f32(x_scaled_v);
+
+    int16x8_t x_packed_v_s16 = vqaddq_s16(
+        vcombine_s16(vqmovn_s32(x_rounded_v), vdup_n_s16(0)),
+        C_zero_point_epi16_v);
+    uint8x8_t x_packed_v_u8 = vqmovun_s16(x_packed_v_s16);
+    uint8x8_t x_clamped_v = vmax_u8(
+        FUSE_RELU ? vget_low_u8(C_zero_point_epi8_v) : vget_low_u8(min_v),
+        x_packed_v_u8);
+
+    vst1_lane_u8(C_uint8 + j, vreinterpret_u32_u8(x_clamped_v), 0);
+    j++;
   }
 }
 
