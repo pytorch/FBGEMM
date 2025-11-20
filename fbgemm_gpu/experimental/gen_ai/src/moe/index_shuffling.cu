@@ -351,7 +351,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
                   rhs_smem_index,
                   num_reduced_threads == 1);
             } else {
-              merge_topk<DataType, IndexType, 4>(
+              merge_topk<DataType, IndexType, TopK>(
                   smem.routing_scores,
                   smem.expert_indices,
                   lhs_smem_index,
@@ -502,7 +502,18 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
             num_experts == 16 || num_experts == 32 || num_experts == 128 ||
             num_experts == 320);
 
-        TORCH_CHECK(top_k == 1 || top_k == 2 || top_k == 4);
+    // ROCm currently only supports top_k=1. See L562
+#ifdef USE_ROCM
+        TORCH_CHECK(
+            top_k == 1,
+            "ROCm currently only supports top_k=1. Requested top_k=",
+            top_k);
+#else
+        TORCH_CHECK(
+            top_k == 1 || top_k == 2 || top_k == 4 || top_k == 8,
+            "top_k must be 1, 2, 4, or 8. Got top_k=",
+            top_k);
+#endif
 
         auto allocate_index_tensor = [&](int size) {
           return at::empty(
@@ -549,21 +560,63 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
 // Reducing tile size as problem size increases to avoid
 // cudaErrorCooperativeLaunchTooLarge.
 // TopK > 1 is not supported on AMD yet.
+// Expert-specific DISPATCH macros prevent compile-time errors from
+// static_assert at L322: NumTokensPerTile % kNumParallelReductionGroups == 0
+//
+// Each expert count has different divisibility constraints:
+// - E=16:  kNumParallelReductionGroups=16 → tile ≥16 (never reduces)
+// - E=32:  kNumParallelReductionGroups=8  → tile ≥8  (max reduction: B/2)
+// - E=128: kNumParallelReductionGroups=2  → tile ≥2  (max reduction: B/8)
+// - E=320: kNumParallelReductionGroups=1  → tile ≥1  (max reduction: B/16)
 #ifndef USE_ROCM
-#define DISPATCH(E, B, K, S)          \
-  if (S <= 128) {                     \
-    DISPATCH_K(E, B, K);              \
-  } else if (storage_factor <= 256) { \
-    DISPATCH_K(E, B / 2, K);          \
-  } else if (storage_factor <= 512) { \
-    DISPATCH_K(E, B / 4, K);          \
-  } else {                            \
-    DISPATCH_K(E, B / 8, K);          \
-  }
+#define DISPATCH_E_16(B, K, S) \
+  DISPATCH_K(16, B, K); // E=16: Never reduces (always tile=16)
+
+#define DISPATCH_E_32(B, K, S) \
+  if (S <= 128) {              \
+    DISPATCH_K(32, B, K);      \
+  } else {                     \
+    DISPATCH_K(32, B / 2, K);  \
+  } // E=32: Min tile=8 (B/2)
+
+#define DISPATCH_E_128(B, K, S) \
+  if (S <= 128) {               \
+    DISPATCH_K(128, B, K);      \
+  } else if (S <= 256) {        \
+    DISPATCH_K(128, B / 2, K);  \
+  } else if (S <= 512) {        \
+    DISPATCH_K(128, B / 4, K);  \
+  } else {                      \
+    DISPATCH_K(128, B / 8, K);  \
+  } // E=128: Min tile=2 (B/8)
+
+#define DISPATCH_E_320(B, K, S) \
+  if (S <= 128) {               \
+    DISPATCH_K(320, B, K);      \
+  } else if (S <= 256) {        \
+    DISPATCH_K(320, B / 2, K);  \
+  } else if (S <= 512) {        \
+    DISPATCH_K(320, B / 4, K);  \
+  } else {                      \
+    DISPATCH_K(320, B / 8, K);  \
+  } // E=320: Min tile=2 (B/8)
 #else
-#define DISPATCH(E, B, K, S) \
-  TORCH_CHECK(K == 1);       \
-  DISPATCH_EB(E, 8, 1)
+// ROCm: Only K=1 supported, fixed tile sizes per expert count
+#define DISPATCH_E_16(B, K, S) \
+  TORCH_CHECK(K == 1);         \
+  DISPATCH_K(16, B, K) // E=16: B=32
+
+#define DISPATCH_E_32(B, K, S) \
+  TORCH_CHECK(K == 1);         \
+  DISPATCH_K(32, B, K) // E=32: B=32
+
+#define DISPATCH_E_128(B, K, S) \
+  TORCH_CHECK(K == 1);          \
+  DISPATCH_EB(128, 8, 1) // E=128: B set to 8
+
+#define DISPATCH_E_320(B, K, S) \
+  TORCH_CHECK(K == 1);          \
+  DISPATCH_EB(320, 8, 1) // E=320: B set to 8
 #endif
 
 #define DISPATCH_K(E, B, K) \
@@ -571,9 +624,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     DISPATCH_EB(E, B, 1)    \
   } else if (K == 2) {      \
     DISPATCH_EB(E, B, 2)    \
-  } else {                  \
-    TORCH_CHECK(K == 4);    \
+  } else if (K == 4) {      \
     DISPATCH_EB(E, B, 4)    \
+  } else {                  \
+    TORCH_CHECK(K == 8);    \
+    DISPATCH_EB(E, B, 8)    \
   }
 #define DISPATCH_EB(E, B, K)                                            \
   kernel = (void*)index_shuffling_kernel<DataType, IndexType, E, B, K>; \
@@ -582,14 +637,14 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         int storage_factor = top_k * num_experts;
 
         if (num_experts == 16) {
-          DISPATCH_K(16, kNumTokensPerTileFewExperts, top_k)
+          DISPATCH_E_16(kNumTokensPerTileFewExperts, top_k, storage_factor)
         } else if (num_experts == 32) {
-          DISPATCH_K(32, kNumTokensPerTileFewExperts, top_k)
+          DISPATCH_E_32(kNumTokensPerTileFewExperts, top_k, storage_factor)
         } else if (num_experts == 128) {
-          DISPATCH(128, kNumTokensPerTileFewExperts, top_k, storage_factor)
+          DISPATCH_E_128(kNumTokensPerTileFewExperts, top_k, storage_factor)
         } else {
           TORCH_CHECK(num_experts == 320);
-          DISPATCH(320, kNumTokensPerTileFewExperts, top_k, storage_factor)
+          DISPATCH_E_320(kNumTokensPerTileFewExperts, top_k, storage_factor)
         }
     // This is to avoid build errors (divisibility asserts and local memory
     // overflow) on AMD.
