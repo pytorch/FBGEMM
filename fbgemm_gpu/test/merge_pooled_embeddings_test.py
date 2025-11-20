@@ -68,6 +68,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         non_default_stream=st.booleans(),
         r=st.randoms(use_true_random=False),
         dim=st.integers(min_value=0, max_value=1),
+        source_from_same_device=st.booleans(),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
@@ -81,14 +82,19 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         # pyre-fixme[2]: Parameter must be annotated.
         r,
         dim: int,
+        source_from_same_device: bool,
     ) -> None:
         dst_device = r.randint(0, num_gpus - 1)
         torch.cuda.set_device(dst_device)
         ad_ds = [embedding_dimension * ads_tables for _ in range(num_gpus)]
         batch_indices = torch.zeros(num_ads).long().cuda()
         pooled_ad_embeddings = [
-            torch.randn(
-                num_ads, ad_d, dtype=torch.float16, device=torch.device(f"cuda:{i}")
+            (
+                torch.randn(num_ads, ad_d, dtype=torch.float16, device=dst_device)
+                if source_from_same_device
+                else torch.randn(
+                    num_ads, ad_d, dtype=torch.float16, device=torch.device(f"cuda:{i}")
+                )
             )
             for i, ad_d in enumerate(ad_ds)
         ]
