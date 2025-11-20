@@ -143,7 +143,7 @@ get_unique_indices_cpu_impl(
       at::tensor({num_unique}, linear_indices.options().dtype(at::kInt));
 
   // Resize unique_indices to match same size as input
-  auto unique_indices_output = at::empty_like(linear_indices);
+  auto unique_indices_output = at::zeros_like(linear_indices);
   unique_indices_output.slice(0, 0, num_unique).copy_(unique_indices);
 
   std::optional<Tensor> unique_indices_count = std::nullopt;
@@ -152,7 +152,7 @@ get_unique_indices_cpu_impl(
   if (compute_count) {
     // Resize counts to match same size as input
     unique_indices_count =
-        at::empty({N}, linear_indices.options().dtype(at::kInt));
+        at::zeros({N}, linear_indices.options().dtype(at::kInt));
     unique_indices_count->slice(0, 0, num_unique).copy_(counts.to(at::kInt));
   }
 
