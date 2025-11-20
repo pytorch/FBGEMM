@@ -688,6 +688,20 @@ Tensor merge_pooled_embeddings(
   at::cuda::OptionalCUDAGuard g;
 
   at::Device out_device = target_device;
+
+  // if target_device is the same as input devices, we can directly call
+  // cat
+  bool is_same_device = true;
+  for (const auto& t : pooled_embeddings) {
+    if (t.device() != target_device) {
+      is_same_device = false;
+      break;
+    }
+  }
+  if (is_same_device) {
+    return at::cat(pooled_embeddings, cat_dim);
+  }
+
   if (target_device.is_cuda()) {
     init_p2p_access();
     g.set_device(target_device);
