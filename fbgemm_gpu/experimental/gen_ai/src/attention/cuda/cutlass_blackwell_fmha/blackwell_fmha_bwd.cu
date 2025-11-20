@@ -54,7 +54,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dispatch_fmha_bwd(
       window_size_right = max_seq_len_k.value();
     }
   }
-
+  if (causal) {
+    window_size_right = 0;
+  }
   auto dispatch_fmha = [&](auto element,
                            auto element_out,
                            auto head_dim,
