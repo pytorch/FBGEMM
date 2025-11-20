@@ -15,6 +15,7 @@ import torch
 # Based on the FBGEMM-PyTorch compatibility table at
 # https://docs.pytorch.org/FBGEMM/general/Releases.html#fbgemm-releases-compatibility
 _fbgemm_torch_compat_table = {
+    "1.4": "2.9",
     "1.3": "2.8",
     "1.2": "2.7",
     "1.1": "2.6",
@@ -80,7 +81,7 @@ def _load_library(filename: str, version: str, no_throw: bool = False) -> None:
             """
         )
 
-    elif str(torch.__version__) != _fbgemm_torch_compat_table[keys[0]]:
+    elif not str(torch.__version__).startswith(_fbgemm_torch_compat_table[keys[0]]):
         logging.warning(
             f"""
             \033[31m
