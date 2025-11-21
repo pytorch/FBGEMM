@@ -1410,8 +1410,9 @@ def _kernel_nvfp4_quantize(
 
         # Apply scale_ to input. We do this by broadcasting scale.
         # scaled_a = a * global_scale (fp32) / local_scale (fp8)
-        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            input_global_scale / scale_, [GROUP_LOAD, 1]
+        scaled_a = tl.div_rn(
+            tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]).to(tl.float32),
+            tl.reshape(scale_ / input_global_scale, [GROUP_LOAD, 1]).to(tl.float32),
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])

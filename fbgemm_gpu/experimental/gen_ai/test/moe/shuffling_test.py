@@ -24,6 +24,7 @@ if torch.cuda.is_available():
     )
 
 from hypothesis import given, settings, strategies as st, Verbosity
+from parameterized import parameterized
 from pyre_extensions import none_throws
 
 try:
@@ -40,6 +41,45 @@ torch._dynamo.config.cache_size_limit = 128
 _MAX_SAMPLES: int = 100
 
 
+def _generate_tile_boundary_test_cases() -> list[tuple[str, int, int]]:
+    """
+    Generate test cases at tile size threshold boundaries.
+
+    For each expert E, for each threshold T:
+    - Calculate K = T / E
+    - Round to smallest valid K >= target
+    - Use (E, K) as test case
+
+    Returns list of (test_name, num_experts, top_k).
+    """
+
+    # Tile size boundary test configuration (sync with index_shuffling.cu)
+    _SUPPORTED_EXPERT_COUNTS: list[int] = [16, 32, 128, 320]
+    _SUPPORTED_TOP_K: list[int] = [1, 2, 4, 8]
+    _STORAGE_FACTOR_THRESHOLDS: list[int] = [128, 256, 512]
+
+    def _find_nearest_valid_k(target_k: float) -> int | None:
+        """Find smallest K >= target_k, or None if no such K exists."""
+        candidates = [k for k in _SUPPORTED_TOP_K if k >= target_k]
+        return min(candidates) if candidates else None
+
+    seen = set()
+    cases = []
+
+    for num_experts in _SUPPORTED_EXPERT_COUNTS:
+        for threshold in _STORAGE_FACTOR_THRESHOLDS:
+            target_k = threshold / num_experts
+            nearest_k = _find_nearest_valid_k(target_k)
+
+            if nearest_k and (num_experts, nearest_k) not in seen:
+                seen.add((num_experts, nearest_k))
+                storage_factor = num_experts * nearest_k
+                test_name = f"e{num_experts}_k{nearest_k}_s{storage_factor}"
+                cases.append((test_name, num_experts, nearest_k))
+
+    return sorted(cases)
+
+
 @unittest.skipIf(open_source, "Tests currently fail in open source")
 @unittest.skipIf(
     not torch.cuda.is_available(),
@@ -48,20 +88,7 @@ _MAX_SAMPLES: int = 100
 class ShufflingTests(unittest.TestCase):
     """Test shuffling kernels."""
 
-    @given(
-        num_tokens=st.sampled_from(
-            [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
-        ),
-        num_experts=st.sampled_from([16, 32, 128, 320]),
-        num_local_experts=st.sampled_from([None, 8]),
-        top_k=st.sampled_from([1, 2, 4] if torch.version.cuda else [1]),
-        padded=st.sampled_from([True, False]),
-        rowmajor=st.sampled_from([True, False]),
-        compiled=st.sampled_from([True, False]),
-        routing_score_dtype=st.sampled_from([torch.float, torch.bfloat16]),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
-    def test_topk_index_shuffling(
+    def _run_topk_index_shuffling_test(
         self,
         num_tokens: int,
         num_experts: int,
@@ -210,6 +237,70 @@ class ShufflingTests(unittest.TestCase):
                 )
                 start_index = end_index
             ref_start_index = ref_end_index
+
+    @parameterized.expand(_generate_tile_boundary_test_cases())
+    def test_topk_index_shuffling_tile_size_boundaries(
+        self,
+        name: str,
+        num_experts: int,
+        top_k: int,
+    ) -> None:
+        """
+        Test index shuffling at tile size threshold boundaries.
+
+        The index shuffling kernel switches the number of tokens per tile (tile size)
+        depending on the storage factor (shared memory pressure on CUDA). These test cases
+        test for correctness at the tile size threshold boundaries.
+        """
+        # Skip K>1 on ROCm (not supported)
+        if top_k > 1 and torch.version.hip:
+            self.skipTest("ROCm only supports top_k=1")
+
+        self._run_topk_index_shuffling_test(
+            num_tokens=2049,
+            num_experts=num_experts,
+            num_local_experts=None,
+            top_k=top_k,
+            padded=False,
+            rowmajor=True,
+            compiled=False,
+            routing_score_dtype=torch.float32,
+        )
+
+    @given(
+        num_tokens=st.sampled_from(
+            [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
+        ),
+        num_experts=st.sampled_from([16, 32, 128, 320]),
+        num_local_experts=st.sampled_from([None, 8]),
+        top_k=st.sampled_from([1, 2, 4, 8] if torch.version.cuda else [1]),
+        padded=st.sampled_from([True, False]),
+        rowmajor=st.sampled_from([True, False]),
+        compiled=st.sampled_from([True, False]),
+        routing_score_dtype=st.sampled_from([torch.float, torch.bfloat16]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
+    def test_topk_index_shuffling(
+        self,
+        num_tokens: int,
+        num_experts: int,
+        num_local_experts: Optional[int],
+        top_k: int,
+        padded: bool,
+        rowmajor: bool,
+        compiled: bool,
+        routing_score_dtype: torch.dtype,
+    ) -> None:
+        self._run_topk_index_shuffling_test(
+            num_tokens=num_tokens,
+            num_experts=num_experts,
+            num_local_experts=num_local_experts,
+            top_k=top_k,
+            padded=padded,
+            rowmajor=rowmajor,
+            compiled=compiled,
+            routing_score_dtype=routing_score_dtype,
+        )
 
     @given(
         batch_size=st.sampled_from(
