@@ -286,6 +286,11 @@ class TBEBenchmarkParamsReporter:
             and (iteration >= self.report_iter_start)
             and (self.report_iter_end == -1 or iteration <= self.report_iter_end)
         ):
+            # If indices tensor is empty (indices.numel() == 0), skip reporting
+            # TODO: Remove this once we have a better way to handle empty indices tensors
+            if indices.numel() == 0:
+                return
+
             # Extract TBE config
             config = self.extract_params(
                 feature_rows=feature_rows,
@@ -295,8 +300,6 @@ class TBEBenchmarkParamsReporter:
                 per_sample_weights=per_sample_weights,
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
             )
-
-            config.json()
 
             # Ad-hoc fix for adding Es and Ds to JSON output
             # TODO: Remove this once we moved Es and Ds to be part of TBEDataConfig
