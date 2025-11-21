@@ -822,6 +822,7 @@ class CacheTest(unittest.TestCase):
             )
             positions_cpu = None
 
+        # pyre-fixme[3]: Return type must be annotated.
         def compare_output(
             input_indices: torch.Tensor,
             annotate1: str,
@@ -891,6 +892,7 @@ class CacheTest(unittest.TestCase):
             "CPU",
             "ref implementation",
             length_cpu.item(),
+            # pyre-fixme[6]: For 5th argument expected `int` but got `Tensor`.
             length_ref,
             unique_cpu,
             unique_ref,
@@ -941,6 +943,7 @@ class CacheTest(unittest.TestCase):
 
         # Run on MTIA
         if torch.mtia.is_available():
+            # pyre-fixme[16]: `Tensor` has no attribute `mtia`.
             linear_indices_mtia = linear_indices.mtia()
             if compute_inverse_indices:
                 (
@@ -957,7 +960,11 @@ class CacheTest(unittest.TestCase):
             else:
                 unique_mtia, length_mtia, count_mtia = (
                     torch.ops.fbgemm.get_unique_indices(
-                        linear_indices_gpu, max_indices, compute_count
+                        # pyre-fixme[61]: `linear_indices_gpu` is undefined, or not
+                        #  always defined.
+                        linear_indices_gpu,
+                        max_indices,
+                        compute_count,
                     )
                 )
                 positions_mtia = None

@@ -58,6 +58,8 @@ class TestingStatsReporter(TBEStatsReporter):
     def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
         return
 
+    # pyre-fixme[14]: `report_duration` overrides method defined in
+    #  `TBEStatsReporter` inconsistently.
     def report_duration(
         self,
         iteration_step: int,
@@ -72,6 +74,8 @@ class TestingStatsReporter(TBEStatsReporter):
             [iteration_step, event_name, duration_ms, embedding_id, tbe_id]
         )
 
+    # pyre-fixme[14]: `report_data_amount` overrides method defined in
+    #  `TBEStatsReporter` inconsistently.
     def report_data_amount(
         self,
         iteration_step: int,
