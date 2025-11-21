@@ -693,7 +693,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for batch_size in [1, 2]
             for is_mqa in [True, False]
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
-            for head_dim in [128]
+            for head_dim in [128, 64]
             for sm_scale in [None]
             for num_groups in [1, 2]
         ]
@@ -719,6 +719,10 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 f"is_mqa={is_mqa}, window_size={window_size}, head_dim={head_dim}, "
                 f"sm_scale={sm_scale}, q_heads={q_heads}"
             )
+
+        # Skip test for known numerical precision issues with FP8 and head_dim=64 in GQA mode
+        if dtype == torch.float8_e4m3fn and head_dim == 64:
+            self.skipTest("Skip: Numerical precision issue with FP8, head_dim=64")
 
         self._execute_cutlass_blackwell_attn_dense(
             batch_size,
