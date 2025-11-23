@@ -283,6 +283,7 @@ __configure_fbgemm_gpu_build_cuda () {
     # See:
     #
     #   https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
+    #   https://kaixih.github.io/nvcc-options/
     #   https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/#gpu-feature-list
     #   https://github.com/NVIDIA/nvbench/discussions/129
     #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
