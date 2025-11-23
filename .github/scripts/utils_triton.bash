@@ -67,7 +67,7 @@ install_triton_pip () {
     return 1
   else
     echo "################################################################################"
-    echo "# Install PyTorch (PyTorch PIP)"
+    echo "# Install PyTorch-Triton (PyTorch PIP)"
     echo "#"
     echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"

@@ -150,12 +150,42 @@ using gpuMemLocation = hipMemLocation;
 using gpuMemLocation = cudaMemLocation;
 #endif
 
+#if ROCM_VERSION >= 70100
+// In contrast to CUDA 13, which overrides the API signature of cudaMemAdvise,
+// ROCm 7.0, adds hipMemAdvise_v2 to maintain backwards compatibiility.
+//
+// See:
+// https://rocm.docs.amd.com/projects/HIP/en/develop/doxygen/html/group___memory_m.html
+#define gpuMemAdvise hipMemAdvise_v2
+#else
+#define gpuMemAdvise cudaMemAdvise
+#endif
+
+#if CUDART_VERSION >= 13000 || ROCM_VERSION >= 70100
+
 inline gpuMemLocation new_mem_location_from_device(const int device_id) {
   gpuMemLocation deviceLoc;
+#ifdef USE_ROCM
+  deviceLoc.type = hipMemLocationTypeDevice;
+#else
   deviceLoc.type = cudaMemLocationTypeDevice;
+#endif
   deviceLoc.id = device_id;
   return deviceLoc;
 }
+
+inline gpuMemLocation new_mem_location_cpu() {
+  gpuMemLocation deviceLoc;
+#ifdef USE_ROCM
+  deviceLoc.type = hipMemLocationTypeHost;
+#else
+  deviceLoc.type = cudaMemLocationTypeHost;
+#endif
+  deviceLoc.id = cudaCpuDeviceId;
+  return deviceLoc;
+}
+
+#endif
 
 } // namespace
 
@@ -170,14 +200,14 @@ Tensor new_managed_tensor(
   size_t size_bytes = t.storage().nbytes();
 
   // Set preferred memory location to host memory
-  AT_CUDA_CHECK(cudaMemAdvise(
+  AT_CUDA_CHECK(gpuMemAdvise(
       ptr,
       size_bytes,
       cudaMemAdviseSetPreferredLocation,
-#if CUDA_VERSION >= 13000
+#if CUDART_VERSION >= 13000 || ROCM_VERSION >= 70100
       // Starting with CUDA 13, the deviceId arg (int) is replaced with
       // cudaMemLocation (struct)
-      new_mem_location_from_device(cudaCpuDeviceId)
+      new_mem_location_cpu()
 #else
       cudaCpuDeviceId
 #endif
@@ -185,11 +215,11 @@ Tensor new_managed_tensor(
 
   // User hints with "accessed by": GPU will establish direct mapping of data
   // in CPU memory, no page faults will be generated
-  AT_CUDA_CHECK(cudaMemAdvise(
+  AT_CUDA_CHECK(gpuMemAdvise(
       ptr,
       size_bytes,
       cudaMemAdviseSetAccessedBy,
-#if CUDA_VERSION >= 13000
+#if CUDART_VERSION >= 13000 || ROCM_VERSION >= 70100
       new_mem_location_from_device(at::cuda::current_device())
 #else
       at::cuda::current_device()
@@ -382,11 +412,11 @@ void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
   device_guard.set_index(cuda_device_index);
 
   // FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
-  AT_CUDA_CHECK(cudaMemAdvise(
+  AT_CUDA_CHECK(gpuMemAdvise(
       ptr,
       size_bytes,
       static_cast<enum cudaMemoryAdvise>(cuda_memory_advise),
-#if CUDA_VERSION >= 13000
+#if CUDART_VERSION >= 13000 || ROCM_VERSION >= 70100
       new_mem_location_from_device(hint_device)
 #else
       hint_device
@@ -420,7 +450,7 @@ void uvm_cuda_mem_prefetch_async(
   AT_CUDA_CHECK(cudaMemPrefetchAsync(
       ptr,
       size_bytes,
-#if CUDA_VERSION >= 13000
+#if CUDART_VERSION >= 13000
       new_mem_location_from_device(prefetch_device),
       // Flags argument needs to be set to zero for now, see:
       // https://docs.nvidia.com/cuda/archive/13.0.0/cuda-runtime-api/group__CUDART__MEMORY.html
