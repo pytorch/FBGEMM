@@ -69,7 +69,7 @@ FindMinMaxImpl_f32(const float* m, float* min, float* max, uint64_t count) {
 
 #ifdef __clang__
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && __GNUC__ >= 14
 #pragma GCC novector unroll 0
 #endif
   while (loopRemainder > 0) {
@@ -135,7 +135,7 @@ static inline void FindMinMaxImpl_f16(
 
 #ifdef __clang__
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && __GNUC__ >= 14
 #pragma GCC novector unroll 0
 #endif
   while (loopRemainder > 0) {
@@ -238,7 +238,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon(
 
 #ifdef __clang__
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && __GNUC__ >= 14
 #pragma GCC novector unroll 0
 #endif
     while (loopRemainder > 0) {
