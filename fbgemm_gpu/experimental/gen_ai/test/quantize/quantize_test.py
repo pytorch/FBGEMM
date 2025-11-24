@@ -2330,6 +2330,30 @@ class NVFP4Tests(unittest.TestCase):
 
     @settings(deadline=None)
     @given(
+        M=st.sampled_from([1, 250]),
+        N=st.sampled_from([256, 1024]),
+        K=st.sampled_from([2048, 3584]),
+    )
+    def test_gemm(self, M: int, N: int, K: int) -> None:
+        A = torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+        B = torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+
+        global_scales, a_global_scales, b_global_scales = get_nvfp4_global_scales_naive(
+            [A],
+            [B],
+        )
+        aqs, a_scales = quantize_nvfp4_naive([A], a_global_scales)
+        bqs, b_scales = quantize_nvfp4_naive([B], b_global_scales)
+
+        out_nvfp4 = torch.ops.fbgemm.f4f4bf16(
+            aqs[0], bqs[0], a_scales[0], b_scales[0], None, global_scales[0]
+        )
+        out_bf16 = A @ B.t()
+
+        torch.testing.assert_close(out_nvfp4, out_bf16, atol=5.0e-2, rtol=5.0e-2)
+
+    @settings(deadline=None)
+    @given(
         G=st.sampled_from([1, 4, 16]),
         M=st.sampled_from([250, 500, 3500]),
         N=st.sampled_from([256, 1024, 6144]),
@@ -2436,6 +2460,24 @@ class MXFP4Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.device = torch.accelerator.current_accelerator()
+
+    @settings(deadline=None)
+    @given(
+        M=st.sampled_from([1, 250]),
+        N=st.sampled_from([256, 1024]),
+        K=st.sampled_from([2048, 3584]),
+    )
+    def test_gemm(self, M: int, N: int, K: int) -> None:
+        A = torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+        B = torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+
+        aq, a_scale = triton_quantize_mx4_unpack(A)
+        bq, b_scale = triton_quantize_mx4_unpack(B)
+
+        out_mxfp4 = torch.ops.fbgemm.f4f4bf16(aq, bq, a_scale, b_scale)
+        out_bf16 = A @ B.t()
+
+        torch.testing.assert_close(out_mxfp4, out_bf16, atol=8.0e-2, rtol=8.0e-2)
 
     @given(
         G=st.sampled_from([1, 4, 16]),
