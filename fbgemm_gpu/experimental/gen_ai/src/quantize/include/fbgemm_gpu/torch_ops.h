@@ -48,6 +48,14 @@ at::Tensor f4f4bf16_grouped_mm(
     std::optional<at::Tensor> output = std::nullopt,
     std::optional<at::Tensor> global_scale = std::nullopt);
 
+at::Tensor f4f4bf16(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> output = std::nullopt,
+    std::optional<at::Tensor> global_scale = std::nullopt);
+
 #endif
 
 } // namespace fbgemm_gpu

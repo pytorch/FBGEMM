@@ -17,6 +17,7 @@ at::Tensor f4f4bf16_128_128_4_2_1_t(
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
     at::Tensor w_scale,
+    at::Tensor output,
     std::optional<at::Tensor> global_scale = std::nullopt) {
   // Dispatch this kernel to the correct underlying implementation.
   return _f4f4bf16<
@@ -25,7 +26,7 @@ at::Tensor f4f4bf16_128_128_4_2_1_t(
       128,
       4,
       2,
-      1>(XQ, WQ, x_scale, w_scale, global_scale);
+      1>(XQ, WQ, x_scale, w_scale, output, global_scale);
 }
 
 #endif
