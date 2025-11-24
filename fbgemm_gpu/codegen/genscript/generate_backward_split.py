@@ -52,7 +52,11 @@ class BackwardSplitGenerator:
             return
 
         weighted_options = [True, False]
-        nobag_options = [True, False] if (not is_gwd) else [False]
+        nobag_options = (
+            [True, False]
+            if (not (is_gwd or kwargs.get("is_hip_optimized_backward")))
+            else [False]
+        )
         vbe_options = [True, False] if (kwargs.get("has_vbe_support")) else [False]
         ssd_options = [True, False] if kwargs.get("has_ssd_support") else [False]
         template = CodeTemplate.load(template_filepath)
@@ -327,8 +331,7 @@ class BackwardSplitGenerator:
 
     @staticmethod
     def generate_rocm_backward_split(**kwargs: Any) -> None:
-        # Generate backward device kernels based on weighted (True/False), VBE
-        # (True/False), no bag (True/False)
+        # Generate backward device kernels based on weighted (True/False)
         template_filepath = (
             "training/backward/rocm/embedding_backward_split_device_kernel_template.hip"
         )
@@ -343,6 +346,7 @@ class BackwardSplitGenerator:
                 "has_ssd_support": False,
                 "dense": False,
                 "gen_once": False,
+                "is_hip_optimized_backward": True,
             },
         )
 

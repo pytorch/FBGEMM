@@ -960,7 +960,7 @@ class {{ autograd_func }} :
 
 #ifdef USE_ROCM
     constexpr int32_t BT_block_size = 64;
-    constexpr int32_t max_segment_length_per_warp = 64;
+    constexpr int32_t max_segment_length_per_warp =  16384;
 #else
     constexpr int32_t BT_block_size = 32;
     constexpr int32_t max_segment_length_per_warp = 32;
@@ -1116,7 +1116,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- else %}
     const c10::SymInt vbe_output_size = -1,
     {%- endif %}
-    const bool mixed_D = true
+    const bool mixed_D = false
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
