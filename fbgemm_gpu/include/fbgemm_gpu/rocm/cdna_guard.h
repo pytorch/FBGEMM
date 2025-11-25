@@ -38,7 +38,7 @@
 namespace fbgemm_gpu::rocm {
 
 [[nodiscard]] inline bool is_supported_cdna() {
-  const std::set<std::string> supported_archs{"gfx942", "gfx90a"};
+  const std::set<std::string> supported_archs{"gfx942", "gfx90a", "gfx950"};
   int device_id = 0;
   HIP_CHECK(hipGetDevice(&device_id));
   hipDeviceProp_t dev_props;

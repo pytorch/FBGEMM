@@ -370,6 +370,7 @@ install_build_tools () {
     patchelf \
     rhash \
     scikit-build \
+    tbb-devel \
     tbb \
     wheel \
     xz \
