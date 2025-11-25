@@ -743,6 +743,7 @@ class {{ autograd_func }} :
     TORCH_CHECK(aux_tensor[IDX_LXU_CACHE_LOCATIONS].has_value(), "lxu_cache_locations should have value.");
     const auto lxu_cache_locations = aux_tensor[IDX_LXU_CACHE_LOCATIONS].value();
     const auto is_experimental = aux_bool[IDX_IS_EXPERIMENTAL_TBE];
+    const auto mixed_D = aux_bool[IDX_MIXED_D];
     {%- endif %}
 
     // Default values for Dynamo tracing
@@ -1059,7 +1060,27 @@ static torch::autograd::variable_list backward(
 
 #ifdef USE_ROCM
     constexpr int32_t BT_block_size = 64;
-    constexpr int32_t max_segment_length_per_warp = 64;
+    int32_t max_segment_length_per_warp = 64;
+    // Workaround. Should not be upstreamed in any way.
+    // Redistribute all cta_per_row work to warp_per_row.
+    int32_t total_L = indices.numel();
+    {%- if (not nobag) and 
+           (optimizer == "rowwise_adagrad") and 
+           (not vbe) and 
+           (not is_gwd) and 
+           (not ssd) and 
+           (not is_index_select) and 
+           (not dense) %}
+    const auto T = weights_offsets.sym_numel();
+    auto total_B = (offsets.size(0) - 1);
+    const auto B = total_B / T;
+    {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
+    if(!mixed_D && total_L / total_B > 1 && (max_D == {{ kDimSize }})) 
+    {
+      max_segment_length_per_warp = 16384;
+    }
+    {%- endfor %}
+    {%- endif %}
 #else
     constexpr int32_t BT_block_size = 32;
     constexpr int32_t max_segment_length_per_warp = 32;

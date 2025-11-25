@@ -13,7 +13,14 @@
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
-
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and 
+                                                 optimizer == "rowwise_adagrad" and 
+                                                 not dense and
+                                                 not nobag and 
+                                                 not is_index_select and
+                                                 not is_gwd_kernel and 
+                                                 not vbe and 
+                                                 not ssd %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
 ////////////////////////////////////////////////////////////////////////////////
@@ -22,7 +29,9 @@
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/assert_macros.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
-
+{%- if is_rocm %}
+#include "fbgemm_gpu/rocm/cdna_guard.h"
+{%- endif %}
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -67,7 +76,8 @@ template <
   typename grad_t,
   typename cache_t,
   typename index_t,
-  int32_t kFixedMaxVecsPerThread
+  int32_t kFixedMaxVecsPerThread,
+  bool embDimMatch
 >
 __global__ __launch_bounds__(kForwardMaxThreads) void
 {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_{{ vbdesc }}kernel(
@@ -210,7 +220,82 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
             )
             {%- endif %}
 
-            for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
+            int32_t j = 0;
+            {%- if not ssd and not dense and not use_vec_blocking and not vbe %}
+            // Currently for split_embedding_codegen_grad_indice_weights_kernel only
+            for (; j < kWarpSize && l_start + j + 3 < L; j += 4) {
+                const auto offset_idx_j0 = shfl_sync(offset_idx, j);
+                const auto offset_idx_j1 = shfl_sync(offset_idx, j+1);
+                const auto offset_idx_j2 = shfl_sync(offset_idx, j+2);
+                const auto offset_idx_j3 = shfl_sync(offset_idx, j+3);
+
+                const auto cache_idx_j0 = shfl_sync(cache_idx, j);
+                const auto cache_idx_j1 = shfl_sync(cache_idx, j+1);
+                const auto cache_idx_j2 = shfl_sync(cache_idx, j+2);
+                const auto cache_idx_j3 = shfl_sync(cache_idx, j+3);
+
+                at::acc_type<cache_t, true> grad_indice_weight0 = 0.0;
+                at::acc_type<cache_t, true> grad_indice_weight1 = 0.0;
+                at::acc_type<cache_t, true> grad_indice_weight2 = 0.0;
+                at::acc_type<cache_t, true> grad_indice_weight3 = 0.0;
+
+                [[maybe_unused]] const auto weight_row0 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j0], D);
+                [[maybe_unused]] const auto weight_row1 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j1], D);
+                [[maybe_unused]] const auto weight_row2 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j2], D);
+                [[maybe_unused]] const auto weight_row3 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j3], D);
+
+                #pragma unroll kFixedMaxVecsPerThread
+                for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + threadIdx.x) * kVecWidth < D; ++vec) {
+                    const int32_t d = (kWarpSize * vec + threadIdx.x) * kVecWidth;
+
+                    Vec4T<at::acc_type<cache_t, true>> weight0, weight1, weight2, weight3;
+                    if (placement == PlacementType::MANAGED_CACHING) {
+                        weight0 = (cache_idx_j0 != kCacheLocationMissing) ?
+                        Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j0][d]) :
+                        weight_row0.load(d);
+
+                        weight1 = (cache_idx_j1 != kCacheLocationMissing) ?
+                        Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j1][d]) :
+                        weight_row1.load(d);
+
+                        weight2 = (cache_idx_j2 != kCacheLocationMissing) ?
+                        Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j2][d]) :
+                        weight_row2.load(d);
+
+                        weight3 = (cache_idx_j3 != kCacheLocationMissing) ?
+                        Vec4T<at::acc_type<cache_t, true>>(&lxu_cache_weights[cache_idx_j3][d]) :
+                        weight_row3.load(d);
+                    } else {
+                        weight0 = weight_row0.load(d);
+                        weight1 = weight_row1.load(d);
+                        weight2 = weight_row2.load(d);
+                        weight3 = weight_row3.load(d);
+                    }
+
+                    grad_indice_weight0 += weight0.acc.x * grad_out[vec].acc.x + weight0.acc.y * grad_out[vec].acc.y +
+                            weight0.acc.z * grad_out[vec].acc.z + weight0.acc.w * grad_out[vec].acc.w;
+                    grad_indice_weight1 += weight1.acc.x * grad_out[vec].acc.x + weight1.acc.y * grad_out[vec].acc.y +
+                        weight1.acc.z * grad_out[vec].acc.z + weight1.acc.w * grad_out[vec].acc.w;
+                    grad_indice_weight2 += weight2.acc.x * grad_out[vec].acc.x + weight2.acc.y * grad_out[vec].acc.y +
+                        weight2.acc.z * grad_out[vec].acc.z + weight2.acc.w * grad_out[vec].acc.w;
+                    grad_indice_weight3 += weight3.acc.x * grad_out[vec].acc.x + weight3.acc.y * grad_out[vec].acc.y +
+                        weight3.acc.z * grad_out[vec].acc.z + weight3.acc.w * grad_out[vec].acc.w;
+                }
+                
+                grad_indice_weight0 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight0);
+                grad_indice_weight1 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight1);
+                grad_indice_weight2 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight2);
+                grad_indice_weight3 = warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight3);
+
+                if (threadIdx.x == 0) {
+                    grad_indice_weights[indices_start + l_start + j] = grad_indice_weight0;
+                    grad_indice_weights[indices_start + l_start + j+1] = grad_indice_weight1;
+                    grad_indice_weights[indices_start + l_start + j+2] = grad_indice_weight2;
+                    grad_indice_weights[indices_start + l_start + j+3] = grad_indice_weight3;
+                }
+            }
+            {%- endif %}
+            for (; j < kWarpSize && l_start + j < L; ++j) {
                 const auto offset_idx_j = shfl_sync(offset_idx, j);
                 {%- if not dense %}
                 const auto {{ locs_or_addrs_idx }}_j = shfl_sync({{ locs_or_addrs_idx }}, j);
@@ -261,7 +346,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     {%- endif %}
                 }
                 grad_indice_weight =
-                    warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight);
+                    warpReduceAllSum<at::acc_type<cache_t, true>, kWarpSize, embDimMatch>(grad_indice_weight);
                 if (threadIdx.x == 0) {
                     {%- if use_vec_blocking %}
                     if (vec_start == 0) {
@@ -359,7 +444,16 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     auto aligned_grad_output = aligned_grad_output_tensor_for_cuda_backwards(grad_output);
 
     CUDA_DEVICE_GUARD(dev_weights);
-
+    #ifdef USE_ROCM
+        if (!rocm::is_supported_cdna()) {
+            TORCH_WARN_ONCE("Running on non-CDNA architecture. Performance may be suboptimal.");
+        }
+        else {
+            // Ensure we're running on a supported CDNA architecture (including MI350)
+            TORCH_WARN_ONCE("Running on CDNA architecture");
+        }
+    #endif
+    
     const auto T = D_offsets.size(0) - 1;
     TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]
@@ -407,13 +501,42 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                     "{}_embedding_codegen_grad_indice_weights{}_{}kernel".format(
                         mdesc, vdesc, vbdesc)
                 %}
-                FBGEMM_LAUNCH_KERNEL(
-                    ({{ kernel_name }}<
+                auto kernel_name_ = {{ kernel_name }}<
                         emb_t,
                         grad_t,
                         cache_t,
                         index_t,
-                        kFixedMaxVecsPerThread>),
+                        kFixedMaxVecsPerThread,
+                        /*embDimMatch=*/ false>;
+#ifdef USE_ROCM
+                {%- if is_optimized_hip_kernel_supported_mode %}
+                const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
+                                                      || dev_weights.scalar_type() == at::ScalarType::Float;
+
+                if (!mixed_D && supported_weights_type && rocm::is_supported_cdna())
+                {
+                    {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
+                        {%- for kWeightDecayMode in [0, 1, 2] %}
+                        if (max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
+                        {
+                            kernel_name_ =
+                                {{ kernel_name }}
+                                <
+                                    emb_t,
+                                    grad_t,
+                                    cache_t,
+                                    index_t,
+                                    kFixedMaxVecsPerThread,
+                                    /*embDimMatch=*/ true
+                                    >;
+                }
+                {%- endfor %}
+                {%- endfor %}
+            }
+            {%- endif %}
+#endif          
+                FBGEMM_LAUNCH_KERNEL(
+                    kernel_name_,
                     div_round_up(total_B, kForwardMaxThreads / kWarpSize),
                     dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                     0,
