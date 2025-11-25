@@ -38,7 +38,7 @@ elif [[ "$CU_VERSION" == "cu126" ]] ||
     echo "[NOVA] Set TORCH_CUDA_ARCH_LIST to: ${TORCH_CUDA_ARCH_LIST}"
 
 elif [[ "$CU_VERSION" == "cu118" ]]; then
-    export TORCH_CUDA_ARCH_LIST="9.0"
+    export TORCH_CUDA_ARCH_LIST="9.0a"
     echo "[NOVA] Set TORCH_CUDA_ARCH_LIST to: ${TORCH_CUDA_ARCH_LIST}"
 
 elif [[ "$CU_VERSION" == "cu"* ]]; then
