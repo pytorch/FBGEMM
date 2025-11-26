@@ -30,6 +30,7 @@ enum EmbeddingSpMDMDtypeChoice {
   FLOAT,
   FLOAT16,
   BFLOAT16,
+  QINT8,
 };
 
 using EmbeddingSpMDMInputDtypeChoice = EmbeddingSpMDMDtypeChoice;
