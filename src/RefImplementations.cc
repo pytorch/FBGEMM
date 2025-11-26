@@ -1216,9 +1216,7 @@ bool EmbeddingSpMDM_ref(
   if (output_stride == -1) {
     output_stride = block_size;
   }
-  if constexpr (isOutput8bit) {
-    assert(input_stride == output_stride);
-  }
+
   vector<float> buf(block_size);
 
   if constexpr (isWeight8bit) {
@@ -1241,8 +1239,15 @@ bool EmbeddingSpMDM_ref(
           return false;
         }
         if constexpr (isOutput8bit) {
+          // In edge cases, input_stride can be larger than output_stride, and
+          // the assert macro will be a no-op if -DNDEBUG compilation flag is
+          // added (e.g. prod package).  To prevent memory overflow and also be
+          // backward- compatible, we get the min value of input_stride and
+          // output_stride, and only copy the overlap part of data.
+          const auto copy_width = std::min(output_stride, input_stride);
           const InType* input_row_ptr = input + input_stride * idx;
-          memcpy(out, input_row_ptr, sizeof(InType) * input_stride);
+          memcpy(out, input_row_ptr, sizeof(InType) * copy_width);
+
         } else {
           memset(buf.data(), 0, sizeof(float) * block_size);
           const float* scale_bias = reinterpret_cast<const float*>(
