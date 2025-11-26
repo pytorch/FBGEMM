@@ -1019,6 +1019,111 @@ def cat_reorder_batched_ad_indices_bench(
 
 
 @cli.command()
+@click.option("--num-segments", default=100)
+@click.option("--max-segment-length", default=10000)
+@click.option(
+    "--index-dtype", type=click.Choice(["int", "int64", "float"]), default="float"
+)
+@click.option("--has-weight", is_flag=True, default=False)
+@click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cuda")
+def permute_1d_sparse_data_bench(
+    num_segments: int,
+    max_segment_length: int,
+    index_dtype: str,
+    has_weight: bool,
+    device: str,
+) -> None:
+    """Benchmark permute_1D_sparse_data operator.
+
+    This operator permutes sparse features (indices and optional weights) according
+    to a given permutation. Commonly used in recommendation systems to reorder
+    embedding tables.
+    """
+    if index_dtype == "int":
+        index_dtype = torch.int32
+    elif index_dtype == "int64":
+        index_dtype = torch.int64
+    elif index_dtype == "float":
+        index_dtype = torch.float32
+    else:
+        raise RuntimeError(f"Does not support data type {index_dtype}")
+
+    # Generate variable-length segments to test vectorization
+    emb_dim = 256
+    lengths = (
+        torch.randint(
+            low=max_segment_length // 2,
+            high=max_segment_length,
+            size=(num_segments,),
+            dtype=torch.int32,
+            device=device,
+        )
+        * emb_dim
+    )
+    total_indices = int(lengths.sum().item())
+    # Generate indices
+    if index_dtype == torch.float32:
+        indices = torch.rand(total_indices, dtype=index_dtype, device=device)
+    else:
+        indices = torch.randint(
+            low=0,
+            high=2**31 - 1,
+            size=(total_indices,),
+            dtype=index_dtype,
+            device=device,
+        )
+
+    # Generate optional weights
+    weights = (
+        torch.rand(total_indices, dtype=torch.float32, device=device)
+        if has_weight
+        else None
+    )
+    # Generate random permutation
+    permute_list = list(range(num_segments))
+    random.shuffle(permute_list)
+    permute = torch.IntTensor(permute_list).to(device)
+    # Benchmark the operation
+    time, (permuted_lengths, permuted_indices, permuted_weights) = (
+        benchmark_torch_function(
+            torch.ops.fbgemm.permute_1D_sparse_data,
+            (permute, lengths, indices, weights, None),
+            num_warmups=100,
+            iters=1000,
+        )
+    )
+
+    # Calculate memory bandwidth
+    num_bytes = (
+        permute.numel() * permute.element_size()
+        + lengths.numel() * lengths.element_size()
+        + indices.numel() * indices.element_size()
+        + permuted_lengths.numel() * permuted_lengths.element_size()
+        + permuted_indices.numel() * permuted_indices.element_size()
+    )
+    if has_weight:
+        assert weights is not None
+        assert permuted_weights is not None
+        num_bytes += (
+            weights.numel() * weights.element_size()  # pyre-ignore [16]
+            + permuted_weights.numel() * permuted_weights.element_size()
+        )
+
+    logging.info(
+        f"permute_1D_sparse_data_bench ("
+        f"num_segments={num_segments}, "
+        f"max_segment_length={max_segment_length}, "
+        f"total_indices={total_indices}, "
+        f"dtype={index_dtype}, "
+        f"with_weights={has_weight}, "
+        f"device={device})"
+    )
+    logging.info(
+        f"fbgemm_gpu time: {time * 1000:.5f} ms ({num_bytes / time / 1e9:.5f} GB/s)"
+    )
+
+
+@cli.command()
 @click.option("--row-size", default=2560000)
 @click.option("--batch-size", default=2048)
 @click.option("--incidices-num", default=300000)
