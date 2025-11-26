@@ -433,6 +433,222 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   } // end for input
 }
 
+TEST_P(EmbeddingSpMDMTest, noBagUint8Test) {
+  vector<vector<int>> inputs(GetInputs_());
+
+  random_device r;
+  default_random_engine generator(r());
+  uniform_int_distribution<> bool_dist(0, 1);
+
+  bool isIndex64b = bool_dist(generator);
+  bool isOffset64b = bool_dist(generator);
+  bool use_offsets = bool_dist(generator);
+  auto [prefetch, weight_choice, corner_case, _tmp1, _tmp2] = GetParam();
+
+  // Fix the input and output types to be uint8_t
+  const auto in_type = QINT8, out_type = QINT8;
+
+  // Skip corner cases for this focused test
+  if (corner_case != NONE) {
+    return;
+  }
+
+  for (auto input : inputs) {
+    int batch_size = input[0];
+    int num_rows = input[1];
+    int embedding_dim = input[2];
+
+    // Set output_stride < input_stride to test the bug fix
+    // This is the edge case where memory overflow could occur
+    int output_stride = embedding_dim;
+    int input_stride = embedding_dim * 2 + 3;
+
+    // Create embedding table with uint8_t data
+    vector<uint8_t> embedding_table_qint8(num_rows * input_stride);
+    uniform_int_distribution<int> uint8_dist(0, 255);
+    for (int i = 0; i < num_rows; ++i) {
+      for (int j = 0; j < embedding_dim; ++j) {
+        embedding_table_qint8[i * input_stride + j] =
+            static_cast<uint8_t>(uint8_dist(generator));
+      }
+    }
+
+    // For no_bag case, each index produces one output row
+    // So output_size = number of indices = batch_size for simplicity
+    int output_size = batch_size;
+
+    vector<int64_t> indices;
+    vector<int32_t> indices_32;
+    for (int i = 0; i < output_size; ++i) {
+      uniform_int_distribution<> row_dist(0, num_rows - 1);
+      int64_t idx = row_dist(generator);
+      indices.push_back(idx);
+      indices_32.push_back(static_cast<int32_t>(idx));
+    }
+
+    // For no_bag, we still need offsets/lengths but they're just 0,1,2,3...
+    vector<int64_t> offsets, lengths;
+    vector<int32_t> offsets_32, lengths_32;
+    if (use_offsets) {
+      for (int i = 0; i <= output_size; ++i) {
+        offsets.push_back(i);
+        offsets_32.push_back(i);
+      }
+    } else {
+      for (int i = 0; i < output_size; ++i) {
+        lengths.push_back(1);
+        lengths_32.push_back(1);
+      }
+    }
+
+    const int64_t* offsets_or_lengths =
+        (use_offsets ? offsets : lengths).data();
+    const int32_t* offsets_or_lengths_32 =
+        (use_offsets ? offsets_32 : lengths_32).data();
+
+    int output_size_wo_sentries = output_size * output_stride;
+    constexpr int num_sentries = 10;
+
+    vector<uint8_t> output_ref(output_size_wo_sentries + num_sentries);
+    vector<uint8_t> output(output_size_wo_sentries + num_sentries);
+
+    // Initialize sentries
+    const uint8_t sentry_value = 0xFF;
+    for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
+      output_ref[i] = sentry_value;
+      output[i] = sentry_value;
+    }
+
+    bool success = false, success_ref = false;
+
+#define TEST_NOBAG_BASE(                           \
+    table,                                         \
+    indices,                                       \
+    offsets_or_lengths,                            \
+    output_ref,                                    \
+    output,                                        \
+    InType,                                        \
+    IndexType,                                     \
+    OffsetType,                                    \
+    OutType)                                       \
+  success_ref = EmbeddingSpMDM_ref(                \
+      embedding_dim,                               \
+      output_size,                                 \
+      output_size,                                 \
+      num_rows,                                    \
+      table.data(),                                \
+      indices.data(),                              \
+      offsets_or_lengths,                          \
+      nullptr, /* weights */                       \
+      false, /* normalize_by_lengths */            \
+      output_ref.data(),                           \
+      false, /* is_wt_positional */                \
+      use_offsets,                                 \
+      output_stride,                               \
+      input_stride,                                \
+      true, /* scale_bias_last */                  \
+      true, /* no_bag */                           \
+      false, /* is_output_bfloat16 */              \
+      false /* isBf16 */);                         \
+                                                   \
+  auto kernel = GenerateEmbeddingSpMDMWithStrides< \
+      InType,                                      \
+      IndexType,                                   \
+      OffsetType,                                  \
+      OutType>(                                    \
+      embedding_dim,                               \
+      false, /* has_weight */                      \
+      false, /* normalize_by_lengths */            \
+      prefetch,                                    \
+      false, /* is_wt_positional */                \
+      use_offsets,                                 \
+      output_stride,                               \
+      input_stride,                                \
+      true, /* scale_bias_last */                  \
+      true, /* no_bag */                           \
+      false, /* is_bf16_out */                     \
+      false /* is_bf16_in */);                     \
+  success = kernel(                                \
+      output_size,                                 \
+      output_size,                                 \
+      num_rows,                                    \
+      table.data(),                                \
+      indices.data(),                              \
+      offsets_or_lengths,                          \
+      nullptr /* weights */,                       \
+      output.data());
+
+#define TEST_NOBAG_OFFSET_TYPE(table, indices, InType, IndexType) \
+  if (isOffset64b) {                                              \
+    TEST_NOBAG_BASE(                                              \
+        table,                                                    \
+        indices,                                                  \
+        offsets_or_lengths,                                       \
+        output_ref,                                               \
+        output,                                                   \
+        InType,                                                   \
+        IndexType,                                                \
+        int64_t,                                                  \
+        uint8_t);                                                 \
+  } else {                                                        \
+    TEST_NOBAG_BASE(                                              \
+        table,                                                    \
+        indices,                                                  \
+        offsets_or_lengths_32,                                    \
+        output_ref,                                               \
+        output,                                                   \
+        InType,                                                   \
+        IndexType,                                                \
+        int32_t,                                                  \
+        uint8_t);                                                 \
+  }
+
+#define TEST_NOBAG_INDEX_TYPE(table, InType)                    \
+  if (isIndex64b) {                                             \
+    TEST_NOBAG_OFFSET_TYPE(table, indices, InType, int64_t);    \
+  } else {                                                      \
+    TEST_NOBAG_OFFSET_TYPE(table, indices_32, InType, int32_t); \
+  }
+
+    TEST_NOBAG_INDEX_TYPE(embedding_table_qint8, uint8_t);
+
+#undef TEST_NOBAG_INDEX_TYPE
+#undef TEST_NOBAG_OFFSET_TYPE
+#undef TEST_NOBAG_BASE
+
+    // Check correctness
+    EXPECT_EQ(success, success_ref)
+        << "Reference and JIT impl did not both succeed";
+    EXPECT_TRUE(success) << "Both implementations should succeed";
+
+    if (success) {
+      // Verify the output data
+      for (int i = 0; i < output_size; ++i) {
+        for (int j = 0; j < embedding_dim; ++j) {
+          int offset = i * output_stride + j;
+          EXPECT_EQ(output[offset], output_ref[offset])
+              << "results differ at (" << i << ", " << j
+              << ") reference: " << static_cast<int>(output_ref[offset])
+              << ", FBGEMM: " << static_cast<int>(output[offset])
+              << " emb dim: " << embedding_dim;
+        }
+      }
+
+      // Verify sentries weren't overwritten (tests for buffer overflow)
+      for (int offset = output_size_wo_sentries;
+           offset < output_size_wo_sentries + num_sentries;
+           ++offset) {
+        EXPECT_EQ(output[offset], sentry_value)
+            << "Sentry value corrupted at offset " << offset
+            << " - potential buffer overflow! Got: "
+            << static_cast<int>(output[offset])
+            << " expected: " << static_cast<int>(sentry_value);
+        EXPECT_EQ(output_ref[offset], sentry_value);
+      }
+    }
+  } // end for input
+}
+
 TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
 
