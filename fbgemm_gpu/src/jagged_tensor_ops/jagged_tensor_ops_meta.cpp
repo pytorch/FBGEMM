@@ -219,6 +219,19 @@ Tensor jagged_2d_to_dense_meta(
       /*padding_value=*/0);
 }
 
+Tensor get_source_mask_meta(
+    const Tensor& num_sources,
+    const Tensor& num_targets,
+    const int64_t output_size) {
+  const auto batch_size = num_sources.sym_numel();
+  TORCH_CHECK(
+      num_targets.sym_numel() == batch_size,
+      "num_sources and num_targets must have the same batch size");
+
+  return at::empty(
+      {output_size}, at::TensorOptions().dtype(at::kBool).device(at::kMeta));
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
@@ -281,4 +294,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
       TORCH_FN(fbgemm_gpu::jagged_jagged_bmm_forward_meta));
   m.impl("jagged_1d_to_dense", TORCH_FN(fbgemm_gpu::jagged_1d_to_dense_meta));
   m.impl("jagged_2d_to_dense", TORCH_FN(fbgemm_gpu::jagged_2d_to_dense_meta));
+  m.impl("get_source_mask", TORCH_FN(fbgemm_gpu::get_source_mask_meta));
 }

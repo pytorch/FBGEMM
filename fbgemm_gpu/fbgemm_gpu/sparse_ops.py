@@ -167,6 +167,47 @@ def invert_permute_abstract(permute: Tensor) -> Tensor:
     return torch.empty_like(permute)
 
 
+def get_source_mask_meta(
+    num_sources: Tensor, num_targets: Tensor, output_size: Optional[int] = None
+) -> Tensor:
+    if output_size is None:
+        ctx = torch.library.get_ctx()
+        output_size = ctx.new_dynamic_size()
+    return torch.empty([output_size], dtype=torch.bool)
+
+
+def get_source_mask(
+    num_sources: Tensor, num_targets: Tensor, output_size: Optional[int] = None
+) -> Tensor:
+    """
+    Generate a boolean mask indicating which elements are from sources vs targets.
+
+    This is a Python wrapper that computes output_size when not provided,
+    enabling the operation to work with meta tensors for compilation.
+
+    Args:
+        num_sources: 1D tensor of source counts per batch element
+        num_targets: 1D tensor of target counts per batch element
+        output_size: Optional pre-computed output size.
+
+    Returns:
+        A 1D boolean tensor where True indicates source elements and False
+        indicates target elements
+
+    Example:
+        >>> num_sources = torch.tensor([2, 3])
+        >>> num_targets = torch.tensor([1, 2])
+        >>> get_source_mask(num_sources, num_targets)
+        tensor([True, True, False, True, True, True, False, False])
+    """
+    # Compute output_size if not provided and tensors are regular (not meta/fake)
+    if output_size is None:
+        combined = num_sources + num_targets
+        output_size = int(combined.sum().item())
+
+    return torch.ops.fbgemm.get_source_mask(num_sources, num_targets, output_size)
+
+
 # pyre-ignore
 def permute_2D_sparse_data_setup_context(ctx, inputs, output):
     permute, lengths, values, weights, permuted_lengths_sum = inputs
@@ -1248,6 +1289,7 @@ def _setup() -> None:
         )
 
         impl_abstract("fbgemm::permute_2D_sparse_data", permute_2D_sparse_data_meta)
+        impl_abstract("fbgemm::get_source_mask", get_source_mask_meta)
         impl_abstract(
             "fbgemm::permute_2D_sparse_data_input1D",
             permute_2D_sparse_data_input1D_meta,

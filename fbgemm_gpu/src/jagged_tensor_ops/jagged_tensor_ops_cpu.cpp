@@ -1671,6 +1671,50 @@ Tensor jagged_slice_forward_cpu(
   return output_values;
 }
 
+Tensor get_source_mask_cpu(
+    const Tensor& num_sources,
+    const Tensor& num_targets,
+    const at::SymInt output_size) {
+  TENSOR_ON_CPU(num_sources);
+  TENSOR_ON_CPU(num_targets);
+
+  const auto batch_size = num_sources.size(0);
+  TORCH_CHECK(
+      num_targets.size(0) == batch_size,
+      "num_sources and num_targets must have the same batch size");
+
+  Tensor output = at::empty_symint(
+      {output_size}, at::TensorOptions().dtype(at::kBool).device(at::kCPU));
+
+  if (output_size == 0) {
+    return output;
+  }
+
+  // Generate the mask
+  AT_DISPATCH_INDEX_TYPES(
+      num_sources.scalar_type(), "get_source_mask_cpu", [&] {
+        const index_t* num_sources_data = num_sources.data_ptr<index_t>();
+        const index_t* num_targets_data = num_targets.data_ptr<index_t>();
+        bool* output_data = output.data_ptr<bool>();
+
+        int64_t offset = 0;
+        for (int64_t i = 0; i < batch_size; ++i) {
+          const index_t n_sources = num_sources_data[i];
+          const index_t n_targets = num_targets_data[i];
+
+          // Fill sources with true
+          std::fill_n(output_data + offset, n_sources, true);
+          offset += n_sources;
+
+          // Fill targets with false
+          std::fill_n(output_data + offset, n_targets, false);
+          offset += n_targets;
+        }
+      });
+
+  return output;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -1813,6 +1857,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_hash_size_cumsum(Tensor offsets, Tensor indices, int batch_size) -> (Tensor, Tensor)");
   m.def(
       "jagged_acc_weights_and_counts(Tensor weights, Tensor reverse_indices, int num_unique_indices) -> Tensor");
+  m.def(
+      "get_source_mask(Tensor num_sources, Tensor num_targets, SymInt output_size) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1883,6 +1929,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "jagged_acc_weights_and_counts",
       fbgemm_gpu::jagged_acc_weights_and_counts_cpu);
+  DISPATCH_TO_CPU("get_source_mask", fbgemm_gpu::get_source_mask_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CompositeExplicitAutograd, m) {
