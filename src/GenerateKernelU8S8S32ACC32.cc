@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include "./CodeGenHelpers.h" // @manual
+#include "./CodeStorage.h" // @manual
 #include "./GenerateKernel.h" // @manual
 
 namespace fbgemm {
@@ -46,7 +47,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
 
   for (int j = 0; j < colRegs; ++j) {
     // load B
-    emitLoadDWord<instSet, VecRegT>(
+    emitVecMove<instSet>(
         a, BReg, x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
     // load A, broadcast and fmas
     for (int i = 0; i < rowRegs; ++i) {
@@ -88,10 +89,10 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
             VecT(i * colRegs + j),
             VecT(i * colRegs + j),
             x86::dword_ptr(
-                a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)));
+                x86::rcx, C_Offset, 0, j * vectorLen * sizeof(int8_t)));
       }
       a->vmovups(
-          x86::dword_ptr(a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)),
+          x86::dword_ptr(x86::rcx, C_Offset, 0, j * vectorLen * sizeof(int8_t)),
           VecT(i * colRegs + j));
     }
   }
@@ -140,8 +141,9 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
+    asmjit::JitRuntime& runtime = CodeStorage::getRuntime();
     asmjit::CodeHolder code;
-    code.init(runtime().environment());
+    code.init(runtime.environment());
     x86::Assembler assembler(&code);
     x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
@@ -151,10 +153,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
             accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
-    asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
-    if (codeLogger) {
-      code.setLogger(codeLogger);
-    }
+    auto codeLogger = std::make_unique<asmjit::FileLoggerWithClose>(codeLogFile);
+    code.set_logger(codeLogger.get());
 #endif
 
     assert(
@@ -170,12 +170,12 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     int mRegBlocksRem = mc % mRegBlockSize;
 
     // arguments to the function created
-    const x86::Gp& buffer_A = a->zdi();
-    const x86::Gp& buffer_B = a->zsi();
-    const x86::Gp& B_pf = a->zdx();
-    const x86::Gp& CBase = a->zcx();
-    const x86::Gp& kSize = a->gpz(8);
-    const x86::Gp& ldcReg = a->gpz(9);
+    const x86::Gp buffer_A = x86::rdi;
+    const x86::Gp buffer_B = x86::rsi;
+    const x86::Gp B_pf = x86::rdx;
+    const x86::Gp CBase = x86::rcx;
+    const x86::Gp kSize = x86::r8;
+    const x86::Gp ldcReg = x86::r9;
 
     asmjit::FuncDetail func;
     func.init(
@@ -186,42 +186,42 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
+    auto dirtyVecRegs = asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+        asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15);
     if (numRegs >= 16) {
-      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-          asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+      dirtyVecRegs |= asmjit::Support::bit_mask<uint32_t>(16, 17, 18, 19, 20, 21, 22, 23) |
+          asmjit::Support::bit_mask<uint32_t>(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(asmjit::RegGroup::kVec, dirtyVecRegs);
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
+    args.assign_all(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    a->emitProlog(frame);
-    a->emitArgsAssignment(frame, args);
+    a->emit_prolog(frame);
+    a->emit_args_assignment(frame, args);
 
-    asmjit::Label LoopMBlocks = a->newLabel();
-    asmjit::Label LoopNBlocks = a->newLabel();
+    asmjit::Label LoopMBlocks = a->new_label();
+    asmjit::Label LoopNBlocks = a->new_label();
 
-    const x86::Gp& buffer_B_saved = a->gpz(10);
-    const x86::Gp& C_Offset = a->gpz(11);
-    const x86::Gp& B_pf_saved = a->gpz(12);
-    const x86::Gp& iIdx = a->gpz(13);
-    const x86::Gp& jIdx = a->gpz(14);
-    const x86::Gp& kIdx = a->gpz(15);
-    // const x86::Gp& B_pf = a->gpz(8);
+    const x86::Gp& buffer_B_saved = x86::r10;
+    const x86::Gp& C_Offset = x86::r11;
+    const x86::Gp& B_pf_saved = x86::r12;
+    const x86::Gp& iIdx = x86::r13;
+    const x86::Gp& jIdx = x86::r14;
+    const x86::Gp& kIdx = x86::r15;
+    // const x86::Gp& B_pf = x86::r8;
 
     VecRegT oneReg(numRegs - 3);
 
-    gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
-    a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
+    gen16BitVectorOne<instSet>(a, oneReg);
+    a->imul(ldcReg, ldcReg, sizeof(int32_t));
     // a->xor_(C_Offset.r32(), C_Offset.r32());
 
     // save B_buffer address
@@ -232,7 +232,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     int colRegs = std::min(currColRegs, maxNRegs);
 
     auto issueLoopOverK = [&](int rowRegs) {
-      asmjit::Label LoopKLabel = a->newLabel();
+      asmjit::Label LoopKLabel = a->new_label();
 
       // Init C (result) vector registers
       initCRegs(a, rowRegs, colRegs);
@@ -242,22 +242,17 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       a->bind(LoopKLabel);
 
       // k is incremented by row_interleave
-      a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
+      a->add(kIdx, row_interleave);
 
       genComputeBlock<instSet>(
           a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock);
 
       // update buffer_A address for next k iteration
-      a->add(
-          buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
+      a->add(buffer_A, row_interleave * sizeof(uint8_t));
 
       // update buffer_B address for next k iteration
-      a->add(
-          buffer_B,
-          static_cast<asmjit::Imm>(nBlock * row_interleave * sizeof(int8_t)));
-      a->add(
-          B_pf,
-          static_cast<asmjit::Imm>(nBlock * row_interleave * sizeof(int8_t)));
+      a->add(buffer_B, nBlock * row_interleave * sizeof(int8_t));
+      a->add(B_pf, nBlock * row_interleave * sizeof(int8_t));
 
       a->cmp(kIdx, kSize);
       a->jl(LoopKLabel);
@@ -288,17 +283,13 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       // B for next block
       a->mov(buffer_B, buffer_B_saved);
       // using C_Offset as temp reg
-      a->imul(
-          C_Offset,
-          jIdx,
-          static_cast<asmjit::Imm>(
-              nRegBlockSize * row_interleave * sizeof(int8_t)));
+      a->imul(C_Offset, jIdx, nRegBlockSize * row_interleave * sizeof(int8_t));
       a->add(buffer_B, C_Offset);
       a->mov(B_pf, B_pf_saved);
       a->add(B_pf, C_Offset);
 
       // increment C for next B block
-      a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int32_t)));
+      a->add(CBase, nRegBlockSize * sizeof(int32_t));
 
       int jLoopTrips = currColRegs / maxNRegs;
       // jLoopTrips should be at least 1
@@ -307,16 +298,11 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       a->jl(LoopNBlocks);
 
       // increment A for next block
-      a->add(
-          buffer_A,
-          static_cast<asmjit::Imm>((rowRegs)*kBlock * sizeof(uint8_t)));
+      a->add(buffer_A, (rowRegs)*kBlock * sizeof(uint8_t));
 
       // increment C for next A block
-      a->sub(
-          CBase,
-          static_cast<asmjit::Imm>(
-              jLoopTrips * nRegBlockSize * sizeof(int32_t)));
-      a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(rowRegs));
+      a->sub(CBase, jLoopTrips * nRegBlockSize * sizeof(int32_t));
+      a->imul(C_Offset, ldcReg, rowRegs);
       a->add(CBase, C_Offset);
 
       // reset B
@@ -327,7 +313,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     }
     // generate code for remainder
     if (mRegBlocksRem > 0) {
-      asmjit::Label LoopNRem = a->newLabel();
+      asmjit::Label LoopNRem = a->new_label();
 
       a->xor_(jIdx.r32(), jIdx.r32());
       a->bind(LoopNRem);
@@ -336,7 +322,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       issueLoopOverK(mRegBlocksRem);
 
       // increment C for next B block
-      a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int32_t)));
+      a->add(CBase, nRegBlockSize * sizeof(int32_t));
 
       int jLoopTrips = currColRegs / maxNRegs;
       // jLoopTrips should be at least 1
@@ -345,23 +331,15 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       a->jl(LoopNRem);
     }
 
-    a->emitEpilog(frame);
+    a->emit_epilog(frame);
 
     jit_micro_kernel_fp fn = nullptr;
-    asmjit::Error err = 0;
-    {
-      std::unique_lock<std::mutex> lock(rtMutex_);
-      err = runtime().add(&fn, &code);
-    }
-    if (err) {
+    asmjit::Error err = runtime.add(&fn, &code);
+
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
-
-#if defined(FBGEMM_LOG_CODE)
-    fclose(codeLogfile);
-    delete codeLogger;
-#endif
 
     return fn;
   });
