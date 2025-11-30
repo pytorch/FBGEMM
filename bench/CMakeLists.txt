@@ -67,8 +67,7 @@ function(add_benchmark BENCHNAME)
   endif()
 
   if(${BLAS_FOUND})
-    target_link_libraries(${BENCHNAME}
-      ${BLAS_LIBRARIES})
+    target_link_libraries(${BENCHNAME} BLAS::BLAS)
 
     target_compile_definitions(${BENCHNAME} PRIVATE
       -DUSE_BLAS)
