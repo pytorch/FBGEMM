@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -225,6 +226,7 @@ void performance_test(
 
   float alpha = 1.f, beta = 1.f;
   matrix_op_t btran = matrix_op_t::Transpose;
+  double peak_gflops = 0;
 
 #if dataset == 1
   const int NITER = (flush) ? 10 : 100;
@@ -462,6 +464,8 @@ void performance_test(
           k,
           gflops * repetitions,
           gbs * repetitions);
+
+      peak_gflops = std::max(gflops, peak_gflops);
 #ifdef USE_MKL
     }
 #endif
@@ -516,7 +520,11 @@ void performance_test(
         k,
         gflops * repetitions,
         gbs * repetitions);
+
+    peak_gflops = std::max(gflops, peak_gflops);
   }
+
+  printf("Peak Gflops = %8.4lf\n", peak_gflops * repetitions);
 }
 
 aligned_vector<float> getRandomSparseVector(
