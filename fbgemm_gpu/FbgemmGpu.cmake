@@ -80,6 +80,7 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/jagged_tensor_ops/batched_dense_vec_jagged_2d_mul_backward.cu
       src/jagged_tensor_ops/batched_dense_vec_jagged_2d_mul_forward.cu
       src/jagged_tensor_ops/dense_to_jagged_forward.cu
+      src/jagged_tensor_ops/get_source_mask.cu
       src/jagged_tensor_ops/jagged_dense_bmm_forward.cu
       src/jagged_tensor_ops/jagged_dense_dense_elementwise_add_jagged_output_forward.cu
       src/jagged_tensor_ops/jagged_dense_elementwise_mul_backward.cu

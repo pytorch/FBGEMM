@@ -289,7 +289,7 @@ def triton_quantize_mx4_unpack(
         stochastic_casting (bool): Whether to use stochastic casting.
 
     Returns:
-        torch.Tensor: [M / 2] mx4 scaled tensor packed into in8
+        torch.Tensor: [M / 2] mx4 scaled tensor packed into uint8
         torch.Tensor: [M / group_size] mx4 shared exponents into int8
 
         eg.

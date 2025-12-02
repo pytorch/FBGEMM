@@ -41,13 +41,6 @@ at::Tensor i8i8bf16_dynamic(
 at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale);
 
 // Cutlass kernel
-at::Tensor f4f4bf16(
-    at::Tensor XQ,
-    at::Tensor WQ,
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    std::optional<at::Tensor> global_scale = std::nullopt,
-    bool use_mx = true);
 at::Tensor f4f4bf16_grouped_stacked(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -412,8 +405,8 @@ at::Tensor f4f4bf16_meta(
     at::Tensor WQ, // FP4
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
-    std::optional<at::Tensor> /* global_scale = std::nullopt */,
-    bool /* use_mx */) {
+    std::optional<at::Tensor> /* output = std::nullopt */,
+    std::optional<at::Tensor> /* global_scale = std::nullopt */) {
   const at::SymInt M = XQ.sym_size(0);
   const at::SymInt N = WQ.sym_size(0);
   auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
