@@ -9,13 +9,6 @@
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
-// #include <ATen/cuda/CUDAEvent.h>
-// #include <atomic>
-// #include <cassert>
-// #include <cmath>
-// #include <vector>
-// #include "c10/util/Exception.h"
-
 namespace fbgemm {
 
 at::Tensor fused_moe_impl(

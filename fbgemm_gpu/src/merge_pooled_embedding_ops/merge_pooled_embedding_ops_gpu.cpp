@@ -27,6 +27,14 @@
 
 using Tensor = at::Tensor;
 
+#if !defined(FBGEMM_FBCODE) && ROCM_VERSION >= 70000
+using GPUEvent = at::hip::HIPEvent;
+#define getCurrentGPUStream at::hip::getCurrentHIPStream
+#else
+using GPUEvent = at::cuda::CUDAEvent;
+#define getCurrentGPUStream at::cuda::getCurrentCUDAStream
+#endif
+
 namespace {
 struct DirectConnectedPeer {
   int64_t num_peer_links;
@@ -38,7 +46,7 @@ struct DirectConnectedPeer {
 struct TwoHopTransferContainer {
   Tensor intermediate_tensor;
   uint64_t output_idx;
-  std::unique_ptr<at::cuda::CUDAEvent> transfer_cuda_event;
+  std::unique_ptr<GPUEvent> transfer_cuda_event;
 };
 
 AdjacencyMatrix<Node> get_intermediate_node(
@@ -135,7 +143,7 @@ void all_to_one_target_cpu(
     dst.copy_(src, /*non_blocking=*/true);
   }
   for (const auto& t : input_tensors) {
-    at::cuda::getCurrentCUDAStream(t.device().index()).synchronize();
+    getCurrentGPUStream(t.device().index()).synchronize();
   }
 }
 
@@ -158,7 +166,7 @@ void all_to_one(
   // can be expensive. In one call to this function, we use events created on
   // the target device. Since target device can be different across each call,
   // we store all the events in a 2-dimentionsal vector.
-  using PerDeviceEventList = std::vector<at::cuda::CUDAEvent>;
+  using PerDeviceEventList = std::vector<GPUEvent>;
   static thread_local std::vector<PerDeviceEventList> two_hop_copy_begin_events;
   static thread_local std::vector<PerDeviceEventList> copy_begin_events;
   static thread_local std::vector<PerDeviceEventList> copy_completion_events;
@@ -209,19 +217,18 @@ void all_to_one(
       // kernels on the dst stream (after dst memory initialization) to be
       // completed prior to the copy
       const auto source_device_id = src.get_device();
-      at::cuda::CUDAStream copy_stream =
-          at::cuda::getCurrentCUDAStream(source_device_id);
+      at::cuda::CUDAStream copy_stream = getCurrentGPUStream(source_device_id);
 
       auto& dst_ready =
           two_hop_copy_begin_events[intermediate_node][source_device_id];
-      dst_ready.record(at::cuda::getCurrentCUDAStream(intermediate_node));
+      dst_ready.record(getCurrentGPUStream(intermediate_node));
       dst_ready.block(copy_stream);
 
       two_hop_transfers.push_back(
           {.intermediate_tensor = dst,
            .output_idx = i,
            .transfer_cuda_event =
-               std::make_unique<at::cuda::CUDAEvent>(cudaEventDisableTiming)});
+               std::make_unique<GPUEvent>(cudaEventDisableTiming)});
       AT_CUDA_CHECK(cudaMemcpy2DAsync(
           dst.data_ptr(),
           dst.stride(0) * dst.element_size(),
@@ -253,8 +260,7 @@ void all_to_one(
     // dst's current streams for completion of the copy. We have to explicitly
     // do this for non-contig copies. This mimics the behavior of cross-device
     // cudaMemcpyAsync on the default stream.
-    at::cuda::CUDAStream copy_stream =
-        at::cuda::getCurrentCUDAStream(device_id);
+    at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
     // This is a cross-device copy on the src current stream and dst current
     // stream. We perform a two-way barrier between both devices' streams
     // before the copy. This ensures that any write-after-write and
@@ -262,7 +268,7 @@ void all_to_one(
     // that no one is operating on the dst memory when we perform the copy.
     // src waits on dst barrier (src already waits on src)
     auto& dst_ready = copy_begin_events[target_device_index][device_id];
-    dst_ready.record(at::cuda::getCurrentCUDAStream(target_device_index));
+    dst_ready.record(getCurrentGPUStream(target_device_index));
     dst_ready.block(copy_stream);
     for (const auto i : c10::irange(input_tensors.size())) {
       const auto metadata = is_two_hop_transfer.at(i);
@@ -301,13 +307,12 @@ void all_to_one(
     }
 
     // source rank stream
-    at::cuda::CUDAStream copy_stream =
-        at::cuda::getCurrentCUDAStream(src_device_id);
+    at::cuda::CUDAStream copy_stream = getCurrentGPUStream(src_device_id);
     // wait on first hop transfer
     two_hop_transfer.transfer_cuda_event->block(copy_stream);
     // synchronize with target rank
     auto& dst_ready = copy_begin_events[target_device_index][src_device_id];
-    dst_ready.record(at::cuda::getCurrentCUDAStream(target_device_index));
+    dst_ready.record(getCurrentGPUStream(target_device_index));
     dst_ready.block(copy_stream);
     // originating tensor output position
     const auto output_index = two_hop_transfer.output_idx;
@@ -332,7 +337,7 @@ void all_to_one(
         auto& dst = output_tensors[i];
         // single device memcpy, not that src_device == dst_device.
         at::cuda::CUDAStream copy_stream =
-            at::cuda::getCurrentCUDAStream(target_device_index);
+            getCurrentGPUStream(target_device_index);
         AT_CUDA_CHECK(cudaMemcpy2DAsync(
             dst.data_ptr(),
             dst.stride(0) * dst.element_size(),
@@ -351,12 +356,11 @@ void all_to_one(
     if (device_id != target_device_index) {
       auto src_device = at::Device(at::kCUDA, device_id);
       // record stream event
-      at::cuda::CUDAStream copy_stream =
-          at::cuda::getCurrentCUDAStream(device_id);
+      at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
 
       auto& src_ready = copy_completion_events[target_device_index][device_id];
       src_ready.record(copy_stream);
-      src_ready.block(at::cuda::getCurrentCUDAStream(target_device_index));
+      src_ready.block(getCurrentGPUStream(target_device_index));
     }
   }
   AT_CUDA_CHECK(cudaGetLastError());
@@ -370,7 +374,7 @@ Tensor sum_reduce_to_one(
   // can be expensive. In one call to this function, we use events created on
   // the target device. Since target device can be different across each call,
   // we store all the events in a 2-dimentionsal vector.
-  using PerDeviceEventList = std::vector<at::cuda::CUDAEvent>;
+  using PerDeviceEventList = std::vector<GPUEvent>;
   static thread_local std::vector<PerDeviceEventList> two_hop_copy_begin_events;
   static thread_local std::vector<PerDeviceEventList> copy_begin_events;
   static thread_local std::vector<PerDeviceEventList> copy_completion_events;
@@ -448,10 +452,10 @@ Tensor sum_reduce_to_one(
     copied_tensors[i] = at::empty_like(src, intermediate_device);
 
     const auto src_device_idx = src.get_device();
-    const auto& copy_stream = at::cuda::getCurrentCUDAStream(src_device_idx);
+    const auto& copy_stream = getCurrentGPUStream(src_device_idx);
     auto& dst_ready =
         two_hop_copy_begin_events[intermediate_node][src_device_idx];
-    dst_ready.record(at::cuda::getCurrentCUDAStream(intermediate_node));
+    dst_ready.record(getCurrentGPUStream(intermediate_node));
     dst_ready.block(copy_stream);
 
     // on source device, launch memcpy.
@@ -476,12 +480,11 @@ Tensor sum_reduce_to_one(
     auto intermediate_device = at::Device(at::kCUDA, intermediate_node);
 
     auto src_device = at::Device(at::kCUDA, device_id);
-    at::cuda::CUDAStream copy_stream =
-        at::cuda::getCurrentCUDAStream(device_id);
+    at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
 
     auto& src_ready = copy_completion_events[target_device_index][device_id];
     src_ready.record(copy_stream);
-    src_ready.block(at::cuda::getCurrentCUDAStream(intermediate_node));
+    src_ready.block(getCurrentGPUStream(intermediate_node));
 
     // Find any tensor in the intermediate GPU to reduce to.
     Tensor ten_at_intermediate_node;
@@ -532,9 +535,9 @@ Tensor sum_reduce_to_one(
     copied_tensors[i] = at::empty_like(src, target_device);
 
     const auto src_idx = src.get_device();
-    const auto& copy_stream = at::cuda::getCurrentCUDAStream(src_idx);
+    const auto& copy_stream = getCurrentGPUStream(src_idx);
     auto& dst_ready = copy_begin_events[target_device_index][src_idx];
-    dst_ready.record(at::cuda::getCurrentCUDAStream(target_device_index));
+    dst_ready.record(getCurrentGPUStream(target_device_index));
     dst_ready.block(copy_stream);
 
     auto& dst = copied_tensors[i];
@@ -554,12 +557,11 @@ Tensor sum_reduce_to_one(
     if (device_id != target_device_index) {
       auto src_device = at::Device(at::kCUDA, device_id);
       // Still on src_device, record stream event
-      at::cuda::CUDAStream copy_stream =
-          at::cuda::getCurrentCUDAStream(device_id);
+      at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
 
       auto& src_ready = copy_completion_events[target_device_index][device_id];
       src_ready.record(copy_stream);
-      src_ready.block(at::cuda::getCurrentCUDAStream(target_device_index));
+      src_ready.block(getCurrentGPUStream(target_device_index));
 
       for (const auto i : c10::irange(input_tensors.size())) {
         auto& src = input_tensors[i];
