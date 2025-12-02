@@ -279,8 +279,14 @@ class TuningCache final {
 
   constexpr static std::string_view FBGEMM_CACHE_DIR = ".fbgemm";
 
-  at::cuda::CUDAEvent start_ = at::cuda::CUDAEvent(cudaEventDefault);
-  at::cuda::CUDAEvent stop_ = at::cuda::CUDAEvent(cudaEventDefault);
+#if !defined(FBGEMM_FBCODE) && ROCM_VERSION >= 70000
+  using GPUEvent = at::hip::HIPEvent;
+#else
+  using GPUEvent = at::cuda::CUDAEvent;
+#endif
+
+  GPUEvent start_ = GPUEvent(cudaEventDefault);
+  GPUEvent stop_ = GPUEvent(cudaEventDefault);
 
   // If FBGEMM_AUTOTUNE_USE_CUDA_GRAPH is set, use CUDA graph for benchmarking.
   // CUDA graphs use a separate memory pool to do allocation in PyTorch
