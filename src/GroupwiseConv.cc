@@ -15,6 +15,7 @@
 #include <tuple>
 #include <type_traits>
 #include "./CodeGenHelpers.h" // @manual
+#include "./CodeStorage.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/SimdUtils.h"
@@ -175,8 +176,9 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
 
 template <int SPATIAL_DIM, inst_set_t INST_SET>
 jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
+  asmjit::JitRuntime& runtime = CodeStorage::getRuntime();
   asmjit::CodeHolder code;
-  code.init(this->runtime().environment());
+  code.init(runtime.environment());
   x86::Assembler assembler(&code);
   x86::Emitter* a = assembler.as<x86::Emitter>();
 
@@ -196,25 +198,23 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
       this->K_per_G_);
   // log code to a file
   FILE* codeLogfile = fopen(this->getCodeLoggingFile(kernelSig).c_str(), "w");
-  asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
-  if (codeLogger) {
-    code.setLogger(codeLogger);
-  }
+  auto codeLogger = std::make_unique<asmjit::FileLoggerWithClose>(codeLogFile);
+  code.set_logger(codeLogger.get());
 #endif
 
   // arguments to the function created
-  in_acts_R_ = a->zdi();
-  wghts_R_ = a->zsi();
-  out_acts_R_ = a->zdx();
-  a_zero_pt_R_ = a->zcx();
-  H_start_R_ = a->gpz(8);
-  H_end_R_ = a->gpz(9);
-  W_R_ = a->gpz(10);
-  row_offset_R_ = a->gpz(11);
+  in_acts_R_ = x86::rdi;
+  wghts_R_ = x86::rsi;
+  out_acts_R_ = x86::rdx;
+  a_zero_pt_R_ = x86::rcx;
+  H_start_R_ = x86::r8;
+  H_end_R_ = x86::r9;
+  W_R_ = x86::r10;
+  row_offset_R_ = x86::r11;
 
   // register for temporary use
-  scratchReg1_ = a->gpz(12);
-  scratchReg2_ = a->gpz(13);
+  scratchReg1_ = x86::r12;
+  scratchReg2_ = x86::r13;
 
   func_.init(
       asmjit::FuncSignature::build<
@@ -231,16 +231,16 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
 
   frame_.init(func_);
 
-  frame_.setDirtyRegs(
+  frame_.set_dirty_regs(
       asmjit::RegGroup::kVec,
-      asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-          asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
-  frame_.setDirtyRegs(
+      asmjit::Support::bit_mask<uint32_t>(0, 1, 2, 3, 4, 5, 6, 7) |
+          asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
+  frame_.set_dirty_regs(
       asmjit::RegGroup::kGp,
-      asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+      asmjit::Support::bit_mask<uint32_t>(8, 9, 10, 11, 12, 13, 14, 15));
 
   asmjit::FuncArgsAssignment args(&func_);
-  args.assignAll(
+  args.assign_all(
       in_acts_R_,
       wghts_R_,
       out_acts_R_,
@@ -250,20 +250,20 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
       W_R_,
       row_offset_R_);
 
-  args.updateFuncFrame(frame_);
+  args.update_func_frame(frame_);
   frame_.finalize();
 
-  a->emitProlog(frame_);
-  a->emitArgsAssignment(frame_, args);
+  a->emit_prolog(frame_);
+  a->emit_args_assignment(frame_, args);
 
   // We have run out of register so can't keep
   // this in a register. It's generated again at
   // each use. Only used for the case of C_per_G == 2 or 4
   // gen8BitVectorOne(a, oneReg8Bit_V_);
-  gen16BitVectorOne<INST_SET, vec_reg_t_2>(a, oneReg16Bit_V_);
+  gen16BitVectorOne<INST_SET>(a, oneReg16Bit_V_);
 
-  loopR1_ = a->gpz(14);
-  loopR2_ = a->gpz(15);
+  loopR1_ = x86::r14;
+  loopR2_ = x86::r15;
 
   if (!this->isAZeroPointZero_) {
     broadcast8Bit<vec_reg_t_2>(a, a_zero_pt_R_, zeroPTReg_V_);
@@ -278,11 +278,11 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   // The following logic calculates the input image width in the same register.
   // Only works for stride == 2
   if (this->STRIDE_ > 1) {
-    a->imul(W_R_, W_R_, static_cast<asmjit::Imm>(this->STRIDE_));
+    a->imul(W_R_, W_R_, this->STRIDE_);
     if (!this->use_right_padding_) {
       a->inc(W_R_);
     }
-    a->sub(W_R_, static_cast<asmjit::Imm>(this->STRIDE_ - 1));
+    a->sub(W_R_, this->STRIDE_ - 1);
   }
 
   if (this->isTopEdgeIncluded_) {
@@ -297,24 +297,15 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
         a, false /* isTopEdge */, this->use_bottom_padding_ /* isBottomEdge */);
   }
 
-  a->emitEpilog(frame_);
+  a->emit_epilog(frame_);
 
   jit_conv_kernel_fp fn = nullptr;
-  asmjit::Error err = 0;
-  {
-    unique_lock<mutex> lock(this->rtMutex_);
-    err = this->runtime().add(&fn, &code);
-  }
+  asmjit::Error err = runtime.add(&fn, &code);
 
-  if (err) {
+  if (err != asmjit::Error::kOk) {
     cout << "Error: in fn add" << '\n';
     return nullptr;
   }
-
-#if defined(FBGEMM_LOG_CODE)
-  fclose(codeLogfile);
-  delete codeLogger;
-#endif
 
   return fn;
 }
@@ -368,10 +359,7 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleOutput(
     }
     if (in_image_H) {
       // advance input pointer by one row
-      a->imul(
-          scratchReg2_,
-          W_R_,
-          static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
+      a->imul(scratchReg2_, W_R_, this->C_ * sizeof(uint8_t));
       a->add(in_acts_R_, scratchReg2_);
       ++num_rows_advanced;
     }
@@ -382,30 +370,25 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleOutput(
   // row offset
   if (this->needRowOffset_) {
     storeOffset(a);
-    a->add(
-        row_offset_R_, static_cast<asmjit::Imm>(GTogether_ * sizeof(int32_t)));
+    a->add(row_offset_R_, GTogether_ * sizeof(int32_t));
   }
 
   // rewind input ptr
-  a->imul(
-      scratchReg2_,
-      W_R_,
-      static_cast<asmjit::Imm>(num_rows_advanced * this->C_ * sizeof(uint8_t)));
+  a->imul(scratchReg2_, W_R_, num_rows_advanced * this->C_ * sizeof(uint8_t));
   a->sub(in_acts_R_, scratchReg2_);
 
   // advance output pointer
-  a->add(out_acts_R_, static_cast<asmjit::Imm>(this->K_ * sizeof(int32_t)));
+  a->add(out_acts_R_, this->K_ * sizeof(int32_t));
 
   // advance input ptr
   if (!isLeft) {
     a->add(
         in_acts_R_,
-        static_cast<asmjit::Imm>(this->STRIDE_ * this->C_ * sizeof(uint8_t)));
+        this->STRIDE_ * this->C_ * sizeof(uint8_t));
   } else if (this->STRIDE_ - this->W_PAD_) {
     a->add(
         in_acts_R_,
-        static_cast<asmjit::Imm>(
-            (this->STRIDE_ - this->W_PAD_) * this->C_ * sizeof(uint8_t)));
+        (this->STRIDE_ - this->W_PAD_) * this->C_ * sizeof(uint8_t));
   }
 }
 
@@ -419,12 +402,12 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genForTopOrBottomEdge(
   a->movsxd(
       loopR1_,
       x86::dword_ptr(
-          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
-  asmjit::Label LoopWStart = a->newLabel();
-  asmjit::Label LoopWEnd = a->newLabel();
-  asmjit::Label skipRightEdge = a->newLabel();
-  asmjit::Label skipRightEdgeTemp = a->newLabel();
-  a->cmp(loopR1_, static_cast<asmjit::Imm>(this->W_PAD_));
+          x86::rsp, frame_.sa_offset_from_sp() + func_.arg(6).stack_offset()));
+  asmjit::Label LoopWStart = a->new_label();
+  asmjit::Label LoopWEnd = a->new_label();
+  asmjit::Label skipRightEdge = a->new_label();
+  asmjit::Label skipRightEdgeTemp = a->new_label();
+  a->cmp(loopR1_, this->W_PAD_);
   a->jle(skipRightEdgeTemp);
 
   // left corner code
@@ -451,7 +434,7 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genForTopOrBottomEdge(
   // edge excluding corners
   a->bind(LoopWStart);
 
-  a->cmp(loopR1_, static_cast<asmjit::Imm>(2 * this->W_PAD_));
+  a->cmp(loopR1_, 2 * this->W_PAD_);
   a->jle(LoopWEnd);
 
   genForSingleOutput(
@@ -483,15 +466,13 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genForTopOrBottomEdge(
     // STRIDE_ == 2 and odd widths, nothing to do
     // input ptr is already at the right position
     if (!this->use_right_padding_) {
-      a->add(in_acts_R_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
+      a->add(in_acts_R_, this->C_ * sizeof(uint8_t));
     }
   } else {
     // reset input activation pointer by (W_R_ - W_PAD_) * C_
     a->mov(scratchReg2_, W_R_);
-    a->imul(scratchReg2_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
-    a->sub(
-        scratchReg2_,
-        static_cast<asmjit::Imm>(this->W_PAD_ * this->C_ * sizeof(uint8_t)));
+    a->imul(scratchReg2_, this->C_ * sizeof(uint8_t));
+    a->sub(scratchReg2_, this->W_PAD_ * this->C_ * sizeof(uint8_t));
     a->sub(in_acts_R_, scratchReg2_);
   }
 }
@@ -507,10 +488,10 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
     a->dec(H_end_R_);
   }
   // main compute
-  asmjit::Label LoopHStart = a->newLabel();
-  asmjit::Label LoopHEnd = a->newLabel();
-  asmjit::Label LoopWStart = a->newLabel();
-  asmjit::Label LoopWEnd = a->newLabel();
+  asmjit::Label LoopHStart = a->new_label();
+  asmjit::Label LoopHEnd = a->new_label();
+  asmjit::Label LoopWStart = a->new_label();
+  asmjit::Label LoopWEnd = a->new_label();
 
   // H loop
   a->mov(loopR1_, H_start_R_);
@@ -521,10 +502,10 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
   a->movsxd(
       loopR2_,
       x86::dword_ptr(
-          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
-  asmjit::Label skipRightEdge = a->newLabel();
-  asmjit::Label skipRightEdgeTemp = a->newLabel();
-  a->cmp(loopR2_, static_cast<asmjit::Imm>(this->W_PAD_));
+          x86::rsp, frame_.sa_offset_from_sp() + func_.arg(6).stack_offset()));
+  asmjit::Label skipRightEdge = a->new_label();
+  asmjit::Label skipRightEdgeTemp = a->new_label();
+  a->cmp(loopR2_, this->W_PAD_);
   a->jle(skipRightEdgeTemp);
 
   genForSingleOutput(
@@ -549,7 +530,7 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
   // W loop
   a->bind(LoopWStart);
 
-  a->cmp(loopR2_, static_cast<asmjit::Imm>(2 * this->W_PAD_));
+  a->cmp(loopR2_, 2 * this->W_PAD_);
   a->jle(LoopWEnd);
 
   genForSingleOutput(
@@ -581,12 +562,12 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
     assert(this->STRIDE_ == 2 && "Not supported case");
     a->mov(scratchReg2_, W_R_);
     if (!this->use_right_padding_) {
-      a->add(scratchReg2_, static_cast<asmjit::Imm>(1));
+      a->add(scratchReg2_, 1);
     }
-    a->imul(scratchReg2_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
+    a->imul(scratchReg2_, this->C_ * sizeof(uint8_t));
     a->add(in_acts_R_, scratchReg2_);
   } else {
-    a->add(in_acts_R_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
+    a->add(in_acts_R_, this->C_ * sizeof(uint8_t));
   }
 
   a->bind(LoopHEnd);
@@ -596,14 +577,17 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
 
 template <int SPATIAL_DIM, inst_set_t INST_SET>
 void GenConvKernel<SPATIAL_DIM, INST_SET>::initResultRegs(x86::Emitter* a) {
+  x86::Vec reg = x86::xmm9;
+
   if (kLoopIters_ > 0) {
     // Take advantage of implicit zeroing out
     // i.e., zero out xmm and ymm and zmm will be zeroed out too
     for (int k = 0; k < kLoopIters_; ++k) {
-      a->vpxor(Xmm(9 - k), Xmm(9 - k), Xmm(9 - k));
+      reg.set_id(9u - unsigned(k));
+      a->vpxor(reg, reg, reg);
     }
   } else {
-    a->vpxor(Xmm(9), Xmm(9), Xmm(9));
+    a->vpxor(reg, reg, reg);
   }
 }
 
