@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['_5f_5flaunch_5fbounds_5f_5f_0',['__launch_bounds__',['../namespacefbgemm__gpu.html#ad21c70bdd84772ee2b9b3950c87e9791',1,'fbgemm_gpu']]],
+  ['_5f_5flaunch_5fbounds_5f_5f_0',['__launch_bounds__',['../namespacefbgemm__gpu.html#aa8239012c659795a7ac8b2fb971efc7c',1,'fbgemm_gpu::__launch_bounds__(kMaxThreads) void histogram_binning_calibration_kernel(const int64_t num_logits'],['../namespacefbgemm__gpu.html#ad21c70bdd84772ee2b9b3950c87e9791',1,'fbgemm_gpu::__launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kernel_(const pta']]],
   ['_5fbfloat16_5fto_5ffloat_5fgpu_1',['_bfloat16_to_float_gpu',['../group__quantize-ops-cuda.html#ga52c8ee305990222b63257a431024e835',1,'fbgemm_gpu']]],
   ['_5ffloat_5fto_5fbfloat16_5fgpu_2',['_float_to_bfloat16_gpu',['../group__quantize-ops-cuda.html#ga42277d094806afc9f23d52430c510105',1,'fbgemm_gpu']]],
   ['_5ffloat_5fto_5ffp8rowwise_5fgpu_3',['_float_to_FP8rowwise_gpu',['../group__quantize-ops-cuda.html#gaea7f718e5addaefa562e5a1f287c3de5',1,'fbgemm_gpu']]],

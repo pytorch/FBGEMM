@@ -170,6 +170,9 @@ Functions</h2></td></tr>
 <tr class="separator:aa918bd02809bf42ba7d396c18add690f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ace574b23fe99327816839526e99298ac" id="r_ace574b23fe99327816839526e99298ac"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ace574b23fe99327816839526e99298ac">per_tensor_quantize_i8</a> (at::Tensor X, double scale)</td></tr>
 <tr class="separator:ace574b23fe99327816839526e99298ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa8239012c659795a7ac8b2fb971efc7c" id="r_aa8239012c659795a7ac8b2fb971efc7c"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
+<tr class="memitem:aa8239012c659795a7ac8b2fb971efc7c"><td class="memTemplItemLeft" align="right" valign="top">__global__&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa8239012c659795a7ac8b2fb971efc7c">__launch_bounds__</a> (kMaxThreads) void histogram_binning_calibration_kernel(const int64_t num_logits</td></tr>
+<tr class="separator:aa8239012c659795a7ac8b2fb971efc7c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af01b4023830652f0cc3e99c87f7b4526" id="r_af01b4023830652f0cc3e99c87f7b4526"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, Tensor, Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af01b4023830652f0cc3e99c87f7b4526">padding_fused_tbe_input_combine_with_length_cpu</a> (const std::vector&lt; Tensor &gt; &amp;indices_list, const std::vector&lt; Tensor &gt; &amp;lengths_list, const std::vector&lt; Tensor &gt; &amp;per_sample_weights, int64_t batch_size)</td></tr>
 <tr class="separator:af01b4023830652f0cc3e99c87f7b4526"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad21c70bdd84772ee2b9b3950c87e9791" id="r_ad21c70bdd84772ee2b9b3950c87e9791"><td class="memTemplParams" colspan="2">template&lt;int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F&gt; </td></tr>
@@ -265,8 +268,36 @@ Functions</h2></td></tr>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>This is a placeholder source file that is used to force compilation and generation of an .SO file. </p>
 </div><h2 class="groupheader">Function Documentation</h2>
+<a id="aa8239012c659795a7ac8b2fb971efc7c" name="aa8239012c659795a7ac8b2fb971efc7c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa8239012c659795a7ac8b2fb971efc7c">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename T&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">__global__ __launch_bounds__ </td>
+          <td>(</td>
+          <td class="paramtype">kMaxThreads</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>CUDA kernel to generate source mask for jagged tensor operations.</p>
+<p>This kernel efficiently generates a boolean mask by parallelizing across batch items rather than individual output elements. Each block handles one batch item, with threads within the block processing elements in parallel.</p>
+<p>Algorithm:</p><ol type="1">
+<li>Each block handles one batch item (batch_idx = blockIdx.x)</li>
+<li>Threads within block cooperatively process all elements for that batch</li>
+<li>Grid-stride loop handles cases where batch item has more elements than threads</li>
+<li>Set to true if position &lt; num_sources[batch_idx], false otherwise</li>
+</ol>
+<p>Example: num_sources = [2, 3] num_targets = [1, 2] Output: [True, True, False, True, True, True, False, False] </p>
+
+</div>
+</div>
 <a id="ad21c70bdd84772ee2b9b3950c87e9791" name="ad21c70bdd84772ee2b9b3950c87e9791"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad21c70bdd84772ee2b9b3950c87e9791">&#9670;&#160;</a></span>__launch_bounds__()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#ad21c70bdd84772ee2b9b3950c87e9791">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[2/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
