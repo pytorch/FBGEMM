@@ -261,6 +261,7 @@ void all_to_one(
     // do this for non-contig copies. This mimics the behavior of cross-device
     // cudaMemcpyAsync on the default stream.
     auto copy_stream = getCurrentGPUStream(device_id);
+
     // This is a cross-device copy on the src current stream and dst current
     // stream. We perform a two-way barrier between both devices' streams
     // before the copy. This ensures that any write-after-write and
@@ -308,6 +309,7 @@ void all_to_one(
 
     // source rank stream
     auto copy_stream = getCurrentGPUStream(src_device_id);
+
     // wait on first hop transfer
     two_hop_transfer.transfer_cuda_event->block(copy_stream);
     // synchronize with target rank

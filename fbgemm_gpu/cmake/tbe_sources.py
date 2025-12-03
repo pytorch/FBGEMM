@@ -176,7 +176,6 @@ gen_fused_optim_header_files = (
             "_nobag" if nobag else "",
         )
         for nobag in [
-            True,
             False,
         ]
         for weighted in (
@@ -495,7 +494,6 @@ gen_hip_files_training = [
         "_nobag" if nobag else "",
     )
     for nobag in [
-        True,
         False,
     ]
     for weighted in (

@@ -172,7 +172,7 @@ Tensor split_embedding_codegen_lookup_dense_function(
     c10::SymInt /* max_B = -1 */,
     c10::SymInt /* max_B_feature_rank = -1 */,
     c10::SymInt /* vbe_output_size = -1 */,
-    bool /* mixed_D = true */) {
+    bool /* mixed_D = false */) {
   return SplitLookupFunction_Dense_Op::apply(
       host_weights,
       weights_offsets,
