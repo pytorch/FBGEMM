@@ -217,7 +217,7 @@ void all_to_one(
       // kernels on the dst stream (after dst memory initialization) to be
       // completed prior to the copy
       const auto source_device_id = src.get_device();
-      at::cuda::CUDAStream copy_stream = getCurrentGPUStream(source_device_id);
+      auto copy_stream = getCurrentGPUStream(source_device_id);
 
       auto& dst_ready =
           two_hop_copy_begin_events[intermediate_node][source_device_id];
@@ -260,7 +260,7 @@ void all_to_one(
     // dst's current streams for completion of the copy. We have to explicitly
     // do this for non-contig copies. This mimics the behavior of cross-device
     // cudaMemcpyAsync on the default stream.
-    at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
+    auto copy_stream = getCurrentGPUStream(device_id);
     // This is a cross-device copy on the src current stream and dst current
     // stream. We perform a two-way barrier between both devices' streams
     // before the copy. This ensures that any write-after-write and
@@ -307,7 +307,7 @@ void all_to_one(
     }
 
     // source rank stream
-    at::cuda::CUDAStream copy_stream = getCurrentGPUStream(src_device_id);
+    auto copy_stream = getCurrentGPUStream(src_device_id);
     // wait on first hop transfer
     two_hop_transfer.transfer_cuda_event->block(copy_stream);
     // synchronize with target rank
@@ -336,8 +336,7 @@ void all_to_one(
       if (src.device() == target_device) {
         auto& dst = output_tensors[i];
         // single device memcpy, not that src_device == dst_device.
-        at::cuda::CUDAStream copy_stream =
-            getCurrentGPUStream(target_device_index);
+        auto copy_stream = getCurrentGPUStream(target_device_index);
         AT_CUDA_CHECK(cudaMemcpy2DAsync(
             dst.data_ptr(),
             dst.stride(0) * dst.element_size(),
@@ -356,7 +355,7 @@ void all_to_one(
     if (device_id != target_device_index) {
       auto src_device = at::Device(at::kCUDA, device_id);
       // record stream event
-      at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
+      auto copy_stream = getCurrentGPUStream(device_id);
 
       auto& src_ready = copy_completion_events[target_device_index][device_id];
       src_ready.record(copy_stream);
@@ -480,7 +479,7 @@ Tensor sum_reduce_to_one(
     auto intermediate_device = at::Device(at::kCUDA, intermediate_node);
 
     auto src_device = at::Device(at::kCUDA, device_id);
-    at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
+    auto copy_stream = getCurrentGPUStream(device_id);
 
     auto& src_ready = copy_completion_events[target_device_index][device_id];
     src_ready.record(copy_stream);
@@ -557,7 +556,7 @@ Tensor sum_reduce_to_one(
     if (device_id != target_device_index) {
       auto src_device = at::Device(at::kCUDA, device_id);
       // Still on src_device, record stream event
-      at::cuda::CUDAStream copy_stream = getCurrentGPUStream(device_id);
+      auto copy_stream = getCurrentGPUStream(device_id);
 
       auto& src_ready = copy_completion_events[target_device_index][device_id];
       src_ready.record(copy_stream);

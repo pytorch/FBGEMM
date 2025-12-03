@@ -299,24 +299,24 @@ __configure_fbgemm_gpu_build_cuda () {
         # enabled, bc the code relies on the following function that is not
         # supported in sm_80:
         #   float4 atomicAdd(float4* address, float4 val);
-        local arch_list="9.0a;10.0a;12.0a"
+        local arch_list="8.0;9.0a;10.0a;12.0a"
       else
         # NOTE: HSTU requires sm_75 or higher
-        local arch_list="9.0a"
+        local arch_list="8.0;9.0a"
       fi
 
     elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
           [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="9.0a;10.0a;12.0a"
+      local arch_list="8.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
           [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="9.0a"
+      local arch_list="8.0;9.0a"
 
     else
-      local arch_list="9.0a"
+      local arch_list="8.0;9.0a"
       echo "[BUILD] Unknown NVCC version $cuda_version_nvcc - setting TORCH_CUDA_ARCH_LIST to: ${arch_list}"
     fi
   fi

@@ -22,10 +22,15 @@ from .common import extend_test_class, open_source, permute_indices_ref_
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, on_oss_clang
+    from test_utils import gpu_available, gpu_unavailable, on_oss_clang, running_in_oss
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, on_oss_clang
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_unavailable,
+        on_oss_clang,
+        running_in_oss,
+    )
 
 
 class PermuteSparseFeaturesTest(unittest.TestCase):
@@ -199,6 +204,7 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
 
 
 class Permute1DSparseFeaturesTest(unittest.TestCase):
+    @unittest.skipIf(*running_in_oss)
     @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=20),
