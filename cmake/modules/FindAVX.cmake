@@ -10,6 +10,7 @@
 # This file is copied over from the PyTorch repo
 ################################################################################
 
+include(FindPackageHandleStandardArgs)
 include(CheckCompilerFlag)
 INCLUDE(CheckSourceRuns)
 INCLUDE(CMakePushCheckState)
@@ -87,10 +88,8 @@ MACRO(CHECK_SSE lang type flags)
       MATH(EXPR __FLAG_I "${__FLAG_I}+1")
     ENDIF()
   ENDFOREACH()
-  MARK_AS_ADVANCED(${lang}_${type}_FOUND ${lang}_${type}_FLAGS)
-  if(${lang}_${type}_FLAGS)
-    SET(${lang}_${type}_FLAGS "${${lang}_${type}_FLAGS}" CACHE STRING "${lang} ${type} flags")
-  endif()
+  SET(${lang}_${type}_FLAGS "${${lang}_${type}_FLAGS}" CACHE STRING "${lang} ${type} flags")
+  find_package_handle_standard_args(${lang}_${type} DEFAULT_MSG ${lang}_${type}_FLAGS)
 ENDMACRO()
 
 
