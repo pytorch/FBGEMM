@@ -275,7 +275,7 @@ __configure_fbgemm_gpu_build_cuda () {
   else
     # Build only against the CUDA architectures that the latest PyTorch
     # supports, i.e.:
-    #   7.0 (V100), 8.0 (A100), 9.0,9.0a (H100), 10.0,10.0a,12.0,12.0a (B100)
+    #   7.0 (V100), 8.0 (A100), 9.0,8.0;9.0a (H100), 10.0,10.0a,12.0,12.0a (B100)
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
     echo "[BUILD] Using the default architectures for CUDA $cuda_version_nvcc ..."
 
@@ -299,24 +299,27 @@ __configure_fbgemm_gpu_build_cuda () {
         # enabled, bc the code relies on the following function that is not
         # supported in sm_80:
         #   float4 atomicAdd(float4* address, float4 val);
-        local arch_list="9.0a;10.0a;12.0a"
+        local arch_list="8.0;9.0a;10.0a;12.0a"
       else
         # NOTE: HSTU requires sm_75 or higher
-        local arch_list="9.0a"
+        local arch_list="8.0;9.0a"
       fi
 
     elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
           [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="9.0a;10.0a;12.0a"
+      # NOTE: If we reach this point, then we are not building and publishing on
+      # Nova, and so only a subset of supported architectures are selected, in
+      # order to reduce the binary size to fit into PyPI's storage limits
+      local arch_list="8.0;9.0a;10.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
           [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="9.0a"
+      local arch_list="8.0;9.0a"
 
     else
-      local arch_list="9.0a"
+      local arch_list="8.0;9.0a"
       echo "[BUILD] Unknown NVCC version $cuda_version_nvcc - setting TORCH_CUDA_ARCH_LIST to: ${arch_list}"
     fi
   fi
