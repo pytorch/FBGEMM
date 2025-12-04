@@ -48,6 +48,15 @@ using namespace fbgemm_gpu;
     has_global_weight_decay_support,
     ssd) %}
 {%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
+{%- set is_optimized_hip_kernel_supported_mode = is_rocm and
+                                                 optimizer == "rowwise_adagrad" and
+                                                 not dense and
+                                                 not nobag and
+                                                 not is_index_select and
+                                                 not is_gwd_kernel and
+                                                 not vbe and
+                                                 not ssd %}
+
 template <
     typename emb_t,
     typename grad_t,
@@ -227,8 +236,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- endif %}
 );
 
-{%- if is_rocm and optimizer == "rowwise_adagrad" and not dense and not is_index_select
-               and not is_gwd_kernel and not vbe and not ssd %}
+{%- if is_optimized_hip_kernel_supported_mode %}
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
 template <
     typename emb_t,
@@ -652,6 +660,16 @@ Tensor {{ embedding_cuda_op }}(
 
     CUDA_DEVICE_GUARD(dev_weights);
 
+    #ifdef USE_ROCM
+        if (!rocm::is_supported_cdna()) {
+            TORCH_WARN_ONCE("Running on non-CDNA architecture. Performance may be suboptimal.");
+        }
+        else {
+            // Ensure we're running on a supported CDNA architecture (including MI350)
+            TORCH_WARN_ONCE("Running on CDNA architecture");
+        }
+    #endif
+
     {%- if nobag and not is_index_select %}
     auto max_D = D;
     {%- endif %}
@@ -852,8 +870,7 @@ Tensor {{ embedding_cuda_op }}(
     }
     {%- endif %}
 
-    {%- if is_rocm and optimizer == "rowwise_adagrad" and not dense and not is_index_select
-                   and not is_gwd_kernel and not vbe and not ssd %}
+    {%- if is_optimized_hip_kernel_supported_mode %}
     {%- set hip_kernel = "hip_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
             ndesc,
             optimizer,
@@ -970,8 +987,11 @@ Tensor {{ embedding_cuda_op }}(
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
                 const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
-                const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 1024;
-
+                {% if is_rocm %}
+                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
+                {% else %}
+                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 1024;
+                {%- endif %}
                 Tensor long_run_id_to_really_long_run_ids;
                 if (use_deterministic_algorithms) {
                     long_run_id_to_really_long_run_ids =
@@ -1042,7 +1062,22 @@ Tensor {{ embedding_cuda_op }}(
 
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
+                    {% if is_rocm %}
+                    int32_t total_L = indices.numel();
+                    int32_t num_cta_per_row_groups;
+                    int32_t work_group_size;
+                    if (total_L/total_B > 1) {
+                        num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
+                        work_group_size = (kMaxThreads/4);
+                    }
+                    else {
+                        num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                        work_group_size = kMaxThreads;
+                    }
+                    {%- else %}
                     int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                    const int32_t work_group_size = kMaxThreads;
+                    {%- endif %}
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
                         [&] (int num_groups) {
@@ -1053,7 +1088,7 @@ Tensor {{ embedding_cuda_op }}(
                     );
 
                     const int32_t cta_per_row_grid_size = std::min(
-                        div_round_up(total_unique_indices, kMaxThreads),
+                        div_round_up(total_unique_indices, work_group_size),
                         get_max_thread_blocks_());
 
                     FBGEMM_LAUNCH_KERNEL(
@@ -1162,7 +1197,17 @@ Tensor {{ embedding_cuda_op }}(
                              kUseVecBlocking>;
 
                     // Compute shared memory size for warp_per_row
-                    int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                    {%- if is_rocm %}
+                        int32_t num_warp_per_row_groups;
+                        if (total_L/total_B > 1){
+                            num_warp_per_row_groups = (kBackwardMaxThreads/2) / kThreadGroupSize;
+                        }
+                        else{
+                            num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                        }
+                    {%- else %}
+                        int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                    {%- endif %}
                     int32_t warp_per_row_smem_bytes = 0;
 
                     if constexpr (kUseVecBlocking) {
@@ -1185,18 +1230,17 @@ Tensor {{ embedding_cuda_op }}(
                         get_max_thread_blocks_());
 
 #ifdef USE_ROCM
-                    {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and
-                        not dense and not is_gwd_kernel and not vbe and not ssd and not nobag %}
+                    {%- if is_optimized_hip_kernel_supported_mode %}
 
                     const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
 
-                    const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
-                                                      || dev_weights.scalar_type() == at::ScalarType::Float;
+                    constexpr bool supported_weights_type = std::is_same_v<emb_t, float> || std::is_same_v<emb_t, at::Half>;
+                    constexpr bool supported_grad_type = std::is_same_v<grad_t, float> || std::is_same_v<grad_t, at::Half>;
 
-                    if (use_hip_kernel && supported_weights_type && !mixed_D && rocm::is_supported_cdna())
+                    if (use_hip_kernel && !mixed_D && supported_weights_type && supported_grad_type && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
-                        {%- for kDimSize in [64, 128, 160, 192, 256] %}
+                        {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
                         {%- for kWeightDecayMode in [0, 1, 2] %}
                         if (max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
                         {
