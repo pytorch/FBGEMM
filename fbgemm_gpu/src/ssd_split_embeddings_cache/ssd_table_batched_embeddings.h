@@ -422,6 +422,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       float uniform_init_upper,
       int64_t row_storage_bitwidth,
       bool disable_random_init) {
+    // if disable random init, disable random init for all shards for saving cpu
+    // memory
+    disable_random_init_ = disable_random_init;
+    if (disable_random_init_) {
+      LOG(INFO) << "disable random init for all shards";
+      return;
+    }
+    LOG(INFO) << "enable random init for all shards";
     for (auto i = 0; i < num_shards; ++i) {
       auto* gen = at::check_generator<at::CPUGeneratorImpl>(
           at::detail::getDefaultCPUGenerator());
@@ -436,7 +444,6 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                 row_storage_bitwidth));
       }
     }
-    disable_random_init_ = disable_random_init;
   }
 
   void maybe_evict() override {
@@ -1251,19 +1258,22 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             CHECK_EQ(key_indices.size(), keys.size());
                             CHECK_EQ(key_indices.size(), cfs.size());
 
-                            const auto& init_storage =
-                                initializers_[shard]->row_storage_;
-                            // Sanity check
-                            TORCH_CHECK(
-                                init_storage.scalar_type() ==
-                                    weights.scalar_type(),
-                                "init_storage (",
-                                toString(init_storage.scalar_type()),
-                                ") and weights scalar (",
-                                toString(weights.scalar_type()),
-                                ") types mismatch");
-                            auto row_storage_data_ptr =
-                                init_storage.data_ptr<value_t>();
+                            value_t* row_storage_data_ptr = nullptr;
+                            if (!disable_random_init_) {
+                              const auto& init_storage =
+                                  initializers_[shard]->row_storage_;
+                              // Sanity check
+                              TORCH_CHECK(
+                                  init_storage.scalar_type() ==
+                                      weights.scalar_type(),
+                                  "init_storage (",
+                                  toString(init_storage.scalar_type()),
+                                  ") and weights scalar (",
+                                  toString(weights.scalar_type()),
+                                  ") types mismatch");
+                              row_storage_data_ptr =
+                                  init_storage.data_ptr<value_t>();
+                            }
                             if (use_iterator) {
                               ssd_get_weights_iterator(
                                   keys,
