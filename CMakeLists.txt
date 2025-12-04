@@ -218,7 +218,7 @@ set(fbgemm_targets)
 # FBGEMM AVX2 Target
 ################################################################################
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i386|i686")
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
 
@@ -253,7 +253,7 @@ endif()
 # FBGEMM AVX512 Target
 ################################################################################
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
 
   get_filelist("get_fbgemm_avx512_srcs()" FBGEMM_AVX512_SRCS)
