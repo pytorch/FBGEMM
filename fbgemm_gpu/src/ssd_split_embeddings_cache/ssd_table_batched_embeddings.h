@@ -539,7 +539,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                                         D * sizeof(value_t)));
                               }
                               auto s = dbs_[shard]->Write(wo_, &batch);
-                              CHECK(s.ok());
+                              CHECK(s.ok())
+                                  << "Failed to write batch to db, error: "
+                                  << s.ToString();
                             }
                           });
                     });
