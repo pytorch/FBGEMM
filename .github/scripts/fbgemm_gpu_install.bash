@@ -87,6 +87,11 @@ __install_check_subpackages () {
       "fbgemm_gpu.tbe.ssd"
       "fbgemm_gpu.tbe.utils"
     )
+
+  elif [ "$installed_fbgemm_target" == "genai" ]; then
+    subpackages+=(
+      fbgemm_gpu.experimental.gen_ai
+    )
   fi
 
   for package in "${subpackages[@]}"; do
