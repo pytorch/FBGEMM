@@ -61,6 +61,21 @@ def generate_vbe_metadata(
             pooling_mode != PoolingMode.NONE
         ), "Variable batch size TBE support is not enabled for PoolingMode.NONE"
         # TODO: Add input check
+        if len(batch_size_per_feature_per_rank) == 0:
+            raise ValueError("batch_size_per_feature_per_rank cannot be empty")
+
+        num_features = feature_dims_cpu.numel()
+        if len(batch_size_per_feature_per_rank) != num_features:
+            raise ValueError(
+                f"batch_size_per_feature_per_rank length {len(batch_size_per_feature_per_rank)} does not match number of features {num_features}"
+            )
+
+        num_ranks = len(batch_size_per_feature_per_rank[0])
+        for i, per_rank in enumerate(batch_size_per_feature_per_rank):
+            if len(per_rank) != num_ranks:
+                raise ValueError(
+                    f"batch_size_per_feature_per_rank[{i}] length {len(per_rank)} does not match expected number of ranks {num_ranks}"
+                )
         zero_tensor = torch.zeros(1, device="cpu", dtype=torch.int32)
 
         # Create B offsets
