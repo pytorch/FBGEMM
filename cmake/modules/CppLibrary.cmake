@@ -104,7 +104,8 @@ function(cpp_library)
             -Wno-sign-compare
             -Wno-vla
             -Wno-error=unused-parameter
-            -Wno-error=attributes)
+            -Wno-error=attributes
+            -Wno-tautological-compare)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
             list(APPEND lib_cc_flags
