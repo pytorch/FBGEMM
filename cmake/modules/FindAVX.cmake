@@ -90,6 +90,9 @@ FUNCTION(CHECK_SSE lang type flags)
   ENDFOREACH()
   SET(${lang}_${type}_FLAGS "${${lang}_${type}_FLAGS}" CACHE STRING "${lang} ${type} flags")
   find_package_handle_standard_args(${lang}_${type} DEFAULT_MSG ${lang}_${type}_FLAGS)
+  IF(${lang}_${type}_FOUND)
+    SET(${lang}_${type}_FOUND "${${lang}_${type}_FOUND}" CACHE BOOL "Found ${lang} ${type} flags")
+  ENDIF()
 ENDFUNCTION()
 
 
