@@ -112,6 +112,12 @@ void PackAMatrix<T, accT>::pack(const block_type_t& block) {
   T* out = BaseType::getBuf();
   if (tr) {
     // TODO: should print warning because this path is not optimized yet
+    static bool warned = false;
+    if (!warned) {
+      std::cerr << "Warning: PackAMatrix Transpose path is not optimized yet!"
+                << std::endl;
+      warned = true;
+    }
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       int buf_idx = i - block.row_start;
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
