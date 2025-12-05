@@ -71,6 +71,7 @@ class SSDCheckpointTest(unittest.TestCase):
         ssd_directory: Optional[str] = None,
         eviction_policy: Optional[EvictionPolicy] = None,
         disable_random_init: bool = False,
+        enable_blob_db: bool = False,
     ) -> object:
         if backend_type == BackendType.SSD:
             assert ssd_directory
@@ -98,6 +99,7 @@ class SSDCheckpointTest(unittest.TestCase):
                 hash_size_cumsum=hash_size_cumsum,
                 flushing_block_size=flushing_block_size,
                 disable_random_init=disable_random_init,
+                enable_blob_db=enable_blob_db,
             )
         elif backend_type == BackendType.DRAM:
             eviction_config = None
@@ -1399,3 +1401,53 @@ class SSDCheckpointTest(unittest.TestCase):
                     atol=1e-6,
                     rtol=1e-6,
                 )
+
+    @given(**default_st)
+    @settings(**default_settings)
+    def test_ssd_blob_db_config(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+        """
+        Test ssd db backend could be set and get as expected when enable_blob_db config is turned on.
+        """
+        E = int(10**log_E)
+        max_D = D * 4
+
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            ssd_blob_db = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weights_precision,
+                enable_l2=False,
+                backend_type=BackendType.SSD,
+                ssd_directory=ssd_directory,
+                disable_random_init=True,
+                enable_blob_db=True,
+            )
+
+            set_indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(5,)), dtype=torch.int64
+            )
+            get_indices = set_indices.clone()
+            values = torch.randn(5, max_D, dtype=weights_precision.as_dtype())
+            count = torch.tensor([5], dtype=torch.int64)
+            # pyre-ignore
+            ssd_blob_db.set(set_indices, values, count)
+
+            # pyre-ignore
+            ssd_blob_db.wait_util_filling_work_done()
+
+            output = torch.empty_like(values)
+            # pyre-ignore
+            ssd_blob_db.get(get_indices, output, count)
+
+            torch.testing.assert_close(
+                output,
+                values,
+                atol=1e-8,
+                rtol=1e-8,
+            )
