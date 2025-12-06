@@ -29,7 +29,7 @@ template <typename Ktraits, typename Seqlen_traits>
 class FlashAttnBwdPostprocessConvertdQ {
  public:
   // Type Aliases
-  using Element = typename Ktraits::Element;
+  using Element = typename Ktraits::ElementOut;
   using ElementAccum = typename Ktraits::ElementAccum;
   using TileShape_MK = typename Ktraits::TileShape_MK;
   using SmemLayoutdQaccumTMA = typename Ktraits::SmemLayoutdQaccumTMA;
@@ -52,29 +52,9 @@ class FlashAttnBwdPostprocessConvertdQ {
       "TileShape_MK and SmemLayoutdQaccumTMA must have the same size");
   using SmemLayoutdQaccum = Layout<Shape<Int<SmemdQaccumSize>>, Stride<_1>>;
 
-  // We can't just use kHeadDim here. E.g. if MMA shape is 64 x 96 but split
-  // across 2 WGs, then setting kBlockKSmem to 32 will cause "Static shape_div
-  // failure". We want to treat it as 64 x 48, so kBlockKSmem should be 16.
-  static constexpr int MmaShapeN = get<1>(typename TiledMma::AtomShape_MNK{});
-  static constexpr int kBlockKSmem = Ktraits::kBlockKSmem;
-  static constexpr int kSwizzle = Ktraits::kSwizzle;
-  using SmemLayoutAtomdQ = decltype(composition(
-      Swizzle<kSwizzle, 3, 3>{},
-      Layout<Shape<Int<8>, Int<kBlockKSmem>>, Stride<Int<kBlockKSmem>, _1>>{}));
-  using SmemLayoutdQ =
-      decltype(tile_to_shape(SmemLayoutAtomdQ{}, TileShape_MK{}));
-  using SmemLayoutdQt = decltype(cute::composition(
-      SmemLayoutdQ{},
-      make_layout(
-          make_shape(get<1>(TileShape_MK{}), get<0>(TileShape_MK{})),
-          make_stride(Int<get<0>(TileShape_MK{})>{}, _1{}))));
-
-  using SmemCopyAtomdQ = Copy_Atom<
-      std::conditional_t<
-          !dQ_swapAB,
-          cute::SM90_U32x4_STSM_N,
-          cute::SM90_U16x8_STSM_T>,
-      Element>;
+  using SmemLayoutdQ = typename Ktraits::SmemLayoutdQ;
+  using SmemLayoutdQt = typename Ktraits::SmemLayoutdQt;
+  using SmemCopyAtomdQ = typename Ktraits::SmemCopyAtomdQ;
 
   static constexpr int kGmemElemsPerLoad =
       sizeof(cute::uint128_t) / sizeof(Element);
@@ -127,6 +107,7 @@ class FlashAttnBwdPostprocessConvertdQ {
     typename Seqlen_traits::LayoutT layout_dQ;
     const int total_q;
     const int seqlen_q;
+    const float alpha;
     const int* cu_seqlens_q;
     const int* num_targets;
     const int* num_contexts;
@@ -140,6 +121,7 @@ class FlashAttnBwdPostprocessConvertdQ {
     typename Seqlen_traits::LayoutT layout_dQ;
     const int total_q;
     const int seqlen_q;
+    const float alpha;
     const int* cu_seqlens_q;
     const int* num_targets;
     const int* num_contexts;
@@ -163,6 +145,7 @@ class FlashAttnBwdPostprocessConvertdQ {
         args.layout_dQ,
         args.total_q,
         args.seqlen_q,
+        args.alpha,
         args.cu_seqlens_q,
         args.num_targets,
         args.num_contexts};
@@ -176,9 +159,6 @@ class FlashAttnBwdPostprocessConvertdQ {
     Tensor sdQaccumTMA = make_tensor(
         make_smem_ptr(shared_storage.smem_dqacc.data()),
         SmemLayoutdQaccumTMA{});
-    // Tensor sdQaccumTMAnoswizzle =
-    // make_tensor(make_smem_ptr(shared_storage.smem_dqacc.data()),
-    // SmemLayoutdQaccumTMANoSwizzle{});
     Tensor sdQaccum = make_tensor(
         make_smem_ptr(shared_storage.smem_dqacc.data()), SmemLayoutdQaccum{});
     Tensor sdQ = make_tensor(
@@ -198,6 +178,7 @@ class FlashAttnBwdPostprocessConvertdQ {
         params.num_targets,
         params.num_contexts);
     seqlen_traits_q.init(bidb);
+    int const max_seq_len_q = seqlen_traits_q.max_seq_len;
     int const seqlen = seqlen_traits_q.actual_seq_len;
     if (m_block * kBlockM >= seqlen) {
       return;
@@ -258,6 +239,13 @@ class FlashAttnBwdPostprocessConvertdQ {
     CUTE_STATIC_ASSERT_V(size(taccdQrdQaccum) == size(tdQsdQaccum));
     Tensor tdQrdQaccum = s2r_thr_copy_dQaccum.retile_D(taccdQrdQaccum);
     cute::copy(s2r_tiled_copy_dQaccum, tdQsdQaccum, tdQrdQaccum);
+    if constexpr (!Ktraits::Has_drab) {
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < size(tdQrdQaccum); ++i) {
+            tdQrdQaccum(i) /= max_seq_len_q;
+            tdQrdQaccum(i) *= params.alpha;
+        }
+    }
     // Convert tdQrdQ from fp32 to fp16
     Tensor rdQ = make_tensor_like<Element>(taccdQrdQaccum);
     flash::convert_type_safe(taccdQrdQaccum, rdQ);
@@ -303,7 +291,7 @@ class FlashAttnBwdPostprocessConvertdQ {
     // Repeat the partitioning with identity layouts
     Tensor tdQcdQ = gmem_thr_copy_dQ.partition_D(cdQ);
     Tensor tdQpdQ = make_tensor<bool>(make_shape(size<2>(tdQgdQ)));
-#pragma unroll
+    CUTLASS_PRAGMA_UNROLL
     for (int k = 0; k < size(tdQpdQ); ++k) {
       tdQpdQ(k) =
           get<1>(tdQcdQ(_0{}, _0{}, k)) < get<1>(params.layout_dQ.shape());
