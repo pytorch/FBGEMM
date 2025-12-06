@@ -403,7 +403,7 @@ static ALWAYS_INLINE void requantize_(
   // leftover handling using minimal code size
 #ifdef __clang__
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && __GNUC__ >= 14
 #pragma GCC novector unroll 0
 #endif
   while (j < n) {
