@@ -13,6 +13,7 @@ import torch
 from einops import rearrange
 
 from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
+    _cutlass_blackwell_fmha_forward,
     cutlass_blackwell_fmha_func,
 )
 from parameterized import parameterized
@@ -1236,3 +1237,117 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             sm_scale=sm_scale,
             is_paged=False,
         )
+
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    @parameterized.expand(
+        [
+            (
+                seqlen_q,
+                offset_q,
+                batch_size,
+                causal,
+                kv_heads,
+                window_size,
+                head_dim,
+                sm_scale,
+            )
+            for seqlen_q, offset_q in [
+                (1, 0),  # Decode path
+                (101, 0),
+                (256, 0),
+                (1024, 0),
+                (128, 90),
+            ]
+            for batch_size in [1, 2]
+            for causal in [False, True]
+            for kv_heads in [1, 2]
+            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0)]
+            for head_dim in [64, 128]
+            for sm_scale in [None]
+        ]
+    )
+    def test_lse_correctness(
+        self,
+        seqlen_q: int,
+        offset_q: int,
+        batch_size: int,
+        causal: bool,
+        kv_heads: int,
+        window_size: tuple[int, int],
+        head_dim: int,
+        sm_scale: Optional[float],
+        dtype: torch.dtype = torch.bfloat16,
+    ) -> None:
+        """
+        Test LSE correctness by calling internal forward functions directly
+        and comparing with reference implementation.
+        """
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        torch.manual_seed(SEED)
+
+        seqlen_k = offset_q + seqlen_q
+        if seqlen_k > seqlen_q:
+            causal = True
+
+        q_heads = kv_heads * 2  # Use GQA for testing
+
+        # Generate test data
+        q, k, v = self._generate_qkv(
+            batch_size,
+            seqlen_q,
+            seqlen_k,
+            q_heads,
+            kv_heads,
+            head_dim,
+            device,
+            dtype,
+        )
+
+        # Compute reference LSE
+        _, _, lse_ref = attention_ref(
+            q,
+            k,
+            v,
+            causal=causal,
+            window_size=window_size,
+            upcast=True,
+            softmax_scale=sm_scale,
+            return_lse=True,
+        )
+
+        # Call _cutlass_blackwell_fmha_forward (returns tuple with LSE)
+        _, lse_fwd = _cutlass_blackwell_fmha_forward(
+            q,
+            k,
+            v,
+            cu_seqlens_q=None,
+            cu_seqlens_k=None,
+            max_seq_len_q=None,
+            max_seq_len_k=None,
+            softmax_scale=sm_scale,
+            causal=causal,
+            seqlen_kv=None,
+            page_table=None,
+            seqlen_k=None,
+            window_left=window_size[0],
+            window_right=window_size[1],
+            bottom_right=True,
+        )
+
+        # Validate LSE shapes match before comparing values
+        assert (
+            lse_fwd.shape == lse_ref.shape
+        ), f"LSE shape mismatch: {lse_fwd.shape} vs {lse_ref.shape}"
+
+        if DEBUG:
+            print(f"LSE shape from kernel: {lse_fwd.shape}")
+            print(f"LSE shape from reference: {lse_ref.shape}")
+            print(f"Max LSE difference: {(lse_fwd - lse_ref).abs().max().item()}")
+
+        # Compare LSE values with tolerance
+        lse_diff = (lse_fwd - lse_ref).abs().max().item()
+        assert (
+            lse_diff <= 1e-2
+        ), f"LSE comparison failed: max_diff={lse_diff:.6f} > 1e-2"

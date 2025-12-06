@@ -29,4 +29,16 @@ else:
     )
 
 from . import cutlass_blackwell_fmha_custom_op  # noqa: F401
-from .cutlass_blackwell_fmha_interface import cutlass_blackwell_fmha_func  # noqa: F401
+from .cutlass_blackwell_fmha_interface import (  # noqa: F401
+    _cutlass_blackwell_fmha_forward,
+    cutlass_blackwell_fmha_func,
+)
+
+# Note: _cutlass_blackwell_fmha_forward is an internal function (indicated by leading underscore)
+# that is exported here specifically for testing purposes. It allows tests to access the LSE
+# (log-sum-exp) values returned by the forward pass without modifying the public API.
+# Production code should use cutlass_blackwell_fmha_func instead.
+__all__ = [
+    "_cutlass_blackwell_fmha_forward",
+    "cutlass_blackwell_fmha_func",
+]
