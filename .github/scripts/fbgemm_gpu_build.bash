@@ -308,7 +308,10 @@ __configure_fbgemm_gpu_build_cuda () {
     elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
           [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="8.0;9.0a;10.0a;12.0a"
+      # NOTE: If we reach this point, then we are not building and publishing on
+      # Nova, and so only a subset of supported architectures are selected, in
+      # order to reduce the binary size to fit into PyPI's storage limits
+      local arch_list="8.0;9.0a;10.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
