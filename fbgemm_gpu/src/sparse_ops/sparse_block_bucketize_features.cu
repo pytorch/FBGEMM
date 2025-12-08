@@ -402,6 +402,97 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
   }
 }
 
+// Optimized kernel using warp-parallel processing with ballot + popc.
+// Each warp handles one sequence, processing elements in 32-element chunks.
+// Uses ballot_sync + popc to count preceding elements with same bucket,
+// which preserves the original ordering within each bucket.
+// All threads execute the same instructions (no branch divergence).
+// Note: my_size is limited to kWarpSize (32) because we use warp-level ballot
+// operations and store per-bucket counts in registers.
+
+template <typename offset_t, typename index_t>
+__global__
+__launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_kernel(
+    const offset_t* const length_data,
+    const offset_t* const offset_data,
+    const offset_t* const bucketized_offsets_data,
+    const index_t* const bucket_mapping_data,
+    index_t* const bucketized_permute_data_out,
+    const int32_t lengths_size,
+    const int32_t my_size) {
+  // Safety check: my_size must be <= kWarpSize
+  assert(my_size <= kWarpSize);
+
+  // Each warp processes one sequence
+  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+
+  if (warp_id >= lengths_size) {
+    return;
+  }
+
+  const auto b_t = warp_id;
+  const auto length = length_data[b_t];
+  const auto row_offset = offset_data[b_t];
+
+  // Early exit for zero-length sequences
+  if (length == 0) {
+    return;
+  }
+
+  // Use registers for cumulative bucket counts (works for small my_size)
+  // Each thread tracks counts for all buckets across chunks
+  offset_t cumulative_counts[kWarpSize] = {0};
+
+  // Load base offsets for each bucket
+  offset_t base_offsets[kWarpSize];
+  for (auto p = 0; p < my_size; p++) {
+    base_offsets[p] = bucketized_offsets_data[p * lengths_size + b_t];
+  }
+
+  // Process in warp-sized chunks
+  for (offset_t chunk_start = 0; chunk_start < length;
+       chunk_start += kWarpSize) {
+    const auto i = chunk_start + getLaneId();
+    const bool valid = (i < length);
+
+    // Load bucket for this element (-1 for invalid lanes)
+    index_t my_bucket = -1;
+    if (valid) {
+      my_bucket = bucket_mapping_data[row_offset + i];
+    }
+
+    int preceding_count = 0;
+
+    // Compute ballot for all buckets - no branch divergence!
+    // All threads execute the same loop iterations
+    for (int p = 0; p < my_size; p++) {
+      const unsigned int bucket_mask =
+          __ballot_sync(kFullWarpMask, valid && (my_bucket == p));
+
+      // Each thread checks if this is its bucket and stores the count
+      // This is a simple conditional assignment, not a divergent branch
+      if (my_bucket == p) {
+        preceding_count = __popc(bucket_mask & getLaneMaskLt());
+      }
+    }
+
+    // Write output for valid lanes
+    if (valid) {
+      const auto pos = base_offsets[my_bucket] + cumulative_counts[my_bucket] +
+          preceding_count;
+      bucketized_permute_data_out[row_offset + i] = pos;
+    }
+
+    // Update cumulative counts for all buckets for the next chunk
+    // Must be done after writing output but before next iteration
+    for (int p = 0; p < my_size; p++) {
+      const unsigned int bucket_mask =
+          __ballot_sync(kFullWarpMask, valid && (my_bucket == p));
+      cumulative_counts[p] += __popc(bucket_mask);
+    }
+  }
+}
+
 #define LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITH_WEIGHT( \
     bucketize_pos, return_bucket_mapping)                                        \
   AT_DISPATCH_INDEX_TYPES(                                                       \
@@ -1028,10 +1119,13 @@ DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
   const auto offsets = asynchronous_complete_cumsum_gpu(*lengths_contig);
   const auto bucketized_offsets =
       asynchronous_complete_cumsum_gpu(*bucketized_lengths_contig);
-  constexpr auto threads_per_block = 256;
   const auto lengths_size = lengths.numel();
-  const auto num_blocks =
-      cuda_calc_xblock_count(lengths_size, threads_per_block);
+
+  // Calculate my_size (number of buckets) from bucketized_lengths shape
+  const auto my_size = bucketized_lengths.numel() / lengths_size;
+
+  auto stream = at::cuda::getCurrentCUDAStream();
+
   AT_DISPATCH_INDEX_TYPES(
       lengths_contig->scalar_type(),
       "_populate_bucketized_permute_cuda_kernel1",
@@ -1041,18 +1135,48 @@ DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
             bucket_mapping_contig->scalar_type(),
             "_populate_bucketized_permute_cuda_kernel2",
             [&] {
-              FBGEMM_LAUNCH_KERNEL(
-                  (_populate_bucketized_permute_cuda_kernel<offset_t, index_t>),
-                  num_blocks,
-                  threads_per_block,
-                  0,
-                  at::cuda::getCurrentCUDAStream(),
-                  lengths_contig->data_ptr<offset_t>(),
-                  offsets.data_ptr<offset_t>(),
-                  bucketized_offsets.data_ptr<offset_t>(),
-                  bucket_mapping_contig->data_ptr<index_t>(),
-                  bucketized_permute.data_ptr<index_t>(),
-                  lengths.numel());
+              // Use warp-parallel kernel when my_size is small enough
+              // Each warp handles one sequence with ballot+popc for ordering
+              // This preserves order and parallelizes the inner loop
+              if (my_size <= kWarpSize) {
+                const auto warps_per_block = kMaxThreads / kWarpSize;
+                const auto num_blocks =
+                    cuda_calc_xblock_count(lengths_size, warps_per_block);
+                FBGEMM_LAUNCH_KERNEL(
+                    (_populate_bucketized_permute_warp_parallel_kernel<
+                        offset_t,
+                        index_t>),
+                    num_blocks,
+                    kMaxThreads,
+                    0,
+                    stream,
+                    lengths_contig->data_ptr<offset_t>(),
+                    offsets.data_ptr<offset_t>(),
+                    bucketized_offsets.data_ptr<offset_t>(),
+                    bucket_mapping_contig->data_ptr<index_t>(),
+                    bucketized_permute.data_ptr<index_t>(),
+                    lengths_size,
+                    my_size);
+              } else {
+                // Fall back to original kernel for larger bucket counts
+                constexpr auto threads_per_block = 256;
+                const auto num_blocks =
+                    cuda_calc_xblock_count(lengths_size, threads_per_block);
+                FBGEMM_LAUNCH_KERNEL(
+                    (_populate_bucketized_permute_cuda_kernel<
+                        offset_t,
+                        index_t>),
+                    num_blocks,
+                    threads_per_block,
+                    0,
+                    stream,
+                    lengths_contig->data_ptr<offset_t>(),
+                    offsets.data_ptr<offset_t>(),
+                    bucketized_offsets.data_ptr<offset_t>(),
+                    bucket_mapping_contig->data_ptr<index_t>(),
+                    bucketized_permute.data_ptr<index_t>(),
+                    lengths_size);
+              }
             });
       });
   return bucketized_permute;
