@@ -37,7 +37,9 @@ struct ProblemSize {
   std::vector<int64_t> stride;
   std::vector<int64_t> dilation;
   bool operator==(const ProblemSize& ps) const {
-    return activation_shape == ps.activation_shape &&
+    return activation_shape[1] == ps.activation_shape[1] &&
+        activation_shape[2] == ps.activation_shape[2] &&
+        activation_shape[3] == ps.activation_shape[3] &&
         filter_shape == ps.filter_shape;
   }
   void print() const {
@@ -53,8 +55,7 @@ struct ProblemSize {
               << filter_shape[1] << ","
               << filter_shape[2] << ","
               << filter_shape[3] << ","
-              << filter_shape[4] << ","
-              << std::endl;
+              << filter_shape[4] << ",";
     // clang-format on
   }
 };
@@ -67,17 +68,20 @@ inline void hash_combine(std::size_t& seed, std::size_t value) {
 struct ProblemSizeHash {
   std::size_t operator()(const ProblemSize& ps) const {
     std::size_t seed = 0;
+    // Only hash spatial dimensions (D, H, W) from activation_shape, not batch
+    // (N) or channels (C)
+    hash_combine(seed, std::hash<int64_t>{}(ps.activation_shape[1]));
+    hash_combine(seed, std::hash<int64_t>{}(ps.activation_shape[2]));
+    hash_combine(seed, std::hash<int64_t>{}(ps.activation_shape[3]));
+    // Hash the entire filter_shape
     auto vec_hash = [](const std::vector<int64_t>& v) {
       std::size_t h = 0;
       for (auto x : v)
         hash_combine(h, std::hash<int64_t>{}(x));
       return h;
     };
-    hash_combine(seed, vec_hash(ps.activation_shape));
     hash_combine(seed, vec_hash(ps.filter_shape));
-    // hash_combine(seed, vec_hash(ps.padding));
-    // hash_combine(seed, vec_hash(ps.stride));
-    // hash_combine(seed, vec_hash(ps.dilation));
+    // Exclude padding, stride, and dilation from hash
     return seed;
   }
 };
@@ -132,8 +136,9 @@ Kernel_f8f8bf16_conv get_kernel_via_heuristic(
   if (it != kernel_map.end()) {
     return it->second;
   } else {
-    std::cout << "warning: not found";
+    std::cout << "warning: not found - ";
     ps.print();
+    std::cout << std::endl;
   }
   // Fallback kernel
   return f8f8bf16_conv_256x256x128_2x1x1;
