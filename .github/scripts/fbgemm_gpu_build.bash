@@ -298,11 +298,15 @@ __configure_fbgemm_gpu_build_cuda () {
         # NOTE: Compiling 9.0a code will fail if sm_80 output is also is also
         # enabled, bc the code relies on the following function that is not
         # supported in sm_80:
+        #
         #   float4 atomicAdd(float4* address, float4 val);
-        local arch_list="8.0;9.0a;10.0a;12.0a"
+        #
+        # See:
+        #   https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html?highlight=atomicAdd#atomicadd
+        local arch_list="9.0a;10.0a;12.0a"
       else
         # NOTE: HSTU requires sm_75 or higher
-        local arch_list="8.0;9.0a"
+        local arch_list="9.0a"
       fi
 
     elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
