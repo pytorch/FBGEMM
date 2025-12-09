@@ -33,9 +33,9 @@ Kernel_mx8mx8bf16_grouped get_kernel_via_tuning(
     at::Tensor offsets) {
   static TuningCache cache("mx8mx8bf16_grouped");
 
-  M = nextPowerOf2(M);
-  N = nextPowerOf2(N);
-  K = nextPowerOf2(K);
+  M = nextPowerOf2OrRoundUp(M, 1024, 1024);
+  N = nextPowerOf2OrRoundUp(N, 1024, 1024);
+  K = nextPowerOf2OrRoundUp(K, 1024, 1024);
   const std::string shape_key =
       std::to_string(M) + "_" + std::to_string(N) + "_" + std::to_string(K);
 
@@ -48,109 +48,29 @@ Kernel_mx8mx8bf16_grouped get_kernel_via_tuning(
 
 Kernel_mx8mx8bf16_grouped
 get_kernel_via_heuristics(int M, int N, int K, int G) {
-  if (M <= 128) {
-    if (N <= 512) {
+  if (M <= 64) {
+    return mx8mx8bf16_grouped_256_64_256_2_1_1;
+  } else if (M <= 128) {
+    if (N <= 1024) {
       return mx8mx8bf16_grouped_256_64_256_2_1_1;
-    } else if (N <= 1024) {
-      if (K <= 4096) {
-        return mx8mx8bf16_grouped_256_64_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_128_64_256_1_1_1;
-      }
     } else {
       return mx8mx8bf16_grouped_256_128_256_2_1_1;
     }
   } else if (M <= 512) {
     if (N <= 512) {
       return mx8mx8bf16_grouped_256_128_256_2_1_1;
-    } else if (N <= 4096) {
-      if (K <= 1024) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    } else if (N <= 8192) {
-      return mx8mx8bf16_grouped_256_128_256_2_1_1;
     } else {
-      if (K <= 512) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else if (K <= 4096) {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      } else if (K <= 8192) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    }
-  } else if (M <= 1024) {
-    if (N <= 2048) {
-      if (K <= 1024) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    } else if (N <= 4096) {
-      return mx8mx8bf16_grouped_256_128_256_2_1_1;
-    } else if (N <= 8192) {
-      if (K <= 512) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    } else {
-      return mx8mx8bf16_grouped_256_128_256_2_1_1;
-    }
-  } else if (M <= 2048) {
-    if (N <= 1024) {
-      if (K <= 1024) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    } else if (N <= 2048) {
-      return mx8mx8bf16_grouped_256_128_256_2_1_1;
-    } else {
-      if (K <= 512) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    }
-  } else if (M <= 4096) {
-    if (N <= 512) {
-      if (K <= 512) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    } else if (N <= 1024) {
-      return mx8mx8bf16_grouped_256_128_256_2_1_1;
-    } else {
-      if (K <= 512) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
-    }
-  } else if (M <= 8192) {
-    if (K <= 512) {
       return mx8mx8bf16_grouped_256_256_256_2_1_1;
-    } else {
-      return mx8mx8bf16_grouped_256_128_256_2_1_1;
     }
+  } else if (M < 16384) {
+    return mx8mx8bf16_grouped_256_256_256_2_1_1;
   } else {
-    if (N <= 8192) {
-      if (K <= 512) {
-        return mx8mx8bf16_grouped_256_256_256_2_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
+    if (K <= 4096) {
+      return mx8mx8bf16_grouped_256_256_256_2_1_1;
+    } else if (K <= 7168) {
+      return mx8mx8bf16_grouped_256_128_256_2_1_1;
     } else {
-      if (K <= 512) {
-        return mx8mx8bf16_grouped_128_64_256_1_1_1;
-      } else {
-        return mx8mx8bf16_grouped_256_128_256_2_1_1;
-      }
+      return mx8mx8bf16_grouped_256_256_256_2_1_1;
     }
   }
 }

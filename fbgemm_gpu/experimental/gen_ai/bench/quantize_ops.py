@@ -144,6 +144,8 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
         for _ in range(copy_cnt):
             args_list.append(copy.deepcopy(args))
 
+        torch.cuda.synchronize()
+
         def rotating_buffer_fn(fn, args_list, copy_cnt):
             for i in range(copy_cnt):
                 fn(*(args_list[i]))

@@ -7,7 +7,7 @@
 # pyre-strict
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 
@@ -79,7 +79,7 @@ def get_kernel_assignment(file_path: str, threshold: float) -> dict[ProblemShape
     """
     kernel_results: list[KernelResult] = []
     best_times_ms: dict[ProblemShape, float] = {}
-    kernel_count: dict[str, int] = defaultdict(int)
+    kernel_count: Counter[str] = Counter()
     kernel_candidates: dict[ProblemShape, set[str]] = defaultdict(set)
     kernel_assignment: dict[ProblemShape, str] = {}
 
@@ -199,10 +199,12 @@ def print_heuristic_cpp(heuristic: Heuristic) -> None:
 
 
 def print_heuristic(heuristic: Heuristic) -> None:
-    for m_entry in heuristic.m_entries:
-        print(f"M: {m_entry.M}")
-        for n_entry in m_entry.n_entries:
-            print(f" N: {n_entry.N}")
+    for m_idx, m_entry in enumerate(heuristic.m_entries):
+        m_val = m_entry.M if m_idx != len(heuristic.m_entries) - 1 else "else"
+        print(f"M: {m_val}")
+        for n_idx, n_entry in enumerate(m_entry.n_entries):
+            n_val = n_entry.N if n_idx != len(m_entry.n_entries) - 1 else "else"
+            print(f" N: {n_val}")
             for k_idx, k_entry in enumerate(n_entry.k_entries):
                 k_val = k_entry.K if k_idx != len(n_entry.k_entries) - 1 else "else"
                 print(f"  K: {k_val} -> {k_entry.kernel}")
