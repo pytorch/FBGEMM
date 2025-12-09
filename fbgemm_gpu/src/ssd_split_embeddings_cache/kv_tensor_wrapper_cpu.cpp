@@ -114,4 +114,8 @@ std::vector<std::string> KVTensorWrapper::get_kvtensor_serializable_metadata()
   FBEXCEPTION("Not implemented");
   return std::vector<std::string>{};
 }
+
+void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
+  FBEXCEPTION("Not implemented");
+}
 } // namespace ssd
