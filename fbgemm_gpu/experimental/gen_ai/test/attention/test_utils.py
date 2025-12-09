@@ -253,6 +253,7 @@ def attention_ref(  # noqa
     reorder_ops=False,
     key_leftpad=None,
     softmax_scale=None,
+    return_lse=False,
 ):
     """
     Arguments:
@@ -272,9 +273,11 @@ def attention_ref(  # noqa
             without changing the math. This is to estimate the numerical error from operation
             reordering.
         softmax_scale: float, scale for softmax. If None, use 1/sqrt(head_dim)
+        return_lse: bool, whether to return log-sum-exp of attention scores
     Output:
         output: (batch_size, seqlen_q, nheads, head_dim)
         attention: (batch_size, nheads, seqlen_q, seqlen_k), softmax after dropout
+        lse: (batch_size, nheads, seqlen_q) if return_lse=True, else None
     """
     if causal:
         window_size = (window_size[0], 0)
@@ -312,6 +315,18 @@ def attention_ref(  # noqa
         scores.masked_fill_(local_mask, float("-inf"))
     if attn_bias is not None:
         scores = scores + attn_bias
+
+    # Compute LSE before softmax if requested
+    lse = None
+    if return_lse:
+        # LSE = log(sum(exp(scores))) = log_sum_exp along the key dimension
+        # This is computed more stably as: max + log(sum(exp(scores - max)))
+        scores_max = scores.max(dim=-1, keepdim=True).values
+        scores_exp = torch.exp(scores - scores_max)
+        scores_sum = scores_exp.sum(dim=-1)
+        lse = torch.log(scores_sum) + scores_max.squeeze(-1)
+        # Shape: (batch_size, nheads, seqlen_q)
+
     attention = torch.softmax(scores, dim=-1).to(v.dtype)
     # Some rows might be completely masked out so we fill them with zero instead of NaN
     if window_size[0] >= 0 or window_size[1] >= 0:
@@ -341,4 +356,7 @@ def attention_ref(  # noqa
             ),
             0.0,
         )
+
+    if return_lse:
+        return output.to(dtype=dtype_og), attention.to(dtype=dtype_og), lse
     return output.to(dtype=dtype_og), attention.to(dtype=dtype_og)
