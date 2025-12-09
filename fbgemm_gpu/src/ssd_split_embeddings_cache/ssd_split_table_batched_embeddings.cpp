@@ -412,6 +412,17 @@ std::string KVTensorWrapper::serialize() const {
   return json_serialized.dump();
 }
 
+void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
+  if (readonly_db_) {
+    LOG(INFO) << "deleting checkpoint dir for " << checkpoint_uuid;
+    readonly_db_->delete_rocksdb_checkpoint_dir();
+  } else if (db_) {
+    auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
+    LOG(INFO) << "embedding delete";
+    db->delete_rocksdb_checkpoint_dir();
+  }
+}
+
 std::vector<std::string> KVTensorWrapper::get_kvtensor_serializable_metadata()
     const {
   std::vector<std::string> metadata;
@@ -935,6 +946,9 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::wait_util_filling_work_done)
         .def("create_snapshot", &EmbeddingRocksDBWrapper::create_snapshot)
         .def("release_snapshot", &EmbeddingRocksDBWrapper::release_snapshot)
+        .def(
+            "delete_rocksdb_checkpoint_dir",
+            &EmbeddingRocksDBWrapper::delete_rocksdb_checkpoint_dir)
         .def("get_snapshot_count", &EmbeddingRocksDBWrapper::get_snapshot_count)
         .def(
             "get_keys_in_range_by_snapshot",
@@ -1146,7 +1160,10 @@ static auto kv_tensor_wrapper =
         .def("logs", &KVTensorWrapper::logs, "")
         .def(
             "get_kvtensor_serializable_metadata",
-            &KVTensorWrapper::get_kvtensor_serializable_metadata);
+            &KVTensorWrapper::get_kvtensor_serializable_metadata)
+        .def(
+            "delete_rocksdb_checkpoint_dir",
+            &KVTensorWrapper::delete_rocksdb_checkpoint_dir);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
