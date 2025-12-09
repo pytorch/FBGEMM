@@ -415,6 +415,10 @@ std::string KVTensorWrapper::serialize() const {
 std::vector<std::string> KVTensorWrapper::get_kvtensor_serializable_metadata()
     const {
   std::vector<std::string> metadata;
+  // Return empty metadata if checkpoint_handle_ is not initialized yet
+  if (checkpoint_handle_ == nullptr) {
+    return metadata;
+  }
   auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
   auto checkpoint_paths = db->get_checkpoints(checkpoint_handle_->uuid);
   metadata.push_back(std::to_string(checkpoint_paths.size()));
