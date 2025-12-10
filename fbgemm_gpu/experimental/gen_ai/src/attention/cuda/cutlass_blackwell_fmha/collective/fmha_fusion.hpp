@@ -122,17 +122,6 @@ struct ResidualMask : NoMask {
   CUTLASS_DEVICE
   ResidualMask(int left = -1, int right = -1) : NoMask(left, right) {}
 
-  template<class BlkCoord, class TileShape, class ProblemSize>
-  CUTLASS_DEVICE
-  cute::tuple<int, int> get_n_block_min_max(
-      BlkCoord const& blk_coord,
-      TileShape const& tile_shape,
-      ProblemSize const& problem_size) {
-
-    const int n_block_min = 0;
-    const int n_block_max = ceil_div(get<1>(problem_size), get<1>(tile_shape));
-    return cute::make_tuple(n_block_min, n_block_max);
-  }
 
   template <class BlkCoord, class TileShape, class ProblemSize>
   CUTLASS_DEVICE int get_masked_trip_count(
@@ -192,6 +181,8 @@ struct ResidualMask : NoMask {
     // d % kHeadDim != 0 or seqlen_q % kBlockM do not suffer from similar
     // issues as they are transparently taken care of by TMA and the
     // epilogue, if it is instantiated with predication support.
+    // Note: klen in problem_size is the split's length for split-K, 
+    // so index_qk coordinates are 0-based within the split.
     CUTLASS_PRAGMA_UNROLL
     for (int i = 0; i < size(acc_qk); i++) {
       auto pos = index_qk(i);
@@ -531,7 +522,6 @@ struct LocalMask : NoMask {
 
     const int kBlockM = get<0>(tile_shape);
     const int kBlockN = get<1>(tile_shape);
-    const int seq_len_k = get<1>(problem_size);
 
     const int m_block = get<0>(blk_coord);
     const int offset_q = IsQBegin? 0 : get<1>(problem_size) - get<0>(problem_size);

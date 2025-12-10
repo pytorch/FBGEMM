@@ -81,12 +81,12 @@ struct InputShape {
 
 template <
     typename Element,
+    typename ElementOut,
     KernelType kKernelType,
     class TileShape,
     class ThreadShape>
 struct GenRunner {
   using ElementAcc = float;
-  using ElementOut = cutlass::bfloat16_t;
 
   using ProblemShape =
       Shape<_1, int, int, Shape<Shape<int, int>, int>>; // (Sq, Sk, D, ((H, Hr), B))
@@ -125,7 +125,7 @@ struct GenRunner {
   using TileScheduler = std::conditional_t<
       kKernelType == KernelType::UMMA_P,
       cutlass::fmha::kernel::PersistentTileScheduler,
-      cutlass::fmha::kernel::IndividualTileScheduler>;
+      cutlass::fmha::kernel::IndividualTileSchedulerSplitK>;
 
   using Kernel = cutlass::fmha::kernel::Sm100FmhaGenKernelWarpspecialized<
       ProblemShape,
@@ -147,20 +147,22 @@ struct GenRunner {
   at::Tensor block_lse;
   at::Tensor q, k, v, seqlen_kv;
   std::optional<at::Tensor> batch_idx;
+  int64_t split_k_size;
 
   std::tuple<at::Tensor, at::Tensor> fmha_fwd(
       const at::Tensor& q_input,
       const at::Tensor& k_input,
       const at::Tensor& v_input,
       const at::Tensor& seqlen_kv_input,
-      const std::optional<at::Tensor>& batch_idx_input) {
+      const std::optional<at::Tensor>& batch_idx_input,
+      int64_t split_k_size) {
 
     this->q = q_input;
     this->k = k_input;
     this->v = v_input;
     this->seqlen_kv = seqlen_kv_input;
     this->batch_idx = batch_idx_input;
-
+    this->split_k_size = split_k_size;
     auto q_sizes = q.sizes();
     auto k_sizes = k.sizes();
     int b = q_sizes[0];
@@ -189,6 +191,13 @@ struct GenRunner {
     int h_r = options.h / options.h_k;
     assert(options.h % options.h_k == 0);
 
+    // Calculate split_kv = num_splits based on split_k_size parameter
+    // split_k_size <= 0 means no split-K (num_splits = 1)
+    int split_kv = 1;
+    if (split_k_size > 0) {
+      split_kv = (options.sk + split_k_size - 1) / split_k_size;
+    }
+
     ProblemShape result = make_shape(
         _1{},
         options.sk,
@@ -214,17 +223,30 @@ struct GenRunner {
 
     stride_new_v = stride_new_k;
     stride_cache_v = stride_cache_k;
-    stride_o = stride_q;
-    stride_lse = make_stride(options.h_k * h_r, h_r, cute::_1{});
 
+    // Output layout: [B, H, num_splits, D]
+    // Stride: (D*num_splits, 1, num_splits*H_K*D) for (H_K, D, B)
+    stride_o = make_stride(
+        _0{},
+        _1{},
+        make_stride(
+            make_stride(options.d * split_kv, options.d * h_r * split_kv),
+            options.d * h_r * options.h_k * split_kv));
+
+    // LSE layout: [B, num_splits, H_R * H_K]
+    stride_lse = make_stride(options.h_k * h_r * split_kv, h_r, _1{});
+    // Output layout: [B, H_K, num_splits, D]
+    // Shape for allocation: (B, H, num_splits, D) where H = h_r * h_k
     block_o = at::empty(
-        q.sizes(),
+        {options.b, options.h, split_kv, options.d},
         at::TensorOptions()
             .dtype(to_torch_type<ElementOut>())
             .device(at::Device(at::kCUDA, at::cuda::current_device())));
 
+    // LSE layout: [B, num_splits, H_R * H_K]
+    // Shape for allocation: (B, num_splits, H) where H = h_r * h_k
     block_lse = at::empty(
-        {options.b, options.h, _1{}},
+        {options.b, split_kv, options.h},
         at::TensorOptions()
             .dtype(at::kFloat)
             .device(at::Device(at::kCUDA, at::cuda::current_device())));
@@ -241,6 +263,7 @@ struct GenRunner {
         problem_shape,
         static_cast<int*>(seqlen_kv.data_ptr()),
         static_cast<int*>(batch_idx? batch_idx.value().data_ptr() : nullptr),
+        static_cast<int>(split_k_size),
         static_cast<Element*>(q.data_ptr()),
         stride_q,
         nullptr,
@@ -319,19 +342,20 @@ struct GenRunner {
     }                                                           \
   }()
 
-template <typename Element, KernelType KType, int HeadDim>
+template <typename Element, typename ElementOut, KernelType KType, int HeadDim>
 std::tuple<at::Tensor, at::Tensor> run_gen_runner_fwd(
     const at::Tensor& q,
     const at::Tensor& k,
     const at::Tensor& v,
     const at::Tensor& seqlen_kv,
-    const std::optional<at::Tensor>& batch_idx) {
+    const std::optional<at::Tensor>& batch_idx,
+    int64_t split_k_size) {
   if constexpr (HeadDim == 128) {
-    GenRunner<Element, KType, Shape<_64, _128, _128>, Shape<_1, _1, _1>> runner;
-    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx);
+    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _128>, Shape<_1, _1, _1>> runner;
+    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size);
   } else if constexpr (HeadDim == 64) {
-    GenRunner<Element, KType, Shape<_64, _128, _64>, Shape<_1, _1, _1>> runner;
-    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx);
+    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _64>, Shape<_1, _1, _1>> runner;
+    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size);
   }
 }
 
@@ -341,17 +365,26 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd(
     const at::Tensor& v,
     const at::Tensor& seqlen_kv,
     const std::optional<at::Tensor>& batch_idx,
-    int64_t kernel_type
+    int64_t kernel_type,
+    int64_t split_k_size
   ) {
   const auto device = q.device();
   at::cuda::CUDAGuard device_guard(device);
   const int head_dim = q.size(q.dim() - 1);
+  const bool is_split_k = split_k_size > 0;
 
   return DISPATCH_ELEMENT_TYPE(q.scalar_type(), Element, [&] {
     return DISPATCH_KERNEL_TYPE(static_cast<int>(kernel_type), KType, [&] {
       return DISPATCH_HEAD_DIM(head_dim, HeadDim, [&] {
-        return run_gen_runner_fwd<Element, KType, HeadDim>(
-            q, k, v, seqlen_kv, batch_idx);
+        if (is_split_k) {
+          // Split-K: output in float (accumulator precision for later reduction)
+          return run_gen_runner_fwd<Element, float, KType, HeadDim>(
+              q, k, v, seqlen_kv, batch_idx, split_k_size);
+        } else {
+          // Non-split: output in bfloat16
+          return run_gen_runner_fwd<Element, cutlass::bfloat16_t, KType, HeadDim>(
+              q, k, v, seqlen_kv, batch_idx, split_k_size);
+        }
       });
     });
   });
@@ -363,7 +396,8 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd_meta(
     const at::Tensor& v,
     const at::Tensor& seqlen_kv,
     const std::optional<at::Tensor>& batch_idx,
-    int64_t kernel_type
+    int64_t kernel_type,
+    int64_t split_k_size
   ) {
   // Return tuple matching the operator signature: (output, lse)
   at::Tensor output = at::empty_like(q);
@@ -387,7 +421,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor value, "
       "    Tensor seqlen_kv, "
       "    Tensor? batch_idx = None,"
-      "    int kernel_type = 0"
+      "    int kernel_type = 0,"
+      "    int split_k_size = 1024"
       ") -> (Tensor, Tensor)");
 }
 

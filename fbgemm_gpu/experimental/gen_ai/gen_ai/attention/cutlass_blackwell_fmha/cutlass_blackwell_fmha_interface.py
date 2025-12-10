@@ -133,6 +133,47 @@ def _cutlass_blackwell_fmha_backward(
     )
 
 
+def _validate_and_adjust_split_k_size(split_k_size: int) -> int:
+    """
+    Validate and adjust split_k_size parameter for optimal performance.
+
+    Args:
+        split_k_size: The requested split size along the K/V sequence dimension.
+
+    Returns:
+        Adjusted split_k_size that is valid for the kernel.
+
+    Valid values:
+        - split_k_size <= 0: Disable split-K (no splitting)
+        - split_k_size > 0: Enable split-K with specified split size
+    """
+    if not isinstance(split_k_size, int):
+        raise TypeError(
+            f"split_k_size must be an integer, got {type(split_k_size).__name__}"
+        )
+
+    # If split-K is disabled, return as-is
+    if split_k_size <= 0:
+        return split_k_size
+
+    # Constants
+    MIN_RECOMMENDED_SPLIT_SIZE = 256
+    TILE_SIZE = 128
+
+    # Adjust if split_k_size is too small
+    if split_k_size < MIN_RECOMMENDED_SPLIT_SIZE:
+        split_k_size = MIN_RECOMMENDED_SPLIT_SIZE
+
+    # Check if split_k_size is a power of 2
+    is_power_of_2 = (split_k_size & (split_k_size - 1)) == 0
+
+    # If not a power of 2, round to nearest multiple of tile size (128)
+    if not is_power_of_2:
+        split_k_size = ((split_k_size + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
+
+    return split_k_size
+
+
 def _validate_decode_inputs(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -194,6 +235,7 @@ def cutlass_blackwell_fmha_decode_forward(
     window_left: int = -1,
     window_right: int = -1,
     bottom_right: bool = True,
+    split_k_size: int = 1024,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Decode-optimized forward pass using the gen kernel.
@@ -205,13 +247,35 @@ def cutlass_blackwell_fmha_decode_forward(
     Accepts inputs in two formats:
     - Varlen format: [total_queries, num_heads, head_dim] (3D)
     - Batch format: [batch_size, 1, num_heads, head_dim] (4D)
+
+    Args:
+        q: Query tensor in varlen [B, H, D] or batch [B, 1, H, D] format
+        k: Key tensor [B, Sk, H_kv, D]
+        v: Value tensor [B, Sk, H_kv, D]
+        seqlen_kv: Per-batch sequence lengths [B] (required)
+        split_k_size: Size of each split along the K/V sequence dimension.
+                     Use 1024 (default) for split-K mode, or 0/-1 to disable split-K.
+                     Values below 256 are adjusted to 256. Non-power-of-2 values
+                     are rounded to the nearest multiple of 128.
+
+    Returns:
+        Conditional return based on split-K mode:
+        - Non-split case (split_k_size <= 0):
+            out: Same shape as input q ([B, H, D] for varlen or [B, 1, H, D] for batch)
+                 with bfloat16 dtype
+            lse: [B, H, 1] (always float32)
+        - Split case (split_k_size > 0):
+            out: [B, H, num_splits, D] with float32 dtype (partial outputs for later reduction)
+            lse: [B, num_splits, H] (always float32)
     """
+    # Validate and adjust split_k_size
+    split_k_size = _validate_and_adjust_split_k_size(split_k_size)
+
     _validate_decode_inputs(q, k, v, seqlen_kv)
 
     # Prepare inputs and handle format conversion
-    q, k, v, batch_size, needs_reshape_output, original_shape = _prepare_decode_inputs(
-        q, k, v
-    )
+    q, k, v, batch_size, _, original_shape = _prepare_decode_inputs(q, k, v)
+
     # Call the gen kernel (optimized for decode)
     out, lse = torch.ops.fbgemm.fmha_gen_fwd(
         q,
@@ -222,11 +286,17 @@ def cutlass_blackwell_fmha_decode_forward(
         kernel_type=GenKernelType.UMMA_I,
         # window_left=window_left,
         # window_right=window_right,
+        split_k_size=split_k_size,
     )
 
-    # Reshape output back to original format if needed
-    if needs_reshape_output:
+    # Handle output based on split-K mode
+    is_split = split_k_size > 0
+
+    if not is_split:
+        # out shape: [B, H, Splits = 1, D] -> original shape
         out = out.view(*original_shape)
+        # lse shape: [B, Splits = 1, H] -> [B, H, 1]
+        lse = lse.view(batch_size, -1, 1)
 
     return out, lse
 

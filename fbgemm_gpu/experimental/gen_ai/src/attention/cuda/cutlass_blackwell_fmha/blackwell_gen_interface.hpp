@@ -47,4 +47,5 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd(
     const at::Tensor& v,
     const at::Tensor& seqlen_kv,
     const std::optional<at::Tensor>& batch_idx,
-    int64_t kernel_type);
+    int64_t kernel_type,
+    int64_t split_k_size);
