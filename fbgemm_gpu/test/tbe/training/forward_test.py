@@ -1280,6 +1280,323 @@ class ForwardTest(unittest.TestCase):
                 mock_streamer_instance, num_iterations, prefetch_pipeline, L
             )
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=2, max_value=8),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=64),
+        log_E=st.integers(min_value=3, max_value=4),
+        L=st.integers(min_value=1, max_value=10),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
+        weighted=st.booleans(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_mixed_cache_non_cache_tables_w_raw_embedding_streaming(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        pooling_mode: PoolingMode,
+        weighted: bool,
+    ) -> None:
+        """
+        Test forward pass with mixed cache and non-cache tables.
+        This validates that total_cache_hash_size < total_hash_size works correctly.
+        """
+        # weighted operation can be done only for SUM
+        assume(pooling_mode == PoolingMode.SUM or not weighted)
+
+        E = int(10**log_E)
+        D = D * 4
+
+        # Create mixed configuration: some tables with cache, some without
+        Ds = [D] * T
+        Es = [E] * T
+
+        # Mix cache and non-cache tables
+        managed = []
+        for t in range(T):
+            if t % 2 == 0:
+                # Even tables: use cache (MANAGED_CACHING)
+                managed.append(EmbeddingLocation.MANAGED_CACHING)
+            else:
+                # Odd tables: no cache (DEVICE or MANAGED)
+                managed.append(
+                    np.random.choice(
+                        [EmbeddingLocation.DEVICE, EmbeddingLocation.MANAGED]
+                    )
+                )
+
+        compute_device = ComputeDevice.CUDA
+        mode = "sum" if pooling_mode == PoolingMode.SUM else "mean"
+        do_pooling = True
+
+        # Create baseline embeddings
+        bs = [
+            torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True).cuda()
+            for E, D in zip(Es, Ds)
+        ]
+
+        if weights_precision == SparseType.FP16:
+            bs = [b.half() for b in bs]
+
+        # Create RES parameters for raw embedding streaming
+        res_params = RESParams(
+            res_store_shards=1,
+            table_names=[f"table_{i}" for i in range(T)],
+            table_offsets=[sum(Es[:i]) for i in range(T + 1)],
+            table_sizes=Es,
+        )
+
+        with patch(
+            "fbgemm_gpu.split_table_batched_embeddings_ops_training.torch.classes.fbgemm.RawEmbeddingStreamer"
+        ) as mock_streamer_class:
+            # Mock the RawEmbeddingStreamer class
+            mock_streamer_instance = MagicMock()
+            mock_streamer_class.return_value = mock_streamer_instance
+
+            # Create TBE with mixed cache/non-cache configuration and raw embedding streaming
+            cc = SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (E, D, EmbeddingLocation(M), compute_device)
+                    for E, D, M in zip(Es, Ds, managed)
+                ],
+                weights_precision=weights_precision,
+                optimizer=OptimType.EXACT_SGD,
+                learning_rate=0.05,
+                cache_algorithm=CacheAlgorithm.LRU,
+                pooling_mode=pooling_mode,
+                output_dtype=SparseType.FP32,
+                enable_raw_embedding_streaming=True,
+                res_params=res_params,
+            )
+
+            # Verify that total_cache_hash_size < total_hash_size
+            num_cache_tables = sum(
+                1 for m in managed if m == EmbeddingLocation.MANAGED_CACHING
+            )
+            self.assertGreater(
+                num_cache_tables, 0, "Should have at least one cached table"
+            )
+            self.assertLess(
+                num_cache_tables, T, "Should have at least one non-cached table"
+            )
+            self.assertLess(
+                int(cc.total_cache_hash_size),
+                int(cc.total_hash_size),
+                "total_cache_hash_size should be less than total_hash_size for mixed config",
+            )
+
+            # Copy weights
+            for t in range(T):
+                if weights_precision == SparseType.FP16:
+                    cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
+                else:
+                    cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
+
+            # Run multiple forward iterations to test streaming behavior
+            num_iterations = 5
+            tolerance = 1.0e-5 if weights_precision == SparseType.FP32 else 8.0e-3
+            previous_linearized_cache_indices = None
+
+            for iteration in range(num_iterations):
+                # Generate inputs for this iteration
+                xs_iter = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
+                xws_iter = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
+                if weights_precision == SparseType.FP16:
+                    xws_iter = [xw.half() for xw in xws_iter]
+
+                # Run baseline for this iteration
+                fs_iter = (
+                    [
+                        b_indices(b, x, use_cpu=False, do_pooling=do_pooling)
+                        for b, x in zip(bs, xs_iter)
+                    ]
+                    if not weighted
+                    else [
+                        b_indices(
+                            b,
+                            x,
+                            per_sample_weights=xw.view(-1),
+                            use_cpu=False,
+                            do_pooling=do_pooling,
+                        )
+                        for b, x, xw in zip(bs, xs_iter, xws_iter)
+                    ]
+                )
+                f_iter = torch.cat([f.view(B, -1) for f in fs_iter], dim=1)
+
+                # Prepare inputs
+                x = torch.cat([x.contiguous().flatten() for x in xs_iter], dim=0)
+                xw = torch.cat([xw.contiguous().flatten() for xw in xws_iter], dim=0)
+                (indices, offsets) = get_table_batched_offsets_from_dense(
+                    x, L, B * T, False
+                )
+
+                # Run TBE forward
+                fc2 = (
+                    cc(indices, offsets)
+                    if not weighted
+                    else cc(indices, offsets, xw.contiguous().view(-1))
+                )
+
+                # Compare results
+                torch.testing.assert_close(
+                    fc2.float(), f_iter.float(), atol=tolerance, rtol=tolerance
+                )
+
+                # Check streaming calls after each iteration
+                if mock_streamer_instance.stream.call_count != 0:
+                    last_call_args = mock_streamer_instance.stream.call_args
+                    self.assertIsNotNone(
+                        last_call_args, "stream() should be called with args"
+                    )
+
+                    call_args = last_call_args[0] if last_call_args[0] else []
+                    self.assertGreaterEqual(
+                        len(call_args),
+                        4,
+                        "stream() should be called with at least 4 args",
+                    )
+
+                    streamed_indices = call_args[0]
+                    streamed_weights = call_args[1]
+                    # call_args[2] is hash_zch_identities (optional)
+                    count = call_args[3]  # Number of valid entries
+
+                    self.assertIsInstance(streamed_indices, torch.Tensor)
+                    self.assertIsInstance(streamed_weights, torch.Tensor)
+                    self.assertIsInstance(count, torch.Tensor)
+
+                    # Get the actual count of valid entries
+                    valid_count = count.item()
+
+                    # Only validate the first `valid_count` entries
+                    valid_streamed_indices = streamed_indices[:valid_count].to(
+                        torch.cuda.current_device()
+                    )
+                    valid_streamed_weights = streamed_weights[:valid_count].to(
+                        torch.cuda.current_device()
+                    )
+
+                    # Check that there is at most 1 -1 entry
+                    num_negative_ones = (valid_streamed_indices == -1).sum().item()
+                    self.assertLessEqual(
+                        num_negative_ones,
+                        1,
+                        f"Iteration {iteration}: Found {num_negative_ones} -1 entries in valid_streamed_indices, expected at most 1",
+                    )
+
+                    # Filter out -1 entries for validation
+                    valid_mask = valid_streamed_indices != -1
+                    filtered_indices = valid_streamed_indices[valid_mask]
+                    filtered_weights = valid_streamed_weights[valid_mask]
+
+                    # Validate indices are within bounds
+                    self.assertGreaterEqual(filtered_indices.min().item(), 0)
+                    self.assertLess(
+                        filtered_indices.max().item(),
+                        int(cc.total_hash_size),
+                    )
+
+                    # Compare filtered_indices (no -1s) with previous iteration's linearized cache indices
+                    if previous_linearized_cache_indices is not None:
+                        # streamed_indices should match the previous iteration's linearized cache indices
+                        # Both are linearized indices into the embedding table
+                        current_streamed_set = set(
+                            filtered_indices.flatten().cpu().tolist()
+                        )
+                        previous_indices_set = set(
+                            previous_linearized_cache_indices.flatten().cpu().tolist()
+                        )
+
+                        # Streamed indices should be exactly the same as previous iteration's indices
+                        self.assertEqual(
+                            current_streamed_set,
+                            previous_indices_set,
+                            f"Iteration {iteration}: Streamed indices should exactly match previous iteration's linearized indices. "
+                            f"Streamed: {len(current_streamed_set)}, Previous: {len(previous_indices_set)}, "
+                            f"Only in streamed: {current_streamed_set - previous_indices_set}, "
+                            f"Only in previous: {previous_indices_set - current_streamed_set}",
+                        )
+
+                        # Get all embedding weights concatenated
+                        all_weights = torch.cat(
+                            cc.split_embedding_weights(),
+                            dim=0,
+                        )
+
+                        selected_weights = torch.index_select(
+                            all_weights,
+                            0,
+                            previous_linearized_cache_indices.flatten().long(),
+                        )
+
+                        # Compare filtered_weights with selected_weights
+                        torch.testing.assert_close(
+                            filtered_weights.float(),
+                            selected_weights.float(),
+                            atol=tolerance,
+                            rtol=tolerance,
+                            msg=f"Iteration {iteration}: Streamed weights should match split_embedding_weights at previous_linearized_cache_indices",
+                        )
+                # Compute linearized cache indices for current iteration
+                indices_per_table = torch.split(indices, [B * L] * T)
+
+                linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+                    cc.cache_hash_size_cumsum,
+                    indices,
+                    offsets,
+                )
+
+                # Perform cache lookup to filter out indices that are not in cache
+                lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                    linear_cache_indices,
+                    cc.lxu_cache_state,
+                    cc.total_cache_hash_size,
+                )
+
+                # pyre-fixme[9]: Comparison returns Tensor, not bool
+                cache_hit_mask: torch.Tensor = lxu_cache_locations >= 0
+
+                # Collect cache hit indices from MANAGED_CACHING tables
+                current_linearized_managed_cache_indices = []
+                start_idx = 0
+                for t, location in enumerate(managed):
+                    end_idx = start_idx + B * L
+                    if location == EmbeddingLocation.MANAGED_CACHING:
+                        # Filter to cache hits only
+                        table_indices = indices_per_table[t]
+                        table_mask = cache_hit_mask[start_idx:end_idx]
+                        cache_hit_table_indices = table_indices[table_mask]
+                        if len(cache_hit_table_indices) > 0:
+                            # Linearize: add table offset to convert table-local indices to global indices
+                            table_offset = sum(Es[:t])
+                            linearized = cache_hit_table_indices + table_offset
+                            current_linearized_managed_cache_indices.append(linearized)
+
+                    start_idx = end_idx
+
+                # Concatenate and get unique indices
+                if current_linearized_managed_cache_indices:
+                    all_cache_hit_indices = torch.cat(
+                        current_linearized_managed_cache_indices, dim=0
+                    )
+                    previous_linearized_cache_indices = torch.unique(
+                        all_cache_hit_indices
+                    ).to(torch.cuda.current_device())
+                else:
+                    previous_linearized_cache_indices = None
+
 
 if __name__ == "__main__":
     unittest.main()
