@@ -76,11 +76,11 @@ struct Sm100FmhaLoadTmaWarpspecialized {
     const Element* ptr_V;
     StrideV dV;
     // local changes
-    const int* ptr_page_table;
-    int page_table_stride;
-    int num_blocks;
-    int page_block_size;
-    int num_KV_tiles_per_page;
+    const int* ptr_page_table = nullptr;
+    int page_table_stride = 0;
+    int num_blocks = 1;
+    int page_block_size = 1;
+    int num_KV_tiles_per_page = 1;
 
     int window_size_left = -1;
     int window_size_right = -1;
