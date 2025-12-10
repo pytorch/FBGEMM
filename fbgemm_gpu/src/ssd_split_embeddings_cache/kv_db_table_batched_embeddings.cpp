@@ -528,22 +528,32 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
     for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
       auto f =
           folly::via(executor_tp_.get())
-              .thenValue([=, &indices_addr, &indices, &row_ids_per_shard, this](
-                             folly::Unit) {
-                for (const auto& row_id : row_ids_per_shard[shard_id]) {
-                  auto emb_idx = indices_addr[row_id];
-                  if (emb_idx < 0) {
-                    continue;
-                  }
-                  auto cached_addr_opt = l2_cache_->get(indices[row_id]);
-                  if (cached_addr_opt.has_value()) { // cache hit
-                    cache_context->cached_addr_list[row_id] =
-                        cached_addr_opt.value();
-                    indices_addr[row_id] = -1; // mark to sentinel value
-                  } else { // cache miss
-                    cache_context->num_misses += 1;
-                  }
-                }
+              .thenValue([shard_id,
+                          indices,
+                          row_ids_per_shard,
+                          cache_context,
+                          this](folly::Unit) {
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(), "get_cache_inner", [&] {
+                      using inner_index_t = scalar_t;
+                      auto inner_indices_addr =
+                          indices.data_ptr<inner_index_t>();
+                      for (const auto& row_id : row_ids_per_shard[shard_id]) {
+                        auto emb_idx = inner_indices_addr[row_id];
+                        if (emb_idx < 0) {
+                          continue;
+                        }
+                        auto cached_addr_opt = l2_cache_->get(indices[row_id]);
+                        if (cached_addr_opt.has_value()) { // cache hit
+                          cache_context->cached_addr_list[row_id] =
+                              cached_addr_opt.value();
+                          inner_indices_addr[row_id] =
+                              -1; // mark to sentinel value
+                        } else { // cache miss
+                          cache_context->num_misses += 1;
+                        }
+                      }
+                    });
               });
       futures.push_back(std::move(f));
     }
@@ -626,23 +636,26 @@ EmbeddingKVDB::set_cache(
     for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
       auto f =
           folly::via(executor_tp_.get())
-              .thenValue([=,
-                          &indices_addr,
-                          &indices,
-                          &weights,
-                          &row_ids_per_shard,
-                          this](folly::Unit) {
-                for (const auto& row_id : row_ids_per_shard[shard_id]) {
-                  auto emb_idx = indices_addr[row_id];
-                  if (emb_idx < 0) {
-                    continue;
-                  }
-                  if (!l2_cache_->put(indices[row_id], weights[row_id])) {
-                    XLOG_EVERY_MS(ERR, 1000)
-                        << "[TBE_ID" << unique_id_
-                        << "]Failed to insert into cache, this shouldn't happen";
-                  }
-                }
+              .thenValue([shard_id, indices, weights, row_ids_per_shard, this](
+                             folly::Unit) {
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(), "set_cache_inner", [&] {
+                      using inner_index_t = scalar_t;
+                      auto inner_indices_addr =
+                          indices.data_ptr<inner_index_t>();
+                      for (const auto& row_id : row_ids_per_shard[shard_id]) {
+                        auto emb_idx = inner_indices_addr[row_id];
+                        if (emb_idx < 0) {
+                          continue;
+                        }
+                        if (!l2_cache_->put(indices[row_id], weights[row_id])) {
+                          XLOG_EVERY_MS(ERR, 1000)
+                              << "[TBE_ID" << unique_id_
+                              << "]Failed to insert into cache, this shouldn't "
+                                 "happen";
+                        }
+                      }
+                    });
               });
       futures.push_back(std::move(f));
     }
