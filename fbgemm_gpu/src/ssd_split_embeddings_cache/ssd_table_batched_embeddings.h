@@ -121,7 +121,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
       int64_t flushing_block_size = 2000000000 /*2GB*/,
-      bool disable_random_init = false)
+      bool disable_random_init = false,
+      bool enable_blob_db = false)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -167,6 +168,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
+    // Enable blobDB if the value size is larger than 1KB
+    // TODO more tuning needed for large values
+    if (enable_blob_db) {
+      LOG(INFO) << "enabled blob db";
+      options.enable_blob_files = true;
+    }
     options.comparator = new Int64Comparator();
     options.create_if_missing = true;
 
