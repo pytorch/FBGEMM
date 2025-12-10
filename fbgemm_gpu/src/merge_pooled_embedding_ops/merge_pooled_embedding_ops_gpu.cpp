@@ -27,13 +27,8 @@
 
 using Tensor = at::Tensor;
 
-#if !defined(FBGEMM_FBCODE) && ROCM_VERSION >= 70000
-using GPUEvent = at::hip::HIPEvent;
-#define getCurrentGPUStream at::hip::getCurrentHIPStream
-#else
 using GPUEvent = at::cuda::CUDAEvent;
 #define getCurrentGPUStream at::cuda::getCurrentCUDAStream
-#endif
 
 namespace {
 struct DirectConnectedPeer {

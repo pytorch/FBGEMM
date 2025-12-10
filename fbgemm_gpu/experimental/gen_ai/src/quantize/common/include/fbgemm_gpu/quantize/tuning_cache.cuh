@@ -279,11 +279,7 @@ class TuningCache final {
 
   constexpr static std::string_view FBGEMM_CACHE_DIR = ".fbgemm";
 
-#if !defined(FBGEMM_FBCODE) && ROCM_VERSION >= 70000
-  using GPUEvent = at::hip::HIPEvent;
-#else
   using GPUEvent = at::cuda::CUDAEvent;
-#endif
 
   GPUEvent start_ = GPUEvent(cudaEventDefault);
   GPUEvent stop_ = GPUEvent(cudaEventDefault);
