@@ -165,8 +165,9 @@ at::Tensor mx8mx8bf16_grouped_mm(
     TORCH_CHECK(false, "Invalid input shapes. Must be one of 2D-2D, 2D-3D.");
   }
 
+  TORCH_CHECK(output_actual.dtype() == at::kBFloat16, "output must be bf16.");
   // Early exit for empty inputs.
-  if (M == 0) {
+  if (output_actual.numel() == 0) {
     return output_actual;
   }
 

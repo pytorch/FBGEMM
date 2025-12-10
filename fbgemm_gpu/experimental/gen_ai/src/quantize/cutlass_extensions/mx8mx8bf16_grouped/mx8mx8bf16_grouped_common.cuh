@@ -65,15 +65,10 @@ at::Tensor mx8mx8bf16_grouped_impl(
     at::Tensor offsets) {
   c10::cuda::CUDAGuard deviceGuard(XQ.device());
   // The number of groups the kernel uses may vary.
-  int kernel_groups = G;
+  const int kernel_groups = G;
 
   at::TensorOptions options;
   options = XQ.options();
-
-  // Return early if there are no elements in the output.
-  if (output.numel() == 0) {
-    return output;
-  }
 
   // WQ is shape (K,N) or (E,K,N) in column major layout, to align with
   // torch._scaled_grouped_mm. We transpose here to match cutlass kernel
