@@ -38,7 +38,9 @@ namespace cutlass::fmha::collective {
 
 template<
     class Element_,
-    class StrideO_
+    class StrideO_, 
+    class ElementAcc_, 
+    class StrideLSE_
 >
 struct Sm100FmhaGenEpilogueWarpspecialized {
     
@@ -47,9 +49,11 @@ struct Sm100FmhaGenEpilogueWarpspecialized {
   using SmemLayoutO = Layout<Shape<_1, _1, _1>>;
   using SmemLayoutO_ = SmemLayoutO;
   using Element = Element_;
+  using ElementAcc = ElementAcc_;
   using StrideOOrig = StrideO_;
   using StrideO = decltype(replace<0>(StrideOOrig{}, 0));
-  
+  using StrideLSE = StrideLSE_;
+
   struct TensorStorage {
 
     using SmemLayoutO = SmemLayoutO_;
@@ -60,6 +64,8 @@ struct Sm100FmhaGenEpilogueWarpspecialized {
   struct Arguments {
     Element* ptr_o;
     StrideO dO;
+    ElementAcc* ptr_LSE;
+    StrideLSE dLSE;
   };
 
   using Params = Arguments;

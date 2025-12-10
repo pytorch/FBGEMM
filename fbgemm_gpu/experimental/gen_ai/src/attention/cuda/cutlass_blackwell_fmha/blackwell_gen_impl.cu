@@ -99,6 +99,7 @@ struct GenRunner {
   using StrideNewV = StrideNewK;
   using StrideCacheV = StrideCacheK;
   using StrideO = StrideQ;
+  using StrideLSE = Stride<int, int, _1>;
 
   using Mainloop =
       cutlass::fmha::collective::Sm100FmhaGenMainloopWarpspecialized<
@@ -117,7 +118,9 @@ struct GenRunner {
   using Epilogue =
       cutlass::fmha::collective::Sm100FmhaGenEpilogueWarpspecialized<
           ElementOut,
-          StrideO>;
+          StrideO,
+          ElementAcc,
+          StrideLSE>;
 
   using TileScheduler = std::conditional_t<
       kKernelType == KernelType::UMMA_P,
@@ -138,12 +141,14 @@ struct GenRunner {
   StrideCacheK stride_cache_k;
   StrideCacheV stride_cache_v;
   StrideO stride_o;
+  StrideLSE stride_lse;
 
   at::Tensor block_o;
+  at::Tensor block_lse;
   at::Tensor q, k, v, seqlen_kv;
   std::optional<at::Tensor> batch_idx;
 
-  at::Tensor fmha_fwd(
+  std::tuple<at::Tensor, at::Tensor> fmha_fwd(
       const at::Tensor& q_input,
       const at::Tensor& k_input,
       const at::Tensor& v_input,
@@ -177,7 +182,7 @@ struct GenRunner {
 
     run(options, hw_info);
 
-    return block_o;
+    return std::make_tuple(block_o, block_lse);
   }
 
   ProblemShape _initialize(const InputShape& options) {
@@ -210,11 +215,18 @@ struct GenRunner {
     stride_new_v = stride_new_k;
     stride_cache_v = stride_cache_k;
     stride_o = stride_q;
+    stride_lse = make_stride(options.h_k * h_r, h_r, cute::_1{});
 
     block_o = at::empty(
         q.sizes(),
         at::TensorOptions()
             .dtype(to_torch_type<ElementOut>())
+            .device(at::Device(at::kCUDA, at::cuda::current_device())));
+
+    block_lse = at::empty(
+        {options.b, options.h, _1{}},
+        at::TensorOptions()
+            .dtype(at::kFloat)
             .device(at::Device(at::kCUDA, at::cuda::current_device())));
 
     return result;
@@ -241,6 +253,8 @@ struct GenRunner {
         stride_cache_v,
         static_cast<ElementOut*>(block_o.data_ptr()),
         stride_o,
+        static_cast<ElementAcc*>(block_lse.data_ptr()),
+        stride_lse,
         hw_info};
 
     Operation op;
@@ -306,7 +320,7 @@ struct GenRunner {
   }()
 
 template <typename Element, KernelType KType, int HeadDim>
-at::Tensor run_gen_runner_fwd(
+std::tuple<at::Tensor, at::Tensor> run_gen_runner_fwd(
     const at::Tensor& q,
     const at::Tensor& k,
     const at::Tensor& v,
@@ -321,7 +335,7 @@ at::Tensor run_gen_runner_fwd(
   }
 }
 
-at::Tensor dispatch_fmha_gen_fwd(
+std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd(
     const at::Tensor& q,
     const at::Tensor& k,
     const at::Tensor& v,
@@ -343,7 +357,7 @@ at::Tensor dispatch_fmha_gen_fwd(
   });
 }
 
-at::Tensor dispatch_fmha_gen_fwd_meta(
+std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd_meta(
     const at::Tensor& q,
     const at::Tensor& k,
     const at::Tensor& v,
@@ -351,7 +365,16 @@ at::Tensor dispatch_fmha_gen_fwd_meta(
     const std::optional<at::Tensor>& batch_idx,
     int64_t kernel_type
   ) {
-  return at::empty_like(q);
+  // Return tuple matching the operator signature: (output, lse)
+  at::Tensor output = at::empty_like(q);
+  // LSE should have shape [B, num_splits, H]
+  int b = q.size(0);
+  int h = q.size(2);
+  // For meta, just create a dummy LSE with single split
+  at::Tensor lse = at::empty(
+      {b, 1, h},
+      at::TensorOptions().dtype(at::kFloat).device(at::kMeta));
+  return std::make_tuple(output, lse);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -359,14 +382,13 @@ at::Tensor dispatch_fmha_gen_fwd_meta(
 // -------------------------------------------------------------------------------------------------
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("fmha_gen_fwd("
-        "    Tensor query, "
-        "    Tensor key, "
-        "    Tensor value, "
-        "    Tensor seqlen_kv, "
-        "    Tensor? batch_idx = None,"
-        "    int kernel_type = 0"
-        ") -> Tensor"
-  );
+      "    Tensor query, "
+      "    Tensor key, "
+      "    Tensor value, "
+      "    Tensor seqlen_kv, "
+      "    Tensor? batch_idx = None,"
+      "    int kernel_type = 0"
+      ") -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {

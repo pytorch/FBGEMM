@@ -168,6 +168,9 @@ struct Sm100FmhaGenKernelWarpspecialized {
     ElementOut* ptr_o;     // 1 x D x (H x B)
     StrideOOrig dO;
 
+    ElementAcc* ptr_LSE; // (B, H_K, H_R)
+    cute::Stride<int, int, cute::_1> dLSE; // stride: (H_K*H_R, H_R, 1)
+
     cutlass::KernelHardwareInfo hw_info;
 
     ElementAcc scale_softmax = 0.0f;
@@ -227,6 +230,8 @@ struct Sm100FmhaGenKernelWarpspecialized {
 
     typename CollectiveEpilogue::Arguments epilogue_args {
       args.ptr_o, dO,
+        args.ptr_LSE,
+        args.dLSE,
     };
 
     return Params{

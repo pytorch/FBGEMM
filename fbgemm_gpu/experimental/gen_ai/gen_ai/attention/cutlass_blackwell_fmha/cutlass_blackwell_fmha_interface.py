@@ -180,26 +180,6 @@ def _prepare_decode_inputs(
     return q, k, v, batch_size, needs_reshape_output, original_shape
 
 
-def _create_decode_lse(
-    out: torch.Tensor,
-    batch_size: int,
-    needs_reshape_output: bool,
-    q_shape: tuple[int, ...],
-) -> torch.Tensor:
-    """
-    Create dummy LSE tensor for decode output compatibility.
-    Gen kernel doesn't return LSE, so we create a zero tensor.
-    """
-    if needs_reshape_output:
-        # For varlen output format
-        lse_shape = [batch_size, q_shape[-1]]  # [B, H]
-    else:
-        # For batch output format
-        lse_shape = [batch_size, q_shape[-2], q_shape[1]]  # [B, H, 1]
-
-    return torch.zeros(*lse_shape, dtype=torch.float32, device=out.device)
-
-
 def cutlass_blackwell_fmha_decode_forward(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -233,7 +213,7 @@ def cutlass_blackwell_fmha_decode_forward(
         q, k, v
     )
     # Call the gen kernel (optimized for decode)
-    out = torch.ops.fbgemm.fmha_gen_fwd(
+    out, lse = torch.ops.fbgemm.fmha_gen_fwd(
         q,
         k,
         v,
@@ -247,9 +227,6 @@ def cutlass_blackwell_fmha_decode_forward(
     # Reshape output back to original format if needed
     if needs_reshape_output:
         out = out.view(*original_shape)
-
-    # Create dummy LSE for compatibility
-    lse = _create_decode_lse(out, batch_size, needs_reshape_output, original_shape)
 
     return out, lse
 

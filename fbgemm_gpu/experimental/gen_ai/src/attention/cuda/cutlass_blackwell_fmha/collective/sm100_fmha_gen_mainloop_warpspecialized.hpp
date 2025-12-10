@@ -870,12 +870,12 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     ++pipeline_s_consumer_state;
   }
 
-  template<class Vector, class GTensor, class CTensor, class Shape, class Epilogue>
+  template<class Vector, class GTensor, class CTensor, class Shape, class Epilogue, class BlkCoord, class ProblemShape>
   CUTLASS_DEVICE auto
   correction_epilogue(
       float scale_softmax_log2, float scale_out, Vector const& v0, Vector const& v1, 
       GTensor& gO, CTensor const& cO, Shape const& g_shape,
-      Epilogue const& epilogue) {
+      Epilogue const& epilogue, BlkCoord const& blk_coord, ProblemShape const& problem_shape,int const row_idx) {
 
     using ElementOut = typename GTensor::value_type;
 
@@ -886,7 +886,6 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     // good values would be either 32 or 64
     const int kCorrectionTileSize = 32 / sizeof(ElementOut); 
     // TODO: load all values
-
 
     // Choose TMEM OP based on
     // - TileM shape
@@ -932,6 +931,31 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     float row_sum = adj0 * v0(kIdxFinalRowSum) + adj1 * v1(kIdxFinalRowSum);
     float scale0 = scale_out * adj0 / row_sum;
     float scale1 = scale_out * adj1 / row_sum;
+
+    // Compute and store LSE if requested
+    if (epilogue.params.ptr_LSE != nullptr) {
+      // LSE = log(row_sum) + scale_softmax * row_max
+      // scale_softmax_log2 is already in log2 space, convert to natural log
+      float lse = cutlass::fast_log(row_sum) + (scale_softmax_log2 / std::log2(std::exp(1.0f))) * row_max;
+      int h_r = row_idx;
+      int h_k = get<2, 0>(blk_coord);
+      int b = get<2, 1>(blk_coord);
+
+      // After problem_shape transformation in kernel:
+      // problem_shape = (H_R, Sk, D, ((1, H_K), B))
+      // So: get<0> = H_R, get<3,0,1> = H_K
+      int H_R = get<0>(problem_shape);
+
+      // Check bounds
+      if (thread_idx < H_R) {
+        // LSE tensor shape: [B, H_K, H_R]
+        // Use stride from epilogue.params.dLSE instead of hardcoding
+        int linear_idx = b * get<0>(epilogue.params.dLSE) +
+            h_k * get<1>(epilogue.params.dLSE) +
+            h_r * get<2>(epilogue.params.dLSE);
+        epilogue.params.ptr_LSE[linear_idx] = lse;
+      }
+    }
 
     float2 scale0_f32x2 = make_float2(scale0, scale0);
     float2 scale1_f32x2 = make_float2(scale1, scale1);
@@ -1223,8 +1247,9 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     auto g_shape = select<0,2>(problem_shape);
     auto mO = make_tensor(make_gmem_ptr(epilogue.params.ptr_o), append<3>(select<0,1>(TileShapePV{}), get<3>(problem_shape)), epilogue.params.dO);
     auto gO = mO(_, _, get<2>(blk_coord));
-
-    correction_epilogue(params.scale_softmax_log2, params.scale_output, tTMEM_LOADVrS0, tTMEM_LOADVrS1, gO, cO, g_shape, epilogue);
+    int row_idx = get<0>(tTMEM_LOADVcS(_0{}));
+    correction_epilogue(params.scale_softmax_log2, params.scale_output, tTMEM_LOADVrS0, tTMEM_LOADVrS1, 
+      gO, cO, g_shape, epilogue, blk_coord, problem_shape, row_idx);
 
     cutlass::arch::fence_view_async_tmem_load();
 
