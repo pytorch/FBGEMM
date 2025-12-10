@@ -807,6 +807,26 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     int input_columns,
     OutputType* output,
     [[maybe_unused]] bool scale_bias_last) {
+#if HAVE_SVE
+  switch (bit_rate) {
+    case 2:
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<OutputType, 2>(
+          input, input_rows, input_columns, output);
+      break;
+    case 4:
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<OutputType, 4>(
+          input, input_rows, input_columns, output);
+      break;
+    case 8:
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<OutputType, 8>(
+          input, input_rows, input_columns, output);
+      break;
+    default:
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+          bit_rate, input, input_rows, input_columns, output);
+  }
+#else
+
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     switch (bit_rate) {
@@ -831,6 +851,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
         bit_rate, input, input_rows, input_columns, output);
   }
+#endif
 }
 
 template <typename OutputType, bool is_uint16_t_of_type_bf16>
