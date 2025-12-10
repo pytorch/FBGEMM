@@ -14,6 +14,7 @@ from einops import rearrange
 
 from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
     _cutlass_blackwell_fmha_forward,
+    cutlass_blackwell_fmha_decode_forward,
     cutlass_blackwell_fmha_func,
 )
 from parameterized import parameterized
@@ -277,6 +278,147 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         )
 
         return k_blocks, v_blocks, page_table
+
+    def _execute_cutlass_blackwell_attn_decode(
+        self,
+        batch_size: int,
+        kv_padding: int,
+        q_heads: int,
+        kv_heads: int,
+        head_dim: int,
+        dtype: torch.dtype,
+        window_size: tuple[int, int],
+        sm_scale: Optional[float],
+        use_full_seqlen: bool = False,
+    ) -> None:
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        torch.manual_seed(SEED)
+        seqlen_q = 1
+        causal = True
+        assert seqlen_q <= kv_padding
+
+        q, k, v = self._generate_qkv(
+            batch_size,
+            seqlen_q,
+            kv_padding,
+            q_heads,
+            kv_heads,
+            head_dim,
+            device,
+            dtype,
+        )
+        # Generate random key padding mask using utility function
+        # For FP8, use full sequences (no variable lengths) since FP8 ref doesn't support masks
+        if use_full_seqlen:
+            key_padding_mask = generate_random_padding_mask(
+                kv_padding, batch_size, device, mode="full", zero_lengths=False
+            )
+        else:
+            key_padding_mask = generate_random_padding_mask(
+                kv_padding, batch_size, device, mode="random", zero_lengths=False
+            )
+        query_padding_mask = generate_random_padding_mask(
+            seqlen_q, batch_size, device, mode="full", zero_lengths=False
+        )
+
+        (
+            _q_unpad,
+            _k_unpad,
+            _v_unpad,
+            _cu_seqlens_q,
+            _cu_seqlens_k,
+            _seqused_q,
+            _seqused_k,
+            max_seqlen_q,
+            max_seqlen_k,
+            q_for_ref,
+            k_for_ref,
+            v_for_ref,
+            _output_pad_fn,
+            _dq_pad_fn,
+            _dk_pad_fn,
+        ) = generate_qkv(
+            q,
+            k,
+            v,
+            query_padding_mask=query_padding_mask,
+            key_padding_mask=key_padding_mask,
+        )
+
+        # Run reference attention (also capture LSE for validation)
+        out_baseline, _, lse_ref = attention_ref(
+            q,
+            k,
+            v,
+            query_padding_mask=query_padding_mask,
+            key_padding_mask=key_padding_mask,
+            causal=causal,
+            window_size=window_size,
+            upcast=True,
+            softmax_scale=sm_scale,
+            return_lse=True,
+        )
+        if dtype == torch.float8_e4m3fn:
+            # reference implementation only supports decode case (seqlen_q == 1)
+            # FP8 reference doesn't support masks or LSE
+            out_ref = attention_ref_fp8(q, k, v)
+            out_pt = attention_ref_fp8(q, k, v, reorder_ops=True)
+
+        else:
+            out_ref = out_baseline
+            out_pt, _ = attention_ref(
+                q,
+                k,
+                v,
+                query_padding_mask=query_padding_mask,
+                key_padding_mask=key_padding_mask,
+                causal=causal,
+                window_size=window_size,
+                reorder_ops=True,
+                upcast=False,
+                softmax_scale=sm_scale,
+            )
+        if DEBUG:
+            print(f"KV padding (constant): {kv_padding}")
+            print(f"seqlen_kv (variable): {_seqused_k}")
+        # Run decode-specific kernel
+        out, lse = cutlass_blackwell_fmha_decode_forward(
+            q,
+            k,
+            v,
+            seqlen_kv=_seqused_k,
+            cu_seqlens_q=None,
+            cu_seqlens_k=None,
+            max_seq_len_q=None,
+            max_seq_len_k=None,
+            softmax_scale=sm_scale,
+            causal=causal,
+            window_left=window_size[0],
+            window_right=window_size[1],
+            bottom_right=True,
+        )
+
+        if DEBUG:
+            print("cutlass_blackwell_fmha_decode_forward completed successfully!")
+
+        # Compare outputs
+        self._allclose(out, out_ref, out_pt)
+        # Validate LSE correctness (skip for FP8 since ref doesn't support LSE)
+        if dtype != torch.float8_e4m3fn:
+            assert (
+                lse.shape == lse_ref.shape
+            ), f"LSE shape mismatch: {lse.shape} vs {lse_ref.shape}"
+
+            lse_diff = (lse - lse_ref).abs().max().item()
+            if DEBUG:
+                print(f"LSE shape from kernel: {lse.shape}")
+                print(f"LSE shape from reference: {lse_ref.shape}")
+                print(f"Max LSE difference: {lse_diff}")
+
+            assert (
+                lse_diff <= 1e-2
+            ), f"LSE comparison failed: max_diff={lse_diff:.6f} > 1e-2"
 
     def _execute_cutlass_blackwell_attn_dense(
         self,
@@ -681,7 +823,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         [
             (
                 dtype,
-                seqlen_k,
+                kv_padding,
                 batch_size,
                 is_mqa,
                 window_size,
@@ -690,7 +832,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 num_groups,
             )
             for dtype in [torch.bfloat16, torch.float8_e4m3fn]
-            for seqlen_k in [64, 128, 256, 1024]
+            for kv_padding in [64, 128, 256, 1024]
             for batch_size in [1, 2]
             for is_mqa in [True, False]
             for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
@@ -702,7 +844,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
     def test_decode(
         self,
         dtype: torch.dtype,
-        seqlen_k: int,
+        kv_padding: int,
         batch_size: int,
         is_mqa: bool,
         window_size: tuple[int, int],
@@ -711,12 +853,10 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         num_groups: int = 1,
         q_heads: int = 8,
     ) -> None:
-        seqlen_q = 1
-        causal = True
         if DEBUG:
             print(
                 f"Running test_decode with params: "
-                f"dtype={dtype}, seqlen_k={seqlen_k}, batch_size={batch_size}, "
+                f"dtype={dtype}, kv_padding={kv_padding}, batch_size={batch_size}, "
                 f"is_mqa={is_mqa}, window_size={window_size}, head_dim={head_dim}, "
                 f"sm_scale={sm_scale}, q_heads={q_heads}"
             )
@@ -725,23 +865,18 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         if dtype == torch.float8_e4m3fn and head_dim == 64:
             self.skipTest("Skip: Numerical precision issue with FP8, head_dim=64")
 
-        self._execute_cutlass_blackwell_attn_dense(
+        self._execute_cutlass_blackwell_attn_decode(
             batch_size,
-            seqlen_q,
-            seqlen_k,
+            kv_padding,
             q_heads,
             kv_heads=num_groups if is_mqa else q_heads,
             head_dim=head_dim,
-            page_block_size=0,
             dtype=dtype,
-            causal=causal,
             # Decode kernel does not support sliding window attention yet
             window_size=(-1, -1),
-            fwd_only=True,
-            deterministic=False,
-            # Decode kernel does not support sm_scale
             sm_scale=None,
-            is_paged=False,
+            # FP8 ref doesn't support variable lengths, use full sequences
+            use_full_seqlen=(dtype == torch.float8_e4m3fn),
         )
 
     @skip_cuda_lt_sm100

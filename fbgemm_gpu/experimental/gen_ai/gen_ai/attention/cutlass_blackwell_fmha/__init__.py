@@ -31,6 +31,7 @@ else:
 from . import cutlass_blackwell_fmha_custom_op  # noqa: F401
 from .cutlass_blackwell_fmha_interface import (  # noqa: F401
     _cutlass_blackwell_fmha_forward,
+    cutlass_blackwell_fmha_decode_forward,
     cutlass_blackwell_fmha_func,
 )
 
@@ -40,5 +41,6 @@ from .cutlass_blackwell_fmha_interface import (  # noqa: F401
 # Production code should use cutlass_blackwell_fmha_func instead.
 __all__ = [
     "_cutlass_blackwell_fmha_forward",
+    "cutlass_blackwell_fmha_decode_forward",
     "cutlass_blackwell_fmha_func",
 ]
