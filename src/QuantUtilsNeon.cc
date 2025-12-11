@@ -588,6 +588,154 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
   } // for each row
 }
 
+template <typename OutputType, int BIT_RATE>
+void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
+    const std::uint8_t* input,
+    size_t input_rows,
+    int input_columns,
+    OutputType* output) {
+  svbool_t allTruePred = svptrue_b8();
+  constexpr size_t kNumElemsPerIter = 8;
+  constexpr size_t kNumBytesPerIter = BIT_RATE;
+  constexpr size_t kNumElemsPerByte = 8 / BIT_RATE;
+
+  size_t bytesPerRow = std::max<int>(input_columns - 2 * sizeof(uint16_t), 0);
+  size_t output_columns = bytesPerRow * kNumElemsPerByte;
+
+  size_t input_columns_mod = bytesPerRow % kNumBytesPerIter;
+  size_t output_columns_mod = output_columns % kNumElemsPerIter;
+  svbool_t lastPredA = svwhilelt_b32_u64(0, output_columns_mod);
+  svbool_t lastPredB = svwhilelt_b32_u64(4, output_columns_mod);
+  svbool_t lastPredC = svwhilelt_b16_u64(0, output_columns_mod);
+  svbool_t lastPredD = svwhilelt_b64_u64(0, input_columns_mod);
+  svbool_t lastPredE = svwhilelt_b64_u64(2, input_columns_mod);
+
+  svuint32_t shift = svindex_u32(0, 2); // {0, 2, 4, 6};
+  svuint64_t multiplier = svdup_n_u64((1ULL << 28) + 1);
+
+  for (; input_rows > 0; --input_rows) {
+    const float* input_row_scale_bias =
+        reinterpret_cast<const float*>(input + bytesPerRow);
+
+    svfloat16_t scale_bias_v =
+        svreinterpret_f16_f32(svdup_n_f32(*input_row_scale_bias));
+
+    svfloat32_t scale_v =
+        svcvt_f32_f16_m(svundef_f32(), allTruePred, scale_bias_v);
+    svfloat32_t bias_v =
+        svcvtlt_f32_f16_m(svundef_f32(), allTruePred, scale_bias_v);
+
+    for (size_t iters = bytesPerRow / kNumBytesPerIter;
+         __builtin_expect(iters > 0, 1);
+         --iters) {
+      svuint32_t in_v_0;
+      svuint32_t in_v_1;
+      if constexpr (BIT_RATE == 8) {
+        in_v_0 = svld1ub_u32(allTruePred, input);
+        in_v_1 = svld1ub_u32(allTruePred, input + 4);
+
+        input += 8;
+      } else if constexpr (BIT_RATE == 4) {
+        in_v_0 = svreinterpret_u32_u64(svld1ub_u64(allTruePred, input));
+        in_v_1 = svreinterpret_u32_u64(svld1ub_u64(allTruePred, input + 2));
+
+        input += 4;
+
+        in_v_0 =
+            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_0) * multiplier);
+        in_v_1 =
+            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_1) * multiplier);
+
+        in_v_0 &= 15;
+        in_v_1 &= 15;
+      } else if constexpr (BIT_RATE == 2) {
+        in_v_0 = svreinterpret_u32_u8(svdup_n_u8(input[0]));
+        in_v_1 = svreinterpret_u32_u8(svdup_n_u8(input[1]));
+
+        input += 2;
+
+        in_v_0 = in_v_0 >> shift;
+        in_v_1 = in_v_1 >> shift;
+
+        in_v_0 &= 3;
+        in_v_1 &= 3;
+      }
+
+      svfloat32_t in_v_0_f = svcvt_f32_u32_x(allTruePred, in_v_0);
+      svfloat32_t in_v_1_f = svcvt_f32_u32_x(allTruePred, in_v_1);
+
+      in_v_0_f = svmad_f32_m(allTruePred, in_v_0_f, scale_v, bias_v);
+      in_v_1_f = svmad_f32_m(allTruePred, in_v_1_f, scale_v, bias_v);
+
+      if constexpr (std::is_same<OutputType, float>()) {
+        vst1q_f32(output, svget_neonq(in_v_0_f));
+        vst1q_f32(output + 4, svget_neonq(in_v_1_f));
+      } else {
+        float16x4_t dequantzed_v_half_low = vcvt_f16_f32(svget_neonq(in_v_0_f));
+        float16x4_t dequantzed_v_half_high =
+            vcvt_f16_f32(svget_neonq(in_v_1_f));
+        vst1_f16(reinterpret_cast<float16_t*>(output), dequantzed_v_half_low);
+        vst1_f16(
+            reinterpret_cast<float16_t*>(output + 4), dequantzed_v_half_high);
+      }
+
+      output += 8;
+    }
+
+    if (output_columns_mod != 0) {
+      svuint32_t in_v_0;
+      svuint32_t in_v_1;
+      if constexpr (BIT_RATE == 8) {
+        in_v_0 = svld1ub_u32(lastPredA, input);
+        in_v_1 = svld1ub_u32(lastPredB, input + 4);
+      } else if constexpr (BIT_RATE == 4) {
+        in_v_0 = svreinterpret_u32_u64(svld1ub_u64(lastPredD, input));
+        in_v_1 = svreinterpret_u32_u64(svld1ub_u64(lastPredE, input + 2));
+
+        in_v_0 =
+            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_0) * multiplier);
+        in_v_1 =
+            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_1) * multiplier);
+
+        in_v_0 &= 15;
+        in_v_1 &= 15;
+      } else if constexpr (BIT_RATE == 2) {
+        in_v_0 = svreinterpret_u32_u8(svdup_n_u8(input[0]));
+
+        in_v_0 = in_v_0 >> shift;
+
+        in_v_0 &= 3;
+      }
+
+      input += input_columns_mod;
+
+      svfloat32_t in_v_0_f = svcvt_f32_u32_x(lastPredA, in_v_0);
+      svfloat32_t in_v_1_f = svcvt_f32_u32_x(lastPredB, in_v_1);
+
+      in_v_0_f = svmad_f32_m(lastPredA, in_v_0_f, scale_v, bias_v);
+      in_v_1_f = svmad_f32_m(lastPredB, in_v_1_f, scale_v, bias_v);
+
+      if constexpr (std::is_same<OutputType, float>()) {
+        svst1_f32(lastPredA, output, in_v_0_f);
+        svst1_f32(lastPredB, output + 4, in_v_1_f);
+      } else {
+        float16x4_t dequantzed_v_half_low_low =
+            vcvt_f16_f32(svget_neonq(in_v_0_f));
+        float16x8_t dequantzed_v_half_low =
+            vcvt_high_f16_f32(dequantzed_v_half_low_low, svget_neonq(in_v_1_f));
+        svst1_f16(
+            lastPredC,
+            reinterpret_cast<float16_t*>(output),
+            svset_neonq_f16(svundef_f16(), dequantzed_v_half_low));
+      }
+
+      output += output_columns_mod;
+    }
+
+    input += 2 * sizeof(uint16_t);
+  } // for each row
+}
+
 #define INSTANTIATE_QuantizationNeonFunctions8Bits(type)                 \
   template void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon<type>( \
       const std::uint8_t* input,                                         \
@@ -612,7 +760,13 @@ INSTANTIATE_QuantizationNeonFunctions8Bits(float16)
       const type* input,                                            \
       size_t input_rows,                                            \
       int input_columns,                                            \
-      std::uint8_t* output);
+      std::uint8_t* output);                                        \
+  template void                                                     \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<type, bit_rate>( \
+      const std::uint8_t* input,                                    \
+      size_t input_rows,                                            \
+      int input_columns,                                            \
+      type* output);
 
     // clang-format off
 INSTANTIATE_QuantizationNeonFunctionsNBits(float, 2)
