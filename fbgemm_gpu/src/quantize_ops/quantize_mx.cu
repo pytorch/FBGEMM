@@ -15,10 +15,13 @@
 #include <torch/types.h>
 
 #include "c10/core/ScalarType.h"
+#include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/quantize_ops.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
+#include "fbgemm_gpu/utils/vec_quant.cuh"
 
 #include <ATen/core/TensorAccessor.h>
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -34,7 +37,7 @@ int32_t compute_smem_bytes(
       (num_groups_per_block * mx_group_size) * sizeof(uint8_t);
 
   if (num_warps_in_group > 1) {
-    return max(
+    return std::max(
         num_warps_in_group * (num_groups_per_block) * sizeof(int), smem_size);
   }
   return smem_size;
@@ -157,7 +160,7 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
       num_warps_in_group);
 
   const auto gridDim_x =
-      max(1, div_round_up(total_num_groups, num_groups_per_block));
+      std::max(1, div_round_up(total_num_groups, num_groups_per_block));
 
   const dim3 gridDim(gridDim_x);
   const dim3 blockDim(mx_group_size, num_groups_per_block);
@@ -197,22 +200,27 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
         rd,
         PTA_B(output, uint8_t, 1, 64),
         num_warps_in_group,
-        max(num_warps_in_group, int(mx_group_size / 4))); // smem_stride
+        std::max(
+            num_warps_in_group,
+            static_cast<uint32_t>(mx_group_size / 4))); // smem_stride
   }
   return output;
 }
 
 DLL_PUBLIC at::Tensor dequantize_mx_cuda(
     const at::Tensor& input,
-    const int64_t mx_group_size) {
+    const int64_t mx_group_size,
+    const int64_t output_dtype = 0) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input);
   TORCH_CHECK(mx_group_size > 0, "Group size needs to be > 0");
   TORCH_CHECK(
       mx_group_size % 32 == 0,
       "Group size needs to be multiply of 32 but is found to be ",
       mx_group_size);
+  const at::ScalarType out_dtype =
+      getScalarType(static_cast<SparseType>(output_dtype));
   if (input.numel() == 0) {
-    return at::empty(0, input.options().dtype(at::kFloat));
+    return at::empty(0, input.options().dtype(out_dtype));
   }
 
   at::Device device = input.device();
@@ -241,12 +249,12 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
       total_elems);
   const uint32_t total_num_groups = total_quant_elems / mx_group_size;
 
-  auto output = at::empty(
-      total_elems, // 4 = sizeof(float)
-      input.options().dtype(at::kFloat));
+  // Use SparseType enum to get output dtype
+
+  auto output = at::empty(total_elems, input.options().dtype(out_dtype));
   const int num_groups_per_block = MAX_THREADS / mx_group_size;
   const auto gridDim_x =
-      max(1, div_round_up(total_num_groups, num_groups_per_block));
+      std::max(1, div_round_up(total_num_groups, num_groups_per_block));
 
   const dim3 gridDim(gridDim_x);
   const dim3 blockDim(mx_group_size, num_groups_per_block);
@@ -263,10 +271,20 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
       max_grid_size);
 
   // Call CUDA kernel
-  if (input.dtype() == torch::ScalarType::Half) {
-    TORCH_CHECK(0, " fp16 not supported for MX");
-
-  } else {
+  if (out_dtype == at::ScalarType::Half) {
+    TORCH_CHECK(0, "FP16 not supported for MX");
+  } else if (out_dtype == at::ScalarType::BFloat16) {
+    FBGEMM_LAUNCH_KERNEL(
+        (dequantize_mx4_to_float_kernel<at::BFloat16>),
+        gridDim,
+        blockDim,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        PTA_B(input, uint8_t, 1, 64),
+        mx_group_size,
+        total_quant_elems,
+        PTA_B(output, at::BFloat16, 1, 64));
+  } else { // FP32 default
     FBGEMM_LAUNCH_KERNEL(
         (dequantize_mx4_to_float_kernel<float>),
         gridDim,

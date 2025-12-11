@@ -518,7 +518,8 @@ at::Tensor quantize_mx_cuda(
 
 at::Tensor dequantize_mx_cuda(
     const at::Tensor& input,
-    const int64_t mx_group_size);
+    const int64_t mx_group_size,
+    const int64_t output_dtype = 0);
 
 ///@ingroup sparse-data-cuda
 at::Tensor reorder_batched_ad_lengths_gpu(
