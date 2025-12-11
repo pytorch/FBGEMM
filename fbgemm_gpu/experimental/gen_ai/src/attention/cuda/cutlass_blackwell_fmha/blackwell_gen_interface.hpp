@@ -41,7 +41,7 @@ at::ScalarType to_torch_type() {
 }
 
 // Main dispatch function for the generation FMHA
-at::Tensor dispatch_fmha_gen_fwd(
+std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd(
     const at::Tensor& q,
     const at::Tensor& k,
     const at::Tensor& v,
