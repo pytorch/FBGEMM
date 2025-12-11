@@ -293,6 +293,7 @@ void EmbeddingKVDB::stream_cuda(
         indices,
         weights,
         std::nullopt, /*identities*/
+        std::nullopt, /*runtime_meta*/
         count,
         true, /*require_tensor_copy*/
         blocking_tensor_copy);
