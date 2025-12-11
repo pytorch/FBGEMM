@@ -276,15 +276,32 @@ __global__ void dequantize_mx4_to_float_kernel(
   // last 4 bits
 
   // CUDA_KERNEL_ASSERT(low < 16 && elem < 16 && low_2 < 16 && elem2 < 16);
-
-  float4* output_ptr = reinterpret_cast<float4*>(&output[output_idx]);
   const int exp = shared_exp - FLOAT32_EXP_BIAS;
-  float4 deq;
-  deq.x = scalbn(MX4_values[low_1], exp);
-  deq.y = scalbn(MX4_values[high_1], exp);
-  deq.z = scalbn(MX4_values[low_2], exp);
-  deq.w = scalbn(MX4_values[high_2], exp);
-  *output_ptr = deq;
+
+  // Use vectorized stores based on output type
+  // Uses vectorized stores: float4 (FP32), __nv_bfloat162 (BF16)
+  if constexpr (std::is_same_v<T, float>) {
+    // FP32: Single 128-bit vectorized store
+    float4* output_ptr = reinterpret_cast<float4*>(&output[output_idx]);
+    float4 deq;
+    deq.x = scalbn(MX4_values[low_1], exp);
+    deq.y = scalbn(MX4_values[high_1], exp);
+    deq.z = scalbn(MX4_values[low_2], exp);
+    deq.w = scalbn(MX4_values[high_2], exp);
+    *output_ptr = deq;
+  } else if constexpr (std::is_same_v<T, at::BFloat16>) {
+    // BF16: Scalar stores
+    // Using paired intrinsics could be more efficient but have caused platform
+    // compatibility issues with hip/rocm
+    output[output_idx] =
+        static_cast<at::BFloat16>(scalbn(MX4_values[low_1], exp));
+    output[output_idx + 1] =
+        static_cast<at::BFloat16>(scalbn(MX4_values[high_1], exp));
+    output[output_idx + 2] =
+        static_cast<at::BFloat16>(scalbn(MX4_values[low_2], exp));
+    output[output_idx + 3] =
+        static_cast<at::BFloat16>(scalbn(MX4_values[high_2], exp));
+  }
 }
 
 #endif
