@@ -255,7 +255,7 @@ DEVICE_INLINE T warpReduceMax(T val, uint32_t warp_mask = FINAL_MASK) {
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
 #ifdef __HIP_PLATFORM_AMD__
-    val = max(val, shfl_xor(warp_mask, val, offset, 32));
+    val = std::max(val, shfl_xor(warp_mask, val, offset, 32));
 #else
     val = fmaxf(val, __shfl_down_sync(warp_mask, val, offset));
 #endif
