@@ -153,6 +153,7 @@ struct Sm100FmhaGenKernelWarpspecialized {
     ProblemShapeIn problem_shape;
     const int* seqlen_kv;
     const int* cache_batch_idx;
+    int splitk_size = 0;
 
     const Element* ptr_q;  // 1 x D x (H x B)
     StrideQOrig dQ;
@@ -225,7 +226,8 @@ struct Sm100FmhaGenKernelWarpspecialized {
         args.ptr_cache_k, args.dCacheK,
         args.ptr_cache_v, args.dCacheV,
       },
-      args.scale_softmax
+      args.scale_softmax,
+      args.splitk_size
     };
 
     typename CollectiveEpilogue::Arguments epilogue_args {
@@ -239,16 +241,38 @@ struct Sm100FmhaGenKernelWarpspecialized {
         args.seqlen_kv,
         CollectiveMainloop::to_underlying_arguments(problem_shape, mainloop_args, workspace),
         CollectiveEpilogue::to_underlying_arguments(problem_shape, epilogue_args, workspace),
-        TileScheduler::to_underlying_arguments(problem_shape, args.hw_info, ClusterShape{}, TileShape{})
+        TileScheduler::to_underlying_arguments(problem_shape, args.hw_info, ClusterShape{}, TileShape{}, args.splitk_size)
     };
   }
 
-  CUTLASS_DEVICE auto apply_batch(const Params &params, ProblemShape const& problem_shape, int batch_idx) {
+  template<class BlkCoord>
+  CUTLASS_DEVICE auto apply_batch(const Params &params, ProblemShape const& problem_shape, BlkCoord const& blk_coord) {
+    int batch_idx = get<2,1>(blk_coord);
     ProblemShape result = problem_shape;
-    get<1>(result) = params.seqlen_kv[batch_idx];
+    
+    int seqlen_kv = params.seqlen_kv[batch_idx];
     if (params.mainloop.load.ptr_new_k != nullptr) {
-      get<1>(result) += 1;
+      seqlen_kv += 1;
     }
+    
+    // For split-K: compute the split's klen
+    int splitk_size = params.mainloop.splitk_size;
+    if constexpr (!cute::is_constant<0, decltype(get<1>(blk_coord))>::value) {
+      // Split-K mode: blk_coord has split_k_idx as an int
+      if (splitk_size > 0) {
+        int split_k_idx = get<1>(blk_coord);
+        int start_k = split_k_idx * splitk_size;
+        int end_k = cute::min(start_k + splitk_size, seqlen_kv);
+        // Handle case where start_k >= seqlen_kv (split has no work)
+        get<1>(result) = cute::max(0, end_k - start_k);
+      } else {
+        get<1>(result) = seqlen_kv;
+      }
+    } else {
+      // Non-split-K mode: use full sequence
+      get<1>(result) = seqlen_kv;
+    }
+    
     return result;
   }
 
@@ -432,9 +456,15 @@ struct Sm100FmhaGenKernelWarpspecialized {
         auto blk_coord = tile_scheduler.get_block_coord();
 
         auto logical_problem_shape = apply_batch(params,
-            params.problem_shape, get<2,1>(blk_coord));
+            params.problem_shape, blk_coord);
 
+        // Skip if Q tile is out of bounds
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
+          continue;
+        }
+
+        // Skip if there is no K/V sequence to attend to (seqlen_kv = 0 and no new K/V)
+        if (get<1>(logical_problem_shape) == 0) {
           continue;
         }
 
@@ -460,9 +490,18 @@ struct Sm100FmhaGenKernelWarpspecialized {
         auto blk_coord = tile_scheduler.get_block_coord();
 
         auto logical_problem_shape = apply_batch(params,
-            params.problem_shape, get<2,1>(blk_coord));
+            params.problem_shape, blk_coord);
 
+        // Skip if Q tile is out of bounds
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
+          continue;
+        }
+
+        // Handle empty splits (seqlen_kv = 0 for this split)
+        // For varlen batches where seqlen_kv < max_seqlen_k, some splits may have no valid K/V data.
+        // We must write neutral values (zeros for output, -inf for LSE) so merge produces correct results.
+        if (get<1>(logical_problem_shape) == 0) {
+          mainloop.write_empty_split(blk_coord, params.mainloop, params.problem_shape, epilogue);
           continue;
         }
 
@@ -480,6 +519,9 @@ struct Sm100FmhaGenKernelWarpspecialized {
 
       }
 
+      // TODO(T247866076): Apply lazy TMEM allocation pattern from FWD kernel.
+      // Currently TMEM is allocated unconditionally by MMA warp even for all-empty
+      // blocks. Should add `has_valid` tracking and conditional free like FWD kernel.
       if constexpr (NumWarpsEpilogue == 0) {
         static_assert(NumWarpsCorrection == 1);
 
@@ -491,6 +533,8 @@ struct Sm100FmhaGenKernelWarpspecialized {
     else if (role == WarpRole::MMA) {
       warpgroup_reg_set<NumRegsOther>();
 
+      // TODO(T247866076): Use lazy allocation - only allocate when first valid tile found.
+      // See FWD kernel for reference implementation with `bool allocated = false` pattern.
       tmem_allocator.allocate(TmemAllocator::Sm100TmemCapacityColumns, &shared_storage.tmem_base_ptr);
       __syncwarp();
 
@@ -499,9 +543,15 @@ struct Sm100FmhaGenKernelWarpspecialized {
         auto blk_coord = tile_scheduler.get_block_coord();
 
         auto logical_problem_shape = apply_batch(params,
-            params.problem_shape, get<2,1>(blk_coord));
+            params.problem_shape, blk_coord);
 
+        // Skip if Q tile is out of bounds
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
+          continue;
+        }
+
+        // Skip if there is no K/V sequence to attend to (seqlen_kv = 0 and no new K/V)
+        if (get<1>(logical_problem_shape) == 0) {
           continue;
         }
 
@@ -528,9 +578,15 @@ struct Sm100FmhaGenKernelWarpspecialized {
         auto blk_coord = tile_scheduler.get_block_coord();
 
         auto logical_problem_shape = apply_batch(params,
-            params.problem_shape, get<2,1>(blk_coord));
+            params.problem_shape, blk_coord);
 
+        // Skip if Q tile is out of bounds
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
+          continue;
+        }
+
+        // Skip if there is no K/V sequence to attend to (seqlen_kv = 0 and no new K/V)
+        if (get<1>(logical_problem_shape) == 0) {
           continue;
         }
 
@@ -552,9 +608,15 @@ struct Sm100FmhaGenKernelWarpspecialized {
         auto blk_coord = tile_scheduler.get_block_coord();
 
         auto logical_problem_shape = apply_batch(params,
-            params.problem_shape, get<2,1>(blk_coord));
+            params.problem_shape, blk_coord);
 
+        // Skip if Q tile is out of bounds
         if (get<0>(blk_coord) * get<0>(TileShape{}) >= get<0>(logical_problem_shape)) {
+          continue;
+        }
+
+        // Skip if there is no K/V sequence to attend to (seqlen_kv = 0 and no new K/V)
+        if (get<1>(logical_problem_shape) == 0) {
           continue;
         }
 

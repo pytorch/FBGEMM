@@ -352,7 +352,7 @@ struct ExampleRunner {
       cutlass::fmha::collective::Sm100FmhaGenEpilogueWarpspecialized<ElementOut, StrideO>,
       std::conditional_t<kKernelType == KernelType::UMMA_P,
         cutlass::fmha::kernel::PersistentTileScheduler,
-        cutlass::fmha::kernel::IndividualTileScheduler
+        cutlass::fmha::kernel::IndividualTileSchedulerSplitK
       >
     >;
   
