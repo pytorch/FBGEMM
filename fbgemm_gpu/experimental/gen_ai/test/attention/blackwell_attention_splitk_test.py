@@ -541,7 +541,7 @@ class SplitKTest(unittest.TestCase):
         lse_chunks_stacked = lse_split.permute(1, 0, 2).unsqueeze(-1)
 
         if DEBUG:
-            print(f"\n  Reshaped for merge:")
+            print("\n  Reshaped for merge:")
             print(f"    out_chunks_stacked: {out_chunks_stacked.shape}")
             print(f"    lse_chunks_stacked: {lse_chunks_stacked.shape}")
 
