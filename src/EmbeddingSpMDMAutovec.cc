@@ -15,6 +15,13 @@
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
 
+#if defined(__clang__) && HAVE_SVE
+#include <arm_neon.h>
+#include <arm_sve.h>
+
+#include <arm_neon_sve_bridge.h>
+#endif
+
 #include <cmath>
 
 #include <algorithm>
@@ -67,6 +74,46 @@ static inline void fill_output(
       out[j] = cpu_float2half(src[j]);
     }
   }
+}
+
+// Provide alterantive to `memset` that can be inlined. Contrary to a `memset`
+// call with the default aarch64 calling convention this will only clobber a
+// single vector register.
+static inline void fillZero(float* ptr, int64_t count) {
+#if defined(__clang__) && HAVE_SVE
+  if constexpr (!__builtin_constant_p(count)) {
+    float32x4_t zeroVec;
+    // Inline asm prevents compiler from replacing with a call to memset
+    asm volatile("movi  %[zeroVec].2d, #0000000000000000"
+                 : [zeroVec] "=w"(zeroVec)
+                 :
+                 :);
+    while (count >= 16) {
+      vst1q_f32(ptr, zeroVec);
+      vst1q_f32(ptr + 4, zeroVec);
+      vst1q_f32(ptr + 8, zeroVec);
+      vst1q_f32(ptr + 12, zeroVec);
+      ptr += 16;
+      count -= 16;
+    }
+    if (count >= 8) {
+      vst1q_f32(ptr, zeroVec);
+      vst1q_f32(ptr + 4, zeroVec);
+      ptr += 8;
+      count -= 8;
+    }
+    if (count > 0) {
+      svbool_t predA = svwhilelt_b32_u64(0, count);
+      svbool_t predB = svwhilelt_b32_u64(4, count);
+      svst1_f32(predA, ptr, svset_neonq(svundef_f32(), zeroVec));
+      svst1_f32(predB, ptr + 4, svset_neonq(svundef_f32(), zeroVec));
+    }
+  } else {
+#endif
+    memset(ptr, 0, sizeof(float) * count);
+#if defined(__clang__) && HAVE_SVE
+  }
+#endif
 }
 
 template <typename OutType>
@@ -145,8 +192,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
       if constexpr (isOutput8bit) {
         memcpy(out, input_row_base, sizeof(uint8_t) * input_stride);
       } else {
-        memset(buf, 0, sizeof(float) * block_size);
-
         float scale = NAN;
         float bias = NAN;
         const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
@@ -171,12 +216,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           uint8_t value = input_row[j];
-          buf[j] = std::fma(scale, (float)value, buf[j] + bias);
+          buf[j] = std::fma(scale, (float)value, bias);
         }
 #endif
         for (; j < block_size; ++j) {
           uint8_t value = input_row[j];
-          buf[j] = std::fma(scale, (float)value, buf[j] + bias);
+          buf[j] = std::fma(scale, (float)value, bias);
         }
         fill_output(out, buf, block_size, is_bf16_out);
       }
@@ -196,7 +241,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 
   int64_t current = 0;
   for (int64_t m = 0; m < output_size; ++m) {
-    memset(buf, 0, sizeof(float) * block_size);
+    fillZero(buf, block_size);
     const OffsetType len = use_offsets
         ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
         : offsets_or_lengths[m];
@@ -396,7 +441,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         get_output_type<OutType>(is_bf16_out),
         output_size,
         len);
-    memset(buf, 0, sizeof(float) * rounded_block_size);
+    fillZero(buf, rounded_block_size);
 
     const float* weights_addr = weights != nullptr
         ? (is_weight_positional ? weights : weights + current)
@@ -568,7 +613,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 
   if (no_bag) {
     for (int m = 0; m < output_size; ++m) {
-      memset(buf, 0, sizeof(float) * block_size);
       int64_t idx = indices[m];
       if (idx < 0 || idx >= data_size) {
         return false;
@@ -580,26 +624,24 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = std::fma(
-              weight, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
+          buf[j] = weight * convert_to_float_ref(*inptr, is_bf16_in);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = std::fma(
-              weight, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
+          buf[j] = weight * convert_to_float_ref(*inptr, is_bf16_in);
         }
       } else {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] += convert_to_float_ref(*inptr, is_bf16_in);
+          buf[j] = convert_to_float_ref(*inptr, is_bf16_in);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] += convert_to_float_ref(*inptr, is_bf16_in);
+          buf[j] = convert_to_float_ref(*inptr, is_bf16_in);
         }
       }
       fill_output(out, buf, block_size, is_bf16_out);
@@ -643,7 +685,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
   // Reference implementation of FP32 SLS
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
-    memset(buf, 0, sizeof(float) * block_size);
+    fillZero(buf, block_size);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
     if (current + len > index_size) {
@@ -742,7 +784,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
     const int64_t fused_block_size = block_size + scale_bias_offset;
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
-      memset(out, 0, sizeof(float) * block_size);
+      fillZero(out, block_size);
       int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                             : offsets_or_lengths[m];
       int64_t end = current + len;
@@ -813,7 +855,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
-      memset(out, 0, sizeof(float) * block_size);
+      fillZero(out, block_size);
       int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                             : offsets_or_lengths[m];
       int64_t end = current + len;
@@ -996,7 +1038,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
   int64_t current = 0;
 
   for (int m = 0; m < output_size; ++m) {
-    memset(buf, 0, sizeof(float) * block_size);
+    fillZero(buf, block_size);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
     int64_t end = current + len;
