@@ -19,6 +19,7 @@ from hypothesis import given, settings
 from .backward_adagrad_common import (
     additional_decorators,
     adjust_mixed_B_st,
+    CacheAlgorithm,
     common_settings,
     common_strategy,
     execute_backward_adagrad,
@@ -219,6 +220,29 @@ class BackwardAdagradTest(unittest.TestCase):
             weights_precision=SparseType.FP16,
             pooling_mode=PoolingMode.SUM,
             **kwargs,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_adagrad_fp16_pmSUM_D320(self) -> None:
+        execute_backward_adagrad(
+            T=2,
+            # using D=80 since the test harness multiplies D by 4, so 80*4=320
+            D=80,
+            B=16,
+            log_E=4,
+            L=4,
+            D_gradcheck=1,
+            weights_precision=SparseType.FP16,
+            stochastic_rounding=False,
+            weighted=False,
+            row_wise=True,
+            mixed=False,
+            mixed_B=False,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            pooling_mode=PoolingMode.SUM,
+            use_cpu=False,
+            output_dtype=SparseType.FP16,
         )
 
 

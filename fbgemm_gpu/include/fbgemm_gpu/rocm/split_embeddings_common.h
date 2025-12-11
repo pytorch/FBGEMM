@@ -226,7 +226,7 @@ struct load_row_per_warp<half, 320, index_t> {
         llvm_amdgcn_raw_buffer_load_fp16x2(
             emb_res, (lane_id + 64) * sizeof(half2));
     emb_data[4] = llvm_amdgcn_raw_buffer_load_fp16(
-        emb_res, (lane_id + 128) * sizeof(half));
+        emb_res, (lane_id + 256) * sizeof(half));
   }
 };
 
