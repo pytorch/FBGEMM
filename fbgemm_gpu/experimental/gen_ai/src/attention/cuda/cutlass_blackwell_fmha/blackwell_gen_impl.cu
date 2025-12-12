@@ -83,8 +83,7 @@ template <
     typename Element,
     typename ElementOut,
     KernelType kKernelType,
-    class TileShape,
-    class ThreadShape>
+    class TileShape>
 struct GenRunner {
   using ElementAcc = float;
 
@@ -351,10 +350,10 @@ std::tuple<at::Tensor, at::Tensor> run_gen_runner_fwd(
     const std::optional<at::Tensor>& batch_idx,
     int64_t split_k_size) {
   if constexpr (HeadDim == 128) {
-    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _128>, Shape<_1, _1, _1>> runner;
+    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _128>> runner;
     return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size);
   } else if constexpr (HeadDim == 64) {
-    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _64>, Shape<_1, _1, _1>> runner;
+    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _64>> runner;
     return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size);
   }
 }
