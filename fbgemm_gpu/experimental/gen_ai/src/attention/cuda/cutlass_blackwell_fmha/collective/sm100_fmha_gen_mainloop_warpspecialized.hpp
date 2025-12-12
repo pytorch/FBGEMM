@@ -244,7 +244,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
 
     // if zero, defaults to 1/sqrt(D)
     float scale_softmax = 0.0f;
-
+    // Split-K size for sequence splitting
+    int splitk_size = 0; 
     // scaling factors to dequantize QKV
     float scale_q = 1.0f;
     float scale_k = 1.0f;
@@ -252,7 +253,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
 
     // scaling factor to quantize O
     float inv_scale_o = 1.0f;
-  };
+    };
 
   struct Params {
     typename Load::Params load;
@@ -261,6 +262,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     float scale_softmax_log2;
 
     float scale_output;
+    int splitk_size;  // Split-K size for sequence splitting
   };
 
   template<class ProblemShape>
@@ -284,7 +286,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
         Load::to_underlying_arguments(problem_shape, args.load, workspace),
         args.scale_q * args.scale_k * scale_softmax,
         args.scale_q * args.scale_k * log2_e * scale_softmax,
-        args.scale_v * args.inv_scale_o
+        args.scale_v * args.inv_scale_o,
+        args.splitk_size
     };
   }
 
@@ -306,7 +309,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     load.load(blk_coord, problem_shape, params.load, params_problem_shape,
         storage,
         pipeline_q, pipeline_q_producer_state,
-        pipeline_kv, pipeline_kv_producer_state);
+        pipeline_kv, pipeline_kv_producer_state,
+        params.splitk_size);
   }
 
   template<class BlkCoord, class ProblemShape>
@@ -576,7 +580,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
       PipelineC& pipeline_c, typename PipelineC::PipelineState& pipeline_c_producer_state,
       OrderBarrierSoftmax& order_s) {
     int thread_idx = threadIdx.x % (4 * cutlass::NumThreadsPerWarp);
-    Tensor tScS =
+          Tensor tScS =
         typename CollectiveMmaQK::TiledMma{}.get_slice(0).partition_C(cS);
 
     Tensor tStS = partition_fragment_C(typename CollectiveMmaQK::TiledMma{}, select<0,1>(TileShapeQK{}));
@@ -816,11 +820,17 @@ struct Sm100FmhaGenMainloopWarpspecialized {
       PipelineC& pipeline_c, typename PipelineC::PipelineState& pipeline_c_producer_state,
       OrderBarrierSoftmax& order_s) {
 
+    // problem_shape.klen is now the split's length (set by apply_batch)
     int mask_tile_count = Mask{}.get_unmasked_trip_count(blk_coord, TileShape{}, problem_shape);
 
     ElementQK row_max = -INFINITY;
     ElementQK row_sum = 0;
 
+    // For split-K mode, coordinates should be local (0-based within the split)
+    // since problem_shape.klen is already the split's length.
+    // We do NOT add start_k offset here - the mask checks against problem_shape.klen
+    // which is the split's length, so coordinates must be 0-based within the split.
+    
     Tensor cS_base = make_identity_tensor(select<0,1>(TileShapeQK{}));
     auto logical_offset = make_coord(
         get<0>(blk_coord) * get<0>(TileShape{}) + (stage % get<0>(ThreadShape{})) * get<0>(TileShapeQK{}),
@@ -884,24 +894,19 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     // As opposed to the softmax, we do not have enough registers here
     // to load all of the values (for tile kv = 128), so we loop
     // good values would be either 32 or 64
-    const int kCorrectionTileSize = 32 / sizeof(ElementOut); 
+    const int kCorrectionTileSize = 32 / sizeof(ElementOut); // 16 or 8
     // TODO: load all values
 
-    // Choose TMEM OP based on
-    // - TileM shape
-    // - kCorrectionTileSize
-    using TMEM_LOAD_OPMAP = kValTyMap<void,
-        kValTyPair<64,
-          kValTyMap</* default */ SM100_TMEM_LOAD_16dp32b8x,
-            kValTyPair<32, SM100_TMEM_LOAD_16dp32b16x>
-          >
-        >,
-        kValTyPair<128,
-          kValTyMap</* default*/ SM100_TMEM_LOAD_32dp32b16x,
-            kValTyPair<32, SM100_TMEM_LOAD_32dp32b32x>
-        >> // 4x32 threads with 64 cols of 32b elem
-    >;
-    using TMEM_LOAD = typename TMEM_LOAD_OPMAP::template query<TileM::value>::template query<kCorrectionTileSize>;
+    // Choose TMEM OP based on TileM shape, then repeat for the appropriate number of columns
+    // Use op_repeater pattern like softmax_step to ensure proper layout compatibility
+    // For TileM=64 (16dp): 2 threads collaborate per row, each loads half the columns
+    // For TileM=128 (32dp): 1 thread per row, loads all columns
+    using TMEM_LOAD_1xOP = typename kValTyMap<void,
+        kValTyPair<64, SM100_TMEM_LOAD_16dp32b1x>,
+        kValTyPair<128, SM100_TMEM_LOAD_32dp32b1x>
+      >::template query<TileM::value>;
+    static constexpr int kColsPerThread = (TileM::value == 64) ? (kCorrectionTileSize / 2) : kCorrectionTileSize;
+    using TMEM_LOAD = decltype(TMEM::op_repeater<TMEM_LOAD_1xOP, kColsPerThread * 32>());
 
     typename CollectiveMmaPV::TiledMma mma;
     Tensor tOtO = partition_fragment_C(mma, select<0,1>(TileShapePV{}));
@@ -940,17 +945,22 @@ struct Sm100FmhaGenMainloopWarpspecialized {
       int h_r = row_idx;
       int h_k = get<2, 0>(blk_coord);
       int b = get<2, 1>(blk_coord);
+      int split_k_idx = get<1>(blk_coord);  // Split-K index
 
       // After problem_shape transformation in kernel:
       // problem_shape = (H_R, Sk, D, ((1, H_K), B))
       // So: get<0> = H_R, get<3,0,1> = H_K
       int H_R = get<0>(problem_shape);
+      int H_K = get<3, 0, 1>(problem_shape);
 
       // Check bounds
       if (thread_idx < H_R) {
-        // LSE tensor shape: [B, H_K, H_R]
-        // Use stride from epilogue.params.dLSE instead of hardcoding
-        int linear_idx = b * get<0>(epilogue.params.dLSE) +
+        // LSE tensor layout: [B, num_splits, H] where H = H_K * H_R
+        // dLSE strides account for num_splits: (num_splits * H, H_R, 1)
+        // Offset pointer by split_k_idx * H, then use stride-based access for (b, h_k, h_r)
+        int H = H_K * H_R;
+        int linear_idx = split_k_idx * H +
+            b * get<0>(epilogue.params.dLSE) +
             h_k * get<1>(epilogue.params.dLSE) +
             h_r * get<2>(epilogue.params.dLSE);
         epilogue.params.ptr_LSE[linear_idx] = lse;
@@ -1008,6 +1018,110 @@ struct Sm100FmhaGenMainloopWarpspecialized {
         if (get<0>(tTMEM_LOADcO(_0{})) < get<0>(g_shape)) {
         copy(AutoVectorizingCopyWithAssumedAlignment<128>{}, tSMrO_i, tSMgO_i);
         }
+    }
+  }
+
+  // Write neutral values for empty splits (varlen case where start_k >= seqlen_kv)
+  // This ensures correct merge behavior: zeros for output, -inf for LSE
+  //
+  // ============================================================================
+  // IMPORTANT: WARP COUNT DISCREPANCY IN DECODE KERNEL
+  // ============================================================================
+  //
+  // This function is called by the Correction warp role. In the decode kernel
+  // (sm100_fmha_gen_kernel_warpspecialized.hpp), there is a discrepancy between
+  // the warp mapping comments and the actual warp assignments:
+  //
+  //   Kernel Schedule (Sm100FmhaGenKernelSchedule64x128x128):
+  //     warp 0  -> Softmax0
+  //     warp 1  -> MMA  
+  //     warp 2,3 -> Load
+  //     warp 4  -> Softmax1
+  //     warp 8  -> Correction   <-- ONLY warp 8, despite comment saying "8-11"
+  //     others  -> Empty
+  //
+  //   NumWarpsCorrection = 1  (only 32 threads)
+  //
+  // This function is actually only called by 1 warp (32 threads)
+  //
+  // LONG-TERM FIX NEEDED: T247858409
+  //
+  // ============================================================================
+  template<class BlkCoord, class ProblemShape, class Epilogue>
+  CUTLASS_DEVICE void
+  write_empty_split(
+      BlkCoord const& blk_coord,
+      Params const& params,
+      ProblemShape const& problem_shape,
+      Epilogue const& epilogue) {
+
+    // Use single warp (32 threads) - this matches the actual NumWarpsCorrection = 1
+    // in the decode kernel schedule. Each thread will write multiple elements.
+    int thread_idx = threadIdx.x % cutlass::NumThreadsPerWarp;
+
+    int split_k_idx = get<1>(blk_coord);
+    int h_k = get<2, 0>(blk_coord);
+    int b = get<2, 1>(blk_coord);
+
+    // After kernel transformation, problem_shape is:
+    // (H_R, klen, D, ((1, H_K), B))
+    // where H_R = number of query heads per KV head group (GQA ratio)
+    int H_R = get<0>(problem_shape);
+    int H_K = get<3, 0, 1>(problem_shape);
+    int D = get<2>(TileShape{}); // change to get<?>problem_shape since we have D = 64.
+
+    // Write -inf to LSE for this empty split
+    // This ensures the empty split contributes zero weight during merge
+    if (epilogue.params.ptr_LSE != nullptr) {
+      // LSE layout: [B, num_splits, H] where H = H_K * H_R
+      // Each thread writes one LSE value if thread_idx < H_R
+      if (thread_idx < H_R) {
+        int h_r = thread_idx;
+        int H = H_K * H_R;
+        int linear_idx = split_k_idx * H +
+            b * get<0>(epilogue.params.dLSE) +
+            h_k * get<1>(epilogue.params.dLSE) +
+            h_r * get<2>(epilogue.params.dLSE);
+        
+        // Use -inf so exp(-inf) = 0, meaning this split contributes nothing to merge
+        epilogue.params.ptr_LSE[linear_idx] = -INFINITY;
+      }
+    }
+
+    // Write zeros to output for this empty split
+    // OUT tensor layout: [B, H, num_splits, D] where H = H_K * H_R
+    
+    // Compute base pointer for this split's output
+    // The split dimension is embedded in the pointer offset: ptr_o + split_k_idx * D
+    ElementOut* out_ptr = epilogue.params.ptr_o + split_k_idx * D;
+
+    // Use vectorized 128-bit stores 
+    // Each uint4 store writes 16 bytes = 128 bits
+    // For bf16/fp16: 16 bytes = 8 elements per store
+    // For fp32: 16 bytes = 4 elements per store
+    constexpr int kVectorSize = 16 / sizeof(ElementOut);
+    uint4 zero_vec = make_uint4(0, 0, 0, 0);
+    
+    // Each thread writes zeros to its portion of the output
+    // For H_R rows (query heads within this KV head group), write D elements each
+    for (int h_r = 0; h_r < H_R; h_r++) {
+      // Correct stride mapping:
+      //   B stride: get<2,1>(dO)
+      //   H_K stride: get<2,0,1>(dO)
+      //   H_R stride: get<2,0,0>(dO)
+      int linear_base =
+          b * get<2,1>(epilogue.params.dO) +
+          h_k * get<2,0,1>(epilogue.params.dO) +
+          h_r * get<2,0,0>(epilogue.params.dO);
+
+      // Vectorized stores: each thread writes non-overlapping 128-bit chunks
+      // Each vec_ptr[x] is 16 contiguous bytes
+      uint4* vec_ptr = reinterpret_cast<uint4*>(out_ptr + linear_base);
+      int num_vectors = D / kVectorSize;
+      
+      for (int i = thread_idx; i < num_vectors; i += cutlass::NumThreadsPerWarp) {
+        vec_ptr[i] = zero_vec;  // 128-bit aligned, contiguous store
+      }
     }
   }
 
@@ -1245,7 +1359,13 @@ struct Sm100FmhaGenMainloopWarpspecialized {
 
     Tensor cO = make_identity_tensor(select<0,1>(TileShapePV{}));
     auto g_shape = select<0,2>(problem_shape);
-    auto mO = make_tensor(make_gmem_ptr(epilogue.params.ptr_o), append<3>(select<0,1>(TileShapePV{}), get<3>(problem_shape)), epilogue.params.dO);
+    int split_k_idx = get<1>(blk_coord);  // Split-K index
+    int D = get<2>(TileShape{});  // Head dimension
+    // OUT tensor layout: [B, H, num_splits, D]
+    // Pointer offset: ptr_o + split_k_idx * D
+    auto mO = make_tensor(make_gmem_ptr(epilogue.params.ptr_o + split_k_idx * D),
+                          append<3>(select<0,1>(TileShapePV{}), get<3>(problem_shape)), 
+                          epilogue.params.dO);
     auto gO = mO(_, _, get<2>(blk_coord));
     int row_idx = get<0>(tTMEM_LOADVcS(_0{}));
     correction_epilogue(params.scale_softmax_log2, params.scale_output, tTMEM_LOADVrS0, tTMEM_LOADVrS1, 

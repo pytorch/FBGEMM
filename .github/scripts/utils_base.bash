@@ -298,3 +298,36 @@ set_clang_symlinks () {
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
 }
+
+__fetch_cuda_version_array () {
+  local env_name="$1"
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2155,SC2086
+  local cuda_version=$(conda run ${env_prefix} nvcc --version | sed -n 's/^.*release \([0-9]\+\.[0-9]\+\).*$/\1/p')
+  echo "[INFO] Extracted CUDA version: ${cuda_version}"
+
+  # shellcheck disable=SC2206
+  export cuda_version_arr=(${cuda_version//./ })
+}
+
+__fetch_rocm_version_array () {
+  local env_name="$1"
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2155,SC2086
+  local rocm_version=$(conda run ${env_prefix} python -c "import torch; print(torch.version.hip)" 2>/dev/null)
+
+  if [ -n "$rocm_version" ] && [ "$rocm_version" != "None" ]; then
+    echo "[INFO] Extracted ROCm version: ${rocm_version}"
+    # Extract version numbers (e.g., "5.7.0" -> array of [5, 7, 0])
+    IFS='.' read -ra rocm_version_arr <<< "$rocm_version"
+    export rocm_version_arr=(${rocm_version//./ })
+
+  else
+    echo "[INFO] Could not extract ROCm version!"
+    return 1
+  fi
+}
