@@ -303,7 +303,17 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
 
     // Number of columns can be different
     auto num_cols_ = input_reshaped_.size(1);
-    auto warps_per_row = (num_cols_ + cols_per_warp - 1) / cols_per_warp;
+
+    int64_t warps_needed;
+    if (num_cols_ < cols_per_warp) {
+      // Optimization: Pack multiple rows into one warp
+      int rows_per_warp = cols_per_warp / num_cols_;
+      warps_needed = (num_output_rows_ + rows_per_warp - 1) / rows_per_warp;
+    } else {
+      // Standard: One or more warps per row
+      int warps_per_row = (num_cols_ + cols_per_warp - 1) / cols_per_warp;
+      warps_needed = warps_per_row * num_output_rows_;
+    }
 
     if (num_cols != num_cols_) {
       use_var_cols = true;
@@ -329,7 +339,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     warp_offsets_group[i] = warp_offset;
     num_cols_group[i] = num_cols_;
 
-    warp_offset += warps_per_row * num_output_rows;
+    warp_offset += warps_needed;
   }
 
   // Store the last offset
