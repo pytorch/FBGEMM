@@ -200,11 +200,25 @@ class RESParams:
     )  # table sizes for the global rows the TBE holds
 
 
-@dataclass(frozen=True)
 class PrefetchedInfo:
-    linear_unique_indices: torch.Tensor
-    linear_unique_indices_length: torch.Tensor
-    hash_zch_identities: Optional[torch.Tensor]
+    """
+    Container for prefetched cache information.
+
+    This class is explicitly defined (not using @dataclass) to be compatible with
+    TorchScript's inspect.getsource() requirements.
+    """
+
+    def __init__(
+        self,
+        linear_unique_indices: torch.Tensor,
+        linear_unique_cache_indices: torch.Tensor,
+        linear_unique_indices_length: torch.Tensor,
+        hash_zch_identities: Optional[torch.Tensor],
+    ) -> None:
+        self.linear_unique_indices = linear_unique_indices
+        self.linear_unique_cache_indices = linear_unique_cache_indices
+        self.linear_unique_indices_length = linear_unique_indices_length
+        self.hash_zch_identities = hash_zch_identities
 
 
 def construct_split_state(
@@ -634,7 +648,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     lxu_cache_locations_list: list[Tensor]
     lxu_cache_locations_empty: Tensor
     timesteps_prefetched: list[int]
-    prefetched_info: list[tuple[Tensor, Tensor, Optional[Tensor]]]
+    prefetched_info_list: list[PrefetchedInfo]
     record_cache_metrics: RecordCacheMetrics
     # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
@@ -1482,8 +1496,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self.embedding_table_offset_type: torch.dtype = embedding_table_offset_type
 
-        self.prefetched_info: list[tuple[Tensor, Tensor, Optional[Tensor]]] = (
-            torch.jit.annotate(list[tuple[Tensor, Tensor, Optional[Tensor]]], [])
+        self.prefetched_info_list: list[PrefetchedInfo] = torch.jit.annotate(
+            list[PrefetchedInfo], []
         )
         if self.enable_raw_embedding_streaming:
             self.res_params: RESParams = res_params or RESParams()
@@ -2891,7 +2905,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if self.should_log():
                 self.print_uvm_cache_stats(use_local_cache=False)
 
-        self._store_prefetched_tensors(linear_cache_indices_merged, hash_zch_identities)
+        self._store_prefetched_tensors(
+            indices,
+            offsets,
+            vbe_metadata,
+            linear_cache_indices_merged,
+            final_lxu_cache_locations,
+            hash_zch_identities,
+        )
 
     def should_log(self) -> bool:
         """Determines if we should log for this step, using exponentially decreasing frequency.
@@ -4119,23 +4140,24 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         target_prev_iter = 1
         if self.prefetch_pipeline:
             target_prev_iter = 2
-        if not len(self.prefetched_info) > (target_prev_iter - 1):
+        if not len(self.prefetched_info_list) > (target_prev_iter - 1):
             return None
         with record_function(
             "## uvm_lookup_prefetched_rows {} {} ##".format(self.timestep, self.uuid)
         ):
-            (updated_indices, updated_count, updated_identities) = (
-                self.prefetched_info.pop(0)
-            )
+            prefetched_info = self.prefetched_info_list.pop(0)
             updated_locations = torch.ops.fbgemm.lxu_cache_lookup(
-                updated_indices,
+                prefetched_info.linear_unique_cache_indices,
                 self.lxu_cache_state,
                 self.total_cache_hash_size,
                 gather_cache_stats=False,  # not collecting cache stats
-                num_uniq_cache_indices=updated_count,
+                num_uniq_cache_indices=prefetched_info.linear_unique_indices_length,
             )
             updated_weights = torch.empty(
-                [updated_indices.size()[0], self.max_D_cache],
+                [
+                    prefetched_info.linear_unique_cache_indices.size()[0],
+                    self.max_D_cache,
+                ],
                 # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.empty`, for argument `dtype`, expected `Optional[dtype]` but got `Union[Module, dtype, Tensor]`
                 dtype=self.lxu_cache_weights.dtype,
                 # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.empty`, for argument `device`, expected `Union[None, int, str, device]` but got `Union[Module, device, Tensor]`
@@ -4145,18 +4167,37 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 updated_weights,
                 updated_locations,
                 self.lxu_cache_weights,
-                updated_count,
+                prefetched_info.linear_unique_indices_length,
+            )
+            # TODO: this statement triggers a sync
+            # added here to make this diff self-contained
+            # will remove in later change
+            cache_hit_mask_index = (
+                updated_locations.narrow(
+                    0, 0, prefetched_info.linear_unique_indices_length.item()
+                )
+                .not_equal(-1)
+                .nonzero()
+                .flatten()
             )
             # stream weights
             self._raw_embedding_streamer.stream(
-                updated_indices.to(device=torch.device("cpu")),
-                updated_weights.to(device=torch.device("cpu")),
+                prefetched_info.linear_unique_indices.index_select(
+                    dim=0, index=cache_hit_mask_index
+                ).to(device=torch.device("cpu")),
+                updated_weights.index_select(dim=0, index=cache_hit_mask_index).to(
+                    device=torch.device("cpu")
+                ),
                 (
-                    updated_identities.to(device=torch.device("cpu"))
-                    if updated_identities is not None
+                    prefetched_info.hash_zch_identities.index_select(
+                        dim=0, index=cache_hit_mask_index
+                    ).to(device=torch.device("cpu"))
+                    if prefetched_info.hash_zch_identities is not None
                     else None
                 ),
-                updated_count.to(device=torch.device("cpu")),
+                prefetched_info.linear_unique_indices_length.to(
+                    device=torch.device("cpu")
+                ),
                 False,  # require_tensor_copy
                 False,  # blocking_tensor_copy
             )
@@ -4164,61 +4205,76 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @staticmethod
     @torch.jit.ignore
     def _get_prefetched_info(
+        linear_indices: torch.Tensor,
         linear_cache_indices_merged: torch.Tensor,
         total_cache_hash_size: int,
         hash_zch_identities: Optional[torch.Tensor],
+        max_indices_length: int,
     ) -> PrefetchedInfo:
-        compute_inverse_indices = hash_zch_identities is not None
         (
-            linear_unique_indices,
-            linear_unique_indices_length,
-            linear_unique_indices_cnt,
-            linear_unique_inverse_indices,
+            linear_unique_cache_indices,
+            linear_unique_cache_indices_length,
+            linear_unique_cache_indices_cnt,
+            linear_unique_cache_inverse_indices,
         ) = torch.ops.fbgemm.get_unique_indices_with_inverse(
             linear_cache_indices_merged,
             total_cache_hash_size,
-            compute_count=compute_inverse_indices,
-            compute_inverse_indices=compute_inverse_indices,
+            compute_count=True,
+            compute_inverse_indices=True,
         )
-        # linear_unique_indices is the result after deduplication and sorting
-        linear_unique_indices = linear_unique_indices.narrow(
-            0, 0, linear_unique_indices_length[0]
+        # pure cpu op, no need to sync, to avoid the indices out size the weights buffer
+        max_len = min(
+            max_indices_length,
+            linear_unique_cache_indices.size(0),
         )
-
-        if hash_zch_identities is None:
-            return PrefetchedInfo(
-                linear_unique_indices,
-                linear_unique_indices_length,
-                None,
+        if max_len < linear_unique_cache_indices.size(0):
+            linear_unique_cache_indices_length.clamp_(max=max_len)
+            # linear_unique_indices is the result after deduplication and sorting
+            linear_unique_cache_indices = linear_unique_cache_indices.narrow(
+                0, 0, max_len
             )
-
         # Compute cumulative sum as indices for selecting unique elements to
         # map hash_zch_identities to linear_unique_indices
         count_cum_sum = torch.ops.fbgemm.asynchronous_complete_cumsum(
-            linear_unique_indices_cnt
+            linear_unique_cache_indices_cnt
         )
-        count_cum_sum = count_cum_sum.narrow(0, 0, linear_unique_indices_length[0])
+        # count_cum_sum will be one more element than linear_unique_cache_indices_cnt
+        count_cum_sum = count_cum_sum.narrow(0, 0, max_len)
+        # clamp the uninitialized elements to avoid out of bound access
+        # the uninitialized elements will be sliced out by linear_unique_cache_indices_length
+        # directly using linear_unique_cache_indices_length requires a sync
+        count_cum_sum.clamp_(min=0, max=linear_unique_cache_inverse_indices.size(0) - 1)
 
         # Select indices corresponding to first occurrence of each unique element
-        linear_unique_inverse_indices = linear_unique_inverse_indices.index_select(
-            dim=0, index=count_cum_sum
+        linear_unique_inverse_indices = (
+            linear_unique_cache_inverse_indices.index_select(dim=0, index=count_cum_sum)
         )
-
-        # Map hash_zch_identities to unique indices
-        hash_zch_identities_cpu = hash_zch_identities.index_select(
+        # same as above clamp
+        linear_unique_inverse_indices.clamp_(min=0, max=linear_indices.size(0) - 1)
+        linear_unique_indices = linear_indices.index_select(
             dim=0, index=linear_unique_inverse_indices
-        ).to(device=torch.device("cpu"))
+        )
+        if hash_zch_identities is not None:
+            # Map hash_zch_identities to unique indices
+            hash_zch_identities = hash_zch_identities.index_select(
+                dim=0, index=linear_unique_inverse_indices
+            )
 
         return PrefetchedInfo(
             linear_unique_indices,
-            linear_unique_indices_length,
-            hash_zch_identities_cpu,
+            linear_unique_cache_indices,
+            linear_unique_cache_indices_length,
+            hash_zch_identities,
         )
 
     @torch.jit.ignore
     def _store_prefetched_tensors(
         self,
+        indices: torch.Tensor,
+        offsets: torch.Tensor,
+        vbe_metadata: Optional[invokers.lookup_args.VBEMetadata],
         linear_cache_indices_merged: torch.Tensor,
+        final_lxu_cache_locations: torch.Tensor,
         hash_zch_identities: Optional[torch.Tensor],
     ) -> None:
         """
@@ -4231,20 +4287,37 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         with record_function(
             "## uvm_save_prefetched_rows {} {} ##".format(self.timestep, self.uuid)
         ):
-            # Process hash_zch_identities using helper function
-            prefetched_info = self._get_prefetched_info(
+            found_in_cache_mask = final_lxu_cache_locations != -1
+            # only process the indices that are found in the cache
+            # this will filter out the indices from tables that doesn't have UVM_CACHE enabled
+            linear_cache_indices_merged_masked = torch.where(
+                found_in_cache_mask,
                 linear_cache_indices_merged,
                 self.total_cache_hash_size,
+            )
+            linearize_indices = torch.ops.fbgemm.linearize_cache_indices(
+                self.hash_size_cumsum,
+                indices,
+                offsets,
+                vbe_metadata.B_offsets if vbe_metadata is not None else None,
+                vbe_metadata.max_B if vbe_metadata is not None else -1,
+            )
+            # -1 indices are ignored in raw_embedding_streamer.
+            linearize_indices_masked = torch.where(
+                found_in_cache_mask,
+                linearize_indices,
+                -1,
+            )
+            # Process hash_zch_identities using helper function
+            prefetched_info = self._get_prefetched_info(
+                linearize_indices_masked,
+                linear_cache_indices_merged_masked,
+                self.total_cache_hash_size,
                 hash_zch_identities,
+                self.lxu_cache_weights.size(0),
             )
 
-            self.prefetched_info.append(
-                (
-                    prefetched_info.linear_unique_indices,
-                    prefetched_info.linear_unique_indices_length,
-                    prefetched_info.hash_zch_identities,
-                )
-            )
+            self.prefetched_info_list.append(prefetched_info)
 
     @torch.jit.ignore
     def __report_input_params_factory(
