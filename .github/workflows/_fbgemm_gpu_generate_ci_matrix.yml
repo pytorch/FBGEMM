@@ -51,7 +51,7 @@ jobs:
       GEN_REPO_OWNER: ${{ inputs.repo-owner }}
     steps:
       - name: Checkout the Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.repo-ref }}
           # Fetch main branch to compare file changes
