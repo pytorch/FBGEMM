@@ -987,11 +987,21 @@ Tensor {{ embedding_cuda_op }}(
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
                 const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
+
                 {% if is_rocm %}
                     const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
                 {% else %}
-                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 1024;
+                    //optimize for B200
+                    const auto device_properties = at::cuda::getCurrentDeviceProperties();
+                    int default_segment_length = 1024;
+                    if ((device_properties->major >= 10) && config::is_feature_enabled(config::FeatureGateName::use_tuned_max_segment_length_per_cta_for_b200)) {
+                      const int32_t configured_length = at::globalContext().maxSegmentLengthPerCta();
+                      default_segment_length = configured_length >= 0 ? configured_length : 4096;
+                    }
+                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : default_segment_length;
+
                 {%- endif %}
+
                 Tensor long_run_id_to_really_long_run_ids;
                 if (use_deterministic_algorithms) {
                     long_run_id_to_really_long_run_ids =
