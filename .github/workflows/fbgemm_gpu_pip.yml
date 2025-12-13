@@ -101,7 +101,7 @@ jobs:
       run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
 
     - name: Checkout the Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -167,7 +167,7 @@ jobs:
         git config --global --add safe.directory '*'
 
     - name: Checkout the Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
