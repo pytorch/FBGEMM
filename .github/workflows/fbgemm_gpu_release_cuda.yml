@@ -65,6 +65,10 @@ jobs:
       matrix: ${{ needs.generate-build-matrix.outputs.matrix }}
       repo-ref: ${{ github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'release' }}
+      extra-env: >-
+        {
+          "PYPI_PUBLISH_CHANNEL": "release"
+        }
 
   generate-test-matrix:
     needs: build
