@@ -101,3 +101,26 @@
 #define RAB_DRAB_SWITCH TWO_BOOL_SWITCH
 #endif
 #endif
+
+#define QUANT_SWITCH(COND, CONST_NAME, ...)      \
+  [&] {                                         \
+    if (COND == 1) {                                 \
+      constexpr static int CONST_NAME = 1;  \
+      return __VA_ARGS__();                     \
+    } else if (COND == 2) {                    \
+      constexpr static int CONST_NAME = 2; \
+      return __VA_ARGS__();                     \
+    } else if (COND == 3) {                    \
+      constexpr static int CONST_NAME = 3; \
+      return __VA_ARGS__();                     \
+    } else if (COND == 4) {                    \
+      constexpr static int CONST_NAME = 4; \
+      return __VA_ARGS__();                     \
+    } else if (COND == 5) {                    \
+      constexpr static int CONST_NAME = 5; \
+      return __VA_ARGS__();                     \
+    } else {                                    \
+      constexpr static int CONST_NAME = 0; \
+      return __VA_ARGS__();                     \
+    }                                           \
+  }()
