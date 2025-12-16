@@ -54,6 +54,7 @@ if open_source:
         gpu_unavailable,
         is_nvidia_device,
         optests,
+        running_in_oss,
         TEST_WITH_ROCM,
     )
 else:
@@ -62,6 +63,7 @@ else:
         gpu_unavailable,
         is_nvidia_device,
         optests,
+        running_in_oss,
         TEST_WITH_ROCM,
     )
 
@@ -1292,6 +1294,7 @@ class ForwardTest(unittest.TestCase):
             )
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_in_oss)
     @given(
         T=st.integers(min_value=2, max_value=8),
         D=st.integers(min_value=2, max_value=128),

@@ -6,6 +6,7 @@
 
 
 import math
+import os
 import unittest
 from typing import Optional
 
@@ -30,7 +31,14 @@ skip_cuda_lt_sm100 = unittest.skipIf(
 )
 skip_rocm = unittest.skipIf(torch.version.hip is not None, "Does not support ROCm")
 
+skip_on_github = unittest.skipIf(
+    os.getenv("GITHUB_ENV") is not None, "Skipping on Github"
+)
 
+
+@skip_on_github
+@skip_cuda_lt_sm100
+@skip_rocm
 class SplitKTest(unittest.TestCase):
     """Test suite for SplitK attention implementation."""
 
@@ -595,8 +603,6 @@ class SplitKTest(unittest.TestCase):
         if DEBUG:
             print("✓ Split-K merged matches full attention")
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     @parameterized.expand(
         [
             (batch_size, seqlen_k, q_heads, kv_heads, head_dim)
@@ -626,8 +632,6 @@ class SplitKTest(unittest.TestCase):
             batch_size, seqlen_k, q_heads, kv_heads, head_dim
         )
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     def test_splitk_output_layout(self) -> None:
         """
         Test that SplitK attention produces outputs in the correct layout.
@@ -698,8 +702,6 @@ class SplitKTest(unittest.TestCase):
             if lse is not None:
                 print(f"  LSE shape: {lse.shape}")
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     def test_non_splitk_output_layout(self) -> None:
         """
         Test that non-split-k attention produces outputs in the correct layout.
@@ -781,8 +783,6 @@ class SplitKTest(unittest.TestCase):
             if lse is not None:
                 print(f"  LSE shape: {lse.shape}, dtype: {lse.dtype}")
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     @parameterized.expand(
         [
             (batch_size, seqlen_k, q_heads, kv_heads, head_dim)
@@ -821,8 +821,6 @@ class SplitKTest(unittest.TestCase):
             head_dim=head_dim,
         )
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     @parameterized.expand(
         [
             (batch_size, max_seqlen_k, varlen)
