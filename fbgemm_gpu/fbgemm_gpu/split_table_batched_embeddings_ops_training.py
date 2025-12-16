@@ -214,11 +214,13 @@ class PrefetchedInfo:
         linear_unique_cache_indices: torch.Tensor,
         linear_unique_indices_length: torch.Tensor,
         hash_zch_identities: Optional[torch.Tensor],
+        hash_zch_runtime_meta: Optional[torch.Tensor],
     ) -> None:
         self.linear_unique_indices = linear_unique_indices
         self.linear_unique_cache_indices = linear_unique_cache_indices
         self.linear_unique_indices_length = linear_unique_indices_length
         self.hash_zch_identities = hash_zch_identities
+        self.hash_zch_runtime_meta = hash_zch_runtime_meta
 
 
 def construct_split_state(
@@ -2074,6 +2076,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
         total_unique_indices: Optional[int] = None,
         hash_zch_identities: Optional[Tensor] = None,
+        hash_zch_runtime_meta: Optional[Tensor] = None,
     ) -> Tensor:
         """
         The forward pass function that
@@ -2256,6 +2259,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 vbe_metadata,
                 multipass_prefetch_config=None,
                 hash_zch_identities=hash_zch_identities,
+                hash_zch_runtime_meta=hash_zch_runtime_meta,
             )
 
         if len(self.timesteps_prefetched) > 0:
@@ -2782,6 +2786,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
         multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
         hash_zch_identities: Optional[Tensor] = None,
+        hash_zch_runtime_meta: Optional[Tensor] = None,
     ) -> None:
         if not is_torchdynamo_compiling():
             # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
@@ -2912,6 +2917,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             linear_cache_indices_merged,
             final_lxu_cache_locations,
             hash_zch_identities,
+            hash_zch_runtime_meta,
         )
 
     def should_log(self) -> bool:
@@ -4195,6 +4201,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     if prefetched_info.hash_zch_identities is not None
                     else None
                 ),
+                (
+                    prefetched_info.hash_zch_runtime_meta.index_select(
+                        dim=0, index=cache_hit_mask_index
+                    ).to(device=torch.device("cpu"))
+                    if prefetched_info.hash_zch_runtime_meta is not None
+                    else None
+                ),
                 prefetched_info.linear_unique_indices_length.to(
                     device=torch.device("cpu")
                 ),
@@ -4209,6 +4222,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         linear_cache_indices_merged: torch.Tensor,
         total_cache_hash_size: int,
         hash_zch_identities: Optional[torch.Tensor],
+        hash_zch_runtime_meta: Optional[torch.Tensor],
         max_indices_length: int,
     ) -> PrefetchedInfo:
         (
@@ -4234,7 +4248,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 0, 0, max_len
             )
         # Compute cumulative sum as indices for selecting unique elements to
-        # map hash_zch_identities to linear_unique_indices
+        # map hash_zch_identities and hash_zch_runtime_meta to linear_unique_indices
         count_cum_sum = torch.ops.fbgemm.asynchronous_complete_cumsum(
             linear_unique_cache_indices_cnt
         )
@@ -4260,11 +4274,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dim=0, index=linear_unique_inverse_indices
             )
 
+        if hash_zch_runtime_meta is not None:
+            # Map hash_zch_runtime_meta to unique indices
+            hash_zch_runtime_meta = hash_zch_runtime_meta.index_select(
+                dim=0, index=linear_unique_inverse_indices
+            )
+
         return PrefetchedInfo(
             linear_unique_indices,
             linear_unique_cache_indices,
             linear_unique_cache_indices_length,
             hash_zch_identities,
+            hash_zch_runtime_meta,
         )
 
     @torch.jit.ignore
@@ -4276,6 +4297,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         linear_cache_indices_merged: torch.Tensor,
         final_lxu_cache_locations: torch.Tensor,
         hash_zch_identities: Optional[torch.Tensor],
+        hash_zch_runtime_meta: Optional[torch.Tensor],
     ) -> None:
         """
         NOTE: this needs to be a method with jit.ignore as the identities tensor is conditional.
@@ -4314,6 +4336,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 linear_cache_indices_merged_masked,
                 self.total_cache_hash_size,
                 hash_zch_identities,
+                hash_zch_runtime_meta,
                 self.lxu_cache_weights.size(0),
             )
 
