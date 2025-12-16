@@ -7,7 +7,6 @@
  */
 
 #include <type_traits>
-
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -20,7 +19,6 @@ template <
     typename acc_t,
     int NUM_THREADS_PER_BLOCK,
     int MAX_ENTRIES_PER_BLOCK>
- 
 __global__ void index_select_scalar_cumsum_kernel(
     pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
     pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
