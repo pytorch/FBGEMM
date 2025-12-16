@@ -284,13 +284,13 @@ class KeyedJaggedIndexSelectDim1GPUOp
     Tensor output_lengths =
         at::empty({num_batches * indices.numel()}, lengths.options());
 
-    // Do index select and cumsum
     Tensor block_flags, block_sums;
     if (grid_size > 1) {
       block_flags = at::zeros({grid_size}, lengths.options().dtype(at::kInt));
       block_sums = at::empty({grid_size}, output_offsets.options());
     }
 
+    // Do index select and cumsum
     AT_DISPATCH_INDEX_TYPES(
         lengths.scalar_type(), "index_select_scalar_cumsum_wrapper_1", [&] {
           using length_t = index_t;
