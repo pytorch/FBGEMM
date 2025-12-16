@@ -346,6 +346,7 @@ class SplitKTest(unittest.TestCase):
             k,
             v,
             seqlen_kv=seqlen_kv,
+            split_k_size=SPLIT_SIZE,
         )
 
         # ========================================
@@ -497,6 +498,7 @@ class SplitKTest(unittest.TestCase):
             v,
             seqlen_kv=seqlen_kv,
             split_k_size=0,  # No split-K
+            use_heuristic=False,  # Disable heuristic to truly disable split-K
         )
         # out_full: [B, 1, H, D]
         # lse_full: [B, H, 1]
@@ -506,17 +508,18 @@ class SplitKTest(unittest.TestCase):
             print(f"  Full attention LSE shape: {lse_full.shape}")
 
         # ========================================
-        # Run split-K attention
+        # Run split-K attention (using heuristic to compute split size)
         # ========================================
         out_split, lse_split = cutlass_blackwell_fmha_decode_forward(
             q.clone(),
             k.clone(),
             v.clone(),
             seqlen_kv=seqlen_kv,
-            split_k_size=SPLIT_SIZE,
+            # Let heuristic compute optimal split size (use_heuristic=True by default)
         )
         # out_split: [B, H, num_splits, D]
         # lse_split: [B, num_splits, H]
+        num_splits = out_split.shape[2]  # Get actual num_splits from output
 
         # Check for NaN values and print which batch/split indices have them
         if torch.isnan(out_split).any():
@@ -677,6 +680,7 @@ class SplitKTest(unittest.TestCase):
             k,
             v,
             seqlen_kv=seqlen_kv,
+            split_k_size=SPLIT_SIZE,
         )
 
         # Verify output layout: [B, H, num_splits, D]
@@ -744,6 +748,7 @@ class SplitKTest(unittest.TestCase):
             v,
             seqlen_kv=seqlen_kv,
             split_k_size=0,  # Disable split-k
+            use_heuristic=False,  # Disable heuristic to truly disable split-K
         )
 
         # Verify output layout: [B, 1,  H, D]

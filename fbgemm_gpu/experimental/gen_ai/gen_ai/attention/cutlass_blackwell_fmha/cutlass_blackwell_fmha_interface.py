@@ -39,6 +39,60 @@ class GenKernelType(IntEnum):
     UMMA_P = 1
 
 
+def get_splitk_heuristic(
+    batch: int,
+    seqlen_kv: int,
+    kv_heads: int = 1,
+    tile_n: int = 256,
+    sm_count: int | None = None,
+) -> int:
+    """
+    Compute optimal split-K size for Shape<64, 256, 128> tile configuration.
+
+    Targets full GPU utilization by distributing work across all SMs.
+    First calculates SMs per batch, then per kv_head, then divides seqlen_kv by that number.
+    Ensures split size evenly divides seqlen_kv so all CTAs process same number of tiles.
+    Returns 0 (no split) when split would equal seqlen_kv (only 1 split).
+
+    Args:
+        batch: Batch size
+        seqlen_kv: Maximum sequence length for K/V
+        kv_heads: Number of KV heads (default 1 for MQA)
+        tile_n: TileN dimension (default 256 for Shape<64, 256, 128>)
+        sm_count: Number of SMs on the GPU. If None, queries the current device.
+
+    Returns:
+        Optimal split size along the K/V sequence dimension, or 0 to disable split-K
+    """
+    # Get SM count from current device if not provided
+    if sm_count is None:
+        sm_count = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).multi_processor_count
+
+    # Calculate number of SMs available per batch element
+    sms_per_batch = max(1, sm_count // batch)
+    # Further divide by kv_heads for multi-head KV
+    sms_per_head_batch = max(1, sms_per_batch // kv_heads)
+
+    # Each (batch, kv_head) element should have sms_per_head_batch splits
+    # So split size = seqlen_kv / sms_per_head_batch
+    ideal_split = seqlen_kv // sms_per_head_batch
+
+    # Round up to multiple of tile_n
+    split = ((ideal_split + tile_n - 1) // tile_n) * tile_n
+
+    # Clamp to valid range: [tile_n, seqlen_kv]
+    split = max(split, tile_n)
+    split = min(split, seqlen_kv)
+
+    # If split equals seqlen_kv, there's only 1 split - disable split-K
+    if split == seqlen_kv:
+        split = 0
+
+    return split
+
+
 def maybe_contiguous(x: torch.Tensor) -> torch.Tensor:
     """
     We only require the head dim to be contiguous
@@ -236,6 +290,7 @@ def cutlass_blackwell_fmha_decode_forward(
     window_right: int = -1,
     bottom_right: bool = True,
     split_k_size: int = 1024,
+    use_heuristic: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Decode-optimized forward pass using the gen kernel.
@@ -254,27 +309,38 @@ def cutlass_blackwell_fmha_decode_forward(
         v: Value tensor [B, Sk, H_kv, D]
         seqlen_kv: Per-batch sequence lengths [B] (required)
         split_k_size: Size of each split along the K/V sequence dimension.
-                     Use 1024 (default) for split-K mode, or 0/-1 to disable split-K.
+                     - split_k_size <= 0 with use_heuristic=True: auto-compute using heuristic
+                     - split_k_size <= 0 with use_heuristic=False: disable split-K
+                     - split_k_size > 0: use the provided split size directly
                      Values below 256 are adjusted to 256. Non-power-of-2 values
                      are rounded to the nearest multiple of 128.
+        use_heuristic: If True and split_k_size <= 0, automatically compute optimal
+                      split size using the heuristic. Default is True.
 
     Returns:
         Conditional return based on split-K mode:
-        - Non-split case (split_k_size <= 0):
+        - Non-split case (split_k_size <= 0 and use_heuristic=False):
             out: Same shape as input q ([B, H, D] for varlen or [B, 1, H, D] for batch)
                  with bfloat16 dtype
             lse: [B, H, 1] (always float32)
-        - Split case (split_k_size > 0):
+        - Split case (split_k_size > 0 or use_heuristic=True):
             out: [B, H, num_splits, D] with float32 dtype (partial outputs for later reduction)
             lse: [B, num_splits, H] (always float32)
     """
-    # Validate and adjust split_k_size
-    split_k_size = _validate_and_adjust_split_k_size(split_k_size)
-
     _validate_decode_inputs(q, k, v, seqlen_kv)
 
     # Prepare inputs and handle format conversion
     q, k, v, batch_size, _, original_shape = _prepare_decode_inputs(q, k, v)
+
+    # Determine effective split_k_size
+    if split_k_size <= 0 and use_heuristic:
+        # Auto-compute using heuristic
+        max_seqlen_kv = k.shape[1]
+        kv_heads = k.shape[2]  # K shape is [B, Sk, H_kv, D]
+        split_k_size = get_splitk_heuristic(batch_size, max_seqlen_kv, kv_heads)
+
+    # Validate and adjust split_k_size
+    split_k_size = _validate_and_adjust_split_k_size(split_k_size)
 
     # Call the gen kernel (optimized for decode)
     out, lse = torch.ops.fbgemm.fmha_gen_fwd(
