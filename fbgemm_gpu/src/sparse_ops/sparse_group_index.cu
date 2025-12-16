@@ -84,6 +84,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       member_warp_id = warp_id - (member_id * warps_per_row * num_work_rows);
     }
 
+#ifdef USE_ROCM
     if (num_cols < COLS_PER_WARP) {
       // Optimized path for small embedding dimensions
       // Each warp processes 'rows_per_warp' rows
@@ -107,6 +108,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
 
 #pragma unroll
         for (int i = 0; i < UNROLL_FACTOR && col + i < num_cols; i++) {
+          // Compile time conditional
           if constexpr (USE_INDEX_SELECT) {
             output_base[current_row * num_cols + col] = 
                 LDG(&input_base[idx * num_cols + col]);
@@ -119,12 +121,12 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       }
     } else {
       // Large embedding dimensions use >= 1 warp per row
-      
+      // which is the default codepath for non-ROCm as well
+#endif // USE_ROCM
       const auto row = member_warp_id / warps_per_row;
       const auto col_offset =
           ((member_warp_id % warps_per_row) << LOG_COLS_PER_WARP) +
           (threadIdx.x * UNROLL_FACTOR);
-      
       scalar_t* input =
           reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
       scalar_t* output =
@@ -132,9 +134,9 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
 
       index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
       const index_t idx = indices[row];
-
 #pragma unroll
       for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
+        // Compile time conditional
         if constexpr (USE_INDEX_SELECT) {
           output[row * num_cols + i] = LDG(&input[idx * num_cols + i]);
         } else {
@@ -142,7 +144,9 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
               &output[idx * num_cols + i], input[row * num_cols + i]);
         }
       }
+#ifdef USE_ROCM
     }
+#endif // USE_ROCM
   }
 }
 
