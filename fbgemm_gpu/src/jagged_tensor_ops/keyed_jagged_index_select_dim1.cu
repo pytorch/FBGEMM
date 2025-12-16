@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <type_traits>
+
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -17,8 +19,7 @@ template <
     typename index_t,
     typename acc_t,
     int NUM_THREADS_PER_BLOCK,
-    int MAX_ENTRIES_PER_BLOCK,
-    int VEC>
+    int MAX_ENTRIES_PER_BLOCK>
  
 __global__ void index_select_scalar_cumsum_kernel(
     pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
@@ -269,18 +270,15 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
 #ifdef USE_ROCM
     const int vec_candidates[] = {4, 2, 1};
-    int VEC = 1;
+    int vec = 1;
     for (int v : vec_candidates) {
       if (indices.numel() % v == 0) {
-        VEC = v;
+        vec = v;
         break;
       }
     }
-    const int ENTRIES_PER_BLOCK = MAX_CUMSUM_ENTRIES_PER_BLOCK * VEC;
-    auto grid_size = (num_output_lengths + ENTRIES_PER_BLOCK - 1) /
-        ENTRIES_PER_BLOCK;
 #else
-    const int VEC = 1;
+    const int vec = 1;
     const int ENTRIES_PER_BLOCK = MAX_CUMSUM_ENTRIES_PER_BLOCK;
     auto grid_size = cuda_calc_xblock_count(
         num_output_lengths, MAX_CUMSUM_ENTRIES_PER_BLOCK);
@@ -291,53 +289,87 @@ class KeyedJaggedIndexSelectDim1GPUOp
     Tensor output_lengths =
         at::empty({num_batches * indices.numel()}, lengths.options());
 
-    Tensor block_flags, block_sums;
-    if (grid_size > 1) {
-      block_flags = at::zeros({grid_size}, lengths.options().dtype(at::kInt));
-      block_sums = at::empty({grid_size}, output_offsets.options());
-    }
-
     // Do index select and cumsum
-    AT_DISPATCH_INDEX_TYPES(
-        lengths.scalar_type(), "index_select_scalar_cumsum_wrapper_1", [&] {
-          using length_t = index_t;
-          AT_DISPATCH_INDEX_TYPES(
-              offsets.scalar_type(),
-              "index_select_scalar_cumsum_wrapper_2",
-              [&] {
-                using offset_t = index_t;
-                AT_DISPATCH_INDEX_TYPES(
-                    indices.scalar_type(),
-                    "index_select_scalar_cumsum_wrapper_3",
-                    [&] {
-                      FBGEMM_LAUNCH_KERNEL(
-                          (index_select_scalar_cumsum_kernel<
-                              length_t,
-                              index_t,
-                              offset_t,
-                              MAX_CUMSUM_ENTRIES_PER_BLOCK,
-                              ENTRIES_PER_BLOCK,
-                              VEC>),
-                          grid_size,
-                          MAX_CUMSUM_ENTRIES_PER_BLOCK,
-                          0,
-                          at::cuda::getCurrentCUDAStream(),
-                          PTA_B(output_lengths, length_t, 1, 32),
-                          PTA_B(output_offsets, offset_t, 1, 32),
-                          PTA_B(lengths, length_t, 1, 32),
-                          PTA_B(indices, index_t, 1, 32),
-                          num_batches,
-                          batch_size,
-                          grid_size == 0
-                              ? 0
-                              : num_output_lengths -
-                          ENTRIES_PER_BLOCK * (grid_size - 1),
-                          grid_size > 1 ? block_flags.data_ptr<int>() : nullptr,
-                          grid_size > 1 ? block_sums.data_ptr<offset_t>()
-                                        : nullptr);
-                    });
-              });
+    auto dispatch_cumsum = [&](auto vec_tag, auto grid_calc) {
+      constexpr int VEC = decltype(vec_tag)::value;
+      constexpr int ENTRIES_PER_BLOCK =
+          MAX_CUMSUM_ENTRIES_PER_BLOCK * VEC;
+      const auto grid_size = grid_calc(ENTRIES_PER_BLOCK);
+
+      Tensor block_flags, block_sums;
+      if (grid_size > 1) {
+        block_flags =
+            at::zeros({grid_size}, lengths.options().dtype(at::kInt));
+        block_sums = at::empty({grid_size}, output_offsets.options());
+      }
+
+      AT_DISPATCH_INDEX_TYPES(
+          lengths.scalar_type(), "index_select_scalar_cumsum_wrapper_1", [&] {
+            using length_t = index_t;
+            AT_DISPATCH_INDEX_TYPES(
+                offsets.scalar_type(),
+                "index_select_scalar_cumsum_wrapper_2",
+                [&] {
+                  using offset_t = index_t;
+                  AT_DISPATCH_INDEX_TYPES(
+                      indices.scalar_type(),
+                      "index_select_scalar_cumsum_wrapper_3",
+                      [&] {
+                        FBGEMM_LAUNCH_KERNEL(
+                            (index_select_scalar_cumsum_kernel<
+                                length_t,
+                                index_t,
+                                offset_t,
+                                MAX_CUMSUM_ENTRIES_PER_BLOCK,
+                                ENTRIES_PER_BLOCK,
+                                VEC>),
+                            grid_size,
+                            MAX_CUMSUM_ENTRIES_PER_BLOCK,
+                            0,
+                            at::cuda::getCurrentCUDAStream(),
+                            PTA_B(output_lengths, length_t, 1, 32),
+                            PTA_B(output_offsets, offset_t, 1, 32),
+                            PTA_B(lengths, length_t, 1, 32),
+                            PTA_B(indices, index_t, 1, 32),
+                            num_batches,
+                            batch_size,
+                            grid_size == 0
+                                ? 0
+                                : num_output_lengths -
+                                    ENTRIES_PER_BLOCK * (grid_size - 1),
+                            grid_size > 1
+                                ? block_flags.data_ptr<int>()
+                                : nullptr,
+                            grid_size > 1
+                                ? block_sums.data_ptr<offset_t>()
+                                : nullptr);
+                      });
+                });
+          });
+    };
+
+#ifdef USE_ROCM
+    auto rocm_grid = [&](int entries_per_block) {
+      return (num_output_lengths + entries_per_block - 1) / entries_per_block;
+    };
+    switch (vec) {
+      case 4:
+        dispatch_cumsum(std::integral_constant<int, 4>{}, rocm_grid);
+        break;
+      case 2:
+        dispatch_cumsum(std::integral_constant<int, 2>{}, rocm_grid);
+        break;
+      default:
+        dispatch_cumsum(std::integral_constant<int, 1>{}, rocm_grid);
+        break;
+    }
+#else
+    dispatch_cumsum(
+        std::integral_constant<int, 1>{},
+        [&](int entries_per_block) {
+          return cuda_calc_xblock_count(num_output_lengths, entries_per_block);
         });
+#endif
 
     const int64_t num_outputs = (selected_lengths_sum.has_value())
         ? selected_lengths_sum.value().guard_int(__FILE__, __LINE__)
