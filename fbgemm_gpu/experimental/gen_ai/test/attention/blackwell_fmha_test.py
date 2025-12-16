@@ -398,6 +398,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             window_right=window_size[1],
             bottom_right=True,
             split_k_size=0,
+            use_heuristic=False,
         )
 
         if DEBUG:
