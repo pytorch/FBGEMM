@@ -72,7 +72,7 @@ struct FmhaKernelBwdConvert {
   static const int MaxThreadsPerBlock = 128;
   using ArchTag = cutlass::arch::Sm90;
 
-  static const int kBlockSeq = 8;
+  static const int kBlockSeq = 128;
 
   static size_t get_workspace_size(Arguments const& args) { return 0; }
   static cutlass::Status initialize_workspace(Arguments const&, void*, cudaStream_t) {
@@ -90,7 +90,16 @@ struct FmhaKernelBwdConvert {
   }
 
   static dim3 get_grid_shape(Params const& params) {
-    dim3 grid(size<4,0>(params.problem_shape), size<4,1>(params.problem_shape), ceil_div(std::max(size<0>(params.problem_shape), size<1>(params.problem_shape)), kBlockSeq));
+    // Determine max sequence length based on which tensors need conversion.
+    // Currently only dQ needs conversion (dK/dV are written directly as BF16
+    // from the main backward kernel), so we use Q length by default.
+    // If dK or dV also need conversion (non-null source pointers), we must
+    // use max(Q, K) to ensure enough blocks are launched.
+    auto max_seq = size<0>(params.problem_shape);  // Q length
+    if (params.ptr_src_dK != nullptr || params.ptr_src_dV != nullptr) {
+      max_seq = std::max(max_seq, size<1>(params.problem_shape));  // max(Q, K)
+    }
+    dim3 grid(size<4,0>(params.problem_shape), size<4,1>(params.problem_shape), ceil_div(max_seq, kBlockSeq));
     return grid;
   }
 
