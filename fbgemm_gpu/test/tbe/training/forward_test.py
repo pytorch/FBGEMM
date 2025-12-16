@@ -360,6 +360,15 @@ class ForwardTest(unittest.TestCase):
             ),
             use_cpu,
         )
+        hash_zch_runtime_meta = to_device(
+            torch.randint(
+                low=0,
+                high=E * 10,  # The upper-bound doesn't matter
+                size=(B * T * L,),  # Matches dimension 0 of indices
+                dtype=torch.int64,
+            ),
+            use_cpu,
+        )
         # Run TBE
         fc2 = (
             cc(
@@ -367,6 +376,7 @@ class ForwardTest(unittest.TestCase):
                 offsets,
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
                 hash_zch_identities=hash_zch_identities,
+                hash_zch_runtime_meta=hash_zch_runtime_meta,
             )
             if not weighted
             else cc(
@@ -375,6 +385,7 @@ class ForwardTest(unittest.TestCase):
                 to_device(xw.contiguous().view(-1), use_cpu),
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
                 hash_zch_identities=hash_zch_identities,
+                hash_zch_runtime_meta=hash_zch_runtime_meta,
             )
         )
 
@@ -1464,14 +1475,15 @@ class ForwardTest(unittest.TestCase):
                     call_args = last_call_args[0] if last_call_args[0] else []
                     self.assertGreaterEqual(
                         len(call_args),
-                        4,
-                        "stream() should be called with at least 4 args",
+                        5,
+                        "stream() should be called with at least 5 args",
                     )
 
                     streamed_indices = call_args[0]
                     streamed_weights = call_args[1]
                     # call_args[2] is hash_zch_identities (optional)
-                    count = call_args[3]  # Number of valid entries
+                    # call_args[3] is hash_zch_runtime_meta (optional)
+                    count = call_args[4]  # Number of valid entries
 
                     self.assertIsInstance(streamed_indices, torch.Tensor)
                     self.assertIsInstance(streamed_weights, torch.Tensor)
