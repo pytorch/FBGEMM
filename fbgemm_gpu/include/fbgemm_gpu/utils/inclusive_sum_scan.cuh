@@ -71,10 +71,11 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
     const int signal) {
 // ROCm path
 #ifdef USE_ROCM
+  // Perform scan within a block
   cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>(temp_storage)
       .InclusiveSum(arr, arr);
 
-  // Perform stream scan across blocks
+  // Perform scan across blocks
   if (is_multi_block) {
     const bool is_last_thread =
         threadIdx.x == (num_entries_per_block - 1) / ITEMS_PER_THREAD;
@@ -106,10 +107,11 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
   }
 #else
   // CUDA path
+  // Perform scan across blocks
   cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>(temp_storage)
       .InclusiveSum(arr, arr);
 
-  // Perform stream scan across blocks
+  // Perform scan across blocks
   if (is_multi_block) {
     // The thread that holds the last entry in the block does synchronization
     if (threadIdx.x == (num_entries_per_block - 1) / ITEMS_PER_THREAD) {
