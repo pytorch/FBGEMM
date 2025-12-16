@@ -150,7 +150,7 @@ __global__ void index_select_scalar_cumsum_kernel(
   }
 #endif
 }
- 
+
 template <
     typename scalar_t,
     typename index_t,
@@ -284,7 +284,6 @@ class KeyedJaggedIndexSelectDim1GPUOp
     Tensor output_lengths =
         at::empty({num_batches * indices.numel()}, lengths.options());
 
-    // Do index select and cumsum
     // Do index select and cumsum
     Tensor block_flags, block_sums;
     if (grid_size > 1) {
