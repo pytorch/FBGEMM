@@ -6,31 +6,114 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "common.cuh"
+ #include "common.cuh"
 
-using Tensor = at::Tensor;
+ using Tensor = at::Tensor;
+ 
+ namespace fbgemm_gpu {
+ 
+ template <
+     typename scalar_t,
+     typename index_t,
+     typename acc_t,
+     int NUM_THREADS_PER_BLOCK,
+     int MAX_ENTRIES_PER_BLOCK,
+     int VEC>
+ 
+ __global__ void index_select_scalar_cumsum_kernel(
+     pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
+     pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
+     const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
+     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+         indices,
+     const int num_batches,
+     const int input_batch_size,
+     const int last_block_num_entries,
+     int* block_flags,
+     acc_t* block_sums) {
+   typedef cub::BlockScan<acc_t, NUM_THREADS_PER_BLOCK> BlockScan;
+   __shared__ typename BlockScan::TempStorage bs_temp_storage;
+   __shared__ acc_t block_prefix;
 
-namespace fbgemm_gpu {
-
-template <
-    typename scalar_t,
-    typename index_t,
-    typename acc_t,
-    int NUM_THREADS_PER_BLOCK,
-    int MAX_ENTRIES_PER_BLOCK>
-__global__ void index_select_scalar_cumsum_kernel(
-    pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
-    pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
-    const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
-        indices,
-    const int num_batches,
-    const int input_batch_size,
-    const int last_block_num_entries,
-    int* block_flags,
-    acc_t* block_sums) {
-  typedef cub::BlockScan<acc_t, NUM_THREADS_PER_BLOCK> BlockScan;
-  __shared__ typename BlockScan::TempStorage bs_temp_storage;
+// ROCm path
+#ifdef USE_ROCM
+   const int output_batch_size = indices.size(0);
+   const int num_entries = num_batches * output_batch_size;
+   const bool multi_block = gridDim.x > 1;
+   const int block_entries = blockIdx.x == gridDim.x - 1
+       ? last_block_num_entries
+       : MAX_ENTRIES_PER_BLOCK;
+   const int block_entry_start = blockIdx.x * MAX_ENTRIES_PER_BLOCK;
+   const int remaining_entries = num_entries - block_entry_start;
+   const int num_entries_per_block = remaining_entries > 0
+       ? (remaining_entries < block_entries ? remaining_entries : block_entries)
+       : 0;
+ 
+   const int base_entry = block_entry_start + threadIdx.x * VEC;
+   acc_t local_data[VEC];
+ 
+ #pragma unroll
+   for (int i = 0; i < VEC; ++i) {
+     const int entry = base_entry + i;
+     if (entry < num_entries) {
+       const int bid = entry / output_batch_size;
+       const int idx_in_batch = entry - bid * output_batch_size;
+      const int bid_base = bid * input_batch_size;
+      const index_t sel_idx = indices[idx_in_batch];
+       local_data[i] =
+ #ifdef __HIP_PLATFORM_AMD__
+           __builtin_nontemporal_load(
+              &input[bid_base + sel_idx]);
+ #else
+          input[bid_base + sel_idx];
+ #endif
+       output[entry] = local_data[i];
+     } else {
+       local_data[i] = 0;
+     }
+   }
+ 
+   // Faster path for single block
+   if (!multi_block) {
+     if (num_entries_per_block > 0) {
+       BlockScan(bs_temp_storage).InclusiveSum(local_data, local_data);
+     }
+     if (base_entry < num_entries) {
+ #pragma unroll
+       for (int i = 0; i < VEC; ++i) {
+         const int entry = base_entry + i;
+         if (entry < num_entries) {
+           output_cumsum[entry] = local_data[i];
+         }
+       }
+     }
+     return;
+   }
+ 
+   if (num_entries_per_block > 0) {
+     inclusive_sum_scan_kernel<acc_t, VEC, NUM_THREADS_PER_BLOCK>(
+         local_data,
+         bs_temp_storage,
+         block_flags,
+         block_sums,
+         &block_prefix,
+         num_entries_per_block,
+         blockIdx.x,
+         multi_block,
+         1);
+   }
+ 
+   if (base_entry < num_entries) {  
+ #pragma unroll
+     for (int i = 0; i < VEC; ++i) {
+       const int entry = base_entry + i;
+       if (entry < num_entries) {
+         output_cumsum[entry] = local_data[i];
+       }
+     }
+  }
+#else
+  // CUDA path
   __shared__ acc_t smem[MAX_ENTRIES_PER_BLOCK];
   const auto tid = blockIdx.x * blockDim.x + threadIdx.x;
   const int output_batch_size = indices.size(0);
@@ -39,7 +122,6 @@ __global__ void index_select_scalar_cumsum_kernel(
       ? last_block_num_entries
       : MAX_ENTRIES_PER_BLOCK;
 
-  // Load data
   acc_t local_data[1];
   if (tid < num_batches * output_batch_size) {
     *local_data =
@@ -49,7 +131,6 @@ __global__ void index_select_scalar_cumsum_kernel(
     *local_data = 0;
   }
 
-  // Cumsum
   inclusive_sum_scan_kernel<acc_t, 1, NUM_THREADS_PER_BLOCK>(
       local_data,
       bs_temp_storage,
@@ -61,18 +142,26 @@ __global__ void index_select_scalar_cumsum_kernel(
       gridDim.x > 1,
       1);
 
-  // Store data
   if (tid < num_batches * output_batch_size) {
     output_cumsum[tid] = *local_data;
   }
+#endif
 }
+ 
+ template <
+     typename scalar_t,
+     typename index_t,
+     typename offset_t,
+     typename weight_t,
+     bool has_weights>
 
-template <
-    typename scalar_t,
-    typename index_t,
-    typename offset_t,
-    typename weight_t,
-    bool has_weights>
+// Total amount of user embeddings may not fit into GPU memory.
+// This kernel gathers a subset of users from a total amount of users.
+// Gathers raw user's embeddings from scattered memory locations and
+// writes them into contiguous memory locations.
+// The kernel takes one big jagged tensor containing all keys stacked 
+// together, and selects the same indices across all keys in a single operation.
+
 __global__ void keyed_jagged_index_select_dim1_kernel(
     pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
     pta::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
@@ -121,6 +210,7 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
   }
 }
 
+// Computes gradients for backpropagation during training.
 template <typename scalar_t, typename index_t, typename offset_t>
 __global__ void keyed_jagged_index_add_dim1_kernel(
     pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
@@ -183,8 +273,24 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const int num_batches = lengths.numel() / batch_size;
     const int num_output_lengths = num_batches * indices.numel();
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
+#ifdef USE_ROCM
+    const int vec_candidates[] = {4, 2, 1};
+    int VEC = 1;
+    for (int v : vec_candidates) {
+      if (indices.numel() % v == 0) {
+        VEC = v;
+        break;
+      }
+    }
+    const int ENTRIES_PER_BLOCK = MAX_CUMSUM_ENTRIES_PER_BLOCK * VEC;
+    auto grid_size = (num_output_lengths + ENTRIES_PER_BLOCK - 1) /
+        ENTRIES_PER_BLOCK;
+#else
+    const int VEC = 1;
+    const int ENTRIES_PER_BLOCK = MAX_CUMSUM_ENTRIES_PER_BLOCK;
     auto grid_size = cuda_calc_xblock_count(
         num_output_lengths, MAX_CUMSUM_ENTRIES_PER_BLOCK);
+#endif
 
     Tensor output_offsets =
         at::empty({num_batches * indices.numel()}, offsets.options());
@@ -216,7 +322,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
                               index_t,
                               offset_t,
                               MAX_CUMSUM_ENTRIES_PER_BLOCK,
-                              MAX_CUMSUM_ENTRIES_PER_BLOCK>),
+                              ENTRIES_PER_BLOCK,
+                              VEC>),
                           grid_size,
                           MAX_CUMSUM_ENTRIES_PER_BLOCK,
                           0,
@@ -227,8 +334,10 @@ class KeyedJaggedIndexSelectDim1GPUOp
                           PTA_B(indices, index_t, 1, 32),
                           num_batches,
                           batch_size,
-                          num_output_lengths -
-                              MAX_CUMSUM_ENTRIES_PER_BLOCK * (grid_size - 1),
+                          grid_size == 0
+                              ? 0
+                              : num_output_lengths -
+                          ENTRIES_PER_BLOCK * (grid_size - 1),
                           grid_size > 1 ? block_flags.data_ptr<int>() : nullptr,
                           grid_size > 1 ? block_sums.data_ptr<offset_t>()
                                         : nullptr);
