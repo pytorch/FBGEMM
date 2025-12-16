@@ -157,14 +157,6 @@ template <
     typename offset_t,
     typename weight_t,
     bool has_weights>
-
-// Total amount of user embeddings may not fit into GPU memory.
-// This kernel gathers a subset of users from a total amount of users.
-// Gathers raw user's embeddings from scattered memory locations and
-// writes them into contiguous memory locations.
-// The kernel takes one big jagged tensor containing all keys stacked 
-// together, and selects the same indices across all keys in a single operation.
-
 __global__ void keyed_jagged_index_select_dim1_kernel(
     pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
     pta::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
@@ -213,7 +205,6 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
   }
 }
 
-// Computes gradients for backpropagation during training.
 template <typename scalar_t, typename index_t, typename offset_t>
 __global__ void keyed_jagged_index_add_dim1_kernel(
     pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
