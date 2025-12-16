@@ -33,10 +33,20 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
     def test_get_prefetched_info(self) -> None:
         hash_zch_identities = torch.tensor(
             [
-                [3350213393928437575],  # for index 54
-                [6548733451892409412],  # for index 27
-                [4126118985661274454],  # for index 43
-                [2565973416302224539],  # for index 90
+                [100],  # for index 54
+                [200],  # for index 27
+                [300],  # for index 43
+                [400],  # for index 90
+            ],
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+        hash_zch_runtime_meta = torch.tensor(
+            [
+                [1],
+                [2],
+                [3],
+                [4],
             ],
             device=torch.cuda.current_device(),
             dtype=torch.int64,
@@ -59,6 +69,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             linear_cache_indices_merged,
             total_cache_hash_size,
             hash_zch_identities,
+            hash_zch_runtime_meta,
             max_indices_length=200,  # Arbitrary large enough value
         )
 
@@ -81,12 +92,26 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                [6548733451892409412],
-                [4126118985661274454],
-                [3350213393928437575],
-                [2565973416302224539],
+                [200],
+                [300],
+                [100],
+                [400],
             ],
             prefetched_info.hash_zch_identities.tolist(),
+        )
+        assert prefetched_info.hash_zch_runtime_meta is not None
+        self.assertEqual(
+            prefetched_info.hash_zch_runtime_meta.shape[0],
+            4,
+        )
+        self.assertEqual(
+            [
+                [2],
+                [3],
+                [1],
+                [4],
+            ],
+            prefetched_info.hash_zch_runtime_meta.tolist(),
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -98,13 +123,26 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         """
         hash_zch_identities = torch.tensor(
             [
-                [3350213393928437575],  # for index 54 (first occurrence)
-                [6548733451892409412],  # for index 27
-                [3350213393928437575],  # for index 54 (duplicate - same identity)
-                [4126118985661274454],  # for index 43
-                [6548733451892409412],  # for index 27 (duplicate - same identity)
-                [3350213393928437575],  # for index 54 (duplicate - same identity)
-                [2565973416302224539],  # for index 90
+                [100],  # for index 54 (first occurrence)
+                [200],  # for index 27
+                [100],  # for index 54 (duplicate - same identity)
+                [300],  # for index 43
+                [200],  # for index 27 (duplicate - same identity)
+                [100],  # for index 54 (duplicate - same identity)
+                [400],  # for index 90
+            ],
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+        hash_zch_runtime_meta = torch.tensor(
+            [
+                [1],  # runtime meta for index 54 (first occurrence)
+                [2],  # runtime meta for index 27
+                [1],  # runtime meta for index 54 (duplicate)
+                [3],  # runtime meta for index 43
+                [2],  # runtime meta for index 27 (duplicate)
+                [1],  # runtime meta for index 54 (duplicate)
+                [4],  # runtime meta for index 90
             ],
             device=torch.cuda.current_device(),
             dtype=torch.int64,
@@ -127,6 +165,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             linear_cache_indices_merged,
             total_cache_hash_size,
             hash_zch_identities,
+            hash_zch_runtime_meta,
             max_indices_length=200,  # Arbitrary large enough value
         )
 
@@ -156,10 +195,10 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                [6548733451892409412],  # for index 27
-                [4126118985661274454],  # for index 43
-                [3350213393928437575],  # for index 54
-                [2565973416302224539],  # for index 90
+                [200],  # for index 27
+                [300],  # for index 43
+                [100],  # for index 54
+                [400],  # for index 90
             ],
             prefetched_info.hash_zch_identities.tolist()[
                 :linear_unique_indices_length_scalar
@@ -213,13 +252,13 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         # Identities for ALL indices (including non-cached)
         hash_zch_identities = torch.tensor(
             [
-                [1111111111111111111],  # for cached index 54
-                [2222222222222222222],  # for cached index 27
-                [3333333333333333333],  # for non-cached index 150
-                [4444444444444444444],  # for cached index 43
-                [5555555555555555555],  # for non-cached index 200
-                [6666666666666666666],  # for cached index 90
-                [7777777777777777777],  # for non-cached index 175
+                [100],  # for cached index 54
+                [200],  # for cached index 27
+                [300],  # for non-cached index 150
+                [400],  # for cached index 43
+                [500],  # for non-cached index 200
+                [600],  # for cached index 90
+                [700],  # for non-cached index 175
             ],
             device=torch.cuda.current_device(),
             dtype=torch.int64,
@@ -230,6 +269,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             linear_cache_indices_merged=linear_cache_indices_merged,
             total_cache_hash_size=total_cache_hash_size,
             hash_zch_identities=hash_zch_identities,
+            hash_zch_runtime_meta=None,
             max_indices_length=200,  # Arbitrary large enough value
         )
 
@@ -259,10 +299,10 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         self.assertIsNotNone(prefetched_info.hash_zch_identities)
         self.assertEqual(
             [
-                [2222222222222222222],  # for index 27
-                [4444444444444444444],  # for index 43
-                [1111111111111111111],  # for index 54
-                [6666666666666666666],  # for index 90
+                [200],  # for index 27
+                [400],  # for index 43
+                [100],  # for index 54
+                [600],  # for index 90
             ],
             prefetched_info.hash_zch_identities.tolist()[
                 : linear_unique_indices_length_scalar - 1
@@ -292,6 +332,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             linear_cache_indices_merged=linear_cache_indices_merged,
             total_cache_hash_size=total_cache_hash_size,
             hash_zch_identities=None,
+            hash_zch_runtime_meta=None,
             max_indices_length=200,  # Arbitrary large enough value
         )
 
@@ -340,6 +381,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             linear_cache_indices_merged=linear_cache_indices_merged,
             final_lxu_cache_locations=torch.ones_like(linear_cache_indices_merged) * -1,
             hash_zch_identities=None,
+            hash_zch_runtime_meta=None,
         )
 
         self.assertEqual(len(tbe.prefetched_info_list), 0)
@@ -383,7 +425,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             dtype=torch.int64,
         )
         hash_zch_identities = torch.tensor(
-            [[1111], [2222], [6666], [7777], [8888], [9999]],
+            [[100], [200], [300], [400], [500], [600]],
             device=torch.cuda.current_device(),
             dtype=torch.int64,
         )
@@ -399,6 +441,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
                 torch.ones_like(linear_cache_indices_merged) * -1,
             ),
             hash_zch_identities=hash_zch_identities,
+            hash_zch_runtime_meta=None,
         )
 
         # Assert: prefetched_info_list should have one entry
@@ -429,16 +472,161 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         identities = prefetched_info.hash_zch_identities
         self.assertEqual(
             [
-                [1111],
-                [2222],
-                [6666],
-                [7777],
+                [100],
+                [200],
+                [300],
+                [400],
             ],
             identities.tolist()[: linear_unique_indices_length_scalar - 1],
         )
         self.assertEqual(identities.shape[0], 6)
         self.assertEqual(prefetched_info.linear_unique_cache_indices.shape[0], 6)
         self.assertEqual(prefetched_info.linear_unique_indices.shape[0], 6)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_get_prefetched_info_with_only_runtime_meta(self) -> None:
+        """
+        Test that runtime_meta can be provided without identities.
+        This tests that the two parameters are truly independent.
+        """
+        hash_zch_runtime_meta = torch.tensor(
+            [
+                [1],  # runtime meta for index 54
+                [2],  # runtime meta for index 27
+                [3],  # runtime meta for index 43
+                [4],  # runtime meta for index 90
+            ],
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+        total_cache_hash_size = 100
+        linear_cache_indices_merged = torch.tensor(
+            [54, 27, 43, 90],
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+
+        prefetched_info = SplitTableBatchedEmbeddingBagsCodegen._get_prefetched_info(
+            linear_indices=linear_cache_indices_merged,
+            linear_cache_indices_merged=linear_cache_indices_merged,
+            total_cache_hash_size=total_cache_hash_size,
+            hash_zch_identities=None,
+            hash_zch_runtime_meta=hash_zch_runtime_meta,
+            max_indices_length=200,  # Arbitrary large enough value
+        )
+
+        self.assertEqual(
+            [27, 43, 54, 90],
+            prefetched_info.linear_unique_indices.tolist(),
+        )
+        self.assertEqual(
+            prefetched_info.linear_unique_indices_length[0].item(),
+            4,
+        )
+        self.assertIsNone(prefetched_info.hash_zch_identities)
+        assert prefetched_info.hash_zch_runtime_meta is not None
+        self.assertEqual(
+            prefetched_info.hash_zch_runtime_meta.shape[0],
+            4,
+        )
+        self.assertEqual(
+            [
+                [2],  # runtime meta for index 27
+                [3],  # runtime meta for index 43
+                [1],  # runtime meta for index 54
+                [4],  # runtime meta for index 90
+            ],
+            prefetched_info.hash_zch_runtime_meta.tolist(),
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_get_prefetched_info_with_only_hash_zch_identities(self) -> None:
+        """
+        Test that identities can be provided without runtime_meta.
+        This tests that the two parameters are truly independent.
+        """
+        hash_zch_identities = torch.tensor(
+            [
+                [100],  # for index 54
+                [200],  # for index 27
+                [300],  # for index 43
+                [400],  # for index 90
+            ],
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+        total_cache_hash_size = 100
+        linear_cache_indices_merged = torch.tensor(
+            [54, 27, 43, 90],
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+
+        prefetched_info = SplitTableBatchedEmbeddingBagsCodegen._get_prefetched_info(
+            linear_indices=linear_cache_indices_merged,
+            linear_cache_indices_merged=linear_cache_indices_merged,
+            total_cache_hash_size=total_cache_hash_size,
+            hash_zch_identities=hash_zch_identities,
+            hash_zch_runtime_meta=None,
+            max_indices_length=200,  # Arbitrary large enough value
+        )
+
+        self.assertEqual(
+            [27, 43, 54, 90],
+            prefetched_info.linear_unique_indices.tolist(),
+        )
+        self.assertEqual(
+            prefetched_info.linear_unique_indices_length[0].item(),
+            4,
+        )
+        assert prefetched_info.hash_zch_identities is not None
+        self.assertEqual(
+            prefetched_info.hash_zch_identities.shape[0],
+            4,
+        )
+        self.assertEqual(
+            [
+                [200],  # for index 27
+                [300],  # for index 43
+                [100],  # for index 54
+                [400],  # for index 90
+            ],
+            prefetched_info.hash_zch_identities.tolist(),
+        )
+        self.assertIsNone(prefetched_info.hash_zch_runtime_meta)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_get_prefetched_info_with_neither(self) -> None:
+        """
+        Test that when neither identities nor runtime_meta is provided,
+        the function still works correctly for basic deduplication.
+        """
+        total_cache_hash_size = 100
+        linear_cache_indices_merged = torch.tensor(
+            [54, 27, 43, 90],
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+
+        prefetched_info = SplitTableBatchedEmbeddingBagsCodegen._get_prefetched_info(
+            linear_indices=linear_cache_indices_merged,
+            linear_cache_indices_merged=linear_cache_indices_merged,
+            total_cache_hash_size=total_cache_hash_size,
+            hash_zch_identities=None,
+            hash_zch_runtime_meta=None,
+            max_indices_length=200,  # Arbitrary large enough value
+        )
+
+        self.assertEqual(
+            [27, 43, 54, 90],
+            prefetched_info.linear_unique_indices.tolist(),
+        )
+        self.assertEqual(
+            prefetched_info.linear_unique_indices_length[0].item(),
+            4,
+        )
+        self.assertIsNone(prefetched_info.hash_zch_identities)
+        self.assertIsNone(prefetched_info.hash_zch_runtime_meta)
 
 
 if __name__ == "__main__":
