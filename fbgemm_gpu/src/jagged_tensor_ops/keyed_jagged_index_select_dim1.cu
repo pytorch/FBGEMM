@@ -6,34 +6,34 @@
  * LICENSE file in the root directory of this source tree.
  */
 
- #include "common.cuh"
+#include "common.cuh"
 
- using Tensor = at::Tensor;
+using Tensor = at::Tensor;
+
+namespace fbgemm_gpu {
+
+template <
+    typename scalar_t,
+    typename index_t,
+    typename acc_t,
+    int NUM_THREADS_PER_BLOCK,
+    int MAX_ENTRIES_PER_BLOCK,
+    int VEC>
  
- namespace fbgemm_gpu {
- 
- template <
-     typename scalar_t,
-     typename index_t,
-     typename acc_t,
-     int NUM_THREADS_PER_BLOCK,
-     int MAX_ENTRIES_PER_BLOCK,
-     int VEC>
- 
- __global__ void index_select_scalar_cumsum_kernel(
-     pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
-     pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
-     const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
-     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
-         indices,
-     const int num_batches,
-     const int input_batch_size,
-     const int last_block_num_entries,
-     int* block_flags,
-     acc_t* block_sums) {
-   typedef cub::BlockScan<acc_t, NUM_THREADS_PER_BLOCK> BlockScan;
-   __shared__ typename BlockScan::TempStorage bs_temp_storage;
-   __shared__ acc_t block_prefix;
+__global__ void index_select_scalar_cumsum_kernel(
+    pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
+    const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const int num_batches,
+    const int input_batch_size,
+    const int last_block_num_entries,
+    int* block_flags,
+    acc_t* block_sums) {
+  typedef cub::BlockScan<acc_t, NUM_THREADS_PER_BLOCK> BlockScan;
+  __shared__ typename BlockScan::TempStorage bs_temp_storage;
+  __shared__ acc_t block_prefix;
 
 // ROCm path
 #ifdef USE_ROCM
@@ -122,6 +122,7 @@
       ? last_block_num_entries
       : MAX_ENTRIES_PER_BLOCK;
 
+  // Load data
   acc_t local_data[1];
   if (tid < num_batches * output_batch_size) {
     *local_data =
@@ -131,6 +132,7 @@
     *local_data = 0;
   }
 
+  // Cumsum
   inclusive_sum_scan_kernel<acc_t, 1, NUM_THREADS_PER_BLOCK>(
       local_data,
       bs_temp_storage,
@@ -142,18 +144,19 @@
       gridDim.x > 1,
       1);
 
+  // Store data
   if (tid < num_batches * output_batch_size) {
     output_cumsum[tid] = *local_data;
   }
 #endif
 }
  
- template <
-     typename scalar_t,
-     typename index_t,
-     typename offset_t,
-     typename weight_t,
-     bool has_weights>
+template <
+    typename scalar_t,
+    typename index_t,
+    typename offset_t,
+    typename weight_t,
+    bool has_weights>
 
 // Total amount of user embeddings may not fit into GPU memory.
 // This kernel gathers a subset of users from a total amount of users.
