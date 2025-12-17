@@ -9,6 +9,7 @@
 
 import dataclasses
 import json
+import logging
 from typing import Any, Optional
 
 import torch
@@ -78,7 +79,20 @@ class TBEDataConfig:
     @classmethod
     # pyre-ignore [3]
     def from_json(cls, data: str):
-        return cls.from_dict(json.loads(data))
+        raw = json.loads(data)
+        allowed = {f.name for f in dataclasses.fields(cls)}
+        existing_fields = {k: v for k, v in raw.items() if k in allowed}
+        missing_fields = allowed - set(existing_fields.keys())
+        unknown_fields = set(raw.keys()) - allowed
+        if missing_fields:
+            logging.warning(
+                f"TBEDataConfig.from_json: Missing expected fields not loaded: {sorted(missing_fields)}"
+            )
+        if unknown_fields:
+            logging.info(
+                f"TBEDataConfig.from_json: Ignored unknown fields from input: {sorted(unknown_fields)}"
+            )
+        return cls.from_dict(existing_fields)
 
     def dict(self) -> dict[str, Any]:
         tmp = dataclasses.asdict(self)
