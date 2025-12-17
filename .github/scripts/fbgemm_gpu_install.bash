@@ -206,37 +206,6 @@ install_fbgemm_gpu_deps () {
   (test_python_import_package "${env_name}" numpy) || return 1
 }
 
-uninstall_mslk_wheel () {
-  local env_name="$1"
-  if [ "$env_name" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env     # Uninstall the FBGEMM_GPU wheel (if installed)"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Uninstall FBGEMM_GPU Wheel (if installed)"
-    echo "#"
-    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
-    echo "################################################################################"
-    echo ""
-  fi
-
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  # shellcheck disable=SC2155,SC2086
-  local packages=$(conda run ${env_prefix} python -m pip list --format=freeze | grep "fbgemm_gpu-" | cut -d"=" -f1)
-
-  if [ -n "$packages" ]; then
-    echo "[UNINSTALL] Uninstalling the following packages: $packages"
-    # shellcheck disable=SC2086
-    print_exec conda run ${env_prefix} python -m pip uninstall -y $packages || return 1
-  else
-    echo "[UNINSTALL] No matching packages found; nothing to uninstall."
-  fi
-}
-
 install_fbgemm_gpu_wheel () {
   local env_name="$1"
   local wheel_path="$2"
