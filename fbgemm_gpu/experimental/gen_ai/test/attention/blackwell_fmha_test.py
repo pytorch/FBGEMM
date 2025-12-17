@@ -401,6 +401,11 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             use_heuristic=False,
         )
 
+        # Output is [B, 1, H, 1, D] - squeeze num_splits dimension
+        out = out.squeeze(3)  # [B, 1, H, D]
+        # LSE is [B, 1, H, 1] - squeeze num_splits and adjust to [B, H, 1]
+        lse = lse.squeeze(1)  # [B, H, 1]
+
         if DEBUG:
             print("cutlass_blackwell_fmha_decode_forward completed successfully!")
 
