@@ -66,7 +66,7 @@ Clone the repo along with its submodules, and install ``requirements_genai.txt``
   # !! Run inside the Conda environment !!
 
   # Select a version tag
-  FBGEMM_VERSION=v1.4.0
+  FBGEMM_VERSION=v1.5.0
 
   # Clone the repo along with its submodules
   git clone --recursive -b ${FBGEMM_VERSION} https://github.com/pytorch/FBGEMM.git fbgemm_${FBGEMM_VERSION}
@@ -112,8 +112,8 @@ Python platform name must first be properly set:
   export package_name=fbgemm_genai_{cuda}
 
   # Set the Python version tag.  It should follow the convention `py<major><minor>`,
-  # e.g. Python 3.13 --> py313
-  export python_tag=py313
+  # e.g. Python 3.14 --> py314
+  export python_tag=py314
 
   # Determine the processor architecture
   export ARCH=$(uname -m)

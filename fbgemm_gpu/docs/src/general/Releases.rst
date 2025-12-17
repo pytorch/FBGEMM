@@ -14,8 +14,11 @@ older than the one that the FBGEMM release corresponds to.
 | FBGEMM Release  | Corresponding    | Supported        | Supported      | Supported CUDA     | (Experimental) Supported  | (Experimental) Supported  |
 |                 | PyTorch Release  | Python Versions  | CUDA Versions  | Architectures      | ROCm Versions             | ROCm Architectures        |
 +=================+==================+==================+================+====================+===========================+===========================+
+| 1.5.0           | 2.10.x           | 3.10, 3.11, 3.12 | 12.6, 12.8,    | 7.5, 8.0, 9.0a,    | 7.0, 7.1                  | gfx908, gfx90a, gfx942,   |
+|                 |                  | 3.13, 3.14       | 12.9, 13.0     | 10.0a, 12.0a [1]   |                           | gfx950                    |
++-----------------+------------------+------------------+----------------+--------------------+---------------------------+---------------------------+
 | 1.4.0           | 2.9.x            | 3.10, 3.11, 3.12 | 12.6, 12.8,    | 7.5, 8.0, 9.0a,    | 6.3, 6.4                  | gfx908, gfx90a, gfx942    |
-|                 |                  | 3.13             | 13.0 [1]       | 10.0a, 12.0a       |                           |                           |
+|                 |                  | 3.13, 3.14       | 12.9, 13.0     | 10.0a, 12.0a [1]   |                           |                           |
 +-----------------+------------------+------------------+----------------+--------------------+---------------------------+---------------------------+
 | 1.3.0           | 2.8.x            | 3.9, 3.10, 3.11, | 12.6, 12.8,    | 7.0, 8.0, 9.0a,    | 6.3, 6.4                  | gfx908, gfx90a, gfx942    |
 |                 |                  | 3.12, 3.13       | 12.9           | 10.0a, 12.0a       |                           |                           |
@@ -44,7 +47,7 @@ older than the one that the FBGEMM release corresponds to.
 | 0.4.0           | 2.0.x            | 3.8, 3.9, 3.10   | 11.7, 11.8     | 7.0, 8.0           | 5.3, 5.4                  | gfx90a                    |
 +-----------------+------------------+------------------+----------------+--------------------+---------------------------+---------------------------+
 
-[1] CUDA 13.0 support is currently only available for FBGEMM GenAI, not FBGEMM_GPU (TBE)
+[1] Due to PyPI file size limitations, support for SM 12.0a is available only through download.pytorch.org.
 
 Note that the list of supported CUDA and ROCm architectures refer to the targets
 support available in the default installation packages, and that building for
