@@ -212,6 +212,7 @@ __setup_fbgemm_gpu_test () {
     __configure_fbgemm_gpu_test_cuda
   fi
 
+  # Filter out tests for specific build targets
   if [ "$fbgemm_build_target" == "hstu" ]; then
     ignored_tests+=(
       ./tma_error_test.py
@@ -230,15 +231,6 @@ __setup_fbgemm_gpu_test () {
 
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} TORCH_SHOW_CPP_STACKTRACES=1
-
-  echo "[TEST] Installing PyTest ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
-    pytest \
-    expecttest) || return 1
-
-  echo "[TEST] Checking imports ..."
-  (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
 
   # Set the feature flags to enable experimental features as needed
   __set_feature_flags
@@ -346,6 +338,43 @@ __determine_test_directories () {
   echo ""
 }
 
+__test_fbgemm_gpu_common_pre_steps () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # Move to another directory, to avoid Python package import confusion, since
+  # there exists a fbgemm_gpu/ subdirectory in the MSLK repo
+  print_exec mkdir -p _tmp_dir_fbgemm_gpu   || return 1
+  print_exec pushd _tmp_dir_fbgemm_gpu      || return 1
+
+  # Determine the FBGEMM build target and variant
+  # shellcheck disable=SC2086
+  fbgemm_build_target=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__target__)")
+  # shellcheck disable=SC2086
+  fbgemm_build_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
+
+  echo "[TEST] Checking imports ..."
+  (test_python_import_package "${env_name}" torch) || return 1
+
+  echo "[TEST] Determined FBGEMM_GPU (target : variant) from installation: (${fbgemm_build_target} : ${fbgemm_build_variant})"
+  echo "[TEST] Will be running tests specific to this target and variant ..."
+
+  echo "[TEST] Installing PyTest ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    pytest \
+    expecttest)                     || return 1
+
+  # Set the ignored tests and PyTest args
+  __setup_fbgemm_gpu_test           || return 1
+
+  # Verify that the GPUs are visible
+  __verify_pytorch_gpu_integration  || return 1
+
+  # Exit tmp directory
+  print_exec popd                   || return 1
+}
+
 test_all_fbgemm_gpu_modules () {
   env_name="$1"
   local repo="$2"
@@ -363,39 +392,21 @@ test_all_fbgemm_gpu_modules () {
     echo ""
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   if [ "$repo" == "" ]; then
     echo "[TEST]: repo argument not provided, defaulting to current directory"
     repo=$(pwd)
   fi
 
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  # Move to another directory, to avoid Python package import confusion, since
-  # there exists a fbgemm_gpu/ subdirectory in the MSLK repo
-  print_exec mkdir -p _tmp_dir_fbgemm_gpu   || return 1
-  print_exec pushd _tmp_dir_fbgemm_gpu      || return 1
-
-  # Determine the FBGEMM build target and variant
-  # shellcheck disable=SC2086
-  fbgemm_build_target=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__target__)")
-  # shellcheck disable=SC2086
-  fbgemm_build_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
-
-  echo "[TEST] Determined FBGEMM_GPU (target : variant) from installation: (${fbgemm_build_target} : ${fbgemm_build_variant})"
-  echo "[TEST] Will be running tests specific to this target and variant ..."
-
-  # Set the ignored tests and PyTest args
-  __setup_fbgemm_gpu_test           || return 1
-
-  # Verify that the GPUs are visible
-  __verify_pytorch_gpu_integration  || return 1
+  __test_fbgemm_gpu_common_pre_steps  || return 1
 
   # Go to the repo root directory
-  print_exec pushd "${repo}"        || return 1
+  print_exec pushd "${repo}"          || return 1
 
   # Determine the test directories to include for testing
-  __determine_test_directories      || return 1
+  __determine_test_directories        || return 1
 
   # Iterate through the test directories and run bulk tests
   for test_dir in "${target_directories[@]}"; do
@@ -404,5 +415,42 @@ test_all_fbgemm_gpu_modules () {
     print_exec popd                                     || return 1
   done
 
+  print_exec popd || return 1
   echo "[TEST] Successfully executed all FBGEMM_GPU tests"
+}
+
+test_single_fbgemm_gpu_module () {
+  env_name="$1"
+  test_file="$2"
+  local repo="$3"
+  if [ "$test_file" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME TEST_FILE"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env tbe/training/forward_test.py       # Run all FBGEMM_GPU tests in tbe/training/forward_test.py"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Test Single FBGEMM-GPU Module"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  if [ "$repo" == "" ]; then
+    echo "[TEST]: repo argument not provided, defaulting to current directory"
+    repo=$(pwd)
+  fi
+
+  __test_fbgemm_gpu_common_pre_steps  || return 1
+
+  # Go to the repo root directory
+  print_exec pushd "${repo}"                    || return 1
+  run_python_test "${env_name}" "${test_file}"  || return 1
+  print_exec popd                               || return 1
+
+  echo "[TEST] Successfully executed FBGEMM_GPU test module: ${test_file}"
 }
