@@ -318,14 +318,9 @@ def cutlass_blackwell_fmha_decode_forward(
                       split size using the heuristic. Default is True.
 
     Returns:
-        Conditional return based on split-K mode:
-        - Non-split case (split_k_size <= 0 and use_heuristic=False):
-            out: Same shape as input q ([B, H, D] for varlen or [B, 1, H, D] for batch)
-                 with bfloat16 dtype
-            lse: [B, H, 1] (always float32)
-        - Split case (split_k_size > 0 or use_heuristic=True):
-            out: [B, H, num_splits, D] with float32 dtype (partial outputs for later reduction)
-            lse: [B, num_splits, H] (always float32)
+        Kernel output with Q dimension added:
+        - out: [B, 1, H, num_splits, D] (num_splits=1 when split-K disabled)
+        - lse: [B, num_splits, H, 1]
     """
     _validate_decode_inputs(q, k, v, seqlen_kv)
 
@@ -365,15 +360,12 @@ def cutlass_blackwell_fmha_decode_forward(
         split_k_size=split_k_size,
     )
 
-    # Handle output based on split-K mode
-    is_split = split_k_size > 0
-
-    if not is_split:
-        # out shape: [B, H, Splits = 1, D] -> original shape
-        out = out.view(*original_shape)
-        # lse shape: [B, Splits = 1, H] -> [B, H, 1]
-        lse = lse.view(batch_size, -1, 1)
-
+    # Kernel returns: out [B, H, num_splits, D], lse [B, num_splits, H]
+    # Reshape to consistent format with Q dimension:
+    # out: [B, H, num_splits, D] -> [B, 1, H, num_splits, D]
+    # lse: [B, num_splits, H] -> [B, num_splits, H, 1]
+    out = out.unsqueeze(1)  # [B, 1, H, num_splits, D]
+    lse = lse.unsqueeze(-1)  # [B, num_splits, H, 1]
     return out, lse
 
 

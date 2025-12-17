@@ -391,13 +391,15 @@ class SplitKTest(unittest.TestCase):
             print(f" Dtypes: {out_test.dtype=}, {out_ref.dtype=}")
             print(f" Dtypes: {lse_test.dtype=}, {lse_ref.dtype=}")
 
-        # Verify output layout: [B, H, num_splits, D]
-        expected_shape = (batch_size, q_heads, num_splits, head_dim)
+        # Verify output layout: [B, 1, H, num_splits, D]
+        expected_shape = (batch_size, 1, q_heads, num_splits, head_dim)
         self.assertEqual(
             out_test.shape,
             expected_shape,
             f"Output shape mismatch: expected {expected_shape}, got {out_test.shape}",
         )
+        # Squeeze Q dimension for comparison with reference
+        out_test = out_test.squeeze(1)  # [B, H, num_splits, D]
 
         # Compare outputs
         max_diff = self._abs_max(out_test - out_ref)
@@ -475,6 +477,7 @@ class SplitKTest(unittest.TestCase):
                               If None, uses seqlen_k for all batches.
             output_tolerance: Maximum allowed difference for output comparison
             lse_tolerance: Maximum allowed difference for LSE comparison
+            window_size: Sliding window size (-1 for disabled)
         """
         device = torch.accelerator.current_accelerator()
         assert device is not None
@@ -557,22 +560,22 @@ class SplitKTest(unittest.TestCase):
             window_left=window_left,
             window_right=window_right,
         )
-        # out_split: [B, H, num_splits, D]
-        # lse_split: [B, num_splits, H]
-        num_splits = out_split.shape[2]  # Get actual num_splits from output
+        # out_split: [B, 1, H, num_splits, D]
+        # lse_split: [B, num_splits, H, 1]
+        num_splits = out_split.shape[3]  # Get actual num_splits from output
 
         # Check for NaN values and print which batch/split indices have them
         if torch.isnan(out_split).any():
             nan_mask = torch.isnan(out_split)
             for batch_idx in range(batch_size):
                 for split_idx in range(num_splits):
-                    if nan_mask[batch_idx, :, split_idx, :].any():
+                    if nan_mask[batch_idx, :, :, split_idx, :].any():
                         print(
                             f"  ⚠️  NaN detected in out_split: batchIdx={batch_idx}, splitIdx={split_idx}"
                         )
                         torch.set_printoptions(threshold=float("inf"))
-                        print(out_split[batch_idx, :, split_idx, :])
-                        # out_split[batch_idx, :, split_idx, :].zero_()
+                        print(out_split[batch_idx, :, :, split_idx, :])
+                        # out_split[batch_idx, :, :, split_idx, :].zero_()
 
         # Verify no NaN or Inf values in split output
         self.assertFalse(
@@ -586,10 +589,12 @@ class SplitKTest(unittest.TestCase):
         # Merge split-K outputs
         # ========================================
         # Reshape for merge function:
-        # out_split: [B, H, num_splits, D] -> [num_splits, B, 1, H, D]
-        # lse_split: [B, num_splits, H] -> [num_splits, B, H, 1]
-        out_chunks_stacked = out_split.permute(2, 0, 1, 3).unsqueeze(2)
-        lse_chunks_stacked = lse_split.permute(1, 0, 2).unsqueeze(-1)
+        # out_split: [B, 1, H, num_splits, D] -> [num_splits, B, 1, H, D]
+        # lse_split: [B, num_splits, H, 1] -> [num_splits, B, H, 1]
+        out_chunks_stacked = out_split.permute(
+            3, 0, 1, 2, 4
+        )  # [num_splits, B, 1, H, D]
+        lse_chunks_stacked = lse_split.permute(1, 0, 2, 3)  # [num_splits, B, H, 1]
 
         if DEBUG:
             print("\n  Reshaped for merge:")
@@ -609,22 +614,27 @@ class SplitKTest(unittest.TestCase):
         # ========================================
         # Compare outputs
         # ========================================
+        # out_full has shape [B, 1, H, 1, D] - squeeze the num_splits dimension
+        # out_merged has shape [B, 1, H, D] from merge function
+        out_full_squeezed = out_full.squeeze(3)  # [B, 1, H, D]
+        lse_full_squeezed = lse_full.squeeze(1)  # [B, H, 1]
+
         # Assert shapes are identical before comparison
         self.assertEqual(
             out_merged.shape,
-            out_full.shape,
-            f"Shape mismatch: out_merged {out_merged.shape} vs out_full {out_full.shape}",
+            out_full_squeezed.shape,
+            f"Shape mismatch: out_merged {out_merged.shape} vs out_full {out_full_squeezed.shape}",
         )
         self.assertEqual(
             lse_merged.shape,
-            lse_full.shape,
-            f"Shape mismatch: lse_merged {lse_merged.shape} vs lse_full {lse_full.shape}",
+            lse_full_squeezed.shape,
+            f"Shape mismatch: lse_merged {lse_merged.shape} vs lse_full {lse_full_squeezed.shape}",
         )
 
         # Compare outputs
         out_merged_bf16 = out_merged.to(torch.bfloat16)
-        out_diff = self._abs_max(out_merged_bf16.float() - out_full.float())
-        lse_diff = self._abs_max(lse_merged - lse_full)
+        out_diff = self._abs_max(out_merged_bf16.float() - out_full_squeezed.float())
+        lse_diff = self._abs_max(lse_merged - lse_full_squeezed)
 
         if DEBUG:
             print("\nOverall comparison:")
@@ -723,21 +733,21 @@ class SplitKTest(unittest.TestCase):
             split_k_size=SPLIT_SIZE,
         )
 
-        # Verify output layout: [B, H, num_splits, D]
-        expected_out_shape = (batch_size, q_heads, num_splits, head_dim)
+        # Verify output layout: [B, 1, H, num_splits, D]
+        expected_out_shape = (batch_size, 1, q_heads, num_splits, head_dim)
         self.assertEqual(
             out.shape,
             expected_out_shape,
-            f"Output shape should be [B={batch_size}, H={q_heads}, num_splits={num_splits}, D={head_dim}]",
+            f"Output shape should be [B={batch_size}, 1, H={q_heads}, num_splits={num_splits}, D={head_dim}]",
         )
 
-        # Verify LSE layout: [B, num_splits, H]
+        # Verify LSE layout: [B, num_splits, H, 1]
         if lse is not None:
-            expected_lse_shape = (batch_size, num_splits, q_heads)
+            expected_lse_shape = (batch_size, num_splits, q_heads, 1)
             self.assertEqual(
                 lse.shape,
                 expected_lse_shape,
-                f"LSE shape should be [B={batch_size}, num_splits={num_splits}, H={q_heads}]",
+                f"LSE shape should be [B={batch_size}, num_splits={num_splits}, H={q_heads}, 1]",
             )
 
         if DEBUG:
@@ -791,28 +801,28 @@ class SplitKTest(unittest.TestCase):
             use_heuristic=False,  # Disable heuristic to truly disable split-K
         )
 
-        # Verify output layout: [B, 1,  H, D]
-        expected_out_shape = (batch_size, 1, q_heads, head_dim)
+        # Verify output layout: [B, 1, H, 1, D] (with num_splits=1)
+        expected_out_shape = (batch_size, 1, q_heads, 1, head_dim)
         self.assertEqual(
             out.shape,
             expected_out_shape,
-            f"Non-split output shape should be [B={batch_size}, H={q_heads}, D={head_dim}]",
+            f"Non-split output shape should be [B={batch_size}, 1, H={q_heads}, 1, D={head_dim}]",
         )
 
-        # Verify output dtype is bfloat16 (non-split case)
+        # Verify output dtype is bfloat16 (same as input for non-split case)
         self.assertEqual(
             out.dtype,
             torch.bfloat16,
             f"Non-split output dtype should be bfloat16, got {out.dtype}",
         )
 
-        # Verify LSE layout: [B, H, sq = 1]
+        # Verify LSE layout: [B, 1, H, 1] (with num_splits=1)
         if lse is not None:
-            expected_lse_shape = (batch_size, q_heads, 1)
+            expected_lse_shape = (batch_size, 1, q_heads, 1)
             self.assertEqual(
                 lse.shape,
                 expected_lse_shape,
-                f"Non-split LSE shape should be [B={batch_size}, H={q_heads}]",
+                f"Non-split LSE shape should be [B={batch_size}, 1, H={q_heads}, 1]",
             )
 
             # Verify LSE dtype is float32
