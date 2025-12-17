@@ -370,6 +370,7 @@ def apply_split_helper(
                 f"{prefix}_uvm",
                 torch.zeros(
                     split.uvm_size,
+                    device=current_device,
                     out=torch.ops.fbgemm.new_unified_tensor(
                         # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
                         #  for 3rd param but got `Type[Type[torch._dtype]]`.
