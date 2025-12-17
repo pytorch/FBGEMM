@@ -144,7 +144,7 @@ __global__ void index_select_scalar_cumsum_kernel(
   }
 #endif
 }
- 
+
 template <
     typename scalar_t,
     typename index_t,
