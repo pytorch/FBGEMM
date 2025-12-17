@@ -36,8 +36,8 @@ __global__ void index_select_scalar_cumsum_kernel(
 
 // ROCm path
 #ifdef USE_ROCM
-  // 4 indices per thread
-  constexpr int VEC = 4;
+  // 4 indices/entries per thread
+  constexpr int ENTRIES_PER_THREAD = 4;
   const int output_batch_size = indices.size(0);
   const int num_entries = num_batches * output_batch_size;
   const bool multi_block = gridDim.x > 1;
@@ -50,23 +50,18 @@ __global__ void index_select_scalar_cumsum_kernel(
       ? (remaining_entries < block_entries ? remaining_entries : block_entries)
       : 0;
 
-  const int base_entry = block_entry_start + threadIdx.x * VEC;
-  acc_t local_data[VEC];
+  const int base_entry = block_entry_start + threadIdx.x * ENTRIES_PER_THREAD;
+  acc_t local_data[ENTRIES_PER_THREAD];
 
 #pragma unroll
-  for (int i = 0; i < VEC; ++i) {
+  for (int i = 0; i < ENTRIES_PER_THREAD; ++i) {
     const int entry = base_entry + i;
     if (entry < num_entries) {
       const int bid = entry / output_batch_size;
       const int idx_in_batch = entry - bid * output_batch_size;
       const int bid_base = bid * input_batch_size;
       const index_t sel_idx = indices[idx_in_batch];
-      local_data[i] =
-#ifdef __HIP_PLATFORM_AMD__
-          __builtin_nontemporal_load(&input[bid_base + sel_idx]);
-#else
-          input[bid_base + sel_idx];
-#endif
+      local_data[i] = __builtin_nontemporal_load(&input[bid_base + sel_idx]);
       output[entry] = local_data[i];
     } else {
       local_data[i] = 0;
@@ -80,7 +75,7 @@ __global__ void index_select_scalar_cumsum_kernel(
     }
     if (base_entry < num_entries) {
 #pragma unroll
-      for (int i = 0; i < VEC; ++i) {
+      for (int i = 0; i < ENTRIES_PER_THREAD; ++i) {
         const int entry = base_entry + i;
         if (entry < num_entries) {
           output_cumsum[entry] = local_data[i];
@@ -91,7 +86,7 @@ __global__ void index_select_scalar_cumsum_kernel(
   }
 
   if (num_entries_per_block > 0) {
-    inclusive_sum_scan_kernel<acc_t, VEC, NUM_THREADS_PER_BLOCK>(
+    inclusive_sum_scan_kernel<acc_t, ENTRIES_PER_THREAD, NUM_THREADS_PER_BLOCK>(
         local_data,
         bs_temp_storage,
         block_flags,
@@ -105,7 +100,7 @@ __global__ void index_select_scalar_cumsum_kernel(
 
   if (base_entry < num_entries) {
 #pragma unroll
-    for (int i = 0; i < VEC; ++i) {
+    for (int i = 0; i < ENTRIES_PER_THREAD; ++i) {
       const int entry = base_entry + i;
       if (entry < num_entries) {
         output_cumsum[entry] = local_data[i];
@@ -269,8 +264,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
     int grid_size = 0;
 #ifdef USE_ROCM
-    constexpr int VEC = 4;
-    const int ENTRIES_PER_BLOCK = MAX_CUMSUM_ENTRIES_PER_BLOCK * VEC;
+    constexpr int ENTRIES_PER_THREAD = 4;
+    const int ENTRIES_PER_BLOCK = MAX_CUMSUM_ENTRIES_PER_BLOCK * ENTRIES_PER_THREAD;
     grid_size = (num_output_lengths + ENTRIES_PER_BLOCK - 1) /
         ENTRIES_PER_BLOCK;
 #else
