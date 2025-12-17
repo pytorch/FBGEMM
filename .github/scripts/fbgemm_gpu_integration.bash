@@ -9,6 +9,8 @@
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
 # shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_pip.bash"
+# shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_pytorch.bash"
 
 ################################################################################
@@ -98,24 +100,29 @@ integration_fbgemm_gpu_build_and_install () {
   fi
 
   # Assume we are starting from the repository root directory
-  pushd "${repo}/fbgemm_gpu"                                                  || return 1
+  print_exec pushd "${repo}/fbgemm_gpu"                                       || return 1
+
   # Remove previous build artifacts
-  rm -rf "${repo}/dist/"                                                      || return 1
+  print_exec rm -rf "${repo}/dist/"                                           || return 1
   prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
   build_fbgemm_gpu_package    "${env_name}" nightly "${build_target_variant}" || return 1
-  popd                                                                        || return 1
+
+  print_exec popd                                                             || return 1
 
   # Move to another directory, to avoid Python package import confusion, since
   # there exists a fbgemm_gpu/ subdirectory in the FBGEMM repo
-  mkdir -p _tmp_dir_fbgemm_gpu                  || return 1
-  pushd _tmp_dir_fbgemm_gpu                     || return 1
+  print_exec mkdir -p _tmp_dir_fbgemm_gpu         || return 1
+  print_exec pushd _tmp_dir_fbgemm_gpu            || return 1
+
   # Uninstall the FBGEMM_GPU package (if installed)
-  uninstall_fbgemm_gpu_wheel  "${env_name}"     || return 1
+  uninstall_pip_wheel "${env_name}" "fbgemm_gpu-" || return 1
+
   # Install the FBGEMM_GPU package and test the package import
   # shellcheck disable=SC2086
-  install_fbgemm_gpu_wheel    "${env_name}" ${repo}/fbgemm_gpu/dist/*.whl    || return 1
+  install_fbgemm_gpu_wheel "${env_name}" ${repo}/fbgemm_gpu/dist/*.whl || return 1
+
   # Return to the repo root directory
-  popd                                          || return 1
+  print_exec popd                                 || return 1
 
   echo "[INTEGRATION] Successfully built and installed FBGEMM_GPU in the Conda environment: ${env_name}"
 }
