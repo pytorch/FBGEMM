@@ -253,7 +253,11 @@ struct Sm100FmhaGenMainloopWarpspecialized {
 
     // scaling factor to quantize O
     float inv_scale_o = 1.0f;
-    };
+    
+    // Sliding window size: Q only attends to the last window_size tokens of K
+    // If <= 0, no windowing (attend to all K tokens)
+    int window_size = -1;
+  };
 
   struct Params {
     typename Load::Params load;
@@ -263,6 +267,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
 
     float scale_output;
     int splitk_size;  // Split-K size for sequence splitting
+    int window_size;  // Sliding window size
   };
 
   template<class ProblemShape>
@@ -287,7 +292,8 @@ struct Sm100FmhaGenMainloopWarpspecialized {
         args.scale_q * args.scale_k * scale_softmax,
         args.scale_q * args.scale_k * log2_e * scale_softmax,
         args.scale_v * args.inv_scale_o,
-        args.splitk_size
+        args.splitk_size,
+        args.window_size
     };
   }
 
@@ -303,14 +309,16 @@ struct Sm100FmhaGenMainloopWarpspecialized {
       Params const& params, ParamsProblemShape const& params_problem_shape,
       TensorStorage& storage,
       PipelineQ& pipeline_q, typename PipelineQ::PipelineState& pipeline_q_producer_state,
-      PipelineKV& pipeline_kv, typename PipelineKV::PipelineState& pipeline_kv_producer_state) {
+      PipelineKV& pipeline_kv, typename PipelineKV::PipelineState& pipeline_kv_producer_state,
+      int start_k_offset) {
 
     Load load;
     load.load(blk_coord, problem_shape, params.load, params_problem_shape,
         storage,
         pipeline_q, pipeline_q_producer_state,
         pipeline_kv, pipeline_kv_producer_state,
-        params.splitk_size);
+        params.splitk_size,
+        start_k_offset);
   }
 
   template<class BlkCoord, class ProblemShape>

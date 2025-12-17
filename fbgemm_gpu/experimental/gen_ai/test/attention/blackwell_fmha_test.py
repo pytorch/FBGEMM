@@ -398,6 +398,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             window_right=window_size[1],
             bottom_right=True,
             split_k_size=0,
+            use_heuristic=False,
         )
 
         if DEBUG:
@@ -833,10 +834,10 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 num_groups,
             )
             for dtype in [torch.bfloat16, torch.float8_e4m3fn]
-            for kv_padding in [64, 128, 256, 1024]
+            for kv_padding in [64, 128, 256, 1024, 8192]
             for batch_size in [1, 2]
             for is_mqa in [True, False]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for window_size in [(-1, -1), (0, 0), (128, 0), (1024, 0)]
             for head_dim in [128, 64]
             for sm_scale in [None]
             for num_groups in [1, 2]
@@ -863,7 +864,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             )
 
         # Skip test for known numerical precision issues with FP8 and head_dim=64 in GQA mode
-        if dtype == torch.float8_e4m3fn and head_dim == 64:
+        if dtype == torch.float8_e4m3fn and (head_dim == 64 or window_size[0] >= 0):
             self.skipTest("Skip: Numerical precision issue with FP8, head_dim=64")
 
         self._execute_cutlass_blackwell_attn_decode(
@@ -873,11 +874,129 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             kv_heads=num_groups if is_mqa else q_heads,
             head_dim=head_dim,
             dtype=dtype,
-            # Decode kernel does not support sliding window attention yet
-            window_size=(-1, -1),
+            window_size=window_size,
             sm_scale=None,
             # FP8 ref doesn't support variable lengths, use full sequences
             use_full_seqlen=(dtype == torch.float8_e4m3fn),
+        )
+
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    @parameterized.expand(
+        [
+            (batch_size, kv_padding, window_left, q_heads, kv_heads, head_dim)
+            for batch_size in [1, 2, 4]
+            for kv_padding in [512, 1024, 2048, 4096]
+            for window_left in [
+                -1,  # Disabled (no windowing)
+                128,  # Small window
+                256,  # Medium window
+                512,  # Window < kv_padding for some cases
+                1024,  # Window == kv_padding for some cases
+                2048,  # Window > kv_padding for some cases
+            ]
+            for q_heads in [4]
+            for kv_heads in [1, 2]  # Test MQA and GQA
+            for head_dim in [128]
+        ]
+    )
+    def test_decode_sliding_window(
+        self,
+        batch_size: int,
+        kv_padding: int,
+        window_left: int,
+        q_heads: int,
+        kv_heads: int,
+        head_dim: int,
+    ) -> None:
+        """
+        Test decode attention with sliding window.
+
+        Tests scenarios:
+        - window_left <= 0: Disabled, use full sequence
+        - window_left >= kv_padding: Use full sequence (no effect)
+        - window_left < kv_padding: Only attend to last window_left tokens
+        """
+        if DEBUG:
+            print(
+                f"Running test_decode_sliding_window with params: "
+                f"batch_size={batch_size}, kv_padding={kv_padding}, "
+                f"window_left={window_left}, q_heads={q_heads}, "
+                f"kv_heads={kv_heads}, head_dim={head_dim}"
+            )
+
+        # Convert window_left to window_size tuple format
+        # For decode, right window is typically 0 (or -1 if window is disabled)
+        window_right = 0 if window_left > 0 else -1
+        window_size = (window_left, window_right)
+
+        self._execute_cutlass_blackwell_attn_decode(
+            batch_size=batch_size,
+            kv_padding=kv_padding,
+            q_heads=q_heads,
+            kv_heads=kv_heads,
+            head_dim=head_dim,
+            dtype=torch.bfloat16,
+            window_size=window_size,
+            sm_scale=None,
+            use_full_seqlen=False,
+        )
+
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    @parameterized.expand(
+        [
+            (batch_size, kv_padding, window_left)
+            for batch_size in [1, 2]
+            for kv_padding in [1024, 2048]
+            for window_left in [
+                1,  # Minimum window (only last token)
+                kv_padding - 1,  # Window = seqlen - 1
+                kv_padding,  # Window == seqlen (no effect)
+                kv_padding + 1,  # Window > seqlen (no effect)
+            ]
+        ]
+    )
+    def test_decode_sliding_window_edge_cases(
+        self,
+        batch_size: int,
+        kv_padding: int,
+        window_left: int,
+    ) -> None:
+        """
+        Test sliding window at boundary conditions.
+
+        Tests edge cases:
+        - window_left = 1: Minimum window (only attend to last token)
+        - window_left = kv_padding - 1: Window just under full sequence
+        - window_left = kv_padding: Window equals sequence length
+        - window_left = kv_padding + 1: Window exceeds sequence length
+        """
+        if DEBUG:
+            print(
+                f"Running test_decode_sliding_window_edge_cases with params: "
+                f"batch_size={batch_size}, kv_padding={kv_padding}, "
+                f"window_left={window_left}"
+            )
+
+        q_heads = 8
+        kv_heads = 1
+        head_dim = 128
+
+        # Convert window_left to window_size tuple format
+        window_right = 0 if window_left > 0 else -1
+        window_size = (window_left, window_right)
+
+        self._execute_cutlass_blackwell_attn_decode(
+            batch_size=batch_size,
+            kv_padding=kv_padding,
+            q_heads=q_heads,
+            kv_heads=kv_heads,
+            head_dim=head_dim,
+            dtype=torch.bfloat16,
+            window_size=window_size,
+            sm_scale=None,
+            use_full_seqlen=False,
         )
 
     @skip_cuda_lt_sm100

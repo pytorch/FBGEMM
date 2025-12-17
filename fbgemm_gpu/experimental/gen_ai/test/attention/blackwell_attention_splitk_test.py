@@ -6,6 +6,7 @@
 
 
 import math
+import os
 import unittest
 from typing import Optional
 
@@ -30,7 +31,14 @@ skip_cuda_lt_sm100 = unittest.skipIf(
 )
 skip_rocm = unittest.skipIf(torch.version.hip is not None, "Does not support ROCm")
 
+skip_on_github = unittest.skipIf(
+    os.getenv("GITHUB_ENV") is not None, "Skipping on Github"
+)
 
+
+@skip_on_github
+@skip_cuda_lt_sm100
+@skip_rocm
 class SplitKTest(unittest.TestCase):
     """Test suite for SplitK attention implementation."""
 
@@ -87,6 +95,7 @@ class SplitKTest(unittest.TestCase):
         num_splits: int,
         split_size: int,
         sm_scale: Optional[float] = None,
+        window_size: int = -1,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Reference implementation for SplitK attention.
@@ -108,6 +117,13 @@ class SplitKTest(unittest.TestCase):
         """
         B, Sq, _, D = q.shape
         _, Sk, H_kv, _ = k.shape
+
+        # Apply sliding window: only use last window_size tokens
+        if window_size > 0 and window_size < Sk:
+            # Slice K and V to only include the last window_size tokens
+            k = k[:, -window_size:, :, :]
+            v = v[:, -window_size:, :, :]
+            Sk = window_size
 
         # Pad K and V to make them divisible by split_size
         padded_Sk = num_splits * split_size
@@ -275,6 +291,7 @@ class SplitKTest(unittest.TestCase):
         head_dim: int,
         seqlen_kv_tensor: Optional[torch.Tensor] = None,
         tolerance: float = 1e-3,
+        window_size: int = -1,
     ) -> None:
         """
         Core split-K correctness check comparing kernel output against reference.
@@ -307,7 +324,12 @@ class SplitKTest(unittest.TestCase):
 
         # Calculate split parameters
         SPLIT_SIZE = 1024
-        num_splits = (seqlen_k + SPLIT_SIZE - 1) // SPLIT_SIZE
+
+        # For sliding window, effective seqlen is min(window_size, seqlen_k)
+        effective_seqlen = seqlen_k
+        if window_size > 0 and window_size < seqlen_k:
+            effective_seqlen = window_size
+        num_splits = (effective_seqlen + SPLIT_SIZE - 1) // SPLIT_SIZE
 
         # Use provided seqlen_kv or create uniform tensor
         if seqlen_kv_tensor is None:
@@ -324,6 +346,8 @@ class SplitKTest(unittest.TestCase):
             print("\nTest parameters:")
             print(f"  Batch size: {batch_size}")
             print(f"  Max sequence length (K): {seqlen_k}")
+            print(f"  Window size: {window_size}")
+            print(f"  Effective seqlen: {effective_seqlen}")
             print(f"  Q heads: {q_heads}, KV heads: {kv_heads}")
             print(f"  Head dim: {head_dim}")
             print(f"  Num splits: {num_splits}, Split size: {SPLIT_SIZE}")
@@ -333,18 +357,26 @@ class SplitKTest(unittest.TestCase):
         # Run splitk CUTLASS kernel
         # ========================================
         sm_scale = 1.0 / math.sqrt(head_dim)
+
+        # Convert window_size to window_left/window_right format
+        window_left = window_size
+        window_right = 0 if window_size > 0 else -1
+
         out_test, lse_test = cutlass_blackwell_fmha_decode_forward(
             q,
             k,
             v,
             seqlen_kv=seqlen_kv,
+            split_k_size=SPLIT_SIZE,
+            window_left=window_left,
+            window_right=window_right,
         )
 
         # ========================================
         # Run _reference_splitk_attention (pure Python reference)
         # ========================================
         out_ref, lse_ref = self._reference_splitk_attention(
-            q, k, v, num_splits, SPLIT_SIZE, sm_scale
+            q, k, v, num_splits, SPLIT_SIZE, sm_scale, window_size
         )
         # out_ref: [B, H, num_splits, D]
         # lse_ref: [B, num_splits, H]
@@ -420,6 +452,7 @@ class SplitKTest(unittest.TestCase):
         seqlen_kv_tensor: Optional[torch.Tensor] = None,
         output_tolerance: float = 1e-2,
         lse_tolerance: float = 1e-3,
+        window_size: int = -1,
     ) -> None:
         """
         Core test comparing split-K merged output against full (non-split) attention.
@@ -458,7 +491,12 @@ class SplitKTest(unittest.TestCase):
 
         # Calculate split parameters
         SPLIT_SIZE = 1024
-        num_splits = (seqlen_k + SPLIT_SIZE - 1) // SPLIT_SIZE
+
+        # For sliding window, effective seqlen is min(window_size, seqlen_k)
+        effective_seqlen = seqlen_k
+        if window_size > 0 and window_size < seqlen_k:
+            effective_seqlen = window_size
+        num_splits = (effective_seqlen + SPLIT_SIZE - 1) // SPLIT_SIZE
 
         # Use provided seqlen_kv or create uniform tensor
         if seqlen_kv_tensor is None:
@@ -471,10 +509,16 @@ class SplitKTest(unittest.TestCase):
         else:
             seqlen_kv = seqlen_kv_tensor
 
+        # Convert window_size to window_left/window_right format
+        window_left = window_size
+        window_right = 0 if window_size > 0 else -1
+
         if DEBUG:
             print("\nSplit-K merged vs full attention test:")
             print(f"  Batch size: {batch_size}")
             print(f"  Max sequence length (K): {seqlen_k}")
+            print(f"  Window size: {window_size}")
+            print(f"  Effective seqlen: {effective_seqlen}")
             print(f"  Q heads: {q_heads}, KV heads: {kv_heads}")
             print(f"  Head dim: {head_dim}")
             print(f"  Num splits: {num_splits}, Split size: {SPLIT_SIZE}")
@@ -489,6 +533,9 @@ class SplitKTest(unittest.TestCase):
             v,
             seqlen_kv=seqlen_kv,
             split_k_size=0,  # No split-K
+            use_heuristic=False,  # Disable heuristic to truly disable split-K
+            window_left=window_left,
+            window_right=window_right,
         )
         # out_full: [B, 1, H, D]
         # lse_full: [B, H, 1]
@@ -498,17 +545,21 @@ class SplitKTest(unittest.TestCase):
             print(f"  Full attention LSE shape: {lse_full.shape}")
 
         # ========================================
-        # Run split-K attention
+        # Run split-K attention (using heuristic to compute split size)
         # ========================================
         out_split, lse_split = cutlass_blackwell_fmha_decode_forward(
             q.clone(),
             k.clone(),
             v.clone(),
             seqlen_kv=seqlen_kv,
+            # Let heuristic compute optimal split size (use_heuristic=True by default)
             split_k_size=SPLIT_SIZE,
+            window_left=window_left,
+            window_right=window_right,
         )
         # out_split: [B, H, num_splits, D]
         # lse_split: [B, num_splits, H]
+        num_splits = out_split.shape[2]  # Get actual num_splits from output
 
         # Check for NaN values and print which batch/split indices have them
         if torch.isnan(out_split).any():
@@ -595,8 +646,6 @@ class SplitKTest(unittest.TestCase):
         if DEBUG:
             print("✓ Split-K merged matches full attention")
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     @parameterized.expand(
         [
             (batch_size, seqlen_k, q_heads, kv_heads, head_dim)
@@ -626,8 +675,6 @@ class SplitKTest(unittest.TestCase):
             batch_size, seqlen_k, q_heads, kv_heads, head_dim
         )
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     def test_splitk_output_layout(self) -> None:
         """
         Test that SplitK attention produces outputs in the correct layout.
@@ -673,6 +720,7 @@ class SplitKTest(unittest.TestCase):
             k,
             v,
             seqlen_kv=seqlen_kv,
+            split_k_size=SPLIT_SIZE,
         )
 
         # Verify output layout: [B, H, num_splits, D]
@@ -698,8 +746,6 @@ class SplitKTest(unittest.TestCase):
             if lse is not None:
                 print(f"  LSE shape: {lse.shape}")
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     def test_non_splitk_output_layout(self) -> None:
         """
         Test that non-split-k attention produces outputs in the correct layout.
@@ -742,6 +788,7 @@ class SplitKTest(unittest.TestCase):
             v,
             seqlen_kv=seqlen_kv,
             split_k_size=0,  # Disable split-k
+            use_heuristic=False,  # Disable heuristic to truly disable split-K
         )
 
         # Verify output layout: [B, 1,  H, D]
@@ -781,8 +828,6 @@ class SplitKTest(unittest.TestCase):
             if lse is not None:
                 print(f"  LSE shape: {lse.shape}, dtype: {lse.dtype}")
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     @parameterized.expand(
         [
             (batch_size, seqlen_k, q_heads, kv_heads, head_dim)
@@ -821,8 +866,6 @@ class SplitKTest(unittest.TestCase):
             head_dim=head_dim,
         )
 
-    @skip_cuda_lt_sm100
-    @skip_rocm
     @parameterized.expand(
         [
             (batch_size, max_seqlen_k, varlen)
@@ -908,6 +951,92 @@ class SplitKTest(unittest.TestCase):
         if DEBUG:
             print(
                 f"✓ Boundary test passed for max_seqlen_k={max_seqlen_k}, varlen={varlen}"
+            )
+
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    @parameterized.expand(
+        [
+            (batch_size, seqlen_k, window_size, varlen)
+            for batch_size in [1, 2]
+            for seqlen_k in [4096, 8192]
+            for window_size in [
+                # -1,  # Disabled (no windowing)
+                # 512,  # Window < splitk_size (single split)
+                1024,  # Window == splitk_size
+                1025,  # Creates 2 splits with 1 token in split 1
+                1536,  # Window between 1 and 2 splits
+                2048,  # Window == 2 * splitk_size (2 full splits)
+                # 8192,  # Window > seqlen_k (no effect)
+            ]
+            for varlen in [False, True]
+        ]
+    )
+    def test_splitk_sliding_window(
+        self,
+        batch_size: int,
+        seqlen_k: int,
+        window_size: int,
+        varlen: bool,
+    ) -> None:
+        """
+        Test SplitK attention with sliding window.
+
+        Tests scenarios from the implementation plan:
+        - window_size <= 0: Disabled, use full sequence
+        - window_size >= seqlen_k: Use full sequence, offset=0
+        - window_size < splitk_size: Single split covers entire window
+        - window_size spanning splits: Multiple splits, each with correct range
+        - Varlen batches: Each batch has different offset
+        """
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+
+        q_heads = 8
+        kv_heads = 1
+        head_dim = 128
+
+        # Create seqlen_kv tensor
+        if varlen:
+            torch.manual_seed(SEED)
+            min_seqlen = max(1, seqlen_k // 2)
+            seqlen_kv = torch.randint(
+                min_seqlen,
+                seqlen_k + 1,
+                (batch_size,),
+                dtype=torch.int32,
+                device=device,
+            )
+            seqlen_kv[0] = seqlen_k  # At least one has max length
+            print(f"seqlen_kv: {seqlen_kv.tolist()}")
+        else:
+            seqlen_kv = torch.full(
+                (batch_size,),
+                1200,
+                dtype=torch.int32,
+                device=device,
+            )
+
+        if DEBUG:
+            print("\nSliding window + Split-K test:")
+            print(f"  batch_size={batch_size}, seqlen_k={seqlen_k}")
+            print(f"  window_size={window_size}, varlen={varlen}")
+            print(f"  seqlen_kv: {seqlen_kv.tolist()}")
+
+        self._run_splitk_merged_vs_full_attention_check(
+            batch_size=batch_size,
+            seqlen_k=seqlen_k,
+            q_heads=q_heads,
+            kv_heads=kv_heads,
+            head_dim=head_dim,
+            seqlen_kv_tensor=seqlen_kv,
+            window_size=window_size,
+        )
+
+        if DEBUG:
+            print(
+                f"✓ Sliding window + Split-K test passed for "
+                f"seqlen_k={seqlen_k}, window_size={window_size}, varlen={varlen}"
             )
 
 

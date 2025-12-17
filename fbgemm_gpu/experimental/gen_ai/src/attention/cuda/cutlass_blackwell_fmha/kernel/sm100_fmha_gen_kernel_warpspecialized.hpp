@@ -154,6 +154,7 @@ struct Sm100FmhaGenKernelWarpspecialized {
     const int* seqlen_kv;
     const int* cache_batch_idx;
     int splitk_size = 0;
+    int window_size = -1;  // If > 0, attend to last window_size tokens only
 
     const Element* ptr_q;  // 1 x D x (H x B)
     StrideQOrig dQ;
@@ -227,7 +228,10 @@ struct Sm100FmhaGenKernelWarpspecialized {
         args.ptr_cache_v, args.dCacheV,
       },
       args.scale_softmax,
-      args.splitk_size
+      args.splitk_size,
+      1.0f, 1.0f, 1.0f,  // scale_q, scale_k, scale_v
+      1.0f,              // inv_scale_o
+      args.window_size   // sliding window size
     };
 
     typename CollectiveEpilogue::Arguments epilogue_args {
@@ -241,7 +245,7 @@ struct Sm100FmhaGenKernelWarpspecialized {
         args.seqlen_kv,
         CollectiveMainloop::to_underlying_arguments(problem_shape, mainloop_args, workspace),
         CollectiveEpilogue::to_underlying_arguments(problem_shape, epilogue_args, workspace),
-        TileScheduler::to_underlying_arguments(problem_shape, args.hw_info, ClusterShape{}, TileShape{}, args.splitk_size)
+        TileScheduler::to_underlying_arguments(problem_shape, args.hw_info, ClusterShape{}, TileShape{}, args.splitk_size, args.window_size)
     };
   }
 
@@ -254,6 +258,12 @@ struct Sm100FmhaGenKernelWarpspecialized {
     if (params.mainloop.load.ptr_new_k != nullptr) {
       seqlen_kv += 1;
     }
+
+    // Cap at window_size if specified (sliding window attention)
+    int effective_seqlen = seqlen_kv;
+    if (params.mainloop.window_size > 0 && params.mainloop.window_size < seqlen_kv) {
+      effective_seqlen = params.mainloop.window_size;
+    }
     
     // For split-K: compute the split's klen
     int splitk_size = params.mainloop.splitk_size;
@@ -262,18 +272,47 @@ struct Sm100FmhaGenKernelWarpspecialized {
       if (splitk_size > 0) {
         int split_k_idx = get<1>(blk_coord);
         int start_k = split_k_idx * splitk_size;
-        int end_k = cute::min(start_k + splitk_size, seqlen_kv);
-        // Handle case where start_k >= seqlen_kv (split has no work)
+        int end_k = cute::min(start_k + splitk_size, effective_seqlen);
+        // Handle case where start_k >= effective_seqlen (split has no work)
         get<1>(result) = cute::max(0, end_k - start_k);
       } else {
-        get<1>(result) = seqlen_kv;
+        get<1>(result) = effective_seqlen;
       }
     } else {
-      // Non-split-K mode: use full sequence
-      get<1>(result) = seqlen_kv;
+      // Non-split-K mode: use effective sequence length
+      get<1>(result) = effective_seqlen;
     }
     
     return result;
+  }
+
+  // Computes the global K/V offset for sliding window
+  // Only called by Load warp
+  template<class BlkCoord>
+  CUTLASS_DEVICE int get_window_start_offset(
+      const Params& params,
+      BlkCoord const& blk_coord) {
+
+    // If window disabled, no offset
+    if (params.mainloop.window_size <= 0) {
+      return 0;
+    }
+
+    int batch_idx = get<2, 1>(blk_coord);
+    int batch_seqlen_kv = params.seqlen_kv[batch_idx];
+
+    // Add 1 for new K/V if present
+    if (params.mainloop.load.ptr_new_k != nullptr) {
+      batch_seqlen_kv += 1;
+    }
+
+    // If window covers entire sequence, no offset
+    if (params.mainloop.window_size >= batch_seqlen_kv) {
+      return 0;
+    }
+
+    // Offset = batch_seqlen - window_size
+    return batch_seqlen_kv - params.mainloop.window_size;
   }
 
   CUTLASS_DEVICE void operator()(const Params &params, char* smem) {
@@ -590,12 +629,16 @@ struct Sm100FmhaGenKernelWarpspecialized {
           continue;
         }
 
+        // Compute window offset for sliding window attention
+        int start_k_offset = get_window_start_offset(params, blk_coord);
+
         mainloop.load(
           blk_coord, logical_problem_shape,
           params.mainloop, params.problem_shape,
           shared_storage.mainloop,
           pipeline_load_q, pipeline_load_q_producer_state,
-          pipeline_load_kv, pipeline_load_kv_producer_state
+          pipeline_load_kv, pipeline_load_kv_producer_state,
+          start_k_offset
         );
 
       }
