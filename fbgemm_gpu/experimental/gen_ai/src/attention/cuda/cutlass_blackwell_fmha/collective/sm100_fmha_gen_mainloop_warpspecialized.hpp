@@ -609,11 +609,6 @@ struct Sm100FmhaGenMainloopWarpspecialized {
     Tensor tScS_P = tScS.compose(
       make_layout(make_shape(TileM{}, tilePlikeFP32)));
   
-    // needed number of cols to load from tmem to reg
-    constexpr int kConversionsPerStep = 2;
-    constexpr int kTmemLoadNcells = cute::min(32, size<1>(TileShapeQK{}) / kConversionsPerStep);
-    constexpr int kTmemStoreNcells = kTmemLoadNcells * sizeof_bits_v<Element> / sizeof_bits_v<float>;
-
     using TMEM_LOAD_1xOP = typename kValTyMap<void,
         // Two threads collaborate on a single row
         kValTyPair<64, SM100_TMEM_LOAD_16dp32b1x>,
@@ -621,14 +616,33 @@ struct Sm100FmhaGenMainloopWarpspecialized {
         kValTyPair<128, SM100_TMEM_LOAD_32dp32b1x>
       >::template query<TileM::value>;
     using TMEM_STORE_1xOP = decltype(TMEM::tmem_load_to_store(TMEM_LOAD_1xOP{}));
+
+    // Summary of per-thread compute logic, each thread process all (TileM=128)/half(TileM=64) of a row:
+    // 1. Read all data going to processed by this thread from one row of S=QK.
+    // 2. Compute the "row_max" of that row of S.
+    // 3. Loop through that row of S via `kTMEMOpsPerRow` number of TMEM_LOAD/STORE
+    // instructions, each processing `kTmemLoadNcells` elements:
+    //   3.1 P=softmax(S)
+    //   3.2 Convert P's dtype from ElementQK -> Element, each conversion step processes `kConversionsPerStep` elements.
+    //   3.3 Store the converted P to TMEM, unblocks MMA_PV.
+    //
+    // Considerations for `kTMEMOpsPerRow`: it determines the intermediate
+    // registers required to perform "3.1 softmax" and "3.2 conversion", in
+    // addition to the input data (a row of S).
+
+    constexpr int kTMEMOpsPerRow = kValValMap<0 /* default, trigger static_assert error*/,
+        kValValPair<64, 1>,  // each thread processes half of a row.
+        kValValPair<128, 2>  // each thread processes an entire row, but convert+store half at a time to reduce reg pressure.
+      >::template query<TileM::value>;
+    static_assert(size<1>(TileShapeQK{}) % kTMEMOpsPerRow == 0);
+    constexpr int kTmemLoadNcells = size<1>(TileShapeQK{}) / kTMEMOpsPerRow;
+    constexpr int kTmemStoreNcells = kTmemLoadNcells * sizeof_bits_v<Element> / sizeof_bits_v<float>;
     using TMEM_LOAD = decltype(TMEM::op_repeater<TMEM_LOAD_1xOP, kTmemLoadNcells * 32>());
     using TMEM_STORE = decltype(TMEM::op_repeater<TMEM_STORE_1xOP, kTmemStoreNcells * 32>());
-
     using TMEM_STORE_V = typename kValTyMap<void,
         kValTyPair<64, SM100_TMEM_STORE_16dp32b2x>,
         kValTyPair<128, SM100_TMEM_STORE_32dp32b2x> // 4x32 threads with 2 cols of 32b elem
       >::template query<TileM::value>;
-
 
     auto tiled_tmem_load = make_tmem_copy(TMEM_LOAD{}, tStS);
     auto thr_tmem_load   = tiled_tmem_load.get_slice(thread_idx);
@@ -703,7 +717,7 @@ struct Sm100FmhaGenMainloopWarpspecialized {
 
     Tensor tTMEM_STORErS_x4 = make_tensor<uint32_t>(shape(tTMEM_STOREcS));
 
-
+    constexpr int kConversionsPerStep = 2;
 
     Tensor tTMEM_STORErS_x4_e = recast<Array<Element, kConversionsPerStep>>(tTMEM_STORErS_x4);
 
