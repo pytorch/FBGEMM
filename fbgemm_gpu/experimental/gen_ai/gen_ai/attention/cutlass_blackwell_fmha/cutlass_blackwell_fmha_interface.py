@@ -342,7 +342,17 @@ def cutlass_blackwell_fmha_decode_forward(
     # Validate and adjust split_k_size
     split_k_size = _validate_and_adjust_split_k_size(split_k_size)
 
+    # Validate window_right: decode kernel only supports causal attention (window_right <= 0)
+    if window_right > 0:
+        raise ValueError(
+            f"window_right={window_right} is not supported for decode attention. "
+            "The decode kernel only supports causal attention with window_right <= 0. "
+            "Use window_right=0 (causal, current position only)."
+        )
+
     # Call the gen kernel (optimized for decode)
+    # Note: window_left specifies how many tokens to look back (exclusive)
+    # The kernel will attend to positions [seqlen_kv - window_left, seqlen_kv)
     out, lse = torch.ops.fbgemm.fmha_gen_fwd(
         q,
         k,
@@ -350,8 +360,8 @@ def cutlass_blackwell_fmha_decode_forward(
         seqlen_kv,
         None,
         kernel_type=GenKernelType.UMMA_I,
-        # window_left=window_left,
-        # window_right=window_right,
+        window_left=window_left,
+        window_right=0,
         split_k_size=split_k_size,
     )
 

@@ -121,17 +121,26 @@ struct IndividualTileSchedulerSplitK {
   static Params to_underlying_arguments(
       ProblemSize const& problem_size, KernelHardwareInfo hw_info,
       ClusterShape const& cluster_shape, TileShape const& tile_shape,
-      int splitk_size) {
+      int splitk_size,
+      int window_size = -1) {
     using namespace cute;
     
     // Calculate number of splits based on sequence length
     // If splitk_size is 0, default to no splitting (num_splits = 1)
     int sk = size<1>(problem_size);  // sequence length
+    
+    // For sliding window attention, use window_size as the effective seqlen
+    // This ensures the grid only launches CTAs for splits within the window
+    int effective_seqlen = sk;
+    if (window_size > 0 && window_size < sk) {
+      effective_seqlen = window_size;
+    }
+    
     int num_splits;
     if (splitk_size <= 0) {
       num_splits = 1;  // No splitting
     } else {
-      num_splits = (sk + splitk_size - 1) / splitk_size;  // ceil division
+      num_splits = (effective_seqlen + splitk_size - 1) / splitk_size;  // ceil division
     }
     
     // Grid is now (Q_tiles, H_k * SplitK, B)
@@ -197,7 +206,8 @@ struct PersistentTileScheduler {
   static Params to_underlying_arguments(
       ProblemSize const& problem_size, KernelHardwareInfo hw_info,
       ClusterShape const& cluster_shape, TileShape const& tile_shape,
-      int splitk_size = 0) {
+      int splitk_size = 0,
+      int window_size = -1) {
     using namespace cute;
     // Get SM count if needed, otherwise use user supplied SM count
     int sm_count = hw_info.sm_count;

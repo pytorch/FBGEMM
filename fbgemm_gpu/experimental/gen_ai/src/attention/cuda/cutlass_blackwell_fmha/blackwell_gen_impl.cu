@@ -147,6 +147,7 @@ struct GenRunner {
   at::Tensor q, k, v, seqlen_kv;
   std::optional<at::Tensor> batch_idx;
   int64_t split_k_size;
+  int64_t window_size;
 
   std::tuple<at::Tensor, at::Tensor> fmha_fwd(
       const at::Tensor& q_input,
@@ -154,7 +155,8 @@ struct GenRunner {
       const at::Tensor& v_input,
       const at::Tensor& seqlen_kv_input,
       const std::optional<at::Tensor>& batch_idx_input,
-      int64_t split_k_size) {
+      int64_t split_k_size,
+      int64_t window_size) {
 
     this->q = q_input;
     this->k = k_input;
@@ -162,6 +164,7 @@ struct GenRunner {
     this->seqlen_kv = seqlen_kv_input;
     this->batch_idx = batch_idx_input;
     this->split_k_size = split_k_size;
+    this->window_size = window_size;
     auto q_sizes = q.sizes();
     auto k_sizes = k.sizes();
     int b = q_sizes[0];
@@ -192,9 +195,16 @@ struct GenRunner {
 
     // Calculate split_kv = num_splits based on split_k_size parameter
     // split_k_size <= 0 means no split-K (num_splits = 1)
+    // For sliding window attention, use window_size as the effective seqlen
+    // This ensures output tensors are allocated with the correct number of splits
+    int effective_seqlen = options.sk;
+    if (window_size > 0 && window_size < options.sk) {
+      effective_seqlen = window_size;
+    }
+
     int split_kv = 1;
     if (split_k_size > 0) {
-      split_kv = (options.sk + split_k_size - 1) / split_k_size;
+      split_kv = (effective_seqlen + split_k_size - 1) / split_k_size;
     }
 
     ProblemShape result = make_shape(
@@ -260,14 +270,15 @@ struct GenRunner {
 
     typename Operation::Arguments arguments{
         problem_shape,
-        static_cast<int*>(seqlen_kv.data_ptr()),
-        static_cast<int*>(batch_idx? batch_idx.value().data_ptr() : nullptr),
+        static_cast<const int*>(seqlen_kv.data_ptr()),
+        static_cast<const int*>(batch_idx ? batch_idx.value().data_ptr() : nullptr),
         static_cast<int>(split_k_size),
-        static_cast<Element*>(q.data_ptr()),
+        static_cast<int>(window_size),
+        static_cast<const Element*>(q.data_ptr()),
         stride_q,
-        nullptr,
+        static_cast<const Element*>(nullptr),  // ptr_new_k
         stride_new_k,
-        nullptr,
+        static_cast<const Element*>(nullptr),  // ptr_new_v
         stride_new_v,
         static_cast<Element*>(k.data_ptr()),
         stride_cache_k,
@@ -277,7 +288,9 @@ struct GenRunner {
         stride_o,
         static_cast<ElementAcc*>(block_lse.data_ptr()),
         stride_lse,
-        hw_info};
+        hw_info,
+        0.0f  // scale_softmax
+    };
 
     Operation op;
     cutlass::Status status = cutlass::Status::kSuccess;
@@ -348,13 +361,14 @@ std::tuple<at::Tensor, at::Tensor> run_gen_runner_fwd(
     const at::Tensor& v,
     const at::Tensor& seqlen_kv,
     const std::optional<at::Tensor>& batch_idx,
-    int64_t split_k_size) {
+    int64_t split_k_size,
+    int64_t window_size) {
   if constexpr (HeadDim == 128) {
     GenRunner<Element, ElementOut, KType, Shape<_64, _128, _128>> runner;
-    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size);
+    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size, window_size);
   } else if constexpr (HeadDim == 64) {
     GenRunner<Element, ElementOut, KType, Shape<_64, _128, _64>> runner;
-    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size);
+    return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size, window_size);
   }
 }
 
@@ -365,6 +379,8 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd(
     const at::Tensor& seqlen_kv,
     const std::optional<at::Tensor>& batch_idx,
     int64_t kernel_type,
+    int64_t window_left,
+    int64_t window_right,
     int64_t split_k_size
   ) {
   const auto device = q.device();
@@ -372,17 +388,26 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd(
   const int head_dim = q.size(q.dim() - 1);
   const bool is_split_k = split_k_size > 0;
 
+  // Convert window_left to window_size for the kernel
+  // For decode, window_left is the relevant parameter (how many tokens to look back)
+  // window_right is typically 0 for decode (causal)
+  int64_t window_size = window_left + 1;
+  assert(window_right == 0 || window_right == -1);
+
+  // Decode kernel only supports window_right values of 0 or -1
+  assert(window_right == 0 || window_right == -1);
+
   return DISPATCH_ELEMENT_TYPE(q.scalar_type(), Element, [&] {
     return DISPATCH_KERNEL_TYPE(static_cast<int>(kernel_type), KType, [&] {
       return DISPATCH_HEAD_DIM(head_dim, HeadDim, [&] {
         if (is_split_k) {
           // Split-K: output in float (accumulator precision for later reduction)
           return run_gen_runner_fwd<Element, float, KType, HeadDim>(
-              q, k, v, seqlen_kv, batch_idx, split_k_size);
+              q, k, v, seqlen_kv, batch_idx, split_k_size, window_size);
         } else {
           // Non-split: output in bfloat16
           return run_gen_runner_fwd<Element, cutlass::bfloat16_t, KType, HeadDim>(
-              q, k, v, seqlen_kv, batch_idx, split_k_size);
+              q, k, v, seqlen_kv, batch_idx, split_k_size, window_size);
         }
       });
     });
@@ -396,6 +421,8 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd_meta(
     const at::Tensor& seqlen_kv,
     const std::optional<at::Tensor>& batch_idx,
     int64_t kernel_type,
+    int64_t window_left,
+    int64_t window_right,
     int64_t split_k_size
   ) {
   // Return tuple matching the operator signature: (output, lse)
@@ -421,6 +448,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor seqlen_kv, "
       "    Tensor? batch_idx = None,"
       "    int kernel_type = 0,"
+      "    int window_left = -1,"
+      "    int window_right = -1,"
       "    int split_k_size = 1024"
       ") -> (Tensor, Tensor)");
 }
