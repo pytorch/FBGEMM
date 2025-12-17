@@ -1476,6 +1476,19 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         # Decode kernel does not support sm_scale
         sm_scale = None if is_decode else 1.0 / head_dim
 
+        if is_decode:
+            self._execute_cutlass_blackwell_attn_decode(
+                batch_size,
+                seqlen_k,
+                q_heads,
+                kv_heads=kv_heads,
+                head_dim=head_dim,
+                dtype=dtype,
+                window_size=window_size,
+                sm_scale=None,
+            )
+            return
+
         test_func(
             batch_size,
             seqlen_q,
