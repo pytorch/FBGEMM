@@ -133,6 +133,7 @@ __configure_fbgemm_gpu_test_cuda () {
   export ignored_tests=(
     ./moe/layers_test.py  # Not a python unittest file
     ./attention/blackwell_fmha_test.py
+    ./attention/blackwell_attention_splitk_test.py
   )
 }
 
@@ -172,6 +173,7 @@ __configure_fbgemm_gpu_test_rocm () {
     ./gather_scatter/gather_scatter_test.py
     ./moe/layers_test.py  # Not a python unittest file
     ./attention/blackwell_fmha_test.py
+    ./attention/blackwell_attention_splitk_test.py
   )
 }
 
