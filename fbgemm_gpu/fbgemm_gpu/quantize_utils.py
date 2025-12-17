@@ -14,7 +14,9 @@ import torch  # isort:skip
 
 import fbgemm_gpu
 
-from fbgemm_gpu.triton import dequantize_mx4, quantize_mx4, RoundingMode
+from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.triton import quantize_mx4, RoundingMode
+from fbgemm_gpu.triton.quantize import triton_dequantize_mx4
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
 try:
@@ -126,25 +128,71 @@ def mx4_to_fp32(
 ) -> torch.Tensor:
     """Dequantize an MX4 tensor to FP32 with triton or native cuda impl.
 
+    This function is kept for backward compatibility and always returns FP32.
+    For BF16 output, use mx4_to_float() with output_dtype=SparseType.BF16.
+    """
+    return mx4_to_float(
+        tensor,
+        group_size,
+        use_triton,
+        ebits,
+        mbits,
+        output_dtype=None,  # None = FP32 default for backward compatibility
+    )
+
+
+def mx4_to_float(
+    tensor: torch.Tensor,
+    group_size: int = 32,
+    use_triton: bool = True,
+    ebits: int = 2,
+    mbits: int = 1,
+    output_dtype: Optional[SparseType] = None,
+) -> torch.Tensor:
+    """Dequantize an MX4 tensor to FP32 or BF16 with triton or native cuda impl.
+
     Args:
         tensor (torch.Tensor): MX4 packed tensor with total elements (M / 2 + M / groupsize)
         group_size (int): Compute scale in chunks of group_size.
         use_triton (bool): If set, use triton quantization, otherwise cuda.
         ebits (int): Number of exponent bits in target mx4 format.
         mbits (int): Number of mantissa bits in target mx4 format.
+        output_dtype (Optional[SparseType]): Output dtype (FP32 or BF16).
+            Defaults to None (FP32) for backward compatibility.
 
     Return:
-        output: FP32 tensor with total elements (M).
+        output: Tensor with dtype matching output_dtype and total elements (M).
     """
+    # Validate output_dtype
+    supported_dtypes = {SparseType.FP32, SparseType.BF16}
+    if output_dtype is not None and output_dtype not in supported_dtypes:
+        raise ValueError(
+            f"output_dtype must be one of {supported_dtypes}, got {output_dtype}. "
+            f"FP16 is not supported due to potential overflow/underflow with MX4's wide exponent range. "
+            f"Use BF16 for memory savings with same dynamic range as FP32."
+        )
+
+    target_dtype = (
+        output_dtype.as_dtype() if output_dtype is not None else torch.float32
+    )
+
     # Accelerated MX4 dequantize is only available on cuda, if input is on cpu, use python.
     if not tensor.is_cuda and not tensor.is_mtia:
-        return py_dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
+        result = py_dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
+        return result.to(target_dtype) if output_dtype is not None else result
     if use_triton:
         if tensor.is_mtia:
-            return mtia_dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
-        return dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
+            return mtia_dequantize_mx4(
+                tensor, group_size, ebits=ebits, mbits=mbits, output_dtype=target_dtype
+            )
+        return triton_dequantize_mx4(
+            tensor, group_size, ebits=ebits, mbits=mbits, output_dtype=target_dtype
+        )
     else:
-        return torch.ops.fbgemm.dequantize_mx_cuda(tensor.flatten(), group_size)
+        output_dtype_int = output_dtype.as_int() if output_dtype is not None else 0
+        return torch.ops.fbgemm.dequantize_mx_cuda(
+            tensor.flatten(), group_size, output_dtype_int
+        )
 
 
 def fp32_to_fp16_with_clamp(tensor: torch.Tensor) -> torch.Tensor:

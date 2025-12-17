@@ -13,7 +13,13 @@ import hypothesis.strategies as st
 
 import torch
 
-from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32, RoundingMode
+from fbgemm_gpu.quantize_utils import (
+    fp32_to_mx4,
+    mx4_to_float,
+    mx4_to_fp32,
+    RoundingMode,
+)
+from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
 from hypothesis import given, settings, Verbosity
@@ -286,6 +292,68 @@ class TestMXQuantizationConversion(unittest.TestCase):
         # Check that values are reasonably close, based on expected variance.
         # I give quite a bit of wiggle room to make sure this isnt flaky.
         torch.testing.assert_close(input, mx_dequantized, rtol=1.0, atol=magnitude / 2)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-fixme[56]:
+    @given(
+        output_dtype=st.sampled_from([None, SparseType.FP32, SparseType.BF16]),
+        use_triton=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_mx4_to_float_correctness(
+        self, output_dtype: SparseType | None, use_triton: bool
+    ) -> None:
+        """Test MX4 dequantization correctness for FP32 and BF16 output dtypes.
+
+        Validates that mx4_to_float produces correct outputs:
+        - dtype matches expected (None -> FP32, SparseType.FP32 -> FP32, SparseType.BF16 -> BF16)
+        - FP32 output matches against cpu reference
+        - BF16 output matches against FP32 -> BF16 conversion
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        input_data = torch.randn([128, 1024], device=device, dtype=torch.float32)
+
+        quantized = fp32_to_mx4(
+            input_data,
+            group_size=32,
+            use_triton=use_triton,
+            rounding_mode=RoundingMode.floor,
+        )
+        output = mx4_to_float(
+            quantized,
+            group_size=32,
+            use_triton=use_triton,
+            output_dtype=output_dtype,
+        )
+        output = output.reshape(input_data.shape)  # CUDA returns flattened tensor
+
+        # validate dtype
+        expected_dtype = output_dtype.as_dtype() if output_dtype else torch.float32
+        self.assertEqual(output.dtype, expected_dtype)
+
+        # validate fp32 against cpu reference
+        if expected_dtype == torch.float32:
+            input_cpu = input_data.cpu()
+            quantized_cpu = py_quantize_mx4(
+                input_cpu, group_size=32, rounding_mode=RoundingMode.floor
+            )
+            output_cpu = py_dequantize_mx4(quantized_cpu, group_size=32)
+            assert check_diff_quantize(input_cpu, output_cpu, output.cpu())
+
+        # validate bf16 matches fp32->bf16 conversion
+        elif expected_dtype == torch.bfloat16:
+            output_fp32 = mx4_to_float(
+                quantized,
+                group_size=32,
+                use_triton=use_triton,
+                output_dtype=None,  # Get FP32 output
+            )
+            output_fp32_as_bf16 = output_fp32.reshape(input_data.shape).to(
+                torch.bfloat16
+            )
+            torch.testing.assert_close(
+                output.cpu(), output_fp32_as_bf16.cpu(), rtol=0.0, atol=0.0
+            )
 
     # pyre-fixme[56]:
     @unittest.skipIf(
