@@ -85,9 +85,7 @@ void jagged_jagged_elementwise_dense_output_(
     return;
   }
 
-  dim3 threads, blocks;
-  StackArray<int64_t> jagged_dims_tensor;
-  std::tie(threads, blocks, jagged_dims_tensor) =
+  auto [threads, blocks, jagged_dims_tensor] =
       check_shape_and_partition_(x_values, x_offsets, output);
 
   // Canonicalize output to 3D, collapsing jagged dimensions.

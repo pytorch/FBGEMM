@@ -199,13 +199,13 @@ RawEmbeddingStreamer::~RawEmbeddingStreamer() {
 }
 
 void RawEmbeddingStreamer::stream(
-    const at::Tensor& indices,
-    const at::Tensor& weights,
-    std::optional<at::Tensor> identities,
-    std::optional<at::Tensor> runtime_meta,
-    const at::Tensor& count,
-    bool require_tensor_copy,
-    bool blocking_tensor_copy) {
+    const at::Tensor& /*indices*/,
+    const at::Tensor& /*weights*/,
+    std::optional<at::Tensor> /*identities*/,
+    std::optional<at::Tensor> /*runtime_meta*/,
+    const at::Tensor& /*count*/,
+    bool /*require_tensor_copy*/,
+    bool /*blocking_tensor_copy*/) {
   if (!enable_raw_embedding_streaming_) {
     return;
   }

@@ -86,8 +86,7 @@ offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
   auto offsets_contig = offsets.contiguous();
   int64_t N = offsets_contig.numel();
 
-  uint32_t num_blocks, rows_per_block, vector_size;
-  std::tie(num_blocks, rows_per_block, vector_size) =
+  auto [num_blocks, rows_per_block, vector_size] =
       calc_offsets_range_thread_block(range_size, N);
 
   dim3 threads(vector_size, rows_per_block);
@@ -143,8 +142,7 @@ DLL_PUBLIC Tensor lengths_range_cuda(
 
   auto output = at::empty({output_size}, t_in.options());
 
-  uint32_t num_blocks, rows_per_block, vector_size;
-  std::tie(num_blocks, rows_per_block, vector_size) =
+  auto [num_blocks, rows_per_block, vector_size] =
       calc_offsets_range_thread_block(output_size, num_seq);
 
   dim3 threads(vector_size, rows_per_block);

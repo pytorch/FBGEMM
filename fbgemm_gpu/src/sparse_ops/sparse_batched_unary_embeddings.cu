@@ -187,27 +187,20 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
   TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
 
-  int32_t info_B_num_bits;
-  uint32_t info_B_mask;
-  std::tie(info_B_num_bits, info_B_mask) = get_info_B_num_bits_from_T(B, T);
+  auto [info_B_num_bits, info_B_mask] = get_info_B_num_bits_from_T(B, T);
 
   // weight: [N, sum_E]
   // total_hash_size_bits = log2(sum_E)
   int64_t total_hash_size_bits = log2(weight.numel() / N) + 1;
 
-  Tensor linear_indices, linear_indices_sorted;
-  Tensor infos_sorted;
-  Tensor sorted_linear_indices_run, sorted_linear_indices_run_lengths,
-      sorted_linear_indices_num_runs,
-      sorted_linear_indices_cumulative_run_lengths;
-  std::tie(
+  auto [
       linear_indices,
       linear_indices_sorted,
       infos_sorted,
       sorted_linear_indices_run,
       sorted_linear_indices_run_lengths,
       sorted_linear_indices_num_runs,
-      sorted_linear_indices_cumulative_run_lengths) =
+      sorted_linear_indices_cumulative_run_lengths] =
       transpose_embedding_input(
           table_offsets,
           total_hash_size_bits,

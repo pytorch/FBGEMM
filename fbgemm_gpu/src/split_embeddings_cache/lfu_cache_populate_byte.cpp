@@ -26,7 +26,6 @@ DLL_PUBLIC void lfu_cache_populate_byte_cpu(
     Tensor /*lxu_cache_weights*/,
     Tensor /*lfu_state*/,
     int64_t /*row_alignment*/) {
-  return;
-}
+  }
 
 } // namespace fbgemm_gpu

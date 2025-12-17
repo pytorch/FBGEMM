@@ -47,7 +47,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::vector<int64_t> table_offsets,
       const std::vector<int64_t>& table_sizes);
 
-  virtual ~RawEmbeddingStreamer();
+  ~RawEmbeddingStreamer() override;
 
   /// Stream out non-negative elements in <indices> and its paired embeddings
   /// from <weights> for the first <count> elements in the tensor.

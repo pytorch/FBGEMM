@@ -8,7 +8,7 @@
 
 #include "indices_generator.h"
 
-#include <math.h>
+#include <cmath>
 #include <chrono>
 #include <execution>
 

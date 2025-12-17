@@ -1309,18 +1309,13 @@ block_bucketize_sparse_features_cpu(
     const bool keep_orig_idx,
     const std::optional<Tensor>& total_num_blocks = std::nullopt,
     const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
-  Tensor new_lengths;
-  Tensor new_indices;
-  std::optional<Tensor> new_weights;
-  std::optional<Tensor> new_pos;
-  std::optional<Tensor> unbucketize_permute;
-  std::tie(
+  auto [
       new_lengths,
       new_indices,
       new_weights,
       new_pos,
       unbucketize_permute,
-      std::ignore) =
+      _] =
       _block_bucketize_sparse_features_cpu(
           lengths,
           indices,
@@ -1704,13 +1699,7 @@ block_bucketize_sparse_features_2d_weights_cpu(
     const bool keep_orig_idx,
     const std::optional<Tensor>& total_num_blocks = std::nullopt,
     const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
-  Tensor new_lengths;
-  Tensor new_indices;
-  Tensor new_weights;
-  std::optional<Tensor> new_pos;
-  std::optional<Tensor> unbucketize_permute;
-  std::tie(
-      new_lengths, new_indices, new_weights, new_pos, unbucketize_permute) =
+  auto [new_lengths, new_indices, new_weights, new_pos, unbucketize_permute] =
       _block_bucketize_sparse_features_2d_weights_cpu(
           lengths,
           indices,
@@ -3192,18 +3181,14 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
       "The dimension of lengths tensor should be equal to 2"
       "to correctly infer number of features and batch size.");
 
-  Tensor permuted_lengths;
-  Tensor permuted_embeddings;
   std::optional<Tensor> weights_dummy;
   std::optional<int64_t> permuted_lengths_sum_dummy;
 
   const auto T = permute.numel();
   const auto B = lengths.size(1);
 
-  permuted_lengths = at::empty({T, B}, lengths.options());
-
   // ignore the third element in the tuple
-  std::tie(permuted_lengths, permuted_embeddings, std::ignore) =
+  auto [permuted_lengths, permuted_embeddings, _] =
       fbgemm_gpu::permute_2D_sparse_data_cpu(
           permute,
           lengths,

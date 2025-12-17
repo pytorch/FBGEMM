@@ -796,18 +796,13 @@ DLL_PUBLIC std::
         const bool keep_orig_idx,
         const std::optional<Tensor>& total_num_blocks,
         const std::optional<at::Tensor>& keep_orig_idx_per_feature) {
-  Tensor new_lengths;
-  Tensor new_indices;
-  Tensor new_weights;
-  std::optional<Tensor> new_pos;
-  std::optional<Tensor> unbucketize_permute;
-  std::tie(
+  auto [
       new_lengths,
       new_indices,
       new_weights,
       new_pos,
       unbucketize_permute,
-      std::ignore) =
+      _] =
       _block_bucketize_sparse_features_2d_weights_cuda(
           lengths,
           indices,

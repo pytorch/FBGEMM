@@ -168,10 +168,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
                                 FixedDivisor(total_B / T));
                           }));
 
-  Tensor linear_unique_indices;
-  Tensor reverse_index;
-
-  std::tie(linear_unique_indices, reverse_index) =
+  auto [linear_unique_indices, reverse_index] =
       at::_unique(linear_indices, true, true);
 
   const auto total_indices = indices.size(0);

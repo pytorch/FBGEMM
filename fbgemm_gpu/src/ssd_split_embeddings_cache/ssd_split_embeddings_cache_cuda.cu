@@ -407,13 +407,10 @@ ssd_cache_populate_actions_cuda(
 
   auto actions_count = at::empty({1}, int_options);
   // Find uncached indices
-  at::Tensor sorted_cache_sets;
-  at::Tensor cache_set_sorted_unique_indices;
-  std::optional<at::Tensor> cache_set_inverse_indices;
-  std::tie(
+  auto [
       sorted_cache_sets,
       cache_set_sorted_unique_indices,
-      cache_set_inverse_indices) =
+      cache_set_inverse_indices] =
       lru_cache_find_uncached_cuda(
           unique_indices,
           unique_indices_length,

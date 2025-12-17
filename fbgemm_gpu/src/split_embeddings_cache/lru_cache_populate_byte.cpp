@@ -28,8 +28,7 @@ DLL_PUBLIC void lru_cache_populate_byte_cpu(
     int64_t /*row_alignment*/,
     bool /*gather_cache_stats*/,
     std::optional<Tensor> /*uvm_cache_stats*/) {
-  return;
-}
+  }
 
 DLL_PUBLIC void direct_mapped_lru_cache_populate_byte_cpu(
     Tensor /*weights*/,
@@ -48,7 +47,6 @@ DLL_PUBLIC void direct_mapped_lru_cache_populate_byte_cpu(
     int64_t /*row_alignment*/,
     bool /*gather_cache_stats*/,
     std::optional<Tensor> /*uvm_cache_stats*/) {
-  return;
-}
+  }
 
 } // namespace fbgemm_gpu
