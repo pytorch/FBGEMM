@@ -364,10 +364,10 @@ std::tuple<at::Tensor, at::Tensor> run_gen_runner_fwd(
     int64_t split_k_size,
     int64_t window_size) {
   if constexpr (HeadDim == 128) {
-    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _128>> runner;
+    GenRunner<Element, ElementOut, KType, Shape<_64, _256, _128>> runner;
     return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size, window_size);
   } else if constexpr (HeadDim == 64) {
-    GenRunner<Element, ElementOut, KType, Shape<_64, _128, _64>> runner;
+    GenRunner<Element, ElementOut, KType, Shape<_64, _256, _64>> runner;
     return runner.fmha_fwd(q, k, v, seqlen_kv, batch_idx, split_k_size, window_size);
   }
 }
