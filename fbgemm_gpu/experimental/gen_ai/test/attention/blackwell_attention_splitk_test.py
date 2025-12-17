@@ -6,7 +6,6 @@
 
 
 import math
-import os
 import unittest
 from typing import Optional
 
@@ -31,12 +30,7 @@ skip_cuda_lt_sm100 = unittest.skipIf(
 )
 skip_rocm = unittest.skipIf(torch.version.hip is not None, "Does not support ROCm")
 
-skip_on_github = unittest.skipIf(
-    os.getenv("GITHUB_ENV") is not None, "Skipping on Github"
-)
 
-
-@skip_on_github
 @skip_cuda_lt_sm100
 @skip_rocm
 class SplitKTest(unittest.TestCase):
