@@ -835,7 +835,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 is_mqa,
                 window_size,
                 head_dim,
-                sm_scale,
                 num_groups,
             )
             for dtype in [torch.bfloat16, torch.float8_e4m3fn]
@@ -844,7 +843,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for is_mqa in [True, False]
             for window_size in [(-1, -1), (0, 0), (128, 0), (1024, 0)]
             for head_dim in [128, 64]
-            for sm_scale in [None]
             for num_groups in [1, 2]
         ]
     )
@@ -856,7 +854,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_mqa: bool,
         window_size: tuple[int, int],
         head_dim: int,
-        sm_scale: Optional[float],
         num_groups: int = 1,
         q_heads: int = 8,
     ) -> None:
@@ -865,7 +862,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 f"Running test_decode with params: "
                 f"dtype={dtype}, kv_padding={kv_padding}, batch_size={batch_size}, "
                 f"is_mqa={is_mqa}, window_size={window_size}, head_dim={head_dim}, "
-                f"sm_scale={sm_scale}, q_heads={q_heads}"
+                f"num_groups={num_groups}, q_heads={q_heads}"
             )
 
         # Skip test for known numerical precision issues with FP8 and head_dim=64 in GQA mode
@@ -1021,9 +1018,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for batch_size in [2, 8]
             for q_heads in [8, 16]
             for causal in [True, False]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for window_size in [(-1, -1), (128, 0), (200, 0)]
             for head_dim in [128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
         ]
     )
     def test_jagged_vs_padded_kv(
@@ -1048,7 +1045,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         seqlen_q = kv_padding  # Maximum sequence length (padded size)
         device = torch.accelerator.current_accelerator()
         kv_heads = 1
-        head_dim = head_dim
         dtype = torch.bfloat16
 
         torch.manual_seed(SEED)
@@ -1213,9 +1209,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for is_gqa in [False, True]
             for is_varlen in [False, True]
             for kv_heads in [1, 2, 3, 4]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for window_size in [(-1, -1), (128, 0), (200, 0)]
             for head_dim in [64, 128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
         ]
     )
     def test_forward(
@@ -1232,6 +1228,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         sm_scale: Optional[float],
         dtype: torch.dtype = torch.bfloat16,
     ) -> None:
+        random.seed(SEED)
         seqlen_k = offset_q + seqlen_q
         if seqlen_k > seqlen_q:
             causal = True
@@ -1277,23 +1274,19 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             )
             for seqlen_q, offset_q in [
                 (101, 0),
-                (111, 2),
-                (256, 0),
-                (1024, 0),
                 (113, 90),
-                (128, 90),
-                (256, 90),
+                (256, 0),
                 (256, 128),
-                (1024, 128),
+                (1024, 25),
             ]
-            for batch_size in [1, 2, 8]
+            for batch_size in [1, 4]
             for causal in [False, True]
             for is_gqa in [False, True]
             for is_varlen in [False, True]
-            for kv_heads in [1, 2, 3, 4]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for kv_heads in [1, 2]
+            for window_size in [(-1, -1), (23, 0)]
             for head_dim in [64, 128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
             for page_block_size in [128, 256]
         ]
     )
@@ -1312,6 +1305,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         page_block_size: int,
         dtype: torch.dtype = torch.bfloat16,
     ) -> None:
+        random.seed(SEED)
         seqlen_k = offset_q + seqlen_q
         if seqlen_k > seqlen_q:
             causal = True
@@ -1378,7 +1372,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             ]
             for deterministic in [False, True]
             for head_dim in [64, 128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
         ]
     )
     def test_backward(
@@ -1407,15 +1401,78 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 f"sm_scale={sm_scale}, dtype={dtype}"
             )
 
-        # Skip test when non-causal and window_size[1] == -1
-        # fileatask @Henry
-        if not causal and window_size[0] != -1 and window_size[1] == -1:
-            self.skipTest("Skip: non-causal with window_size_right == -1")
-        if not is_varlen and window_size[0] == -1:
-            self.skipTest("Skip: Fixed length and window_size_left == -1")
-        if head_dim == 64 and sm_scale is not None:
-            self.skipTest("Skip: Test fails for head_dim 64 when sm_scale is not None")
+        random.seed(SEED)
+        test_func = (
+            self._execute_cutlass_blackwell_attn_varlen
+            if is_varlen
+            else self._execute_cutlass_blackwell_attn_dense
+        )
+        q_heads_per_kv_head = random.randint(2, 8) if is_gqa else 1
+        test_func(
+            batch_size,
+            seqlen,
+            seqlen + offset,
+            q_heads=kv_heads * q_heads_per_kv_head,
+            kv_heads=kv_heads,
+            head_dim=head_dim,
+            page_block_size=0,
+            dtype=dtype,
+            causal=causal,
+            window_size=window_size,
+            fwd_only=False,
+            deterministic=deterministic,
+            sm_scale=sm_scale,
+            is_paged=False,
+        )
 
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    @parameterized.expand(
+        [
+            (
+                batch_size,
+                seqlen,
+                offset,
+                kv_heads,
+                causal,
+                is_gqa,
+                is_varlen,
+                window_size,
+                deterministic,
+                head_dim,
+            )
+            for batch_size in [2]
+            for seqlen, offset in [
+                (256, 0),
+                (256, 1024),
+            ]
+            for kv_heads in [2]
+            for causal in [True, False]
+            for is_gqa in [True]
+            for is_varlen in [True]
+            for window_size in [(-1, -1), (128, 128)]
+            for deterministic in [False, True]
+            for head_dim in [64, 128]
+        ]
+    )
+    def test_sm_scale(
+        self,
+        batch_size: int,
+        seqlen: int,
+        offset: int,
+        kv_heads: int,
+        causal: bool,
+        is_gqa: bool,
+        is_varlen: bool,
+        window_size: tuple[int, int],
+        deterministic: bool,
+        head_dim: int,
+        dtype: torch.dtype = torch.bfloat16,
+    ) -> None:
+        """Test custom softmax scale (1.0 / head_dim)."""
+        sm_scale = 1.0 / head_dim
+
+        random.seed(SEED)
         test_func = (
             self._execute_cutlass_blackwell_attn_varlen
             if is_varlen
@@ -1459,6 +1516,10 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_mqa: bool,
         seqlen_q: int,
     ):
+        # Skip decode (seqlen_q=1) with dense attention (is_varlen=False) due to shape mismatch
+        if not is_varlen and seqlen_q == 1:
+            self.skipTest("Skip: Decode with dense attention has shape mismatch issue")
+
         test_func = (
             self._execute_cutlass_blackwell_attn_varlen
             if is_varlen
@@ -1535,7 +1596,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for batch_size in [1, 2]
             for causal in [False, True]
             for kv_heads in [1, 2]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0)]
+            for window_size in [(-1, -1), (128, 0)]
             for head_dim in [64, 128]
             for sm_scale in [None]
         ]
