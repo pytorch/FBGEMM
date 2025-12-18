@@ -251,11 +251,11 @@ uninstall_pip_wheel () {
   if [ "$wheel_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME WHEEL_NAME"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env     # Uninstall the FBGEMM_GPU wheel (if installed)"
+    echo "    ${FUNCNAME[0]} build_env foo-    # Uninstall wheels matching the name foo-* (if installed)"
     return 1
   else
     echo "################################################################################"
-    echo "# Uninstall FBGEMM_GPU Wheel (if installed)"
+    echo "# Uninstall PIP Wheel (if installed)"
     echo "#"
     echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
@@ -276,7 +276,6 @@ uninstall_pip_wheel () {
     echo "[UNINSTALL] No matching packages found; nothing to uninstall."
   fi
 }
-
 
 ################################################################################
 # PyTorch PIP Download Functions
