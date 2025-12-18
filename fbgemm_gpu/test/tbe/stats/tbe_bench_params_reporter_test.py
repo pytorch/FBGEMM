@@ -129,14 +129,19 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
         # Generate indices and offsets
         request = generate_requests(tbeconfig, 1)[0]
 
+        # Generate feature_table_map (identity mapping for this test)
+        feature_table_map = list(range(T))
+
         # Call the extract_params method
         extracted_config = reporter.extract_params(
             feature_rows=embedding_op.rows_per_table,
             feature_dims=embedding_op.feature_dims,
             indices=request.indices,
             offsets=request.offsets,
+            feature_table_map=feature_table_map,
         )
 
+        # Verify matching config parameters
         assert (
             extracted_config.T == tbeconfig.T
             and extracted_config.E == tbeconfig.E
@@ -145,6 +150,7 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
             and extracted_config.batch_params.B == tbeconfig.batch_params.B
             and extracted_config.mixed_dim == tbeconfig.mixed_dim
             and extracted_config.weighted == tbeconfig.weighted
+            and extracted_config.feature_table_map == feature_table_map
             and extracted_config.indices_params.index_dtype
             == tbeconfig.indices_params.index_dtype
             and extracted_config.indices_params.offset_dtype

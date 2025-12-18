@@ -145,6 +145,7 @@ class TBEBenchmarkParamsReporter:
         offsets: torch.Tensor,
         per_sample_weights: Optional[torch.Tensor] = None,
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        feature_table_map: Optional[list[int]] = None,
     ) -> TBEDataConfig:
         """
         Extracts parameters from the embedding operation, input indices, and offsets to create a TBEDataConfig.
@@ -156,6 +157,7 @@ class TBEBenchmarkParamsReporter:
             offsets (torch.Tensor): The input offsets tensor.
             per_sample_weights (Optional[torch.Tensor], optional): Weights for each sample. Defaults to None.
             batch_size_per_feature_per_rank (Optional[List[List[int]]], optional): Batch sizes per feature per rank. Defaults to None.
+            feature_table_map (Optional[List[int]], optional): Map from feature index to table index. Defaults to None.
 
         Returns:
             TBEDataConfig: The configuration data for TBE benchmarking.
@@ -200,6 +202,11 @@ class TBEBenchmarkParamsReporter:
             heavy_hitters, q, s, indices.dtype, offsets.dtype
         )
 
+        # Compute batch sizes per feature (Bs)
+        Bs: Optional[list[int]] = None
+        if batch_size_per_feature_per_rank:
+            Bs = [sum(batch_size_per_feature_per_rank[f]) for f in range(len(Es))]
+
         # Compute batch parameters
         batch_params = BatchParams(
             B=int((offsets.numel() - 1) // T),
@@ -226,11 +233,33 @@ class TBEBenchmarkParamsReporter:
                 if batch_size_per_feature_per_rank
                 else None
             ),
+            Bs=Bs,
         )
 
         # Compute pooling parameters
         bag_sizes = offsets[1:] - offsets[:-1]
-        mixed_bag_sizes = len(set(bag_sizes)) > 1
+        bag_sizes_list = bag_sizes.tolist()
+        mixed_bag_sizes = len(set(bag_sizes_list)) > 1
+
+        # Compute per-table pooling factors (Ls)
+        Ls: list[float] = []
+        pointer_counter = 0
+        if batch_size_per_feature_per_rank and Bs:
+            for batch_size in Bs:
+                current_L = 0
+                for _ in range(batch_size):
+                    current_L += bag_sizes_list[pointer_counter]
+                    pointer_counter += 1
+                Ls.append(current_L / batch_size if batch_size > 0 else 0.0)
+        else:
+            batch_size = int(len(bag_sizes_list) // len(Es))
+            for _ in range(len(Es)):
+                current_L = 0
+                for _ in range(batch_size):
+                    current_L += bag_sizes_list[pointer_counter]
+                    pointer_counter += 1
+                Ls.append(current_L / batch_size if batch_size > 0 else 0.0)
+
         pooling_params = PoolingParams(
             L=(
                 int(torch.ceil(torch.mean(bag_sizes.float())))
@@ -243,18 +272,22 @@ class TBEBenchmarkParamsReporter:
                 else None
             ),
             length_distribution=("normal" if mixed_bag_sizes else None),
+            Ls=Ls,
         )
 
         return TBEDataConfig(
             T=T,
             E=E,
             D=D,
+            Es=Es,
+            Ds=Ds,
             mixed_dim=mixed_dim,
             weighted=(per_sample_weights is not None),
             batch_params=batch_params,
             indices_params=indices_params,
             pooling_params=pooling_params,
             use_cpu=(not torch.cuda.is_available()),
+            feature_table_map=feature_table_map,
         )
 
     def report_stats(
@@ -267,6 +300,7 @@ class TBEBenchmarkParamsReporter:
         op_id: str = "",
         per_sample_weights: Optional[torch.Tensor] = None,
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        feature_table_map: Optional[list[int]] = None,
     ) -> None:
         """
         Reports the configuration of the embedding operation and input data, then writes the TBE configuration to the filestore.
@@ -280,6 +314,7 @@ class TBEBenchmarkParamsReporter:
             op_id (str, optional): The operation identifier. Defaults to an empty string.
             per_sample_weights (Optional[torch.Tensor], optional): Weights for each sample. Defaults to None.
             batch_size_per_feature_per_rank (Optional[List[List[int]]], optional): Batch sizes per feature per rank. Defaults to None.
+            feature_table_map (Optional[List[int]], optional): Map from feature index to table index. Defaults to None.
         """
         if (
             (iteration - self.report_iter_start) % self.report_interval == 0
@@ -299,41 +334,11 @@ class TBEBenchmarkParamsReporter:
                 offsets=offsets,
                 per_sample_weights=per_sample_weights,
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                feature_table_map=feature_table_map,
             )
-
-            # Ad-hoc fix for adding Es and Ds to JSON output
-            # TODO: Remove this once we moved Es and Ds to be part of TBEDataConfig
-            adhoc_config = config.dict()
-            adhoc_config["Es"] = feature_rows.tolist()
-            adhoc_config["Ds"] = feature_dims.tolist()
-            if batch_size_per_feature_per_rank:
-                adhoc_config["Bs"] = [
-                    sum(batch_size_per_feature_per_rank[f])
-                    for f in range(len(adhoc_config["Es"]))
-                ]
-
-            bag_sizes = (offsets[1:] - offsets[:-1]).tolist()
-            adhoc_config["Ls"] = []
-            pointer_counter = 0
-            if batch_size_per_feature_per_rank:
-                for batchs_size in adhoc_config["Bs"]:
-                    current_L = 0
-                    for _i in range(batchs_size):
-                        current_L += bag_sizes[pointer_counter]
-                        pointer_counter += 1
-                    adhoc_config["Ls"].append(current_L / batchs_size)
-            else:
-                batch_size = int(len(bag_sizes) // len(adhoc_config["Es"]))
-
-                for _j in range(len(adhoc_config["Es"])):
-                    current_L = 0
-                    for _i in range(batch_size):
-                        current_L += bag_sizes[pointer_counter]
-                        pointer_counter += 1
-                    adhoc_config["Ls"].append(current_L / batch_size)
 
             # Write the TBE config to FileStore
             self.filestore.write(
                 f"{self.path_prefix}/tbe-{op_id}-config-estimation-{iteration}.json",
-                io.BytesIO(json.dumps(adhoc_config, indent=2).encode()),
+                io.BytesIO(json.dumps(config.dict(), indent=2).encode()),
             )
