@@ -94,28 +94,27 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       // Since we are processing multiple rows within the warp, we need to
       // map each lane to a specific row, in addition to the column
       int local_row = (threadIdx.x * UNROLL_FACTOR) / num_cols; // the row ID within the set of rows handled by this warp
-      int col = (threadIdx.x * UNROLL_FACTOR) % num_cols;
+      int col_offset = (threadIdx.x * UNROLL_FACTOR) % num_cols;
       int64_t current_row = start_row + local_row; // the actual row within the table processed by this lane
 
       // local_row may be out of bounds for the last few lanes in the warp if [COLS_PER_WARP % num_cols != 0]
       // and we also need to confirm that we are within num_work_rows
       if (local_row < rows_per_warp && current_row < num_work_rows) {
+        scalar_t* input = 
+            reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
+        scalar_t* output = 
+            reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+
         index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
-        index_t idx = indices[current_row];
-
-        scalar_t* input_base = reinterpret_cast<scalar_t*>(input_ptrs[member_id]);
-        scalar_t* output_base = reinterpret_cast<scalar_t*>(output_ptrs[member_id]);
-
+        const index_t idx = indices[current_row];
 #pragma unroll
-        for (int i = 0; i < UNROLL_FACTOR && col + i < num_cols; i++) {
+        for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
           // Compile time conditional
           if constexpr (USE_INDEX_SELECT) {
-            output_base[current_row * num_cols + col] = 
-                LDG(&input_base[idx * num_cols + col]);
+            output[current_row * num_cols + i] = LDG(&input[idx * num_cols + i]);
           } else {
             gpuAtomicAddNoReturn(
-                &output_base[idx * num_cols + col], 
-                input_base[current_row * num_cols + col]);
+                &output[idx * num_cols + i], input[current_row * num_cols + i]);
           }
         }
       }
