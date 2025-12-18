@@ -10,6 +10,7 @@
 #include <ATen/ATen.h>
 #include <c10/macros/Macros.h>
 #include <cstdint>
+#include <string>
 
 namespace fbgemm_gpu {
 
@@ -43,6 +44,19 @@ enum class BoundsCheckMode : uint8_t {
   WARNING = 1,
   IGNORE = 2,
 };
+
+inline std::string getBoundsCheckModeName(BoundsCheckMode mode) {
+  switch (mode) {
+    case BoundsCheckMode::FATAL:
+      return "FATAL";
+    case BoundsCheckMode::WARNING:
+      return "WARNING";
+    case BoundsCheckMode::IGNORE:
+      return "IGNORE";
+    default:
+      return "UNDEFINED";
+  }
+}
 
 inline at::ScalarType getScalarType(SparseType dtype) {
   switch (dtype) {
