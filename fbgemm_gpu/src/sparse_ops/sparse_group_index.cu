@@ -33,6 +33,10 @@ int get_group_index_select_cols_per_warp() {
   return GROUP_INDEX_SELECT_COLS_PER_WARP;
 }
 
+int get_group_index_select_unroll_factor() {
+  return GROUP_INDEX_SELECT_UNROLL_FACTOR;
+}
+
 template <
     typename index_t,
     typename scalar_t,
@@ -83,7 +87,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       member_id = warp_id / (warps_per_row * num_work_rows);
       member_warp_id = warp_id - (member_id * warps_per_row * num_work_rows);
 #ifdef USE_ROCM
-      if (num_cols < COLS_PER_WARP) {
+      if (num_cols < COLS_PER_WARP && num_cols >= UNROLL_FACTOR) {
         // Need to ensure that [member_id] and [member_warp_id] are calculated correctly
         // for the small embedding dimension path below
         int rows_per_warp = COLS_PER_WARP / num_cols;
@@ -95,7 +99,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     }
 
 #ifdef USE_ROCM
-    if (num_cols < COLS_PER_WARP) {
+    if (num_cols < COLS_PER_WARP && num_cols >= UNROLL_FACTOR) {
       // Optimized path for small embedding dimensions
       // Each warp processes 'rows_per_warp' rows
       int rows_per_warp = COLS_PER_WARP / num_cols;

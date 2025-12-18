@@ -265,6 +265,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   Tensor input_reshaped = first_input.reshape({num_input_rows, -1});
   const int num_cols = input_reshaped.size(1);
   const int cols_per_warp = get_group_index_select_cols_per_warp();
+  const int unroll_factor = get_group_index_select_unroll_factor();
   int64_t warp_offset = 0;
   bool use_var_cols = false;
 
@@ -306,7 +307,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
 
 #ifdef USE_ROCM
     int64_t warps_needed;
-    if (num_cols_ < cols_per_warp) {
+    if (num_cols_ < cols_per_warp && num_cols_ >= unroll_factor) {
       // Optimization: Pack multiple rows into one warp
       int rows_per_warp = cols_per_warp / num_cols_;
       warps_needed = (num_output_rows_ + rows_per_warp - 1) / rows_per_warp;
