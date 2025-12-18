@@ -289,7 +289,7 @@ def cutlass_blackwell_fmha_decode_forward(
     window_left: int = -1,
     window_right: int = -1,
     bottom_right: bool = True,
-    split_k_size: int = 1024,
+    split_k_size: int = 0,
     use_heuristic: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
