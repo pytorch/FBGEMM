@@ -158,12 +158,22 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_fwd_meta(
     c10::SymInt window_size_left,
     c10::SymInt window_size_right,
     bool bottom_right) {
-  auto output = at::empty_like(q);
+  auto out_dtype = q.scalar_type();
+  if(q.scalar_type() == at::kFloat8_e4m3fn) {
+    // Output is BF16 when input is FP8
+    out_dtype = at::kBFloat16;
+  }
+  auto output = at::empty_like(q, q.options().dtype(out_dtype));
   bool k_is_varlen = max_seq_len_q.has_value();
   auto SQ = k_is_varlen ? q.sym_size(0) : q.sym_size(1);
   auto H_Q = k_is_varlen ? q.sym_size(1) : q.sym_size(2);
   auto B = k_is_varlen ? 1 : q.sym_size(0);
-  auto logsumexp = q.new_empty_symint({B, H_Q, SQ}, q.options());
+  if(k_is_varlen) {
+    // Tweak storage offset of output
+    auto storage_offset = q.sym_size(-1) * (*max_seq_len_q) * H_Q;
+    output = output.as_strided_symint(output.sym_sizes(), output.sym_strides(), storage_offset);
+  }
+  auto logsumexp = q.new_empty_symint({B, H_Q, SQ}, q.options().dtype(at::kFloat));
   return std::make_tuple(output, logsumexp);
 }
 
