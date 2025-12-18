@@ -82,6 +82,16 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       // All columns are the same
       member_id = warp_id / (warps_per_row * num_work_rows);
       member_warp_id = warp_id - (member_id * warps_per_row * num_work_rows);
+#ifdef USE_ROCM
+      if (num_cols < COLS_PER_WARP) {
+        // Need to ensure that [member_id] and [member_warp_id] are calculated correctly
+        // for the small embedding dimension path below
+        int rows_per_warp = COLS_PER_WARP / num_cols;
+        auto warps_per_member = (num_work_rows + rows_per_warp - 1) / rows_per_warp;
+        member_id = warp_id / warps_per_member;
+        member_warp_id = warp_id % warps_per_member;
+      }
+#endif // USE_ROCM
     }
 
 #ifdef USE_ROCM
