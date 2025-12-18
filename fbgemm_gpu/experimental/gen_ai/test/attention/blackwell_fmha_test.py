@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+import os
 import random
 import unittest
 from typing import cast, Optional
@@ -16,6 +17,7 @@ from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
     _cutlass_blackwell_fmha_forward,
     cutlass_blackwell_fmha_decode_forward,
     cutlass_blackwell_fmha_func,
+    cutlass_blackwell_fmha_interface as fmha_interface,
 )
 from parameterized import parameterized
 
@@ -1685,3 +1687,83 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         assert (
             lse_diff <= 1e-2
         ), f"LSE comparison failed: max_diff={lse_diff:.6f} > 1e-2"
+
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    def test_varlen_fwd_bwd_repro(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+
+        # Save original environment variable values (None if not set)
+        orig_cuda_launch_blocking = os.environ.get("CUDA_LAUNCH_BLOCKING")
+        orig_pytorch_no_cuda_memory_caching = os.environ.get(
+            "PYTORCH_NO_CUDA_MEMORY_CACHING"
+        )
+
+        # Set environment variables for deterministic debugging
+        os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
+
+        num_iterations = 500
+        for _ in range(num_iterations):
+            torch.manual_seed(2)
+
+            # Forward inputs - exact shapes from repro
+            q = torch.randn((47, 4, 128), dtype=torch.bfloat16, device=device)
+            k = torch.randn((471, 4, 128), dtype=torch.bfloat16, device=device)
+            v = torch.randn((471, 4, 128), dtype=torch.bfloat16, device=device)
+            cu_seqlens_q = torch.tensor(
+                [0, 10, 44, 45, 46, 47], device=device, dtype=torch.int32
+            )
+            cu_seqlens_k = torch.tensor(
+                [0, 259, 380, 394, 446, 471], device=device, dtype=torch.int32
+            )
+            max_seq_len_q = 34
+            max_seq_len_k = 259
+
+            # Forward pass
+            out, lse = fmha_interface._cutlass_blackwell_fmha_forward(
+                q=q,
+                k=k,
+                v=v,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seq_len_q=max_seq_len_q,
+                max_seq_len_k=max_seq_len_k,
+            )
+
+            # Verify forward pass output shapes
+            self.assertEqual(out.shape, q.shape)
+
+            # Backward pass
+            dout = torch.randn_like(out)
+            dq, dk, dv = fmha_interface._cutlass_blackwell_fmha_backward(
+                dout=dout,
+                q=q,
+                k=k,
+                v=v,
+                out=out,
+                softmax_lse=lse,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seq_len_q=max_seq_len_q,
+                max_seq_len_k=max_seq_len_k,
+            )
+
+            # Verify backward pass output shapes
+            self.assertEqual(dq.shape, q.shape)
+            self.assertEqual(dk.shape, k.shape)
+            self.assertEqual(dv.shape, v.shape)
+
+            torch.cuda.synchronize()
+
+        if orig_cuda_launch_blocking is not None:
+            os.environ["CUDA_LAUNCH_BLOCKING"] = orig_cuda_launch_blocking
+        else:
+            os.environ.pop("CUDA_LAUNCH_BLOCKING")
+        if orig_pytorch_no_cuda_memory_caching is not None:
+            os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = (
+                orig_pytorch_no_cuda_memory_caching
+            )
+        else:
+            os.environ.pop("PYTORCH_NO_CUDA_MEMORY_CACHING")
