@@ -83,7 +83,10 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
     if (is_last_thread) {
       scalar_t block_prev_local = 0;
       if (block_id != 0) {
-        volatile int* flags = block_flags;
+        // Spin wait for the previous block to write the sum value
+        while (atomicAdd(&block_flags[block_id - 1], 0) < signal)
+          ;
+        
         // Get sum from the previous block
         *block_prev = block_prev_local = block_sums[block_id - 1];
       }
