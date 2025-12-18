@@ -246,7 +246,7 @@ __setup_fbgemm_gpu_test () {
   )
 
   # shellcheck disable=SC2145
-  echo "[TEST] PyTest args:  ${pytest_args[@]}"
+  echo "[TEST] Set PyTest args:  ${pytest_args[@]}"
 }
 
 ################################################################################
@@ -447,7 +447,7 @@ test_single_fbgemm_gpu_module () {
     repo=$(pwd)
   fi
 
-  __test_fbgemm_gpu_common_pre_steps  || return 1
+  __test_fbgemm_gpu_common_pre_steps            || return 1
 
   # Go to the repo root directory
   print_exec pushd "${repo}"                    || return 1
