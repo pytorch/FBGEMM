@@ -84,7 +84,10 @@ class LookupFunctionBatchedUnaryEmbeddingOp
     auto table_offsets = *savedItr++;
     auto offsets = *savedItr++;
     auto indices = *savedItr++;
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_VALUE(
+        grad_outputs.size() == 1,
+        "Expected grad outputs size to be 1, but got ",
+        grad_outputs.size());
     // .contiguous() is called on the gradient inputs because
     // the batched_unary_embeddings_backward_cuda assumes contiguous inputs.
     // may cause illegal memory access when it is not
@@ -123,7 +126,7 @@ class IndexSelectDim0GPUOp
       const bool skip_indices_sorting_fwd) {
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input, indices);
     // Expect a 1D index tensor
-    TORCH_CHECK(
+    TORCH_CHECK_VALUE(
         indices.dim() == 1, "Index tensor must be 1D, but got ", indices.dim());
 
     Tensor sorted_indices, orig_indices;
@@ -150,7 +153,7 @@ class IndexSelectDim0GPUOp
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
-    TORCH_CHECK(
+    TORCH_CHECK_VALUE(
         grad_outputs.size() == 1,
         "The size of grad_outputs should be 1, but got ",
         grad_outputs.size());
@@ -291,7 +294,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     const auto& indices = indices_group[i];
 
     // Verify that all input tensors have the same number of dimensions
-    TORCH_CHECK(
+    TORCH_CHECK_VALUE(
         input_dim == input.dim(),
         "All inputs in group_index_select must have the same number of dimensions. Expect ",
         input_dim,
@@ -308,7 +311,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     auto num_output_rows_ = indices.size(0);
 
     // Verify that all input tensors have the same shape[0]
-    TORCH_CHECK(
+    TORCH_CHECK_VALUE(
         num_output_rows == num_output_rows_,
         "The number of indices to be selected must be the same for the entire group of ",
         group_size,
@@ -409,7 +412,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
 static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     at::TensorList all_inputs,
     c10::SymIntArrayRef output_shape_group_ref) {
-  TORCH_CHECK(
+  TORCH_CHECK_VALUE(
       all_inputs.size() > 2,
       "all_inputs size must be larger than 2, but got ",
       all_inputs.size());
@@ -441,7 +444,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       saved_data.is_contiguous(), "Tensor saved_data must be contiguous.");
   int64_t* saved_data_ptr = saved_data.data_ptr<int64_t>();
   // Check that the size is the same
-  TORCH_CHECK(
+  TORCH_CHECK_VALUE(
       saved_data_ptr[0] == group_size,
       "The size of saved_data[0] must match group_size. Expect ",
       group_size,
@@ -523,7 +526,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   // Split to output_group
   auto output_group = group_grad_input.split(grad_input_numels, 0);
 
-  TORCH_CHECK(
+  TORCH_CHECK_VALUE(
       output_group.size() == static_cast<size_t>(group_size),
       "output_group size must be ",
       group_size,
