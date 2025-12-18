@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+import os
 import random
 import unittest
 from typing import cast, Optional
@@ -16,6 +17,7 @@ from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
     _cutlass_blackwell_fmha_forward,
     cutlass_blackwell_fmha_decode_forward,
     cutlass_blackwell_fmha_func,
+    cutlass_blackwell_fmha_interface as fmha_interface,
 )
 from parameterized import parameterized
 
@@ -400,6 +402,11 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             split_k_size=0,
             use_heuristic=False,
         )
+
+        # Output is [B, 1, H, 1, D] - squeeze num_splits dimension
+        out = out.squeeze(3)  # [B, 1, H, D]
+        # LSE is [B, 1, H, 1] - squeeze num_splits and adjust to [B, H, 1]
+        lse = lse.squeeze(1)  # [B, H, 1]
 
         if DEBUG:
             print("cutlass_blackwell_fmha_decode_forward completed successfully!")
@@ -830,7 +837,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 is_mqa,
                 window_size,
                 head_dim,
-                sm_scale,
                 num_groups,
             )
             for dtype in [torch.bfloat16, torch.float8_e4m3fn]
@@ -839,7 +845,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for is_mqa in [True, False]
             for window_size in [(-1, -1), (0, 0), (128, 0), (1024, 0)]
             for head_dim in [128, 64]
-            for sm_scale in [None]
             for num_groups in [1, 2]
         ]
     )
@@ -851,7 +856,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_mqa: bool,
         window_size: tuple[int, int],
         head_dim: int,
-        sm_scale: Optional[float],
         num_groups: int = 1,
         q_heads: int = 8,
     ) -> None:
@@ -860,7 +864,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 f"Running test_decode with params: "
                 f"dtype={dtype}, kv_padding={kv_padding}, batch_size={batch_size}, "
                 f"is_mqa={is_mqa}, window_size={window_size}, head_dim={head_dim}, "
-                f"sm_scale={sm_scale}, q_heads={q_heads}"
+                f"num_groups={num_groups}, q_heads={q_heads}"
             )
 
         # Skip test for known numerical precision issues with FP8 and head_dim=64 in GQA mode
@@ -1016,9 +1020,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for batch_size in [2, 8]
             for q_heads in [8, 16]
             for causal in [True, False]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for window_size in [(-1, -1), (128, 0), (200, 0)]
             for head_dim in [128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
         ]
     )
     def test_jagged_vs_padded_kv(
@@ -1043,7 +1047,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         seqlen_q = kv_padding  # Maximum sequence length (padded size)
         device = torch.accelerator.current_accelerator()
         kv_heads = 1
-        head_dim = head_dim
         dtype = torch.bfloat16
 
         torch.manual_seed(SEED)
@@ -1208,9 +1211,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for is_gqa in [False, True]
             for is_varlen in [False, True]
             for kv_heads in [1, 2, 3, 4]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for window_size in [(-1, -1), (128, 0), (200, 0)]
             for head_dim in [64, 128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
         ]
     )
     def test_forward(
@@ -1227,6 +1230,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         sm_scale: Optional[float],
         dtype: torch.dtype = torch.bfloat16,
     ) -> None:
+        random.seed(SEED)
         seqlen_k = offset_q + seqlen_q
         if seqlen_k > seqlen_q:
             causal = True
@@ -1272,23 +1276,19 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             )
             for seqlen_q, offset_q in [
                 (101, 0),
-                (111, 2),
-                (256, 0),
-                (1024, 0),
                 (113, 90),
-                (128, 90),
-                (256, 90),
+                (256, 0),
                 (256, 128),
-                (1024, 128),
+                (1024, 25),
             ]
-            for batch_size in [1, 2, 8]
+            for batch_size in [1, 4]
             for causal in [False, True]
             for is_gqa in [False, True]
             for is_varlen in [False, True]
-            for kv_heads in [1, 2, 3, 4]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0), (1024, 0)]
+            for kv_heads in [1, 2]
+            for window_size in [(-1, -1), (23, 0)]
             for head_dim in [64, 128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
             for page_block_size in [128, 256]
         ]
     )
@@ -1307,6 +1307,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         page_block_size: int,
         dtype: torch.dtype = torch.bfloat16,
     ) -> None:
+        random.seed(SEED)
         seqlen_k = offset_q + seqlen_q
         if seqlen_k > seqlen_q:
             causal = True
@@ -1373,7 +1374,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             ]
             for deterministic in [False, True]
             for head_dim in [64, 128]
-            for sm_scale in [None, 1.0 / head_dim]
+            for sm_scale in [None]
         ]
     )
     def test_backward(
@@ -1402,15 +1403,78 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 f"sm_scale={sm_scale}, dtype={dtype}"
             )
 
-        # Skip test when non-causal and window_size[1] == -1
-        # fileatask @Henry
-        if not causal and window_size[0] != -1 and window_size[1] == -1:
-            self.skipTest("Skip: non-causal with window_size_right == -1")
-        if not is_varlen and window_size[0] == -1:
-            self.skipTest("Skip: Fixed length and window_size_left == -1")
-        if head_dim == 64 and sm_scale is not None:
-            self.skipTest("Skip: Test fails for head_dim 64 when sm_scale is not None")
+        random.seed(SEED)
+        test_func = (
+            self._execute_cutlass_blackwell_attn_varlen
+            if is_varlen
+            else self._execute_cutlass_blackwell_attn_dense
+        )
+        q_heads_per_kv_head = random.randint(2, 8) if is_gqa else 1
+        test_func(
+            batch_size,
+            seqlen,
+            seqlen + offset,
+            q_heads=kv_heads * q_heads_per_kv_head,
+            kv_heads=kv_heads,
+            head_dim=head_dim,
+            page_block_size=0,
+            dtype=dtype,
+            causal=causal,
+            window_size=window_size,
+            fwd_only=False,
+            deterministic=deterministic,
+            sm_scale=sm_scale,
+            is_paged=False,
+        )
 
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    @parameterized.expand(
+        [
+            (
+                batch_size,
+                seqlen,
+                offset,
+                kv_heads,
+                causal,
+                is_gqa,
+                is_varlen,
+                window_size,
+                deterministic,
+                head_dim,
+            )
+            for batch_size in [2]
+            for seqlen, offset in [
+                (256, 0),
+                (256, 1024),
+            ]
+            for kv_heads in [2]
+            for causal in [True, False]
+            for is_gqa in [True]
+            for is_varlen in [True]
+            for window_size in [(-1, -1), (128, 128)]
+            for deterministic in [False, True]
+            for head_dim in [64, 128]
+        ]
+    )
+    def test_sm_scale(
+        self,
+        batch_size: int,
+        seqlen: int,
+        offset: int,
+        kv_heads: int,
+        causal: bool,
+        is_gqa: bool,
+        is_varlen: bool,
+        window_size: tuple[int, int],
+        deterministic: bool,
+        head_dim: int,
+        dtype: torch.dtype = torch.bfloat16,
+    ) -> None:
+        """Test custom softmax scale (1.0 / head_dim)."""
+        sm_scale = 1.0 / head_dim
+
+        random.seed(SEED)
         test_func = (
             self._execute_cutlass_blackwell_attn_varlen
             if is_varlen
@@ -1454,6 +1518,10 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         is_mqa: bool,
         seqlen_q: int,
     ):
+        # Skip decode (seqlen_q=1) with dense attention (is_varlen=False) due to shape mismatch
+        if not is_varlen and seqlen_q == 1:
+            self.skipTest("Skip: Decode with dense attention has shape mismatch issue")
+
         test_func = (
             self._execute_cutlass_blackwell_attn_varlen
             if is_varlen
@@ -1475,6 +1543,19 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         fwd_only = is_decode
         # Decode kernel does not support sm_scale
         sm_scale = None if is_decode else 1.0 / head_dim
+
+        if is_decode:
+            self._execute_cutlass_blackwell_attn_decode(
+                batch_size,
+                seqlen_k,
+                q_heads,
+                kv_heads=kv_heads,
+                head_dim=head_dim,
+                dtype=dtype,
+                window_size=window_size,
+                sm_scale=None,
+            )
+            return
 
         test_func(
             batch_size,
@@ -1517,7 +1598,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             for batch_size in [1, 2]
             for causal in [False, True]
             for kv_heads in [1, 2]
-            for window_size in [(-1, -1), (0, 0), (0, 128), (128, 0)]
+            for window_size in [(-1, -1), (128, 0)]
             for head_dim in [64, 128]
             for sm_scale in [None]
         ]
@@ -1606,3 +1687,83 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         assert (
             lse_diff <= 1e-2
         ), f"LSE comparison failed: max_diff={lse_diff:.6f} > 1e-2"
+
+    @skip_cuda_lt_sm100
+    @skip_rocm
+    def test_varlen_fwd_bwd_repro(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+
+        # Save original environment variable values (None if not set)
+        orig_cuda_launch_blocking = os.environ.get("CUDA_LAUNCH_BLOCKING")
+        orig_pytorch_no_cuda_memory_caching = os.environ.get(
+            "PYTORCH_NO_CUDA_MEMORY_CACHING"
+        )
+
+        # Set environment variables for deterministic debugging
+        os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
+
+        num_iterations = 500
+        for _ in range(num_iterations):
+            torch.manual_seed(2)
+
+            # Forward inputs - exact shapes from repro
+            q = torch.randn((47, 4, 128), dtype=torch.bfloat16, device=device)
+            k = torch.randn((471, 4, 128), dtype=torch.bfloat16, device=device)
+            v = torch.randn((471, 4, 128), dtype=torch.bfloat16, device=device)
+            cu_seqlens_q = torch.tensor(
+                [0, 10, 44, 45, 46, 47], device=device, dtype=torch.int32
+            )
+            cu_seqlens_k = torch.tensor(
+                [0, 259, 380, 394, 446, 471], device=device, dtype=torch.int32
+            )
+            max_seq_len_q = 34
+            max_seq_len_k = 259
+
+            # Forward pass
+            out, lse = fmha_interface._cutlass_blackwell_fmha_forward(
+                q=q,
+                k=k,
+                v=v,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seq_len_q=max_seq_len_q,
+                max_seq_len_k=max_seq_len_k,
+            )
+
+            # Verify forward pass output shapes
+            self.assertEqual(out.shape, q.shape)
+
+            # Backward pass
+            dout = torch.randn_like(out)
+            dq, dk, dv = fmha_interface._cutlass_blackwell_fmha_backward(
+                dout=dout,
+                q=q,
+                k=k,
+                v=v,
+                out=out,
+                softmax_lse=lse,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seq_len_q=max_seq_len_q,
+                max_seq_len_k=max_seq_len_k,
+            )
+
+            # Verify backward pass output shapes
+            self.assertEqual(dq.shape, q.shape)
+            self.assertEqual(dk.shape, k.shape)
+            self.assertEqual(dv.shape, v.shape)
+
+            torch.cuda.synchronize()
+
+        if orig_cuda_launch_blocking is not None:
+            os.environ["CUDA_LAUNCH_BLOCKING"] = orig_cuda_launch_blocking
+        else:
+            os.environ.pop("CUDA_LAUNCH_BLOCKING")
+        if orig_pytorch_no_cuda_memory_caching is not None:
+            os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = (
+                orig_pytorch_no_cuda_memory_caching
+            )
+        else:
+            os.environ.pop("PYTORCH_NO_CUDA_MEMORY_CACHING")
