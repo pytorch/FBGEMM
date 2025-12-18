@@ -524,6 +524,9 @@ struct Sm100FmhaGenKernelWarpspecialized {
     else if (role == WarpRole::Correction) {
       cutlass::arch::warpgroup_reg_dealloc<NumRegsCorrection>();
 
+      // Track if any tile was valid (for lazy TMEM deallocation)
+      bool has_valid_tile = false;
+
       CUTLASS_PRAGMA_NO_UNROLL
       for (; tile_scheduler.is_valid(); ++tile_scheduler) {
         auto blk_coord = tile_scheduler.get_block_coord();
@@ -544,6 +547,9 @@ struct Sm100FmhaGenKernelWarpspecialized {
           continue;
         }
 
+        // This block has a tile with valid work
+        has_valid_tile = true;
+
         mainloop.correction(
           blk_coord,
           params.mainloop, logical_problem_shape,
@@ -558,24 +564,25 @@ struct Sm100FmhaGenKernelWarpspecialized {
 
       }
 
-      // TODO(T247866076): Apply lazy TMEM allocation pattern from FWD kernel.
-      // Currently TMEM is allocated unconditionally by MMA warp even for all-empty
-      // blocks. Should add `has_valid` tracking and conditional free like FWD kernel.
+      // Lazy TMEM deallocation: Only free TMEM if it was allocated.
+      // For empty splits (klen=0), MMA warp didn't allocate TMEM, so we skip freeing.
+      // For non-empty splits, pipeline synchronization with MMA ensures the
+      // tmem_base_ptr write is visible before we read it here.
       if constexpr (NumWarpsEpilogue == 0) {
         static_assert(NumWarpsCorrection == 1);
 
-        uint32_t free_stage_ptr = shared_storage.tmem_base_ptr;
-        tmem_allocator.free(free_stage_ptr, TmemAllocator::Sm100TmemCapacityColumns);
+        if (has_valid_tile) {
+          uint32_t free_stage_ptr = shared_storage.tmem_base_ptr;
+          tmem_allocator.free(free_stage_ptr, TmemAllocator::Sm100TmemCapacityColumns);
+        }
       }
 
     }
     else if (role == WarpRole::MMA) {
       warpgroup_reg_set<NumRegsOther>();
 
-      // TODO(T247866076): Use lazy allocation - only allocate when first valid tile found.
-      // See FWD kernel for reference implementation with `bool allocated = false` pattern.
-      tmem_allocator.allocate(TmemAllocator::Sm100TmemCapacityColumns, &shared_storage.tmem_base_ptr);
-      __syncwarp();
+      // Track if any tile was valid (for lazy TMEM allocation)
+      bool has_valid_tile = false;
 
       CUTLASS_PRAGMA_NO_UNROLL
       for (; tile_scheduler.is_valid(); ++tile_scheduler) {
@@ -594,6 +601,12 @@ struct Sm100FmhaGenKernelWarpspecialized {
           continue;
         }
 
+        // Lazy TMEM allocation: Only allocate on first valid tile
+        if (!has_valid_tile) {
+          has_valid_tile = true;
+          tmem_allocator.allocate(TmemAllocator::Sm100TmemCapacityColumns, &shared_storage.tmem_base_ptr);
+          __syncwarp();
+        }
 
         mainloop.mma(
           blk_coord,
