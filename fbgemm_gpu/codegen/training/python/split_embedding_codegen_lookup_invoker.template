@@ -187,7 +187,7 @@ def invoke(
         "vbe_B_offsets_rank_per_feature": vbe_metadata.B_offsets_rank_per_feature,
         "lxu_cache_locations": common_args.lxu_cache_locations,
         "uvm_cache_stats": common_args.uvm_cache_stats,
-        "vbe_output_offsets" : None,
+        "vbe_output_offsets" : vbe_metadata.vbe_output_offsets,
     }
 
     dict_aux_int: Dict[str, int] = {
@@ -386,6 +386,7 @@ def invoke(
         max_B=vbe_metadata.max_B,
         max_B_feature_rank=vbe_metadata.max_B_feature_rank,
         vbe_output_size=vbe_metadata.output_size,
+        vbe_output=vbe_metadata.vbe_output,
         # aux_tensor
         aux_tensor=aux_tensor,
         # aux_int

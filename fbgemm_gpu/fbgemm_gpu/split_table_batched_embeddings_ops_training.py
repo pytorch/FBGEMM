@@ -49,6 +49,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     SplitState,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
+    check_allocated_vbe_output,
     generate_vbe_metadata,
     is_torchdynamo_compiling,
 )
@@ -2003,6 +2004,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         offsets: Tensor,
         batch_size_per_feature_per_rank: Optional[list[list[int]]],
+        vbe_output: Optional[Tensor] = None,
+        vbe_output_offsets: Optional[Tensor] = None,
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -2025,6 +2028,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.pooling_mode,
             self.feature_dims,
             self.current_device,
+            vbe_output,
+            vbe_output_offsets,
         )
 
     @torch.jit.ignore
@@ -2078,6 +2083,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         total_unique_indices: Optional[int] = None,
         hash_zch_identities: Optional[Tensor] = None,
         hash_zch_runtime_meta: Optional[Tensor] = None,
+        vbe_output: Optional[Tensor] = None,
+        vbe_output_offsets: Optional[Tensor] = None,
     ) -> Tensor:
         """
         The forward pass function that
@@ -2130,13 +2137,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 be set when using `OptimType.NONE`. This is because TBE
                 requires this information for allocating the weight gradient
                 tensor in the backward pass.
-
             hash_zch_identities (Optional[Tensor]): The original raw IDs before
                 remapping to ZCH (Zero-Collision Hash) table slots. This tensor is
                 populated when using Multi-Probe Zero Collision Hash (MPZCH) modules
                 and is required for Raw Embedding Streaming (RES) to maintain
                 consistency between training and inference.
-
+            vbe_output (Optional[Tensor]): An optional 2-D tensor of size that
+                contains output for TBE VBE. The shape of the tensor is
+                [1, total_vbe_output_size] where total_vbe_output_size is the
+                output size across all ranks and all embedding tables.
+                If this tensor is not None, the TBE VBE forward output is written
+                to this tensor at the locations specified by `vbe_output_offsets`.
+            vbe_output_offsets (Optional[Tensor]): An optional 2-D tensor that
+                contains VBE output offsets to `vbe_output`. The shape of the
+                tensor is [num_ranks, num_features].
+                vbe_output_offsets[r][f] represents the starting offset for rank `r`
+                and feature `f`.
         Returns:
             A 2D-tensor containing looked up data. Shape `(B, total_D)` where `B` =
             batch size and `total_D` = the sum of all embedding dimensions in the
@@ -2210,6 +2226,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             batch_size_per_feature_per_rank,
             force_cast_input_types=True,
             prefetch_pipeline=False,
+            vbe_output=vbe_output,
+            vbe_output_offsets=vbe_output_offsets,
         )
 
         # Print input stats if enable (for debugging purpose only)
@@ -3875,6 +3893,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
         force_cast_input_types: bool = True,
         prefetch_pipeline: bool = False,
+        vbe_output: Optional[Tensor] = None,
+        vbe_output_offsets: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
         """
         Prepare TBE inputs as follows:
@@ -3901,9 +3921,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             metadata
         """
 
+        if vbe_output is not None or vbe_output_offsets is not None:
+            assert (
+                not self.use_cpu
+            ), "[TBE API v2] Using pre-allocated vbe_output is not supported on CPU"
+            check_allocated_vbe_output(
+                self.output_dtype,
+                batch_size_per_feature_per_rank,
+                vbe_output,
+                vbe_output_offsets,
+            )
+
         # Generate VBE metadata
         vbe_metadata = self._generate_vbe_metadata(
-            offsets, batch_size_per_feature_per_rank
+            offsets, batch_size_per_feature_per_rank, vbe_output, vbe_output_offsets
         )
 
         vbe = vbe_metadata.B_offsets is not None
@@ -3976,7 +4007,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.is_nobag,
                     vbe_metadata.max_B_feature_rank,
                     self.info_B_num_bits,
-                    offsets.numel() - 1,  # total_B
+                    offsets.numel() - 1,  # total_B,
+                    vbe_output_offsets,
                 )
             else:
                 b_t_map = None
