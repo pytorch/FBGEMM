@@ -1105,7 +1105,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             weight_width);
       } else {
         const auto value = it->value();
-        if (!std::is_same<VALUE_T, uint8_t>::value) {
+        if constexpr (!std::is_same<VALUE_T, uint8_t>::value) {
           CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
         }
         std::copy(
@@ -1149,7 +1149,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t i = key_indices[j];
       const auto& value = values[j];
       if (s.ok()) {
-        if (!std::is_same<VALUE_T, uint8_t>::value) {
+        if constexpr (!std::is_same<VALUE_T, uint8_t>::value) {
           CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
         }
         std::copy(
@@ -1584,7 +1584,7 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
           << "doesn't match passed-in key:" << get_key(expected_key);
 
       const auto value = it->value();
-      if (!std::is_same<VALUE_T, uint8_t>::value) {
+      if constexpr (!std::is_same<VALUE_T, uint8_t>::value) {
         CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
       }
       std::copy(
