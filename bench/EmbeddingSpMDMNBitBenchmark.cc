@@ -486,6 +486,7 @@ static int run_benchmark(
       cout << ", asmjit speedup, " << t_ref / t;
 #endif
       cout << '\n';
+      cout.flush();
     } // flush_cache
   } // has_weight
   return 0;
