@@ -10,7 +10,6 @@
 #include "fbgemm/FbgemmEmbedding.h"
 
 #include <cpuinfo.h>
-#include <memory>
 #include <mutex>
 #include "./CodeCache.h" // @manual
 #include "./MaskAvx2.h" // @manual
