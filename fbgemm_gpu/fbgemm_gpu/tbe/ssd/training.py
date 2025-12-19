@@ -50,6 +50,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     WeightDecayMode,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
+    check_allocated_vbe_output,
     generate_vbe_metadata,
     is_torchdynamo_compiling,
 )
@@ -2308,6 +2309,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         offsets: Tensor,
         batch_size_per_feature_per_rank: Optional[list[list[int]]],
+        vbe_output: Optional[Tensor] = None,
+        vbe_output_offsets: Optional[Tensor] = None,
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -2326,6 +2329,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.pooling_mode,
             self.feature_dims,
             self.current_device,
+            vbe_output,
+            vbe_output_offsets,
         )
 
     def _increment_iteration(self) -> int:
@@ -2356,11 +2361,26 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        vbe_output: Optional[Tensor] = None,
+        vbe_output_offsets: Optional[Tensor] = None,
         # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
     ) -> Tensor:
         self.clear_cache()
+        if vbe_output is not None or vbe_output_offsets is not None:
+            # CPU is not supported in SSD TBE
+            check_allocated_vbe_output(
+                self.output_dtype,
+                batch_size_per_feature_per_rank,
+                vbe_output,
+                vbe_output_offsets,
+            )
         indices, offsets, per_sample_weights, vbe_metadata = self.prepare_inputs(
-            indices, offsets, per_sample_weights, batch_size_per_feature_per_rank
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+            vbe_output=vbe_output,
+            vbe_output_offsets=vbe_output_offsets,
         )
 
         if len(self.timesteps_prefetched) == 0:
@@ -3691,13 +3711,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
         batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        vbe_output: Optional[Tensor] = None,
+        vbe_output_offsets: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
         """
         Prepare TBE inputs
         """
         # Generate VBE metadata
         vbe_metadata = self._generate_vbe_metadata(
-            offsets, batch_size_per_feature_per_rank
+            offsets, batch_size_per_feature_per_rank, vbe_output, vbe_output_offsets
         )
 
         # Force casting indices and offsets to long
