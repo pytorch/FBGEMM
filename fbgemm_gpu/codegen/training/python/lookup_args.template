@@ -19,6 +19,8 @@ class VBEMetadata(NamedTuple):
     max_B_feature_rank: int = -1
     max_B: int = -1
     output_size: int = -1
+    vbe_output: Optional[torch.Tensor] = None
+    vbe_output_offsets: Optional[torch.Tensor] = None
 
 
 class CommonArgs(NamedTuple):
