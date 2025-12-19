@@ -1043,6 +1043,131 @@ class SplitKTest(unittest.TestCase):
                 f"seqlen_k={seqlen_k}, window_size={window_size}, varlen={varlen}"
             )
 
+    @parameterized.expand(
+        [
+            # Test case: seq_kv < max_kv creates empty splits with split-K
+            # Reproduces race condition bug in TMEM allocation/deallocation
+            # Original failing shape: (batch=16, seq_kv=4096, max_kv=32768, heads_q=5, heads_kv=1, head_d=128)
+            (16, 4096, 32768, 5, 1, 128, 1024),
+            # Additional empty split scenarios with different split sizes
+            (8, 2048, 32768, 8, 2, 128, 512),
+            (4, 1024, 32768, 4, 1, 128, 256),
+            # Edge case: very small seq_kv relative to max_kv
+            (2, 512, 32768, 8, 1, 128, 1024),
+        ]
+    )
+    def test_splitk_empty_splits(
+        self,
+        batch_size: int,
+        seq_kv: int,
+        max_kv: int,
+        q_heads: int,
+        kv_heads: int,
+        head_dim: int,
+        split_k_size: int,
+    ) -> None:
+        """
+        Test split-K kernel with empty splits (seq_kv < max_kv).
+
+        When split_k_size is large and seq_kv < max_kv, some splits have no work
+        to do (their assigned K/V range is empty). This test verifies the lazy
+        TMEM allocation fix handles this correctly without race conditions.
+
+        Previously, this would cause "unspecified launch failure" CUDA errors
+        due to a race condition between MMA and Correction warps accessing TMEM.
+
+        Race conditions are non-deterministic, so we run multiple iterations
+        to increase the chance of triggering the bug.
+        """
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+
+        dtype = torch.bfloat16
+        seqlen_q = 1  # Decode: single query token
+
+        num_splits = max_kv // split_k_size
+        num_valid_splits = (seq_kv + split_k_size - 1) // split_k_size
+        num_empty_splits = num_splits - num_valid_splits
+
+        # Run multiple iterations to trigger race conditions
+        # Race conditions are non-deterministic and may not trigger on every run
+        NUM_ITERATIONS = 600
+
+        if DEBUG:
+            print(
+                f"\nTesting empty splits: batch={batch_size}, seq_kv={seq_kv}, "
+                f"max_kv={max_kv}, split_k={split_k_size}"
+            )
+            print(
+                f"  Total splits: {num_splits}, Valid: {num_valid_splits}, "
+                f"Empty: {num_empty_splits}"
+            )
+            print(f"  Running {NUM_ITERATIONS} iterations...")
+
+        # Use different seed each iteration to vary memory layout
+        torch.manual_seed(SEED)
+
+        # Generate Q, K, V tensors
+        q, k, v = self._generate_qkv(
+            batch_size,
+            seqlen_q,
+            max_kv,  # Use max_kv as the padded size
+            q_heads,
+            kv_heads,
+            head_dim,
+            device,
+            dtype,
+        )
+
+        # Create seqlen_kv tensor with actual sequence lengths < max_kv
+        # This creates empty splits when split_k partitions beyond seq_kv
+        seqlen_kv = torch.full(
+            (batch_size,),
+            seq_kv,
+            dtype=torch.int32,
+            device=device,
+        )
+        out = None
+        lse = None
+        for iteration in range(NUM_ITERATIONS):
+            # Run split-K decode kernel
+            # This should not crash with "unspecified launch failure"
+            out, lse = cutlass_blackwell_fmha_decode_forward(
+                q,
+                k,
+                v,
+                seqlen_kv=seqlen_kv,
+                split_k_size=split_k_size,
+            )
+
+            # Synchronize to catch async CUDA errors
+            # torch.cuda.synchronize()
+
+            # Verify no NaN or Inf values in output
+            self.assertFalse(
+                torch.isnan(out).any(),
+                f"Output contains NaN values with empty splits "
+                f"(seq_kv={seq_kv}, max_kv={max_kv}, iteration={iteration})",
+            )
+            self.assertFalse(
+                torch.isinf(out).any(),
+                f"Output contains Inf values with empty splits "
+                f"(seq_kv={seq_kv}, max_kv={max_kv}, iteration={iteration})",
+            )
+
+            # Verify LSE is valid
+            if lse is not None:
+                self.assertFalse(
+                    torch.isnan(lse).any(),
+                    f"LSE contains NaN values with empty splits "
+                    f"(seq_kv={seq_kv}, max_kv={max_kv}, iteration={iteration})",
+                )
+
+        if DEBUG:
+            print(f"  ✓ All {NUM_ITERATIONS} iterations completed without crash")
+            if out is not None and lse is not None:
+                print(f"  Output shape: {out.shape}, LSE shape: {lse.shape}")
+
 
 if __name__ == "__main__":
     unittest.main()
