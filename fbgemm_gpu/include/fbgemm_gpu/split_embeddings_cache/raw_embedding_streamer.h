@@ -8,6 +8,11 @@
 
 #pragma once
 #include <ATen/ATen.h>
+#ifdef USE_ROCM
+#include <ATen/hip/HIPEvent.h>
+#else
+#include <ATen/cuda/CUDAEvent.h>
+#endif
 #ifdef FBGEMM_FBCODE
 #include <folly/coro/Task.h>
 #endif
@@ -77,7 +82,8 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> runtime_meta,
       const at::Tensor& count,
       bool require_tensor_copy,
-      bool blocking_tensor_copy = true);
+      bool blocking_tensor_copy = true,
+      std::optional<int64_t> event_ptr_to_wait = std::nullopt);
 
 #ifdef FBGEMM_FBCODE
   folly::coro::Task<void> tensor_stream(

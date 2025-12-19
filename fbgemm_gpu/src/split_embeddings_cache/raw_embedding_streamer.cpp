@@ -205,7 +205,8 @@ void RawEmbeddingStreamer::stream(
     std::optional<at::Tensor> runtime_meta,
     const at::Tensor& count,
     bool require_tensor_copy,
-    bool blocking_tensor_copy) {
+    bool blocking_tensor_copy,
+    std::optional<int64_t> event_ptr_to_wait) {
   if (!enable_raw_embedding_streaming_) {
     return;
   }
@@ -223,6 +224,17 @@ void RawEmbeddingStreamer::stream(
     return;
   }
   if (blocking_tensor_copy) {
+    if (event_ptr_to_wait.has_value() && event_ptr_to_wait.value() != 0) {
+#ifdef USE_ROCM
+      hipEvent_t cuda_event =
+          reinterpret_cast<hipEvent_t>(event_ptr_to_wait.value());
+      AT_CUDA_CHECK(hipEventSynchronize(cuda_event));
+#else
+      cudaEvent_t cuda_event =
+          reinterpret_cast<cudaEvent_t>(event_ptr_to_wait.value());
+      AT_CUDA_CHECK(cudaEventSynchronize(cuda_event));
+#endif
+    }
     copy_and_enqueue_stream_tensors(
         indices,
         weights,
@@ -237,7 +249,33 @@ void RawEmbeddingStreamer::stream(
   // callbacks don't need to be serialized.
   // So, We need to spin up a new thread to unblock the CUDA stream, so the CUDA
   // can continue executing other host callbacks, eg. get/evict.
-  stream_tensor_copy_thread_ = std::make_unique<std::thread>([=, this]() {
+  stream_tensor_copy_thread_ = std::make_unique<std::thread>([this,
+                                                              event_ptr_to_wait,
+                                                              indices,
+                                                              weights,
+                                                              identities,
+                                                              runtime_meta,
+                                                              count]() {
+    // Set the CUDA device for this thread - this is critical!
+    // Without this, cudaEventSynchronize may fail with illegal memory
+    // access if the thread doesn't have the correct CUDA context.
+    if (event_ptr_to_wait.has_value() && event_ptr_to_wait.value() != 0) {
+#ifdef USE_ROCM
+      if (weights.is_cuda()) {
+        AT_CUDA_CHECK(hipSetDevice(weights.device().index()));
+      }
+      hipEvent_t cuda_event =
+          reinterpret_cast<hipEvent_t>(event_ptr_to_wait.value());
+      AT_CUDA_CHECK(hipEventSynchronize(cuda_event));
+#else
+      if (weights.is_cuda()) {
+        AT_CUDA_CHECK(cudaSetDevice(weights.device().index()));
+      }
+      cudaEvent_t cuda_event =
+          reinterpret_cast<cudaEvent_t>(event_ptr_to_wait.value());
+      AT_CUDA_CHECK(cudaEventSynchronize(cuda_event));
+#endif
+    }
     copy_and_enqueue_stream_tensors(
         indices, weights, identities, runtime_meta, count);
   });
