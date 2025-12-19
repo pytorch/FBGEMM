@@ -49,7 +49,7 @@ jobs:
       run: yum update -y; yum install -y binutils findutils git pciutils rsync sudo tar wget which
 
     - name: Checkout the Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
@@ -89,7 +89,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu/docs; build_fbgemm_gpu_docs $BUILD_ENV
 
     - name: Upload Built Docs as GHA Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: fbgemm_gpu_docs_${{ github.sha }}
         path: fbgemm_gpu/docs/build

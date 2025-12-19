@@ -99,7 +99,7 @@ jobs:
         unset ENV_JSON
 
     - name: Checkout the Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         submodules: true
         ref: ${{ inputs.repo-ref }}
@@ -151,7 +151,7 @@ jobs:
 
     - name: Download Wheel Artifact from GHA
       if: ${{ inputs.fbgemm-channel-version == '' }}
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: fbgemm_${{ matrix.build-target }}_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
 
@@ -175,7 +175,7 @@ jobs:
 
     - name: Upload Benchmark Traces as GHA Artifacts
       if: ${{ inputs.run-target == 'benchmark' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: fbgemm_gpu_traces_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.zip
         path: fbgemm_gpu/bench/*.json
