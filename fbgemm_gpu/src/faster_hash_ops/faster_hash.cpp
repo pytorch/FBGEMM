@@ -607,8 +607,8 @@ REGISTER_NATIVE_OPERATOR_FUNCTOR(
             offsets,
             disable_fallback,
             _modulo_identity_DPRECATED,
-            num_reserved_slots,
-            opt_in_prob);
+            opt_in_prob,
+            num_reserved_slots);
       };
     });
 } // namespace torch::jit
