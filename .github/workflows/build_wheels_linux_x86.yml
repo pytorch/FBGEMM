@@ -40,9 +40,9 @@ jobs:
     outputs:
       matrix: ${{ steps.filter.outputs.matrix }}
     steps:
-    - uses: actions/setup-python@v4
+    - uses: actions/setup-python@v6
     - name: Checkout FBGEMM repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: pytorch/fbgemm
     - name: Filter Generated Built Matrix

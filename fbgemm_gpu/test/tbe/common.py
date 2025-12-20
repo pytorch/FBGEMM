@@ -57,8 +57,11 @@ FORWARD_MAX_THREADS = 512
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-def gen_mixed_B_batch_sizes(B: int, T: int) -> tuple[list[list[int]], list[int]]:
-    num_ranks = np.random.randint(low=1, high=4)
+def gen_mixed_B_batch_sizes(
+    B: int, T: int, num_ranks: Optional[int] = None
+) -> tuple[list[list[int]], list[int]]:
+    if num_ranks is None:
+        num_ranks = np.random.randint(low=1, high=4)
     low = max(int(0.25 * B), 1)
     high = int(B)
     if low == high:

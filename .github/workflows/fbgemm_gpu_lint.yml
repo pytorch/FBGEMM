@@ -43,7 +43,7 @@ jobs:
 
     steps:
     - name: Checkout the Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup Miniconda
       run: . $PRELUDE; setup_miniconda $HOME/miniconda

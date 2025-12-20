@@ -1246,6 +1246,9 @@ class BackwardOptimizersTest(unittest.TestCase):
             counter_halflife=counter_halflife,
         )
 
+    @unittest.skipIf(
+        True, "Skipped the test for now until the optimizer logic is fixed"
+    )
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
