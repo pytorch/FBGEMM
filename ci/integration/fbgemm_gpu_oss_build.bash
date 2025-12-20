@@ -15,6 +15,7 @@ BUILD_VARIANT=${BUILD_VARIANT:-cuda}
 BUILD_CUDA_VERSION=${BUILD_CUDA_VERSION:-12.9.1}
 BUILD_ROCM_VERSION=${BUILD_ROCM_VERSION:-7.0}
 BUILD_TARGET=${BUILD_TARGET:-default}
+BUILD_SCRIPTS_INIT=${BUILD_SCRIPTS_INIT:-"${REPO_ROOT}/.github/scripts/setup_env.bash"}
 
 # Set build environment name
 if [[ "$BUILD_VARIANT" == "rocm" ]]; then
@@ -53,24 +54,29 @@ echo ""
 echo "################################################################################"
 
 # Load the build scripts
-# shellcheck disable=SC1091
-source "${REPO_ROOT}/.github/scripts/setup_env.bash"
-echo "[FBGEMM_GPU CI] Loaded the build scripts ..."
+# shellcheck disable=SC1091,SC1090
+source "${BUILD_SCRIPTS_INIT}" || exit 1
+echo "[FBGEMM_GPU CI] Loaded the build scripts from: $BUILD_SCRIPTS_INIT ..."
 
 # Install Conda thruogh Miniconda/Miniforge if not already installed
 if command -v conda &> /dev/null; then
   echo "[FBGEMM_GPU CI] conda was found ..."
-  conda info
+  conda info || exit 1
 else
   echo "[FBGEMM_GPU CI] conda was NOT found; will install conda ..."
-  setup_miniconda "$HOME/miniconda"
+  setup_miniconda "$HOME/miniconda" || exit 1
 fi
 
 # Set up the Conda enviroment for building the package
 echo "[FBGEMM_GPU CI] Setting up the conda environment ..."
-integration_setup_conda_environment "$BUILD_ENV" gcc "$PYTHON_VERSION" "$PYTORCH_VERSION" "$BUILD_VARIANT/$BUILD_VARIANT_VERSION"
+integration_setup_conda_environment "$BUILD_ENV" gcc "$PYTHON_VERSION" "$PYTORCH_VERSION" "$BUILD_VARIANT/$BUILD_VARIANT_VERSION" || exit 1
 
 # Build and install package into the Conda environment
 echo "[FBGEMM_GPU CI] Building the package ..."
-integration_fbgemm_gpu_build_and_install "$BUILD_ENV" "$BUILD_TARGET/$BUILD_VARIANT" "$REPO_ROOT"
+integration_fbgemm_gpu_build_and_install "$BUILD_ENV" "$BUILD_TARGET/$BUILD_VARIANT" "$REPO_ROOT" || exit 1
+
+echo "[FBGEMM_GPU CI] Exporting the build environment name ..."
+export CURRENT_FBGEMM_BUILD_ENV="$BUILD_ENV"
+
+echo ""
 echo "[FBGEMM_GPU CI] Package is now installed into $BUILD_ENV"
