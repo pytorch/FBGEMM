@@ -79,8 +79,10 @@ EmbeddingKVDB::EmbeddingKVDB(
     std::vector<std::string> table_names,
     std::vector<int64_t> table_offsets,
     const std::vector<int64_t>& table_sizes,
-    int64_t flushing_block_size)
+    int64_t flushing_block_size,
+    bool use_object_cache)
     : flushing_block_size_(flushing_block_size),
+      use_object_cache_(use_object_cache),
       unique_id_(unique_id),
       num_shards_(num_shards),
       max_D_(max_D),
@@ -102,6 +104,7 @@ EmbeddingKVDB::EmbeddingKVDB(
     cache_config.num_shards = num_shards_;
     cache_config.item_size_bytes = max_D_ * ele_size_bytes;
     cache_config.max_D_ = max_D_;
+    cache_config.use_object_cache = use_object_cache;
     l2_cache_ =
         std::make_unique<l2_cache::CacheLibCache>(cache_config, unique_id);
   } else {
@@ -110,7 +113,8 @@ EmbeddingKVDB::EmbeddingKVDB(
   XLOG(INFO) << "[TBE_ID" << unique_id_ << "] L2 created with " << num_shards_
              << " shards, dimension:" << max_D_
              << ", enable_async_update_:" << enable_async_update_
-             << ", cache_size_gb:" << cache_size_gb;
+             << ", cache_size_gb:" << cache_size_gb
+             << ", use_object_cache:" << use_object_cache;
 
   if (enable_async_update_) {
     cache_filling_thread_ = std::make_unique<std::thread>([=, this] {
@@ -522,40 +526,50 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
     for (int i = 0; i < num_shards; i++) {
       row_ids_per_shard[i].reserve(num_lookups / num_shards * 2);
     }
-    for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
-      row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
-          .emplace_back(row_id);
+    if (use_object_cache_) {
+      // ObjectCache mode: distribute rows round-robin across threads
+      // since ObjectCache doesn't use pool-based sharding
+      for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
+        row_ids_per_shard[row_id % num_shards].emplace_back(row_id);
+      }
+    } else {
+      // Regular cache mode: use shard_id based on key hash
+      for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
+        row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
+            .emplace_back(row_id);
+      }
     }
     for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
       auto f =
           folly::via(executor_tp_.get())
-              .thenValue([shard_id,
-                          indices,
-                          row_ids_per_shard,
-                          cache_context,
-                          this](folly::Unit) {
-                FBGEMM_DISPATCH_INTEGRAL_TYPES(
-                    indices.scalar_type(), "get_cache_inner", [&] {
-                      using inner_index_t = scalar_t;
-                      auto inner_indices_addr =
-                          indices.data_ptr<inner_index_t>();
-                      for (const auto& row_id : row_ids_per_shard[shard_id]) {
-                        auto emb_idx = inner_indices_addr[row_id];
-                        if (emb_idx < 0) {
-                          continue;
-                        }
-                        auto cached_addr_opt = l2_cache_->get(indices[row_id]);
-                        if (cached_addr_opt.has_value()) { // cache hit
-                          cache_context->cached_addr_list[row_id] =
-                              cached_addr_opt.value();
-                          inner_indices_addr[row_id] =
-                              -1; // mark to sentinel value
-                        } else { // cache miss
-                          cache_context->num_misses += 1;
-                        }
-                      }
-                    });
-              });
+              .thenValue(
+                  [shard_id, indices, row_ids_per_shard, cache_context, this](
+                      folly::Unit) {
+                    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                        indices.scalar_type(), "get_cache_inner", [&] {
+                          using inner_index_t = scalar_t;
+                          auto inner_indices_addr =
+                              indices.data_ptr<inner_index_t>();
+                          for (const auto& row_id :
+                               row_ids_per_shard[shard_id]) {
+                            auto emb_idx = inner_indices_addr[row_id];
+                            if (emb_idx < 0) {
+                              continue;
+                            }
+                            auto cached_addr_opt = l2_cache_->get(
+                                indices[row_id],
+                                &cache_context->object_cache_values[row_id]);
+                            if (cached_addr_opt.has_value()) { // cache hit
+                              cache_context->cached_addr_list[row_id] =
+                                  cached_addr_opt.value();
+                              inner_indices_addr[row_id] =
+                                  -1; // mark to sentinel value
+                            } else { // cache miss
+                              cache_context->num_misses += 1;
+                            }
+                          }
+                        });
+                  });
       futures.push_back(std::move(f));
     }
     folly::collect(futures).wait();
@@ -629,9 +643,18 @@ EmbeddingKVDB::set_cache(
     for (int i = 0; i < num_shards; i++) {
       row_ids_per_shard[i].reserve(num_lookups / num_shards * 2);
     }
-    for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
-      row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
-          .emplace_back(row_id);
+    if (use_object_cache_) {
+      // ObjectCache mode: distribute rows round-robin across threads
+      // since ObjectCache doesn't use pool-based sharding
+      for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
+        row_ids_per_shard[row_id % num_shards].emplace_back(row_id);
+      }
+    } else {
+      // Regular cache mode: use shard_id based on key hash
+      for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
+        row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
+            .emplace_back(row_id);
+      }
     }
 
     for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {

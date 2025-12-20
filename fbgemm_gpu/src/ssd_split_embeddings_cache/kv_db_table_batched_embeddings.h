@@ -61,11 +61,16 @@ class CacheContext {
  public:
   explicit CacheContext(size_t num_keys) {
     cached_addr_list = std::vector<void*>(num_keys, nullptr);
+    object_cache_values =
+        std::vector<std::shared_ptr<l2_cache::EmbeddingValue>>(
+            num_keys, nullptr);
   }
   // invalid spot will stay as sentinel value, this is trading space for better
   // parallelism
   std::atomic<int> num_misses{0};
   std::vector<void*> cached_addr_list;
+  // For ObjectCache mode: keep shared_ptrs alive to prevent use-after-free
+  std::vector<std::shared_ptr<l2_cache::EmbeddingValue>> object_cache_values;
 };
 
 /// @ingroup embedding-ssd
@@ -148,7 +153,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       std::vector<std::string> table_names = {},
       std::vector<int64_t> table_offsets = {},
       const std::vector<int64_t>& table_sizes = {},
-      int64_t flushing_block_size = 2000000000 /*2GB*/);
+      int64_t flushing_block_size = 2000000000 /*2GB*/,
+      bool use_object_cache = false);
 
   virtual ~EmbeddingKVDB();
 
@@ -500,6 +506,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   std::unique_ptr<l2_cache::CacheLibCache> l2_cache_;
   // when flushing l2, the block size in bytes that we flush l2 progressively
   int64_t flushing_block_size_;
+  bool use_object_cache_;
   const int64_t unique_id_;
   const int64_t num_shards_;
   const int64_t max_D_;
