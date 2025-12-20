@@ -1645,7 +1645,7 @@ INSTANTIATE_SPMDM_INDEX_T(uint8_t)
 
 template <typename IndexType>
 void compressed_indices_remap(
-    std::int32_t offsets_len,
+    std::int32_t offsets_numel,
     const IndexType* indices,
     const int32_t* compressed_indices_mapping,
     const IndexType* offsets,
@@ -1663,7 +1663,7 @@ void compressed_indices_remap(
 #ifndef USE_ROCM
     if (weights == nullptr) {
       internal::compressed_indices_remap_avx512<IndexType, false>(
-          offsets_len,
+          offsets_numel,
           indices,
           compressed_indices_mapping,
           offsets,
@@ -1674,7 +1674,7 @@ void compressed_indices_remap(
       return;
     } else {
       internal::compressed_indices_remap_avx512<IndexType, true>(
-          offsets_len,
+          offsets_numel,
           indices,
           compressed_indices_mapping,
           offsets,
@@ -1691,7 +1691,7 @@ void compressed_indices_remap(
 
   // Non-vectorized fallback implementation
   compressed_indices_remap_ref<IndexType>(
-      offsets_len,
+      offsets_numel,
       indices,
       compressed_indices_mapping,
       offsets,

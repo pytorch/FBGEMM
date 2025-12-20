@@ -2301,7 +2301,7 @@ INSTANTIATE_SPMDM_INDEX_T(float16)
 
 template <typename IndexType>
 FBGEMM_API void compressed_indices_remap_ref(
-    std::int32_t offsets_numel,
+    std::int32_t offsets_len,
     const IndexType* indices,
     const int32_t* compressed_indices_mapping,
     const IndexType* offsets,
@@ -2312,7 +2312,7 @@ FBGEMM_API void compressed_indices_remap_ref(
   bool has_per_sample_weights = (weights != nullptr);
   out_offsets[0] = offsets[0];
   IndexType j = 0;
-  for (int i = 1; i < offsets_numel; i++) {
+  for (int i = 1; i < offsets_len; i++) {
     for (int32_t k = offsets[i - 1]; k < offsets[i]; k++) {
       if (compressed_indices_mapping[indices[k]] != -1) {
         out_indices[j] = compressed_indices_mapping[indices[k]];

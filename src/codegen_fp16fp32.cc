@@ -43,7 +43,6 @@ constexpr std::array<std::pair<DataType, std::string>, 2> types_to_gen = {
     std::make_pair(DataType::Float16, "FP16")};
 
 constexpr int cache_line_size = 64;
-constexpr int prefetch_len_default = cache_line_size * 12;
 
 static int parseArgumentInt(
     int argc,

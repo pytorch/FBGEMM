@@ -467,7 +467,8 @@ Tensor dense_to_jagged_forward(
   if (total_L.has_value()) {
     total_L_computed = total_L.value();
   } else {
-    total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
+    total_L_computed =
+        static_cast<int64_t>(offsets.back().max().item<int64_t>());
   }
   auto values = at::empty_symint({total_L_computed, D}, dense.options());
   auto output = at::zeros_symint({total_L_computed, D}, dense.options());
@@ -1365,7 +1366,7 @@ void jagged_softmax_kernel(
   for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
-    const int length = std::min(row_end - row_start, (int)max_L);
+    const int length = std::min(row_end - row_start, static_cast<int>(max_L));
 
     if (length == 0)
       continue;
@@ -1427,7 +1428,7 @@ void jagged_softmax_backward_kernel(
   for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
-    const int length = std::min(row_end - row_start, (int)max_L);
+    const int length = std::min(row_end - row_start, static_cast<int>(max_L));
     if (length == 0)
       continue;
     for (const auto d : c10::irange(D)) {
@@ -1489,7 +1490,7 @@ void jagged_jagged_bmm_kernel(
   for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
-    const int length = std::min(row_end - row_start, (int)max_L);
+    const int length = std::min(row_end - row_start, static_cast<int>(max_L));
     for (const auto m : c10::irange(M)) {
       for (const auto n : c10::irange(N)) {
         at::acc_type<scalar_t, true> acc = 0;
@@ -1546,7 +1547,7 @@ void jagged_dense_bmm_kernel(
   for (const auto b : c10::irange(B)) {
     const int row_start = x_offsets[b];
     const int row_end = x_offsets[b + 1];
-    const int length = std::min(row_end - row_start, (int)max_L);
+    const int length = std::min(row_end - row_start, static_cast<int>(max_L));
     for (const auto l : c10::irange(length)) {
       for (const auto n : c10::irange(N)) {
         at::acc_type<scalar_t, true> acc = 0;

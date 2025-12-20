@@ -170,7 +170,6 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 
   Tensor linear_unique_indices;
   Tensor reverse_index;
-
   std::tie(linear_unique_indices, reverse_index) =
       at::_unique(linear_indices, true, true);
 

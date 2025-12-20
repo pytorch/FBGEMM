@@ -9,9 +9,9 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/spmmUtils.h"
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <iostream>
-#include <random>
 
 using namespace std;
 

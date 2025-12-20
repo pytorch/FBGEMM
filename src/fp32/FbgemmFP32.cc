@@ -8,7 +8,6 @@
  */
 
 #define FBGEMM_EXPORTS
-#include <array>
 #include <cmath>
 #include <utility>
 
