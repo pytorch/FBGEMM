@@ -109,7 +109,7 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
   Tensor packed_tensor;
 
   AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "pack_segments_cuda", [&] {
-    const auto* const lengths_data = lengths.data_ptr<index_t>();
+    const auto* const lengths_data = lengths.const_data_ptr<index_t>();
 
     // Shape of output is batch_size x max_len x ...
     auto shape = t_in_c.sizes().vec(); // Get copy of current shape
@@ -128,8 +128,8 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
 
     FBGEMM_DISPATCH_ALL_TYPES(
         t_in_c.scalar_type(), "pack_segments_cuda-packing", [&] {
-          const auto* const data_ptr = t_in_c.data_ptr<scalar_t>();
-          auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+          const auto* const data_ptr = t_in_c.const_data_ptr<scalar_t>();
+          auto* const out_data = packed_tensor.mutable_data_ptr<scalar_t>();
           const auto num_seq = lengths.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
 
@@ -191,7 +191,7 @@ pack_segments_forward_cuda_v2(
   std::optional<Tensor> presence_mask;
 
   AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "pack_segments_cuda", [&] {
-    const auto* const lengths_data = lengths.data_ptr<index_t>();
+    const auto* const lengths_data = lengths.const_data_ptr<index_t>();
 
     // Shape of output is batch_size x max_len x ...
     auto shape = t_in_c.sizes().vec(); // Get copy of current shape
@@ -226,8 +226,8 @@ pack_segments_forward_cuda_v2(
 
     FBGEMM_DISPATCH_ALL_TYPES(
         t_in_c.scalar_type(), "pack_segments_cuda-packing", [&] {
-          const auto* const data_ptr = t_in_c.data_ptr<scalar_t>();
-          auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+          const auto* const data_ptr = t_in_c.const_data_ptr<scalar_t>();
+          auto* const out_data = packed_tensor.mutable_data_ptr<scalar_t>();
           const auto num_seq = lengths.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
 

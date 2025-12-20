@@ -18,7 +18,7 @@ namespace fbgemm_gpu::tbe {
 
 void IndicesEstimator::populateIndexFreqs_(const torch::Tensor& indices) {
   // Count the frequency of indices
-  const auto* data = indices.data_ptr<int64_t>();
+  const auto* data = indices.const_data_ptr<int64_t>();
   for (auto i = 0; i < indices.numel(); i++) {
     const auto idx = data[i];
     indexCounts_[idx] += 1;

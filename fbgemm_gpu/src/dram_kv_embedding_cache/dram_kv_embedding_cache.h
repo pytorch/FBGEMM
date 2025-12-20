@@ -277,7 +277,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       auto indices_data_ptr = indices.data_ptr<index_t>();
-                      auto* metadata = metadata_tensor.data_ptr<int64_t>();
+                      auto* metadata = metadata_tensor.mutable_data_ptr<int64_t>();
                       {
                         auto before_read_lock_ts =
                             facebook::WallClockUtil::NowInUsecFast();
@@ -397,7 +397,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       CHECK(weights.is_contiguous());
                       CHECK_EQ(indices.size(0), weights.size(0));
                       int64_t stride = weights.size(1);
-                      auto indices_data_ptr = indices.data_ptr<index_t>();
+                      auto indices_data_ptr = indices.const_data_ptr<index_t>();
                       auto weights_data_ptr = weights.data_ptr<weight_type>();
                       {
                         auto before_write_lock_ts =
@@ -768,8 +768,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       CHECK(indices.is_contiguous());
                       CHECK(engege_rates.is_contiguous());
                       CHECK_EQ(indices.size(0), engege_rates.size(0));
-                      auto indices_data_ptr = indices.data_ptr<index_t>();
-                      auto engage_rate_ptr = engege_rates.data_ptr<float>();
+                      auto indices_data_ptr = indices.const_data_ptr<index_t>();
+                      auto engage_rate_ptr = engege_rates.const_data_ptr<float>();
                       {
                         auto before_write_lock_ts =
                             facebook::WallClockUtil::NowInUsecFast();
@@ -886,8 +886,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) {
     auto read_count = count.scalar_type() == at::ScalarType::Long
-        ? *(count.data_ptr<int64_t>())
-        : *(count.data_ptr<int32_t>());
+        ? *(count.const_data_ptr<int64_t>())
+        : *(count.const_data_ptr<int32_t>());
     read_num_counts_ += read_count;
     // assuming get is called once each iteration and only by train
     // iteration(excluding state_dict)
@@ -1407,8 +1407,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           // of
           // entries.
           auto conv_count = count.scalar_type() == at::ScalarType::Long
-              ? *(count.data_ptr<int64_t>())
-              : *(count.data_ptr<int32_t>());
+              ? *(count.const_data_ptr<int64_t>())
+              : *(count.const_data_ptr<int32_t>());
           auto indices_data_ptr = indices.data_ptr<index_t>();
           // There could be negative indices, which we should skipp
           for (int i = 0; i < conv_count; i++) {

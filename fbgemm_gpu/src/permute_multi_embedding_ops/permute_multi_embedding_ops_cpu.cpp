@@ -195,7 +195,7 @@ Tensor from_cpu(const std::vector<index_t>& input) {
   // Ensure that output is contiguous
   TORCH_CHECK(output.is_contiguous());
   std::memcpy(
-      output.data_ptr<index_t>(), input.data(), input.size() * sizeof(index_t));
+      output.mutable_data_ptr<index_t>(), input.data(), input.size() * sizeof(index_t));
   return output;
 }
 

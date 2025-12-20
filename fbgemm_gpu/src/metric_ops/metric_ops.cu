@@ -265,7 +265,7 @@ at::Tensor batch_auc(
       dim3(NUM_THREADS_PER_BLOCK),                                \
       0,                                                          \
       at::cuda::getCurrentCUDAStream(),                           \
-      output.data_ptr<acc_t>(),                                   \
+      output.mutable_data_ptr<acc_t>(),                                   \
       indices.data_ptr<index_t>(),                                \
       labels.data_ptr<label_t>(),                                 \
       weights.data_ptr<scalar_t>(),                               \

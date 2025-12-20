@@ -757,7 +757,7 @@ at::Tensor quantize_qkv_per_head(
   dim3 block_size(kThreadsPerWarp, kWarpsPerBlock);
   dim3 grid_size(kMaxBlocks);
   auto scale_q = at::zeros({B, N_KVH_L}, XQ_O.options().dtype(at::kFloat));
-  float* const scale_q_ptr = scale_q.data_ptr<float>();
+  float* const scale_q_ptr = scale_q.const_data_ptr<float>();
   // Launch the kernel
 
   FBGEMM_LAUNCH_KERNEL(

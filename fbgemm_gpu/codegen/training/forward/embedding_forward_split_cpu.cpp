@@ -67,18 +67,18 @@ void split_embedding_forward_cpu_kernel(
 
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
-  const auto indices_data = indices.data_ptr<index_t>();
-  const auto offsets_data = offsets.data_ptr<offset_t>();
+  const auto indices_data = indices.const_data_ptr<index_t>();
+  const auto offsets_data = offsets.const_data_ptr<offset_t>();
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
 
-  const auto weights_data = weights.data_ptr<weights_t>();
+  const auto weights_data = weights.const_data_ptr<weights_t>();
   // If indice_weights not defined, then this accessor won't be used.
   // The else condition is just to make compiler happy
   const auto indice_weights_data = indice_weights.defined()
       ? indice_weights.data_ptr<ind_weights_t>()
       : nullptr;
 
-  auto output_data = output.data_ptr<output_t>();
+  auto output_data = output.mutable_data_ptr<output_t>();
   auto output_stride = output.size(1);
 
   constexpr bool use_fbgemm = (std::is_same<weights_t, float>::value ||

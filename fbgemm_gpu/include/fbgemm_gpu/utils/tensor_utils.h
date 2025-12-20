@@ -316,13 +316,13 @@ inline at::Tensor aligned_grad_output_tensor_for_cuda_backwards(
   if (!aligned_grad_output.is_contiguous()) {
     aligned_grad_output = aligned_grad_output.contiguous();
   }
-  if (reinterpret_cast<uint64_t>(aligned_grad_output.data_ptr()) % 16 != 0) {
+  if (reinterpret_cast<uint64_t>(aligned_grad_output.mutable_data_ptr()) % 16 != 0) {
     aligned_grad_output =
         at::empty_like(aligned_grad_output).copy_(aligned_grad_output);
   }
   TORCH_CHECK(aligned_grad_output.is_contiguous());
   TORCH_CHECK(
-      reinterpret_cast<uint64_t>(aligned_grad_output.data_ptr()) % 16 == 0);
+      reinterpret_cast<uint64_t>(aligned_grad_output.mutable_data_ptr()) % 16 == 0);
   return aligned_grad_output;
 }
 

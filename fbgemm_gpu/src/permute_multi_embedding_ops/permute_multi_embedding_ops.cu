@@ -135,7 +135,7 @@ Tensor from_vec(const std::vector<index_t>& input) {
   // Ensure that output is contiguous
   TORCH_CHECK(output.is_contiguous());
   std::memcpy(
-      output.data_ptr<index_t>(), input.data(), input.size() * sizeof(index_t));
+      output.mutable_data_ptr<index_t>(), input.data(), input.size() * sizeof(index_t));
   return output;
 }
 
@@ -295,7 +295,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
             0,
             at::cuda::getCurrentCUDAStream(),
             reinterpret_cast<const scalar_t**>(in_ptr.data_ptr()),
-            reinterpret_cast<scalar_t**>(out_ptr.data_ptr()),
+            reinterpret_cast<scalar_t**>(out_ptr.mutable_data_ptr()),
             PTA_B(permutes, int32_t, 2, 32),
             PTA_B(in_shapes, int32_t, 1, 32),
             PTA_B(out_shapes, int32_t, 1, 32),
