@@ -26,7 +26,7 @@ class GenI8Depthwise {
       const int* mask,
       int A_zero_point);
 
-  jit_kernel_signature getOrCreate(
+  static jit_kernel_signature getOrCreate(
       int D, // dimension
       std::array<int, 3> F, // filter size (K_T, K_H, K_W)
       int oc_per_g, // the number of output channels per group
