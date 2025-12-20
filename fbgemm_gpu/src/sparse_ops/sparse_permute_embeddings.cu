@@ -59,8 +59,6 @@ DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
       "The dimension of lengths tensor should be equal to 2"
       "to correctly infer number of features and batch size.")
 
-  Tensor permuted_lengths;
-  Tensor permuted_embeddings;
   std::optional<Tensor> weights_dummy;
   std::optional<int64_t> permuted_lengths_sum_dummy;
 
@@ -69,10 +67,9 @@ DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
   if (T == 0 || B == 0) {
     return {lengths.clone(), embeddings.clone()};
   }
-  permuted_lengths = at::empty({T, B}, lengths.options());
 
   // ignore the third element in the tuple
-  std::tie(permuted_lengths, permuted_embeddings, std::ignore) =
+  auto [permuted_lengths, permuted_embeddings, _] =
       fbgemm_gpu::permute_2D_sparse_data_cuda(
           permute,
           lengths,

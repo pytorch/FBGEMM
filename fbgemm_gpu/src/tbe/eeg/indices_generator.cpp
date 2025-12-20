@@ -8,8 +8,8 @@
 
 #include "indices_generator.h"
 
-#include <math.h>
 #include <chrono>
+#include <cmath>
 #include <execution>
 
 namespace fbgemm_gpu::tbe {
