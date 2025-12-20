@@ -16,10 +16,8 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
-#include <map>
 #include <numeric>
 #include <random>
-#include <set>
 #include <vector>
 
 #include "./BenchUtils.h"
@@ -110,7 +108,6 @@ static int run_benchmark(
   vector<int32_t> indices_32;
 
   vector<int> container(num_rows);
-  map<int64_t, set<int>> dedup_map; // index -> set(output index)
 
   // please note we generate unique indices
   for (int i = 0; i < batch_size; ++i) {
