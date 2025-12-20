@@ -57,8 +57,7 @@ float_to_hfp8(float val_fp, int ebits, int exponent_bias, float max_pos) {
     // adding the bouncer rounds off bits, and subtracting bouncer
     // leaves the desired value, albeit in FP32 encoding
     // All we need is to change the exponent encoding to using "bias"
-    val_out.I = uint32_t(val_out.I - ((127 - exponent_bias) << 23))
-        << (8 - ebits);
+    val_out.I = (val_out.I - ((127 - exponent_bias) << 23)) << (8 - ebits);
     val_out.I =
         ((val_out.I | sign_bit) >>
          24); // the 8 lsbs is the desired HFP8 encoding
