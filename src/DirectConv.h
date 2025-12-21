@@ -53,8 +53,6 @@ class DirectConvCodeGenBase {
       int o1Xoc,
       int i1);
 
-  inline static std::mutex rtMutex_; ///< Control access to runtime;
-
   // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr
   inline static CodeCache<
       std::tuple<bool, int, int, int, int, int, int>,
@@ -194,15 +192,6 @@ class DirectConvCodeGenBase {
       const x86::Gp& C_offset,
       int rowRegs,
       int colRegs);
-
- private:
-  static asmjit::JitRuntime& runtime() {
-    static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
-                                  // depents on other static
-                                  // variables.  Required to prevent
-                                  // initialization order fiasco
-    return rt;
-  }
 };
 
 } // namespace fbgemm

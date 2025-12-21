@@ -33,6 +33,7 @@ def get_fbgemm_base_srcs():
 
 def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
     sources = [
+        "src/CodeStorage.cc",
         "src/EmbeddingSpMDM.cc",
         "src/EmbeddingSpMDMNBit.cc",
         "src/ExecuteKernel.cc",
