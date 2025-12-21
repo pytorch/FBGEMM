@@ -54,7 +54,7 @@ struct Half4 {
     *reinterpret_cast<unsigned int*>(p) = *reinterpret_cast<unsigned int*>(&a);
     *reinterpret_cast<unsigned int*>(p + 2) =
         *reinterpret_cast<unsigned int*>(&b);
-#elif CUDA_VERSION >= 9000
+#else
 
 #ifndef __HALF2_TO_UI
 // cuda_fp16.hpp doesn't export this
@@ -64,9 +64,6 @@ struct Half4 {
     asm("st.v2.u32 [%0], {%1, %2};"
         :
         : "l"(p), "r"(__HALF2_TO_UI(a)), "r"(__HALF2_TO_UI(b)));
-#else
-    asm("st.v2.u32 [%0], {%1, %2};" : : "l"(p), "r"(a.x), "r"(b.x));
-#endif
   }
 };
 
