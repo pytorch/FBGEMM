@@ -59,10 +59,10 @@ struct IndicesDistributionParameters {
 
   // Max index value in the distribution - should be in the range [0, E), where
   // E is the number of rows in the embedding table
-  int64_t maxIndex;
+  int64_t maxIndex{};
 
   // Number of indices to generate
-  int64_t numIndices;
+  int64_t numIndices{};
 
   IndicesDistributionParameters(
       const std::vector<double>& _1,
@@ -81,7 +81,7 @@ DECL_OSTREAM_OUT(IndicesDistributionParameters);
 
 struct TBEBatchStats {
   // batch size, i.e., number of lookups
-  int64_t B;
+  int64_t B{};
   // Standard deviation of B (for variable batch size configuration)
   std::optional<int64_t> sigmaB;
 
@@ -106,7 +106,7 @@ DECL_OSTREAM_OUT(TBEIndicesStats);
 
 struct TBEPoolingStats {
   // Bag size, i.e., pooling factor
-  int64_t L;
+  int64_t L{};
   // Standard deviation of L(for variable bag size configuration)
   std::optional<int64_t> sigmaL;
 
@@ -117,11 +117,11 @@ DECL_OSTREAM_OUT(TBEPoolingStats);
 
 struct TBEAnalysisStats {
   // Number of tables
-  int64_t T;
+  int64_t T{};
   // Number of rows in the embedding table
-  int64_t E;
+  int64_t E{};
   // Embedding dimension (number of columns)
-  int64_t D;
+  int64_t D{};
   // Batch stats
   TBEBatchStats batch;
   // Indices stats

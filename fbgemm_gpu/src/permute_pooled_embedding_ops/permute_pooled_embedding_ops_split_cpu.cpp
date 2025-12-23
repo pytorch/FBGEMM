@@ -25,7 +25,7 @@ using torch::autograd::AutogradContext;
 using torch::autograd::Variable;
 using torch::autograd::variable_list;
 
-Tensor permute_pooled_embs_split_cpu_impl(
+static Tensor permute_pooled_embs_split_cpu_impl(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -80,7 +80,7 @@ Tensor permute_pooled_embs_split_cpu(
       false);
 }
 
-Tensor permute_duplicate_pooled_embs_split_cpu(
+static Tensor permute_duplicate_pooled_embs_split_cpu(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -95,7 +95,7 @@ Tensor permute_duplicate_pooled_embs_split_cpu(
       true);
 }
 
-Tensor permute_pooled_embs_split_dispatch_call(
+static Tensor permute_pooled_embs_split_dispatch_call(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -113,7 +113,7 @@ Tensor permute_pooled_embs_split_dispatch_call(
       inv_permute_list);
 }
 
-Tensor permute_duplicate_pooled_embs_split_dispatch_call(
+static Tensor permute_duplicate_pooled_embs_split_dispatch_call(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -148,7 +148,7 @@ Tensor permute_pooled_embs_auto_grad_split_cpu(
           inv_permute_list);
 }
 
-Tensor permute_duplicate_pooled_embs_auto_grad_split_cpu(
+static Tensor permute_duplicate_pooled_embs_auto_grad_split_cpu(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
     const Tensor& permute_list,

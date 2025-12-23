@@ -788,7 +788,7 @@ class JaggedSliceOp : public torch::autograd::Function<JaggedSliceOp> {
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
-Tensor jagged_to_padded_dense_forward_autograd(
+static Tensor jagged_to_padded_dense_forward_autograd(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
     const c10::SymIntArrayRef max_lengths,
@@ -883,7 +883,7 @@ std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
   auto output = op.call(dense, offsets, total_L);
   return {output, offsets};
 }
-Tensor dense_to_jagged_forward_autograd(
+static Tensor dense_to_jagged_forward_autograd(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
     std::optional<at::SymInt> total_L) {

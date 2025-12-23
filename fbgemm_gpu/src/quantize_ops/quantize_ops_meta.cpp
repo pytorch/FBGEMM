@@ -21,7 +21,7 @@ namespace fbgemm_gpu {
 
 /// @ingroup quantize-data-meta
 ///
-Tensor FP8rowwise_to_float_meta(
+static Tensor FP8rowwise_to_float_meta(
     const Tensor& input,
     [[maybe_unused]] bool forward,
     const int64_t output_dtype) {
@@ -52,7 +52,7 @@ Tensor FP8rowwise_to_float_meta(
 
 /// @ingroup quantize-data-meta
 ///
-Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool /*forward*/) {
+static Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool /*forward*/) {
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
   const at::SymIntArrayRef input_sizes = input.sym_sizes();
@@ -69,7 +69,7 @@ Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool /*forward*/) {
 
 /// @ingroup quantize-data-meta
 ///
-Tensor fusednbitrowwise_to_float_or_half_meta(
+static Tensor fusednbitrowwise_to_float_or_half_meta(
     const Tensor& input,
     const int64_t bit_rate,
     const int64_t output_dtype,

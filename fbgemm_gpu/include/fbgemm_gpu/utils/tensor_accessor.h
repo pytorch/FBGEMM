@@ -327,7 +327,7 @@ class PackedTensorAccessor
   }
 
  protected:
-  size_t numel_;
+  size_t numel_{};
   char name_[NAME_MAX_LEN];
   char context_[CONTEXT_MAX_LEN];
 

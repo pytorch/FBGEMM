@@ -31,12 +31,12 @@ enum args_pos {
 };
 
 template <typename T>
-uint64_t compute_num_uint64s(const uint64_t num_elements) {
+static uint64_t compute_num_uint64s(const uint64_t num_elements) {
   const uint64_t ratio = sizeof(uint64_t) / sizeof(T);
   return (num_elements + ratio - 1) / ratio;
 }
 
-void offset_tbe_input_combine_with_length_args(
+static void offset_tbe_input_combine_with_length_args(
     uint64_t** indices_addrs,
     uint64_t** lengths_addrs,
     uint64_t** indices_offsets,
@@ -59,7 +59,7 @@ void offset_tbe_input_combine_with_length_args(
       reinterpret_cast<uint32_t*>(base_addr + ptr_offsets[P_lengths_is_long]);
 }
 
-std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
+static std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights) {
