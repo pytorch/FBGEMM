@@ -64,6 +64,7 @@ struct Half4 {
     asm("st.v2.u32 [%0], {%1, %2};"
         :
         : "l"(p), "r"(__HALF2_TO_UI(a)), "r"(__HALF2_TO_UI(b)));
+#endif
   }
 };
 
