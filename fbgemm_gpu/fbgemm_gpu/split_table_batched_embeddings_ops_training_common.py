@@ -161,29 +161,29 @@ def check_allocated_vbe_output(
 ) -> None:
     assert (
         batch_size_per_feature_per_rank is not None
-    ), "[TBE API v2] vbe_output is passed, batch_size_per_feature_per_rank cannot be None"
+    ), "[Merged_VBE] vbe_output is passed, batch_size_per_feature_per_rank cannot be None"
     assert (
         vbe_output is not None
-    ), "[TBE API v2] vbe_output_offsets is not None, vbe_output cannot be None"
+    ), "[Merged_VBE] vbe_output_offsets is not None, vbe_output cannot be None"
     assert (
         vbe_output_offsets is not None
-    ), "[TBE API v2] vbe_output is not None, vbe_output_offsets cannot be None"
+    ), "[Merged_VBE] vbe_output is not None, vbe_output_offsets cannot be None"
     num_features = len(batch_size_per_feature_per_rank)
     num_ranks = len(batch_size_per_feature_per_rank[0])
     assert vbe_output_offsets.shape == torch.Size(
         [num_ranks, num_features]
-    ), f"[TBE API v2] Mismatched vbe_output_offsets shape. batch_size_per_feature_per_rank={batch_size_per_feature_per_rank}. Expected: {torch.Size([num_ranks, num_features])}, Actual: {vbe_output_offsets.shape}"
+    ), f"[Merged_VBE] Mismatched vbe_output_offsets shape. batch_size_per_feature_per_rank={batch_size_per_feature_per_rank}. Expected: {torch.Size([num_ranks, num_features])}, Actual: {vbe_output_offsets.shape}"
     assert (
-        vbe_output.dim() == 2
-    ), f"vbe_output must have 2 dimension [1, numel], but got {vbe_output.dim()}"
+        vbe_output.dim() == 1
+    ), f"[Merged_VBE] vbe_output must have 1 dimension, but got {vbe_output.dim()}. vbe_output shape is {vbe_output.shape}"
     assert (
         vbe_output_offsets.device == vbe_output.device
-    ), "[TBE API v2] vbe_output_offsets and vbe_output must be on the same device"
+    ), "[Merged_VBE] vbe_output_offsets and vbe_output must be on the same device"
     _output_dtype = sparse_type_int_to_dtype(output_dtype)
     assert (
         vbe_output.dtype == _output_dtype
-    ), f"[TBE API v2] vbe_output dtype must match TBE output dtype {_output_dtype} (SparseType {output_dtype}), but got {vbe_output.dtype}"
+    ), f"[Merged_VBE] vbe_output dtype must match TBE output dtype {_output_dtype} (SparseType {output_dtype}), but got {vbe_output.dtype}"
     assert (
         vbe_output_offsets.is_contiguous()
-    ), "vbe_output_offsets needs to be contiguous"
-    assert vbe_output.is_contiguous(), "vbe_output needs to be contiguous"
+    ), "[Merged_VBE] vbe_output_offsets needs to be contiguous"
+    assert vbe_output.is_contiguous(), "[Merged_VBE] vbe_output needs to be contiguous"
