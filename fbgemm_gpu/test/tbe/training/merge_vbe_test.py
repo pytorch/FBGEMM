@@ -400,7 +400,7 @@ class MergeVBETest(unittest.TestCase):
 
         # create vbe_output
         vbe_output = torch.empty(
-            [1, total_output_size], device=device, dtype=output_dtype.as_dtype()
+            [total_output_size], device=device, dtype=output_dtype.as_dtype()
         )
 
         # For each embedding, perform TBE forward

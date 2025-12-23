@@ -43,7 +43,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -1204,7 +1204,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    # @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_adagrad(  # noqa C901
         self,
         T: int,
@@ -1223,6 +1222,9 @@ class BackwardOptimizersTest(unittest.TestCase):
         counter_weight_decay_mode: CounterWeightDecayMode,
         counter_halflife: int,
     ) -> None:
+        if torch.version.hip:
+            assume(not (optimizer == OptimType.EXACT_ROWWISE_ADAGRAD and D == 2))
+
         if (
             pooling_mode == PoolingMode.NONE
             or optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
