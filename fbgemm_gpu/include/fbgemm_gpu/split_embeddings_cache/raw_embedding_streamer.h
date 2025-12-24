@@ -22,18 +22,14 @@ struct StreamQueueItem {
   std::optional<at::Tensor> identities;
   std::optional<at::Tensor> runtime_meta;
   at::Tensor count;
-  StreamQueueItem(
-      at::Tensor src_indices,
-      at::Tensor src_weights,
-      std::optional<at::Tensor> src_identities,
-      std::optional<at::Tensor> src_runtime_meta,
-      at::Tensor src_count) {
-    indices = std::move(src_indices);
-    weights = std::move(src_weights);
-    identities = std::move(src_identities);
-    runtime_meta = std::move(src_runtime_meta);
-    count = std::move(src_count);
-  }
+  StreamQueueItem(at::Tensor src_indices, at::Tensor src_weights,
+                  std::optional<at::Tensor> src_identities,
+                  std::optional<at::Tensor> src_runtime_meta,
+                  at::Tensor src_count)
+      : indices(std::move(src_indices)), count(std::move(src_count)),
+        identities(std::move(src_identities)),
+        runtime_meta(std::move(src_runtime_meta)),
+        weights(std::move(src_weights)) {}
 };
 
 class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
