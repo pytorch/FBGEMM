@@ -26,7 +26,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 template <typename input_t>
-Tensor& _float_to_fused8bitrowwise_cpu_out_t(
+static Tensor& _float_to_fused8bitrowwise_cpu_out_t(
     Tensor& output,
     const Tensor& input) {
   TENSOR_ON_CPU(input);
@@ -56,7 +56,7 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
 }
 
 template <typename output_t, bool is_uint16_t_of_type_bf16 = false>
-Tensor& _fused8bitrowwise_to_float_cpu_out_t(
+static Tensor& _fused8bitrowwise_to_float_cpu_out_t(
     Tensor& output,
     const Tensor& input,
     const bool scale_bias_last,
@@ -100,7 +100,7 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
 }
 
 template <typename input_t>
-Tensor _float_to_fusednbitrowwise_cpu(
+static Tensor _float_to_fusednbitrowwise_cpu(
     const Tensor& input,
     const int64_t bit_rate,
     const input_t* rowwise_min_max = nullptr) {
@@ -136,7 +136,7 @@ Tensor _float_to_fusednbitrowwise_cpu(
 }
 
 template <typename output_t>
-Tensor _fusednbitrowwise_to_float_cpu(
+static Tensor _fusednbitrowwise_to_float_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
   TENSOR_ON_CPU(input);
@@ -173,7 +173,7 @@ Tensor _fusednbitrowwise_to_float_cpu(
 
 // Both float16 and bfloat16 are of same type uint16_t
 template <typename output_t>
-Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
+static Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
   TENSOR_ON_CPU(input);
@@ -264,7 +264,9 @@ Tensor& _float_to_fused8bitrowwise_cpu_out(
   return _float_to_fused8bitrowwise_cpu_out_t<float>(output, input);
 }
 
-Tensor& _half_to_fused8bitrowwise_cpu_out(Tensor& output, const Tensor& input) {
+static Tensor& _half_to_fused8bitrowwise_cpu_out(
+    Tensor& output,
+    const Tensor& input) {
   return _float_to_fused8bitrowwise_cpu_out_t<fbgemm::float16>(output, input);
 }
 
@@ -395,7 +397,7 @@ Tensor fusednbitrowwise_to_float_cpu(
 /// float32. The input tensor should have torch.quint4x2 or torch.quint2x4 dtype
 /// and QuantizedCPU backend. This operator is only recommended for testing
 /// purpose because its kernel is reference implementation and not optimized.
-Tensor fusednbitrowwise_sbfront_to_float_cpu(
+static Tensor fusednbitrowwise_sbfront_to_float_cpu(
     const Tensor& input,
     const int64_t bit_rate,
     const int64_t output_dtype) {
@@ -512,7 +514,7 @@ static Tensor float_or_half_to_fusednbitrowwise_cpu_with_rowwise_min_max(
 
 /// @ingroup quantize-data-cpu
 ///
-void FloatToFP8Quantized_ref(
+static void FloatToFP8Quantized_ref(
     const float* const input,
     const size_t nrows,
     const size_t ncols,
@@ -533,7 +535,7 @@ void FloatToFP8Quantized_ref(
 
 /// @ingroup quantize-data-cpu
 ///
-void FP8QuantizedToFloat_ref(
+static void FP8QuantizedToFloat_ref(
     const uint8_t* const input,
     const size_t nrows,
     const size_t ncols,

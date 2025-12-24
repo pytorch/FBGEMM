@@ -263,7 +263,7 @@ std::tuple<Tensor, Tensor> create_zch_buffer_cpu(
   return {identity, metadata};
 }
 
-void zero_collision_hash_cpu_out(
+static void zero_collision_hash_cpu_out(
     Tensor& output,
     const Tensor& input,
     const Tensor& identities,
