@@ -1155,6 +1155,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._max_counter_update_freq: int = -1
         # Extract parameters from CounterBasedRegularizationDefinition or CowClipDefinition
         # which are passed as entries for OptimizerArgs
+        self._used_rowwise_adagrad_with_adagradw: bool = False
         if self._used_rowwise_adagrad_with_counter:
             if self.weight_decay_mode == WeightDecayMode.COUNTER:
                 self._max_counter_update_freq = (
@@ -1164,6 +1165,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     counter_based_regularization.counter_weight_decay_mode
                 )
                 counter_halflife = counter_based_regularization.counter_halflife
+                self._used_rowwise_adagrad_with_adagradw = (
+                    opt_arg_weight_decay_mode == CounterWeightDecayMode.ADAGRADW
+                )
             else:
                 opt_arg_weight_decay_mode = (
                     cowclip_regularization.counter_weight_decay_mode
@@ -1396,6 +1400,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 )
                 or self._used_rowwise_adagrad_with_global_weight_decay
+                or self._used_rowwise_adagrad_with_adagradw
             ):
                 self.register_buffer(
                     "iter",
@@ -3102,10 +3107,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                             "row_counter": states[2],
                             "iter": self.iter,
                         }
-                        if self.optimizer_args.regularization_mode
-                        == WeightDecayMode.COUNTER.value
-                        and self.optimizer_args.weight_decay_mode
-                        == CounterWeightDecayMode.ADAGRADW.value
+                        if self._used_rowwise_adagrad_with_adagradw
                         else {
                             "sum": states[0],
                             "prev_iter": states[1],
