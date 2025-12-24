@@ -88,7 +88,7 @@ at::Tensor permute_duplicate_pooled_embs_cpu(
 }
 
 ///@ingroup permute-pooled-embs-cpu
-at::Tensor permute_pooled_embs_auto_grad(
+static at::Tensor permute_pooled_embs_auto_grad(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -104,7 +104,7 @@ at::Tensor permute_pooled_embs_auto_grad(
 }
 
 ///@ingroup permute-pooled-embs-cpu
-at::Tensor permute_pooled_embs_auto_grad_cpu(
+static at::Tensor permute_pooled_embs_auto_grad_cpu(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -120,7 +120,7 @@ at::Tensor permute_pooled_embs_auto_grad_cpu(
 }
 
 ///@ingroup permute-duplicate-pooled-embs-cpu
-at::Tensor permute_duplicate_pooled_embs_auto_grad_cpu(
+static at::Tensor permute_duplicate_pooled_embs_auto_grad_cpu(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -135,7 +135,7 @@ at::Tensor permute_duplicate_pooled_embs_auto_grad_cpu(
       true);
 }
 
-at::Tensor permute_pooled_embs_meta(
+static at::Tensor permute_pooled_embs_meta(
     const Tensor& pooled_embs,
     const Tensor& /* offset_dim_list */,
     const Tensor& /* permute_list */,
@@ -144,7 +144,7 @@ at::Tensor permute_pooled_embs_meta(
   return torch::empty_like(pooled_embs);
 }
 
-at::Tensor permute_pooled_embs_auto_grad_meta(
+static at::Tensor permute_pooled_embs_auto_grad_meta(
     const Tensor& pooled_embs,
     const Tensor& /* offset_dim_list */,
     const Tensor& /* permute_list */,

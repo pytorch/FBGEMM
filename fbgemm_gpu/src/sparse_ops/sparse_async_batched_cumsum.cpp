@@ -25,7 +25,8 @@ at::Tensor asynchronous_batched_complete_cumsum_cpu(const at::Tensor& t_in) {
   return output;
 }
 
-at::Tensor asynchronous_batched_complete_cumsum_meta(const at::Tensor& values) {
+static at::Tensor asynchronous_batched_complete_cumsum_meta(
+    const at::Tensor& values) {
   auto B = values.sym_size(0);
   auto len = values.sym_size(1);
   auto output = at::native::empty_meta_symint(

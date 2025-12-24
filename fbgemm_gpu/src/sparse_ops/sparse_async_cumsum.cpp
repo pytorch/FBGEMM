@@ -22,7 +22,7 @@ namespace fbgemm_gpu {
 // 1D exclusive scan: output[i] = input[i-1] + input[i-2] + input[i-3]
 // Used as a helper to several functions below.
 template <class T, class U>
-U exclusive_scan_ptrs_cpu(
+static U exclusive_scan_ptrs_cpu(
     const int64_t N,
     const T* const input,
     U* const output) {
