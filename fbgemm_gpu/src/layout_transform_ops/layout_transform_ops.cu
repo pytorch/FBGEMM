@@ -154,8 +154,8 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
             at::cuda::getCurrentCUDAStream(),
             dim_sum_per_rank.data_ptr<int64_t>(),
             cumsum_dim_sum_per_rank.data_ptr<int64_t>(),
-            grad_output.data_ptr<scalar_t>(),
-            sharded_grad_output.data_ptr<scalar_t>(),
+            grad_output.mutable_data_ptr<scalar_t>(),
+            sharded_grad_output.mutable_data_ptr<scalar_t>(),
             dim_num,
             B_local,
             dim_sum);

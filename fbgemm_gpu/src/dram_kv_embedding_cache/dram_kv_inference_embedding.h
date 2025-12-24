@@ -784,8 +784,8 @@ class DramKVInferenceEmbedding
           // of
           // entries.
           auto conv_count = count.scalar_type() == at::ScalarType::Long
-              ? *(count.data_ptr<int64_t>())
-              : *(count.data_ptr<int32_t>());
+              ? *(count.const_data_ptr<int64_t>())
+              : *(count.const_data_ptr<int32_t>());
           auto indices_data_ptr = indices.data_ptr<index_t>();
           // There could be negative indices, which we should skipp
           for (int i = 0; i < conv_count; i++) {
