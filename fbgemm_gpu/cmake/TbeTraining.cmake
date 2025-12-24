@@ -295,6 +295,7 @@ gpu_cpp_library(
   NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
+    fbgemm_gpu_config
     fbgemm_gpu_sparse_async_cumsum
     fbgemm_gpu_tbe_utils
   DESTINATION
