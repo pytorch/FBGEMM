@@ -63,6 +63,9 @@ class FeatureGateName(Enum):
     # Enable TBE input parameters extraction
     TBE_REPORT_INPUT_PARAMS = auto()
 
+    # Enable tuned max segment length per CTA for B200
+    TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200 = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
