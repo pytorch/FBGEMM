@@ -92,11 +92,11 @@ class LookupFunctionBatchedUnaryEmbeddingOp
     // the batched_unary_embeddings_backward_cuda assumes contiguous inputs.
     // may cause illegal memory access when it is not
     auto grad_output = grad_outputs[0];
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
+    if (reinterpret_cast<uint64_t>(grad_output.mutable_data_ptr()) % 16 != 0 ||
         grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
       grad_output = grad_output.contiguous();
     }
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+    if (reinterpret_cast<uint64_t>(grad_output.mutable_data_ptr()) % 16 != 0) {
       grad_output = at::empty_like(grad_output).copy_(grad_output);
     }
     auto grad_weight = batched_unary_embeddings_backward_cuda(
@@ -346,7 +346,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
 
     // Store args
     input_ptrs[i] = reinterpret_cast<int64_t>(input_contigs[i]->data_ptr());
-    output_ptrs[i] = reinterpret_cast<int64_t>(output.data_ptr());
+    output_ptrs[i] = reinterpret_cast<int64_t>(output.mutable_data_ptr());
     indices_ptrs[i] = reinterpret_cast<int64_t>(index_contigs[i]->data_ptr());
     warp_offsets_group[i] = warp_offset;
     num_cols_group[i] = num_cols_;

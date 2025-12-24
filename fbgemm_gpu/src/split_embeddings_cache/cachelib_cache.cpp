@@ -116,7 +116,7 @@ folly::Optional<void*> CacheLibCache::get(const at::Tensor& key_tensor) {
   folly::Optional<void*> res;
   FBGEMM_DISPATCH_INTEGRAL_TYPES(key_tensor.scalar_type(), "get", [&] {
     using index_t = scalar_t;
-    auto key = *(key_tensor.data_ptr<index_t>());
+    auto key = *(key_tensor.const_data_ptr<index_t>());
     auto key_str = folly::StringPiece(
         reinterpret_cast<const char*>(&key), sizeof(index_t));
     auto item = cache_->find(key_str);

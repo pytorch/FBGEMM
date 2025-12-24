@@ -67,7 +67,7 @@ void split_embedding_backward_exact_cpu_kernel(
     const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
     {% endif %}
     {{ args.split_cpu_kernel_args | join(", ") }}) {
-  const grad_t* grad_output_data = grad_output.data_ptr<grad_t>();
+  const grad_t* grad_output_data = grad_output.const_data_ptr<grad_t>();
   auto host_weights_data = host_weights.accessor<scalar_t, 1>();
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
 
@@ -252,12 +252,12 @@ void split_embedding_nobag_backward_exact_cpu_kernel(
     const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
     {% endif %}
     {{ args.split_cpu_kernel_args | join(", ") }}) {
-      const grad_t* grad_output_data = grad_output.data_ptr<grad_t>();
+      const grad_t* grad_output_data = grad_output.const_data_ptr<grad_t>();
       auto host_weights_data = host_weights.accessor<scalar_t, 1>();
       const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
-      const auto indices_data = indices.data_ptr<index_t>();
-      const auto offsets_data = offsets.data_ptr<index_t>();
-      const auto weights_offsets_data = weights_offsets.data_ptr<int64_t>();
+      const auto indices_data = indices.const_data_ptr<index_t>();
+      const auto offsets_data = offsets.const_data_ptr<index_t>();
+      const auto weights_offsets_data = weights_offsets.const_data_ptr<int64_t>();
      
       typedef std::unordered_map<int64_t, std::vector<at::acc_type<grad_t, true>>> tb_grad_buffer_map_t;
       typedef std::unordered_map<int64_t, int64_t> tb_fb_map_t;

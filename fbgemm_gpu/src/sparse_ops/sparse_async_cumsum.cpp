@@ -73,7 +73,7 @@ Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
         scalar_t cumsum = 0;
         const auto* input_ptr = t_in_contig->data_ptr<scalar_t>();
         const auto N = t_in_contig->numel();
-        auto* output_ptr = output.data_ptr<scalar_t>();
+        auto* output_ptr = output.mutable_data_ptr<scalar_t>();
 
         for (const auto i : c10::irange(N)) {
           cumsum += input_ptr[i];

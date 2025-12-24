@@ -95,7 +95,7 @@ Tensor get_source_mask_cuda(
             num_sources.data_ptr<index_t>(),
             num_targets.data_ptr<index_t>(),
             offsets.data_ptr<index_t>(),
-            output.data_ptr<bool>(),
+            output.mutable_data_ptr<bool>(),
             static_cast<index_t>(batch_size));
       }));
 
