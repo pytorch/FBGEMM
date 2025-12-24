@@ -44,7 +44,7 @@ DLL_PUBLIC void compute_frequency_sequence(
             0,
             at::cuda::getCurrentCUDAStream(),
             input.data_ptr<index_t>(),
-            output.data_ptr<int64_t>(),
+            output.mutable_data_ptr<int64_t>(),
             start_input,
             input.numel());
       });

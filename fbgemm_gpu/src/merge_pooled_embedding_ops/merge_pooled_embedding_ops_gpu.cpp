@@ -195,7 +195,7 @@ void all_to_one(
       get_intermediate_node(fbgemm_gpu::get_nvlink_matrix());
   for (const auto i : c10::irange(input_tensors.size())) {
     const auto& src = input_tensors.at(i);
-    Node src_device_id = src.get_device();
+    auto src_device_id = src.get_device();
     auto intermediate_node =
         intermediate_nodes(src_device_id, target_device_index);
     if (intermediate_node != -1) {

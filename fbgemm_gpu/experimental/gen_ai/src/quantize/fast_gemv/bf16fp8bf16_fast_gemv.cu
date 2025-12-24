@@ -91,7 +91,7 @@ bf16fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, at::Tensor w_scale) {
       k,
       m,
       n,
-      reinterpret_cast<float const*>(w_scale.data_ptr()),
+      reinterpret_cast<float const*>(w_scale.const_data_ptr()),
       num_per_thread);
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();

@@ -270,11 +270,11 @@ struct GenRunner {
 
     typename Operation::Arguments arguments{
         problem_shape,
-        static_cast<const int*>(seqlen_kv.data_ptr()),
-        static_cast<const int*>(batch_idx ? batch_idx.value().data_ptr() : nullptr),
+        static_cast<const int*>(seqlen_kv.const_data_ptr()),
+        static_cast<const int*>(batch_idx ? batch_idx.value().const_data_ptr() : nullptr),
         static_cast<int>(split_k_size),
         static_cast<int>(window_size),
-        static_cast<const Element*>(q.data_ptr()),
+        static_cast<const Element*>(q.const_data_ptr()),
         stride_q,
         static_cast<const Element*>(nullptr),  // ptr_new_k
         stride_new_k,

@@ -35,9 +35,9 @@ at::Tensor sgemm_float_cuda(
   const auto ldb = N;
   const auto ldc = N;
 
-  const auto* A = TA.data_ptr<float>();
-  const auto* B = TB.data_ptr<float>();
-  const auto* C = TC.data_ptr<float>();
+  const auto* A = TA.const_data_ptr<float>();
+  const auto* B = TB.const_data_ptr<float>();
+  const auto* C = TC.const_data_ptr<float>();
 
   const auto alpha = static_cast<float>(alpha_);
   const auto beta = static_cast<float>(beta_);

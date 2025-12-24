@@ -145,11 +145,11 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
     AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "split_embedding_backward_approx_cpu_kernel_1", [&] {
 
       auto grad_stride = grad_output.size(1);
-      const float* grad_output_data = grad_output.data_ptr<float>();
+      const float* grad_output_data = grad_output.const_data_ptr<float>();
       float* host_weights_data = host_weights.data_ptr<float>();
       
-      const auto* indices_data = indices.data_ptr<index_t>();
-      const auto* offsets_data = offsets.data_ptr<index_t>();
+      const auto* indices_data = indices.const_data_ptr<index_t>();
+      const auto* offsets_data = offsets.const_data_ptr<index_t>();
 
       const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
       float* momentum1_data = momentum1_host.data_ptr<float>();
