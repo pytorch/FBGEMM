@@ -987,11 +987,25 @@ Tensor {{ embedding_cuda_op }}(
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
                 const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
+
                 {% if is_rocm %}
                     const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
                 {% else %}
-                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 1024;
+                    //optimize for B200
+                    const auto device_properties = at::cuda::getCurrentDeviceProperties();
+                    int default_segment_length = 1024;
+                    const bool b200_feature_enabled = (device_properties->major >= 10) && fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200);
+                    if (b200_feature_enabled) {
+                      default_segment_length = 4096;
+                    }
+                    // Debug logging - remove after verification
+                    TORCH_WARN_ONCE("TBE B200 optimization: device_major=", device_properties->major,
+                                    ", feature_enabled=", b200_feature_enabled,
+                                    ", segment_length=", default_segment_length);
+                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : default_segment_length;
+
                 {%- endif %}
+
                 Tensor long_run_id_to_really_long_run_ids;
                 if (use_deterministic_algorithms) {
                     long_run_id_to_really_long_run_ids =
