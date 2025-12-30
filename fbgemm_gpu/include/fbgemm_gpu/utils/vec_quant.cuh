@@ -235,7 +235,7 @@ DEVICE_INLINE T shfl_xor(
     const T val,
     int laneMask,
     int width = kThreadsPerWarp) {
-#if defined(__HIP_PLATFORM_AMD__) || CUDA_VERSION < 9000
+#if defined(__HIP_PLATFORM_AMD__)
   return __shfl_xor(val, laneMask, width);
 #else
   return __shfl_xor_sync(shfl_sync_mask, val, laneMask, width);

@@ -36,7 +36,7 @@ inline int get_device_sm_cnt_() {
 
 namespace fbgemm_gpu {
 
-#if !defined(USE_ROCM) && defined(CUDA_VERSION) && CUDA_VERSION >= 9000
+#if !defined(USE_ROCM) && defined(CUDA_VERSION)
 #define FBGEMM_USE_SUBWARP_SHUFFLE
 #endif
 
@@ -88,7 +88,7 @@ DEVICE_INLINE T shfl_xor(
     int laneMask,
     int width = kWarpSize,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-#if defined(USE_ROCM) || CUDA_VERSION < 9000
+#if defined(USE_ROCM)
   return __shfl_xor(val, laneMask, width);
 #else
   return __shfl_xor_sync(shfl_sync_mask, val, laneMask, width);
@@ -101,7 +101,7 @@ DEVICE_INLINE T shfl_sync(
     int srcLane = 0,
     int width = kWarpSize,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-#if defined(USE_ROCM) || CUDA_VERSION < 9000
+#if defined(USE_ROCM)
   return __shfl(val, srcLane, width);
 #else
   return __shfl_sync(shfl_sync_mask, val, srcLane, width);
@@ -114,21 +114,21 @@ DEVICE_INLINE T shfl_down_sync(
     unsigned delta,
     int width = kWarpSize,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-#if defined(USE_ROCM) || CUDA_VERSION < 9000
+#if defined(USE_ROCM)
   return __shfl_down(val, delta, width);
 #else
   return __shfl_down_sync(shfl_sync_mask, val, delta, width);
 #endif
 }
 
-#if defined(USE_ROCM) || CUDA_VERSION < 9000
+#if defined(USE_ROCM)
 DEVICE_INLINE uint64_t ballot_sync(
 #else
 DEVICE_INLINE uint32_t ballot_sync(
 #endif
     int predicate,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-#if defined(USE_ROCM) || CUDA_VERSION < 9000
+#if defined(USE_ROCM)
   return __ballot(predicate);
 #else
   return __ballot_sync(shfl_sync_mask, predicate);

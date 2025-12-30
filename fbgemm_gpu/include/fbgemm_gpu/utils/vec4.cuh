@@ -97,15 +97,9 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     acc.w = b.y;
 #else
     Half4 out;
-#if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
         : "l"(p));
-#else
-    asm("ld.global.v2.u32 {%0, %1}, [%2];"
-        : "=r"(out.a.x), "=r"(out.b.x)
-        : "l"(p));
-#endif
 
     float2 a = __half22float2(out.a);
     float2 b = __half22float2(out.b);
@@ -287,15 +281,9 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     acc.w = b.y;
 #else
     Half4 out;
-#if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
         : "l"(p));
-#else
-    asm("ld.global.v2.u32 {%0, %1}, [%2];"
-        : "=r"(out.a.x), "=r"(out.b.x)
-        : "l"(p));
-#endif
 
     float2 a = __half22float2(out.a);
     float2 b = __half22float2(out.b);
@@ -360,22 +348,12 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     dst[3] = src[3];
 #else
     Half4 out;
-#if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
         : "l"(src));
-#else
-    asm("ld.global.v2.u32 {%0, %1}, [%2];"
-        : "=r"(out.a.x), "=r"(out.b.x)
-        : "l"(src));
-#endif
-#if CUDA_VERSION >= 9000
     asm("st.v2.u32 [%0], {%1, %2};"
         :
         : "l"(dst), "r"(__HALF2_TO_UI(out.a)), "r"(__HALF2_TO_UI(out.b)));
-#else
-    asm("st.v2.u32 [%0], {%1, %2};" : : "l"(dst), "r"(out.a.x), "r"(out.b.x));
-#endif
 #endif
   }
 
@@ -488,15 +466,9 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     acc.w = b.y;
 #else
     Half4 out;
-#if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
         : "l"(p));
-#else
-    asm("ld.global.v2.u32 {%0, %1}, [%2];"
-        : "=r"(out.a.x), "=r"(out.b.x)
-        : "l"(p));
-#endif
 
     float2 a = __half22float2(out.a);
     float2 b = __half22float2(out.b);
