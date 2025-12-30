@@ -415,6 +415,7 @@ at::Tensor f4f4bf16_grouped_impl(
         wq_ptr,
         reinterpret_cast<ElementScale*>(x_scale.data_ptr()),
         x_scale_ptr,
+        x_scale.numel(),
         reinterpret_cast<ElementScale*>(w_scale.data_ptr()),
         w_scale_ptr,
         reinterpret_cast<ElementC*>(output.data_ptr()),

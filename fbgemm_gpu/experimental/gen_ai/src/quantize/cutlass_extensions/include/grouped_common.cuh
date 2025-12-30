@@ -44,6 +44,7 @@ __global__ void set_grouped_gemm_args_kernel(
     const ElementB** wq_ptr,
     ScaleDtype* x_scale,
     const ScaleDtype** x_scale_ptr,
+    int32_t x_scale_size,
     ScaleDtype* w_scale,
     const ScaleDtype** w_scale_ptr,
     ElementC* output,
@@ -111,10 +112,9 @@ __global__ void set_grouped_gemm_args_kernel(
           curr_group_end_offset - prev_group_end_offset;
 
       // Validate group offsets.
-      const int align = 128 / cutlass::sizeof_bits<ElementA>::value;
       CUDA_KERNEL_ASSERT(
-          K_group_size % align == 0 &&
-          "for 2d-2d grouped gemm, group sizes along K dim must be non-negative multiple of 16\n");
+          K_group_size % scale_factor_block_size == 0 &&
+          "for 2d-2d grouped gemm, group sizes along K dim must be non-negative multiple of 32 (mxfp8) or 16 (nvfp4)\n");
       CUDA_KERNEL_ASSERT(
           curr_group_end_offset <= K &&
           "for 2d-2d grouped gemm, group end offsets must be non-negative and must be <= K\n");
@@ -126,6 +126,9 @@ __global__ void set_grouped_gemm_args_kernel(
         xq_offset = prev_group_end_offset / 2;
       } else {
         xq_offset = prev_group_end_offset;
+        CUDA_KERNEL_ASSERT(
+            xq_offset + K_group_size <= (M * K) &&
+            "for 2d-2d grouped gemm, sum of group sizes along K dim must be <= M * K\n");
       }
 
       // WQ is shape (N,K) with strides (K, 1) and group offsets are along
@@ -154,6 +157,14 @@ __global__ void set_grouped_gemm_args_kernel(
         x_scale_offset += M_rounded * scale_cols_for_group_i_padded;
         w_scale_offset += N_rounded * scale_cols_for_group_i_padded;
       }
+
+      // Validate scale offsets are within bounds
+      int scale_cols_padded_curr_group =
+          round_up(K_group_size / scale_factor_block_size, 4);
+      CUDA_KERNEL_ASSERT(
+          x_scale_offset + M_rounded * scale_cols_padded_curr_group <=
+              x_scale_size &&
+          "for 2d-2d grouped gemm, sum of scale group sizes along K dim, each padded to nearest multiple of 4, must be <= x_scale_size\n");
 
       // Only write kernel args if this group is non-empty
       if (K_group_size <= 0) {
