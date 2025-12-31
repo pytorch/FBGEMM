@@ -291,6 +291,7 @@ at::Tensor mx8mx8bf16_grouped_impl(
       wq_ptr,
       reinterpret_cast<ScaleDtype*>(x_scale.data_ptr()),
       x_scale_ptr,
+      x_scale.numel(),
       reinterpret_cast<ScaleDtype*>(w_scale.data_ptr()),
       w_scale_ptr,
       reinterpret_cast<ElementC*>(output.data_ptr()),
