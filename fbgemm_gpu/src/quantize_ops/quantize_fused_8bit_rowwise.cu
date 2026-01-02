@@ -279,7 +279,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
               input.data_ptr<scalar_t>(),
               nrows,
               ncols,
-              output.data_ptr<std::uint8_t>());
+              output.mutable_data_ptr<std::uint8_t>());
         });
   } else {
     // range_tensor is used to store the range for each embedding row.
@@ -317,7 +317,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
                 input.data_ptr<scalar_t>(),
                 nrows,
                 ncols,
-                output.data_ptr<std::uint8_t>(),
+                output.mutable_data_ptr<std::uint8_t>(),
                 range_tensor.data_ptr<float>());
           });
     }
@@ -341,7 +341,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
                 range_tensor.data_ptr<float>(),
                 nrows,
                 ncols,
-                output.data_ptr<std::uint8_t>());
+                output.mutable_data_ptr<std::uint8_t>());
           });
     }
   }
@@ -464,7 +464,7 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
       input.data_ptr<std::uint8_t>(),                             \
       nrows,                                                      \
       ncols,                                                      \
-      output.data_ptr<scalar_t>())
+      output.mutable_data_ptr<scalar_t>())
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {

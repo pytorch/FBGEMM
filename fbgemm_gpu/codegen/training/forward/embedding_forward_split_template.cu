@@ -846,7 +846,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               reinterpret_cast<uint32_t*>(D_offsets.data_ptr<int32_t>()),
               weights_offsets.data_ptr<int64_t>(),
               lxu_cache_locations.data_ptr<int32_t>(),
-              output.data_ptr<output_t>()
+              output.mutable_data_ptr<output_t>()
             );
         }
         {%- endif %} // if has_experimental

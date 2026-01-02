@@ -248,7 +248,7 @@ Tensor _float_to_paddedFP8rowwise_gpu_t(
             input.data_ptr<scalar_t>(),
             nrows,
             ncols,
-            output.data_ptr<std::uint8_t>(),
+            output.mutable_data_ptr<std::uint8_t>(),
             forward,
             row_dim);
       });
@@ -360,7 +360,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
               threads_per_block,
               0,
               at::cuda::getCurrentCUDAStream(),
-              output.data_ptr<scalar_t>(),
+              output.mutable_data_ptr<scalar_t>(),
               input.data_ptr<std::uint8_t>(),
               output_columns,
               row_dim,
@@ -383,7 +383,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
               nrows,
               ncols,
               output_columns,
-              output.data_ptr<scalar_t>(),
+              output.mutable_data_ptr<scalar_t>(),
               forward,
               row_dim,
               offsets.data_ptr<int>());
