@@ -37,7 +37,7 @@ Tensor tensor_from_vec(const std::vector<int64_t>& vec) {
 std::vector<int64_t> vecref_from_tensor(const Tensor& t) {
   TORCH_CHECK(t.is_contiguous());
   const auto numel = static_cast<size_t>(t.numel());
-  const auto* ptr = t.data_ptr<int64_t>();
+  const auto* ptr = t.const_data_ptr<int64_t>();
   return std::vector(ptr, ptr + numel);
 };
 

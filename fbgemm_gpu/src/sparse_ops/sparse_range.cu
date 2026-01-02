@@ -160,7 +160,7 @@ DLL_PUBLIC Tensor lengths_range_cuda(
             num_seq,
             output_size,
             offsets.data_ptr<index_t>(),
-            output.data_ptr<index_t>());
+            output.mutable_data_ptr<index_t>());
       });
 
   return output;

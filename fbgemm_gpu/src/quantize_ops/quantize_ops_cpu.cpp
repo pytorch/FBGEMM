@@ -50,7 +50,7 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
       input.data_ptr()); // input.data_ptr<input_t>(); -> Yields
                          // unresolved data_ptr symbol.
   fbgemm::FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<input_t>(
-      input_data, nrows, ncols, output.data_ptr<uint8_t>());
+      input_data, nrows, ncols, output.mutable_data_ptr<uint8_t>());
 
   return output;
 }
@@ -84,8 +84,8 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
   at::native::resize_(output, output_dims, std::nullopt);
 
   auto output_data = static_cast<output_t*>(
-      output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
-                          // unresolved data_ptr symbol.
+      output.mutable_data_ptr()); // output.mutable_data_ptr<output_t>(); ->
+                                  // Yields unresolved data_ptr symbol.
   fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<
       output_t,
       is_uint16_t_of_type_bf16>(
@@ -129,7 +129,7 @@ Tensor _float_to_fusednbitrowwise_cpu(
       input_data,
       nrows,
       ncols,
-      output.data_ptr<uint8_t>(),
+      output.mutable_data_ptr<uint8_t>(),
       rowwise_min_max);
 
   return output;
@@ -162,8 +162,8 @@ Tensor _fusednbitrowwise_to_float_cpu(
   }
 
   auto output_data = static_cast<output_t*>(
-      output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
-                          // unresolved data_ptr symbol.
+      output.mutable_data_ptr()); // output.mutable_data_ptr<output_t>(); ->
+                                  // Yields unresolved data_ptr symbol.
 
   fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<output_t>(
       bit_rate, input.data_ptr<uint8_t>(), nrows, ncols, output_data);
@@ -209,8 +209,8 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
   using output_ty = std::
       conditional_t<std::is_same_v<output_t, float>, float, fbgemm::float16>;
   output_ty* output_data = static_cast<output_ty*>(
-      output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
-                          // unresolved data_ptr symbol.
+      output.mutable_data_ptr()); // output.mutable_data_ptr<output_t>(); ->
+                                  // Yields unresolved data_ptr symbol.
 
   constexpr bool is_uint16_t_of_type_bf16 =
       std::is_same_v<output_t, at::BFloat16>;
@@ -569,7 +569,7 @@ at::Tensor _float_to_hfp8_cpu(
       input.data_ptr<float>(),
       nrows,
       ncols,
-      output.data_ptr<uint8_t>(),
+      output.mutable_data_ptr<uint8_t>(),
       ebits,
       exponent_bias,
       max_pos);
@@ -596,7 +596,7 @@ at::Tensor _hfp8_to_float_cpu(
       input.data_ptr<uint8_t>(),
       nrows,
       ncols,
-      output.data_ptr<float>(),
+      output.mutable_data_ptr<float>(),
       ebits,
       exponent_bias);
 
