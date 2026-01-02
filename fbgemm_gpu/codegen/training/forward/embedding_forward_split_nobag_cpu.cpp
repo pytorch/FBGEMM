@@ -43,10 +43,10 @@ void split_embedding_nobag_codegen_forward_cpu_kernel(
 
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
-  const auto indices_data = indices.data_ptr<index_t>();
-  const auto offsets_data = offsets.data_ptr<offset_t>();
-  const auto weights_data = weights.data_ptr<weights_t>();
-  auto output_data = output.data_ptr<output_t>();
+  const auto indices_data = indices.const_data_ptr<index_t>();
+  const auto offsets_data = offsets.const_data_ptr<offset_t>();
+  const auto weights_data = weights.const_data_ptr<weights_t>();
+  auto output_data = output.mutable_data_ptr<output_t>();
 
   int64_t T = weights_offsets.size(0);
   int64_t B = (offsets.size(0) - 1) / T;

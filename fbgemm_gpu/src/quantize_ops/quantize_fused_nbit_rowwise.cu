@@ -159,7 +159,7 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
             input.data_ptr<scalar_t>(),
             nrows,
             ncols,
-            output.data_ptr<std::uint8_t>());
+            output.mutable_data_ptr<std::uint8_t>());
       });
 
   return output;
@@ -278,7 +278,7 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
       input.data_ptr<std::uint8_t>(),                                      \
       nrows,                                                               \
       ncols,                                                               \
-      output.data_ptr<scalar_t>())
+      output.mutable_data_ptr<scalar_t>())
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {

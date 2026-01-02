@@ -381,18 +381,18 @@ void _block_bucketize_sparse_features_cpu_kernel(
   const int32_t B = lengths_size / T;
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
-  const offset_t* lengths_data = lengths.data_ptr<offset_t>();
+  const offset_t* lengths_data = lengths.const_data_ptr<offset_t>();
   offset_t* offsets_data = offsets.data_ptr<offset_t>();
-  const index_t* indices_data = indices.data_ptr<index_t>();
+  const index_t* indices_data = indices.const_data_ptr<index_t>();
   scalar_t* weights_data = nullptr;
   scalar_t* new_weights_data = nullptr;
   index_t* new_pos_data = nullptr;
   index_t* unbucketize_permute_data = nullptr;
   index_t* bag_mapping_data = nullptr;
-  offset_t* const new_lengths_data = new_lengths.data_ptr<offset_t>();
-  offset_t* const new_offsets_data = new_offsets.data_ptr<offset_t>();
-  index_t* const new_indices_data = new_indices.data_ptr<index_t>();
-  const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
+  offset_t* const new_lengths_data = new_lengths.mutable_data_ptr<offset_t>();
+  offset_t* const new_offsets_data = new_offsets.mutable_data_ptr<offset_t>();
+  index_t* const new_indices_data = new_indices.mutable_data_ptr<index_t>();
+  const index_t* const block_sizes_data = block_sizes.const_data_ptr<index_t>();
   offset_t* batch_sizes_data = nullptr;
   const auto variable_batch_size = batch_size_per_feature.has_value();
   const auto variable_bucket_sizes =
@@ -600,7 +600,7 @@ at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
   FloatToBFloat16Quantized_ref(
       input.data_ptr<float>(),
       input.numel(),
-      reinterpret_cast<uint16_t*>(output.data_ptr<at::Half>()));
+      reinterpret_cast<uint16_t*>(output.mutable_data_ptr<at::Half>()));
 
   return output;
 }
@@ -616,7 +616,7 @@ at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   BFloat16QuantizedToFloat_ref(
       reinterpret_cast<at::BFloat16*>(input.data_ptr<at::Half>()),
       input.numel(),
-      output.data_ptr<float>());
+      output.mutable_data_ptr<float>());
 
   return output;
 }
@@ -648,16 +648,16 @@ void _bucketize_sparse_features_cpu(
   const auto new_lengths_size = lengths_size * my_size;
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
-  const index_t* lengths_data = lengths.data_ptr<index_t>();
+  const index_t* lengths_data = lengths.const_data_ptr<index_t>();
   index_t* offsets_data = offsets.data_ptr<index_t>();
-  const index_t* indices_data = indices.data_ptr<index_t>();
+  const index_t* indices_data = indices.const_data_ptr<index_t>();
   scalar_t* weights_data = nullptr;
   scalar_t* new_weights_data = nullptr;
   index_t* new_pos_data = nullptr;
 
-  index_t* const new_lengths_data = new_lengths.data_ptr<index_t>();
-  index_t* const new_offsets_data = new_offsets.data_ptr<index_t>();
-  index_t* const new_indices_data = new_indices.data_ptr<index_t>();
+  index_t* const new_lengths_data = new_lengths.mutable_data_ptr<index_t>();
+  index_t* const new_offsets_data = new_offsets.mutable_data_ptr<index_t>();
+  index_t* const new_indices_data = new_indices.mutable_data_ptr<index_t>();
 
   if (has_weight) {
     weights_data = weights.value().data_ptr<scalar_t>();
@@ -1400,18 +1400,18 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
   const int32_t B = lengths_size / T;
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
-  const offset_t* lengths_data = lengths.data_ptr<offset_t>();
+  const offset_t* lengths_data = lengths.const_data_ptr<offset_t>();
   offset_t* offsets_data = offsets.data_ptr<offset_t>();
-  const index_t* indices_data = indices.data_ptr<index_t>();
+  const index_t* indices_data = indices.const_data_ptr<index_t>();
   scalar_t* weights_data = weights.data_ptr<scalar_t>();
   scalar_t* new_weights_data = new_weights.data_ptr<scalar_t>();
   index_t* new_pos_data = nullptr;
   index_t* unbucketize_permute_data = nullptr;
   index_t* bag_mapping_data = nullptr;
-  offset_t* const new_lengths_data = new_lengths.data_ptr<offset_t>();
-  offset_t* const new_offsets_data = new_offsets.data_ptr<offset_t>();
-  index_t* const new_indices_data = new_indices.data_ptr<index_t>();
-  const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
+  offset_t* const new_lengths_data = new_lengths.mutable_data_ptr<offset_t>();
+  offset_t* const new_offsets_data = new_offsets.mutable_data_ptr<offset_t>();
+  index_t* const new_indices_data = new_indices.mutable_data_ptr<index_t>();
+  const index_t* const block_sizes_data = block_sizes.const_data_ptr<index_t>();
   offset_t* batch_sizes_data = nullptr;
   const auto variable_batch_size = batch_size_per_feature.has_value();
   const auto variable_bucket_sizes =
@@ -1804,9 +1804,9 @@ void reorder_batched_ad_lengths_(
     output_batch_size = max_batch_size;
   }
 
-  const auto* batch_offsets_data = batch_offsets.data_ptr<index_t>();
-  const auto* cat_ad_lengths_data = cat_ad_lengths.data_ptr<scalar_t>();
-  auto* output_data = output.data_ptr<scalar_t>();
+  const auto* batch_offsets_data = batch_offsets.const_data_ptr<index_t>();
+  const auto* cat_ad_lengths_data = cat_ad_lengths.const_data_ptr<scalar_t>();
+  auto* output_data = output.mutable_data_ptr<scalar_t>();
   at::parallel_for(
       0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         auto b_begin = tb_begin / nT;
@@ -1918,12 +1918,12 @@ void reorder_batched_ad_indices_cpu_(
   const int64_t nB = batch_offsets.numel() - 1;
   const int64_t nT = (reordered_cat_ad_offsets.numel() - 1) / num_ads_in_batch;
 
-  const auto* batch_offsets_data = batch_offsets.data_ptr<int32_t>();
-  const auto* cat_ad_offsets_data = cat_ad_offsets.data_ptr<index_t>();
+  const auto* batch_offsets_data = batch_offsets.const_data_ptr<int32_t>();
+  const auto* cat_ad_offsets_data = cat_ad_offsets.const_data_ptr<index_t>();
   const auto* reordered_cat_ad_offsets_data =
       reordered_cat_ad_offsets.data_ptr<index_t>();
-  const auto* cat_ad_indices_data = cat_ad_indices.data_ptr<scalar_t>();
-  auto* output_data = output.data_ptr<scalar_t>();
+  const auto* cat_ad_indices_data = cat_ad_indices.const_data_ptr<scalar_t>();
+  auto* output_data = output.mutable_data_ptr<scalar_t>();
   at::parallel_for(
       0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         auto b_begin = tb_begin / nT;
@@ -1986,17 +1986,18 @@ void cat_reorder_batched_ad_indices_cpu_(
   const int64_t nB = batch_offsets.numel() - 1;
   const int64_t nT = (reordered_cat_ad_offsets.numel() - 1) / max_batch_size;
 
-  const auto* batch_offsets_data = batch_offsets.data_ptr<int32_t>();
-  const auto* cat_ad_offsets_data = cat_ad_offsets.data_ptr<index_t>();
+  const auto* batch_offsets_data = batch_offsets.const_data_ptr<int32_t>();
+  const auto* cat_ad_offsets_data = cat_ad_offsets.const_data_ptr<index_t>();
   const auto* reordered_cat_ad_offsets_data =
       reordered_cat_ad_offsets.data_ptr<index_t>();
-  auto* output_data = output.data_ptr<scalar_t>();
+  auto* output_data = output.mutable_data_ptr<scalar_t>();
   at::parallel_for(
       0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         auto b_begin = tb_begin / nT;
         auto b_end = (tb_end + nT - 1) / nT;
         for (auto b : c10::irange(b_begin, b_end)) {
-          const auto* ad_indices_data = ad_indices[b].data_ptr<scalar_t>();
+          const auto* ad_indices_data =
+              ad_indices[b].const_data_ptr<scalar_t>();
           const auto num_ads_b =
               batch_offsets_data[b + 1] - batch_offsets_data[b];
           int64_t t_begin = (b == b_begin) ? tb_begin % nT : 0;
@@ -2053,14 +2054,14 @@ void reorder_batched_sequence_embeddings_cpu_(
   const int64_t nT = (reordered_cat_sequence_embeddings_offsets.numel() - 1) /
       num_items_in_batch;
 
-  const auto* batch_offsets_data = batch_offsets.data_ptr<index_t>();
+  const auto* batch_offsets_data = batch_offsets.const_data_ptr<index_t>();
   const auto* cat_sequence_embeddings_offsets_data =
       cat_sequence_embeddings_offsets.data_ptr<index_t>();
   const auto* reordered_cat_sequence_embeddings_offsets_data =
       reordered_cat_sequence_embeddings_offsets.data_ptr<index_t>();
   const auto* cat_sequence_embeddings_data =
       cat_sequence_embeddings.data_ptr<scalar_t>();
-  auto* output_data = output.data_ptr<scalar_t>();
+  auto* output_data = output.mutable_data_ptr<scalar_t>();
   at::parallel_for(
       0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         auto b_begin = tb_begin / nT;
@@ -2325,12 +2326,13 @@ Tensor batched_unary_embeddings_forward_cpu(
   AT_DISPATCH_INDEX_TYPES(table_offsets.scalar_type(), "unary_indices", [&] {
     FBGEMM_DISPATCH_FLOATING_TYPES(
         weight.scalar_type(), "batched_unary_embeddings_forward_cpu", [&] {
-          const index_t* table_offsets_data = table_offsets.data_ptr<index_t>();
-          const index_t* offsets_data = offsets.data_ptr<index_t>();
-          const index_t* indices_data = indices.data_ptr<index_t>();
+          const index_t* table_offsets_data =
+              table_offsets.const_data_ptr<index_t>();
+          const index_t* offsets_data = offsets.const_data_ptr<index_t>();
+          const index_t* indices_data = indices.const_data_ptr<index_t>();
           const index_t sum_E = table_offsets_data[T];
-          auto* output_data = output.data_ptr<scalar_t>();
-          const auto* weight_data = weight.data_ptr<scalar_t>();
+          auto* output_data = output.mutable_data_ptr<scalar_t>();
+          const auto* weight_data = weight.const_data_ptr<scalar_t>();
 
           for (const auto n : c10::irange(N)) {
             for (const auto b : c10::irange(B)) {
@@ -2700,7 +2702,7 @@ Tensor segment_sum_csr_cpu(
                   batch_size,
                   csr_seg.data_ptr<index_t>(),
                   values.data_ptr<value_t>(),
-                  output.data_ptr<value_t>());
+                  output.mutable_data_ptr<value_t>());
             });
       });
   return output;
@@ -2851,7 +2853,7 @@ Tensor& lengths_range_out(
   AT_DISPATCH_INDEX_TYPES(
       t_in_contig->scalar_type(), "lengths_range_compute", [&]() {
         const auto* input_data = t_in_contig->data_ptr<index_t>();
-        auto* output_data = output.data_ptr<index_t>();
+        auto* output_data = output.mutable_data_ptr<index_t>();
 
         index_t offset = 0;
         for (const auto i : c10::irange(num_seq)) {
@@ -3224,7 +3226,7 @@ Tensor pack_segments_forward_cpu(
 
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "pack_segments_cpu", ([&]() {
-        const auto* const lengths_data = lengths.data_ptr<index_t>();
+        const auto* const lengths_data = lengths.const_data_ptr<index_t>();
 
         // Shape of output is batch_size x max_len x ...
         auto shape = t_in_cont->sizes().vec(); // Get copy of current shape
@@ -3243,8 +3245,9 @@ Tensor pack_segments_forward_cpu(
                   t_in_cont->sizes().slice(1, t_in_cont->sizes().size() - 1);
               const auto block_size = c10::multiply_integers(sizes);
               const auto block_bytesize = t_in_cont->itemsize() * block_size;
-              const auto* const data_ptr = t_in_cont->data_ptr<scalar_t>();
-              auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+              const auto* const data_ptr =
+                  t_in_cont->const_data_ptr<scalar_t>();
+              auto* const out_data = packed_tensor.mutable_data_ptr<scalar_t>();
               int64_t start = 0;
               for (const auto i : c10::irange(lengths.sizes()[0])) {
                 const auto len =
@@ -3284,7 +3287,7 @@ std::tuple<Tensor, std::optional<Tensor>> pack_segments_forward_cpu_v2(
 
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "pack_segments_cpu", ([&]() {
-        const auto* const lengths_data = lengths.data_ptr<index_t>();
+        const auto* const lengths_data = lengths.const_data_ptr<index_t>();
 
         // Shape of output is batch_size x max_len x ...
         auto shape = t_in_cont->sizes().vec(); // Get copy of current shape
@@ -3318,8 +3321,9 @@ std::tuple<Tensor, std::optional<Tensor>> pack_segments_forward_cpu_v2(
                   t_in_cont->sizes().slice(1, t_in_cont->sizes().size() - 1);
               const auto block_size = c10::multiply_integers(sizes);
               const auto block_bytesize = t_in_cont->itemsize() * block_size;
-              const auto* const data_ptr = t_in_cont->data_ptr<scalar_t>();
-              auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+              const auto* const data_ptr =
+                  t_in_cont->const_data_ptr<scalar_t>();
+              auto* const out_data = packed_tensor.mutable_data_ptr<scalar_t>();
               int64_t start = 0;
               for (const auto i : c10::irange(lengths.sizes()[0])) {
                 const auto len =
@@ -3397,7 +3401,8 @@ Tensor pack_segments_backward_cpu(
               const auto block_size = c10::multiply_integers(sizes);
               const auto block_bytesize = data.itemsize() * block_size;
               const auto* const data_ptr = data_contig->data_ptr<scalar_t>();
-              auto* const out_data = unpacked_tensor.data_ptr<scalar_t>();
+              auto* const out_data =
+                  unpacked_tensor.mutable_data_ptr<scalar_t>();
 
               int64_t start = 0;
               for (const auto i : c10::irange(lengths.sizes()[0])) {
