@@ -221,18 +221,18 @@ get_unique_indices_cuda_impl(
         {linear_indices.numel()}, linear_indices.options().dtype(at::kInt));
   }
 
-#define INVOKE_CUB_SORT_PAIRS(TEMP_STORAGE_PTR)                 \
-  AT_CUDA_CHECK(                                                \
-      FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
-          TEMP_STORAGE_PTR,                                     \
-          temp_storage_bytes,                                   \
-          linear_indices.data_ptr<index_t>(),                   \
-          sorted_indices.data_ptr<index_t>(),                   \
-          linear_index_positions.data_ptr<int32_t>(),           \
-          linear_index_positions_sorted->data_ptr<int32_t>(),   \
-          N,                                                    \
-          0,                                                    \
-          int(log2(float(max_indices + 1)) + 1),                \
+#define INVOKE_CUB_SORT_PAIRS(TEMP_STORAGE_PTR)                         \
+  AT_CUDA_CHECK(                                                        \
+      FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(         \
+          TEMP_STORAGE_PTR,                                             \
+          temp_storage_bytes,                                           \
+          linear_indices.data_ptr<index_t>(),                           \
+          sorted_indices.data_ptr<index_t>(),                           \
+          linear_index_positions.data_ptr<int32_t>(),                   \
+          linear_index_positions_sorted->mutable_data_ptr<int32_t>(),   \
+          N,                                                            \
+          0,                                                            \
+          int(log2(float(max_indices + 1)) + 1),                        \
           at::cuda::getCurrentCUDAStream()))
 
 #define INVOKE_CUB_SORT_KEYS(TEMP_STORAGE_PTR)                 \
@@ -254,7 +254,7 @@ get_unique_indices_cuda_impl(
           temp_storage_bytes,                                      \
           sorted_indices.data_ptr<index_t>(),                      \
           unique_indices.data_ptr<index_t>(),                      \
-          unique_indices_count->data_ptr<int32_t>(),               \
+          unique_indices_count->mutable_data_ptr<int32_t>(),       \
           unique_indices_length.data_ptr<int32_t>(),               \
           N,                                                       \
           at::cuda::getCurrentCUDAStream()))

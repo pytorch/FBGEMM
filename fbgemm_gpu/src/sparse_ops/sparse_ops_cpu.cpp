@@ -377,14 +377,14 @@ void _block_bucketize_sparse_features_cpu_kernel(
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
-  const int32_t T = block_sizes.numel();
-  const int32_t B = lengths_size / T;
+  const auto T = block_sizes.numel();
+  const auto B = lengths_size / T;
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
   const offset_t* lengths_data = lengths.const_data_ptr<offset_t>();
-  offset_t* offsets_data = offsets.data_ptr<offset_t>();
+  offset_t* offsets_data = offsets.mutable_data_ptr<offset_t>();
   const index_t* indices_data = indices.const_data_ptr<index_t>();
-  scalar_t* weights_data = nullptr;
+  const scalar_t* weights_data = nullptr;
   scalar_t* new_weights_data = nullptr;
   index_t* new_pos_data = nullptr;
   index_t* unbucketize_permute_data = nullptr;
@@ -402,21 +402,21 @@ void _block_bucketize_sparse_features_cpu_kernel(
   std::vector<int64_t> lower_bounds(indices.numel(), 0);
 
   if constexpr (sequence) {
-    unbucketize_permute_data = unbucketize_permute.value().data_ptr<index_t>();
+    unbucketize_permute_data = unbucketize_permute.value().mutable_data_ptr<index_t>();
     if constexpr (return_bucket_mapping) {
-      bag_mapping_data = bucket_mapping.value().data_ptr<index_t>();
+      bag_mapping_data = bucket_mapping.value().mutable_data_ptr<index_t>();
     }
   }
   if constexpr (has_weight) {
-    weights_data = weights.value().data_ptr<scalar_t>();
-    new_weights_data = new_weights.value().data_ptr<scalar_t>();
+    weights_data = weights.value().const_data_ptr<scalar_t>();
+    new_weights_data = new_weights.value().mutable_data_ptr<scalar_t>();
   }
   if (bucketize_pos) {
-    new_pos_data = new_pos.value().data_ptr<index_t>();
+    new_pos_data = new_pos.value().mutable_data_ptr<index_t>();
   }
 
   if (variable_batch_size) {
-    batch_sizes_data = batch_size_per_feature.value().data_ptr<offset_t>();
+    batch_sizes_data = batch_size_per_feature.value().mutable_data_ptr<offset_t>();
   }
 
   // count nonzeros
@@ -428,16 +428,16 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
     const index_t* bucketize_offset = nullptr;
     const index_t local_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t] / my_size)
+        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t] / my_size)
         : 1;
     const index_t global_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t])
+        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t])
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
     int64_t bucket_size = 0;
     if (variable_bucket_sizes) {
-      bucketize_offset = block_bucketize_pos.value()[t].data_ptr<index_t>();
+      bucketize_offset = block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
       bucket_size = block_bucketize_pos.value()[t].numel();
     }
     for (const auto b : c10::irange(cur_batch_size)) {
@@ -485,13 +485,13 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
     const index_t* bucketize_offset = nullptr;
     if (variable_bucket_sizes) {
-      bucketize_offset = block_bucketize_pos.value()[t].data_ptr<index_t>();
+      bucketize_offset = block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
     }
     const index_t local_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t] / my_size)
+        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t] / my_size)
         : 1;
     const index_t global_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t])
+        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t])
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
@@ -499,7 +499,7 @@ void _block_bucketize_sparse_features_cpu_kernel(
     if (keep_orig_idx_per_feature.has_value()) {
       // When keep_orig_idx_per_feature is set, override global
       // keep_orig_idx settings
-      keep_idx = keep_orig_idx_per_feature.value().data_ptr<bool>()[t];
+      keep_idx = keep_orig_idx_per_feature.value().mutable_data_ptr<bool>()[t];
     }
 
     for (const auto b : c10::irange(cur_batch_size)) {
@@ -598,7 +598,7 @@ at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
       input.options().dtype(at::kHalf)); // at::kHalf
 
   FloatToBFloat16Quantized_ref(
-      input.data_ptr<float>(),
+      input.mutable_data_ptr<float>(),
       input.numel(),
       reinterpret_cast<uint16_t*>(output.mutable_data_ptr<at::Half>()));
 
@@ -614,7 +614,7 @@ at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   auto output = at::empty(input_sizes, input.options().dtype(at::kFloat));
 
   BFloat16QuantizedToFloat_ref(
-      reinterpret_cast<at::BFloat16*>(input.data_ptr<at::Half>()),
+      reinterpret_cast<at::BFloat16*>(input.mutable_data_ptr<at::Half>()),
       input.numel(),
       output.mutable_data_ptr<float>());
 
@@ -649,9 +649,9 @@ void _bucketize_sparse_features_cpu(
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
   const index_t* lengths_data = lengths.const_data_ptr<index_t>();
-  index_t* offsets_data = offsets.data_ptr<index_t>();
+  index_t* offsets_data = offsets.mutable_data_ptr<index_t>();
   const index_t* indices_data = indices.const_data_ptr<index_t>();
-  scalar_t* weights_data = nullptr;
+  const scalar_t* weights_data = nullptr;
   scalar_t* new_weights_data = nullptr;
   index_t* new_pos_data = nullptr;
 
@@ -660,11 +660,11 @@ void _bucketize_sparse_features_cpu(
   index_t* const new_indices_data = new_indices.mutable_data_ptr<index_t>();
 
   if (has_weight) {
-    weights_data = weights.value().data_ptr<scalar_t>();
-    new_weights_data = new_weights.value().data_ptr<scalar_t>();
+    weights_data = weights.value().const_data_ptr<scalar_t>();
+    new_weights_data = new_weights.value().mutable_data_ptr<scalar_t>();
   }
   if (bucketize_pos) {
-    new_pos_data = new_pos.value().data_ptr<index_t>();
+    new_pos_data = new_pos.value().mutable_data_ptr<index_t>();
   }
   // count nonzeros
   prefix_sum(lengths_size, lengths_data, offsets_data);
@@ -763,11 +763,11 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
         _permute_2D_lengths_cpu_kernel(
             T,
             B,
-            lengths_contig->data_ptr<index_t>(),
+            lengths_contig->const_data_ptr<index_t>(),
             lengths_size,
-            permute.data_ptr<int32_t>(),
-            permuted_lengths.data_ptr<index_t>(),
-            input_offsets.data_ptr<index_t>(),
+            permute.const_data_ptr<int32_t>(),
+            permuted_lengths.mutable_data_ptr<index_t>(),
+            input_offsets.mutable_data_ptr<index_t>(),
             output_offsets_per_thread_cumsum.data());
       }); // for each scalar_t
 
@@ -803,14 +803,14 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
                           weights_t>(
                           T,
                           B,
-                          indices_contig->data_ptr<indices_t>(),
-                          weights_value_contig->data_ptr<weights_t>(),
-                          permute_contig->data_ptr<int32_t>(),
-                          input_offsets.data_ptr<offsets_t>(),
+                          indices_contig->const_data_ptr<indices_t>(),
+                          weights_value_contig->const_data_ptr<weights_t>(),
+                          permute_contig->const_data_ptr<int32_t>(),
+                          input_offsets.const_data_ptr<offsets_t>(),
                           output_offsets_per_thread_cumsum.data(),
-                          permuted_indices.data_ptr<indices_t>(),
-                          permuted_weights->data_ptr<weights_t>(),
-                          permuted_lengths.data_ptr<offsets_t>());
+                          permuted_indices.mutable_data_ptr<indices_t>(),
+                          permuted_weights->mutable_data_ptr<weights_t>(),
+                          permuted_lengths.const_data_ptr<offsets_t>());
                     } else {
                       _permute_2D_indices_weights_kernel_cpu<
                           false,
@@ -819,14 +819,14 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
                           weights_t>(
                           T,
                           B,
-                          indices_contig->data_ptr<indices_t>(),
+                          indices_contig->const_data_ptr<indices_t>(),
                           nullptr,
-                          permute_contig->data_ptr<int32_t>(),
-                          input_offsets.data_ptr<offsets_t>(),
+                          permute_contig->const_data_ptr<int32_t>(),
+                          input_offsets.const_data_ptr<offsets_t>(),
                           output_offsets_per_thread_cumsum.data(),
-                          permuted_indices.data_ptr<indices_t>(),
+                          permuted_indices.mutable_data_ptr<indices_t>(),
                           nullptr,
-                          permuted_lengths.data_ptr<offsets_t>());
+                          permuted_lengths.const_data_ptr<offsets_t>());
                     }
                   }); // for each weights_t
             }); // for each indices_t
@@ -925,10 +925,10 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_1D_sparse_data_cpu(
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "permute_1D_lengths_cpu_kernel", [&] {
         _permute_1D_lengths_cpu_kernel(
-            lengths_contig->data_ptr<index_t>(),
+            lengths_contig->const_data_ptr<index_t>(),
             permuted_lengths_size,
-            permute_contig->data_ptr<int32_t>(),
-            permuted_lengths.data_ptr<index_t>());
+            permute_contig->const_data_ptr<int32_t>(),
+            permuted_lengths.mutable_data_ptr<index_t>());
       }); // for each scalar_t
 
   const auto input_offsets = asynchronous_exclusive_cumsum_cpu(lengths);
@@ -966,29 +966,29 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_1D_sparse_data_cpu(
                           index_t,
                           indices_t,
                           weights_t>(
-                          input_offsets.data_ptr<offsets_t>(),
-                          indices_contig->data_ptr<indices_t>(),
-                          weights_value_contig->data_ptr<weights_t>(),
+                          input_offsets.mutable_data_ptr<offsets_t>(),
+                          indices_contig->const_data_ptr<indices_t>(),
+                          weights_value_contig->const_data_ptr<weights_t>(),
                           permuted_lengths_size,
-                          permute_contig->data_ptr<int32_t>(),
-                          permuted_lengths.data_ptr<offsets_t>(),
-                          output_offsets.data_ptr<offsets_t>(),
-                          permuted_indices.data_ptr<indices_t>(),
-                          permuted_weights.data_ptr<weights_t>());
+                          permute_contig->const_data_ptr<int32_t>(),
+                          permuted_lengths.mutable_data_ptr<offsets_t>(),
+                          output_offsets.mutable_data_ptr<offsets_t>(),
+                          permuted_indices.mutable_data_ptr<indices_t>(),
+                          permuted_weights.mutable_data_ptr<weights_t>());
                     } else {
                       _permute_1D_indices_weights_kernel_cpu<
                           false,
                           index_t,
                           indices_t,
                           weights_t>(
-                          input_offsets.data_ptr<offsets_t>(),
-                          indices_contig->data_ptr<indices_t>(),
+                          input_offsets.mutable_data_ptr<offsets_t>(),
+                          indices_contig->const_data_ptr<indices_t>(),
                           nullptr,
                           permuted_lengths_size,
-                          permute_contig->data_ptr<int32_t>(),
-                          permuted_lengths.data_ptr<offsets_t>(),
-                          output_offsets.data_ptr<offsets_t>(),
-                          permuted_indices.data_ptr<indices_t>(),
+                          permute_contig->const_data_ptr<int32_t>(),
+                          permuted_lengths.mutable_data_ptr<offsets_t>(),
+                          output_offsets.mutable_data_ptr<offsets_t>(),
+                          permuted_indices.mutable_data_ptr<indices_t>(),
                           nullptr);
                     }
                   }); // for each weights_t
@@ -1040,11 +1040,11 @@ Tensor expand_into_jagged_permute_cpu(
       permute.scalar_type(), "expand_into_jagged_permute_cpu", [&] {
         using offset_t = index_t;
         _expand_into_jagged_permute_cpu_kernel(
-            input_offsets.data_ptr<offset_t>(),
-            output_offsets.data_ptr<offset_t>(),
+            input_offsets.mutable_data_ptr<offset_t>(),
+            output_offsets.mutable_data_ptr<offset_t>(),
             permute_size,
-            permute.data_ptr<index_t>(),
-            output_permute.data_ptr<index_t>());
+            permute.mutable_data_ptr<index_t>(),
+            output_permute.mutable_data_ptr<index_t>());
       });
 
   return output_permute;
@@ -1073,13 +1073,14 @@ Tensor invert_permute_cpu(const Tensor& permute) {
       permute.scalar_type(), "invert_permute_cpu_kernel", [&] {
         _invert_permute_cpu_kernel<index_t>(
             permute_size,
-            permute_contig->data_ptr<index_t>(),
-            inversed_permute.data_ptr<index_t>());
+            permute_contig->const_data_ptr<index_t>(),
+            inversed_permute.mutable_data_ptr<index_t>());
       }); // for each scalar_t
 
   return inversed_permute;
 }
 template <typename index_t, typename offset_t>
+
 void _populate_bucketized_permute_cpu(
     const offset_t* const length_data,
     const offset_t* const offset_data,
@@ -1118,11 +1119,11 @@ Tensor populate_bucketized_permute_cpu(
             "populate_bucketized_permute_cpu_2",
             ([&] {
               _populate_bucketized_permute_cpu<index_t, offset_t>(
-                  lengths_contig->data_ptr<offset_t>(),
-                  offsets.data_ptr<offset_t>(),
-                  bucketized_offsets.data_ptr<offset_t>(),
-                  bucket_mapping_contig->data_ptr<index_t>(),
-                  bucketized_permute.data_ptr<index_t>(),
+                  lengths_contig->const_data_ptr<offset_t>(),
+                  offsets.const_data_ptr<offset_t>(),
+                  bucketized_offsets.mutable_data_ptr<offset_t>(),
+                  bucket_mapping_contig->const_data_ptr<index_t>(),
+                  bucketized_permute.mutable_data_ptr<index_t>(),
                   lengths_contig->numel());
             }));
       }));
@@ -1401,10 +1402,10 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
   const offset_t* lengths_data = lengths.const_data_ptr<offset_t>();
-  offset_t* offsets_data = offsets.data_ptr<offset_t>();
+  offset_t* offsets_data = offsets.mutable_data_ptr<offset_t>();
   const index_t* indices_data = indices.const_data_ptr<index_t>();
-  scalar_t* weights_data = weights.data_ptr<scalar_t>();
-  scalar_t* new_weights_data = new_weights.data_ptr<scalar_t>();
+  scalar_t* weights_data = weights.mutable_data_ptr<scalar_t>();
+  scalar_t* new_weights_data = new_weights.mutable_data_ptr<scalar_t>();
   index_t* new_pos_data = nullptr;
   index_t* unbucketize_permute_data = nullptr;
   index_t* bag_mapping_data = nullptr;
@@ -1421,17 +1422,17 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
   std::vector<int64_t> lower_bounds(indices.numel(), 0);
 
   if constexpr (sequence) {
-    unbucketize_permute_data = unbucketize_permute.value().data_ptr<index_t>();
+    unbucketize_permute_data = unbucketize_permute.value().mutable_data_ptr<index_t>();
     if constexpr (return_bucket_mapping) {
-      bag_mapping_data = bucket_mapping.value().data_ptr<index_t>();
+      bag_mapping_data = bucket_mapping.value().mutable_data_ptr<index_t>();
     }
   }
   if (bucketize_pos) {
-    new_pos_data = new_pos.value().data_ptr<index_t>();
+    new_pos_data = new_pos.value().mutable_data_ptr<index_t>();
   }
 
   if (variable_batch_size) {
-    batch_sizes_data = batch_size_per_feature.value().data_ptr<offset_t>();
+    batch_sizes_data = batch_size_per_feature.value().mutable_data_ptr<offset_t>();
   }
 
   // count nonzeros
@@ -1443,16 +1444,16 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
     const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
     const index_t* bucketize_offset = nullptr;
     const index_t local_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t] / my_size)
+        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t] / my_size)
         : 1;
     const index_t global_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t])
+        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t])
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
     int64_t bucket_size = 0;
     if (variable_bucket_sizes) {
-      bucketize_offset = block_bucketize_pos.value()[t].data_ptr<index_t>();
+      bucketize_offset = block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
       bucket_size = block_bucketize_pos.value()[t].numel();
     }
     for (const auto b : c10::irange(cur_batch_size)) {
@@ -1500,13 +1501,13 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
     const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
     const index_t* bucketize_offset = nullptr;
     if (variable_bucket_sizes) {
-      bucketize_offset = block_bucketize_pos.value()[t].data_ptr<index_t>();
+      bucketize_offset = block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
     }
     const index_t local_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t] / my_size)
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t] / my_size)
         : 1;
     const index_t global_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().data_ptr<index_t>()[t])
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t])
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
@@ -1514,7 +1515,7 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
     if (keep_orig_idx_per_feature.has_value()) {
       // When keep_orig_idx_per_feature is set, override global
       // keep_orig_idx settings
-      keep_idx = keep_orig_idx_per_feature.value().data_ptr<bool>()[t];
+      keep_idx = keep_orig_idx_per_feature.value().const_data_ptr<bool>()[t];
     }
 
     for (const auto b : c10::irange(cur_batch_size)) {
@@ -1921,7 +1922,7 @@ void reorder_batched_ad_indices_cpu_(
   const auto* batch_offsets_data = batch_offsets.const_data_ptr<int32_t>();
   const auto* cat_ad_offsets_data = cat_ad_offsets.const_data_ptr<index_t>();
   const auto* reordered_cat_ad_offsets_data =
-      reordered_cat_ad_offsets.data_ptr<index_t>();
+      reordered_cat_ad_offsets.const_data_ptr<index_t>();
   const auto* cat_ad_indices_data = cat_ad_indices.const_data_ptr<scalar_t>();
   auto* output_data = output.mutable_data_ptr<scalar_t>();
   at::parallel_for(
@@ -1989,7 +1990,7 @@ void cat_reorder_batched_ad_indices_cpu_(
   const auto* batch_offsets_data = batch_offsets.const_data_ptr<int32_t>();
   const auto* cat_ad_offsets_data = cat_ad_offsets.const_data_ptr<index_t>();
   const auto* reordered_cat_ad_offsets_data =
-      reordered_cat_ad_offsets.data_ptr<index_t>();
+      reordered_cat_ad_offsets.const_data_ptr<index_t>();
   auto* output_data = output.mutable_data_ptr<scalar_t>();
   at::parallel_for(
       0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
@@ -2056,11 +2057,11 @@ void reorder_batched_sequence_embeddings_cpu_(
 
   const auto* batch_offsets_data = batch_offsets.const_data_ptr<index_t>();
   const auto* cat_sequence_embeddings_offsets_data =
-      cat_sequence_embeddings_offsets.data_ptr<index_t>();
+      cat_sequence_embeddings_offsets.const_data_ptr<index_t>();
   const auto* reordered_cat_sequence_embeddings_offsets_data =
-      reordered_cat_sequence_embeddings_offsets.data_ptr<index_t>();
+      reordered_cat_sequence_embeddings_offsets.const_data_ptr<index_t>();
   const auto* cat_sequence_embeddings_data =
-      cat_sequence_embeddings.data_ptr<scalar_t>();
+      cat_sequence_embeddings.const_data_ptr<scalar_t>();
   auto* output_data = output.mutable_data_ptr<scalar_t>();
   at::parallel_for(
       0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
@@ -2269,8 +2270,8 @@ Tensor offsets_range_cpu(const Tensor& offsets, int64_t range_size) {
   const auto N = offsets_contig->numel();
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig->scalar_type(), "offsets_range_kernel", [&]() {
-        const index_t* offsets_data = offsets_contig->data_ptr<index_t>();
-        index_t* range_data = range.data_ptr<index_t>();
+        const index_t* offsets_data = offsets_contig->const_data_ptr<index_t>();
+        index_t* range_data = range.mutable_data_ptr<index_t>();
 
         index_t last = range_size;
         for (int64_t i = N - 1; i >= 0; --i) {
@@ -2416,11 +2417,11 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
             step,
             bin_ctr_in_use_after,
             bin_ctr_weight_value,
-            logit.data_ptr<scalar_t>(),
-            bin_num_examples.data_ptr<double>(),
-            bin_num_positives.data_ptr<double>(),
-            calibrated_prediction.data_ptr<scalar_t>(),
-            bin_ids.data_ptr<int64_t>());
+            logit.const_data_ptr<scalar_t>(),
+            bin_num_examples.const_data_ptr<double>(),
+            bin_num_positives.const_data_ptr<double>(),
+            calibrated_prediction.mutable_data_ptr<scalar_t>(),
+            bin_ids.mutable_data_ptr<int64_t>());
       });
 
   return std::make_tuple(calibrated_prediction, bin_ids);
@@ -2495,9 +2496,9 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
               using segment_length_t = index_t;
               _to_dense_representation<segment_value_t, segment_length_t>(
                   segment_lengths.numel(),
-                  segment_value.data_ptr<segment_value_t>(),
-                  segment_lengths.data_ptr<segment_length_t>(),
-                  dense_segment_value.data_ptr<segment_value_t>(),
+                  segment_value.const_data_ptr<segment_value_t>(),
+                  segment_lengths.const_data_ptr<segment_length_t>(),
+                  dense_segment_value.mutable_data_ptr<segment_value_t>(),
                   segment_value.numel());
             });
       });
@@ -2527,12 +2528,12 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
                   step,
                   bin_ctr_in_use_after,
                   bin_ctr_weight_value,
-                  logit.data_ptr<logit_t>(),
-                  dense_segment_value.data_ptr<segment_value_t>(),
-                  bin_num_examples.data_ptr<double>(),
-                  bin_num_positives.data_ptr<double>(),
-                  calibrated_prediction.data_ptr<logit_t>(),
-                  bin_ids.data_ptr<int64_t>());
+                  logit.const_data_ptr<logit_t>(),
+                  dense_segment_value.const_data_ptr<segment_value_t>(),
+                  bin_num_examples.const_data_ptr<double>(),
+                  bin_num_positives.const_data_ptr<double>(),
+                  calibrated_prediction.mutable_data_ptr<logit_t>(),
+                  bin_ids.mutable_data_ptr<int64_t>());
             });
       });
 
@@ -2625,9 +2626,9 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
               using segment_length_t = index_t;
               _to_dense_representation<segment_value_t, segment_length_t>(
                   segment_lengths.numel(),
-                  segment_value.data_ptr<segment_value_t>(),
-                  segment_lengths.data_ptr<segment_length_t>(),
-                  dense_segment_value.data_ptr<segment_value_t>(),
+                  segment_value.const_data_ptr<segment_value_t>(),
+                  segment_lengths.const_data_ptr<segment_length_t>(),
+                  dense_segment_value.mutable_data_ptr<segment_value_t>(),
                   segment_value.numel());
             });
       });
@@ -2654,13 +2655,13 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
                   recalibrate_value,
                   bin_ctr_in_use_after,
                   bin_ctr_weight_value,
-                  logit.data_ptr<logit_t>(),
-                  dense_segment_value.data_ptr<segment_value_t>(),
-                  bin_num_examples.data_ptr<double>(),
-                  bin_num_positives.data_ptr<double>(),
-                  bin_boundaries.data_ptr<double>(),
-                  calibrated_prediction.data_ptr<logit_t>(),
-                  bin_ids.data_ptr<int64_t>());
+                  logit.const_data_ptr<logit_t>(),
+                  dense_segment_value.const_data_ptr<segment_value_t>(),
+                  bin_num_examples.const_data_ptr<double>(),
+                  bin_num_positives.const_data_ptr<double>(),
+                  bin_boundaries.const_data_ptr<double>(),
+                  calibrated_prediction.mutable_data_ptr<logit_t>(),
+                  bin_ids.mutable_data_ptr<int64_t>());
             });
       });
 
@@ -2700,8 +2701,8 @@ Tensor segment_sum_csr_cpu(
               _segment_sum_csr_cpu_kernel<value_t, index_t>(
                   csr_seg.numel() - 1,
                   batch_size,
-                  csr_seg.data_ptr<index_t>(),
-                  values.data_ptr<value_t>(),
+                  csr_seg.const_data_ptr<index_t>(),
+                  values.const_data_ptr<value_t>(),
                   output.mutable_data_ptr<value_t>());
             });
       });
@@ -2793,7 +2794,7 @@ std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
       "'compressed_indices_dtype' should be Int/Long.");
 
   const auto indicator_contig = indicator.expect_contiguous();
-  const auto indicator_data = indicator_contig->data_ptr<float>();
+  const auto indicator_data = indicator_contig->const_data_ptr<float>();
   auto rowwise_prune_mask = at::empty({indicator.numel()}, at::kBool);
   int num_kept = 0;
   for (const auto i : c10::irange(indicator.numel())) {
@@ -2843,7 +2844,7 @@ Tensor& lengths_range_out(
     output_size = 0;
     AT_DISPATCH_INDEX_TYPES(
         t_in_contig->scalar_type(), "lengths_range_compute_output_size", [&]() {
-          const auto* input_data = t_in_contig->data_ptr<index_t>();
+          const auto* input_data = t_in_contig->const_data_ptr<index_t>();
           output_size = c10::sum_integers(input_data, input_data + num_seq);
         });
   }
@@ -2852,7 +2853,7 @@ Tensor& lengths_range_out(
 
   AT_DISPATCH_INDEX_TYPES(
       t_in_contig->scalar_type(), "lengths_range_compute", [&]() {
-        const auto* input_data = t_in_contig->data_ptr<index_t>();
+        const auto* input_data = t_in_contig->const_data_ptr<index_t>();
         auto* output_data = output.mutable_data_ptr<index_t>();
 
         index_t offset = 0;
@@ -2963,11 +2964,11 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_sparse_features_cpu(
         _permute_2D_lengths_cpu_kernel(
             num_output_features,
             B,
-            lengths_contig->data_ptr<index_t>(),
+            lengths_contig->const_data_ptr<index_t>(),
             lengths_size,
-            permute.data_ptr<int32_t>(),
-            permuted_lengths.data_ptr<index_t>(),
-            input_offsets.data_ptr<index_t>(),
+            permute.const_data_ptr<int32_t>(),
+            permuted_lengths.mutable_data_ptr<index_t>(),
+            input_offsets.mutable_data_ptr<index_t>(),
             output_offsets_per_thread_cumsum.data());
       })); // for each scalar_t
 
@@ -2989,26 +2990,26 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_sparse_features_cpu(
                 _permute_data_kernel_cpu<true, index_t, scalar_t>(
                     num_output_features,
                     B,
-                    indices_contig->data_ptr<index_t>(),
-                    weights_value_contig->data_ptr<scalar_t>(),
-                    permute_contig->data_ptr<int32_t>(),
-                    input_offsets.data_ptr<index_t>(),
+                    indices_contig->const_data_ptr<index_t>(),
+                    weights_value_contig->const_data_ptr<scalar_t>(),
+                    permute_contig->const_data_ptr<int32_t>(),
+                    input_offsets.const_data_ptr<index_t>(),
                     output_offsets_per_thread_cumsum.data(),
-                    permuted_indices.data_ptr<index_t>(),
-                    permuted_weights.data_ptr<scalar_t>(),
-                    permuted_lengths.data_ptr<index_t>());
+                    permuted_indices.mutable_data_ptr<index_t>(),
+                    permuted_weights.mutable_data_ptr<scalar_t>(),
+                    permuted_lengths.const_data_ptr<index_t>());
               } else {
                 _permute_data_kernel_cpu<false, index_t, scalar_t>(
                     num_output_features,
                     B,
-                    indices_contig->data_ptr<index_t>(),
+                    indices_contig->const_data_ptr<index_t>(),
                     nullptr,
-                    permute_contig->data_ptr<int32_t>(),
-                    input_offsets.data_ptr<index_t>(),
+                    permute_contig->const_data_ptr<int32_t>(),
+                    input_offsets.const_data_ptr<index_t>(),
                     output_offsets_per_thread_cumsum.data(),
-                    permuted_indices.data_ptr<index_t>(),
+                    permuted_indices.mutable_data_ptr<index_t>(),
                     nullptr,
-                    permuted_lengths.data_ptr<index_t>());
+                    permuted_lengths.const_data_ptr<index_t>());
               }
             })); // for each scalar_t
       })); // for each index_t
@@ -3308,7 +3309,7 @@ std::tuple<Tensor, std::optional<Tensor>> pack_segments_forward_cpu_v2(
         if (return_presence_mask) {
           // Shape of presence is batch_size x max_len
           presence_mask = at::zeros({lengths.numel(), max_length}, at::kBool);
-          presence_mask_data = presence_mask->data_ptr<bool>();
+          presence_mask_data = presence_mask->mutable_data_ptr<bool>();
         }
 
         if (t_in_cont->sizes()[0] == 0) {
@@ -3381,7 +3382,7 @@ Tensor pack_segments_backward_cpu(
 
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "unpack_segments_cpu", ([&]() {
-        const auto* const lengths_data = lengths_contig->data_ptr<index_t>();
+        const auto* const lengths_data = lengths_contig->const_data_ptr<index_t>();
 
         // Create output tensor of appropriate dimensions
         auto shape = data.sizes().vec();
@@ -3400,7 +3401,7 @@ Tensor pack_segments_backward_cpu(
               const auto sizes = data.sizes().slice(2, data.sizes().size() - 2);
               const auto block_size = c10::multiply_integers(sizes);
               const auto block_bytesize = data.itemsize() * block_size;
-              const auto* const data_ptr = data_contig->data_ptr<scalar_t>();
+              const auto* const data_ptr = data_contig->const_data_ptr<scalar_t>();
               auto* const out_data =
                   unpacked_tensor.mutable_data_ptr<scalar_t>();
 

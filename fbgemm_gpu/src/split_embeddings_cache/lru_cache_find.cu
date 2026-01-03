@@ -259,14 +259,14 @@ lru_cache_find_uncached_cuda(
           INVOKE_CUB_SORT_PAIRS(
               nullptr,
               cache_sets_positions.data_ptr<int32_t>(),
-              cache_set_inverse_indices->data_ptr<int32_t>());
+              cache_set_inverse_indices->mutable_data_ptr<int32_t>());
           auto temp_storage = at::empty(
               {static_cast<index_t>(temp_storage_bytes)},
               unique_indices.options().dtype(at::kByte));
           INVOKE_CUB_SORT_PAIRS(
               temp_storage.data_ptr(),
               cache_sets_positions.data_ptr<int32_t>(),
-              cache_set_inverse_indices->data_ptr<int32_t>());
+              cache_set_inverse_indices->mutable_data_ptr<int32_t>());
         }
       });
 

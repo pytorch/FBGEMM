@@ -315,11 +315,11 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
           " and ",
           table_dims->numel());
       sub_table_dims_.assign(
-          table_dims->data_ptr<int64_t>(),
-          table_dims->data_ptr<int64_t>() + table_dims->numel());
+          table_dims->const_data_ptr<int64_t>(),
+          table_dims->const_data_ptr<int64_t>() + table_dims->numel());
       sub_table_hash_cumsum_.assign(
-          hash_size_cumsum->data_ptr<int64_t>() + 1, // skip the first 0
-          hash_size_cumsum->data_ptr<int64_t>() + hash_size_cumsum->numel());
+          hash_size_cumsum->const_data_ptr<int64_t>() + 1, // skip the first 0
+          hash_size_cumsum->const_data_ptr<int64_t>() + hash_size_cumsum->numel());
     }
   }
 

@@ -30,7 +30,7 @@ Tensor tensor_from_vec(const std::vector<int64_t>& vec) {
       at::TensorOptions().dtype(torch::kInt64));
   TORCH_CHECK(tensor.is_contiguous());
   std::memcpy(
-      tensor.data_ptr<int64_t>(), vec.data(), sizeof(int64_t) * vec.size());
+      tensor.mutable_data_ptr<int64_t>(), vec.data(), sizeof(int64_t) * vec.size());
   return tensor;
 };
 
@@ -63,7 +63,7 @@ class BatchIndexSelectDim0CPUOp
         "[batch_index_select_dim0] input_columns must have the same length as "
         "input_num_indices.");
     TORCH_CHECK(
-        reinterpret_cast<uint64_t>(inputs.data_ptr()) % 16 == 0,
+        reinterpret_cast<uint64_t>(inputs.const_data_ptr()) % 16 == 0,
         "Currently batch_index_select only supports 16-byte align input tensors");
 
     static auto to_vec_int64 =
@@ -316,7 +316,7 @@ class BatchIndexSelectDim0TensorCPUOp
         "[batch_index_select_dim0] input_columns must have the same length as "
         "input_num_indices.");
     TORCH_CHECK(
-        reinterpret_cast<uint64_t>(inputs.data_ptr()) % 16 == 0,
+        reinterpret_cast<uint64_t>(inputs.const_data_ptr()) % 16 == 0,
         "Currently batch_index_select only supports 16-byte align input tensors");
 
     auto saved_data_tensor = tensor_from_vec({inputs.numel()});

@@ -23,8 +23,8 @@ namespace {
 /// PyTorch
 inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
   return tensor.scalar_type() == at::ScalarType::Long
-      ? *(tensor.data_ptr<int64_t>())
-      : *(tensor.data_ptr<int32_t>());
+      ? *(tensor.const_data_ptr<int64_t>())
+      : *(tensor.const_data_ptr<int32_t>());
 }
 }; // namespace
 
@@ -47,22 +47,22 @@ QueueItem tensor_copy(
         FBGEMM_DISPATCH_INTEGRAL_TYPES(
             indices.scalar_type(), "tensor_copy", [&] {
               using index_t = scalar_t;
-              auto indices_addr = indices.data_ptr<index_t>();
-              auto new_indices_addr = new_indices.data_ptr<index_t>();
+              auto indices_addr = indices.const_data_ptr<index_t>();
+              auto new_indices_addr = new_indices.mutable_data_ptr<index_t>();
               std::copy(
                   indices_addr,
                   indices_addr + num_sets,
                   new_indices_addr); // dst_start
 
-              auto weights_addr = weights.data_ptr<value_t>();
-              auto new_weightss_addr = new_weights.data_ptr<value_t>();
+              auto weights_addr = weights.const_data_ptr<value_t>();
+              auto new_weightss_addr = new_weights.mutable_data_ptr<value_t>();
               std::copy(
                   weights_addr,
                   weights_addr + num_sets * weights.size(1),
                   new_weightss_addr); // dst_start
             });
       });
-  *new_count.data_ptr<int64_t>() = num_sets;
+  *new_count.mutable_data_ptr<int64_t>() = num_sets;
   return QueueItem{new_indices, new_weights, new_count, mode};
 }
 
@@ -514,7 +514,7 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
   auto cache_context = std::make_shared<CacheContext>(num_lookups);
   FBGEMM_DISPATCH_INTEGRAL_TYPES(indices.scalar_type(), "get_cache", [&] {
     using index_t = scalar_t;
-    auto indices_addr = indices.data_ptr<index_t>();
+    auto indices_addr = indices.const_data_ptr<index_t>();
     auto num_shards = executor_tp_->numThreads();
 
     std::vector<folly::Future<folly::Unit>> futures;
@@ -538,7 +538,7 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
                     indices.scalar_type(), "get_cache_inner", [&] {
                       using inner_index_t = scalar_t;
                       auto inner_indices_addr =
-                          indices.data_ptr<inner_index_t>();
+                          indices.const_data_ptr<inner_index_t>();
                       for (const auto& row_id : row_ids_per_shard[shard_id]) {
                         auto emb_idx = inner_indices_addr[row_id];
                         if (emb_idx < 0) {
@@ -619,7 +619,7 @@ EmbeddingKVDB::set_cache(
 
   FBGEMM_DISPATCH_INTEGRAL_TYPES(indices.scalar_type(), "set_cache", [&] {
     using index_t = scalar_t;
-    auto indices_addr = indices.data_ptr<index_t>();
+    auto indices_addr = indices.const_data_ptr<index_t>();
     const int64_t num_lookups = get_maybe_uvm_scalar(count);
     auto num_shards = executor_tp_->numThreads();
 
@@ -643,7 +643,7 @@ EmbeddingKVDB::set_cache(
                     indices.scalar_type(), "set_cache_inner", [&] {
                       using inner_index_t = scalar_t;
                       auto inner_indices_addr =
-                          indices.data_ptr<inner_index_t>();
+                          indices.const_data_ptr<inner_index_t>();
                       for (const auto& row_id : row_ids_per_shard[shard_id]) {
                         auto emb_idx = inner_indices_addr[row_id];
                         if (emb_idx < 0) {
@@ -682,7 +682,7 @@ folly::SemiFuture<std::vector<folly::Unit>> EmbeddingKVDB::cache_memcpy(
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       weights.scalar_type(), "cache_memcpy", [&] {
         // std::vector<folly::coro::TaskWithExecutor<void>> tasks;
-        auto weights_data_ptr = weights.data_ptr<scalar_t>();
+        auto weights_data_ptr = weights.const_data_ptr<scalar_t>();
         auto num_shards = executor_tp_->numThreads();
         for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
           auto f =

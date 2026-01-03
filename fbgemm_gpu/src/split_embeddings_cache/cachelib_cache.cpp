@@ -59,9 +59,9 @@ std::unique_ptr<Cache> CacheLibCache::initializeCacheLib(
                   if (data.context ==
                       facebook::cachelib::RemoveContext::kEviction) {
                     auto indices_data_ptr =
-                        evicted_indices_opt_->data_ptr<index_t>();
+                        evicted_indices_opt_->const_data_ptr<index_t>();
                     auto weights_data_ptr =
-                        evicted_weights_opt_->data_ptr<value_t>();
+                        evicted_weights_opt_->const_data_ptr<value_t>();
                     auto row_id = eviction_row_id++;
                     auto weight_dim = evicted_weights_opt_->size(1);
                     const auto key_ptr = reinterpret_cast<const index_t*>(
@@ -159,7 +159,7 @@ bool CacheLibCache::put(const at::Tensor& key_tensor, const at::Tensor& data) {
   bool res;
   FBGEMM_DISPATCH_INTEGRAL_TYPES(key_tensor.scalar_type(), "put", [&] {
     using index_t = scalar_t;
-    auto key = *(key_tensor.data_ptr<index_t>());
+    auto key = *(key_tensor.const_data_ptr<index_t>());
     auto key_str = folly::StringPiece(
         reinterpret_cast<const char*>(&key), sizeof(index_t));
     auto item = cache_->findToWrite(key_str);
@@ -174,10 +174,10 @@ bool CacheLibCache::put(const at::Tensor& key_tensor, const at::Tensor& data) {
         res = false;
         return;
       }
-      std::memcpy(alloc_item->getMemory(), data.data_ptr(), data.nbytes());
+      std::memcpy(alloc_item->getMemory(), data.const_data_ptr(), data.nbytes());
       cache_->insertOrReplace(std::move(alloc_item));
     } else {
-      std::memcpy(item->getMemory(), data.data_ptr(), data.nbytes());
+      std::memcpy(item->getMemory(), data.const_data_ptr(), data.nbytes());
     }
     res = true;
   });
@@ -202,8 +202,8 @@ CacheLibCache::get_n_items(int n, Cache::AccessIterator& itr) {
         FBGEMM_DISPATCH_INTEGRAL_TYPES(
             indices.scalar_type(), "get_n_items", [&] {
               using index_t = scalar_t;
-              auto indices_data_ptr = indices.data_ptr<index_t>();
-              auto weights_data_ptr = weights.data_ptr<value_t>();
+              auto indices_data_ptr = indices.mutable_data_ptr<index_t>();
+              auto weights_data_ptr = weights.const_data_ptr<value_t>();
               for (; itr != cache_->end() && cnt < n; ++itr, ++cnt) {
                 const auto key_ptr =
                     reinterpret_cast<const index_t*>(itr->getKey().data());
@@ -228,8 +228,8 @@ void CacheLibCache::init_tensor_for_l2_eviction(
     const at::Tensor& count) {
   CHECK_EQ(count.numel(), 1);
   auto num_lookups = count.scalar_type() == at::ScalarType::Long
-      ? *(count.data_ptr<int64_t>())
-      : *(count.data_ptr<int32_t>());
+      ? *(count.const_data_ptr<int64_t>())
+      : *(count.const_data_ptr<int32_t>());
   evicted_indices_opt_ =
       at::ones(
           num_lookups, at::TensorOptions().device(at::kCPU).dtype(at::kLong)) *

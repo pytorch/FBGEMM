@@ -261,7 +261,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       &indices_ptrs,
       &warp_offsets_group,
       &num_cols_group,
-      reinterpret_cast<int64_t*>(args_tensor.data_ptr()),
+      args_tensor.mutable_data_ptr<int64_t>(),
       args_ptrs_offsets);
 
   auto& first_input = input_group[0];
@@ -345,9 +345,9 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     index_contigs.push_back(indices.expect_contiguous());
 
     // Store args
-    input_ptrs[i] = reinterpret_cast<int64_t>(input_contigs[i]->data_ptr());
+    input_ptrs[i] = reinterpret_cast<int64_t>(input_contigs[i]->const_data_ptr());
     output_ptrs[i] = reinterpret_cast<int64_t>(output.mutable_data_ptr());
-    indices_ptrs[i] = reinterpret_cast<int64_t>(index_contigs[i]->data_ptr());
+    indices_ptrs[i] = reinterpret_cast<int64_t>(index_contigs[i]->const_data_ptr());
     warp_offsets_group[i] = warp_offset;
     num_cols_group[i] = num_cols_;
 
@@ -369,7 +369,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       &indices_ptrs,
       &warp_offsets_group,
       &num_cols_group,
-      reinterpret_cast<int64_t*>(args_tensor.data_ptr()),
+      args_tensor.mutable_data_ptr<int64_t>(),
       args_ptrs_offsets);
 
   int64_t saved_data[] = {
@@ -384,7 +384,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       at::TensorOptions().dtype(at::kLong));
   TORCH_CHECK(
       saved_data_t.is_contiguous(), "Tensor saved_data_t must be contiguous.");
-  memcpy(saved_data_t.data_ptr<int64_t>(), saved_data, sizeof(saved_data));
+  memcpy(saved_data_t.mutable_data_ptr<int64_t>(), saved_data, sizeof(saved_data));
 
   group_index_select_or_add_cuda(
       input_ptrs,
@@ -442,7 +442,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       saved_data.device() == at::kCPU, "Tensor saved_data must be on CPU.");
   TORCH_CHECK(
       saved_data.is_contiguous(), "Tensor saved_data must be contiguous.");
-  int64_t* saved_data_ptr = saved_data.data_ptr<int64_t>();
+  const int64_t* saved_data_ptr = saved_data.const_data_ptr<int64_t>();
   // Check that the size is the same
   TORCH_CHECK_VALUE(
       saved_data_ptr[0] == group_size,
@@ -451,8 +451,8 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       " but got ",
       saved_data_ptr[0]);
   const bool use_var_cols = saved_data_ptr[1];
-  int64_t* warp_offsets_group = reinterpret_cast<int64_t*>(saved_data_ptr[2]);
-  int32_t* num_cols_group = reinterpret_cast<int32_t*>(saved_data_ptr[3]);
+  const int64_t* warp_offsets_group = reinterpret_cast<const int64_t*>(saved_data_ptr[2]);
+  const int32_t* num_cols_group = reinterpret_cast<const int32_t*>(saved_data_ptr[3]);
   int64_t total_num_warps = saved_data_ptr[4];
 
   // We checked in forward that all output rows are the same for all member
@@ -483,9 +483,9 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   // Ensure that args_tensor is contiguous
   TORCH_CHECK(
       args_tensor.is_contiguous(), "Tensor args_tensor must be contiguous.");
-  int64_t* grad_output_ptrs = args_tensor.data_ptr<int64_t>();
-  int64_t* grad_input_ptrs = args_tensor.data_ptr<int64_t>() + group_size;
-  int64_t* indices_ptrs = args_tensor.data_ptr<int64_t>() + 2 * group_size;
+  int64_t* grad_output_ptrs = args_tensor.mutable_data_ptr<int64_t>();
+  int64_t* grad_input_ptrs = args_tensor.mutable_data_ptr<int64_t>() + group_size;
+  int64_t* indices_ptrs = args_tensor.mutable_data_ptr<int64_t>() + 2 * group_size;
 
   int64_t group_grad_input_numel = 0;
   std::vector<int64_t> grad_input_numels;
@@ -513,7 +513,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
 
     // Put all grad output/input pointers in an array
     grad_output_ptrs[i] =
-        reinterpret_cast<int64_t>(grad_output_contigs[i]->data_ptr());
+        reinterpret_cast<int64_t>(grad_output_contigs[i]->mutable_data_ptr());
   }
 
   // Allocate a big tensor to avoid calling many small elementwise kernels
@@ -546,7 +546,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         " of ",
         group_size,
         " must be contiguous.");
-    grad_input_ptrs[i] = reinterpret_cast<int64_t>(output_group[i].data_ptr());
+    grad_input_ptrs[i] = reinterpret_cast<int64_t>(output_group[i].const_data_ptr());
 
     // 2) Add group_size gradients for inputs
     outputs.push_back(output_group[i]);
@@ -558,16 +558,16 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   for (const auto i : c10::irange(group_size)) {
     const auto& indices = indices_group[i];
     index_contigs.push_back(indices.expect_contiguous());
-    indices_ptrs[i] = reinterpret_cast<int64_t>(index_contigs[i]->data_ptr());
+    indices_ptrs[i] = reinterpret_cast<int64_t>(index_contigs[i]->const_data_ptr());
   }
 
   // Transfer grad output pointers to GPU
   args_tensor = args_tensor.to(first_indices.device(), /*non_blocking=*/true);
 
   group_index_select_or_add_cuda(
-      args_tensor.data_ptr<int64_t>(),
-      args_tensor.data_ptr<int64_t>() + group_size,
-      args_tensor.data_ptr<int64_t>() + 2 * group_size,
+      args_tensor.const_data_ptr<int64_t>(),
+      args_tensor.const_data_ptr<int64_t>() + group_size,
+      args_tensor.const_data_ptr<int64_t>() + 2 * group_size,
       warp_offsets_group,
       num_cols_group,
       fwd_input.scalar_type(),
