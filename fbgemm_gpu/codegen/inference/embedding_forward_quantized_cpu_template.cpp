@@ -78,9 +78,9 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
             using uidx_t =
                 std::conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
 
-            const auto* indices_acc = indices.data_ptr<index_t>();
-            const auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
-            const auto* offsets_acc = offsets.data_ptr<index_t>();
+            const auto* indices_acc = indices.const_data_ptr<index_t>();
+            const auto* dense_indices_acc = dense_indices.const_data_ptr<index_t>();
+            const auto* offsets_acc = offsets.const_data_ptr<index_t>();
 
             auto hash_table_acc = hash_table.accessor<hash_t, 2>();
             const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
@@ -228,14 +228,14 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         return output;
     }
 
-    const int32_t* weights_placements_ptr = weights_placements.data_ptr<int32_t>();
+    const int32_t* weights_placements_ptr = weights_placements.const_data_ptr<int32_t>();
     const uint8_t* weights_acc;
 
-    const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
+    const auto* weights_tys_acc = weights_tys.const_data_ptr<uint8_t>();
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "intn_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", [&] {
         {% if weighted %}
-        const float* indice_weights_acc = indice_weights.data_ptr<float>();
+        const float* indice_weights_acc = indice_weights.const_data_ptr<float>();
         {% endif %}
 
         using float16 = uint16_t;
@@ -250,15 +250,15 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
             float16,
             std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, float>::type> ::type;
         AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_", [&] {
-            const auto* indices_acc = indices.data_ptr<index_t>();
-            const auto* offsets_acc = offsets.data_ptr<index_t>();
-            const auto* weights_offsets_acc = weights_offsets.data_ptr<int64_t>();
+            const auto* indices_acc = indices.const_data_ptr<index_t>();
+            const auto* offsets_acc = offsets.const_data_ptr<index_t>();
+            const auto* weights_offsets_acc = weights_offsets.const_data_ptr<int64_t>();
 
-            auto* output_acc = output.data_ptr<output_t>();
+            auto* output_acc = output.mutable_data_ptr<output_t>();
 
             for (const auto t : c10::irange(T)) {
                 {% if not nobag %}
-                const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
+                const auto* D_offsets_acc = D_offsets.const_data_ptr<int32_t>();
                 const int32_t D_start = D_offsets_acc[t];
                 const int32_t D_end = D_offsets_acc[t + 1];
                 const int32_t D = D_end - D_start;
@@ -295,7 +295,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 {% if nobag %}
                 // Create virtual offsets for the nobag case. Lengths are all ones.
                 const auto offsets_nobag = at::arange(*offsets_begin_ptr, offsets_acc[(t + 1) * B] + 1, offsets.options());
-                const index_t* offsets_nobag_ptr = offsets_nobag.data_ptr<index_t>();
+                const index_t* offsets_nobag_ptr = offsets_nobag.const_data_ptr<index_t>();
                 TORCH_CHECK(offsets_nobag.numel() == index_size + 1);
                 TORCH_CHECK(offsets_nobag_ptr[index_size] - offsets_nobag_ptr[0] == index_size);
                 {% endif %}
@@ -449,9 +449,9 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
             using utdx_t =
                 std::conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
 
-            const auto* indices_acc = indices.data_ptr<index_t>();
+            const auto* indices_acc = indices.const_data_ptr<index_t>();
             auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
-            const auto* offsets_acc = offsets.data_ptr<index_t>();
+            const auto* offsets_acc = offsets.const_data_ptr<index_t>();
 
             const auto hash_table_acc = hash_table.accessor<hash_t, 2>();
             const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
@@ -527,12 +527,12 @@ Tensor pruned_array_lookup_cpu(
         using remap_t = index_t;
 
         AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_array_lookup_cpu_1", [&] {
-            const auto* indices_acc = indices.data_ptr<index_t>();
+            const auto* indices_acc = indices.const_data_ptr<index_t>();
             auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
-            const auto* offsets_acc = offsets.data_ptr<index_t>();
+            const auto* offsets_acc = offsets.const_data_ptr<index_t>();
 
-            const auto index_remappings_acc = index_remappings.data_ptr<remap_t>();
-            const auto index_remappings_offsets_acc = index_remappings_offsets.data_ptr<int64_t>();
+            const auto index_remappings_acc = index_remappings.const_data_ptr<remap_t>();
+            const auto index_remappings_offsets_acc = index_remappings_offsets.const_data_ptr<int64_t>();
 
             at::parallel_for(0, T, 1, [&](int64_t begin, int64_t end) {
             for (const auto t : c10::irange(begin, end)) {

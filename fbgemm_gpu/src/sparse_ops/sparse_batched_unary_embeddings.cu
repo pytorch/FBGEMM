@@ -87,7 +87,7 @@ Tensor batched_unary_embeddings_forward_cuda(
                   table_offsets.data_ptr<index_t>(),
                   offsets.data_ptr<index_t>(),
                   indices.data_ptr<index_t>(),
-                  output.data_ptr<scalar_t>());
+                  output.mutable_data_ptr<scalar_t>());
             });
       });
   return output;
@@ -237,7 +237,7 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
                   N,
                   B,
                   T,
-                  grad_output.data_ptr<scalar_t>(),
+                  grad_output.mutable_data_ptr<scalar_t>(),
                   table_offsets.data_ptr<index_t>(),
                   grad_weight.data_ptr<scalar_t>(),
                   PTA_B(sorted_linear_indices_run, index_t, 1, 32),
