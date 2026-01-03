@@ -31,7 +31,7 @@ std::string to_string(const FeatureGateName& value) {
   return "UNKNOWN";
 }
 
-static bool ev_check_key(const std::string& key) {
+bool ev_check_key(const std::string& key) {
   const auto env_var = "FBGEMM_" + key;
 
   const auto value = std::getenv(env_var.c_str());

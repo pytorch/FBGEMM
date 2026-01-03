@@ -18,7 +18,7 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-static Tensor merge_pooled_embeddings_cpu(
+Tensor merge_pooled_embeddings_cpu(
     std::vector<Tensor> pooled_embeddings,
     int64_t /*uncat_dim_size*/,
     at::Device target_device,
@@ -49,7 +49,7 @@ static Tensor merge_pooled_embeddings_cpu(
   return result;
 }
 
-static Tensor sum_reduce_to_one_cpu(
+Tensor sum_reduce_to_one_cpu(
     std::vector<Tensor> input_tensors,
     at::Device /* target_device */) {
   TORCH_CHECK(!input_tensors.empty());
@@ -64,7 +64,7 @@ static Tensor sum_reduce_to_one_cpu(
   return result;
 }
 
-static std::vector<Tensor> all_to_one_device_cpu(
+std::vector<Tensor> all_to_one_device_cpu(
     std::vector<Tensor> input_tensors,
     at::Device /* target_device */) {
   for (const auto& t : input_tensors) {

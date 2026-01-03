@@ -23,7 +23,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 template <typename index_t>
-static void embedding_inplace_update_cpu_kernel(
+void embedding_inplace_update_cpu_kernel(
     at::TensorAccessor<uint8_t, 1> dev_weights,
     at::TensorAccessor<uint8_t, 1> uvm_weights,
     const at::TensorAccessor<int32_t, 1>& weights_placements,

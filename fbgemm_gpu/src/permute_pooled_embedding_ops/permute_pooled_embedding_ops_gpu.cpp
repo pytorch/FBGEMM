@@ -19,7 +19,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 ///@ingroup permute-pooled-embs-gpu
-static Tensor permute_pooled_embs_auto_grad_gpu(
+Tensor permute_pooled_embs_auto_grad_gpu(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -34,7 +34,7 @@ static Tensor permute_pooled_embs_auto_grad_gpu(
 }
 
 ///@ingroup permute-duplicate-pooled-embs-gpu
-static Tensor permute_duplicate_pooled_embs_auto_grad_gpu(
+Tensor permute_duplicate_pooled_embs_auto_grad_gpu(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
     const Tensor& permute_list,

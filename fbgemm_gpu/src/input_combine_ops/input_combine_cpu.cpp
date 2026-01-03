@@ -27,7 +27,7 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-static void _cat_int_tensors_out(
+void _cat_int_tensors_out(
     Tensor& combined_tensors,
     const std::vector<Tensor>& tensor_list,
     int64_t total_num,
@@ -82,7 +82,7 @@ static void _cat_int_tensors_out(
   }
 }
 
-static Tensor _cat_int_tensors(
+Tensor _cat_int_tensors(
     const std::vector<Tensor>& tensor_list,
     int64_t total_num,
     bool use_pin_memory,
@@ -107,7 +107,7 @@ static Tensor _cat_int_tensors(
   return combined_tensors;
 }
 
-static Tensor _cat_int_tensors_with_padding(
+Tensor _cat_int_tensors_with_padding(
     const std::vector<Tensor>& tensor_list,
     int64_t total_num,
     bool use_pin_memory,
@@ -140,7 +140,7 @@ static Tensor _cat_int_tensors_with_padding(
   return combined_tensors;
 }
 
-static void _cat_per_sample_weights_list_out(
+void _cat_per_sample_weights_list_out(
     Tensor& out,
     const std::vector<Tensor>& per_sample_weights,
     const std::vector<Tensor>& indices_list,
@@ -178,7 +178,7 @@ static void _cat_per_sample_weights_list_out(
   }
 }
 
-static Tensor _cat_per_sample_weights_list(
+Tensor _cat_per_sample_weights_list(
     const std::vector<Tensor>& per_sample_weights,
     const std::vector<Tensor>& indices_list,
     int64_t total_num,
@@ -375,7 +375,7 @@ void tbe_input_combine_with_length_cpu_out(
   combined_per_sample_weights.resize_({0});
 }
 
-static std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cpu(
+std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights) {
@@ -518,7 +518,7 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
 /// @param lengths_list list of lengths.
 /// @param per_sample_weights list of per_sample_weights
 /// @return tuple of combined indices, lengths, and per_sample_weights
-static std::tuple<Tensor, Tensor, Tensor>
+std::tuple<Tensor, Tensor, Tensor>
 padding_fused_tbe_input_combine_with_length_cpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& lengths_list,

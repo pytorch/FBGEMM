@@ -21,7 +21,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 ///@ingroup layout-transform-cpu
-static Tensor recat_embedding_grad_output_mixed_D_cpu(
+Tensor recat_embedding_grad_output_mixed_D_cpu(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {
   TORCH_CHECK(grad_output.is_contiguous());
