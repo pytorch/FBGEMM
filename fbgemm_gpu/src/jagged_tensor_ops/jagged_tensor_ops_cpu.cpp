@@ -1699,7 +1699,7 @@ Tensor get_source_mask_cpu(
       num_sources.scalar_type(), "get_source_mask_cpu", [&] {
         const index_t* num_sources_data = num_sources.data_ptr<index_t>();
         const index_t* num_targets_data = num_targets.data_ptr<index_t>();
-        bool* output_data = output.data_ptr<bool>();
+        bool* output_data = output.mutable_data_ptr<bool>();
 
         int64_t offset = 0;
         for (int64_t i = 0; i < batch_size; ++i) {

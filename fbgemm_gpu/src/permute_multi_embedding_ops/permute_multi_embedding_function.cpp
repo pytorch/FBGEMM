@@ -7,6 +7,7 @@
  */
 
 #include "fbgemm_gpu/permute_multi_embedding_function.h"
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 
@@ -170,7 +171,8 @@ kt_regroup_arguments_impl(
   }
 
   // flattened permutes vector with size of out_num * PermuteParam::size
-  std::vector<int32_t> permutes(out_num * PermuteParam::size);
+  std::vector<int32_t> permutes(
+      static_cast<size_t>(out_num * PermuteParam::size));
   int32_t* __restrict__ pp = permutes.data();
   // the lengths of each output tensor
   int32_t* __restrict__ out_offset = out_lengths.data();
@@ -191,7 +193,8 @@ kt_regroup_arguments_impl(
     for (const auto& key : groups[out_tensor]) {
       // query the loockup dictionary for input tensor index, offset, and length
       auto [in_tensor, length, in_offset] = lookup.at(key);
-      int32_t* __restrict__ curr_pp = pp + curr * PermuteParam::size;
+      int32_t* __restrict__ curr_pp =
+          pp + static_cast<ptrdiff_t>(curr * PermuteParam::size);
       curr_pp[PermuteParam::in_tensor] = in_tensor;
       curr_pp[PermuteParam::out_tensor] = out_tensor;
 

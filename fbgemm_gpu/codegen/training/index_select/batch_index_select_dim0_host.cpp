@@ -291,7 +291,7 @@ class BatchIndexSelectDim0GPUOp
     auto _grad_output = grad_output;
     // FIXME: to support aligned memory access in Vec4T load/store function
     // 16 for FP32 and 8 for FP16
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
+    if (reinterpret_cast<uint64_t>(grad_output.mutable_data_ptr()) % 16 != 0 ||
         at::has_internal_overlap(grad_output) != at::MemOverlap::No) {
       _grad_output = at::empty_like(grad_output).copy_(grad_output);
     }
@@ -612,7 +612,7 @@ class BatchIndexSelectDim0TensorGPUOp
     auto _grad_output = grad_output;
     // FIXME: to support aligned memory access in Vec4T load/store function
     // 16 for FP32 and 8 for FP16
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
+    if (reinterpret_cast<uint64_t>(grad_output.mutable_data_ptr()) % 16 != 0 ||
         at::has_internal_overlap(grad_output) != at::MemOverlap::No) {
       _grad_output = at::empty_like(grad_output).copy_(grad_output);
     }

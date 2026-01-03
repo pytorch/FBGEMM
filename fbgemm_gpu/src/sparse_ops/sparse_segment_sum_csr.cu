@@ -83,7 +83,7 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
                   batch_size,
                   csr_seg.data_ptr<index_t>(),
                   values.data_ptr<values_t>(),
-                  output.data_ptr<values_t>());
+                  output.mutable_data_ptr<values_t>());
             });
       });
 

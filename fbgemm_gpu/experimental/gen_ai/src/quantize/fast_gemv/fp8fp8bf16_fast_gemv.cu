@@ -245,8 +245,8 @@ at::Tensor fp8fp8bf16_fast_gemv(
       k,
       m,
       n,
-      reinterpret_cast<float const*>(w_scale.data_ptr()),
-      reinterpret_cast<float const*>(x_scale.data_ptr()));
+      reinterpret_cast<float const*>(w_scale.const_data_ptr()),
+      reinterpret_cast<float const*>(x_scale.const_data_ptr()));
 
   if (!dispatched) {
     throw std::runtime_error("f8f8bf16_fast_gemv cannot run.");

@@ -105,7 +105,7 @@ at::Tensor f8f8bf16_cublas(
       sizeof(fastAccuMode)));
 
   if (Ainvs.has_value()) {
-    const float* Ainvs_pt = Ainvs.value().data_ptr<float>();
+    const float* Ainvs_pt = Ainvs.value().const_data_ptr<float>();
     checkCublasStatus(cublasLtMatmulDescSetAttribute(
         operationDesc,
         CUBLASLT_MATMUL_DESC_A_SCALE_POINTER,
@@ -114,7 +114,7 @@ at::Tensor f8f8bf16_cublas(
   }
 
   if (Binvs.has_value()) {
-    const float* Binvs_pt = Binvs.value().data_ptr<float>();
+    const float* Binvs_pt = Binvs.value().const_data_ptr<float>();
     checkCublasStatus(cublasLtMatmulDescSetAttribute(
         operationDesc,
         CUBLASLT_MATMUL_DESC_B_SCALE_POINTER,
