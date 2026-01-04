@@ -197,4 +197,27 @@ DEVICE_INLINE bool is_aligned(const void* ptr) {
   return !(iptr % alignof(T));
 }
 
+DEVICE_INLINE int getLaneId() {
+#ifdef USE_ROCM
+  return __lane_id();
+#else
+  int laneId;
+  asm("mov.s32 %0, %%laneid;" : "=r"(laneId));
+  return laneId;
+#endif
+}
+
+#ifdef USE_ROCM
+DEVICE_INLINE unsigned long long int getLaneMaskLt() {
+  const std::uint64_t m = (1ull << getLaneId()) - 1ull;
+  return m;
+}
+#else
+DEVICE_INLINE unsigned getLaneMaskLt() {
+  unsigned mask;
+  asm("mov.u32 %0, %%lanemask_lt;" : "=r"(mask));
+  return mask;
+}
+#endif
+
 } // namespace fbgemm_gpu
