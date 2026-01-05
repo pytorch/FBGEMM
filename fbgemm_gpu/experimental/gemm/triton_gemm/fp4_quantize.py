@@ -5428,6 +5428,7 @@ def _calculate_group_max(
 
     # Define Constant Expressions.
     MIN_NORMAL: tl.constexpr = 1e-8  # type: ignore[Incompatible variable type]
+    MAX_NORMAL: tl.constexpr = 1e30  # type: ignore[Incompatible variable type]
 
     # For very large inputs, we need to use int64 indexes. This is slower but necessary.
     if USE_INT64:
@@ -5500,6 +5501,9 @@ def _calculate_group_max(
         a_groups = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE])
         # Compute the shared exponent of each group.
         group_max = tl.max(tl.abs(a_groups), axis=1)
+
+        # cap group max value to avoid overflow
+        group_max = tl.where(group_max == float("inf"), MAX_NORMAL, group_max)
 
         global_scale = (
             448.0
