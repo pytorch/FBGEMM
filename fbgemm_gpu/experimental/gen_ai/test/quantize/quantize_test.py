@@ -85,8 +85,9 @@ def evaluate_platform_supports_mxfp4():
 
 
 def evaluate_cuda_platform_version(major: int):
-    if torch.version.cuda:
-        return torch.cuda.get_device_capability() >= (major, 0)
+    if torch.cuda.is_available():
+        if torch.version.cuda:
+            return torch.cuda.get_device_capability() >= (major, 0)
     return False
 
 
