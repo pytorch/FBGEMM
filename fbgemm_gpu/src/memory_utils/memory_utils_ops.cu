@@ -13,8 +13,6 @@
 namespace fbgemm_gpu {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def("is_uvm_tensor(Tensor t) -> bool", TORCH_FN(is_uvm_tensor));
-  m.def("uvm_storage(Tensor t) -> bool", TORCH_FN(uvm_storage));
   m.def(
       "uvm_to_device(Tensor self, Tensor prototype) -> Tensor",
       TORCH_FN(uvm_to_device));
@@ -32,15 +30,24 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "uvm_mem_advice_dont_fork(Tensor t) -> ()",
       TORCH_FN(uvm_mem_advice_dont_fork));
 
-  m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
-  m.def("uvm_to_cpu(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu));
-
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
   m.def("copy_to_shared(Tensor t) -> ()", TORCH_FN(copy_to_shared));
   m.def(
       "initialize_nan_shared_mem(int device_index) -> ()",
       TORCH_FN(initialize_nan_shared_mem));
 
+  DISPATCH_TO_CUDA("is_uvm_tensor", is_uvm_tensor_cuda);
+  DISPATCH_TO_CUDA("uvm_storage", uvm_storage_cuda);
+  DISPATCH_TO_CUDA("uvm_to_cpu_clone", uvm_to_cpu_clone);
+  DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu_cuda);
+  // We need to dispatch to CPU as well when GPU libs are loaded because the
+  // existing API is such that some of the ops behave differently if the tensors
+  // they are operating on were returned from uvm_to_cpu or not, meaning that we
+  // have to be able the introspect these even when device is set cpu:0.
+  DISPATCH_TO_CPU("is_uvm_tensor", is_uvm_tensor_cuda);
+  DISPATCH_TO_CPU("uvm_storage", uvm_storage_cuda);
+  DISPATCH_TO_CPU("uvm_to_cpu_clone", uvm_to_cpu_clone);
+  DISPATCH_TO_CPU("uvm_to_cpu", uvm_to_cpu_cuda);
   DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
   DISPATCH_TO_CUDA("new_host_mapped_tensor", new_host_mapped_tensor);
   DISPATCH_TO_CUDA("new_unified_tensor", new_unified_tensor);
