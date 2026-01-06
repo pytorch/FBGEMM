@@ -575,7 +575,7 @@ def _kernel_dequantize_mx4(
         # Write final outputs.
         tl.store(
             out + output_offset,
-            scaled_fp32,
+            scaled_fp32.to(out.dtype.element_ty),
             # Mask values that are out of this chunk or the main array.
             mask=(output_offset < OUTPUT_SIZE)
             & (output_offset < OUTPUT_CHUNK_SIZE * (pid + 1)),
@@ -588,10 +588,14 @@ def _kernel_dequantize_mx4(
 
 
 def triton_dequantize_mx4(
-    a: torch.Tensor, group_size: int = 32, ebits: int = 2, mbits: int = 1
+    a: torch.Tensor,
+    group_size: int = 32,
+    ebits: int = 2,
+    mbits: int = 1,
+    output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """
-    Dequantize a tensor from mx4 format to fp32.
+    Dequantize a tensor from mx4 format to fp32 or bf16.
 
     Args:
         a (Tensor): [M / 2 + M / group_size] MX4 tensor packed into int8 values
@@ -599,13 +603,15 @@ def triton_dequantize_mx4(
         group_size (int): Size of chunks that use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target mx4 format.
         mbits (int): Number of bits to use for mantissa in target mx4 format.
+        output_dtype (torch.dtype): Output dtype (FP32 or BF16).
+            Defaults to torch.float32 for backward compatibility.
 
     Returns:
-        torch.Tensor: [M, K] dequantized fp32 tensor.
+        torch.Tensor: [M, K] dequantized tensor in the specified dtype.
     """
     # If given an empty shape, return an empty tensor.
     if a.numel() == 0:
-        return torch.empty(a.shape, device=a.device, dtype=torch.float32)
+        return torch.empty(a.shape, device=a.device, dtype=output_dtype)
     # View a as 2D for simplicity.
     orig_shape = a.shape
     a = a.flatten()
@@ -622,9 +628,9 @@ def triton_dequantize_mx4(
     # Use a lookup table to convert
     mx4_to_fp_values = get_mx4_lookup_table(ebits, mbits, a.device)
 
-    # Create output tensor.
+    # Create output tensor in target dtype.
     output_elems = num_groups * group_size
-    out = torch.empty([output_elems], device=a.device, dtype=torch.float)
+    out = torch.empty([output_elems], device=a.device, dtype=output_dtype)
     # Check if we need to use int64 for indexing.
     use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
     # Invoke triton dequantization kernel over rows.
