@@ -29,11 +29,25 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_index_select_2d_kernel(
        dense_output_offset += gridDim.x) {
     // Binary search
     // TODO: use multiple threads to do bin search to reduce number of steps
+    int local_index_pos = -1;
     if (threadIdx.x == 0) {
       const auto num_output_rows = indices.size(0);
       binary_search_range(
-          smem, &output_offsets[0], dense_output_offset, num_output_rows);
+          &local_index_pos,
+          &output_offsets[0],
+          dense_output_offset,
+          num_output_rows);
     }
+
+    // Sync before write: ensure all threads finished reading smem from previous
+    // iteration
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      smem[0] = local_index_pos;
+    }
+
+    // Sync after write: ensure thread 0 has written before other threads read
     __syncthreads();
 
     // All threads load index_pos from shared memory and return if the index_pos
