@@ -99,16 +99,22 @@ echo "## 4. Run TorchRec tests"
 
 conda install -n "$env_name" -y pytest
 # Read the list of tests to skip from a file, ignoring empty lines and comments
-skip_expression=$(awk '!/^($|#)/ {printf " and not %s", $0}' ./.github/scripts/tests_to_skip.txt)
-# Check if skip_expression is effectively empty
-if [ -z "$skip_expression" ]; then
-  skip_expression=""
+if [ -f "./.github/scripts/tests_to_skip.txt" ]; then
+  skip_expression=$(awk '!/^($|#)/ {printf " and not %s", $0}' ./.github/scripts/tests_to_skip.txt)
+  # Check if skip_expression is effectively empty
+  if [ -z "$skip_expression" ]; then
+    skip_expression=""
+  else
+    skip_expression=${skip_expression:5}  # Remove the leading " and "
+  fi
+
+  # Add test_dlrm_inference_package to skip expression
+  skip_expression="${skip_expression} and not test_dlrm_inference_package"
+
 else
-  skip_expression=${skip_expression:5}  # Remove the leading " and "
+  skip_expression=""
 fi
 
-# Add test_dlrm_inference_package to skip expression
-skip_expression="${skip_expression} and not test_dlrm_inference_package"
 
 conda run -n "$env_name" \
   python -m pytest torchrec -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors \
