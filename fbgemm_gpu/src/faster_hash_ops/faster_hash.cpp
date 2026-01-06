@@ -138,10 +138,11 @@ void _zero_collision_hash_cpu_out(
     int64_t opt_in_prob,
     int64_t num_reserved_slots) {
   int64_t modulo = identities.size(0);
-  auto* local_sizes_ptr =
-      local_sizes.has_value() ? local_sizes->data_ptr<int64_t>() : nullptr;
+  auto* local_sizes_ptr = local_sizes.has_value()
+      ? local_sizes->const_data_ptr<int64_t>()
+      : nullptr;
   auto* offsets_ptr =
-      offsets.has_value() ? offsets->data_ptr<int64_t>() : nullptr;
+      offsets.has_value() ? offsets->const_data_ptr<int64_t>() : nullptr;
 
 #define INVOKE_KERNEL(                                           \
     DISABLE_FALLBACK, HASH_IDENTITY, CIRCULAR_PROBE, HAS_OFFSET) \

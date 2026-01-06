@@ -75,7 +75,7 @@ void split_embedding_forward_cpu_kernel(
   // If indice_weights not defined, then this accessor won't be used.
   // The else condition is just to make compiler happy
   const auto indice_weights_data = indice_weights.defined()
-      ? indice_weights.data_ptr<ind_weights_t>()
+      ? indice_weights.const_data_ptr<ind_weights_t>()
       : nullptr;
 
   auto output_data = output.mutable_data_ptr<output_t>();

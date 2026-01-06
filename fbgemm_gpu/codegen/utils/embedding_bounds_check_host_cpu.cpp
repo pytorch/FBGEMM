@@ -80,7 +80,7 @@ void bounds_check_indices_cpu(
     TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
   }
   const int32_t* const B_offsets_ptr =
-      vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr;
+      vbe ? B_offsets.value().const_data_ptr<int32_t>() : nullptr;
 
   auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
@@ -91,7 +91,7 @@ void bounds_check_indices_cpu(
   const int32_t total_B = offsets.size(0) - 1;
   const int32_t B = total_B / T;
   const auto rows_per_table_acc = rows_per_table.accessor<int64_t, 1>();
-  auto warning_acc = warning.data_ptr<int64_t>();
+  auto warning_acc = warning.mutable_data_ptr<int64_t>();
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices_cpu", [&] {
     [[FBGEMM_MEM_CHECK_ONLY]] const auto func_name = "bounds_check_indices_cpu";

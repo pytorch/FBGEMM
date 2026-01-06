@@ -171,7 +171,7 @@ void _cat_per_sample_weights_list_out(
     if (element_size != 0) {
       memcpy(
           out_weights_ptr,
-          per_sample_weights[i].data_ptr<float>(),
+          per_sample_weights[i].const_data_ptr<float>(),
           element_size * sizeof(float));
     }
     out_weights_ptr += actual_indices_size;
