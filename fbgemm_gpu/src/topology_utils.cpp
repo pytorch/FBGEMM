@@ -152,7 +152,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
     NVML_CHECK(
         nvmlDeviceGetHandleByIndex(cuda_device_to_nvml_device[i], &handle));
     for (const auto link : c10::irange(NVML_NVLINK_MAX_LINKS)) {
-      nvmlEnableState_t is_active;
+      nvmlEnableState_t is_active{NVML_FEATURE_DISABLED};
       auto nvmlRet = nvmlDeviceGetNvLinkState(handle, link, &is_active);
       if (nvmlRet == NVML_ERROR_INVALID_ARGUMENT ||
           nvmlRet == NVML_ERROR_NOT_SUPPORTED) {
