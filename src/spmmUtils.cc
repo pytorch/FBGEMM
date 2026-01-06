@@ -259,7 +259,7 @@ void sparseDenseInt8MMRef(
     const uint8_t* B,
     int ldb,
     int32_t* C_i32,
-    uint8_t* C_i8,
+    uint8_t* C_u8,
     int ldc,
     trRequantizationParams_t& rParams,
     bool accum,
@@ -306,7 +306,7 @@ void sparseDenseInt8MMRef(
     }
   }
   block_type_t block{0, M, 0, N};
-  trRequantizeRef<FUSE_RELU, Q_GRAN>(C_i8, C_i32, block, ldc, ldc, rParams);
+  trRequantizeRef<FUSE_RELU, Q_GRAN>(C_u8, C_i32, block, ldc, ldc, rParams);
 }
 
 #define CREATE_INSTANCE(FUSE_RELU, QGRAN)               \

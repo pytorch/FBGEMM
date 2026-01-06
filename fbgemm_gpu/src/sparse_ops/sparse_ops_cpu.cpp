@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <fstream>
 #include <functional>
 
 #include <ATen/ATen.h>
@@ -31,7 +30,7 @@ namespace {
 // To avoid multiple threads are touching the same cache line.
 // Assume cache line size is 64B and element size is at least 4B like float or
 // int32.
-constexpr int FALSE_SHARING_PAD = 16;
+constexpr size_t FALSE_SHARING_PAD = 16;
 
 // Converts sparse tensor to dense tensor with few optimizations to be used with
 // histogram binning calibration by feature. (1) Assumes dense_last_dim == 1 (2)
@@ -246,8 +245,8 @@ void _permute_2D_indices_weights_kernel_cpu(
     const offsets_t* const __restrict__ permuted_lengths) {
   at::parallel_for(
       0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
-        offsets_t output_start = output_offsets_per_thread_cumsum
-            [at::get_thread_num() * FALSE_SHARING_PAD];
+        offsets_t output_start = static_cast<offsets_t>(output_offsets_per_thread_cumsum
+            [at::get_thread_num() * FALSE_SHARING_PAD]);
         int64_t t_begin = tb_begin / B;
         int64_t t_end = (tb_end + B - 1) / B;
         for (const auto t : c10::irange(t_begin, t_end)) {
@@ -270,8 +269,8 @@ void _permute_2D_indices_weights_kernel_cpu(
 
 template <typename index_t>
 void _permute_2D_lengths_cpu_kernel(
-    const int32_t T,
-    const int32_t B,
+    const int64_t T,
+    const int64_t B,
     const index_t* const __restrict__ lengths,
     int64_t lengths_size,
     const int32_t* const __restrict__ permute,
@@ -280,7 +279,7 @@ void _permute_2D_lengths_cpu_kernel(
     int64_t* const __restrict__ output_offsets_per_thread_cumsum) {
   int num_threads = at::get_num_threads();
   std::vector<int> input_offsets_per_thread_cumsum(
-      (num_threads + 1) * FALSE_SHARING_PAD, 0);
+      static_cast<size_t>((num_threads + 1) * FALSE_SHARING_PAD), 0);
 
   // First parallel for: populate permuted_lengths, and compute per-thread
   // summation of lengths (input_offsets_per_thread_cumsum) and permuted_lengths
@@ -290,7 +289,7 @@ void _permute_2D_lengths_cpu_kernel(
         index_t current_input_offset = 0;
         // Have a separate loop for summing up lengths because lengths_size
         // can be smaller than T * B.
-        for (int tb = tb_begin; tb < std::min(tb_end, lengths_size); ++tb) {
+        for (int64_t tb = tb_begin; tb < std::min(tb_end, lengths_size); ++tb) {
           current_input_offset += lengths[tb];
         }
 
@@ -377,8 +376,8 @@ void _block_bucketize_sparse_features_cpu_kernel(
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
-  const auto T = block_sizes.numel();
-  const auto B = lengths_size / T;
+  const int64_t T = block_sizes.numel();
+  const int64_t B = lengths_size / T;
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
   const offset_t* lengths_data = lengths.const_data_ptr<offset_t>();
@@ -853,7 +852,7 @@ void _permute_1D_lengths_cpu_kernel(
       [&](int64_t tb_begin, int64_t tb_end) {
         // Have a separate loop for summing up lengths
         index_t current_output_offset = 0;
-        for (int tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
+        for (int64_t tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
              ++tb) {
           auto permuted_length = lengths[permute[tb]];
           permuted_lengths[tb] = permuted_length;
@@ -884,7 +883,7 @@ void _permute_1D_indices_weights_kernel_cpu(
       permuted_lengths_size,
       FALSE_SHARING_PAD,
       [&](int64_t tb_begin, int64_t tb_end) {
-        for (int tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
+        for (int64_t tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
              ++tb) {
           offsets_t permuted_length = permuted_lengths[tb];
           const offsets_t input_start = input_offsets[permute[tb]];
@@ -1011,7 +1010,7 @@ void _expand_into_jagged_permute_cpu_kernel(
     index_t* const __restrict__ output_permute) {
   at::parallel_for(
       0, permute_size, FALSE_SHARING_PAD, [&](int64_t t_begin, int64_t t_end) {
-        for (int t = t_begin; t < std::min(t_end, permute_size); ++t) {
+        for (int64_t t = t_begin; t < std::min(t_end, permute_size); ++t) {
           offsets_t permute_length = output_offsets[t + 1] - output_offsets[t];
           const offsets_t input_start = input_offsets[permute[t]];
           const offsets_t output_start = output_offsets[t];
@@ -1061,7 +1060,7 @@ void _invert_permute_cpu_kernel(
     index_t* const __restrict__ inversed_permute) {
   at::parallel_for(
       0, permute_size, FALSE_SHARING_PAD, [&](int64_t t_begin, int64_t t_end) {
-        for (int t = t_begin; t < std::min(t_end, permute_size); ++t) {
+        for (int64_t t = t_begin; t < std::min(t_end, permute_size); ++t) {
           inversed_permute[permute[t]] = t;
         }
       });
@@ -1401,8 +1400,8 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
-  const int32_t T = block_sizes.numel();
-  const int32_t B = lengths_size / T;
+  const int64_t T = block_sizes.numel();
+  const int64_t B = lengths_size / T;
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
   const offset_t* lengths_data = lengths.const_data_ptr<offset_t>();
@@ -1828,10 +1827,10 @@ void reorder_batched_ad_lengths_(
               (b == b_end - 1 && tb_end % nT != 0) ? tb_end % nT : nT;
           const auto data_size = num_ads_b * sizeof(scalar_t);
           for (const auto t : c10::irange(t_begin, t_end)) {
-            const int32_t input_segment_start = broadcast_lengths
+            const int64_t input_segment_start = broadcast_lengths
                 ? nT * b + t
                 : nT * batch_offsets_data[b] + t * num_ads_b;
-            const int32_t output_segment_start =
+            const int64_t output_segment_start =
                 t * output_batch_size + batch_offsets_data[b];
             if (broadcast_lengths) {
               for (const auto i : c10::irange(num_ads_b)) {
@@ -1949,10 +1948,10 @@ void reorder_batched_ad_indices_cpu_(
                 t * num_ads_in_batch + batch_offsets_data[b];
             const auto output_segment_start =
                 reordered_cat_ad_offsets_data[output_segment_offset_start];
-            const int32_t input_segment_offset_start = broadcast_indices
+            const int64_t input_segment_offset_start = broadcast_indices
                 ? nT * b + t
                 : nT * batch_offsets_data[b] + t * num_ads_b;
-            const int32_t input_segment_offset_end = broadcast_indices
+            const int64_t input_segment_offset_end = broadcast_indices
                 ? input_segment_offset_start + 1
                 : input_segment_offset_start + num_ads_b;
             const auto input_segment_start =
@@ -2017,10 +2016,10 @@ void cat_reorder_batched_ad_indices_cpu_(
                 t * max_batch_size + batch_offsets_data[b];
             const auto output_segment_start =
                 reordered_cat_ad_offsets_data[output_segment_offset_start];
-            const int32_t input_segment_offset_start = broadcast_indices
+            const int64_t input_segment_offset_start = broadcast_indices
                 ? nT * b + t
                 : nT * batch_offsets_data[b] + t * num_ads_b;
-            const int32_t input_segment_offset_end = broadcast_indices
+            const int64_t input_segment_offset_end = broadcast_indices
                 ? input_segment_offset_start + 1
                 : input_segment_offset_start + num_ads_b;
             const auto based_segment = broadcast_indices
@@ -2089,9 +2088,9 @@ void reorder_batched_sequence_embeddings_cpu_(
                 reordered_cat_sequence_embeddings_offsets_data
                     [output_segment_offset_start] *
                 dim;
-            const int32_t input_segment_offset_start =
+            const int64_t input_segment_offset_start =
                 nT * batch_offsets_data[b] + t * num_ads_b;
-            const int32_t input_segment_offset_end =
+            const int64_t input_segment_offset_end =
                 input_segment_offset_start + num_ads_b;
             const auto input_segment_start =
                 cat_sequence_embeddings_offsets_data
@@ -2318,9 +2317,9 @@ Tensor batched_unary_embeddings_forward_cpu(
   TENSOR_ON_CPU(indices);
 
   // N: number of tasks, T: number of tables, B: batch size
-  const int32_t N = weight.sizes()[0];
-  const int32_t T = table_offsets.numel() - 1;
-  const int32_t B = (offsets.numel() - 1) / T;
+  const int64_t N = weight.sizes()[0];
+  const int64_t T = table_offsets.numel() - 1;
+  const int64_t B = (offsets.numel() - 1) / T;
   TORCH_CHECK(N > 0);
   TORCH_CHECK(T > 0);
   TORCH_CHECK(B > 0);
@@ -2567,7 +2566,7 @@ void _generic_histogram_binning_calibration_by_feature_cpu_kernel(
     const LogitType pre_sigmoid = logit_data[i] + recalibrate_value;
     const double uncalibrated = 1.0 / (1.0 + std::exp(-pre_sigmoid));
 
-    const int curr_bin_id =
+    const auto curr_bin_id =
         std::lower_bound(
             bin_boundaries, bin_boundaries + num_bins - 1, uncalibrated) -
         bin_boundaries;
@@ -2733,7 +2732,7 @@ bool should_prune(
 
   constexpr auto index_byte_size = sizeof(int);
   const auto lut_num_row = weight_sizes[0];
-  const int64_t compressed_idx_overhead_size = lut_num_row * index_byte_size;
+  const int64_t compressed_idx_overhead_size = static_cast<int64_t>(lut_num_row * index_byte_size);
 
   const int64_t original_size = data_byte_size * weights.numel();
   return (compressed_idx_overhead_size + lut_after_prune_size) <
@@ -3061,8 +3060,8 @@ Tensor permute102_baddbmm_permute102_cpu(
 
 template <typename index_t>
 void _permute_lengths_cpu_kernel(
-    const int32_t T,
-    const int32_t B,
+    const int64_t T,
+    const int64_t B,
     const index_t* const __restrict__ lengths,
     int64_t lengths_size,
     const int32_t* const __restrict__ permute,
@@ -3507,7 +3506,7 @@ torch::autograd::variable_list group_index_select_dim0(
       at::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::group_index_select_dim0_gpu_impl", "")
           .typed<decltype(group_index_select_dim0_autograd_impl)>();
-  auto res = forward_op.call(all_indices_input_tensor, group_size);
+  auto res = forward_op.call(all_indices_input_tensor, static_cast<int64_t>(group_size));
   TORCH_CHECK(res.size() == group_size + 2);
   // only return the outputs (the first group_size elements)
   res.resize(group_size);
@@ -3540,7 +3539,7 @@ torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
   TORCH_CHECK(all_inputs.size() > 2);
   // all input size =  group_size * 2 (from grads, indices)
   // + 1 args_tensor + 1 saved_data + 1 first output
-  const int64_t group_size = (all_inputs.size() - 3) / 2;
+  const int64_t group_size = static_cast<int64_t>((all_inputs.size() - 3) / 2);
 
   auto grad_output_group = std::vector<Tensor>(
       all_inputs.cbegin(), all_inputs.cbegin() + group_size);
@@ -3599,8 +3598,8 @@ torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
 torch::autograd::variable_list group_index_select_dim0_decomposed(
     at::TensorList input_group,
     at::TensorList indices_group) {
-  int num_groups = input_group.size();
-  TORCH_CHECK(num_groups == (int)indices_group.size())
+  auto num_groups = input_group.size();
+  TORCH_CHECK(num_groups == indices_group.size())
   std::vector<Tensor> output_group;
   for (const auto i : c10::irange(num_groups)) {
     output_group.push_back(
@@ -3685,7 +3684,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   // 1) Add group_size Variable()'s for indices
   // Replace all empty tensors with Variable(). This must be done after the
   // op.call to make __torch_dispatch__ work for the backward op.
-  std::fill(res.begin(), res.begin() + group_size, torch::autograd::Variable());
+  std::fill(res.begin(), res.begin() + static_cast<int64_t>(group_size), torch::autograd::Variable());
   // 3) Add 1 Variable() for group_size
   res.emplace_back();
   return res;
