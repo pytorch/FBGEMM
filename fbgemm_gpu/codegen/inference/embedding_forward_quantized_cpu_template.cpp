@@ -270,7 +270,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
                 TORCH_CHECK(placement != PlacementType::DEVICE);
                 const auto& weight_tensor = (placement == PlacementType::HOST) ? dev_weights : uvm_weights;
-                weights_acc = weight_tensor.data_ptr<uint8_t>();
+                weights_acc = weight_tensor.const_data_ptr<uint8_t>();
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 const auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
                 if (output_is_int8) {
@@ -450,7 +450,7 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
                 std::conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
 
             const auto* indices_acc = indices.const_data_ptr<index_t>();
-            auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
+            auto* dense_indices_acc = dense_indices.mutable_data_ptr<index_t>();
             const auto* offsets_acc = offsets.const_data_ptr<index_t>();
 
             const auto hash_table_acc = hash_table.accessor<hash_t, 2>();
@@ -528,7 +528,7 @@ Tensor pruned_array_lookup_cpu(
 
         AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_array_lookup_cpu_1", [&] {
             const auto* indices_acc = indices.const_data_ptr<index_t>();
-            auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
+            auto* dense_indices_acc = dense_indices.mutable_data_ptr<index_t>();
             const auto* offsets_acc = offsets.const_data_ptr<index_t>();
 
             const auto index_remappings_acc = index_remappings.const_data_ptr<remap_t>();
