@@ -2,6 +2,9 @@
 
 FBGEMM GenAI (FBGEMM Generative AI Kernels Library)
 
+The FBGEMM GenAI project is moving to a new repository at [meta-pytorch/MSLK](https://github.com/meta-pytorch/MSLK).
+Contributions to FBGEMM GenAI will be frozen. In 2026 we plan to remove the code from the FBGEMM project. New contributions are welcome in MSLK.
+
 # **1. Overview**
 
 FBGEMM FP8 rowwise quantization kernels have been officially adopted in the
