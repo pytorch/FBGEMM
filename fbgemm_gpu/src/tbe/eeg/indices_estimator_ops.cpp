@@ -44,7 +44,7 @@ estimate_indices_distribution(const at::Tensor& indices) {
   std::copy(
       params.heavyHitters.begin(),
       params.heavyHitters.end(),
-      heavy_hitters.data_ptr<double>());
+      heavy_hitters.mutable_data_ptr<double>());
 
   return {
       heavy_hitters,

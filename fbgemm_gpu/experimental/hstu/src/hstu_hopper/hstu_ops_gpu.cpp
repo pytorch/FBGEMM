@@ -85,9 +85,9 @@ void set_params_fprop(
 #endif
 
   // Set the pointers and strides.
-  params.q_ptr = q.data_ptr();
-  params.k_ptr = k.data_ptr();
-  params.v_ptr = v.data_ptr();
+  params.q_ptr = q.mutable_data_ptr();
+  params.k_ptr = k.mutable_data_ptr();
+  params.v_ptr = v.mutable_data_ptr();
   // All stride are in elements, not bytes.
   params.q_row_stride = q.stride(-3);
   params.k_row_stride = k.stride(-3);
@@ -96,7 +96,7 @@ void set_params_fprop(
   params.k_head_stride = k.stride(-2);
   params.v_head_stride = v.stride(-2);
   if (out.numel() > 0) {
-    params.o_ptr = out.data_ptr();
+    params.o_ptr = out.mutable_data_ptr();
     params.o_row_stride = out.stride(-3);
     params.o_head_stride = out.stride(-2);
   }

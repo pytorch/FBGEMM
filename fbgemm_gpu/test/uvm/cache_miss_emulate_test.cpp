@@ -76,7 +76,7 @@ TEST(UvmCacheMissEmulateTest, enforced_cache_miss) {
         if (miss_in_lxu_cache_locations) {
           // one miss in the original lxu_cache_locations; shouldn't be counted
           // as enforced misses from emulate_cache_miss().
-          auto z = lxu_cache_locations_cpu.data_ptr<int32_t>();
+          auto z = lxu_cache_locations_cpu.mutable_data_ptr<int32_t>();
           z[0] = -1;
         }
         auto lxu_cache_location_with_cache_misses_and_uvm_cache_stats =
@@ -90,8 +90,8 @@ TEST(UvmCacheMissEmulateTest, enforced_cache_miss) {
             at::equal(
                 lxu_cache_locations_cpu, lxu_cache_location_with_cache_misses));
 
-        auto x = lxu_cache_locations_cpu.data_ptr<int32_t>();
-        auto y = lxu_cache_location_with_cache_misses.data_ptr<int32_t>();
+        auto x = lxu_cache_locations_cpu.const_data_ptr<int32_t>();
+        auto y = lxu_cache_location_with_cache_misses.const_data_ptr<int32_t>();
         int64_t enforced_misses = 0;
         for (int32_t i = 0; i < lxu_cache_locations_cpu.numel(); ++i) {
           if (x[i] != y[i]) {
@@ -112,7 +112,7 @@ TEST(UvmCacheMissEmulateTest, enforced_cache_miss) {
         if (gather_cache_stats) {
           auto uvm_cache_stats =
               lxu_cache_location_with_cache_misses_and_uvm_cache_stats.second;
-          auto cache_stats_ptr = uvm_cache_stats.data_ptr<int32_t>();
+          auto cache_stats_ptr = uvm_cache_stats.const_data_ptr<int32_t>();
           // enforced misses are recorded as conflict misses.
           EXPECT_EQ(expected_misses, cache_stats_ptr[5]);
         }

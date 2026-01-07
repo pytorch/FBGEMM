@@ -89,7 +89,7 @@ DLL_PUBLIC Tensor pack_segments_backward_cuda(
           const auto num_seq = lengths.size(0);
           const auto cell_size = data_contig->numel() /
               (data_contig->size(0) * data_contig->size(1));
-          const auto* const data_ptr = data_contig->data_ptr<scalar_t>();
+          const auto* const data_ptr = data_contig->const_data_ptr<scalar_t>();
           auto* const out_data = unpacked_tensor.mutable_data_ptr<scalar_t>();
 
           FBGEMM_LAUNCH_KERNEL(

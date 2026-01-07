@@ -55,8 +55,8 @@ namespace kv_mem {
         (source_tensor)->numel());                                      \
     (target_container)                                                  \
         .assign(                                                        \
-            (source_tensor)->data_ptr<data_type>(),                     \
-            (source_tensor)->data_ptr<data_type>() +                    \
+            (source_tensor)->const_data_ptr<data_type>(),               \
+            (source_tensor)->const_data_ptr<data_type>() +              \
                 (source_tensor)->numel());                              \
   } while (0)
 
@@ -142,8 +142,9 @@ class DramKVInferenceEmbedding
     if (hash_size_cumsum.has_value()) {
       TORCH_CHECK_TENSOR_PROPERTIES(hash_size_cumsum, at::ScalarType::Long);
       sub_table_hash_cumsum_.assign(
-          hash_size_cumsum->data_ptr<int64_t>() + 1, // skip the first 0
-          hash_size_cumsum->data_ptr<int64_t>() + hash_size_cumsum->numel());
+          hash_size_cumsum->const_data_ptr<int64_t>() + 1, // skip the first 0
+          hash_size_cumsum->const_data_ptr<int64_t>() +
+              hash_size_cumsum->numel());
     }
     if (feature_evict_config_.has_value() &&
         feature_evict_config_.value()->trigger_mode_ !=

@@ -188,9 +188,8 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
               index_size,
               hash_size,
               reinterpret_cast<float*>(host_weights_data + table_begin),
-              reinterpret_cast<const float*>(
-                  grad_output_data + b_begin * grad_stride + D_begin),
-              reinterpret_cast<float*>(momentum1_data + momentum_begin),
+              grad_output_data + b_begin * grad_stride + D_begin,
+              momentum1_data + momentum_begin,
               indices_data + *offsets_begin_ptr,
               offsets_begin_ptr,
               eps,

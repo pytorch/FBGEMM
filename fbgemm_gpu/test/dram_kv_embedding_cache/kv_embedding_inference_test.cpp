@@ -127,7 +127,7 @@ TEST_F(KVEmbeddingInferenceTest, InferenceLifecycleWithMetadata) {
       indices_tensor, retrieved_embedding, count_tensor));
   LOG(INFO) << "Retrieval completed";
 
-  auto retrieved_ptr = retrieved_embedding.data_ptr<float>();
+  auto retrieved_ptr = retrieved_embedding.const_data_ptr<float>();
   bool all_match = true;
   int mismatch_count = 0;
 
@@ -154,7 +154,7 @@ TEST_F(KVEmbeddingInferenceTest, InferenceLifecycleWithMetadata) {
     folly::coro::blockingWait(
         backend_->get_kv_db_async(indices_tensor, read_again, count_tensor));
 
-    auto read_ptr = read_again.data_ptr<float>();
+    auto read_ptr = read_again.const_data_ptr<float>();
     bool matches = true;
     for (int i = 0; i < EMBEDDING_DIM; ++i) {
       if (std::abs(read_ptr[i] - embedding_data[i]) > 1e-5f) {
@@ -184,7 +184,7 @@ TEST_F(KVEmbeddingInferenceTest, InferenceLifecycleWithMetadata) {
   folly::coro::blockingWait(backend_->get_kv_db_async(
       indices_tensor, post_eviction_embedding, count_tensor));
 
-  auto post_eviction_ptr = post_eviction_embedding.data_ptr<float>();
+  auto post_eviction_ptr = post_eviction_embedding.const_data_ptr<float>();
   bool values_changed = false;
   int differences = 0;
 

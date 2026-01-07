@@ -50,8 +50,8 @@ get_res_client(int64_t res_server_port) {
 /// PyTorch
 inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
   return tensor.scalar_type() == at::ScalarType::Long
-      ? *(tensor.data_ptr<int64_t>())
-      : *(tensor.data_ptr<int32_t>());
+      ? *(tensor.const_data_ptr<int64_t>())
+      : *(tensor.const_data_ptr<int32_t>());
 }
 
 fbgemm_gpu::StreamQueueItem tensor_copy(
@@ -86,15 +86,15 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
         FBGEMM_DISPATCH_INTEGRAL_TYPES(
             indices.scalar_type(), "tensor_copy", [&] {
               using index_t = scalar_t;
-              auto indices_addr = indices.data_ptr<index_t>();
-              auto new_indices_addr = new_indices.data_ptr<index_t>();
+              auto indices_addr = indices.const_data_ptr<index_t>();
+              auto new_indices_addr = new_indices.mutable_data_ptr<index_t>();
               std::copy(
                   indices_addr,
                   indices_addr + num_sets,
                   new_indices_addr); // dst_start
 
-              auto weights_addr = weights.data_ptr<value_t>();
-              auto new_weights_addr = new_weights.data_ptr<value_t>();
+              auto weights_addr = weights.const_data_ptr<value_t>();
+              auto new_weights_addr = new_weights.mutable_data_ptr<value_t>();
               std::copy(
                   weights_addr,
                   weights_addr + num_sets * weights.size(1),
@@ -103,10 +103,10 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     identities->scalar_type(), "tensor_copy", [&] {
                       using identities_t = scalar_t;
-                      auto identities_addr =
-                          identities->data_ptr<identities_t>();
+                      const auto identities_addr =
+                          identities->const_data_ptr<identities_t>();
                       auto new_identities_addr =
-                          new_identities->data_ptr<identities_t>();
+                          new_identities->mutable_data_ptr<identities_t>();
                       std::copy(
                           identities_addr,
                           identities_addr + num_sets * identities->size(1),
@@ -118,9 +118,9 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
                     runtime_meta->scalar_type(), "tensor_copy", [&] {
                       using runtime_meta_t = scalar_t;
                       auto runtime_meta_addr =
-                          runtime_meta->data_ptr<runtime_meta_t>();
+                          runtime_meta->const_data_ptr<runtime_meta_t>();
                       auto new_runtime_meta_addr =
-                          new_runtime_meta->data_ptr<runtime_meta_t>();
+                          new_runtime_meta->mutable_data_ptr<runtime_meta_t>();
                       std::copy(
                           runtime_meta_addr,
                           runtime_meta_addr + num_sets * runtime_meta->size(1),
@@ -129,7 +129,7 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
               }
             });
       });
-  *new_count.data_ptr<int64_t>() = num_sets;
+  *new_count.mutable_data_ptr<int64_t>() = num_sets;
   return fbgemm_gpu::StreamQueueItem{
       new_indices, new_weights, new_identities, new_runtime_meta, new_count};
 }

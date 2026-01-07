@@ -213,7 +213,7 @@ pack_segments_forward_cuda_v2(
       // Shape of presence is batch_size x max_len
       presence_mask = at::zeros(
           {lengths.numel(), max_length}, t_in_c.options().dtype(at::kBool));
-      presence_mask_data = presence_mask->data_ptr<bool>();
+      presence_mask_data = presence_mask->mutable_data_ptr<bool>();
     }
 
     if (t_in_c.size(0) == 0 || lengths.size(0) == 0) {

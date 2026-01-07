@@ -462,7 +462,8 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                             : static_cast<index_t*>(nullptr),                    \
                         keep_orig_idx,                                           \
                         keep_orig_idx_per_feature.has_value()                    \
-                            ? keep_orig_idx_per_feature->data_ptr<bool>()        \
+                            ? keep_orig_idx_per_feature                          \
+                                  ->const_data_ptr<bool>()                       \
                             : static_cast<bool*>(nullptr));                      \
                   });                                                            \
             });                                                                  \
@@ -523,7 +524,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                       : static_cast<index_t*>(nullptr),                             \
                   keep_orig_idx,                                                    \
                   keep_orig_idx_per_feature.has_value()                             \
-                      ? keep_orig_idx_per_feature->data_ptr<bool>()                 \
+                      ? keep_orig_idx_per_feature->const_data_ptr<bool>()           \
                       : static_cast<bool*>(nullptr));                               \
             });                                                                     \
       });
@@ -591,7 +592,8 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                             : static_cast<index_t*>(nullptr),                    \
                         keep_orig_idx,                                           \
                         keep_orig_idx_per_feature.has_value()                    \
-                            ? keep_orig_idx_per_feature->data_ptr<bool>()        \
+                            ? keep_orig_idx_per_feature                          \
+                                  ->const_data_ptr<bool>()                       \
                             : static_cast<bool*>(nullptr));                      \
                   });                                                            \
             });                                                                  \
@@ -656,7 +658,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                       : static_cast<index_t*>(nullptr),                             \
                   keep_orig_idx,                                                    \
                   keep_orig_idx_per_feature.has_value()                             \
-                      ? keep_orig_idx_per_feature->data_ptr<bool>()                 \
+                      ? keep_orig_idx_per_feature->const_data_ptr<bool>()           \
                       : static_cast<bool*>(nullptr));                               \
             });                                                                     \
       });
@@ -1037,10 +1039,10 @@ DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
                   threads_per_block,
                   0,
                   at::cuda::getCurrentCUDAStream(),
-                  lengths_contig->data_ptr<offset_t>(),
+                  lengths_contig->const_data_ptr<offset_t>(),
                   offsets.data_ptr<offset_t>(),
                   bucketized_offsets.data_ptr<offset_t>(),
-                  bucket_mapping_contig->data_ptr<index_t>(),
+                  bucket_mapping_contig->const_data_ptr<index_t>(),
                   bucketized_permute.data_ptr<index_t>(),
                   lengths.numel());
             });

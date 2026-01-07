@@ -116,7 +116,7 @@ void process_uvm_cache_stats(
 
     // Export cache stats.
     auto uvm_cache_stats_cpu = uvm_cache_stats.cpu();
-    auto* uvm_cache_stats_ptr = uvm_cache_stats_cpu.data_ptr<int32_t>();
+    auto* uvm_cache_stats_ptr = uvm_cache_stats_cpu.const_data_ptr<int32_t>();
     if (uvm_cache_stats_ptr[1] > 0) {
       // Report cache stats in per-mille.
       {

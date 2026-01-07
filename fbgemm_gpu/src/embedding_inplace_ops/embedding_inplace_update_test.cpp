@@ -158,9 +158,9 @@ void test_embedding_inplace_update() {
     auto D = D_offsets[table_idx + 1] - D_offsets[table_idx];
     SparseType ty = static_cast<SparseType>(weights_tys[table_idx]);
     int32_t D_bytes = nbit::padded_row_size_in_bytes(D, ty, 16);
-    auto dev_weight_acc = dev_weight_cpu.data_ptr<uint8_t>();
-    auto uvm_weight_acc = uvm_weight_cpu.data_ptr<uint8_t>();
-    auto update_weight_acc = update_weight_cpu.data_ptr<uint8_t>();
+    auto dev_weight_acc = dev_weight_cpu.const_data_ptr<uint8_t>();
+    auto uvm_weight_acc = uvm_weight_cpu.const_data_ptr<uint8_t>();
+    auto update_weight_acc = update_weight_cpu.const_data_ptr<uint8_t>();
     if (weight_placement == 0) {
       for (const auto j : c10::irange(D_bytes)) {
         ASSERT_EQ(

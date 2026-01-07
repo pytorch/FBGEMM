@@ -65,7 +65,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
         at::zeros({0, 1}, unordered_indices.options()));
   }
 
-  auto indices_data_ptr = unordered_indices.data_ptr<int64_t>();
+  const auto indices_data_ptr = unordered_indices.const_data_ptr<int64_t>();
   auto num_indices = unordered_indices.numel();
 
   // first loop to figure out size per bucket id in ascending order
@@ -91,7 +91,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
   // fill the bucket_tensor with counts
   at::Tensor bucket_tensor =
       at::zeros({bucket_end - bucket_start, 1}, unordered_indices.options());
-  auto bucket_tensor_data_ptr = bucket_tensor.data_ptr<int64_t>();
+  auto bucket_tensor_data_ptr = bucket_tensor.mutable_data_ptr<int64_t>();
   for (int64_t i = bucket_start; i < bucket_end; ++i) {
     if (bucket_id_to_cnt.find(i) != bucket_id_to_cnt.end()) {
       bucket_tensor_data_ptr[i - bucket_start] = bucket_id_to_cnt[i];
