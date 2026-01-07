@@ -46,9 +46,9 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
   output_dims[last_dim] = output_columns;
   at::native::resize_(output, output_dims, std::nullopt);
 
-  const auto input_data = static_cast<input_t*>(
-      input.data_ptr()); // input.data_ptr<input_t>(); -> Yields
-                         // unresolved data_ptr symbol.
+  const auto input_data = static_cast<const input_t*>(
+      input.const_data_ptr()); // input.const_data_ptr<input_t>(); -> Yields
+                               // unresolved data_ptr symbol.
   fbgemm::FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<input_t>(
       input_data, nrows, ncols, output.mutable_data_ptr<uint8_t>());
 
@@ -89,7 +89,7 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
   fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<
       output_t,
       is_uint16_t_of_type_bf16>(
-      input.data_ptr<uint8_t>(),
+      input.const_data_ptr<uint8_t>(),
       nrows,
       ncols,
       output_data,
@@ -121,9 +121,9 @@ Tensor _float_to_fusednbitrowwise_cpu(
       {nrows, output_columns},
       input.options().dtype(at::kByte)); // at::kBytes for uint8_t
 
-  const auto input_data = static_cast<input_t*>(
-      input.data_ptr()); // input.data_ptr<input_t>(); -> Yields
-                         // unresolved data_ptr symbol.
+  const auto input_data = static_cast<const input_t*>(
+      input.const_data_ptr()); // input.const_data_ptr<input_t>(); -> Yields
+                               // unresolved data_ptr symbol.
   fbgemm::FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<input_t>(
       bit_rate,
       input_data,
@@ -166,7 +166,7 @@ Tensor _fusednbitrowwise_to_float_cpu(
                                   // Yields unresolved data_ptr symbol.
 
   fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<output_t>(
-      bit_rate, input.data_ptr<uint8_t>(), nrows, ncols, output_data);
+      bit_rate, input.const_data_ptr<uint8_t>(), nrows, ncols, output_data);
 
   return output;
 }
@@ -218,7 +218,7 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
       output_ty,
       is_uint16_t_of_type_bf16>(
       bit_rate,
-      input.data_ptr<uint8_t>(),
+      input.const_data_ptr<uint8_t>(),
       nrows,
       ncols,
       output_data,
@@ -497,12 +497,12 @@ static Tensor float_or_half_to_fusednbitrowwise_cpu_with_rowwise_min_max(
       [&] {
         if constexpr (std::is_same_v<scalar_t, float>) {
           const auto rowwise_min_max_data =
-              rowwise_min_max_contig->data_ptr<float>();
+              rowwise_min_max_contig->const_data_ptr<float>();
           output = _float_to_fusednbitrowwise_cpu<float>(
               input, bit_rate, rowwise_min_max_data);
         } else { // scalar_t = at::Half
-          const auto rowwise_min_max_data =
-              static_cast<fbgemm::float16*>(rowwise_min_max_contig->data_ptr());
+          const auto rowwise_min_max_data = static_cast<const fbgemm::float16*>(
+              rowwise_min_max_contig->const_data_ptr());
           output = _float_to_fusednbitrowwise_cpu<fbgemm::float16>(
               input, bit_rate, rowwise_min_max_data);
         }
@@ -566,7 +566,7 @@ at::Tensor _float_to_hfp8_cpu(
   auto output = at::empty({nrows, ncols}, input.options().dtype(at::kByte));
 
   FloatToFP8Quantized_ref(
-      input.data_ptr<float>(),
+      input.const_data_ptr<float>(),
       nrows,
       ncols,
       output.mutable_data_ptr<uint8_t>(),
@@ -593,7 +593,7 @@ at::Tensor _hfp8_to_float_cpu(
       input.options().dtype(at::kFloat)); //
 
   FP8QuantizedToFloat_ref(
-      input.data_ptr<uint8_t>(),
+      input.const_data_ptr<uint8_t>(),
       nrows,
       ncols,
       output.mutable_data_ptr<float>(),

@@ -44,7 +44,7 @@ static at::Tensor generate_indices_from_distribution(
   // Convert to std::vector<double>
   auto tmp = heavy_hitters.cpu().to(at::kDouble).contiguous();
   const auto heavy_hitters_ = std::vector<double>{
-      tmp.data_ptr<double>(), tmp.data_ptr<double>() + tmp.numel()};
+      tmp.const_data_ptr<double>(), tmp.const_data_ptr<double>() + tmp.numel()};
 
   // Build parameters
   const auto params = IndicesDistributionParameters(

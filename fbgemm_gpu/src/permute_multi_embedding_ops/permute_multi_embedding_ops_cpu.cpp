@@ -42,7 +42,8 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
         at::parallel_for(0, B, 0, [&](int32_t start, int32_t end) {
           int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
           for (const auto i : c10::irange(permutes.size(0))) {
-            int32_t* __restrict__ pp = permutes[i].data_ptr<int32_t>();
+            const int32_t* __restrict__ pp =
+                permutes[i].const_data_ptr<int32_t>();
             if (reverse_permute) {
               out_tensor = pp[PermuteParam::in_tensor];
               in_tensor = pp[PermuteParam::out_tensor];
@@ -59,9 +60,10 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
             if (reverse_permute && next < 0) {
               for (auto b : c10::irange(start, end)) {
                 auto outp =
-                    outputs[out_tensor][b].data_ptr<scalar_t>() + out_offset;
-                auto inp =
-                    inputs[in_tensor][b].data_ptr<scalar_t>() + in_offset;
+                    outputs[out_tensor][b].mutable_data_ptr<scalar_t>() +
+                    out_offset;
+                const auto inp =
+                    inputs[in_tensor][b].const_data_ptr<scalar_t>() + in_offset;
                 for (const auto j : c10::irange(length)) {
                   outp[j] += inp[j];
                 }
@@ -69,9 +71,10 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
             } else {
               for (auto b : c10::irange(start, end)) {
                 auto outp =
-                    outputs[out_tensor][b].data_ptr<scalar_t>() + out_offset;
-                auto inp =
-                    inputs[in_tensor][b].data_ptr<scalar_t>() + in_offset;
+                    outputs[out_tensor][b].mutable_data_ptr<scalar_t>() +
+                    out_offset;
+                const auto inp =
+                    inputs[in_tensor][b].const_data_ptr<scalar_t>() + in_offset;
                 std::memcpy(outp, inp, length * pooled_embs[0].itemsize());
               }
             }

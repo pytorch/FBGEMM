@@ -56,7 +56,7 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
             FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
                 temp_storage.data_ptr(),
                 temp_storage_bytes,
-                t_in.data_ptr<index_t>(),
+                t_in.const_data_ptr<index_t>(),
                 t_out.data_ptr<index_t>() + 1,
                 t_in.numel(),
                 at::cuda::getCurrentCUDAStream()));
@@ -308,7 +308,7 @@ transpose_embedding_input(
                     FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
                         nullptr,
                         temp_storage_bytes,
-                        linear_indices.data_ptr<index_t>(),
+                        linear_indices.const_data_ptr<index_t>(),
                         linear_indices_sorted.data_ptr<index_t>(),
                         infos.data_ptr<info_t>(),
                         infos_sorted.data_ptr<info_t>(),

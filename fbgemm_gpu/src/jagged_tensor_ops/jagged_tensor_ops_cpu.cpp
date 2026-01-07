@@ -1014,12 +1014,16 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
               const int32_t num_outputs = mask.sum().item<int32_t>();
               masked_values = at::empty({num_outputs}, values.options());
 
-              const auto values_ptr = values_contiguous->data_ptr<scalar_t>();
-              const auto lengths_ptr = lengths_contiguous->data_ptr<index_t>();
-              const auto mask_ptr = mask_contiguous->data_ptr<bool>();
+              const auto values_ptr =
+                  values_contiguous->const_data_ptr<scalar_t>();
+              const auto lengths_ptr =
+                  lengths_contiguous->const_data_ptr<index_t>();
+              const auto mask_ptr = mask_contiguous->const_data_ptr<bool>();
 
-              auto masked_values_ptr = masked_values.data_ptr<scalar_t>();
-              auto masked_lengths_ptr = masked_lengths.data_ptr<index_t>();
+              auto masked_values_ptr =
+                  masked_values.mutable_data_ptr<scalar_t>();
+              auto masked_lengths_ptr =
+                  masked_lengths.mutable_data_ptr<index_t>();
 
               int64_t input_offset = 0;
               int64_t output_offset = 0;
@@ -1075,9 +1079,9 @@ static std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
     AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "length_to_offset_cpu_kernel", [&] {
           index_t cumsum = 0;
-          const auto* input_ptr =
-              &(lengths_contig
-                    .data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
+          const auto* input_ptr = &(
+              lengths_contig
+                  .mutable_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
           auto* output_ptr = offsets.data_ptr<index_t>() + 1;
           for (const auto i : c10::irange(B)) {
             cumsum += input_ptr[i];
@@ -1116,9 +1120,9 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
     AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "length_to_offset_cpu_kernel", [&] {
           index_t cumsum = 0;
-          const auto* input_ptr =
-              &(lengths_contig
-                    .data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
+          const auto* input_ptr = &(
+              lengths_contig
+                  .mutable_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
           auto* output_ptr = offsets.data_ptr<index_t>() + 1;
           for (const auto i : c10::irange(B)) {
             cumsum += input_ptr[i];
@@ -1711,8 +1715,8 @@ Tensor get_source_mask_cpu(
   // Generate the mask
   AT_DISPATCH_INDEX_TYPES(
       num_sources.scalar_type(), "get_source_mask_cpu", [&] {
-        const index_t* num_sources_data = num_sources.data_ptr<index_t>();
-        const index_t* num_targets_data = num_targets.data_ptr<index_t>();
+        const index_t* num_sources_data = num_sources.const_data_ptr<index_t>();
+        const index_t* num_targets_data = num_targets.const_data_ptr<index_t>();
         bool* output_data = output.mutable_data_ptr<bool>();
 
         int64_t offset = 0;
