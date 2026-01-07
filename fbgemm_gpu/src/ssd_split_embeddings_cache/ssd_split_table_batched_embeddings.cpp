@@ -496,7 +496,21 @@ void KVTensorWrapper::set_dram_db_wrapper(
     c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
   db_ = db->impl_;
 }
-
+void KVTensorWrapper::logss() {
+  if (snapshot_handle_) {
+    XLOG(INFO) << "snapshot_handle_ is valid";
+  } else {
+    XLOG(INFO) << "snapshot_handle_ is nullptr";
+  }
+  if (checkpoint_handle_) {
+    XLOG(INFO) << "checkpoint_handle_ is valid";
+  } else {
+    XLOG(INFO) << "checkpoint_handle_ is nullptr";
+  }
+  XLOG(INFO) << "db_ is valid: " << (db_ != nullptr);
+  XLOG(INFO) << "readonly_db_ is valid: " << (readonly_db_ != nullptr);
+  XLOG(INFO) << "read_only_: " << read_only_;
+}
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   if (db_) {
@@ -1120,6 +1134,7 @@ static auto kv_tensor_wrapper =
             &KVTensorWrapper::narrow,
             "",
             {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
+        .def("logss", &KVTensorWrapper::logss)
         .def("set_range", &KVTensorWrapper::set_range)
         .def("set_weights_and_ids", &KVTensorWrapper::set_weights_and_ids)
         .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
