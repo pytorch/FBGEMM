@@ -1302,6 +1302,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
     PREFETCH,                                                               \
     IS_WEIGHT_POSITIONAL,                                                   \
     USE_OFFSETS,                                                            \
+    SCALE_BIAS_LAST,                                                        \
     NO_BAG,                                                                 \
     IS_BF16_OUT,                                                            \
     IS_BF16_IN)                                                             \
@@ -1314,7 +1315,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(4, false)),    \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1327,7 +1328,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(24, false)),   \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1340,7 +1341,20 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(32, false)),   \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{36}),                                    \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(36, false)),   \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1353,7 +1367,20 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(64, false)),   \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{72}),                                    \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(72, false)),   \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1366,7 +1393,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(96, false)),   \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1379,7 +1406,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(124, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1392,7 +1419,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(128, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1405,7 +1432,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(252, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1418,7 +1445,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(256, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1431,7 +1458,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(320, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1444,7 +1471,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(384, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1457,7 +1484,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(508, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1470,7 +1497,20 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(512, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{576}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(576, false)),  \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1483,7 +1523,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(768, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)                                                           \
@@ -1496,7 +1536,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       USE_OFFSETS,                                                          \
       /*OUTPUT_STRIDE*/ var,                                                \
       /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(1024, false)), \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      SCALE_BIAS_LAST,                                                      \
       NO_BAG,                                                               \
       IS_BF16_OUT,                                                          \
       IS_BF16_IN)
@@ -1508,6 +1548,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       /*PREFETCH*/ var,
       /*IS_WEIGHT_POSITIONAL*/ fixed(false),
       /*USE_OFFSETS*/ fixed(true),
+      /*SCALE_BIAS_LAST*/ fixed(false),
       /*NO_BAG*/ fixed(false),
       /*IS_BF16_OUT*/ var,
       /*IS_BF16_IN*/ var)
@@ -1517,6 +1558,27 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       /*PREFETCH*/ var,
       /*IS_WEIGHT_POSITIONAL*/ fixed(false),
       /*USE_OFFSETS*/ fixed(true),
+      /*SCALE_BIAS_LAST*/ fixed(false),
+      /*NO_BAG*/ fixed(false),
+      /*IS_BF16_OUT*/ var,
+      /*IS_BF16_IN*/ var)
+  SPECIALIZE_BLOCK_SIZE(
+      /*HAS_WEIGHT*/ fixed(true),
+      /*NORMALIZE_BY_LENGTHS*/ fixed(false),
+      /*PREFETCH*/ var,
+      /*IS_WEIGHT_POSITIONAL*/ fixed(false),
+      /*USE_OFFSETS*/ fixed(true),
+      /*SCALE_BIAS_LAST*/ fixed(true),
+      /*NO_BAG*/ fixed(false),
+      /*IS_BF16_OUT*/ var,
+      /*IS_BF16_IN*/ var)
+  SPECIALIZE_BLOCK_SIZE(
+      /*HAS_WEIGHT*/ fixed(false),
+      /*NORMALIZE_BY_LENGTHS*/ fixed(false),
+      /*PREFETCH*/ var,
+      /*IS_WEIGHT_POSITIONAL*/ fixed(false),
+      /*USE_OFFSETS*/ fixed(true),
+      /*SCALE_BIAS_LAST*/ fixed(true),
       /*NO_BAG*/ fixed(false),
       /*IS_BF16_OUT*/ var,
       /*IS_BF16_IN*/ var)
@@ -1872,6 +1934,14 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       /*IS_WEIGHT_POSITIONAL*/ fixed(false),
       /*USE_OFFSETS*/ fixed(true),
       /*SCALE_BIAS_LAST*/ fixed(false),
+      /*IS_BF16_OUT*/ var,
+      /*NO_BAG*/ fixed(false))
+  SPECIALIZE_INPUT_RATE(
+      /*HAS_WEIGHT*/ fixed(true),
+      /*NORMALIZE_BY_LENGTHS*/ fixed(false),
+      /*IS_WEIGHT_POSITIONAL*/ fixed(false),
+      /*USE_OFFSETS*/ fixed(true),
+      /*SCALE_BIAS_LAST*/ fixed(true),
       /*IS_BF16_OUT*/ var,
       /*NO_BAG*/ fixed(false))
   SPECIALIZE_INPUT_RATE(
