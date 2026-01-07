@@ -72,6 +72,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 
+  void logss();
+
   /// @brief if the backend storage is SSD, use this function
   /// to set db_ inside KVTensorWrapper
   /// this function should be called right after KVTensorWrapper
