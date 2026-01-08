@@ -52,6 +52,8 @@ class TBEDataConfig:
     Ds: Optional[list[int]] = None
     # Maximum number of indices
     max_indices: Optional[int] = None  # Maximum number of indices
+    # Map from feature index to table index [T]
+    feature_table_map: Optional[list[int]] = None
 
     def __post_init__(self) -> None:
         if isinstance(self.D, list):
