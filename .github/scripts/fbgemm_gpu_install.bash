@@ -74,6 +74,7 @@ __install_check_subpackages () {
 
 
   echo "[INSTALL] Check for installation of Python sources ..."
+
   local subpackages=(
     "fbgemm_gpu.config"
     "fbgemm_gpu.docs"
