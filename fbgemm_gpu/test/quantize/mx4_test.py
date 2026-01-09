@@ -10,9 +10,7 @@ import unittest
 
 import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 import hypothesis.strategies as st
-
 import torch
-
 from fbgemm_gpu.quantize_utils import (
     fp32_to_mx4,
     mx4_to_float,
@@ -21,7 +19,6 @@ from fbgemm_gpu.quantize_utils import (
 )
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
-
 from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402

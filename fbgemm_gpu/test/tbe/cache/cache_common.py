@@ -26,7 +26,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.utils import round_up
-
 from hypothesis import Verbosity
 
 from ..common import assert_torch_equal, open_source

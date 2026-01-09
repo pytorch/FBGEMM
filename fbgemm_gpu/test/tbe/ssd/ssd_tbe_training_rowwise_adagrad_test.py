@@ -17,7 +17,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BackendType,
     PoolingMode,
 )
-
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from hypothesis import assume, given, settings, Verbosity
 

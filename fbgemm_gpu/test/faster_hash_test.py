@@ -11,7 +11,6 @@ from enum import IntEnum
 
 # pyre-ignore[21]
 import fbgemm_gpu  # noqa: F401
-
 import torch
 
 # check if we are in open source env to decide how to import necessary modules

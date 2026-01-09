@@ -12,7 +12,6 @@ import random
 import unittest
 
 import fbgemm_gpu  # noqa F401
-
 import torch
 from fbgemm_gpu.tbe.bench import EEG_MAX_HEAVY_HITTERS
 
