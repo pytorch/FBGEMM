@@ -28,9 +28,7 @@ from fbgemm_gpu.quantize_utils import (
     mx4_to_float,
     RoundingMode,
 )
-
 from fbgemm_gpu.split_embedding_configs import SparseType
-
 from torch.autograd.profiler import record_function  # usort:skip
 from dataclasses import dataclass
 

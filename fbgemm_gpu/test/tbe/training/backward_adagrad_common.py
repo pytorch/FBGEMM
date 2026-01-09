@@ -8,11 +8,9 @@
 # pyre-strict
 
 import sys
-
 from typing import Any
 
 import hypothesis.strategies as st
-
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType

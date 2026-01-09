@@ -13,7 +13,6 @@ import logging
 import unittest
 
 import hypothesis.strategies as st
-
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC

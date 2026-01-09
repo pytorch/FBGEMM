@@ -19,7 +19,6 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
-
 from torch.profiler import profile
 
 logger: logging.Logger = logging.getLogger()

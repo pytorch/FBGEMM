@@ -13,7 +13,6 @@ from typing import Optional, Union
 import torch  # isort:skip
 
 import fbgemm_gpu
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.triton.common import RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4

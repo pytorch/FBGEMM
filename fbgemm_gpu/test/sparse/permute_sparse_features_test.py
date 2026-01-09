@@ -15,7 +15,6 @@ from typing import cast, Optional
 
 import hypothesis.strategies as st
 import torch
-
 from hypothesis import given, settings
 
 from .common import extend_test_class, open_source, permute_indices_ref_

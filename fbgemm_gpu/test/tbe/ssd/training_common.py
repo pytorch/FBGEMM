@@ -10,7 +10,6 @@
 import math
 import unittest
 from enum import Enum
-
 from typing import Any, Optional, Union
 
 import hypothesis.strategies as st

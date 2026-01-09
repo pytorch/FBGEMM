@@ -13,7 +13,6 @@ from typing import Optional, Union
 
 import torch
 from torch import device, dtype, Tensor, types
-
 from torch._library.infer_schema import (
     derived_types,
     parse_return,

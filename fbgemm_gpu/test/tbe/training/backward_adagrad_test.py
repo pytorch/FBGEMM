@@ -13,7 +13,6 @@ import unittest
 from typing import Any
 
 import torch
-
 from hypothesis import given, settings
 
 from .backward_adagrad_common import (

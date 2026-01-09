@@ -15,12 +15,10 @@ from typing import Any
 
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_utils import round_up
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     GlobalWeightDecayDefinition,
 )
-
 from hypothesis import given, settings
 
 from .backward_adagrad_common import (  # noqa

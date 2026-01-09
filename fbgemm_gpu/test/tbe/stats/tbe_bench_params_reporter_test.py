@@ -12,9 +12,7 @@ from typing import Optional
 from unittest.mock import patch
 
 import fbgemm_gpu
-
 import hypothesis.strategies as st
-
 import torch
 from fbgemm_gpu.config import FeatureGateName
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
@@ -30,12 +28,10 @@ from fbgemm_gpu.tbe.bench.tbe_data_config import (
     PoolingParams,
     TBEDataConfig,
 )
-
 from fbgemm_gpu.tbe.bench.tbe_data_config_bench_helper import (
     generate_embedding_dims,
     generate_requests,
 )
-
 from fbgemm_gpu.tbe.stats import TBEBenchmarkParamsReporter
 from fbgemm_gpu.tbe.utils import get_device
 from hypothesis import given, settings

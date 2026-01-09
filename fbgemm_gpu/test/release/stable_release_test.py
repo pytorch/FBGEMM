@@ -15,7 +15,6 @@ from typing import Callable
 import fbgemm_gpu
 import fbgemm_gpu.permute_pooled_embedding_modules
 import fbgemm_gpu.sparse_ops
-
 import torch
 from torch._C import FunctionSchema, parse_schema
 from torch._utils_internal import get_file_path_2
