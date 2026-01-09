@@ -350,7 +350,6 @@ void all_to_one(
   // wait for cross-device copies to complete.
   for (const auto device_id : c10::irange(num_gpus)) {
     if (device_id != target_device_index) {
-      auto src_device = at::Device(at::kCUDA, device_id);
       // record stream event
       auto copy_stream = getCurrentGPUStream(device_id);
 

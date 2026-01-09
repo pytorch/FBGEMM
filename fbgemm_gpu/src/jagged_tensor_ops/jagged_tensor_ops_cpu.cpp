@@ -817,7 +817,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
       v.size(0));
   const auto H = B == 0 ? 1 : v.size(0) / B;
   const auto D = a_values.size(-1) / H;
-  auto output = at::empty({static_cast<const long>(B * H), D}, v.options());
+  auto output = at::empty({static_cast<long>(B * H), D}, v.options());
 
   if (B > 0 && D > 0) {
     const auto func_name = "batched_dense_vec_jagged_2d_mul_forward";
