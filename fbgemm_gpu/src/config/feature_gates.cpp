@@ -48,7 +48,7 @@ bool ev_check_key(const std::string& key) {
 
 static bool check_feature_gate_key_impl(
     const std::string& key,
-    bool check_env_vars_only) {
+    bool check_env_vars_only [[maybe_unused]]) {
   // Cache feature flags to avoid repeated JK and env var checks
   static std::map<std::string, bool> feature_flags_cache;
   if (const auto search = feature_flags_cache.find(key);
