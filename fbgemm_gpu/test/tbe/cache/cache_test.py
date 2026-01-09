@@ -27,7 +27,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     MultiPassPrefetchConfig,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-
 from fbgemm_gpu.tbe.utils import (
     generate_requests,
     get_table_batched_offsets_from_dense,
@@ -37,7 +36,6 @@ from fbgemm_gpu.tbe.utils import (
 from hypothesis import assume, given, settings
 
 from ..common import MAX_EXAMPLES  # noqa E402
-
 from .cache_common import (
     assert_cache,
     generate_cache_tbes,

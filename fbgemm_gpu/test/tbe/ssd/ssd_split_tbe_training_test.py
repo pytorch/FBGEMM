@@ -9,7 +9,6 @@
 
 import tempfile
 import unittest
-
 from typing import Any, Optional
 
 import hypothesis.strategies as st
@@ -21,13 +20,11 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     PoolingMode,
 )
-
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
-
 from .training_common import (
     default_strategies,
     FlushLocation,

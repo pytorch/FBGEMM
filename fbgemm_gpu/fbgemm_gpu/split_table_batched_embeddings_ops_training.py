@@ -26,7 +26,6 @@ from torch.autograd.profiler import record_function  # usort:skip
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
@@ -59,7 +58,6 @@ from fbgemm_gpu.tbe_input_multiplexer import (
     TBEInputMultiplexer,
     TBEInputMultiplexerConfig,
 )
-
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 from fbgemm_gpu.utils.writeback_util import writeback_gradient
 

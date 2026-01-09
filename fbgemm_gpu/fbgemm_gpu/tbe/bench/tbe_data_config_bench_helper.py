@@ -14,7 +14,6 @@ import torch
 
 from fbgemm_gpu.tbe.bench.tbe_data_config import TBEDataConfig
 from fbgemm_gpu.tbe.utils.common import get_device, round_up
-
 from fbgemm_gpu.tbe.utils.requests import (
     generate_batch_sizes_from_stats,
     generate_pooling_factors_from_stats,
