@@ -61,7 +61,7 @@ include(CheckCXXCompilerFlag)
 # Install libraries into correct locations on all platforms
 include(GNUInstallDirs)
 
-# Check AVX
+# Check instruction sets flags
 set(CHECK_AVX_COMPILE ON)
 include(${MODULE_PATH}/FindAVX.cmake)
 # For some reason, AVX flag values end up being packed into a single quoted
@@ -69,6 +69,7 @@ include(${MODULE_PATH}/FindAVX.cmake)
 # the flags here back into list-string format
 separate_arguments(CXX_AVX2_FLAGS)
 separate_arguments(CXX_AVX512_FLAGS)
+include(${MODULE_PATH}/FindARM.cmake)
 
 # Load Python
 find_package(Python)

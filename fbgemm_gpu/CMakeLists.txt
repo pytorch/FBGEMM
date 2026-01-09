@@ -106,8 +106,9 @@ project(
   VERSION 1.5.0
   LANGUAGES ${project_languages})
 
-# AVX Flags Setup - must be set AFTER project declaration
+# Instruction sets flags setup - must be set AFTER project declaration
 include(${CMAKEMODULES}/FindAVX.cmake)
+include(${CMAKEMODULES}/FindARM.cmake)
 
 # PyTorch Dependencies Setup
 include(${CMAKEMODULES}/PyTorchSetup.cmake)
