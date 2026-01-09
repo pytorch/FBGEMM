@@ -89,7 +89,6 @@ Tensor asynchronous_complete_cumsum_cpu_out(Tensor& t_out, const Tensor& t_in) {
   const auto num_dims = t_in.dim();
   TORCH_CHECK(num_dims == 1 || num_dims == 2);
   const auto t_in_contig = t_in.expect_contiguous();
-  const auto t_out_contig = t_out.expect_contiguous();
 
   FBGEMM_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
