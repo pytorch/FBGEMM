@@ -348,7 +348,7 @@ class BuildConfigScheme:
             else:
                 # NOTE: Move to linux.aws.h100 at a later date when the queue is
                 # small enough (https://hud.pytorch.org/metrics)
-                return [{"arch": "x86", "instance": "linux.g5.4xlarge.nvidia.gpu"}]
+                return [{"arch": "x86", "instance": "linux.aws.h100"}]
 
         elif self.variant == VARIANT_ROCM:
             return [{"arch": "x86", "instance": "linux.rocm.gpu.2"}]
