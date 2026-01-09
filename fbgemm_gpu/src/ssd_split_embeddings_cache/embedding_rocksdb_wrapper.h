@@ -46,7 +46,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
       int64_t flushing_block_size = 2000000000 /*2GB*/,
       bool disable_random_init = false,
-      bool enable_blob_db = false)
+      bool enable_blob_db = false,
+      bool use_object_cache = false)
       : impl_(
             std::make_shared<ssd::EmbeddingRocksDB>(
                 /*path=*/path,
@@ -80,7 +81,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
                 /*hash_size_cumsum=*/hash_size_cumsum,
                 /*flushing_block_size=*/flushing_block_size,
                 /*disable_random_init=*/disable_random_init,
-                /*enable_blob_db=*/enable_blob_db)) {}
+                /*enable_blob_db=*/enable_blob_db,
+                /*use_object_cache=*/use_object_cache)) {}
 
   void set_cuda(
       at::Tensor indices,
