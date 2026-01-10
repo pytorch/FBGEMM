@@ -111,7 +111,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
   // second loop to parallel set each id into its bucket range
   at::Tensor id_tensor =
       at::empty(unordered_indices.sizes(), unordered_indices.options());
-  auto res_data_ptr = id_tensor.data_ptr<int64_t>();
+  auto res_data_ptr = id_tensor.mutable_data_ptr<int64_t>();
 
   auto executors = std::make_unique<folly::CPUThreadPoolExecutor>(
       facebook::Proc::getCpuInfo().numCpuCores);
