@@ -149,7 +149,9 @@ print_gpu_info () {
   echo "################################################################################"
   echo "[INFO] Printing NVIDIA GPU info ..."
 
-  (lspci -v | grep -e 'controller.*NVIDIA') || true
+  if command -v lspci > /dev/null 2>&1; then
+    (lspci -v | grep -e 'controller.*NVIDIA') || true
+  fi
 
   if [[ "${ENFORCE_CUDA_DEVICE}" == '1' ]]; then
     # Ensure that nvidia-smi is available and returns GPU entries
@@ -170,7 +172,9 @@ print_gpu_info () {
   echo "################################################################################"
   echo "[INFO] Printing AMD GPU info ..."
 
-  (lspci -v | grep -e 'Display controller: Advanced') || true
+  if command -v lspci > /dev/null 2>&1; then
+    (lspci -v | grep -e 'Display controller: Advanced') || true
+  fi
 
   if [[ "${ENFORCE_ROCM_DEVICE}" ]]; then
     # Ensure that rocm-smi is available and returns GPU entries
@@ -211,8 +215,12 @@ __print_system_info_linux () {
 
   if [[ "${BUILD_FROM_NOVA}" != '1' ]]; then
     echo "################################################################################"
-    echo "[INFO] Print PCI info ..."
-    print_exec lspci -v
+    if command -v lspci > /dev/null 2>&1; then
+      echo "[INFO] Print PCI info ..."
+      print_exec lspci -v
+    else
+      echo "[INFO] lspci not found; skipping ..."
+    fi
   fi
 
   echo "################################################################################"
