@@ -48,7 +48,7 @@ void asynchronous_exclusive_cumsum_cpu_out(Tensor& t_out, const Tensor& t_in) {
         exclusive_scan_ptrs_cpu(
             t_in_contig->numel(),
             t_in_contig->const_data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>());
+            t_out.mutable_data_ptr<scalar_t>());
       });
 }
 
@@ -96,16 +96,16 @@ Tensor asynchronous_complete_cumsum_cpu_out(Tensor& t_out, const Tensor& t_in) {
       [&] {
         if (num_dims == 1) {
           const auto N = t_in_contig->numel();
-          t_out.data_ptr<scalar_t>()[N] = exclusive_scan_ptrs_cpu(
+          t_out.mutable_data_ptr<scalar_t>()[N] = exclusive_scan_ptrs_cpu(
               N,
               t_in_contig->const_data_ptr<scalar_t>(),
-              t_out.data_ptr<scalar_t>());
+              t_out.mutable_data_ptr<scalar_t>());
         } else {
           const auto num_vecs = t_in_contig->size(0);
           const auto N = t_in_contig->size(1);
           at::parallel_for(0, num_vecs, 1, [&](int64_t start, int64_t end) {
             for (const auto i : c10::irange(start, end)) {
-              scalar_t* out_ptr = t_out.data_ptr<scalar_t>() + i * (N + 1);
+              scalar_t* out_ptr = t_out.mutable_data_ptr<scalar_t>() + i * (N + 1);
               out_ptr[N] = exclusive_scan_ptrs_cpu(
                   N, t_in_contig->const_data_ptr<scalar_t>() + i * N, out_ptr);
             }
