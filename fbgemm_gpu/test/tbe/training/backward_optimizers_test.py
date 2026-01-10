@@ -36,7 +36,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     UserEnabledConfigDefinition,
     WeightDecayMode,
 )
-
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     get_table_batched_offsets_from_dense,

@@ -11,9 +11,8 @@ import click
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import BoundsCheckMode
-
-from .bench_config import TBEBenchmarkingHelperText
-from .tbe_data_config_loader import TBEDataConfigHelperText
+from .bench_config import TBEBenchmarkingHelperText  # usort:skip
+from .tbe_data_config_loader import TBEDataConfigHelperText  # usort:skip
 
 
 class TbeBenchClickInterface:

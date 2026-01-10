@@ -10,18 +10,15 @@
 import math
 import pickle
 import tempfile
-
 import threading
 import time
 import unittest
-
 from typing import Any, Optional
 from unittest.mock import patch
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import EvictionPolicy
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags

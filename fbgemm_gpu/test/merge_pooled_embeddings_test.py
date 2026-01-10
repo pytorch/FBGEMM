@@ -11,7 +11,6 @@
 import unittest
 
 import fbgemm_gpu
-
 import hypothesis.strategies as st
 import numpy as np
 import torch

@@ -11,7 +11,6 @@ from typing import Union
 
 import torch
 import triton  # @manual
-
 import triton.language as tl  # @manual
 
 from .common import get_mx4_exp_bias, get_mx4_lookup_table, RoundingMode

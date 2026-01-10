@@ -24,7 +24,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
-
 from torch import Tensor
 
 # pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.

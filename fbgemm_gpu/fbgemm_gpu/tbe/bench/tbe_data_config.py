@@ -15,8 +15,11 @@ from typing import Any, Optional
 import torch
 
 from fbgemm_gpu.tbe.utils.common import get_device
-
-from .tbe_data_config_param_models import BatchParams, IndicesParams, PoolingParams
+from .tbe_data_config_param_models import (
+    BatchParams,
+    IndicesParams,
+    PoolingParams,
+)  # usort:skip
 
 try:
     torch.ops.load_library(

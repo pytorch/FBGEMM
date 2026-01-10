@@ -20,9 +20,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
-
 from fbgemm_gpu.utils.loader import load_torch_module
-
 from torch import nn, Tensor
 
 logger: logging.Logger = logging.getLogger()

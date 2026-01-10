@@ -16,16 +16,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
-
 from fbgemm_gpu.tbe.utils import (
     # b_indices,
     get_table_batched_offsets_from_dense,
     round_up,
     # to_device,
 )
-
 from hypothesis import assume, given, settings
 
 from .backward_adagrad_common import (  # noqa

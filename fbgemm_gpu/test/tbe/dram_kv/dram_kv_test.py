@@ -9,7 +9,6 @@
 
 import logging
 import unittest
-
 from typing import Any
 
 import hypothesis.strategies as st
