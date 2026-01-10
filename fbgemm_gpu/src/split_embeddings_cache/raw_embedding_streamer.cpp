@@ -54,6 +54,8 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
       : *(tensor.const_data_ptr<int32_t>());
 }
 
+} // namespace
+
 fbgemm_gpu::StreamQueueItem tensor_copy(
     const at::Tensor& indices,
     const at::Tensor& weights,
@@ -134,20 +136,20 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
       new_indices, new_weights, new_identities, new_runtime_meta, new_count};
 }
 
-} // namespace
-
 RawEmbeddingStreamer::RawEmbeddingStreamer(
     std::string unique_id,
     bool enable_raw_embedding_streaming,
-    int64_t res_store_shards,
-    int64_t res_server_port,
+    int64_t res_store_shards [[maybe_unused]],
+    int64_t res_server_port [[maybe_unused]],
     std::vector<std::string> table_names,
     std::vector<int64_t> table_offsets,
     const std::vector<int64_t>& table_sizes)
     : unique_id_(std::move(unique_id)),
       enable_raw_embedding_streaming_(enable_raw_embedding_streaming),
+#ifdef FBGEMM_FBCODE
       res_store_shards_(res_store_shards),
       res_server_port_(res_server_port),
+#endif
       table_names_(std::move(table_names)),
       table_offsets_(std::move(table_offsets)),
       table_sizes_(at::tensor(table_sizes)) {
@@ -155,7 +157,7 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
   if (enable_raw_embedding_streaming_) {
     XLOG(INFO) << "[TBE_ID" << unique_id_
                << "] Raw embedding streaming enabled with res_server_port at"
-               << res_server_port;
+               << res_server_port_;
     // The first call to get the client is expensive, so eagerly get it here
     auto _eager_client = get_res_client(res_server_port_);
 
