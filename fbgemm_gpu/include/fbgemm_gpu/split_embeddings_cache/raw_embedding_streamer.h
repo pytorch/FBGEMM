@@ -113,8 +113,10 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   std::atomic<bool> stop_{false};
   std::string unique_id_;
   bool enable_raw_embedding_streaming_;
+#ifdef FBGEMM_FBCODE
   int64_t res_store_shards_;
   int64_t res_server_port_;
+#endif
   std::vector<std::string> table_names_;
   std::vector<int64_t> table_offsets_;
   at::Tensor table_sizes_;
@@ -125,4 +127,10 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
 #endif
 };
 
+fbgemm_gpu::StreamQueueItem tensor_copy(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    std::optional<at::Tensor> identities,
+    std::optional<at::Tensor> runtime_meta,
+    const at::Tensor& count);
 } // namespace fbgemm_gpu
