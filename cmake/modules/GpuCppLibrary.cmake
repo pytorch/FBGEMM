@@ -269,6 +269,34 @@ function(gpu_cpp_library)
     endif()
 
     ############################################################################
+    # Compilation Flags and Definitions
+    ############################################################################
+
+    if(MSVC)
+        set(lib_cc_flags
+            ${args_MSVC_FLAGS}
+            /wd4244
+            /wd4267
+            /wd4305
+            /wd4309)
+    else()
+        set(lib_cc_flags
+            ${args_CC_FLAGS}
+            -Wno-deprecated-declarations
+            -Wall
+            -Wextra
+            -Werror
+            -Wimplicit-fallthrough
+            -Wno-strict-aliasing
+            -Wunused-function
+            -Wunused-variable
+            -Wunused-but-set-variable
+            -Wno-sign-compare
+            -Wno-vla)
+    endif()
+
+
+    ############################################################################
     # Library Includes and Linking
     ############################################################################
 
@@ -332,10 +360,7 @@ function(gpu_cpp_library)
     # Set the additional compilation flags
     target_compile_options(${lib_name} PRIVATE
         ${args_CC_FLAGS}
-        # Silence compiler warnings (in asmjit)
-        -Wno-deprecated-enum-enum-conversion
-        -Wno-deprecated-declarations
-        -Wno-unused-command-line-argument)
+        $<$<COMPILE_LANGUAGE:CXX>:${lib_cc_flags}>)
 
     ############################################################################
     # Post-Build Steps
