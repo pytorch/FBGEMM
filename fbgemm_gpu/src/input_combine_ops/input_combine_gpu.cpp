@@ -126,7 +126,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
       &per_sample_weights_addrs,
       &indices_is_long,
       &lengths_is_long,
-      reinterpret_cast<uint64_t*>(args_tensor.data_ptr()),
+      args_tensor.mutable_data_ptr<uint64_t>(),
       args_offsets,
       need_weights);
 
@@ -165,8 +165,8 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
         std::max(max_list_size, static_cast<uint64_t>(lengths_numel));
 
     // Store pointers in args_tensor
-    indices_addrs[i] = reinterpret_cast<uint64_t>(indices.data_ptr());
-    lengths_addrs[i] = reinterpret_cast<uint64_t>(lengths.data_ptr());
+    indices_addrs[i] = reinterpret_cast<uint64_t>(indices.mutable_data_ptr());
+    lengths_addrs[i] = reinterpret_cast<uint64_t>(lengths.mutable_data_ptr());
     indices_is_long_ |= static_cast<uint32_t>(indices.dtype() == c10::kLong)
         << (i % IS_LONG_NUM_BITS);
     lengths_is_long_ |= static_cast<uint32_t>(lengths.dtype() == c10::kLong)
@@ -181,7 +181,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
       TENSORS_HAVE_SAME_NUMEL(weights, indices);
 
       per_sample_weights_addrs[i] =
-          reinterpret_cast<uint64_t>(weights.data_ptr());
+          reinterpret_cast<uint64_t>(weights.mutable_data_ptr());
     } else if (need_weights) {
       per_sample_weights_addrs[i] = 0;
     }
@@ -202,7 +202,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
       &per_sample_weights_addrs,
       &indices_is_long,
       &lengths_is_long,
-      reinterpret_cast<uint64_t*>(args_tensor.data_ptr()),
+      reinterpret_cast<uint64_t*>(args_tensor.mutable_data_ptr()),
       args_offsets,
       need_weights);
 
