@@ -27,7 +27,7 @@ integration_setup_conda_environment () {
   if [ "$pytorch_variant_type_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_CHANNEL[/VERSION] PYTORCH_VARIANT_TYPE[/PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env clang 3.13 pip test/1.0.0 cuda 12.6.3       # Setup environment with pytorch-test 1.0.0 for Clang + Python 3.13 + CUDA 12.6.3"
+    echo "    ${FUNCNAME[0]} build_env clang 3.14 pip test/1.0.0 cuda 12.8.1       # Setup environment with pytorch-test 1.0.0 for Clang + Python 3.14 + CUDA 12.8.1"
     return 1
   else
     echo "################################################################################"
@@ -205,6 +205,7 @@ integration_fbgemm_gpu_install_matrix_run () {
     3.11
     3.12
     3.13
+    3.14
   )
 
   if [ "$variant_type" == "cuda" ]; then

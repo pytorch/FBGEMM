@@ -51,7 +51,7 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         container-image: [ "ubuntu:22.04" ]
-        python-version: [ "3.13" ]
+        python-version: [ "3.14" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
         rocm-version: [ "6.3" ]
@@ -135,7 +135,7 @@ jobs:
           { arch: x86, instance: "linux.rocm.gpu.2" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
-        python-version: [ "3.13" ]
+        python-version: [ "3.14" ]
         rocm-version: [ "6.3" ]
         compiler: [ "gcc" ]
     needs: build_artifact
