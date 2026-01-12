@@ -7,11 +7,9 @@
 import os
 
 import torch
-
 import triton
 import triton.language as tl
 import triton.language.extra.tlx as tlx
-
 from simplicial.utils import get_simplicial_tensor_core_tflops
 from triton.tools.tensor_descriptor import TensorDescriptor
 

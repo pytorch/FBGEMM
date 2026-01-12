@@ -16,7 +16,6 @@ import logging
 from typing import Optional, TypeVar
 
 import torch
-
 from fbgemm_gpu.quantize_utils import (
     bf16_to_fp32,
     fp16_to_fp32,

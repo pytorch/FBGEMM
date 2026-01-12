@@ -11,7 +11,6 @@ from collections.abc import Sequence
 from typing import Callable, Optional
 
 import torch
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 from fbgemm_gpu.utils.loader import load_torch_module

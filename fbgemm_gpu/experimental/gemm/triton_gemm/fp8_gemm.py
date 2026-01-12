@@ -12,9 +12,7 @@ from typing import Optional, Union
 
 import torch
 import triton  # @manual
-
 import triton.language as tl  # @manual
-
 from fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model import (
     early_config_prune,
     estimate_matmul_time,
@@ -23,10 +21,8 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.utils import (
     map_dtype_to_triton,
     TmaAutoTuneHelper,
 )
-
 from packaging import version
 from torch._tensor import Tensor
-
 from triton import Config  # @manual
 from triton.runtime.jit import reinterpret as tl_reinterpret, TensorWrapper  # @manual
 

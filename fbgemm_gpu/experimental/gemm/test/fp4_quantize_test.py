@@ -10,7 +10,6 @@ from typing import Optional
 
 import fbgemm_gpu
 import torch
-
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
     _to_blocked,
     triton_quantize_mx4_unpack,

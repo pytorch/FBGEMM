@@ -7,7 +7,6 @@
 # pyre-unsafe
 
 import torch
-
 from fbgemm_gpu.triton.jagged.triton_jagged_tensor_ops import (
     dense_to_jagged,
     jagged_to_dense,

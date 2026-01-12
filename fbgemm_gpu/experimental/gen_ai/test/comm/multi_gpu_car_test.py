@@ -17,7 +17,6 @@ import uuid
 from typing import Callable, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
 import numpy as np
 import torch
 

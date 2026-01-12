@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 import click
 import torch
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,

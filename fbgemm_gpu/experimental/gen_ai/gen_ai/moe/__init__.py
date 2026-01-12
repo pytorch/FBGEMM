@@ -56,7 +56,6 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (  # noqa F401
 )
 
 from .activation import silu_mul, silu_mul_quant  # noqa F401
-
 from .gather_scatter import (  # noqa F401
     gather_scale_dense_tokens,
     gather_scale_quant_dense_tokens,

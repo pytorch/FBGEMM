@@ -12,9 +12,7 @@ from functools import cached_property
 from typing import Callable, Optional, Union
 
 import torch
-
 from fairscale.nn.model_parallel.initialize import get_model_parallel_world_size
-
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
 from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
     grouped_gemm,

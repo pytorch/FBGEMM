@@ -9,10 +9,8 @@
 from typing import Callable
 
 import click
-
 import torch
 import triton  # @manual
-
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
     matmul_fp8_row,

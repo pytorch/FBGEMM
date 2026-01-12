@@ -7,7 +7,6 @@
 from datetime import datetime, timedelta, timezone
 
 import click
-
 from reporters import ReleasesReporter, UnlabeledPrsReporter
 
 

@@ -9,7 +9,6 @@
 
 import click
 import torch
-
 from fbgemm_gpu.tbe.bench import IndicesParams
 
 

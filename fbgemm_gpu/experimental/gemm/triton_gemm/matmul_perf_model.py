@@ -12,7 +12,6 @@ import functools
 import heapq
 
 import torch
-
 from triton import cdiv  # @manual
 from triton.runtime import driver  # @manual
 from triton.testing import (  # @manual

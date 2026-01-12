@@ -11,7 +11,6 @@
 from math import sqrt
 
 import torch
-
 from fbgemm_gpu.utils.loader import load_torch_module
 
 try:

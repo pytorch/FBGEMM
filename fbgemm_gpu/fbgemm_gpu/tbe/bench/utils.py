@@ -10,7 +10,6 @@ import logging
 
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 
 logging.basicConfig(level=logging.DEBUG)
