@@ -7,7 +7,6 @@
 from typing import Optional
 
 import fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha  # noqa
-
 import torch
 from torch.library import opcheck
 

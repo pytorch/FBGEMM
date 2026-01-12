@@ -12,7 +12,6 @@ from typing import cast, Optional
 
 import torch
 from einops import rearrange
-
 from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
     _cutlass_blackwell_fmha_forward,
     cutlass_blackwell_fmha_decode_forward,

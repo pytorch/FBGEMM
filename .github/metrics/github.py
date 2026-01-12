@@ -10,7 +10,6 @@ from datetime import datetime
 from typing import List, Tuple
 
 import requests
-
 from datatypes import GHCommit, GHPullRequest
 from dateutil import parser as dtparser  # For flexible date parsing
 from ratelimit import limits, sleep_and_retry

@@ -9,11 +9,8 @@
 import os
 
 import torch
-
 import triton  # @manual  # @manual
-
 import triton.language as tl  # @manual  # @manual
-
 from triton import Config
 
 SIMPLICIAL_AUTOTUNE = os.getenv("SIMPLICIAL_AUTOTUNE", "0") == "1"

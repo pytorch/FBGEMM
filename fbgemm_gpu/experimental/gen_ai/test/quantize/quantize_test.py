@@ -9,11 +9,9 @@
 
 import os
 import unittest
-
 from typing import Optional, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
 import torch
 import triton  # noqa: F401
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
@@ -30,7 +28,6 @@ if torch.cuda.is_available():
         quantize_fp8_row,
         supports_float8_fnuz,
     )
-
     from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 
     if torch.cuda.get_device_capability() >= (10, 0):

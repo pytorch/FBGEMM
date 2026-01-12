@@ -9,7 +9,6 @@
 # pyre-ignore-all-errors[56]
 
 import torch
-
 from fbgemm_gpu.utils.loader import load_torch_module
 
 try:

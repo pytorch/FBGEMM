@@ -11,7 +11,6 @@ from typing import Optional
 import torch
 import triton
 import triton.language as tl
-
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import get_fp8_constants
 
 

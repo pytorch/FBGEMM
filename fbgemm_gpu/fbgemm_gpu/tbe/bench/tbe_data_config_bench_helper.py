@@ -11,7 +11,6 @@ from typing import Optional
 
 import numpy as np
 import torch
-
 from fbgemm_gpu.tbe.bench.tbe_data_config import TBEDataConfig
 from fbgemm_gpu.tbe.utils.common import get_device, round_up
 from fbgemm_gpu.tbe.utils.requests import (

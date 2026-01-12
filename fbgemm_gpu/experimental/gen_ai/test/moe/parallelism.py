@@ -10,7 +10,6 @@ from datetime import timedelta
 from typing import Optional
 
 import torch
-
 from fairscale.nn.model_parallel.initialize import (
     get_model_parallel_group,
     get_model_parallel_world_size,

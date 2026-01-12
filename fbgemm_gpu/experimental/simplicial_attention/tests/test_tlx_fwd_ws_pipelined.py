@@ -11,10 +11,8 @@ import sys
 
 import pytest
 import torch
-
 from simplicial.ops.tlx.fwd_ws_pipelined import tlx_fwd_ws_pipelined
 from simplicial.ops.triton.fwd import triton_fwd as triton_fwd
-
 from simplicial.utils import assert_diff, compute_sqnr
 
 

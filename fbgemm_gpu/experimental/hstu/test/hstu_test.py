@@ -17,7 +17,6 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 from fbgemm_gpu.experimental.hstu import hstu_attn_varlen_func
-
 from hypothesis import given, settings, strategies as st, Verbosity
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
