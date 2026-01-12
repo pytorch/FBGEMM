@@ -85,7 +85,7 @@ jobs:
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
       publish-to-pypi: ${{ (github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish-to-pypi == 'true') }}
-      cuda-version-publish: 12.6.3
+      cuda-version-publish: 12.8.1
       extra-env: >-
         {
           "ENFORCE_CUDA_DEVICE": 1
