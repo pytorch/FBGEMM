@@ -54,7 +54,6 @@ jobs:
         set -ex
         pwd
         ls
-        # MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py )"
         MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
