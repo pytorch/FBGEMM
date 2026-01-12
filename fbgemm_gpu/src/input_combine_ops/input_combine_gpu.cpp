@@ -126,7 +126,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
       &per_sample_weights_addrs,
       &indices_is_long,
       &lengths_is_long,
-      args_tensor.mutable_data_ptr<uint64_t>(),
+      reinterpret_cast<uint64_t*>(args_tensor.mutable_data_ptr()),
       args_offsets,
       need_weights);
 
