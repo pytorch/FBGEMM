@@ -51,12 +51,11 @@ jobs:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
       # Nova Coordinate Filters:
       # rocm/3.13t: causes segfaults at runtime
-      # python/3.14: torch.compile support is missing, see https://github.com/pytorch/pytorch/issues/156856
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t' --filter 'python_version:3.14' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
