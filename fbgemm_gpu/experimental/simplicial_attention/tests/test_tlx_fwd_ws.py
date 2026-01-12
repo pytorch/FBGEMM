@@ -11,7 +11,6 @@ import sys
 
 import pytest
 import torch
-
 from simplicial.ops.pytorch.two_simplicial_attention import torch_fwd_ref
 from simplicial.ops.tlx.fwd_ws import tlx_fwd_ws
 from simplicial.ops.triton.fwd import triton_fwd as triton_fwd

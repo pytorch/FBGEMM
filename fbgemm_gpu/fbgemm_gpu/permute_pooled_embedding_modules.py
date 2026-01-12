@@ -11,7 +11,6 @@ from itertools import accumulate
 from typing import Optional
 
 import torch
-
 from fbgemm_gpu.utils.loader import load_torch_module
 
 try:

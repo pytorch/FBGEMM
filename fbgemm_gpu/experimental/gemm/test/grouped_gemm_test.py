@@ -10,7 +10,6 @@
 import unittest
 
 import torch
-
 from hypothesis import given, settings, strategies as st, Verbosity
 
 if torch.cuda.is_available():

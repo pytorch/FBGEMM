@@ -11,7 +11,6 @@ import logging
 import unittest
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
 import torch
 import triton  # noqa: F401
 

@@ -10,7 +10,6 @@
 
 
 import torch
-
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
 
 

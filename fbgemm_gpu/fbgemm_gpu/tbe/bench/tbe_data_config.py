@@ -13,7 +13,6 @@ import logging
 from typing import Any, Optional
 
 import torch
-
 from fbgemm_gpu.tbe.utils.common import get_device
 from .tbe_data_config_param_models import (
     BatchParams,

@@ -12,7 +12,6 @@ import sys
 import pytest
 import torch
 from simplicial.ops.pytorch.two_simplicial_attention import torch_fwd_ref
-
 from simplicial.ops.triton.fwd import triton_fwd
 from simplicial.utils import assert_diff, compute_sqnr
 

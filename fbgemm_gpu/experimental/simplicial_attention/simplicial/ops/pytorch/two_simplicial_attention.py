@@ -15,7 +15,6 @@ import math
 import torch
 import torch.nn.functional as F
 from simplicial.ops.triton.bwd import triton_bwd
-
 from simplicial.ops.triton.fwd import triton_fwd
 
 

@@ -6,7 +6,6 @@
 
 
 import torch
-
 from fbgemm_gpu.experimental.gen_ai.attention.cutlass_blackwell_fmha import (
     cutlass_blackwell_fmha_func,
 )
