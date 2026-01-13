@@ -204,7 +204,7 @@ CacheLibCache::get_n_items(int n, Cache::AccessIterator& itr) {
             indices.scalar_type(), "get_n_items", [&] {
               using index_t = scalar_t;
               auto indices_data_ptr = indices.mutable_data_ptr<index_t>();
-              auto weights_data_ptr = weights.data_ptr<value_t>();
+              auto weights_data_ptr = weights.mutable_data_ptr<value_t>();
               for (; itr != cache_->end() && cnt < n; ++itr, ++cnt) {
                 const auto key_ptr =
                     reinterpret_cast<const index_t*>(itr->getKey().data());

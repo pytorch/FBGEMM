@@ -178,12 +178,12 @@ void DramKVEmbeddingInferenceWrapper::deserialize(
   }
   TORCH_CHECK(states.size() >= 2);
 
-  auto* intPtr = states[0].data_ptr<int64_t>();
+  const auto* intPtr = states[0].const_data_ptr<int64_t>();
   TORCH_CHECK(states[0].numel() >= 1)
   num_shards_ = intPtr[0];
 
   TORCH_CHECK(states[1].numel() >= 2)
-  auto* floatPtr = states[1].data_ptr<double>();
+  const auto* floatPtr = states[1].const_data_ptr<double>();
   uniform_init_lower_ = floatPtr[0];
   uniform_init_upper_ = floatPtr[1];
 }

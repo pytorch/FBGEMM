@@ -430,17 +430,17 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
     const index_t* bucketize_offset = nullptr;
     const index_t local_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t] / my_size)
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t] / my_size)
         : 1;
     const index_t global_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t])
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t])
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
     int64_t bucket_size = 0;
     if (variable_bucket_sizes) {
       bucketize_offset =
-          block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
+          block_bucketize_pos.value()[t].const_data_ptr<index_t>();
       bucket_size = block_bucketize_pos.value()[t].numel();
     }
     for (const auto b : c10::irange(cur_batch_size)) {
@@ -489,13 +489,13 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const index_t* bucketize_offset = nullptr;
     if (variable_bucket_sizes) {
       bucketize_offset =
-          block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
+          block_bucketize_pos.value()[t].const_data_ptr<index_t>();
     }
     const index_t local_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t] / my_size)
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t] / my_size)
         : 1;
     const index_t global_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t])
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t])
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
@@ -503,7 +503,7 @@ void _block_bucketize_sparse_features_cpu_kernel(
     if (keep_orig_idx_per_feature.has_value()) {
       // When keep_orig_idx_per_feature is set, override global
       // keep_orig_idx settings
-      keep_idx = keep_orig_idx_per_feature.value().mutable_data_ptr<bool>()[t];
+      keep_idx = keep_orig_idx_per_feature.value().const_data_ptr<bool>()[t];
     }
 
     for (const auto b : c10::irange(cur_batch_size)) {
@@ -602,7 +602,7 @@ at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
       input.options().dtype(at::kHalf)); // at::kHalf
 
   FloatToBFloat16Quantized_ref(
-      input.mutable_data_ptr<float>(),
+      input.const_data_ptr<float>(),
       input.numel(),
       reinterpret_cast<uint16_t*>(output.mutable_data_ptr<at::Half>()));
 
@@ -618,7 +618,7 @@ at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   auto output = at::empty(input_sizes, input.options().dtype(at::kFloat));
 
   BFloat16QuantizedToFloat_ref(
-      reinterpret_cast<at::BFloat16*>(input.mutable_data_ptr<at::Half>()),
+      reinterpret_cast<const at::BFloat16*>(input.const_data_ptr<at::Half>()),
       input.numel(),
       output.mutable_data_ptr<float>());
 
@@ -1452,17 +1452,17 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
     const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
     const index_t* bucketize_offset = nullptr;
     const index_t local_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t] / my_size)
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t] / my_size)
         : 1;
     const index_t global_num_blks = total_num_blocks.has_value()
-        ? (total_num_blocks.value().mutable_data_ptr<index_t>()[t])
+        ? (total_num_blocks.value().const_data_ptr<index_t>()[t])
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
     int64_t bucket_size = 0;
     if (variable_bucket_sizes) {
       bucketize_offset =
-          block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
+          block_bucketize_pos.value()[t].const_data_ptr<index_t>();
       bucket_size = block_bucketize_pos.value()[t].numel();
     }
     for (const auto b : c10::irange(cur_batch_size)) {
@@ -1511,7 +1511,7 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
     const index_t* bucketize_offset = nullptr;
     if (variable_bucket_sizes) {
       bucketize_offset =
-          block_bucketize_pos.value()[t].mutable_data_ptr<index_t>();
+          block_bucketize_pos.value()[t].const_data_ptr<index_t>();
     }
     const index_t local_num_blks = total_num_blocks.has_value()
         ? (total_num_blocks.value().const_data_ptr<index_t>()[t] / my_size)
