@@ -69,6 +69,7 @@ class SSDCheckpointTest(unittest.TestCase):
         eviction_policy: Optional[EvictionPolicy] = None,
         disable_random_init: bool = False,
         enable_blob_db: bool = False,
+        use_object_cache: bool = False,
     ) -> object:
         if backend_type == BackendType.SSD:
             assert ssd_directory
@@ -97,6 +98,7 @@ class SSDCheckpointTest(unittest.TestCase):
                 flushing_block_size=flushing_block_size,
                 disable_random_init=disable_random_init,
                 enable_blob_db=enable_blob_db,
+                use_object_cache=use_object_cache,
             )
         elif backend_type == BackendType.DRAM:
             eviction_config = None
@@ -1441,6 +1443,55 @@ class SSDCheckpointTest(unittest.TestCase):
             output = torch.empty_like(values)
             # pyre-ignore
             ssd_blob_db.get(get_indices, output, count)
+
+            torch.testing.assert_close(
+                output,
+                values,
+                atol=1e-8,
+                rtol=1e-8,
+            )
+
+    @given(**default_st)
+    @settings(**default_settings)
+    def test_ssd_object_cache_config(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+        """
+        Test ssd db backend could be set and get as expected when use_object_cache config is turned on.
+        """
+        E = int(10**log_E)
+        max_D = D * 4
+
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            ssd_object_cache = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weights_precision,
+                backend_type=BackendType.SSD,
+                ssd_directory=ssd_directory,
+                disable_random_init=True,
+                use_object_cache=True,
+            )
+
+            set_indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(5,)), dtype=torch.int64
+            )
+            get_indices = set_indices.clone()
+            values = torch.randn(5, max_D, dtype=weights_precision.as_dtype())
+            count = torch.tensor([5], dtype=torch.int64)
+            # pyre-ignore
+            ssd_object_cache.set(set_indices, values, count)
+
+            # pyre-ignore
+            ssd_object_cache.wait_util_filling_work_done()
+
+            output = torch.empty_like(values)
+            # pyre-ignore
+            ssd_object_cache.get(get_indices, output, count)
 
             torch.testing.assert_close(
                 output,
