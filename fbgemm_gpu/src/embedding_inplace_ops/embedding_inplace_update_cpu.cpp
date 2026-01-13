@@ -154,8 +154,8 @@ void dram_kv_embedding_inplace_update_cpu(
   uint8_t* update_weights_ptr = update_weights.mutable_data_ptr<uint8_t>();
   const int32_t* update_table_idx_ptr =
       update_table_idx.const_data_ptr<int32_t>();
-  int64_t* update_row_idx_ptr = update_row_idx.mutable_data_ptr<int64_t>();
-  int64_t* update_offsets_ptr = update_offsets.mutable_data_ptr<int64_t>();
+  const int64_t* update_row_idx_ptr = update_row_idx.const_data_ptr<int64_t>();
+  const int64_t* update_offsets_ptr = update_offsets.const_data_ptr<int64_t>();
 
   int64_t window_start = 0;
   while (window_start < N) {
@@ -180,9 +180,9 @@ void dram_kv_embedding_inplace_update_cpu(
         {window_size, D_bytes},
         at::TensorOptions().dtype(at::kByte));
 
-    int64_t* row_ids_ptr = update_row_idx_ptr + window_start;
+    const int64_t* row_ids_ptr = update_row_idx_ptr + window_start;
     auto row_id_tensor = at::from_blob(
-        row_ids_ptr, {window_size}, at::TensorOptions().dtype(at::kLong));
+        const_cast<int64_t*>(row_ids_ptr), {window_size}, at::TensorOptions().dtype(at::kLong));
 
     (*embedding_inplace_update_method)(
         {cur_table, row_id_tensor, weights_tensor});
