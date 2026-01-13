@@ -2762,20 +2762,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.prefetch_stream != forward_stream
             ), "prefetch_stream and forward_stream should not be the same stream"
 
-        indices, offsets, _, vbe_metadata = self.prepare_inputs(
-            indices,
-            offsets,
-            per_sample_weights=None,
-            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
-            force_cast_input_types=False,
-            prefetch_pipeline=self.prefetch_pipeline,
-        )
-
         with self._recording_to_timer(
             self.prefetch_duration_timer,
             context=self.step,
             stream=torch.cuda.current_stream(),
         ):
+
+            indices, offsets, _, vbe_metadata = self.prepare_inputs(
+                indices,
+                offsets,
+                per_sample_weights=None,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                force_cast_input_types=False,
+                prefetch_pipeline=self.prefetch_pipeline,
+            )
+
             self._prefetch(
                 indices,
                 offsets,
