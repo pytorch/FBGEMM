@@ -2232,6 +2232,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 op_id=self.uuid,
                 per_sample_weights=per_sample_weights,
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                feature_table_map=self.feature_table_map,
             )
 
         if not is_torchdynamo_compiling():
