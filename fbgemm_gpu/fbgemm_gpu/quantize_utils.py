@@ -17,9 +17,12 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.triton.common import RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
-if torch.cuda.is_available():
-    from fbgemm_gpu.triton import quantize_mx4
-    from fbgemm_gpu.triton.quantize import triton_dequantize_mx4
+try:
+    if torch.cuda.is_available():
+        from fbgemm_gpu.triton import quantize_mx4
+        from fbgemm_gpu.triton.quantize import triton_dequantize_mx4
+except Exception:
+    pass
 
 
 try:
