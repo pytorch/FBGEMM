@@ -2600,18 +2600,23 @@ class BF16Tests(unittest.TestCase):
         cls.device = torch.accelerator.current_accelerator()
 
     def generate_random_splits(G: int, M: int) -> torch.Tensor:
-        m_cumsums = torch.sort(
-            torch.randint(
-                0,
-                M,
-                (G + 1,),
-                dtype=torch.int32,
-                device=torch.accelerator.current_accelerator(),
+        if M > 0:
+            m_cumsums = torch.sort(
+                torch.randint(
+                    0,
+                    M,
+                    (G + 1,),
+                    dtype=torch.int32,
+                    device=torch.accelerator.current_accelerator(),
+                )
+            ).values
+            m_cumsums[0], m_cumsums[-1] = 0, M
+            m_sizes = m_cumsums[1:] - m_cumsums[:-1]
+            return m_sizes
+        else:
+            return torch.zeros(
+                (G,), dtype=torch.int32, device=torch.accelerator.current_accelerator()
             )
-        ).values
-        m_cumsums[0], m_cumsums[-1] = 0, M
-        m_sizes = m_cumsums[1:] - m_cumsums[:-1]
-        return m_sizes
 
     @unittest.skipIf(
         not torch.version.cuda,
@@ -2620,7 +2625,7 @@ class BF16Tests(unittest.TestCase):
     @settings(deadline=None)
     @given(
         G=st.sampled_from([2, 16]),
-        M=st.sampled_from([257, 2049]),
+        M=st.sampled_from([0, 257, 2049]),
         N=st.sampled_from([256, 2048]),
         K=st.sampled_from([128, 1024]),
         output_accum=st.booleans(),
@@ -2674,7 +2679,7 @@ class BF16Tests(unittest.TestCase):
         # Reference
         dy_fp32 = dy_bf16.to(torch.float32)
         x_fp32 = x_bf16.to(torch.float32)
-        ref_wgrad = torch.empty(
+        ref_wgrad = torch.zeros(
             (G, N, K),
             dtype=torch.float32,
             device=torch.accelerator.current_accelerator(),
