@@ -261,7 +261,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       &indices_ptrs,
       &warp_offsets_group,
       &num_cols_group,
-      args_tensor.mutable_data_ptr<int64_t>(),
+      reinterpret_cast<int64_t*>(args_tensor.mutable_data_ptr()),
       args_ptrs_offsets);
 
   auto& first_input = input_group[0];
@@ -371,7 +371,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       &indices_ptrs,
       &warp_offsets_group,
       &num_cols_group,
-      args_tensor.mutable_data_ptr<int64_t>(),
+      reinterpret_cast<int64_t*>(args_tensor.mutable_data_ptr()),
       args_ptrs_offsets);
 
   int64_t saved_data[] = {

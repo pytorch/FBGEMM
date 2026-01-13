@@ -150,7 +150,7 @@ generate_vbe_metadata_cpu(
   auto D_offsets_acc = D_offsets.accessor<int32_t, 1>();
   auto B_offsets_rank_per_feature_acc =
       B_offsets_rank_per_feature.accessor<int32_t, 2>();
-  uint32_t* b_t_map_ = b_t_map.mutable_data_ptr<uint32_t>();
+  uint32_t* b_t_map_ = reinterpret_cast<uint32_t*>(b_t_map.mutable_data_ptr());
   for (const uint32_t t : c10::irange(T)) {
     // Get batch offset per table
     const auto B_start_t = B_offsets_acc[t];
