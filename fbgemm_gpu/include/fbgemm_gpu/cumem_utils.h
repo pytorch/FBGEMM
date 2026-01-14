@@ -14,6 +14,12 @@ namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
 
+namespace detail {
+using IsUvmTensorFn = bool (*)(const Tensor&);
+using UvmStorageFn = bool (*)(const Tensor&);
+using UvmToCpuFn = Tensor (*)(const Tensor&);
+} // namespace detail
+
 /// @defgroup cumem-utils CUDA Memory Operators
 ///
 
@@ -210,5 +216,18 @@ void copy_to_shared(const Tensor& self);
 ///
 /// @param self The input tensor
 void initialize_nan_shared_mem(int64_t device_index);
+
+/// @ingroup cumem-utils
+///
+/// Overrides the functionality of is_uvm_tensor, uvm_storage and
+/// uvm_to_cpu with new functionality.
+///
+/// @param is_uvm_tensor_fn The new implementation of is_uvm_tensor
+/// @param uvm_storage_fn The new implementation of uvm_storage
+/// @param uvm_to_cpu_fn The new implementation of uvm_to_cpu
+void register_uvm_gpu_impl(
+    detail::IsUvmTensorFn is_uvm_tensor_fn,
+    detail::UvmStorageFn uvm_storage_fn,
+    detail::UvmToCpuFn uvm_to_cpu_fn);
 
 } // namespace fbgemm_gpu
