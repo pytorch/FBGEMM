@@ -538,7 +538,7 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
                     indices.scalar_type(), "get_cache_inner", [&] {
                       using inner_index_t = scalar_t;
                       auto inner_indices_addr =
-                          indices.data_ptr<inner_index_t>();
+                          indices.mutable_data_ptr<inner_index_t>();
                       for (const auto& row_id : row_ids_per_shard[shard_id]) {
                         auto emb_idx = inner_indices_addr[row_id];
                         if (emb_idx < 0) {
@@ -682,7 +682,7 @@ folly::SemiFuture<std::vector<folly::Unit>> EmbeddingKVDB::cache_memcpy(
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       weights.scalar_type(), "cache_memcpy", [&] {
         // std::vector<folly::coro::TaskWithExecutor<void>> tasks;
-        auto weights_data_ptr = weights.data_ptr<scalar_t>();
+        auto weights_data_ptr = weights.mutable_data_ptr<scalar_t>();
         auto num_shards = executor_tp_->numThreads();
         for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
           auto f =

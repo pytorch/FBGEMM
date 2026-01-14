@@ -225,9 +225,9 @@ void all_to_one(
            .transfer_cuda_event =
                std::make_unique<GPUEvent>(cudaEventDisableTiming)});
       AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.data_ptr(),
+          dst.mutable_data_ptr(),
           dst.stride(0) * dst.element_size(),
-          src.data_ptr(),
+          src.const_data_ptr(),
           src.stride(0) * src.element_size(),
           src.size(1) * src.element_size(),
           src.size(0),
@@ -282,9 +282,9 @@ void all_to_one(
       auto& dst = output_tensors[i];
       // on source device, launch memcpy.
       AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.data_ptr(),
+          dst.mutable_data_ptr(),
           dst.stride(0) * dst.element_size(),
-          src.data_ptr(),
+          src.const_data_ptr(),
           src.stride(0) * src.element_size(),
           src.size(1) * src.element_size(),
           src.size(0),
@@ -316,9 +316,9 @@ void all_to_one(
     auto& dst = output_tensors.at(output_index);
     // on source device, launch memcpy.
     AT_CUDA_CHECK(cudaMemcpy2DAsync(
-        dst.data_ptr(),
+        dst.mutable_data_ptr(),
         dst.stride(0) * dst.element_size(),
-        src.data_ptr(),
+        src.const_data_ptr(),
         src.stride(0) * src.element_size(),
         src.size(1) * src.element_size(),
         src.size(0),
@@ -335,9 +335,9 @@ void all_to_one(
         // single device memcpy, not that src_device == dst_device.
         auto copy_stream = getCurrentGPUStream(target_device_index);
         AT_CUDA_CHECK(cudaMemcpy2DAsync(
-            dst.data_ptr(),
+            dst.mutable_data_ptr(),
             dst.stride(0) * dst.element_size(),
-            src.data_ptr(),
+            src.const_data_ptr(),
             src.stride(0) * src.element_size(),
             src.size(1) * src.element_size(),
             src.size(0),
@@ -456,9 +456,9 @@ Tensor sum_reduce_to_one(
     // on source device, launch memcpy.
     auto& dst = copied_tensors[i];
     AT_CUDA_CHECK(cudaMemcpy2DAsync(
-        dst.data_ptr(),
+        dst.mutable_data_ptr(),
         dst.stride(0) * dst.element_size(),
-        src.data_ptr(),
+        src.const_data_ptr(),
         src.stride(0) * src.element_size(),
         src.size(1) * src.element_size(),
         src.size(0),
@@ -537,9 +537,9 @@ Tensor sum_reduce_to_one(
 
     auto& dst = copied_tensors[i];
     AT_CUDA_CHECK(cudaMemcpy2DAsync(
-        dst.data_ptr(),
+        dst.mutable_data_ptr(),
         dst.stride(0) * dst.element_size(),
-        src.data_ptr(),
+        src.const_data_ptr(),
         src.stride(0) * src.element_size(),
         src.size(1) * src.element_size(),
         src.size(0),
