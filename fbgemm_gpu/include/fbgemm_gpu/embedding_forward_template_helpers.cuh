@@ -225,9 +225,15 @@ cp_async_zfill_cg(__shared__ void* smem_ptr, void const* global_ptr, bool pred_g
 
 // if ROCm version >= 7.2 and MI350
 #if (ROCM_VERSION_MAJOR >= 7 && ROCM_VERSION_MINOR >= 2) && defined(__gfx950__)
-
+  // Due to LLVM bug, we can't use SizeInBytes directly
+  // in __builtin_amdgcn_global_load_lds intrinsic until
+  // ROCm 7.11:
+  // https://github.com/llvm/llvm-project/pull/175767
+  //
+  // Make sure you modify this #if branch if SizeInBytes 
+  // support range is extended
   const void *src_ptr = (pred_guard) ? global_ptr : &zero_tile;
-  __builtin_amdgcn_global_load_lds(src_ptr, smem_ptr, SizeInBytes, 0, 0);
+  __builtin_amdgcn_global_load_lds(src_ptr, smem_ptr, 16, 0, 0);
 // if ROCm version in [7.0, 7.2) and MI350
 #elif ROCM_VERSION_MAJOR >= 7 && defined(__gfx950__)
 
@@ -238,8 +244,8 @@ cp_async_zfill_cg(__shared__ void* smem_ptr, void const* global_ptr, bool pred_g
                "global_load_lds_dwordx4 %1, off\n" ::"s"(smem),
                "v"(static_cast<const uint32_t *>(src_ptr))
                :);
-#endif // (ROCM_VERSION_MAJOR >= 7 && ROCM_VERSION_MINOR >= 2) ||
-       // (ROCM_VERSION_MAJOR > 7) && defined(__gfx950__)
+#endif // (ROCM_VERSION_MAJOR >= 7 && ROCM_VERSION_MINOR >= 2) && defined(__gfx950__)
+
 #else
   static_assert(SizeInBytes == 16, "");
   using AccessType = uint4;
