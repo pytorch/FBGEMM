@@ -48,7 +48,7 @@ Tensor permute_pooled_embs_split_cpu_impl(
       permute_list.scalar_type() == at::ScalarType::Long,
       "permute_list needs to have long/int64 type")
 
-  auto permute = permute_list.data_ptr<int64_t>();
+  auto permute = permute_list.const_data_ptr<int64_t>();
   const auto n = permute_list.numel();
   const auto dims_size = allow_duplicates ? offset_dim_list.numel() : n;
   std::vector<int64_t> dims;

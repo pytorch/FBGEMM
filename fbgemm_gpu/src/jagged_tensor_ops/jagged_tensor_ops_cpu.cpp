@@ -1082,7 +1082,7 @@ static std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
           const auto* input_ptr = &(
               lengths_contig
                   .mutable_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
-          auto* output_ptr = offsets.data_ptr<index_t>() + 1;
+          auto* output_ptr = offsets.mutable_data_ptr<index_t>() + 1;
           for (const auto i : c10::irange(B)) {
             cumsum += input_ptr[i];
             output_ptr[i] = cumsum;
@@ -1123,7 +1123,7 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
           const auto* input_ptr = &(
               lengths_contig
                   .mutable_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
-          auto* output_ptr = offsets.data_ptr<index_t>() + 1;
+          auto* output_ptr = offsets.mutable_data_ptr<index_t>() + 1;
           for (const auto i : c10::irange(B)) {
             cumsum += input_ptr[i];
             output_ptr[i] = cumsum;
