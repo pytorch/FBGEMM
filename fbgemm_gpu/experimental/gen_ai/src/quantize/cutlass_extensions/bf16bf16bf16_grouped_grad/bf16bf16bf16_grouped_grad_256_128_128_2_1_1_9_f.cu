@@ -16,7 +16,7 @@ at::Tensor bf16bf16bf16_grouped_grad_256_128_128_2_1_1_9_f(
     at::Tensor output,
     int sm_count,
     std::optional<at::Tensor> M_sizes) {
-  return bf16bf16bf16_grouped_grad_impl<256, 128, 128, 2, 1, 1, false>(
+  return bf16bf16bf16_grouped_grad_dispatch<256, 128, 128, 2, 1, 1, false>(
       X, W, output, sm_count, M_sizes);
 }
 

@@ -2628,6 +2628,7 @@ class BF16Tests(unittest.TestCase):
         M=st.sampled_from([0, 257, 2049]),
         N=st.sampled_from([256, 2048]),
         K=st.sampled_from([128, 1024]),
+        dtype=st.sampled_from([torch.bfloat16, torch.float16]),
         output_accum=st.booleans(),
     )
     def test_grouped_gemm_wgrad(
@@ -2636,15 +2637,16 @@ class BF16Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        dtype: torch.dtype,
         output_accum: bool,
     ) -> None:
         torch.manual_seed(hash((G, M, N, K)))
         # Inputs
         dy_bf16 = torch.randn(
-            (M, N), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+            (M, N), dtype=dtype, device=torch.accelerator.current_accelerator()
         )
         x_bf16 = torch.randn(
-            (M, K), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+            (M, K), dtype=dtype, device=torch.accelerator.current_accelerator()
         )
 
         m_sizes = BF16Tests.generate_random_splits(G, M)
@@ -2704,20 +2706,22 @@ class BF16Tests(unittest.TestCase):
 
         ref_wgrad = ref_wgrad.to(test_wgrad.dtype)
 
+        # Float16 is slightly less accurate.
+        atol = 1e-4 if dtype == torch.bfloat16 else 1e-3
         # Compare groups with non-zero m_size
         if non_zero_groups:
             if test_wgrad.dtype == torch.float32:
                 torch.testing.assert_close(
                     test_wgrad[non_zero_groups],
                     ref_wgrad[non_zero_groups],
-                    atol=1e-4,
+                    atol=atol,
                     rtol=1e-3,
                 )
             else:
                 torch.testing.assert_close(
                     test_wgrad[non_zero_groups],
                     ref_wgrad[non_zero_groups],
-                    atol=1e-4,
+                    atol=atol,
                     rtol=1e-2,
                 )
 
@@ -2728,9 +2732,10 @@ class BF16Tests(unittest.TestCase):
     @settings(deadline=None)
     @given(
         G=st.sampled_from([2, 16]),
-        M=st.sampled_from([257, 2049]),
+        M=st.sampled_from([0, 257, 2049]),
         N=st.sampled_from([256, 2048]),
         K=st.sampled_from([128, 1024]),
+        dtype=st.sampled_from([torch.bfloat16, torch.float16]),
     )
     def test_grouped_gemm_dgrad(
         self,
@@ -2738,16 +2743,17 @@ class BF16Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        dtype: torch.dtype,
     ) -> None:
         torch.manual_seed(hash((G, M, N, K)))
 
         # Inputs
-        dy_bf16 = torch.randn(
-            (M, N), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        dy_half = torch.randn(
+            (M, N), dtype=dtype, device=torch.accelerator.current_accelerator()
         )
-        w_bf16 = torch.randn(
+        w_half = torch.randn(
             (G, N, K),
-            dtype=torch.bfloat16,
+            dtype=dtype,
             device=torch.accelerator.current_accelerator(),
         )
         m_sizes = BF16Tests.generate_random_splits(G, M)
@@ -2757,29 +2763,29 @@ class BF16Tests(unittest.TestCase):
             torch.cuda.get_device_properties("cuda").multi_processor_count - sm_margin
         )
 
-        y_bf16 = torch.ops.fbgemm.bf16bf16bf16_grouped_grad(
-            dy_bf16,
-            w_bf16.permute(0, 2, 1),
+        y_half = torch.ops.fbgemm.bf16bf16bf16_grouped_grad(
+            dy_half,
+            w_half.permute(0, 2, 1),
             m_sizes.to(torch.int64),
             num_sms=num_sms,
         )
 
         Y_preallocated = torch.empty(
             (M * K),
-            dtype=torch.bfloat16,
+            dtype=dtype,
             device=torch.accelerator.current_accelerator(),
         )
-        y_bf16_preallocated = torch.ops.fbgemm.bf16bf16bf16_grouped_grad(
-            dy_bf16,
-            w_bf16.permute(0, 2, 1),
+        y_half_preallocated = torch.ops.fbgemm.bf16bf16bf16_grouped_grad(
+            dy_half,
+            w_half.permute(0, 2, 1),
             m_sizes.to(torch.int64),
             Y_preallocated,
             num_sms=num_sms,
         )
 
         # Reference
-        dy_fp32 = dy_bf16.to(torch.float32)
-        w_fp32 = w_bf16.to(torch.float32)
+        dy_fp32 = dy_half.to(torch.float32)
+        w_fp32 = w_half.to(torch.float32)
 
         ref_y_fp32 = torch.empty(
             (M, K), dtype=torch.float32, device=torch.accelerator.current_accelerator()
@@ -2790,11 +2796,11 @@ class BF16Tests(unittest.TestCase):
                 m_start : m_start + m_size, :
             ] @ w_fp32[g, :, :].view(N, K)
             m_start += m_size
-        ref_y_bf16 = ref_y_fp32.to(torch.bfloat16)
+        ref_y_half = ref_y_fp32.to(dtype)
 
-        torch.testing.assert_close(y_bf16, ref_y_bf16, atol=1e-3, rtol=1.6e-2)
+        torch.testing.assert_close(y_half, ref_y_half, atol=1e-3, rtol=1.6e-2)
         torch.testing.assert_close(
-            y_bf16_preallocated, ref_y_bf16, atol=1e-3, rtol=1.6e-2
+            y_half_preallocated, ref_y_half, atol=1e-3, rtol=1.6e-2
         )
 
     @unittest.skipIf(
@@ -2804,9 +2810,10 @@ class BF16Tests(unittest.TestCase):
     @settings(deadline=None)
     @given(
         G=st.sampled_from([2, 16]),
-        M=st.sampled_from([257, 2049]),
+        M=st.sampled_from([0, 257, 2049]),
         N=st.sampled_from([256, 2048]),
         K=st.sampled_from([128, 1024]),
+        dtype=st.sampled_from([torch.bfloat16, torch.float16]),
     )
     def test_grouped_gemm_fprop(
         self,
@@ -2814,16 +2821,17 @@ class BF16Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        dtype: torch.dtype,
     ) -> None:
         torch.manual_seed(hash((G, M, N, K)))
 
         # Inputs
-        x_bf16 = torch.randn(
-            (M, K), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        x_half = torch.randn(
+            (M, K), dtype=dtype, device=torch.accelerator.current_accelerator()
         )
-        w_bf16 = torch.randn(
+        w_half = torch.randn(
             (G, N, K),
-            dtype=torch.bfloat16,
+            dtype=dtype,
             device=torch.accelerator.current_accelerator(),
         )
         m_sizes = BF16Tests.generate_random_splits(G, M)
@@ -2833,22 +2841,22 @@ class BF16Tests(unittest.TestCase):
             torch.cuda.get_device_properties("cuda").multi_processor_count - sm_margin
         )
 
-        y_bf16 = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
-            x_bf16, w_bf16, m_sizes.to(torch.int64), num_sms=num_sms
+        y_half = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
+            x_half, w_half, m_sizes.to(torch.int64), num_sms=num_sms
         )
 
         Y_preallocated = torch.empty(
             (M * N),
-            dtype=torch.bfloat16,
+            dtype=dtype,
             device=torch.accelerator.current_accelerator(),
         )
-        y_bf16_Y_preallocated = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
-            x_bf16, w_bf16, m_sizes.to(torch.int64), Y_preallocated, num_sms=num_sms
+        y_half_Y_preallocated = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(
+            x_half, w_half, m_sizes.to(torch.int64), Y_preallocated, num_sms=num_sms
         )
 
         # Reference
-        x_fp32 = x_bf16.to(torch.float32)
-        w_fp32 = w_bf16.to(torch.float32)
+        x_fp32 = x_half.to(torch.float32)
+        w_fp32 = w_half.to(torch.float32)
 
         ref_y_fp32 = torch.empty(
             (M, N), dtype=torch.float32, device=torch.accelerator.current_accelerator()
@@ -2859,11 +2867,11 @@ class BF16Tests(unittest.TestCase):
                 x_fp32[m_start : m_start + m_size, :] @ w_fp32[g, :, :].view(N, K).T
             )
             m_start += m_size
-        ref_y_bf16 = ref_y_fp32.to(torch.bfloat16)
+        ref_y_half = ref_y_fp32.to(dtype)
 
-        torch.testing.assert_close(y_bf16, ref_y_bf16, atol=1e-3, rtol=1.6e-2)
+        torch.testing.assert_close(y_half, ref_y_half, atol=1e-3, rtol=1.6e-2)
         torch.testing.assert_close(
-            y_bf16_Y_preallocated, ref_y_bf16, atol=1e-3, rtol=1.6e-2
+            y_half_Y_preallocated, ref_y_half, atol=1e-3, rtol=1.6e-2
         )
 
 
