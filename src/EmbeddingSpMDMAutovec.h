@@ -92,6 +92,20 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
     bool is_weight_positional,
     bool use_offsets);
 
+template <typename IndexType, typename OffsetType>
+typename EmbeddingSpMDMRowWiseSparseKernelSignature<
+    uint8_t,
+    IndexType,
+    OffsetType>::Type
+GenerateEmbeddingSpMDMNBitRowWiseSparse_autovec(
+    int bit_rate,
+    int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets);
+
 } // namespace fbgemm
 
 #endif // #ifdef __linux__
