@@ -1296,6 +1296,25 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
   }
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
+      is_autovec_forced()) {
+    return GenerateEmbeddingSpMDMNBitRowWiseSparse_autovec<
+        /*IndexType=*/indxType,
+        /*OffsetType=*/offsetType>(
+        /*bit_rate=*/bit_rate,
+        /*block_size=*/block_size,
+        /*has_weight=*/has_weight,
+        /*normalize_by_lengths=*/normalize_by_lengths,
+        /*prefetch=*/prefetch,
+        /*is_weight_positional=*/is_weight_positional,
+        /*use_offsets=*/use_offsets);
+  }
+#endif
+
 #ifdef VLOG
   VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
