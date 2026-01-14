@@ -625,7 +625,11 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row
     codegen/embedding_common_code_generator.py for more details
 */ #}
 
+{%- if is_rocm %}
 {{ instantiate_templates(use_subwarp_shuffle=True) }}
+{%- else %}
+{{ instantiate_templates(use_subwarp_shuffle=False) }}
+{%- endif %}
 
 ////////////////////////////////////////////////////////////////////////////////
 #endif
