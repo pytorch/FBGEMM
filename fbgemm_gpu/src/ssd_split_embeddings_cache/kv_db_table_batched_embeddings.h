@@ -331,27 +331,21 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   void wait_util_filling_work_done();
 
   virtual at::Tensor get_keys_in_range_impl(
-      int64_t start,
-      int64_t end,
-      std::optional<int64_t> offset) {
-    (void)start;
-    (void)end;
+      int64_t /* start */,
+      int64_t /* end */,
+      std::optional<int64_t> /* offset */) {
     FBEXCEPTION("Not implemented");
   }
 
   virtual at::Tensor get_kv_zch_eviction_metadata_impl(
-      const at::Tensor& indices,
-      const at::Tensor& count) {
-    (void)indices;
-    (void)count;
+      const at::Tensor& /* indices */,
+      const at::Tensor& /* count */) {
     FBEXCEPTION("Not implemented");
   }
 
   virtual std::vector<double> get_dram_kv_perf(
-      const int64_t step,
-      const int64_t interval) {
-    (void)step;
-    (void)interval;
+      const int64_t /* step */,
+      const int64_t /* interval */) {
     FBEXCEPTION("Not implemented");
   }
 
@@ -366,40 +360,27 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   }
 
   virtual void get_range_from_snapshot(
-      const at::Tensor& weights,
-      const int64_t start,
-      const int64_t length,
-      const ssd::SnapshotHandle* snapshot_handle,
-      int64_t width_offset = 0,
-      std::optional<int64_t> width_length = std::nullopt) {
-    (void)weights;
-    (void)start;
-    (void)length;
-    (void)snapshot_handle;
-    (void)width_offset;
-    (void)width_length;
+      const at::Tensor& /* weights */,
+      const int64_t /* start */,
+      const int64_t /* length */,
+      const ssd::SnapshotHandle* /* snapshot_handle */,
+      int64_t /* width_offset */ = 0,
+      std::optional<int64_t> /* width_length */ = std::nullopt) {
     FBEXCEPTION("Not implemented");
   }
 
   virtual void set_kv_to_storage(
-      const at::Tensor& ids,
-      const at::Tensor& weights) {
-    (void)ids;
-    (void)weights;
+      const at::Tensor& /* ids */,
+      const at::Tensor& /* weights */) {
     FBEXCEPTION("Not implemented");
   }
 
   virtual void get_kv_from_storage_by_snapshot(
-      const at::Tensor& ids,
-      const at::Tensor& weights,
-      const ssd::SnapshotHandle* snapshot_handle,
-      int64_t width_offset = 0,
-      std::optional<int64_t> width_length = std::nullopt) {
-    (void)ids;
-    (void)weights;
-    (void)snapshot_handle;
-    (void)width_offset;
-    (void)width_length;
+      const at::Tensor& /* ids */,
+      const at::Tensor& /* weights */,
+      const ssd::SnapshotHandle* /* snapshot_handle */,
+      int64_t /* width_offset */ = 0,
+      std::optional<int64_t> /* width_length */ = std::nullopt) {
     FBEXCEPTION("Not implemented");
   }
 
