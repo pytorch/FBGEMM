@@ -190,6 +190,7 @@ jobs:
 
         if [[ -z "$PYPI_TOKEN" ]]; then
           echo "PYPI_TOKEN is not set!" >&2
+          echo "NOTE that secrets will not be available if the workflow was triggered by a PR from a fork." >&2
           exit 1
         fi
 

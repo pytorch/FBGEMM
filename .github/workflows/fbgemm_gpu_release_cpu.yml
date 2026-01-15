@@ -24,13 +24,13 @@ on:
   #
   workflow_dispatch:
     inputs:
-      pytorch_channel:
+      pytorch-channel:
         description: Package Channel to Use for PyTorch Installation
         type: choice
         required: false
         options: [ "nightly", "test", "release" ]
         default: "test"
-      publish_to_pypi:
+      publish-to-pypi:
         description: Publish Artifact to PyPI
         type: boolean
         required: false
@@ -93,7 +93,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch-CPU Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch-channel }} cpu
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -168,7 +168,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch-channel }} cpu
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -188,7 +188,16 @@ jobs:
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Push Wheel to PyPI
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish-to-pypi == 'true' }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
+      run: |
+        . $PRELUDE;
+
+        if [[ -z "$PYPI_TOKEN" ]]; then
+          echo "PYPI_TOKEN is not set!" >&2
+          echo "NOTE that secrets will not be available if the workflow was triggered by a PR from a fork." >&2
+          exit 1
+        fi
+
+        publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
