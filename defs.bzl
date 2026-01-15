@@ -22,6 +22,14 @@ def default_compiler_flags():
             "-Wignored-qualifiers",
             "-Wno-vla",
         ],
+        "ovr_config//compiler:gcc": [
+            "-fno-trapping-math",
+        ] + select({
+            "DEFAULT": [],
+            "ovr_config//cpu:arm64": [
+                "-ftree-vectorize",
+            ],
+        }),
     })
 
 def get_fbgemm_base_srcs():
