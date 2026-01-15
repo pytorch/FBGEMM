@@ -206,4 +206,13 @@ jobs:
       if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true')) && matrix.compiler == 'gcc' }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
+      run: |
+        . $PRELUDE;
+
+        if [[ -z "$PYPI_TOKEN" ]]; then
+          echo "PYPI_TOKEN is not set!" >&2
+          echo "NOTE that secrets will not be available if the workflow was triggered by a PR from a fork." >&2
+          exit 1
+        fi
+
+        publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
