@@ -100,6 +100,7 @@ __global__ void set_stacked_kernel_args_kernel(
 }
 
 template <
+    typename ElementType,
     int TB_M,
     int TB_N,
     int TB_K,
@@ -129,10 +130,9 @@ at::Tensor bf16bf16bf16_grouped_wgrad_impl(
   // Define gemm configuration.
   using ProblemShape =
       cutlass::gemm::GroupProblemShape<cute::Shape<int, int, int>>;
-  using ElementA = cutlass::bfloat16_t;
-  using ElementB = cutlass::bfloat16_t;
-  using ElementC =
-      cute::conditional_t<OUTPUT_ACCUM, float, cutlass::bfloat16_t>;
+  using ElementA = ElementType;
+  using ElementB = ElementType;
+  using ElementC = cute::conditional_t<OUTPUT_ACCUM, float, ElementType>;
 
   using LayoutA = cutlass::layout::ColumnMajor;
   using LayoutB = cutlass::layout::RowMajor;
@@ -364,8 +364,64 @@ at::Tensor bf16bf16bf16_grouped_wgrad_impl(
   return output;
 }
 
+template <
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool OUTPUT_ACCUM,
+    bool PONG>
+at::Tensor bf16bf16bf16_grouped_wgrad_dispatch(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    at::Tensor output,
+    int sm_count) {
+  // Dispatch to appriopriately typed kernel.
+  at::ScalarType dtype = X.scalar_type();
+  // Check that dtypes are consistent.
+  TORCH_CHECK(dtype == W.scalar_type(), "X and W must have the same dtype.");
+  if constexpr (!OUTPUT_ACCUM) {
+    TORCH_CHECK(
+        dtype == output.scalar_type(),
+        "X and output must have the same dtype when output_accum is false.");
+  }
+  if (dtype == at::kBFloat16) {
+    return bf16bf16bf16_grouped_wgrad_impl<
+        cutlass::bfloat16_t,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        OUTPUT_ACCUM,
+        PONG>(X, W, M_sizes, output, sm_count);
+  } else if (dtype == at::kHalf) {
+    return bf16bf16bf16_grouped_wgrad_impl<
+        cutlass::half_t,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        OUTPUT_ACCUM,
+        PONG>(X, W, M_sizes, output, sm_count);
+  } else {
+    TORCH_CHECK(
+        false,
+        "Unsupported dtype: ",
+        dtype,
+        ". Only bf16 and fp16 are supported.");
+  }
+}
+
 #if CUDART_VERSION >= 12080
 template <
+    typename ElementType,
     int TB_M,
     int TB_N,
     int TB_K,
@@ -395,10 +451,9 @@ at::Tensor bf16bf16bf16_grouped_wgrad_sm100_impl(
   // Define gemm configuration.
   using ProblemShape =
       cutlass::gemm::GroupProblemShape<cute::Shape<int, int, int>>;
-  using ElementA = cutlass::bfloat16_t;
-  using ElementB = cutlass::bfloat16_t;
-  using ElementC =
-      cute::conditional_t<OUTPUT_ACCUM, float, cutlass::bfloat16_t>;
+  using ElementA = ElementType;
+  using ElementB = ElementType;
+  using ElementC = cute::conditional_t<OUTPUT_ACCUM, float, ElementType>;
   using LayoutA = cutlass::layout::ColumnMajor;
   using LayoutB = cutlass::layout::RowMajor;
   using LayoutC = cutlass::layout::RowMajor;
@@ -624,8 +679,64 @@ at::Tensor bf16bf16bf16_grouped_wgrad_sm100_impl(
   return output;
 }
 
+template <
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool OUTPUT_ACCUM,
+    bool PONG>
+at::Tensor bf16bf16bf16_grouped_wgrad_sm100_dispatch(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    at::Tensor output,
+    int sm_count) {
+  // Dispatch to appriopriately typed kernel.
+  at::ScalarType dtype = X.scalar_type();
+  // Check that dtypes are consistent.
+  TORCH_CHECK(dtype == W.scalar_type(), "X and W must have the same dtype.");
+  if constexpr (!OUTPUT_ACCUM) {
+    TORCH_CHECK(
+        dtype == output.scalar_type(),
+        "X and output must have the same dtype when output_accum is false.");
+  }
+  if (dtype == at::kBFloat16) {
+    return bf16bf16bf16_grouped_wgrad_sm100_impl<
+        cutlass::bfloat16_t,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        OUTPUT_ACCUM,
+        PONG>(X, W, M_sizes, output, sm_count);
+  } else if (dtype == at::kHalf) {
+    return bf16bf16bf16_grouped_wgrad_sm100_impl<
+        cutlass::half_t,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        OUTPUT_ACCUM,
+        PONG>(X, W, M_sizes, output, sm_count);
+  } else {
+    TORCH_CHECK(
+        false,
+        "Unsupported dtype: ",
+        dtype,
+        ". Only bf16 and fp16 are supported.");
+  }
+}
+
 #else
 template <
+    typename ElementType,
     int TB_M,
     int TB_N,
     int TB_K,
@@ -640,7 +751,27 @@ at::Tensor bf16bf16bf16_grouped_wgrad_sm100_impl(
     at::Tensor M_sizes,
     at::Tensor output,
     int sm_count) {
-  return output;
+  throw std::runtime_error(
+      "CUDA version is older than 12.8"); // requires CUDA>=12.8
+}
+
+template <
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool OUTPUT_ACCUM,
+    bool PONG>
+at::Tensor bf16bf16bf16_grouped_wgrad_sm100_dispatch(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    at::Tensor output,
+    int sm_count) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.8"); // requires CUDA>=12.8
 }
 #endif
 

@@ -516,8 +516,67 @@ at::Tensor bf16bf16bf16_grouped_impl(
   return output;
 }
 
+// Helper function to dispatch based on dtype
+template <
+    typename InputType,
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool PONG>
+at::Tensor bf16bf16bf16_grouped_dispatch(
+    InputType X,
+    InputType W,
+    at::Tensor output,
+    int sm_count,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes) {
+  // Get dtype from input
+  at::ScalarType dtype;
+  if constexpr (std::is_same_v<InputType, at::TensorList>) {
+    dtype = X[0].scalar_type();
+  } else {
+    dtype = X.scalar_type();
+  }
+
+  // Dispatch to the correct ElementType based on dtype
+  if (dtype == at::kBFloat16) {
+    return bf16bf16bf16_grouped_impl<
+        cutlass::bfloat16_t,
+        InputType,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        PONG>(X, W, output, sm_count, zero_start_index_M, M_sizes);
+  } else if (dtype == at::kHalf) {
+    return bf16bf16bf16_grouped_impl<
+        cutlass::half_t,
+        InputType,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        PONG>(X, W, output, sm_count, zero_start_index_M, M_sizes);
+  } else {
+    TORCH_CHECK(
+        false,
+        "Unsupported dtype: ",
+        dtype,
+        ". Only BFloat16 and Float16 are supported.");
+    return output; // unreachable
+  }
+}
+
 #if CUDART_VERSION >= 12080
 template <
+    typename ElementType,
     typename InputType,
     int TB_M,
     int TB_N,
@@ -556,9 +615,9 @@ at::Tensor bf16bf16bf16_grouped_sm100_impl(
   // Define gemm configuration.
   using ProblemShape =
       cutlass::gemm::GroupProblemShape<cute::Shape<int, int, int>>;
-  using ElementA = cutlass::bfloat16_t;
-  using ElementB = cutlass::bfloat16_t;
-  using ElementC = cutlass::bfloat16_t;
+  using ElementA = ElementType;
+  using ElementB = ElementType;
+  using ElementC = ElementType;
   using LayoutA = cutlass::layout::RowMajor;
   using LayoutB = cutlass::layout::ColumnMajor;
   using LayoutC = cutlass::layout::RowMajor;
@@ -817,28 +876,6 @@ at::Tensor bf16bf16bf16_grouped_sm100_impl(
   return output;
 }
 
-#else
-
-template <
-    typename InputType,
-    int TB_M,
-    int TB_N,
-    int TB_K,
-    int TBS_M,
-    int TBS_N,
-    int TBS_K,
-    bool PONG>
-at::Tensor bf16bf16bf16_grouped_sm100_impl(
-    InputType X,
-    InputType W,
-    at::Tensor output,
-    int sm_count,
-    std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_sizes) {
-  return output;
-}
-#endif
-
 // Helper function to dispatch based on dtype
 template <
     typename InputType,
@@ -849,7 +886,7 @@ template <
     int TBS_N,
     int TBS_K,
     bool PONG>
-at::Tensor bf16bf16bf16_grouped_impl_dispatch(
+at::Tensor bf16bf16bf16_grouped_sm100_dispatch(
     InputType X,
     InputType W,
     at::Tensor output,
@@ -866,7 +903,7 @@ at::Tensor bf16bf16bf16_grouped_impl_dispatch(
 
   // Dispatch to the correct ElementType based on dtype
   if (dtype == at::kBFloat16) {
-    return bf16bf16bf16_grouped_impl<
+    return bf16bf16bf16_grouped_sm100_impl<
         cutlass::bfloat16_t,
         InputType,
         TB_M,
@@ -877,7 +914,7 @@ at::Tensor bf16bf16bf16_grouped_impl_dispatch(
         TBS_K,
         PONG>(X, W, output, sm_count, zero_start_index_M, M_sizes);
   } else if (dtype == at::kHalf) {
-    return bf16bf16bf16_grouped_impl<
+    return bf16bf16bf16_grouped_sm100_impl<
         cutlass::half_t,
         InputType,
         TB_M,
@@ -896,5 +933,49 @@ at::Tensor bf16bf16bf16_grouped_impl_dispatch(
     return output; // unreachable
   }
 }
+
+#else
+
+template <
+    typename InputType,
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool PONG>
+at::Tensor bf16bf16bf16_grouped_sm100_impl(
+    InputType X,
+    InputType W,
+    at::Tensor output,
+    int sm_count,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.8"); // requires CUDA>=12.8
+}
+
+template <
+    typename InputType,
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool PONG>
+at::Tensor bf16bf16bf16_grouped_sm100_dispatch(
+    InputType X,
+    InputType W,
+    at::Tensor output,
+    int sm_count,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.8"); // requires CUDA>=12.8
+}
+
+#endif
 
 } // namespace fbgemm_gpu

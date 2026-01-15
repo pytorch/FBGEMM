@@ -18,10 +18,17 @@ at::Tensor bf16bf16bf16_grouped_wgrad_128_128_128_2_1_1_9_f(
     bool output_accum,
     int sm_count) {
   if (output_accum) {
-    return bf16bf16bf16_grouped_wgrad_impl<128, 128, 128, 2, 1, 1, true, false>(
-        X, W, M_sizes, output, sm_count);
+    return bf16bf16bf16_grouped_wgrad_dispatch<
+        128,
+        128,
+        128,
+        2,
+        1,
+        1,
+        true,
+        false>(X, W, M_sizes, output, sm_count);
   } else {
-    return bf16bf16bf16_grouped_wgrad_impl<
+    return bf16bf16bf16_grouped_wgrad_dispatch<
         128,
         128,
         128,
