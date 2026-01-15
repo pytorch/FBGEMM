@@ -223,13 +223,13 @@ template <
     bool FUSE_RELU,
     typename BIAS_TYPE>
 void fbgemmDirectConv(
-    const conv_param_t<SPATIAL_DIM>& conv_p,
-    const uint8_t* Aint8,
-    PackedDirectConvMatrix& Bint8_tr,
-    uint8_t* C,
-    int32_t* C_buffer,
-    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
-    const BIAS_TYPE* bias,
+    const conv_param_t<SPATIAL_DIM>& conv_p [[maybe_unused]],
+    const uint8_t* Aint8 [[maybe_unused]],
+    PackedDirectConvMatrix& Bint8_tr [[maybe_unused]],
+    uint8_t* C [[maybe_unused]],
+    int32_t* C_buffer [[maybe_unused]],
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess [[maybe_unused]],
+    const BIAS_TYPE* bias [[maybe_unused]],
     // const int32_t* bias,
     int thread_id,
     int num_threads) {
