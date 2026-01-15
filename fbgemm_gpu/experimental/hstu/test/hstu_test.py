@@ -15,7 +15,10 @@ import unittest
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from fbgemm_gpu.experimental.hstu import hstu_attn_varlen_func, hstu_attn_qkvpacked_func, quantize_for_two_directions, quantize_for_block_scale, get_bm_and_bn_block_size_fwd, get_bm_and_bn_block_size_bwd, quantize_for_head_batch_tensor
+try:
+    from hstu import hstu_attn_varlen_func, hstu_attn_qkvpacked_func, quantize_for_two_directions, quantize_for_block_scale, get_bm_and_bn_block_size_fwd, get_bm_and_bn_block_size_bwd, quantize_for_head_batch_tensor
+except ImportError:
+    from fbgemm_gpu.experimental.hstu import hstu_attn_varlen_func, hstu_attn_qkvpacked_func, quantize_for_two_directions, quantize_for_block_scale, get_bm_and_bn_block_size_fwd, get_bm_and_bn_block_size_bwd, quantize_for_head_batch_tensor
 
 from hypothesis import given, settings, strategies as st, Verbosity
 

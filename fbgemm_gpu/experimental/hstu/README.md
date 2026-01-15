@@ -113,6 +113,7 @@ python setup.py install --build-target=hstu -DTORCH_CUDA_ARCH_LIST="8.0 9.0"
 
 # If you don't add -DTORCH_CUDA_ARCH_LIST, the default is "8.0 9.0".
 # If you change any environment variables above, please run `python setup.py clean` and delete all *.cu files in src/hstu_hopper/instantiations/ and/or src/hstu_ampere/instantiations/ before compiling again.
+# If you want to only install HSTU, without covering other parts of fbgemm_gpu, please run `cd experimental/hstu` and then `export ... export HSTU_ARCH_LIST="8.0"/"9.0"/"8.0 9.0"; python setup.py install`. And if you install this way, please import hstu, instead of fbgemm_gpu.experimental.hstu.
 ```
 
 # **3. Features**

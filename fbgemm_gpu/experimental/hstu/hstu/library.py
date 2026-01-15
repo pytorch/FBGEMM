@@ -12,7 +12,11 @@
 import logging
 import os
 
-import fbgemm_gpu  # noqa: F401
+try:
+    import fbgemm_gpu  # noqa: F401
+except ImportError:
+    no_fbgemm_gpu: bool = True
+
 import torch
 
 try:
@@ -28,7 +32,7 @@ if (
     and torch.version.cuda is not None
     and torch.version.cuda >= "12.4"
 ):
-    if open_source:
+    if open_source or no_fbgemm_gpu:
         torch.ops.load_library(
             os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_hstu.so")
         )
