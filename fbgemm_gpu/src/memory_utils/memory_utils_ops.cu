@@ -13,8 +13,6 @@
 namespace fbgemm_gpu {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def("is_uvm_tensor(Tensor t) -> bool", TORCH_FN(is_uvm_tensor));
-  m.def("uvm_storage(Tensor t) -> bool", TORCH_FN(uvm_storage));
   m.def(
       "uvm_to_device(Tensor self, Tensor prototype) -> Tensor",
       TORCH_FN(uvm_to_device));
@@ -32,9 +30,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "uvm_mem_advice_dont_fork(Tensor t) -> ()",
       TORCH_FN(uvm_mem_advice_dont_fork));
 
-  m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
-  m.def("uvm_to_cpu(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu));
-
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
   m.def("copy_to_shared(Tensor t) -> ()", TORCH_FN(copy_to_shared));
   m.def(
@@ -47,6 +42,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   DISPATCH_TO_CUDA("copy_to_shared", copy_to_shared);
   DISPATCH_TO_CUDA("initialize_nan_shared_mem", initialize_nan_shared_mem);
+  DISPATCH_TO_CUDA("uvm_storage", uvm_storage_cuda);
+  DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu_cuda);
+  DISPATCH_TO_CUDA("uvm_to_cpu_clone", uvm_to_cpu_clone_cuda);
+  DISPATCH_TO_CUDA("is_uvm_tensor", is_uvm_tensor_cuda);
+  // uvm_storage is available for CUDA/MTIA support only.
+  // We need CPU dispatch because the UVM tensor could be moved to CPU,
+  // in which torch will dispatch to CPU, but it should resolve to CUDA/MTIA
+  // implementation.
+  DISPATCH_TO_CPU("uvm_storage", uvm_storage_cuda);
 }
 
 } // namespace fbgemm_gpu
