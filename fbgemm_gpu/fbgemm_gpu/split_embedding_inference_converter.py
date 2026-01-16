@@ -13,6 +13,8 @@ import math
 from typing import cast, Optional
 
 import torch
+
+# fmt:skip
 from fbgemm_gpu.split_embedding_configs import (
     FP8QuantizationConfig,
     QuantizationConfig,

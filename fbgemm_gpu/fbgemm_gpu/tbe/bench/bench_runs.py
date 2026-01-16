@@ -15,6 +15,8 @@ from subprocess import Popen
 from typing import Callable, Optional
 
 import torch
+
+# fmt:skip
 from fbgemm_gpu.tbe.utils import b_indices, TBERequest
 from fbgemm_gpu.tbe.utils.common import get_device
 

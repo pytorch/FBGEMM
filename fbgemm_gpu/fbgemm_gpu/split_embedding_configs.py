@@ -12,6 +12,8 @@ import itertools
 from typing import Any, Dict  # noqa: F401
 
 import torch
+
+# fmt:skip
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     EmbeddingLocation,
     SplitState,

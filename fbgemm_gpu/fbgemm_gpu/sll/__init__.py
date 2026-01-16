@@ -8,6 +8,8 @@
 # pyre-strict
 
 import torch
+
+# fmt:skip
 from fbgemm_gpu.sll.cpu import op_registrations as sll_cpu_registrations
 from fbgemm_gpu.sll.meta import op_registrations as sll_meta_registrations
 from fbgemm_gpu.utils import TorchLibraryFragment
