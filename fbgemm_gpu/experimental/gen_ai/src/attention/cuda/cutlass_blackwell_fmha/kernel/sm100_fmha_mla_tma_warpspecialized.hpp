@@ -1729,8 +1729,6 @@ struct Sm100FmhaMlaKernelTmaWarpspecialized {
 
     Tensor sP = make_tensor(make_smem_ptr((Element*) shared_tensors.smem_p.begin()), SmemLayoutP{})(_, _, _, make_coord(_, smem_p_index));
 
-    Tensor tOcP = TiledMmaPV{}.get_slice(_0{}).partition_A(cS);
-
     // have a mapping for each thread to coord
     // find identical mapping to coords for the MMA
     auto l = make_ordered_layout(make_shape(make_shape(_64{}, _2{}), make_shape(_16{}, TileShapeS{} / _32{})), make_stride(make_stride(_0{}, _3{}), make_stride(_1{}, _2{})));
