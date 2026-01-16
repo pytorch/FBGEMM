@@ -1789,7 +1789,6 @@ struct Sm100FmhaMlaKernelTmaWarpspecialized {
     auto thread_idx = threadIdx.x % size(tiled_t2r);
 
     auto thread_t2r = tiled_t2r.get_slice(thread_idx);
-    auto thread_r2t = tiled_r2t.get_slice(thread_idx);
     Tensor tTR_gO   = thread_t2r.partition_D(gO);
     Tensor tTR_rAcc = make_tensor<ElementAcc>(shape(tTR_gO));
 
