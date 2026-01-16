@@ -8,6 +8,8 @@
 from typing import Union
 
 import torch
+
+# fmt:skip
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32, RoundingMode
 
 

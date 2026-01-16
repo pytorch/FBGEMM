@@ -13,6 +13,8 @@ from enum import Enum
 import click
 import torch
 import yaml
+
+# fmt:skip
 from fbgemm_gpu.tbe.bench.tbe_data_config import (
     BatchParams,
     IndicesParams,

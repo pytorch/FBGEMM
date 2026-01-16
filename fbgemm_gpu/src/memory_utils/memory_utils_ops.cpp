@@ -16,10 +16,6 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def("is_uvm_tensor(Tensor t) -> bool");
-  m.def("uvm_storage(Tensor t) -> bool");
-  m.def("uvm_to_cpu(Tensor t) -> Tensor");
-  m.def("uvm_to_cpu_clone(Tensor t) -> Tensor");
   m.def("new_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   m.def("new_host_mapped_tensor(Tensor self, int[] sizes) -> Tensor");
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");

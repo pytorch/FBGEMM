@@ -9,6 +9,8 @@
 
 import click
 import torch
+
+# fmt:skip
 from fbgemm_gpu.tbe.bench import IndicesParams
 
 
