@@ -305,21 +305,21 @@ Tensor new_unified_tensor(
   }
 }
 
-bool uvm_storage_cuda(const Tensor& t) {
+bool uvm_storage(const Tensor& t) {
   auto deleter = t.storage().data_ptr().get_deleter();
   return deleter == &CUDAManagedIndirectContext::release ||
       deleter == &CUDAHostMappedContext::release;
 }
 
-bool is_uvm_tensor_cuda(const Tensor& t) {
+bool is_uvm_tensor(const Tensor& t) {
   if (t.device().is_cpu()) {
     return false;
   }
-  return uvm_storage_cuda(t);
+  return uvm_storage(t);
 }
 
-Tensor uvm_to_cpu_cuda(const Tensor& t) {
-  TORCH_CHECK(is_uvm_tensor_cuda(t));
+Tensor uvm_to_cpu(const Tensor& t) {
+  TORCH_CHECK(is_uvm_tensor(t));
   // Don't copy the storage - just keep a reference to the original storage
   auto* tcontext =
       t.storage().data_ptr().cast_context<CUDAManagedIndirectContext>(
@@ -348,7 +348,7 @@ Tensor uvm_to_device(const Tensor& self, const Tensor& prototype) {
 }
 
 Tensor uvm_to_device_d(const Tensor& t, const at::Device& device) {
-  TORCH_CHECK(is_uvm_tensor_cuda(t));
+  TORCH_CHECK(is_uvm_tensor(t));
   // Don't copy the storage - just keep a reference to the original storage
   auto* tcontext =
       t.storage().data_ptr().cast_context<CUDAManagedIndirectContext>(
@@ -374,7 +374,7 @@ Tensor uvm_to_device_d(const Tensor& t, const at::Device& device) {
 
 namespace {
 int64_t uvm_get_guard_index(const Tensor& t) {
-  TORCH_CHECK(uvm_storage_cuda(t));
+  TORCH_CHECK(uvm_storage(t));
   int cuda_device_index;
   if (t.is_cpu()) {
     auto* tcontext =
@@ -430,7 +430,7 @@ void uvm_cuda_mem_prefetch_async(
     std::optional<Tensor> device_t) {
   // Call cudaMemPrefetchAsync on Tensor
   at::cuda::OptionalCUDAGuard device_guard;
-  TORCH_CHECK(uvm_storage_cuda(t));
+  TORCH_CHECK(uvm_storage(t));
   TORCH_CHECK(t.is_cuda() || (t.is_cpu() && device_t.has_value()));
   TORCH_CHECK(!device_t.has_value() || device_t.value().is_cuda());
 
@@ -469,7 +469,7 @@ void uvm_mem_advice_dont_fork(const Tensor& t) {
   // Re-establishing the mappings for the paretn is slow.
   // This works around the issue by setting the UVM VMA to not be copied
   // into the child.
-  TORCH_CHECK(uvm_storage_cuda(t));
+  TORCH_CHECK(uvm_storage(t));
 
   void* ptr = t.data_ptr();
   size_t size_bytes = at::detail::computeStorageNbytes(
@@ -485,8 +485,8 @@ void uvm_mem_advice_dont_fork(const Tensor& t) {
   return;
 }
 
-Tensor uvm_to_cpu_clone_cuda(const Tensor& t) {
-  TORCH_CHECK(uvm_storage_cuda(t));
+Tensor uvm_to_cpu_clone(const Tensor& t) {
+  TORCH_CHECK(uvm_storage(t));
   TORCH_CHECK(t.is_contiguous());
 
   Tensor cpu_clone = at::empty_like(t, t.options().device(kCPU));
@@ -572,6 +572,6 @@ FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemory, Advise){
         cudaMem,
         AdviseUnsetAccessedBy,
         cudaMemAdviseUnsetAccessedBy),
-} FBGEMM_GPU_ENUM_REGISTER_END;
+} FBGEMM_GPU_ENUM_REGISTER_END
 
 } // namespace fbgemm_gpu
