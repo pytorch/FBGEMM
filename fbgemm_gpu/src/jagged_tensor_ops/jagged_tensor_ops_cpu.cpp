@@ -1737,6 +1737,50 @@ Tensor get_source_mask_cpu(
   return output;
 }
 
+static Tensor repeat_arange_cpu(const Tensor& lengths) {
+  TENSOR_ON_CPU(lengths);
+
+  const auto batch_size = lengths.size(0);
+
+  if (batch_size == 0) {
+    return at::empty({0}, lengths.options());
+  }
+
+  // Compute total output size
+  int64_t output_size = 0;
+  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "repeat_arange_cpu_size", [&] {
+    const index_t* lengths_data = lengths.data_ptr<index_t>();
+    for (int64_t i = 0; i < batch_size; ++i) {
+      output_size += static_cast<int64_t>(lengths_data[i]);
+    }
+  });
+
+  if (output_size == 0) {
+    return at::empty({0}, lengths.options());
+  }
+
+  // Create output tensor
+  Tensor output = at::empty({output_size}, lengths.options());
+
+  // Generate the repeated arange
+  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "repeat_arange_cpu", [&] {
+    const index_t* lengths_data = lengths.data_ptr<index_t>();
+    index_t* output_data = output.data_ptr<index_t>();
+
+    int64_t offset = 0;
+    for (int64_t i = 0; i < batch_size; ++i) {
+      const index_t length = lengths_data[i];
+      // Fill with 0, 1, 2, ..., length-1
+      for (index_t j = 0; j < length; ++j) {
+        output_data[offset + j] = j;
+      }
+      offset += length;
+    }
+  });
+
+  return output;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -1881,6 +1925,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_acc_weights_and_counts(Tensor weights, Tensor reverse_indices, int num_unique_indices) -> Tensor");
   m.def(
       "get_source_mask(Tensor num_sources, Tensor num_targets, SymInt output_size) -> Tensor");
+  m.def("repeat_arange(Tensor lengths) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1952,6 +1997,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_acc_weights_and_counts",
       fbgemm_gpu::jagged_acc_weights_and_counts_cpu);
   DISPATCH_TO_CPU("get_source_mask", fbgemm_gpu::get_source_mask_cpu);
+  DISPATCH_TO_CPU("repeat_arange", fbgemm_gpu::repeat_arange_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CompositeExplicitAutograd, m) {
