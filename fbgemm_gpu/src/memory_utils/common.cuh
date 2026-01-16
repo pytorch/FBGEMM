@@ -17,30 +17,11 @@
 #include <cstring>
 
 #include "common.h"
+#include "fbgemm_gpu/cumem_utils.h"
 #include "fbgemm_gpu/utils/enum_utils.h"
 
 namespace fbgemm_gpu {
 
 FBGEMM_GPU_ENUM_CREATE_TAG(uvm)
-
-// Forward declarations for CUDA dispatch functions
-// (only for functions used with DISPATCH_TO_CUDA, not TORCH_FN)
-bool is_uvm_tensor_cuda(const Tensor& t);
-bool uvm_storage_cuda(const Tensor& t);
-Tensor uvm_to_cpu_clone_cuda(const Tensor& t);
-Tensor uvm_to_cpu_cuda(const Tensor& t);
-Tensor new_managed_tensor(
-    const Tensor& self,
-    const std::vector<std::int64_t>& sizes);
-Tensor new_host_mapped_tensor(
-    const Tensor& self,
-    const std::vector<std::int64_t>& sizes);
-Tensor new_unified_tensor(
-    const Tensor& self,
-    const std::vector<std::int64_t>& sizes,
-    bool is_host_mapped);
-Tensor new_vanilla_managed_tensor(
-    const Tensor& self,
-    const std::vector<std::int64_t>& sizes);
 
 } // namespace fbgemm_gpu
