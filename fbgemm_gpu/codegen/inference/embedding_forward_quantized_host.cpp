@@ -449,12 +449,12 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     // cache ratios, taking the # req indices of each TBE as the weight. so we
     // will populate stats when we think the current lookup is for the last TBE
     // call of the same round.
-    bool populate_uvm_stats = true;
     Tensor uvm_cache_stats =
         at::empty({0}, lxu_cache_weights.value().options().dtype(at::kInt));
 #ifdef FBCODE_CAFFE2
     size_t signature = reinterpret_cast<size_t>(uvm_weights.data_ptr());
     int64_t call_count = 0;
+    bool populate_uvm_stats = true;
     {
       std::lock_guard<std::mutex> guard(uvm_cache_stats_mutex);
       if (tbe_call_count.count(signature) == 0) {
