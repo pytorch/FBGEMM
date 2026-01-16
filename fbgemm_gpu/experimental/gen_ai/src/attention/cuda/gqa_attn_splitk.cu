@@ -430,7 +430,6 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 
   // Complete max computation for each head at this point
   const int threads_per_h = kThreadsPerWarp / (h_end - h_begin);
-  float head_sum = 0;
 #ifdef USE_WMMA_FRAG
   // A100/H100 GPU will only store max here and compute head sum later
   // Only master thread sets the max metadata
@@ -444,6 +443,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   const auto max_qk_ = smem_max[threadIdx.x / 4];
 #else
   // Non-A100/H100 GPUs will store both max and head sum here
+  float head_sum = 0;
   if (h_begin + threadIdx.x / threads_per_h < h_end) {
     const auto h = h_begin + threadIdx.x / threads_per_h;
     const auto max_qk_ = smem_max[h];
@@ -1370,12 +1370,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
     const int64_t num_split_ks,
     const int64_t kv_cache_quant_num_groups,
     const CacheLogicalDtype kv_data_type) {
-  auto dprops = at::cuda::getCurrentDeviceProperties();
 #ifdef USE_ROCM
   TORCH_CHECK(
       false,
       "gqa_attn_splitk with use_tensor_cores=True is not supported on ROCm");
 #else
+  auto dprops = at::cuda::getCurrentDeviceProperties();
   TORCH_CHECK(
       dprops->major >= 8,
       "Too old compute capability major version to run gqa_attn_splitk_wmma (use_tensor_cores=True)",
@@ -1714,12 +1714,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
       static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
 
   if (use_tensor_cores) {
-    const auto dprops = at::cuda::getCurrentDeviceProperties();
 #ifdef USE_ROCM
     TORCH_CHECK(
         false,
         "gqa_attn_splitk with use_tensor_cores=True is not supported on ROCm");
 #else
+    const auto dprops = at::cuda::getCurrentDeviceProperties();
     TORCH_CHECK(
         dprops->major >= 8,
         "Too old compute capability major version to run gqa_attn_splitk with ",
