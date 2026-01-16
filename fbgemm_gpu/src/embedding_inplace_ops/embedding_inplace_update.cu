@@ -386,7 +386,6 @@ Tensor pruned_array_lookup_from_row_idx_cuda(
   CUDA_DEVICE_GUARD(update_table_indices);
 
   auto dense_indices = at::empty_like(update_row_indices);
-  const int32_t T = index_remappings_offsets.size(0) - 1;
 
   const auto num_indices = update_row_indices.numel();
   if (num_indices == 0) {
