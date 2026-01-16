@@ -23,7 +23,7 @@ namespace fbgemm_gpu {
 ///
 Tensor FP8rowwise_to_float_meta(
     const Tensor& input,
-    [[maybe_unused]] bool forward,
+    bool forward [[maybe_unused]],
     const int64_t output_dtype) {
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
@@ -73,7 +73,7 @@ Tensor fusednbitrowwise_to_float_or_half_meta(
     const Tensor& input,
     const int64_t bit_rate,
     const int64_t output_dtype,
-    [[maybe_unused]] const bool scale_bias_last) {
+    const bool scale_bias_last [[maybe_unused]]) {
   const at::SymIntArrayRef input_sizes = input.sym_sizes();
   const at::SymInt& nrows = input_sizes[0];
   // Here we want the number of bytes in a row
