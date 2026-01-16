@@ -398,8 +398,6 @@ static void performance_test(
     runType = "UniConv";
     ttot = 0;
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-    double im2col_time = 0.0;
-    double total_im2col_time = 0.0;
     double total_packing_time = 0.0;
     double total_computing_time = 0.0;
     double total_kernel_time = 0.0;
