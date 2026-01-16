@@ -297,6 +297,9 @@ function(gpu_cpp_library)
             -Werror
             -Wunknown-pragmas
             -Wimplicit-fallthrough
+            -Wno-deprecated-enum-enum-conversion
+            -Wno-deprecated-declarations
+            -Wno-unused-command-line-argument
             -Wno-strict-aliasing
             -Wunused-variable
             -Wno-sign-compare
