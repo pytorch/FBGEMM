@@ -38,4 +38,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "remap_indices_update_utils",
       fbgemm_gpu::remap_indices_update_utils_cuda);
+  DISPATCH_TO_CPU(
+      "remap_indices_update_utils", fbgemm_gpu::remap_indices_update_utils_cpu);
 }
