@@ -1081,7 +1081,7 @@ static std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
           index_t cumsum = 0;
           const auto* input_ptr = &(
               lengths_contig
-                  .mutable_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
+                  .const_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
           auto* output_ptr = offsets.mutable_data_ptr<index_t>() + 1;
           for (const auto i : c10::irange(B)) {
             cumsum += input_ptr[i];
@@ -1122,7 +1122,7 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
           index_t cumsum = 0;
           const auto* input_ptr = &(
               lengths_contig
-                  .mutable_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
+                  .const_data_ptr<index_t>()[static_cast<ptrdiff_t>(t * B)]);
           auto* output_ptr = offsets.mutable_data_ptr<index_t>() + 1;
           for (const auto i : c10::irange(B)) {
             cumsum += input_ptr[i];
@@ -1749,7 +1749,7 @@ static Tensor repeat_arange_cpu(const Tensor& lengths) {
   // Compute total output size
   int64_t output_size = 0;
   AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "repeat_arange_cpu_size", [&] {
-    const index_t* lengths_data = lengths.data_ptr<index_t>();
+    const index_t* lengths_data = lengths.const_data_ptr<index_t>();
     for (int64_t i = 0; i < batch_size; ++i) {
       output_size += static_cast<int64_t>(lengths_data[i]);
     }
@@ -1764,7 +1764,7 @@ static Tensor repeat_arange_cpu(const Tensor& lengths) {
 
   // Generate the repeated arange
   AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "repeat_arange_cpu", [&] {
-    const index_t* lengths_data = lengths.data_ptr<index_t>();
+    const index_t* lengths_data = lengths.const_data_ptr<index_t>();
     index_t* output_data = output.data_ptr<index_t>();
 
     int64_t offset = 0;
