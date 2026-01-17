@@ -149,6 +149,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga13166c5b04012d8e12c76ee2a09d80ef"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga8b278cc30f24cae8571384812aa95af9" id="r_ga8b278cc30f24cae8571384812aa95af9"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__faster-hash-ops-cpu.html#ga8b278cc30f24cae8571384812aa95af9">murmur_hash3_meta</a> (const Tensor &amp;input, int64_t y, int64_t seed)</td></tr>
 <tr class="separator:ga8b278cc30f24cae8571384812aa95af9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acf87c823e0d773db080d3f9d8fd7118e" id="r_acf87c823e0d773db080d3f9d8fd7118e"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acf87c823e0d773db080d3f9d8fd7118e">remap_indices_update_utils_cpu</a> (const int64_t iter, const Tensor &amp;buffer_idx, const Tensor &amp;feature_lengths, const Tensor &amp;feature_offsets, const Tensor &amp;values, const Tensor &amp;address_lookup, Tensor &amp;row_util, const Tensor &amp;buffer_offsets, const std::optional&lt; std::vector&lt; Tensor &gt; &gt; &amp;full_values_list, const std::optional&lt; bool &gt; &amp;update_util)</td></tr>
+<tr class="separator:acf87c823e0d773db080d3f9d8fd7118e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a0b0cc504f8b357b0ca086e2c78d9b54c" id="r_a0b0cc504f8b357b0ca086e2c78d9b54c"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; std::vector&lt; int32_t &gt;, std::vector&lt; int32_t &gt;, std::vector&lt; int32_t &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0b0cc504f8b357b0ca086e2c78d9b54c">kt_regroup_arguments_impl</a> (const std::vector&lt; std::vector&lt; std::string &gt; &gt; &amp;keys, const std::vector&lt; std::vector&lt; int64_t &gt; &gt; &amp;lengths, const std::vector&lt; std::vector&lt; std::string &gt; &gt; &amp;groups)</td></tr>
 <tr class="separator:a0b0cc504f8b357b0ca086e2c78d9b54c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab7344d63216dd37673733b26954aaec4" id="r_gab7344d63216dd37673733b26954aaec4"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sparse-data-cuda.html#gab7344d63216dd37673733b26954aaec4">expand_into_jagged_permute_cuda</a> (const at::Tensor &amp;permute, const at::Tensor &amp;input_offsets, const at::Tensor &amp;output_offsets, int64_t output_size)</td></tr>
@@ -170,6 +172,9 @@ Functions</h2></td></tr>
 <tr class="separator:aa918bd02809bf42ba7d396c18add690f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ace574b23fe99327816839526e99298ac" id="r_ace574b23fe99327816839526e99298ac"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ace574b23fe99327816839526e99298ac">per_tensor_quantize_i8</a> (at::Tensor X, double scale)</td></tr>
 <tr class="separator:ace574b23fe99327816839526e99298ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a13369ea199f29689c4a013b37e8ac750" id="r_a13369ea199f29689c4a013b37e8ac750"><td class="memTemplParams" colspan="2">template&lt;typename index_t, typename remap_t&gt; </td></tr>
+<tr class="memitem:a13369ea199f29689c4a013b37e8ac750"><td class="memTemplItemLeft" align="right" valign="top">__global__&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a13369ea199f29689c4a013b37e8ac750">__launch_bounds__</a> (kMaxThreads) void pruned_array_lookup_from_row_idx_kernel(const pta</td></tr>
+<tr class="separator:a13369ea199f29689c4a013b37e8ac750"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa8239012c659795a7ac8b2fb971efc7c" id="r_aa8239012c659795a7ac8b2fb971efc7c"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:aa8239012c659795a7ac8b2fb971efc7c"><td class="memTemplItemLeft" align="right" valign="top">__global__&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa8239012c659795a7ac8b2fb971efc7c">__launch_bounds__</a> (kMaxThreads) void histogram_binning_calibration_kernel(const int64_t num_logits</td></tr>
 <tr class="separator:aa8239012c659795a7ac8b2fb971efc7c"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -269,7 +274,7 @@ Functions</h2></td></tr>
 <div class="textblock"><p>This is a placeholder source file that is used to force compilation and generation of an .SO file. </p>
 </div><h2 class="groupheader">Function Documentation</h2>
 <a id="aa8239012c659795a7ac8b2fb971efc7c" name="aa8239012c659795a7ac8b2fb971efc7c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa8239012c659795a7ac8b2fb971efc7c">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[1/2]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#aa8239012c659795a7ac8b2fb971efc7c">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[1/3]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -297,7 +302,7 @@ template&lt;typename T&gt; </div>
 </div>
 </div>
 <a id="ad21c70bdd84772ee2b9b3950c87e9791" name="ad21c70bdd84772ee2b9b3950c87e9791"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad21c70bdd84772ee2b9b3950c87e9791">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[2/2]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#ad21c70bdd84772ee2b9b3950c87e9791">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[2/3]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -319,6 +324,41 @@ template&lt;int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F&
   </table>
   </dd>
 </dl>
+
+</div>
+</div>
+<a id="a13369ea199f29689c4a013b37e8ac750" name="a13369ea199f29689c4a013b37e8ac750"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a13369ea199f29689c4a013b37e8ac750">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[3/3]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename index_t, typename remap_t&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">__global__ __launch_bounds__ </td>
+          <td>(</td>
+          <td class="paramtype">kMaxThreads</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>CUDA kernel to generate repeated arange for jagged tensor operations.</p>
+<p>This kernel efficiently generates consecutive integers for each sequence by parallelizing across batch items. Each block handles one batch item, with threads within the block processing elements in parallel.</p>
+<p>Algorithm:</p><ol type="1">
+<li>Each block handles one batch item (batch_idx = blockIdx.x)</li>
+<li>Threads within block cooperatively generate arange for that sequence</li>
+<li>Grid-stride loop handles cases where sequence is longer than block size</li>
+<li>Each element gets value from 0 to lengths[batch_idx]-1</li>
+</ol>
+<p>Example: lengths = [3, 5, 2] Output: [0, 1, 2, 0, 1, 2, 3, 4, 0, 1]</p>
+<p>This is much more efficient than the PyTorch implementation which uses:</p><ul>
+<li>asynchronous_complete_cumsum (1 kernel)</li>
+<li>arange (1 kernel)</li>
+<li>repeat_interleave (1 kernel)</li>
+<li>subtraction (1 kernel) Total: 4 kernels with multiple intermediate allocations</li>
+</ul>
+<p>Our approach: 1 fused kernel with no intermediate allocations </p>
 
 </div>
 </div>
@@ -1473,6 +1513,85 @@ details</h1>
 <p>Index remapping function that returns the remapped indices.</p>
 <p>Args: update_row_indices: row indices for every new row update_table_indices: table indices for every new row index_remappings: concated index remapping for every embedding table index_remappings_offsets: offset for each embedding table</p>
 <p>Returns: remapped indices for each new row. </p>
+
+</div>
+</div>
+<a id="acf87c823e0d773db080d3f9d8fd7118e" name="acf87c823e0d773db080d3f9d8fd7118e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acf87c823e0d773db080d3f9d8fd7118e">&#9670;&#160;</a></span>remap_indices_update_utils_cpu()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor remap_indices_update_utils_cpu </td>
+          <td>(</td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>iter</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>buffer_idx</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>feature_lengths</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>feature_offsets</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>values</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>address_lookup</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>row_util</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>buffer_offsets</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::optional&lt; std::vector&lt; Tensor &gt; &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>full_values_list</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::optional&lt; bool &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>update_util</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>CPU implementation for remap_indices_update_utils</p>
+<p>This function remaps indices using an address_lookup table and optionally updates row utilization statistics.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">iter</td><td>Iteration counter for determining when to update row utils </td></tr>
+    <tr><td class="paramname">buffer_idx</td><td>CPU tensor indicating which table each feature belongs to </td></tr>
+    <tr><td class="paramname">feature_lengths</td><td>CPU tensor with length of each feature </td></tr>
+    <tr><td class="paramname">feature_offsets</td><td>CPU tensor with starting offset of each feature in values </td></tr>
+    <tr><td class="paramname">values</td><td>Indices to remap (modified in-place) </td></tr>
+    <tr><td class="paramname">address_lookup</td><td>Lookup table for remapping indices </td></tr>
+    <tr><td class="paramname">row_util</td><td>Row utilization statistics (modified in-place if update_util) </td></tr>
+    <tr><td class="paramname">buffer_offsets</td><td>Starting offset for each table in address_lookup </td></tr>
+    <tr><td class="paramname">full_values_list</td><td>Optional per-feature value lists for GDT mode </td></tr>
+    <tr><td class="paramname">update_util</td><td>Optional flag to force enable/disable util updates</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>Modified values tensor </dd></dl>
 
 </div>
 </div>

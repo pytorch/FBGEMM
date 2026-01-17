@@ -565,20 +565,12 @@
 <dt class="sig sig-object cpp" id="_CPPv411uvm_storageRK6Tensor">
 <span id="_CPPv311uvm_storageRK6Tensor"></span><span id="_CPPv211uvm_storageRK6Tensor"></span><span id="uvm_storage__TensorCR"></span><span class="target" id="group__cumem-utils_1ga05bf2c435c434904ca454c6992861cb6"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_storage</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv411uvm_storageRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>Check if a tensor is allocated with UVM (either CPU or GPU tensor).</p>
-<p>
-Checks whether a tensor uses UVM storage. This checks the storage backend rather than the tensor’s current device. A tensor may be on CPU but still have UVM storage if it was moved from GPU. </p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>self</strong> – The input tensor</p></li>
-<li><p><strong>t</strong> – The tensor to check </p></li>
-</ul>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">true</span></code> if the tensor is allocated with UVM, otherwise <code class="docutils literal notranslate"><span class="pre">false</span></code></p>
-</dd>
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>true if the tensor’s storage is UVM-backed, false otherwise </p>
 </dd>
 </dl>
 </dd></dl>
@@ -587,20 +579,12 @@ Checks whether a tensor uses UVM storage. This checks the storage backend rather
 <dt class="sig sig-object cpp" id="_CPPv413is_uvm_tensorRK6Tensor">
 <span id="_CPPv313is_uvm_tensorRK6Tensor"></span><span id="_CPPv213is_uvm_tensorRK6Tensor"></span><span id="is_uvm_tensor__TensorCR"></span><span class="target" id="group__cumem-utils_1gacba28ed334d071e79c1ead1792391e9d"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">is_uvm_tensor</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv413is_uvm_tensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>Check if a tensor is allocated with UVM, BUT is not a CPU tensor.</p>
-<p>
-Checks whether a tensor is a UVM tensor. A UVM tensor is one allocated with CUDA managed memory that can be accessed from both CPU and GPU. </p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>self</strong> – The input tensor</p></li>
-<li><p><strong>t</strong> – The tensor to check </p></li>
-</ul>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">true</span></code> if the tensor is a non-CPU tensor allocated with UVM, otherwise <code class="docutils literal notranslate"><span class="pre">false</span></code></p>
-</dd>
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>true if the tensor is a UVM tensor, false otherwise </p>
 </dd>
 </dl>
 </dd></dl>
@@ -609,20 +593,12 @@ Checks whether a tensor is a UVM tensor. A UVM tensor is one allocated with CUDA
 <dt class="sig sig-object cpp" id="_CPPv410uvm_to_cpuRK6Tensor">
 <span id="_CPPv310uvm_to_cpuRK6Tensor"></span><span id="_CPPv210uvm_to_cpuRK6Tensor"></span><span id="uvm_to_cpu__TensorCR"></span><span class="target" id="group__cumem-utils_1gab5a3dab831988b1ce368ccc545b75b48"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_to_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv410uvm_to_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>Convert a UVM tensor to a CPU tensor.</p>
-<p>
-Converts a UVM (Unified Virtual Memory) tensor to a CPU tensor. The returned tensor shares storage with the original UVM tensor. </p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>self</strong> – The input tensor</p></li>
-<li><p><strong>t</strong> – The input UVM tensor </p></li>
-</ul>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A new tensor that is effectively the input moved from UVM to CPU</p>
-</dd>
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>A CPU tensor view of the UVM tensor’s data </p>
+<dd class="field-even"><p>A new tensor that is effectively the input moved from UVM to CPU </p>
 </dd>
 </dl>
 </dd></dl>
@@ -702,20 +678,12 @@ Converts a UVM (Unified Virtual Memory) tensor to a CPU tensor. The returned ten
 <dt class="sig sig-object cpp" id="_CPPv416uvm_to_cpu_cloneRK6Tensor">
 <span id="_CPPv316uvm_to_cpu_cloneRK6Tensor"></span><span id="_CPPv216uvm_to_cpu_cloneRK6Tensor"></span><span id="uvm_to_cpu_clone__TensorCR"></span><span class="target" id="group__cumem-utils_1ga161495e682d9eac3701dca87469930db"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_to_cpu_clone</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv416uvm_to_cpu_cloneRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>Copy a UVM tensor’s contiguous storage (uvm_storage(t) is true) into a new CPU Tensor. The copy operation uses single-threaded <code class="docutils literal notranslate"><span class="pre">memcpy()</span></code>.</p>
-<p>
-Converts a UVM tensor to a CPU tensor by cloning the data. Unlike uvm_to_cpu, this creates an independent copy of the data. </p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>self</strong> – The input tensor</p></li>
-<li><p><strong>t</strong> – The input UVM tensor </p></li>
-</ul>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A new CPU tensor containing the data copied from the UVM tensor</p>
-</dd>
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>A new CPU tensor containing a copy of the UVM tensor’s data </p>
+<dd class="field-even"><p>A new CPU tensor containing the data copied from the UVM tensor </p>
 </dd>
 </dl>
 </dd></dl>
