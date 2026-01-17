@@ -430,6 +430,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 
   // Complete max computation for each head at this point
   const int threads_per_h = kThreadsPerWarp / (h_end - h_begin);
+  float head_sum = 0;
 #ifdef USE_WMMA_FRAG
   // A100/H100 GPU will only store max here and compute head sum later
   // Only master thread sets the max metadata
@@ -443,7 +444,6 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   const auto max_qk_ = smem_max[threadIdx.x / 4];
 #else
   // Non-A100/H100 GPUs will store both max and head sum here
-  float head_sum = 0;
   if (h_begin + threadIdx.x / threads_per_h < h_end) {
     const auto h = h_begin + threadIdx.x / threads_per_h;
     const auto max_qk_ = smem_max[h];
