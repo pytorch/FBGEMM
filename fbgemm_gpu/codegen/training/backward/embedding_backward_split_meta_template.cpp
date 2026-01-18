@@ -58,12 +58,12 @@ Tensor batch_index_select_dim0_codegen_backward_meta(
 {%- else %}
 Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_meta(
 {%- endif %}
-    const Tensor& grad_output,
+    const Tensor& grad_output [[maybe_unused]],
     const Tensor& dev_weights,
     {%- if not dense %}
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
+    const Tensor& uvm_weights [[maybe_unused]],
+    const Tensor& lxu_cache_weights [[maybe_unused]],
+    const Tensor& weights_placements [[maybe_unused]],
     {%- endif %}
     const Tensor& weights_offsets,
     {%- if not nobag or is_index_select %}
@@ -73,33 +73,33 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     const c10::SymInt D,
     {%- endif %}
     {%- if not nobag and not is_index_select %}
-    const bool mixed_D,
+    const bool mixed_D [[maybe_unused]],
     {%- endif %}
-    const Tensor& hash_size_cumsum,
-    const int64_t total_hash_size_bits,
+    const Tensor& hash_size_cumsum [[maybe_unused]],
+    const int64_t total_hash_size_bits [[maybe_unused]],
     const Tensor& indices,
     {%- if not is_index_select %}
     const Tensor& offsets,
     {%- endif %}
     {%- if not nobag %}
-    const int64_t pooling_mode,
+    const int64_t pooling_mode [[maybe_unused]],
     {%- endif %}
     {%- if weighted %}
-    const Tensor& indice_weights,
+    const Tensor& indice_weights [[maybe_unused]],
     {%- endif %}
     {%- if not dense %}
-    const Tensor& {{ locs_or_addrs_tensor }},
+    const Tensor& {{ locs_or_addrs_tensor }} [[maybe_unused]],
     {%- endif %}
     {%- if not is_index_select %}
-    const int64_t unused_,
+    const int64_t unused_ [[maybe_unused]],
     {%- endif %}
-    const int64_t max_segment_length_per_warp,
+    const int64_t max_segment_length_per_warp [[maybe_unused]],
     {%- if not dense %}
     {%- if optimizer != "none" %}
-    const bool stochastic_rounding,
+    const bool stochastic_rounding [[maybe_unused]],
     {%- endif %}
-    const int64_t info_B_num_bits_int64, // int32_t
-    const int64_t info_B_mask_int64, // uint32_t
+    const int64_t info_B_num_bits_int64 [[maybe_unused]], // int32_t
+    const int64_t info_B_mask_int64 [[maybe_unused]], // uint32_t
     {%- endif %}
     {%- if vbe %}
     const Tensor& B_offsets,
