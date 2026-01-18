@@ -331,7 +331,8 @@ function(gpu_cpp_library)
             list(APPEND lib_cc_flags
                 -Wmaybe-uninitialized
                 -Wno-error=unused-but-set-parameter
-                -Wno-error=unused-but-set-variable)
+                -Wno-error=unused-but-set-variable
+                -Wno-error=array-bounds)
 
             if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
                 list(APPEND lib_cc_flags
