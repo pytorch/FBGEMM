@@ -291,7 +291,6 @@ function(gpu_cpp_library)
     else()
         set(lib_cc_flags
             ${args_CC_FLAGS}
-            -Wno-deprecated-declarations
             -Wall
             -Wextra
             -Werror
