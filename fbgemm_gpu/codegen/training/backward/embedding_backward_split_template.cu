@@ -555,7 +555,7 @@ Tensor {{ embedding_cuda_op }}(
     const Tensor& {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if not is_index_select %}
-    const int64_t unused_,
+    const int64_t unused_ [[maybe_unused]],
     {%- endif %}
     const int64_t max_segment_length_per_warp,
     {%- if not dense %}
