@@ -85,10 +85,10 @@ void FloatToFloat16_sve2(
 #else
 
 void FloatToFloat16_sve2(
-    const float* src,
-    float16* dst,
-    size_t size,
-    bool do_clip) {
+    const float* src [[maybe_unused]],
+    float16* dst [[maybe_unused]],
+    size_t size [[maybe_unused]],
+    bool do_clip [[maybe_unused]]) {
   throw std::runtime_error{
       "CPU supports SVE2 instructions, but you didn't enable SVE2 in your build command. Fix your build!"};
 }

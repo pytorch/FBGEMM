@@ -160,7 +160,7 @@ class PackMatrix {
   /**
    * @brief Actual packing of a block of the source matrix in pmat buffer.
    */
-  void pack(const block_type_t& block) {
+  void pack(const block_type_t& block [[maybe_unused]]) {
 #if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
     static_cast<PT*>(this)->pack(block);
 #else

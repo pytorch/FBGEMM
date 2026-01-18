@@ -228,8 +228,6 @@ std::tuple<Tensor, Tensor> zero_collision_hash_meta(
     int64_t /* opt_in_prob */,
     int64_t /* num_reserved_slots */,
     const std::optional<Tensor>& /* opt_in_rands */) {
-  auto out =
-      at::zeros_symint({input.sym_numel()}, input.options().dtype(at::kLong));
   auto evcit_slots = at::zeros_symint({0}, input.options());
   return {input, evcit_slots};
 }

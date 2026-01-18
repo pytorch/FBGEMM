@@ -173,9 +173,9 @@ template <>
 FBGEMM_API void ref_kernel<float16>(
     int kernel_nrows,
     GemmParams<float16>* gp,
-    const float* C_base,
-    int m_total,
-    int n_total,
+    const float* C_base [[maybe_unused]],
+    int m_total [[maybe_unused]],
+    int n_total [[maybe_unused]],
     int simd_len) {
   int kernel_ncol_blocks = 2;
   int block_col_size = simd_len * kernel_ncol_blocks;

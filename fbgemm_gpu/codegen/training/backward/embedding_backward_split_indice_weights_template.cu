@@ -163,7 +163,9 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     }
     {%- else %}
     weights = &dev_weights[weights_offset];
+    {%- if not ssd %}
     weights_numel = dev_weights.size(0) - weights_offset;
+    {%- endif %}
     {%- endif %}
 
     {%- if vbe %}

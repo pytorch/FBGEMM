@@ -293,7 +293,6 @@ at::Tensor i8i8bf16(
     int64_t split_k) {
   auto M = XQ.size(0);
   auto N = WQ.size(0);
-  auto K = XQ.size(1);
 #ifdef SMOOTHQUANT_SM90A
   if (M <= 128) {
     return i8i8bf16sm90a_impl<64, 128, 128, 2, 1, 1>(XQ, WQ, scale);
@@ -301,6 +300,7 @@ at::Tensor i8i8bf16(
     return i8i8bf16sm90a_impl<128, 128, 128, 1, 2, 1>(XQ, WQ, scale);
   }
 #else
+  auto K = XQ.size(1);
   if (M <= 128 && N >= K) {
     return i8i8bf16_impl<64, 128, 64, 32, 64, 64>(XQ, WQ, scale, split_k);
   } else if (M <= 128 && N < K) {

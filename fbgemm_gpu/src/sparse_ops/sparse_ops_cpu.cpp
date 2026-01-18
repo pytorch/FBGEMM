@@ -1036,8 +1036,6 @@ Tensor expand_into_jagged_permute_cpu(
   TORCH_CHECK(permute.numel() == input_offsets.numel() - 1);
   TORCH_CHECK(permute.numel() == output_offsets.numel() - 1);
 
-  const auto permute_contig = permute.contiguous();
-
   const auto permute_size = permute.numel();
 
   Tensor output_permute = at::empty({output_size}, input_offsets.options());

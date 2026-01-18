@@ -49,7 +49,7 @@ constexpr inline T pad4(T value) {
 template <typename dst_t, typename src_t>
 DEVICE_INLINE Vec4T<dst_t> dequantize_load(
     const src_t* value,
-    [[maybe_unused]] const float2 qparams) {
+    const float2 qparams [[maybe_unused]]) {
   if constexpr (
       std::is_same_v<src_t, uint8_t> &&
       utils::is_one_of_v<dst_t, float, at::Half>) {
