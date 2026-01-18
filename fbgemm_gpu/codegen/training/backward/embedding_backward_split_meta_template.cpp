@@ -107,11 +107,11 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     const Tensor& vbe_b_t_map,
     {%- endif %}
     {%- if not is_index_select and not dense %}
-    const bool use_uniq_cache_locations,
-    const bool use_homogeneous_placements,
+    const bool use_uniq_cache_locations [[maybe_unused]],
+    const bool use_homogeneous_placements [[maybe_unused]],
     {%- endif %}
     {%- if ssd %}
-    const bool enable_optimizer_offloading,
+    const bool enable_optimizer_offloading [[maybe_unused]],
     {%- endif %}
     {%- if is_index_select %}
     const Tensor& grad_offsets,

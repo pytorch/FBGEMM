@@ -105,10 +105,10 @@ Tensor
     const double gwd_lower_bound,
     {%- endif %}
     {%- if vbe and not dense %}
-    const bool is_experimental,
+    const bool is_experimental [[maybe_unused]],
     std::optional<Tensor> vbe_output
     {%- else %}
-    const bool is_experimental
+    const bool is_experimental [[maybe_unused]]
     {%- endif %}
 ) {
     // NB: omitted the device tests TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL
