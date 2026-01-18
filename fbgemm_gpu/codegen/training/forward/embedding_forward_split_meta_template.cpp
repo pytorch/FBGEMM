@@ -60,9 +60,9 @@ Tensor
 {{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_meta(
     const Tensor& dev_weights,
     {%- if not dense %}
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
+    const Tensor& uvm_weights [[maybe_unused]],
+    const Tensor& lxu_cache_weights [[maybe_unused]],
+    const Tensor& weights_placements [[maybe_unused]],
     {%- endif %}
     const Tensor& weights_offsets,
     {%- if not nobag %}
@@ -79,34 +79,34 @@ Tensor
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not nobag %}
-    const int64_t pooling_mode,
+    const int64_t pooling_mode [[maybe_unused]],
     {%- endif %}
     {%- if weighted %}
-    const Tensor& indice_weights,
+    const Tensor& indice_weights [[maybe_unused]],
     {%- endif %}
     {%- if not dense %}
-    const Tensor& {{ locs_or_addrs_tensor }},
-    const Tensor& uvm_cache_stats,
+    const Tensor& {{ locs_or_addrs_tensor }} [[maybe_unused]],
+    const Tensor& uvm_cache_stats [[maybe_unused]],
     {%- endif %}
     const int64_t output_dtype,
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
     const c10::SymInt vbe_output_size,
-    const int64_t info_B_num_bits, // int32_t
-    const int64_t info_B_mask_int64, // uint32_t
+    const int64_t info_B_num_bits [[maybe_unused]], // int32_t
+    const int64_t info_B_mask_int64 [[maybe_unused]], // uint32_t
     {%- endif %}
     {%- if is_gwd %}
-    const Tensor& hash_size_cumsum,
-    const Tensor& prev_iter_dev,
-    const Tensor& learning_rate_tensor,
-    const double weight_decay,
-    const int64_t iter,
-    const double gwd_lower_bound,
+    const Tensor& hash_size_cumsum [[maybe_unused]],
+    const Tensor& prev_iter_dev [[maybe_unused]],
+    const Tensor& learning_rate_tensor [[maybe_unused]],
+    const double weight_decay [[maybe_unused]],
+    const int64_t iter [[maybe_unused]],
+    const double gwd_lower_bound [[maybe_unused]],
     {%- endif %}
     {%- if vbe and not dense %}
     const bool is_experimental [[maybe_unused]],
-    std::optional<Tensor> vbe_output
+    std::optional<Tensor> vbe_output [[maybe_unused]]
     {%- else %}
     const bool is_experimental [[maybe_unused]]
     {%- endif %}
