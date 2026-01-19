@@ -142,6 +142,8 @@ class PoolingParams:
     sigma_L: Optional[int] = None
     # [Optional] Distribution of embedding sequence lengths (normal, uniform)
     length_distribution: Optional[str] = "normal"
+    # [Optional] List of pooling factors per table (average bag size per table)
+    Ls: Optional[list[float]] = None
 
     @classmethod
     # pyre-ignore [3]
