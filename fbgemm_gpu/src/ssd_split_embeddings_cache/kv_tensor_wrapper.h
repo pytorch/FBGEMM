@@ -123,7 +123,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   void deserialize(const std::string& serialized);
 
   std::vector<std::string> get_kvtensor_serializable_metadata() const;
-
+  void delete_rocksdb_checkpoint_dir() const;
   friend void to_json(json& j, const KVTensorWrapper& kvt);
   friend void from_json(const json& j, KVTensorWrapper& kvt);
 
