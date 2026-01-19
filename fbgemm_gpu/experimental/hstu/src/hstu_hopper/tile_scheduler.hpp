@@ -20,7 +20,6 @@ namespace flash {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <bool Is_balance_fwd = false>
 struct SingleTileScheduler {
  public:
   // Host side kernel arguments
@@ -37,17 +36,7 @@ struct SingleTileScheduler {
   }
 
   static dim3 get_grid_dim(Arguments const& args, int num_sm) {
-    if constexpr (Is_balance_fwd) {
-      return {
-          uint32_t(args.num_head),
-          uint32_t(args.num_batch),
-          uint32_t(args.num_blocks_m)};
-    } else {
-      return {
-          uint32_t(args.num_blocks_m),
-          uint32_t(args.num_head),
-          uint32_t(args.num_batch)};
-    }
+    return {uint32_t(args.num_blocks_m), uint32_t(args.num_head), uint32_t(args.num_batch)};
   }
 
   struct WorkTileInfo {
@@ -73,19 +62,7 @@ struct SingleTileScheduler {
 
   CUTLASS_DEVICE
   WorkTileInfo get_initial_work() const {
-    if constexpr (Is_balance_fwd) {
-      return {
-          int(gridDim.z - 1 - blockIdx.z),
-          int(blockIdx.x),
-          int(blockIdx.y),
-          true};
-    } else {
-      return {
-          int(gridDim.x - 1 - blockIdx.x),
-          int(blockIdx.y),
-          int(blockIdx.z),
-          true};
-    }
+    return {int(gridDim.x - 1 - blockIdx.x), int(blockIdx.y), int(blockIdx.z), true};
   }
 
   CUTLASS_DEVICE
@@ -94,9 +71,6 @@ struct SingleTileScheduler {
   CUTLASS_DEVICE
   void prefetch_next_work(Params const& params, WorkTileInfo& current_work)
       const {}
-
-  CUTLASS_DEVICE
-  void broadcast_next_work(WorkTileInfo& current_work) const {}
 
   template <bool IsProducer = false>
   CUTLASS_DEVICE WorkTileInfo
@@ -187,19 +161,6 @@ class DynamicPersistentTileScheduler {
       current_work.tile_idx =
           atomicAdd(params.tile_count_semaphore, 1) + int(gridDim.x);
     }
-  }
-
-  CUTLASS_DEVICE
-  void broadcast_next_work(WorkTileInfo& current_work) const {
-    cutlass::arch::NamedBarrier::sync(
-        NumMmaThreads + NumProducerThreads,
-        static_cast<int>(FwdNamedBarriers::TileCountSmemEmpty) /*id*/);
-    if (threadIdx.x % NumProducerThreads == 0) {
-      *tile_count_smem = current_work.tile_idx;
-    }
-    cutlass::arch::NamedBarrier::arrive(
-        NumMmaThreads + NumProducerThreads,
-        static_cast<int>(FwdNamedBarriers::TileCountSmemFull) /*id*/);
   }
 
   template <bool IsProducerWarp = false>
