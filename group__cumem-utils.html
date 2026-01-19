@@ -184,7 +184,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="memname">bool is_uvm_tensor </td>
           <td>(</td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>self</em></span></td><td>)</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>t</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -196,7 +196,14 @@ Functions</h2></td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd><code>true</code> if the tensor is a non-CPU tensor allocated with UVM, otherwise <code>false</code> </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd><code>true</code> if the tensor is a non-CPU tensor allocated with UVM, otherwise <code>false</code></dd></dl>
+<p>Checks whether a tensor is a UVM tensor. A UVM tensor is one allocated with CUDA managed memory that can be accessed from both CPU and GPU. </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">t</td><td>The tensor to check </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>true if the tensor is a UVM tensor, false otherwise </dd></dl>
 
 </div>
 </div>
@@ -486,7 +493,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="memname">bool uvm_storage </td>
           <td>(</td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>self</em></span></td><td>)</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>t</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -498,7 +505,14 @@ Functions</h2></td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd><code>true</code> if the tensor is allocated with UVM, otherwise <code>false</code> </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd><code>true</code> if the tensor is allocated with UVM, otherwise <code>false</code></dd></dl>
+<p>Checks whether a tensor uses UVM storage. This checks the storage backend rather than the tensor's current device. A tensor may be on CPU but still have UVM storage if it was moved from GPU. </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">t</td><td>The tensor to check </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>true if the tensor's storage is UVM-backed, false otherwise </dd></dl>
 
 </div>
 </div>
@@ -511,7 +525,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="memname">Tensor uvm_to_cpu </td>
           <td>(</td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>self</em></span></td><td>)</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>t</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -523,7 +537,14 @@ Functions</h2></td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>A new tensor that is effectively the input moved from UVM to CPU </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd>A new tensor that is effectively the input moved from UVM to CPU</dd></dl>
+<p>Converts a UVM (Unified Virtual Memory) tensor to a CPU tensor. The returned tensor shares storage with the original UVM tensor. </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">t</td><td>The input UVM tensor </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>A CPU tensor view of the UVM tensor's data </dd></dl>
 
 </div>
 </div>
@@ -536,7 +557,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="memname">Tensor uvm_to_cpu_clone </td>
           <td>(</td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>self</em></span></td><td>)</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>t</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -548,7 +569,14 @@ Functions</h2></td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>A new CPU tensor containing the data copied from the UVM tensor </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd>A new CPU tensor containing the data copied from the UVM tensor</dd></dl>
+<p>Converts a UVM tensor to a CPU tensor by cloning the data. Unlike uvm_to_cpu, this creates an independent copy of the data. </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">t</td><td>The input UVM tensor </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>A new CPU tensor containing a copy of the UVM tensor's data </dd></dl>
 
 </div>
 </div>
