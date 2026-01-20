@@ -494,7 +494,7 @@ Tensor uvm_to_cpu_clone_cuda(const Tensor& t) {
   size_t size_bytes = at::detail::computeStorageNbytes(
       t.sizes(), t.strides(), t.dtype().itemsize());
 
-  memcpy(cpu_clone.data_ptr(), t.data_ptr(), size_bytes);
+  memcpy(cpu_clone.data_ptr(), t.const_data_ptr(), size_bytes);
 
   return cpu_clone;
 }
