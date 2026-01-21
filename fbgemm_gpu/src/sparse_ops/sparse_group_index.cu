@@ -90,8 +90,8 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       if (num_cols < COLS_PER_WARP && num_cols >= UNROLL_FACTOR) {
         // Need to ensure that [member_id] and [member_warp_id] are calculated correctly
         // for the small embedding dimension path below
-        int rows_per_warp = COLS_PER_WARP / num_cols;
-        auto warps_per_member = (num_work_rows + rows_per_warp - 1) / rows_per_warp;
+        const auto rows_per_warp = COLS_PER_WARP / num_cols;
+        const auto warps_per_member = (num_work_rows + rows_per_warp - 1) / rows_per_warp;
         member_id = warp_id / warps_per_member;
         member_warp_id = warp_id % warps_per_member;
       }
@@ -102,14 +102,14 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     if (num_cols < COLS_PER_WARP && num_cols >= UNROLL_FACTOR) {
       // Optimized path for small embedding dimensions
       // Each warp processes 'rows_per_warp' rows
-      int rows_per_warp = COLS_PER_WARP / num_cols;
-      int64_t start_row = member_warp_id * rows_per_warp;
+      const auto rows_per_warp = COLS_PER_WARP / num_cols;
+      const int64_t start_row = member_warp_id * rows_per_warp;
       
       // Since we are processing multiple rows within the warp, we need to
       // map each lane to a specific row, in addition to the column
-      int local_row = (threadIdx.x * UNROLL_FACTOR) / num_cols; // the row ID within the set of rows handled by this warp
-      int col_offset = (threadIdx.x * UNROLL_FACTOR) % num_cols;
-      int64_t current_row = start_row + local_row; // the actual row within the table processed by this lane
+      const auto local_row = (threadIdx.x * UNROLL_FACTOR) / num_cols; // the row ID within the set of rows handled by this warp
+      const auto col_offset = (threadIdx.x * UNROLL_FACTOR) % num_cols;
+      const int64_t current_row = start_row + local_row; // the actual row within the table processed by this lane
 
       // local_row may be out of bounds for the last few lanes in the warp if [COLS_PER_WARP % num_cols != 0]
       // and we also need to confirm that we are within num_work_rows
