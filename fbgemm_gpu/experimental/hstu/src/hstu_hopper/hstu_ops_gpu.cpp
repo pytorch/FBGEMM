@@ -85,9 +85,9 @@ void set_params_fprop(
 #endif
 
   // Set the pointers and strides.
-  params.q_ptr = q.mutable_data_ptr();
-  params.k_ptr = k.mutable_data_ptr();
-  params.v_ptr = v.mutable_data_ptr();
+  params.q_ptr = const_cast<void*>(q.const_data_ptr());
+  params.k_ptr = const_cast<void*>(k.const_data_ptr());
+  params.v_ptr = const_cast<void*>(v.const_data_ptr());
   // All stride are in elements, not bytes.
   params.q_row_stride = q.stride(-3);
   params.k_row_stride = k.stride(-3);
