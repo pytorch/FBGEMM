@@ -371,7 +371,7 @@ def asynchronous_complete_cumsum_2d_bench(
     # Reference code from TorchRec https://github.com/pytorch/torchrec/pull/332
     @torch.jit.script
     def asynchronous_complete_cumsum_2d_ref(lengths: torch.Tensor) -> torch.Tensor:
-        (f, b) = lengths.shape
+        f, b = lengths.shape
         offsets_0 = lengths.new_zeros((f, 1))
         offsets_1 = torch.cumsum(lengths, dim=-1).to(lengths.dtype)
         offsets = torch.cat([offsets_0, offsets_1], dim=-1)

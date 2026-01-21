@@ -39,7 +39,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
 )
 
-
 VERBOSITY: Verbosity = Verbosity.verbose
 
 

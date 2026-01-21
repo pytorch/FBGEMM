@@ -19,7 +19,6 @@ from hypothesis import given, settings, Verbosity
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
 
-
 MAX_EXAMPLES = 20
 
 

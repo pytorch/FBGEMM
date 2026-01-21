@@ -35,7 +35,6 @@ from hypothesis import given, settings, Verbosity
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
 
-
 MAX_EXAMPLES = 40
 
 
@@ -160,10 +159,10 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
 
         for t in range(T):
-            (weights, scale_shift) = emb.split_embedding_weights()[t]
+            weights, scale_shift = emb.split_embedding_weights()[t]
 
             if scale_shift is not None:
-                (E, R) = scale_shift.shape
+                E, R = scale_shift.shape
                 self.assertEqual(R, 4)
                 scales = np.random.uniform(0.1, 1, size=(E,)).astype(np.float16)
                 shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
@@ -222,7 +221,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
         xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
-        (indices, offsets) = get_table_batched_offsets_from_dense(x)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
         fc2 = (
             emb(indices.cuda().int(), offsets.cuda().int())
             if not weighted
@@ -299,10 +298,10 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.manual_seed(42)
 
         for t in range(T):
-            (weights, scale_shift) = emb.split_embedding_weights()[t]
+            weights, scale_shift = emb.split_embedding_weights()[t]
 
             if scale_shift is not None:
-                (E, R) = scale_shift.shape
+                E, R = scale_shift.shape
                 self.assertEqual(R, 4)
                 if weights_ty_list[t] == SparseType.INT2:
                     scales = np.random.uniform(0.1, 1, size=(E,)).astype(np.float16)
@@ -369,8 +368,8 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
             xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
-            (indices, offsets) = get_table_batched_offsets_from_dense(x)
-            (indices, offsets) = indices.cuda(), offsets.cuda()
+            indices, offsets = get_table_batched_offsets_from_dense(x)
+            indices, offsets = indices.cuda(), offsets.cuda()
             assert emb.timestep_counter.get() == i
 
             emb.prefetch(indices, offsets)

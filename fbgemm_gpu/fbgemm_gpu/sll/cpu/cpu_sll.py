@@ -73,7 +73,7 @@ class JaggedDenseBmmCPU(torch.autograd.Function):
         # dX = dZ * YT # [Sum_B, T] * [B, T, D] = [Sum_B, D]
         # dY = XT * dZ # [D, sum_B] * [sum_B, T] = [D, B, T]
         """
-        (x, y, x_offsets) = ctx.saved_tensors
+        x, y, x_offsets = ctx.saved_tensors
         N = ctx.N
         grad_x = cpu_jagged_dense_bmm_kernel(
             grad_output, y.permute(0, 2, 1), x_offsets, N
@@ -136,7 +136,7 @@ class JaggedJaggedBmm(torch.autograd.Function):
         # dXT = dZ * YT -> dX = Y * dZT
         # dY = X * dZ -> X * dZ
         """
-        (x, y, offsets) = ctx.saved_tensors
+        x, y, offsets = ctx.saved_tensors
         N = ctx.N
         grad_x = cpu_jagged_dense_bmm_kernel(
             y, grad_output.permute(0, 2, 1), offsets, N

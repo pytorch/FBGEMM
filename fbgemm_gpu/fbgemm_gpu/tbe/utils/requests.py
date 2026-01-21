@@ -252,7 +252,7 @@ def generate_indices_uniform(
         dtype=torch.int32,
     )
     # each bag is usually sorted
-    (indices, _) = torch.sort(indices)
+    indices, _ = torch.sort(indices)
     if use_variable_L:
         # 1D layout, where row offsets are determined by L_offsets
         indices = torch.ops.fbgemm.bottom_k_per_row(

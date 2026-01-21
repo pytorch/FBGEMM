@@ -34,7 +34,6 @@ from .training_common import (
     SSDSplitTableBatchedEmbeddingsTestCommon,
 )
 
-
 KV_WORLD_SIZE = 4
 VIRTUAL_TABLE_ROWS = int(
     2**18

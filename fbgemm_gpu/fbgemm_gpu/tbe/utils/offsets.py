@@ -23,7 +23,7 @@ def get_table_batched_offsets_from_dense(
     use_cpu: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if L is None and total_B is None:
-        (T, B, L) = merged_indices.size()
+        T, B, L = merged_indices.size()
         total_B = T * B
     # pyre-fixme[6]: For 1st argument expected `Union[Sequence[SupportsIndex],
     #  SupportsIndex]` but got `Optional[int]`.
@@ -38,7 +38,7 @@ def get_table_batched_offsets_from_dense(
 
 
 def get_offsets_from_dense(indices: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    (B, L) = indices.size()
+    B, L = indices.size()
     return (
         indices.contiguous().view(-1),
         torch.tensor(
@@ -54,7 +54,7 @@ def b_indices(
     use_cpu: bool = False,
     do_pooling: bool = True,
 ) -> torch.Tensor:
-    (indices, offsets) = get_offsets_from_dense(x)
+    indices, offsets = get_offsets_from_dense(x)
     if do_pooling:
         return b(
             to_device(indices, use_cpu),

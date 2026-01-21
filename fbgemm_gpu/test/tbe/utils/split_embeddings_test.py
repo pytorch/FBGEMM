@@ -355,7 +355,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         update_offsets = 0
         for i in range(len(update_table_indices)):
             table_idx = update_table_indices[i]
-            (ref_weights, _) = ref_split_weights[table_idx]
+            ref_weights, _ = ref_split_weights[table_idx]
 
             D_bytes = rounded_row_size_in_bytes(
                 Ds[table_idx], weights_ty_list[table_idx], row_alignment
@@ -399,8 +399,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for i in range(len(update_table_indices)):
             t = update_table_indices[i]
             for r in update_row_indices[i]:
-                (weights, _) = split_weights[t]
-                (ref_weights, _) = ref_split_weights[t]
+                weights, _ = split_weights[t]
+                ref_weights, _ = ref_split_weights[t]
                 self.assertEqual(weights.size(), ref_weights.size())
                 torch.testing.assert_close(
                     weights[r],

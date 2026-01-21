@@ -161,7 +161,7 @@ class NBitCacheTest(unittest.TestCase):
         for x, t_counter, t_tablewise_cache_miss in zip(
             xs, target_counter_list, target_tablewise_cache_miss_list
         ):
-            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 cc(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (
@@ -222,7 +222,7 @@ class NBitCacheTest(unittest.TestCase):
         num_indices_expcted = 0
         num_unique_indices_expected = 0
         for x, t_counter in zip(xs, target_counter_list):
-            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 num_calls_expected = num_calls_expected + 1
                 num_indices_expcted = num_indices_expcted + len(indices)
@@ -281,7 +281,7 @@ class NBitCacheTest(unittest.TestCase):
         expected = [[0, 0], [1, 17], [10, 170]]
 
         for x, e in zip((indices1, indices2, indices3), expected):
-            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 cc1(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (
@@ -343,7 +343,7 @@ class NBitCacheTest(unittest.TestCase):
         num_indices_expcted = 0
         num_unique_indices_expected = 0
         for x, t_counter in zip(xs, target_counter_list):
-            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 num_calls_expected = num_calls_expected + 1
                 num_indices_expcted = num_indices_expcted + len(indices)
@@ -406,7 +406,7 @@ class NBitCacheTest(unittest.TestCase):
 
         accum_num_conflict_miss = 0
         for x, e in zip((indices1, indices2, indices3), expected):
-            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 cc1(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (

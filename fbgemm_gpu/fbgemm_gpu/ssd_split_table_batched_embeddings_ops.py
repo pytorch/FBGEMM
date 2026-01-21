@@ -16,7 +16,6 @@ from fbgemm_gpu.tbe.ssd import (  # noqa: F401
     SSDTableBatchedEmbeddingBags,  # noqa: F401
 )
 
-
 warnings.warn(  # noqa: B028
     f"""\033[93m
     The Python module {__name__} is now DEPRECATED and will be removed in the
