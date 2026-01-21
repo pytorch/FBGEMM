@@ -576,7 +576,7 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
     cub::DeviceRadixSort::SortKeys(
         nullptr,
         temp_storage_bytes,
-        sampled_utilities.data_ptr<float>() + sampling_offsets_a[i],
+        sampled_utilities.const_data_ptr<float>() + sampling_offsets_a[i],
         sampled_utilities_sorted.data_ptr<float>() + sampling_offsets_a[i],
         length,
         0,
@@ -591,7 +591,7 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
     cub::DeviceRadixSort::SortKeys(
         temp_storage.data_ptr(),
         temp_storage_bytes,
-        sampled_utilities.data_ptr<float>() + sampling_offsets_a[i],
+        sampled_utilities.const_data_ptr<float>() + sampling_offsets_a[i],
         sampled_utilities_sorted.data_ptr<float>() + sampling_offsets_a[i],
         length,
         0,
@@ -809,7 +809,7 @@ Tensor remap_indices_update_utils_cuda(
             cub::DeviceRadixSort::SortKeys(
                 nullptr,
                 temp_storage_bytes_0,
-                full_values.data_ptr<index_t>() + full_start,
+                full_values.const_data_ptr<index_t>() + full_start,
                 values_sorted.data_ptr<index_t>(),
                 full_length,
                 0,
@@ -824,7 +824,7 @@ Tensor remap_indices_update_utils_cuda(
             cub::DeviceRadixSort::SortKeys(
                 temp_storage_0.data_ptr(),
                 temp_storage_bytes_0,
-                full_values.data_ptr<index_t>() + full_start,
+                full_values.const_data_ptr<index_t>() + full_start,
                 values_sorted.data_ptr<index_t>(),
                 full_length,
                 0,
@@ -843,7 +843,7 @@ Tensor remap_indices_update_utils_cuda(
             cub::DeviceRunLengthEncode::Encode(
                 nullptr,
                 temp_storage_bytes_1,
-                values_sorted.data_ptr<index_t>(),
+                values_sorted.const_data_ptr<index_t>(),
                 values_sorted_unique_run.data_ptr<index_t>(),
                 values_sorted_counts_run.data_ptr<int32_t>(),
                 values_sorted_num_runs.data_ptr<int32_t>(),
@@ -858,7 +858,7 @@ Tensor remap_indices_update_utils_cuda(
             cub::DeviceRunLengthEncode::Encode(
                 temp_storage_1.data_ptr(),
                 temp_storage_bytes_1,
-                values_sorted.data_ptr<index_t>(),
+                values_sorted.const_data_ptr<index_t>(),
                 values_sorted_unique_run.data_ptr<index_t>(),
                 values_sorted_counts_run.data_ptr<int32_t>(),
                 values_sorted_num_runs.data_ptr<int32_t>(),
