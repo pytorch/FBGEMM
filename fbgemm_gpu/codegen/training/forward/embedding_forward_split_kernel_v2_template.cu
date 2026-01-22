@@ -240,7 +240,7 @@ template <
   uint32_t WEIGHT_PTR_OFFSET,
   uint32_t STEP,
   uint32_t STEP_MASK,
-  uint32_t LOAD_GROUP_SIZE [[maybe_unused]]
+  uint32_t LOAD_GROUP_SIZE
   >
 __noinline__ __device__ void process_all_indices_small_Ls(
     long* const smem,
