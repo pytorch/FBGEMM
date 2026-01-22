@@ -10,7 +10,7 @@
 import dataclasses
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 
 import torch
 
@@ -32,30 +32,77 @@ except Exception:
 
 @dataclasses.dataclass(frozen=True)
 class TBEDataConfig:
-    # Number of tables
     T: int
-    # Number of rows in the embedding table
     E: int
-    # Target embedding dimension for a table (number of columns)
     D: int
-    # Generate mixed dimensions if true
     mixed_dim: bool
-    # Whether the lookup rows are weighted or not
     weighted: bool
-    # Batch parameters
     batch_params: BatchParams
-    # Indices parameters
     indices_params: IndicesParams
-    # Pooling parameters
     pooling_params: PoolingParams
-    # Force generated tensors to be on CPU
     use_cpu: bool = False
-    # Number of embeddings in each embedding features (number of rows)
     Es: Optional[list[int]] = None
-    # Target embedding dimension for each features (number of columns)
     Ds: Optional[list[int]] = None
-    # Maximum number of indices
-    max_indices: Optional[int] = None  # Maximum number of indices
+    max_indices: Optional[int] = None
+    embedding_specs: Optional[List[Tuple[int, int]]] = None
+    feature_table_map: Optional[List[int]] = None
+    """
+    Configuration for TBE (Table Batched Embedding) benchmark data collection and generation.
+
+    This dataclass holds parameters required to generate synthetic data for
+    TBE benchmarking, including table specifications, batch parameters, indices
+    distribution parameters, and pooling parameters.
+
+    Args:
+        T (int): Number of embedding tables (features). Must be positive.
+        E (int): Number of rows in the embedding table (feature). If T > 1, this
+            represents the averaged number of rows across all features.
+        D (int): Target embedding dimension for a table (feature), i.e., number of
+            columns. If T > 1, this represents the averaged dimension across
+            all features.
+        mixed_dim (bool): If True, generate embeddings with mixed dimensions
+            across tables (features). This is automatically set to True if D is provided
+            as a list with non-uniform values.
+        weighted (bool): If True, the lookup rows are weighted (per-sample
+            weights). The weights will be generated as FP32 tensors.
+        batch_params (BatchParams): Parameters controlling batch generation.
+            Contains:
+            (1) `B` = target batch size (number of batch lookups per features)
+            (2) `sigma_B` = optional standard deviation for variable batch size
+            (3) `vbe_distribution` = distribution type ("normal" or "uniform")
+            (4) `vbe_num_ranks` = number of ranks for variable batch size
+            (5) `Bs` = per-feature batch sizes
+        indices_params (IndicesParams): Parameters controlling index generation
+            following a Zipf distribution. Contains:
+            (1) `heavy_hitters` = probability density map for hot indices
+            (2) `zipf_q` = q parameter in Zipf distribution (x+q)^{-s}
+            (3) `zipf_s` = s parameter (alpha) in Zipf distribution
+            (4) `index_dtype` = optional dtype for indices tensor
+            (5) `offset_dtype` = optional dtype for offsets tensor
+        pooling_params (PoolingParams): Parameters controlling pooling behavior.
+            Contains:
+            (1) `L` = target bag size (pooling factor, indices per lookup)
+            (2) `sigma_L` = optional standard deviation for variable bag size
+            (3) `length_distribution` = distribution type ("normal" or "uniform")
+            (4) `Ls` = per-feature bag sizes
+        use_cpu (bool = False): If True, force generated tensors to be placed
+            on CPU instead of the default compute device.
+        Es (Optional[List[int]] = None): Number of embeddings (rows) for each
+            individual embedding feature. If provided, must have length equal
+            to T. All elements must be positive.
+        Ds (Optional[List[int]] = None): Target embedding dimension (columns)
+            for each individual feature. If provided, must have length equal
+            to T. All elements must be positive.
+        max_indices (Optional[int] = None): Maximum number of indices for
+            bounds checking. If Es is provided as a list and max_indices is
+            None, it is automatically computed as sum(Es) - 1.
+        embedding_specs (Optional[List[Tuple[int, int]]] = None): A list of
+            embedding specs consisting of a list of tuples of (num_rows, embedding_dim).
+            See https://fburl.com/tbe_embedding_specs for details.
+        feature_table_map (Optional[List[int]] = None): An optional list that
+            specifies feature-table mapping. feature_table_map[i] indicates the
+            physical embedding table that feature i maps to.
+    """
 
     def __post_init__(self) -> None:
         if isinstance(self.D, list):
@@ -117,17 +164,25 @@ class TBEDataConfig:
         assert self.D > 0, "D must be positive"
         if self.Ds is not None:
             assert all(d > 0 for d in self.Ds), "All elements in Ds must be positive"
-        if isinstance(self.E, list) and isinstance(self.D, list):
+        if isinstance(self.Es, list) and isinstance(self.Ds, list):
             assert (
-                len(self.E) == len(self.D) == self.T
+                len(self.Es) == len(self.Ds) == self.T
             ), "Lengths of Es, Lengths of Ds, and T must be equal"
             if self.max_indices is not None:
                 assert self.max_indices == (
                     sum(self.Es) - 1
                 ), "max_indices must be equal to sum(Es) - 1"
         self.batch_params.validate()
+        if self.batch_params.Bs is not None:
+            assert (
+                len(self.batch_params.Bs) == self.T
+            ), f"Length of Bs must be equal to T. Expected: {self.T}, but got: {len(self.batch_params.Bs)}"
         self.indices_params.validate()
         self.pooling_params.validate()
+        if self.pooling_params.Ls is not None:
+            assert (
+                len(self.pooling_params.Ls) == self.T
+            ), f"Length of Ls must be equal to T. Expected: {self.T}, but got: {len(self.pooling_params.Ls)}"
         return self
 
     def variable_B(self) -> bool:

@@ -8,6 +8,8 @@
 # pyre-strict
 
 import dataclasses
+import logging
+import re
 from enum import Enum
 
 import click
@@ -45,12 +47,16 @@ class TBEDataConfigHelperText(Enum):
     TBE_INDICES_HITTERS = "Heavy hitters for indices (comma-delimited list of floats)"
     TBE_INDICES_ZIPF = "Zipf distribution parameters for indices generation (q, s)"
     TBE_INDICES_DTYPE = "The dtype of the table indices (choices: '32', '64')"
-    TBE_OFFSETS_DTYPE = "The dtype of the table indices (choices: '32', '64')"
+    TBE_OFFSETS_DTYPE = "The dtype of the table offsets (choices: '32', '64')"
 
     # Pooling Parameters
     TBE_POOLING_SIZE = "Bag size / pooling factor (L)"
-    TBE_POOLING_VL_SIGMA = "Standard deviation of B for VBE"
-    TBE_POOLING_VL_DIST = "VBE distribution (choices: 'uniform', 'normal')"
+    TBE_POOLING_VL_SIGMA = "Standard deviation of L for variable bag size"
+    TBE_POOLING_VL_DIST = (
+        "Variable bag size distribution (choices: 'uniform', 'normal')"
+    )
+    TBE_EMBEDDING_SPECS = "Embedding Specs which is List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]"
+    TBE_FEATURE_TABLE_MAP = "Mapping of feature-table"
 
 
 class TBEDataConfigLoader:
@@ -193,6 +199,18 @@ class TBEDataConfigLoader:
                 required=False,
                 help=TBEDataConfigHelperText.TBE_POOLING_VL_DIST.value,
             ),
+            click.option(
+                "--tbe-embedding-specs",
+                type=str,
+                required=False,
+                help=TBEDataConfigHelperText.TBE_EMBEDDING_SPECS.value,
+            ),
+            click.option(
+                "--tbe-feature-table-map",
+                type=str,
+                required=False,
+                help=TBEDataConfigHelperText.TBE_FEATURE_TABLE_MAP.value,
+            ),
         ]
 
         for option in reversed(options):
@@ -213,15 +231,21 @@ class TBEDataConfigLoader:
         params = context.params
 
         # Read table parameters
-        T = params["tbe_num_tables"]
-        E = params["tbe_num_embeddings"]
+        T = params["tbe_num_tables"]  # number of features
+        E = params["tbe_num_embeddings"]  # feature_rows
         if params["tbe_num_embeddings_list"] is not None:
             Es = [int(x) for x in params["tbe_num_embeddings_list"].split(",")]
+            T = len(Es)
+            E = sum(Es) // T  # average E
         else:
             Es = None
         D = params["tbe_embedding_dim"]
         if params["tbe_embedding_dim_list"] is not None:
             Ds = [int(x) for x in params["tbe_embedding_dim_list"].split(",")]
+            assert (
+                len(Ds) == T
+            ), f"Expected tbe_embedding_dim_list to have {T} elements, but got {len(Ds)}"
+            D = sum(Ds) // T  # average D
         else:
             Ds = None
 
@@ -239,9 +263,30 @@ class TBEDataConfigLoader:
         vbe_num_ranks = params["tbe_batch_vbe_ranks"]
         if params["tbe_batch_sizes_list"] is not None:
             Bs = [int(x) for x in params["tbe_batch_sizes_list"].split(",")]
+            B = sum(Bs) // T  # average B
         else:
+            B = params["tbe_batch_size"]
             Bs = None
         batch_params = BatchParams(B, sigma_B, vbe_distribution, vbe_num_ranks, Bs)
+
+        # Parse embedding_specs: "(E,D),(E,D),..." or "(E,D,loc,dev),(E,D,loc,dev),..."
+        # Only the first two values (E, D) are extracted.
+        embedding_specs = None
+        feature_table_map = None
+        if params["tbe_embedding_specs"] is not None:
+            try:
+                tuples = re.findall(r"\(([^)]+)\)", params["tbe_embedding_specs"])
+                if tuples:
+                    embedding_specs = [
+                        (int(t.split(",")[0].strip()), int(t.split(",")[1].strip()))
+                        for t in tuples
+                    ]
+            except (ValueError, IndexError):
+                logging.warning("Failed to parse embedding_specs. Setting to None.")
+        if params["tbe_feature_table_map"] is not None:
+            feature_table_map = [
+                int(x) for x in params["tbe_feature_table_map"].split(",")
+            ]
 
         # Read indices parameters
         heavy_hitters = (
@@ -279,6 +324,8 @@ class TBEDataConfigLoader:
             Es,
             Ds,
             max_indices,
+            embedding_specs,
+            feature_table_map,
         ).validate()
 
     @classmethod
