@@ -229,9 +229,9 @@ class NBitFowardTest(NBitFowardTestCommon):
         split_weights = op.split_embedding_weights()
         ref_split_weights = op_ref.split_embedding_weights()
         for t in range(T):
-            (weights, scale_shift) = split_weights[t]
+            weights, scale_shift = split_weights[t]
             if use_quant_ref:
-                (ref_weights, ref_scale_shift) = ref_split_weights[t]
+                ref_weights, ref_scale_shift = ref_split_weights[t]
                 self.assertEqual(weights.size(), ref_weights.size())
             else:
                 ref_weights = ref_split_weights[t]
@@ -813,8 +813,8 @@ class NBitFowardTest(NBitFowardTestCommon):
         split_weights = cc.split_embedding_weights()
         ref_split_weights = cc_ref.split_embedding_weights()
         for t in range(T):
-            (weights, scale_shift) = split_weights[t]
-            (ref_weights, ref_scale_shift) = ref_split_weights[t]
+            weights, scale_shift = split_weights[t]
+            ref_weights, ref_scale_shift = ref_split_weights[t]
             self.assertEqual(weights.size(), ref_weights.size())
             weights.copy_(ref_weights)
             if ref_scale_shift is not None:
@@ -1049,8 +1049,8 @@ class NBitFowardTest(NBitFowardTestCommon):
         split_weights = quant_cc.split_embedding_weights()
         ref_split_weights = dequant_cc.split_embedding_weights()
         for t in range(T):
-            (weights, scale_shift) = split_weights[t]
-            (ref_weights, ref_scale_shift) = ref_split_weights[t]
+            weights, scale_shift = split_weights[t]
+            ref_weights, ref_scale_shift = ref_split_weights[t]
             self.assertEqual(weights.size(), ref_weights.size())
             element_size = (
                 SparseType.INT8.bit_rate()

@@ -11,6 +11,7 @@ from fbgemm_gpu.utils import TorchLibraryFragment
 
 lib = TorchLibraryFragment("fbgemm")
 
+# fmt: off
 lib.define(
     """quantize_mx(
         Tensor input,
@@ -41,3 +42,4 @@ lib.register(
     "dequantize_mx",
     {"CUDA": dequantize_mx, "CPU": dequantize_mx},
 )
+# fmt: on

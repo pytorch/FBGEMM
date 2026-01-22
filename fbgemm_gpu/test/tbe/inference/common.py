@@ -187,9 +187,7 @@ class NBitFowardTestCommon(unittest.TestCase):
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
             xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
-            (indices, offsets) = get_table_batched_offsets_from_dense(
-                x, use_cpu=use_cpu
-            )
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
 
             # generate index_remapping
             dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
@@ -225,9 +223,7 @@ class NBitFowardTestCommon(unittest.TestCase):
             index_remappings_array = [torch.arange(E, dtype=indices_dtype) for E in Es]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
             xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
-            (indices, offsets) = get_table_batched_offsets_from_dense(
-                x, use_cpu=use_cpu
-            )
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
 
         cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
@@ -262,9 +258,9 @@ class NBitFowardTestCommon(unittest.TestCase):
             cc = torch.jit.script(cc)
 
         for t in range(T):
-            (weights, scale_shift) = cc.split_embedding_weights()[t]
+            weights, scale_shift = cc.split_embedding_weights()[t]
             if scale_shift is not None:
-                (E, R) = scale_shift.shape
+                E, R = scale_shift.shape
                 self.assertEqual(R, 4)
                 if weights_ty_list[t] == SparseType.INT2:
                     scales = np.random.uniform(0.1, 1, size=(E,)).astype(np.float16)

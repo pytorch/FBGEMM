@@ -278,7 +278,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
         self.table_names = table_names if table_names is not None else []
-        (rows, dims) = zip(*embedding_specs)
+        rows, dims = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
         assert T_ > 0
         # pyre-fixme[8]: Attribute has type `device`; used as `int`.
@@ -377,7 +377,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.tensor(dims, device="cpu", dtype=torch.int64),
         )
 
-        (info_B_num_bits_, info_B_mask_) = torch.ops.fbgemm.get_infos_metadata(
+        info_B_num_bits_, info_B_mask_ = torch.ops.fbgemm.get_infos_metadata(
             self.D_offsets,  # unused tensor
             1,  # max_B
             T,  # T
@@ -788,7 +788,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             raise AssertionError(f"Invalid backend type {self.backend_type}")
 
         # pyre-fixme[20]: Argument `self` expected.
-        (low_priority, high_priority) = torch.cuda.Stream.priority_range()
+        low_priority, high_priority = torch.cuda.Stream.priority_range()
         # GPU stream for SSD cache eviction
         self.ssd_eviction_stream = torch.cuda.Stream(priority=low_priority)
         # GPU stream for SSD memory copy (also reused for feature score D2H)
@@ -1691,9 +1691,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if len(self.ssd_location_update_data) == 0:
                 return
 
-            (sp_curr_next_map, inserted_rows_next) = self.ssd_location_update_data.pop(
-                0
-            )
+            sp_curr_next_map, inserted_rows_next = self.ssd_location_update_data.pop(0)
 
             # Update poitners
             torch.ops.fbgemm.ssd_update_row_addrs(
@@ -1914,8 +1912,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                             name="cache_update",
                         )
                         current_stream.wait_event(self.ssd_event_cache_streaming_synced)
-                        (updated_indices, updated_counts_gpu) = (
-                            self.prefetched_info.pop(0)
+                        updated_indices, updated_counts_gpu = self.prefetched_info.pop(
+                            0
                         )
                         self.lxu_cache_updated_indices[: updated_indices.size(0)].copy_(
                             updated_indices,
@@ -2548,7 +2546,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
 
         # Row count per table
-        (rows, dims) = zip(*self.embedding_specs)
+        rows, dims = zip(*self.embedding_specs)
         # Cumulative row counts per table for rowwise states
         row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows))
         # Cumulative element counts per table for elementwise states
@@ -2611,7 +2609,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     ) -> list[list[torch.Tensor]]:
 
         # Row count per table
-        (rows, dims) = zip(*self.embedding_specs)
+        rows, dims = zip(*self.embedding_specs)
         # Cumulative row counts per table for rowwise states
         row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows))
         # Cumulative element counts per table for elementwise states
@@ -2703,7 +2701,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     ) -> list[list[torch.Tensor]]:
         dtype = self.weights_precision.as_dtype()
         # Row count per table
-        (rows_, dims_) = zip(*self.embedding_specs)
+        rows_, dims_ = zip(*self.embedding_specs)
         # Cumulative row counts per table for rowwise states
         row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows_))
 
@@ -2796,7 +2794,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             optimizer_states: list[Tensor] = []
             for state_name in self.optimizer.state_names():
                 # Extract the offsets
-                (start, end) = optimizer_state_byte_offsets[state_name]
+                start, end = optimizer_state_byte_offsets[state_name]
 
                 state = optimizer_states_buffer.view(
                     # Force tensor to byte view
@@ -2842,7 +2840,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # Row and dimension counts per table
         # rows_ is only used here to compute the virtual table offsets
-        (rows_, dims_) = zip(*self.embedding_specs)
+        rows_, dims_ = zip(*self.embedding_specs)
 
         # Cumulative row counts per (virtual) table for rowwise states
         row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows_))
@@ -2907,7 +2905,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
                 # Extract the offsets relative to the start of the weights (in
                 # num bytes)
-                (start, _) = optimizer_state_byte_offsets[state_name]
+                start, _ = optimizer_state_byte_offsets[state_name]
 
                 # Convert the start to number of elements in terms of the
                 # **weights** dtype, then add the mmetaheader dim offset
@@ -3061,7 +3059,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         Testing only, very slow.
         """
-        (rows, _) = zip(*self.embedding_specs)
+        rows, _ = zip(*self.embedding_specs)
 
         rows_cumsum = [0] + list(itertools.accumulate(rows))
         splits = []
@@ -3372,7 +3370,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.ignore
     def _apply_state_dict_w_offloading(self) -> None:
         # Row count per table
-        (rows, _) = zip(*self.embedding_specs)
+        rows, _ = zip(*self.embedding_specs)
         # Cumulative row counts per table for rowwise states
         row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows))
 
@@ -3401,7 +3399,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.ignore
     def _apply_state_dict_no_offloading(self) -> None:
         # Row count per table
-        (rows, _) = zip(*self.embedding_specs)
+        rows, _ = zip(*self.embedding_specs)
         # Cumulative row counts per table for rowwise states
         row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows))
 
@@ -3551,7 +3549,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 state_name = self.optimizer.state_names()[o]
 
                 # Fetch the byte offsets for the optimizer state by its name
-                (start, end) = optimizer_state_byte_offsets[state_name]
+                start, end = optimizer_state_byte_offsets[state_name]
 
                 # Assume that the opt_state passed in already has dtype matching
                 # self.optimizer_state_dtypes[state_name]
@@ -3588,7 +3586,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.load_state_dict = True
 
         dtype = self.weights_precision.as_dtype()
-        (_, dims) = zip(*self.embedding_specs)
+        _, dims = zip(*self.embedding_specs)
 
         self._cached_kvzch_data = KVZCHCachedData([], [], [], [])
 
@@ -3723,7 +3721,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         # Force casting indices and offsets to long
-        (indices, offsets) = indices.long(), offsets.long()
+        indices, offsets = indices.long(), offsets.long()
 
         # Force casting per_sample_weights to float
         if per_sample_weights is not None:

@@ -191,7 +191,7 @@ def jagged_dense_flash_attention_fwd(
     assert Q.size() == V.size(), "incompatible dimensions for Q and V"
     assert jagged_offsets.is_contiguous(), "jagged_offsets must be contiguous"
 
-    (B, D, T) = K.size()
+    B, D, T = K.size()
     assert D > 0 and (D & (D - 1)) == 0, "D needs to be a power of two"
 
     attn_out = torch.zeros(B, T, D, dtype=Q.dtype, device=Q.device)
@@ -667,7 +667,7 @@ def jagged_dense_flash_attention_bwd(
     if not do.is_contiguous():
         do = do.contiguous()
 
-    (B, D, T) = K.size()
+    B, D, T = K.size()
     BLOCK_T = 32
     BLOCK_L = 32
     BLOCK_D = D

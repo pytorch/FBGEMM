@@ -63,6 +63,7 @@ class TBEDataConfigLoaderTest(unittest.TestCase):
             not torch.cuda.is_available(),
         )
 
+        # fmt: off
         args = clean_command(
             f"""
             --tbe-num-tables {config.T}
@@ -83,6 +84,7 @@ class TBEDataConfigLoaderTest(unittest.TestCase):
             --tbe-pooling-vl-dist {config.pooling_params.length_distribution}
             """
         )
+        # fmt: on
 
         runner = CliRunner()
         result = runner.invoke(read_tbe_config, args)

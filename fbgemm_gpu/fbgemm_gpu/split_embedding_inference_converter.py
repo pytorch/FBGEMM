@@ -85,7 +85,7 @@ class SplitEmbInferenceConverter:
         if new_num_rows == num_rows:
             return (weights, None)
 
-        (indicators, threshold) = self._prune_by_weights_l2_norm(new_num_rows, weights)
+        indicators, threshold = self._prune_by_weights_l2_norm(new_num_rows, weights)
 
         return torch.ops.fbgemm.embedding_bag_rowwise_prune(
             weights, indicators, threshold, torch.int32
@@ -130,7 +130,7 @@ class SplitEmbInferenceConverter:
                 index_remapping_list = []
                 for t, (_, E, D, weight_ty) in enumerate(embedding_specs):
                     # Try to prune embeddings.
-                    (pruned_weight, index_remapping) = self._prune_embs(t, E, child)
+                    pruned_weight, index_remapping = self._prune_embs(t, E, child)
                     new_embedding_specs.append(
                         (
                             "",

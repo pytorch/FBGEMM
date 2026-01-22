@@ -326,7 +326,7 @@ class JaggedDenseBmm(torch.autograd.Function):
 
         # logging.info(f"Jagged bmm backward called")
 
-        (x, y, x_offsets) = ctx.saved_tensors
+        x, y, x_offsets = ctx.saved_tensors
         N = ctx.N
         grad_x = triton_jagged_dense_bmm(
             grad_output, y.permute(0, 2, 1), x_offsets, N, allow_tf32=ctx.allow_tf32
@@ -369,7 +369,7 @@ class JaggedJaggedBmm(torch.autograd.Function):
         # dXT = dZ * YT -> dX = Y * dZT
         # dY = X * dZ -> X * dZ
         """
-        (x, y, offsets) = ctx.saved_tensors
+        x, y, offsets = ctx.saved_tensors
         N = ctx.N
         grad_x = triton_jagged_dense_bmm(
             y, grad_output.permute(0, 2, 1), offsets, N, allow_tf32=ctx.allow_tf32
