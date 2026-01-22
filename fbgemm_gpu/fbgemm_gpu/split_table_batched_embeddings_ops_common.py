@@ -16,7 +16,6 @@ from typing import FrozenSet, NamedTuple, Optional, Tuple
 import torch
 from torch import Tensor
 
-
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
 MAX_PREFETCH_DEPTH = 100

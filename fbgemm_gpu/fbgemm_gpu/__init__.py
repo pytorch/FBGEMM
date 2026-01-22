@@ -73,6 +73,7 @@ def _load_library(filename: str, version: str, no_throw: bool = False) -> None:
         )
 
     elif not keys:
+        # fmt: off
         logging.warning(
             f"""
             \033[33m
@@ -81,8 +82,10 @@ def _load_library(filename: str, version: str, no_throw: bool = False) -> None:
             \033[0m
             """
         )
+        # fmt: on
 
     elif not str(torch.__version__).startswith(_fbgemm_torch_compat_table[keys[0]]):
+        # fmt: off
         logging.warning(
             f"""
             \033[31m
@@ -96,6 +99,7 @@ def _load_library(filename: str, version: str, no_throw: bool = False) -> None:
             \033[0m
             """
         )
+        # fmt: on
 
     try:
         torch.ops.load_library(os.path.join(os.path.dirname(__file__), filename))
@@ -113,7 +117,6 @@ open_source: bool = True
 
 # Trigger the manual addition of docstrings to pybind11-generated operators
 import fbgemm_gpu.docs  # noqa: F401, E402
-
 
 __targets_infos__ = {
     target: _load_target_info(target) for target in ["default", "genai", "hstu"]

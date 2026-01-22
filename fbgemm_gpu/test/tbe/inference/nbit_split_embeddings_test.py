@@ -151,8 +151,8 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             split_scale_bias_mode=2
         )
         for t in range(T):
-            (weights, scale_bias) = split_weights[t]
-            (weights2, scale, bias) = split_weights_with_scale_bias[t]
+            weights, scale_bias = split_weights[t]
+            weights2, scale, bias = split_weights_with_scale_bias[t]
             torch.testing.assert_close(weights2, weights)
             if scale is None:
                 self.assertIsNone(scale_bias)

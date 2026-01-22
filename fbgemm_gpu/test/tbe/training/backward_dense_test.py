@@ -226,7 +226,7 @@ class BackwardDenseTest(unittest.TestCase):
         x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
         xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
 
-        (indices, offsets) = get_table_batched_offsets_from_dense(
+        indices, offsets = get_table_batched_offsets_from_dense(
             x, L, sum(Bs), use_cpu=use_cpu
         )
         batch_size_per_feature_per_rank = Bs_rank_feature if mixed_B else None

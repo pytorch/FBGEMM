@@ -18,7 +18,6 @@ from hypothesis import Verbosity
 
 from ..common import open_source
 
-
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable, optests

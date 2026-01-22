@@ -197,7 +197,7 @@ class Jagged2ToPaddedDense(torch.autograd.Function):
         ctx, grad_output: torch.Tensor
     ) -> tuple[torch.Tensor, None, None, None]:
         max_length = ctx.max_length
-        (lengths, offsets) = ctx.saved_tensors
+        lengths, offsets = ctx.saved_tensors
         grad_in = padded_dense_to_jagged2_fwd(grad_output, lengths, offsets, max_length)
         return (grad_in, None, None, None)
 

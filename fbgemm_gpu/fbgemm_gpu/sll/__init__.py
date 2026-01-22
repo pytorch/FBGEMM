@@ -16,6 +16,7 @@ from fbgemm_gpu.utils import TorchLibraryFragment
 
 lib = TorchLibraryFragment("fbgemm")
 
+# fmt:off
 lib.define(
     """sll_jagged_dense_bmm(
         Tensor x,
@@ -171,6 +172,7 @@ lib.define(
     ) -> Tensor
     """
 )
+# fmt:on
 
 # NOTE: here we register the op for AutogradCUDA/CPU and CUDA/CPU with the same
 # function however, this is not ideal because in the inference case, we don't

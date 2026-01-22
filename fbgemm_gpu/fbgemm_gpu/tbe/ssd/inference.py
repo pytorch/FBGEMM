@@ -306,7 +306,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             )
 
         # pyre-fixme[20]: Argument `self` expected.
-        (low_priority, high_priority) = torch.cuda.Stream.priority_range()
+        low_priority, high_priority = torch.cuda.Stream.priority_range()
         self.ssd_stream = torch.cuda.Stream(priority=low_priority)
         self.ssd_set_start = torch.cuda.Event()
         self.ssd_set_end = torch.cuda.Event()
@@ -369,7 +369,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> Tensor:
-        (indices, offsets) = indices.long(), offsets.long()
+        indices, offsets = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.hash_size_cumsum,
             indices,

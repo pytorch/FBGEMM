@@ -70,7 +70,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
         random.shuffle(permute_list)
         permute = torch.IntTensor(permute_list)
 
-        (permuted_lengths_cpu, permuted_embeddings_cpu) = self.permute_embeddings_(
+        permuted_lengths_cpu, permuted_embeddings_cpu = self.permute_embeddings_(
             permute_fn, permute, lengths, embeddings
         )
         (
@@ -83,7 +83,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
 
         if gpu_available:
-            (permuted_lengths_gpu, permuted_embeddings_gpu) = self.permute_embeddings_(
+            permuted_lengths_gpu, permuted_embeddings_gpu = self.permute_embeddings_(
                 permute_fn,
                 permute.cuda(),
                 lengths.cuda(),

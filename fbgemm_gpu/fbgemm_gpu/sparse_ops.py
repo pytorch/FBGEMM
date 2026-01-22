@@ -52,7 +52,6 @@ import torch.utils._pytree as pytree
 from torch import SymInt, Tensor
 from torch.fx.experimental.symbolic_shapes import guard_or_true
 
-
 if hasattr(torch.library, "register_fake"):
     # pyre-ignore[9]
     impl_abstract = torch.library.register_fake

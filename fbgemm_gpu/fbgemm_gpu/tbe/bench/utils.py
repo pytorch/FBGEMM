@@ -24,9 +24,9 @@ def fill_random_scale_bias(
 ) -> None:
     for t in range(T):
         # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
-        (weights, scale_shift) = emb.split_embedding_weights()[t]
+        weights, scale_shift = emb.split_embedding_weights()[t]
         if scale_shift is not None:
-            (E, R) = scale_shift.shape
+            E, R = scale_shift.shape
             assert R == 4
             scales = None
             shifts = None

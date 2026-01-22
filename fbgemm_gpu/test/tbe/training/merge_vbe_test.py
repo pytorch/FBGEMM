@@ -96,10 +96,10 @@ class EmbeddingBag:
             emb_op = SSDTableBatchedEmbeddingBags
             kwargs["cache_sets"] = 1
             kwargs["ssd_storage_directory"] = tempfile.mkdtemp()
-            (self.rows, self.dims) = zip(*embedding_specs)
+            self.rows, self.dims = zip(*embedding_specs)
         else:
             emb_op = SplitTableBatchedEmbeddingBagsCodegen
-            (self.rows, self.dims, _, _) = zip(*embedding_specs)
+            self.rows, self.dims, _, _ = zip(*embedding_specs)
 
         self.op = emb_op(
             # pyre-fixme[6]
@@ -415,7 +415,7 @@ class MergeVBETest(unittest.TestCase):
                 for t, b in zip(emb.op.feature_table_map, Bs_list[i])
             ]
             x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
-            (indices, offsets) = get_table_batched_offsets_from_dense(
+            indices, offsets = get_table_batched_offsets_from_dense(
                 x, L, sum(Bs_list[i])
             )
             indices = indices.to(device)

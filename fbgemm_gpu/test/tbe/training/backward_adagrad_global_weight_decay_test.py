@@ -42,7 +42,6 @@ from .backward_adagrad_common import (  # noqa
     WeightDecayMode,
 )
 
-
 # Set up test strategy
 test_st: dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=5),
@@ -301,7 +300,7 @@ def execute_global_weight_decay(  # noqa C901
     ]
 
     x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
-    (indices, offsets) = get_table_batched_offsets_from_dense(x, L=L, total_B=sum(Bs))
+    indices, offsets = get_table_batched_offsets_from_dense(x, L=L, total_B=sum(Bs))
     indices = indices.to(device)
     offsets = offsets.to(device)
 

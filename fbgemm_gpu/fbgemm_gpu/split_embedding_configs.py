@@ -231,7 +231,7 @@ class EmbOptimType(enum.Enum):
         """
         Returns the split planning for the optimizer states
         """
-        (rows, _) = zip(*embedding_specs)
+        rows, _ = zip(*embedding_specs)
         T_ = len(embedding_specs)
 
         # This is the cumulative row counts for rowwise states

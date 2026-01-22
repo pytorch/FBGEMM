@@ -824,7 +824,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ), "Unique cache miss counters are not accurate in multipass prefetch and therefore not supported"
 
         self.embedding_specs = embedding_specs
-        (rows, dims, locations, compute_devices) = zip(*embedding_specs)
+        rows, dims, locations, compute_devices = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
         self.dims: list[int] = dims
         assert T_ > 0
@@ -935,7 +935,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if embedding_shard_info:
-            (full_table_heights, full_table_dims, row_offset, col_offset) = zip(
+            full_table_heights, full_table_dims, row_offset, col_offset = zip(
                 *embedding_shard_info
             )
         else:
@@ -1022,7 +1022,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "feature_dims",
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
-        (_info_B_num_bits, _info_B_mask) = torch.ops.fbgemm.get_infos_metadata(
+        _info_B_num_bits, _info_B_mask = torch.ops.fbgemm.get_infos_metadata(
             self.D_offsets,  # unused tensor
             1,  # max_B
             T,  # T
@@ -4449,7 +4449,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.embedding_specs = embedding_specs
-        (rows, dims) = zip(*embedding_specs)
+        rows, dims = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
         assert T_ > 0
 

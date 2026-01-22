@@ -41,7 +41,6 @@ from torch import nn
 from .. import common  # noqa E402
 from ..common import open_source
 
-
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available, on_arm_platform
@@ -63,7 +62,7 @@ def to_device(t: torch.Tensor, use_cpu: bool) -> torch.Tensor:
 def get_table_batched_offsets_from_dense(
     merged_indices: torch.Tensor, use_cpu: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    (T, B, L) = merged_indices.size()
+    T, B, L = merged_indices.size()
     lengths = np.ones((T, B)) * L
     flat_lengths = lengths.flatten()
     return (
@@ -175,7 +174,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         xs = [torch.randint(low=0, high=e, size=(B, L)) for e in Es]
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
         # indices: T, B, L; offsets: T * B + 1
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
+        indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
         sparse_arch = SparseArch(emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu)
 
         quantization_config = QuantizationConfig()

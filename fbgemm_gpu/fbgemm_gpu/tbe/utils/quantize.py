@@ -91,7 +91,7 @@ def dequantize_embs(
         th_scale_shift: torch.Tensor = scale_shift.view(torch.float16).to(torch.float32)
 
     if weight_ty == SparseType.INT4:
-        (E, D_2) = th_weights.shape
+        E, D_2 = th_weights.shape
         D = D_2 * 2
 
         def comp(i: int) -> torch.Tensor:
@@ -109,7 +109,7 @@ def dequantize_embs(
         return to_device(torch.tensor(comps), use_cpu)
 
     elif weight_ty == SparseType.INT2:
-        (E, D_4) = th_weights.shape
+        E, D_4 = th_weights.shape
         D = D_4 * 4
 
         # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
@@ -129,7 +129,7 @@ def dequantize_embs(
         return to_device(torch.tensor(comps), use_cpu)
 
     elif weight_ty == SparseType.INT8:
-        (E, D) = th_weights.shape
+        E, D = th_weights.shape
         comps = th_weights.to(torch.float32) * th_scale_shift[:, 0].reshape(-1, 1).to(
             torch.float32
         ) + th_scale_shift[:, 1].reshape(-1, 1).to(torch.float32)
@@ -177,7 +177,7 @@ def fake_quantize_embs(
         )
 
     if weight_ty == SparseType.INT4:
-        (E, D_2) = th_weights.shape
+        E, D_2 = th_weights.shape
         D = D_2 * 2
 
         def comp(i: int) -> torch.Tensor:
@@ -195,7 +195,7 @@ def fake_quantize_embs(
         dequant_weights.copy_(to_device(comps, use_cpu))
 
     elif weight_ty == SparseType.INT2:
-        (E, D_4) = th_weights.shape
+        E, D_4 = th_weights.shape
         D = D_4 * 4
 
         # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
@@ -215,7 +215,7 @@ def fake_quantize_embs(
         dequant_weights.copy_(to_device(comps, use_cpu))
 
     elif weight_ty == SparseType.INT8:
-        (E, D) = th_weights.shape
+        E, D = th_weights.shape
         comps = th_weights.to(torch.float32) * th_scale_shift[:, 0].reshape(-1, 1).to(
             torch.float32
         ) + th_scale_shift[:, 1].reshape(-1, 1).to(torch.float32)

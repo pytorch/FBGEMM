@@ -10,7 +10,6 @@ from enum import IntEnum
 
 import torch
 
-
 # We keep LUTs persistent to minimize the number of device copies required.
 E2M1_LUT = torch.tensor(
     [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0, -0.5, -1, -1.5, -2, -3, -4, -6],

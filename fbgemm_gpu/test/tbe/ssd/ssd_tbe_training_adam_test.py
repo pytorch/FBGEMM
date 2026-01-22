@@ -156,7 +156,7 @@ class SSDSplitTBEAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon):
         split_optimizer_states = self.split_optimizer_states_(emb)
 
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-            (m1, m2) = split_optimizer_states[t]
+            m1, m2 = split_optimizer_states[t]
             # Some optimizers have non-float momentum values
             # pyre-ignore[16]
             ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
@@ -311,7 +311,7 @@ class SSDSplitTBEAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon):
         # Compare emb state dict with expected values from nn.EmbeddingBag
         emb_state_dict, _, _, _ = emb.split_embedding_weights(no_snapshot=False)
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-            (m1, m2) = split_optimizer_states[t]
+            m1, m2 = split_optimizer_states[t]
             # Some optimizers have non-float momentum values
             # pyre-ignore[16]
             ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
@@ -489,7 +489,7 @@ class SSDSplitTBEAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon):
 
         # Compare optimizer states
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-            (m1, m2) = split_optimizer_states[t]
+            m1, m2 = split_optimizer_states[t]
             # Some optimizers have non-float momentum values
             # pyre-ignore[16]
             ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
@@ -699,7 +699,7 @@ class SSDSplitTBEAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             # Compare optimizer states
             ####################################################################
 
-            (m1, m2) = split_optimizer_states[t]
+            m1, m2 = split_optimizer_states[t]
             # Some optimizers have non-float momentum values
             # pyre-ignore[16]
             ref_grad = emb_ref[f].weight.grad.cpu().to_dense()
