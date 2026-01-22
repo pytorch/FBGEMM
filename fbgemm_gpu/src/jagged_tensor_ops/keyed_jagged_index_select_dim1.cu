@@ -289,6 +289,9 @@ class KeyedJaggedIndexSelectDim1GPUOp
           MAX_CUMSUM_ENTRIES_PER_BLOCK * ENTRIES_PER_THREAD;
       const auto grid_size = grid_calc(ENTRIES_PER_BLOCK);
 
+      if (grid_size == 0)
+        return;
+
       Tensor block_flags, block_sums;
       if (grid_size > 1) {
         block_flags =
@@ -326,10 +329,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
                             PTA_B(indices, index_t, 1, 32),
                             num_batches,
                             batch_size,
-                            grid_size == 0
-                                ? 0
-                                : num_output_lengths -
-                                    ENTRIES_PER_BLOCK * (grid_size - 1),
+                            num_output_lengths -
+                                ENTRIES_PER_BLOCK * (grid_size - 1),
                             grid_size > 1
                                 ? block_flags.data_ptr<int>()
                                 : nullptr,
