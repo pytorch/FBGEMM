@@ -24,7 +24,11 @@ except Exception:
 import click
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    ELEMENT_SIZE,
+    EmbOptimType as OptimType,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -38,6 +42,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 from fbgemm_gpu.tbe.bench import (
     benchmark_requests,
     benchmark_requests_with_spec,
+    check_oom,
     EmbeddingOpsCommonConfigLoader,
     TBEBenchmarkingConfigLoader,
     TBEDataConfigLoader,
@@ -446,6 +451,50 @@ def device_with_speclist(  # noqa C901
     embconfig = EmbeddingOpsCommonConfigLoader.load(context)
     assert tbeconfig.Es is not None, "E list is not provided"
     assert tbeconfig.Ds is not None, "D list is not provided"
+
+    Bs = (
+        tbeconfig.batch_params.Bs
+        if tbeconfig.batch_params.Bs is not None
+        else [tbeconfig.batch_params.B] * tbeconfig.T
+    )
+    # Init physical table specs
+    _Es = tbeconfig.Es
+    _Ds = tbeconfig.Ds
+
+    # Override if embedding_specs is provided
+    if tbeconfig.embedding_specs:
+        _Es, _Ds = zip(*tbeconfig.embedding_specs)
+        assert (
+            tbeconfig.feature_table_map is not None
+        ), "Expect feature_table_map parameter"
+
+    feature_table_map = (
+        tbeconfig.feature_table_map
+        if tbeconfig.feature_table_map
+        else list(range(len(_Es)))
+    )
+
+    table_size = (
+        sum([e * d for e, d in zip(_Es, _Ds)]) * ELEMENT_SIZE[embconfig.weights_dtype]
+    )
+    # Check if we can allocate the table
+    oom, warning = check_oom(table_size)
+    if oom:
+        # Find unique tables
+        pairs = list(dict.fromkeys(zip(_Es, _Ds)))
+        index_map = {pair: index for index, pair in enumerate(pairs)}
+        # Set the table specs to the unique tables
+        _Es, _Ds = zip(*pairs)
+        # Remap feature to physical table
+        feature_table_map = [
+            index_map[(e, d)] for e, d in zip(tbeconfig.Es, tbeconfig.Ds)
+        ]
+        logging.info(
+            warning
+            + f" Reducing tables to {len(pairs)} unique tables."
+            + f" New feature_table_map={feature_table_map}"
+        )
+
     # Generate feature_requires_grad
     feature_requires_grad = (
         generate_feature_requires_grad(tbeconfig, weighted_num_requires_grad)
@@ -461,15 +510,18 @@ def device_with_speclist(  # noqa C901
         "optimizer": optimizer,
         "learning_rate": 0.1,
         "eps": 0.1,
-        "feature_table_map": list(range(tbeconfig.T)),
+        "feature_table_map": feature_table_map,
     }
-    assert tbeconfig.batch_params.Bs is not None, "B list is not provided"
 
     batch_size_per_feature_per_rank = None
     if tbeconfig.batch_params.sigma_B is not None:
         batch_size_per_feature_per_rank = []
-        for b in tbeconfig.batch_params.Bs:
+        for b in Bs:
             batch_size_per_feature_per_rank.append([b])
+
+    logging.info(
+        f"DEBUG_TBE: VBE [bench] batch_size_per_feature_per_rank={batch_size_per_feature_per_rank} {tbeconfig.batch_params.sigma_B=} {Bs=}"
+    )
 
     managed_option = (
         EmbeddingLocation.DEVICE
@@ -484,7 +536,7 @@ def device_with_speclist(  # noqa C901
                     e,
                     d,
                 )
-                for e, d in zip(tbeconfig.Es, tbeconfig.Ds)
+                for e, d in zip(_Es, _Ds)
             ],
             pooling_mode=embconfig.pooling_mode,
             use_cpu=not torch.cuda.is_available(),
@@ -493,10 +545,10 @@ def device_with_speclist(  # noqa C901
         assert (
             torch.cuda.is_available()
         ), "SSDTableBatchedEmbeddingBags only supports GPU execution"
-        cache_set = max(sum(tbeconfig.batch_params.Bs), 1)
+        cache_set = max(sum(Bs), 1)
         tempdir = tempfile.mkdtemp(prefix=ssd_prefix)
         embedding_op = SSDTableBatchedEmbeddingBags(
-            embedding_specs=[(e, d) for e, d in zip(tbeconfig.Es, tbeconfig.Ds)],
+            embedding_specs=[(e, d) for e, d in zip(_Es, _Ds)],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
             ssd_cache_location=EmbeddingLocation.DEVICE,
@@ -512,7 +564,7 @@ def device_with_speclist(  # noqa C901
                     managed_option,
                     get_available_compute_device(),
                 )
-                for e, d in zip(tbeconfig.Es, tbeconfig.Ds)
+                for e, d in zip(_Es, _Ds)
             ],
             cache_precision=(
                 embconfig.weights_dtype
@@ -533,7 +585,7 @@ def device_with_speclist(  # noqa C901
         #  None, Tensor, Module]` is not a function.
         embedding_op.init_embedding_weights_uniform(-0.0003, 0.0003)
 
-    avg_B = int(np.average(tbeconfig.batch_params.Bs))
+    avg_B = int(np.average(Bs))
 
     nparams = sum(d * e for e, d in zip(tbeconfig.Es, tbeconfig.Ds))
     param_size_multiplier = embconfig.weights_dtype.bit_rate() / 8.0
@@ -647,9 +699,7 @@ def device_with_speclist(  # noqa C901
         if batch_size_per_feature_per_rank is None:
             grad_output = torch.randn(avg_B, sum(tbeconfig.Ds)).to(get_device())
         else:
-            output_size = sum(
-                [b * d for (b, d) in zip(tbeconfig.batch_params.Bs, tbeconfig.Ds)]
-            )
+            output_size = sum([b * d for (b, d) in zip(Bs, tbeconfig.Ds)])
             grad_output = torch.randn(output_size).to(get_device())
 
     else:

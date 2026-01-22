@@ -41,7 +41,7 @@ from .tbe_data_config_param_models import (  # noqa F401
     IndicesParams,
     PoolingParams,
 )
-from .utils import fill_random_scale_bias  # noqa F401
+from .utils import check_oom, fill_random_scale_bias  # noqa F401
 
 try:
     torch.ops.load_library(

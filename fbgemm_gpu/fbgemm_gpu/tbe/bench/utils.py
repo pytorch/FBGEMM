@@ -7,6 +7,7 @@
 # pyre-strict
 
 import logging
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -47,3 +48,13 @@ def fill_random_scale_bias(
                     device=scale_shift.device,
                 )
             )
+
+
+def check_oom(
+    data_size: int,
+) -> Tuple[bool, str]:
+    free_memory, total_memory = torch.cuda.mem_get_info()
+    if data_size > free_memory:
+        warning = f"Expect to allocate {round(data_size / (1024 ** 3), 2)} GB, but available memory is {round(free_memory / (1024 ** 3), 2)} GB from {round(total_memory / (1024 ** 3), 2)} GB."
+        return (True, warning)
+    return (False, "")

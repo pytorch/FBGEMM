@@ -98,7 +98,7 @@ class BatchParams:
     vbe_distribution: Optional[str] = "normal"
     # Number of ranks for variable batch size generation
     vbe_num_ranks: Optional[int] = None
-    # List of target batch sizes, i.e. number of batch lookups per table
+    # List of target batch sizes, i.e. number of batch lookups per feature
     Bs: Optional[list[int]] = None
 
     @classmethod
@@ -142,6 +142,8 @@ class PoolingParams:
     sigma_L: Optional[int] = None
     # [Optional] Distribution of embedding sequence lengths (normal, uniform)
     length_distribution: Optional[str] = "normal"
+    # [Optional] List of target bag sizes, i.e. pooling factors per batch
+    Ls: Optional[list[float]] = None
 
     @classmethod
     # pyre-ignore [3]
