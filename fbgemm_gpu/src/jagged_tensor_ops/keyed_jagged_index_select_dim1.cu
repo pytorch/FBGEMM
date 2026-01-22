@@ -288,15 +288,15 @@ class KeyedJaggedIndexSelectDim1GPUOp
       constexpr int ENTRIES_PER_THREAD = decltype(vec_tag)::value;
       constexpr int ENTRIES_PER_BLOCK =
           MAX_CUMSUM_ENTRIES_PER_BLOCK * ENTRIES_PER_THREAD;
-      const auto grid_size =
+      const auto rocm_grid_size =
           (num_output_lengths + ENTRIES_PER_BLOCK - 1) / ENTRIES_PER_BLOCK;
 
-      if (grid_size == 0)
+      if (rocm_grid_size == 0)
         return;
 
-      if (grid_size > 1) {
-        block_flags = at::zeros({grid_size}, lengths.options().dtype(at::kInt));
-        block_sums = at::empty({grid_size}, output_offsets.options());
+      if (rocm_grid_size > 1) {
+        block_flags = at::zeros({rocm_grid_size}, lengths.options().dtype(at::kInt));
+        block_sums = at::empty({rocm_grid_size}, output_offsets.options());
       }
 
       AT_DISPATCH_INDEX_TYPES(
@@ -319,7 +319,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
                                 MAX_CUMSUM_ENTRIES_PER_BLOCK,
                                 ENTRIES_PER_BLOCK,
                                 ENTRIES_PER_THREAD>),
-                            grid_size,
+                            rocm_grid_size,
                             MAX_CUMSUM_ENTRIES_PER_BLOCK,
                             0,
                             at::cuda::getCurrentCUDAStream(),
@@ -330,11 +330,11 @@ class KeyedJaggedIndexSelectDim1GPUOp
                             num_batches,
                             batch_size,
                             num_output_lengths -
-                                ENTRIES_PER_BLOCK * (grid_size - 1),
-                            grid_size > 1
+                                ENTRIES_PER_BLOCK * (rocm_grid_size - 1),
+                            rocm_grid_size > 1
                                 ? block_flags.data_ptr<int>()
                                 : nullptr,
-                            grid_size > 1
+                            rocm_grid_size > 1
                                 ? block_sums.data_ptr<offset_t>()
                                 : nullptr);
                       });
