@@ -7,6 +7,7 @@
 
 # pyre-strict
 
+import logging
 from typing import Optional
 
 import numpy as np
@@ -35,6 +36,9 @@ except Exception:
 def _generate_batch_sizes(
     tbe_data_config: TBEDataConfig,
 ) -> tuple[list[int], Optional[list[list[int]]]]:
+    logging.info(
+        f"DEBUG_TBE: [_generate_batch_sizes] VBE tbe_data_config.variable_B()={tbe_data_config.variable_B()}"
+    )
     if tbe_data_config.variable_B():
         assert (
             tbe_data_config.batch_params.vbe_num_ranks is not None
@@ -48,7 +52,6 @@ def _generate_batch_sizes(
             # pyre-ignore [6]
             tbe_data_config.batch_params.vbe_distribution,
         )
-
     else:
         return ([tbe_data_config.batch_params.B] * tbe_data_config.T, None)
 
@@ -89,13 +92,15 @@ def _generate_indices(
         start_offset = L_offsets_list[it * total_B]
         end_offset = L_offsets_list[(it + 1) * total_B]
 
+        logging.info(f"DEBUG_TBE: _generate_indices E = {tbe_data_config.E=}")
+
         indices_list.append(
             torch.ops.fbgemm.tbe_generate_indices_from_distribution(
                 tbe_data_config.indices_params.heavy_hitters,
                 tbe_data_config.indices_params.zipf_q,
                 tbe_data_config.indices_params.zipf_s,
                 # max_index = dimensions of the embedding table
-                tbe_data_config.E,
+                int(tbe_data_config.E),
                 # num_indices = number of indices to generate
                 end_offset - start_offset,
             )
@@ -183,6 +188,10 @@ def generate_requests(
         Bs = tbe_data_config.batch_params.Bs
     else:
         Bs, _ = _generate_batch_sizes(tbe_data_config)
+
+    logging.info(
+        f"DEBUG_TBE: VBE [generate_requests] batch_size_per_feature_per_rank={batch_size_per_feature_per_rank} Bs={Bs}"
+    )
 
     assert Bs is not None, "Batch sizes (Bs) must be set"
 
