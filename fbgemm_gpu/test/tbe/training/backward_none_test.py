@@ -316,7 +316,7 @@ class BackwardNoneTest(unittest.TestCase):
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
         xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
+        indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
         embedding_specs = [
             (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
         ]

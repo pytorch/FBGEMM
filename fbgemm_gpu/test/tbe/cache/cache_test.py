@@ -1020,7 +1020,7 @@ class CacheTest(unittest.TestCase):
         for x, t_counter, t_tablewise_cache_miss in zip(
             xs, target_counter_list, target_tablewise_cache_miss_list
         ):
-            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 cc(indices, offsets)
                 (

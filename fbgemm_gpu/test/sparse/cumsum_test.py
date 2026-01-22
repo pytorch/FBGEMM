@@ -44,7 +44,7 @@ class CumSumTest(unittest.TestCase):
         index_types: tuple[type[object], type[object]],
         device: torch.device,
     ) -> None:
-        (pt_index_dtype, np_index_dtype) = index_types
+        pt_index_dtype, np_index_dtype = index_types
 
         # The CPU variants of asynchronous_*_cumsum support floats, since some
         # downstream tests appear to be relying on this behavior.  As such, the
@@ -108,7 +108,7 @@ class CumSumTest(unittest.TestCase):
         index_types: tuple[type[object], type[object]],
         device: torch.device,
     ) -> None:
-        (pt_index_dtype, np_index_dtype) = index_types
+        pt_index_dtype, np_index_dtype = index_types
 
         # The CPU variants of asynchronous_*_cumsum support floats, since some
         # downstream tests appear to be relying on this behavior.  As such, the

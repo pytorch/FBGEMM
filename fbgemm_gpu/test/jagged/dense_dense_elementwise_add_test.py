@@ -275,7 +275,7 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         )
         output_ref = x_padded + y_0 + y_1
         x_values.to(device_type)
-        (output, output_offsets) = torch_compiled(
+        output, output_offsets = torch_compiled(
             torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output,
             fullgraph=True,
             dynamic=True,

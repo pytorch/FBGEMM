@@ -326,7 +326,7 @@ def execute_backward_adagrad(  # noqa C901
     x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
     xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
 
-    (indices, offsets) = get_table_batched_offsets_from_dense(
+    indices, offsets = get_table_batched_offsets_from_dense(
         x, L, sum(Bs), use_cpu=use_cpu
     )
 
@@ -378,7 +378,7 @@ def execute_backward_adagrad(  # noqa C901
     for t in range(T):
         expected_keys = {"sum"}
         if row_wise and weight_decay_mode == WeightDecayMode.COUNTER:
-            (m1, c1, c2) = split_optimizer_states[t]
+            m1, c1, c2 = split_optimizer_states[t]
             expected_keys.update(
                 [
                     "prev_iter",
@@ -401,7 +401,7 @@ def execute_backward_adagrad(  # noqa C901
     for t in range(T):
         # optimizer_state = squares (no row-wise) or sum squares (row-wise)
         if row_wise and weight_decay_mode == WeightDecayMode.COUNTER:
-            (m1, c1, c2) = split_optimizer_states[t]
+            m1, c1, c2 = split_optimizer_states[t]
         else:
             (m1,) = split_optimizer_states[t]
 
