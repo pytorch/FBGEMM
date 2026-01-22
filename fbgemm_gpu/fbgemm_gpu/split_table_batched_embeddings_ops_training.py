@@ -970,7 +970,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         table_has_feature = [False] * T_
         for t in self.feature_table_map:
             table_has_feature[t] = True
-        assert all(table_has_feature), "Each table must have at least one feature!"
+        assert all(table_has_feature), (
+            "Each table must have at least one feature!"
+            + f"{[(i, x) for i, x in enumerate(table_has_feature)]}"
+        )
 
         feature_dims = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(accumulate(feature_dims))
@@ -2232,6 +2235,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 op_id=self.uuid,
                 per_sample_weights=per_sample_weights,
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                embedding_specs=[(s[0], s[1]) for s in self.embedding_specs],
+                feature_table_map=self.feature_table_map,
             )
 
         if not is_torchdynamo_compiling():
