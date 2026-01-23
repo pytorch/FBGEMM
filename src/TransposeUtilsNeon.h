@@ -19,27 +19,23 @@ static inline void transpose_kernel_8x8_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldp q0, q1, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q2, q3, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q4, q5, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q6, q7, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q16, q17, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q18, q19, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q20, q21, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q22, q23, [x0]\t\n"
+      "ldp q0, q1, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q2, q3, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q4, q5, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q6, q7, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q16, q17, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q18, q19, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q20, q21, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q22, q23, [%[src]]\t\n"
 
       "zip1 v24.4s, v0.4s, v2.4s\t\n"
       "zip1 v25.4s, v4.4s, v6.4s\t\n"
@@ -48,13 +44,13 @@ static inline void transpose_kernel_8x8_neon(
 
       "zip1 v28.2d, v24.2d, v25.2d\t\n"
       "zip1 v29.2d, v26.2d, v27.2d\t\n"
-      "lsl x3, x3, #2\t\n"
-      "stp q28, q29, [x2]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "stp q28, q29, [%[dst]]\t\n"
 
       "zip2 v30.2d, v24.2d, v25.2d\t\n"
       "zip2 v31.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q30, q31, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q30, q31, [%[dst]]\t\n"
 
       "zip2 v24.4s, v0.4s, v2.4s\t\n"
       "zip2 v25.4s, v4.4s, v6.4s\t\n"
@@ -63,13 +59,13 @@ static inline void transpose_kernel_8x8_neon(
 
       "zip1 v28.2d, v24.2d, v25.2d\t\n"
       "zip1 v29.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q28, q29, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q28, q29, [%[dst]]\t\n"
 
       "zip2 v30.2d, v24.2d, v25.2d\t\n"
       "zip2 v31.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q30, q31, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q30, q31, [%[dst]]\t\n"
 
       "zip1 v24.4s, v1.4s, v3.4s\t\n"
       "zip1 v25.4s, v5.4s, v7.4s\t\n"
@@ -78,13 +74,13 @@ static inline void transpose_kernel_8x8_neon(
 
       "zip1 v28.2d, v24.2d, v25.2d\t\n"
       "zip1 v29.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q28, q29, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q28, q29, [%[dst]]\t\n"
 
       "zip2 v30.2d, v24.2d, v25.2d\t\n"
       "zip2 v31.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q30, q31, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q30, q31, [%[dst]]\t\n"
 
       "zip2 v24.4s, v1.4s, v3.4s\t\n"
       "zip2 v25.4s, v5.4s, v7.4s\t\n"
@@ -93,23 +89,21 @@ static inline void transpose_kernel_8x8_neon(
 
       "zip1 v28.2d, v24.2d, v25.2d\t\n"
       "zip1 v29.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q28, q29, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q28, q29, [%[dst]]\t\n"
 
       "zip2 v30.2d, v24.2d, v25.2d\t\n"
       "zip2 v31.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q30, q31, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q30, q31, [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
       : "memory",
         "cc",
-        "x0",
-        "x1",
-        "x2",
-        "x3",
         "v0",
         "v1",
         "v2",
@@ -142,27 +136,23 @@ static inline void transpose_kernel_8x4_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldr q0, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q1, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q2, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q3, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q4, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q5, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q6, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q7, [x0]\t\n"
+      "ldr q0, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q1, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q2, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q3, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q4, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q5, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q6, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q7, [%[src]]\t\n"
 
       "zip1 v16.4s, v0.4s, v1.4s\t\n"
       "zip1 v17.4s, v2.4s, v3.4s\t\n"
@@ -171,13 +161,13 @@ static inline void transpose_kernel_8x4_neon(
 
       "zip1 v20.2d, v16.2d, v17.2d\t\n"
       "zip1 v21.2d, v18.2d, v19.2d\t\n"
-      "lsl x3, x3, #2\t\n"
-      "stp q20, q21, [x2]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "stp q20, q21, [%[dst]]\t\n"
 
       "zip2 v22.2d, v16.2d, v17.2d\t\n"
       "zip2 v23.2d, v18.2d, v19.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q22, q23, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q22, q23, [%[dst]]\t\n"
 
       "zip2 v24.4s, v0.4s, v1.4s\t\n"
       "zip2 v25.4s, v2.4s, v3.4s\t\n"
@@ -186,23 +176,21 @@ static inline void transpose_kernel_8x4_neon(
 
       "zip1 v28.2d, v24.2d, v25.2d\t\n"
       "zip1 v29.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q28, q29, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q28, q29, [%[dst]]\t\n"
 
       "zip2 v30.2d, v24.2d, v25.2d\t\n"
       "zip2 v31.2d, v26.2d, v27.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q30, q31, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q30, q31, [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
       : "memory",
         "cc",
-        "x0",
-        "x1",
-        "x2",
-        "x3",
         "v0",
         "v1",
         "v2",
@@ -235,27 +223,23 @@ static inline void transpose_kernel_8x2_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldr d0, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d1, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d2, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d3, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d4, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d5, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d6, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d7, [x0]\t\n"
+      "ldr d0, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d1, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d2, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d3, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d4, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d5, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d6, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d7, [%[src]]\t\n"
 
       "zip1 v16.2s, v0.2s, v1.2s\t\n"
       "zip1 v17.2s, v2.2s, v3.2s\t\n"
@@ -264,8 +248,8 @@ static inline void transpose_kernel_8x2_neon(
 
       "zip1 v20.2d, v16.2d, v17.2d\t\n"
       "zip1 v21.2d, v18.2d, v19.2d\t\n"
-      "lsl x3, x3, #2\t\n"
-      "stp q20, q21, [x2]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "stp q20, q21, [%[dst]]\t\n"
 
       "zip2 v22.2s, v0.2s, v1.2s\t\n"
       "zip2 v23.2s, v2.2s, v3.2s\t\n"
@@ -274,18 +258,16 @@ static inline void transpose_kernel_8x2_neon(
 
       "zip1 v26.2d, v22.2d, v23.2d\t\n"
       "zip1 v27.2d, v24.2d, v25.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "stp q26, q27, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "stp q26, q27, [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
       : "memory",
         "cc",
-        "x0",
-        "x1",
-        "x2",
-        "x3",
         "v0",
         "v1",
         "v2",
@@ -314,73 +296,67 @@ static inline void transpose_kernel_4x8_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldp q0, q1, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q2, q3, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q4, q5, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q6, q7, [x0]\t\n"
+      "ldp q0, q1, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q2, q3, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q4, q5, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q6, q7, [%[src]]\t\n"
 
       "zip1 v16.4s, v0.4s, v2.4s\t\n"
       "zip1 v17.4s, v4.4s, v6.4s\t\n"
 
       "zip1 v18.2d, v16.2d, v17.2d\t\n"
-      "lsl x3, x3, #2\t\n"
-      "str q18, [x2]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "str q18, [%[dst]]\t\n"
 
       "zip2 v19.2d, v16.2d, v17.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q19, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q19, [%[dst]]\t\n"
 
       "zip2 v20.4s, v0.4s, v2.4s\t\n"
       "zip2 v21.4s, v4.4s, v6.4s\t\n"
 
       "zip1 v22.2d, v20.2d, v21.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q22, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q22, [%[dst]]\t\n"
 
       "zip2 v23.2d, v20.2d, v21.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q23, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q23, [%[dst]]\t\n"
 
       "zip1 v24.4s, v1.4s, v3.4s\t\n"
       "zip1 v25.4s, v5.4s, v7.4s\t\n"
 
       "zip1 v26.2d, v24.2d, v25.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q26, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q26, [%[dst]]\t\n"
 
       "zip2 v27.2d, v24.2d, v25.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q27, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q27, [%[dst]]\t\n"
 
       "zip2 v28.4s, v1.4s, v3.4s\t\n"
       "zip2 v29.4s, v5.4s, v7.4s\t\n"
 
       "zip1 v30.2d, v28.2d, v29.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q30, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q30, [%[dst]]\t\n"
 
       "zip2 v31.2d, v28.2d, v29.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q31, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q31, [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
       : "memory",
         "cc",
-        "x0",
-        "x1",
-        "x2",
-        "x3",
         "v0",
         "v1",
         "v2",
@@ -413,51 +389,45 @@ static inline void transpose_kernel_4x4_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldr q0, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q1, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q2, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q3, [x0]\t\n"
+      "ldr q0, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q1, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q2, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q3, [%[src]]\t\n"
 
       "zip1 v4.4s, v0.4s, v1.4s\t\n"
       "zip1 v5.4s, v2.4s, v3.4s\t\n"
 
       "zip1 v6.2d, v4.2d, v5.2d\t\n"
-      "lsl x3, x3, #2\t\n"
-      "str q6, [x2]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "str q6, [%[dst]]\t\n"
 
       "zip2 v7.2d, v4.2d, v5.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q7, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q7, [%[dst]]\t\n"
 
       "zip2 v16.4s, v0.4s, v1.4s\t\n"
       "zip2 v17.4s, v2.4s, v3.4s\t\n"
 
       "zip1 v18.2d, v16.2d, v17.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q18, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q18, [%[dst]]\t\n"
 
       "zip2 v19.2d, v16.2d, v17.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q19, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q19, [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
       : "memory",
         "cc",
-        "x0",
-        "x1",
-        "x2",
-        "x3",
         "v0",
         "v1",
         "v2",
@@ -478,43 +448,37 @@ static inline void transpose_kernel_4x2_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldr d0, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d1, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d2, [x0]\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d3, [x0]\t\n"
+      "ldr d0, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d1, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d2, [%[src]]\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d3, [%[src]]\t\n"
 
       "zip1 v16.2s, v0.2s, v1.2s\t\n"
       "zip1 v17.2s, v2.2s, v3.2s\t\n"
 
       "zip1 v18.2d, v16.2d, v17.2d\t\n"
-      "lsl x3, x3, #2\t\n"
-      "str q18, [x2]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "str q18, [%[dst]]\t\n"
 
       "zip2 v19.2s, v0.2s, v1.2s\t\n"
       "zip2 v20.2s, v2.2s, v3.2s\t\n"
 
       "zip1 v21.2d, v19.2d, v20.2d\t\n"
-      "add x2, x2, x3\t\n"
-      "str q21, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str q21, [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
       : "memory",
         "cc",
-        "x0",
-        "x1",
-        "x2",
-        "x3",
         "v0",
         "v1",
         "v2",
@@ -537,57 +501,51 @@ static inline void transpose_kernel_2x8_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldp q0, q1, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldp q2, q3, [x0]\t\n"
+      "ldp q0, q1, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldp q2, q3, [%[src]]\t\n"
 
       "zip1 v4.4s, v0.4s, v2.4s\t\n"
-      "lsl x3, x3, #2\t\n"
-      "str d4, [x2]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "str d4, [%[dst]]\t\n"
 
       "dup v5.2d, v4.d[1]\t\n"
-      "add x2, x2, x3\t\n"
-      "str d5, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str d5, [%[dst]]\t\n"
 
       "zip2 v6.4s, v0.4s, v2.4s\t\n"
-      "add x2, x2, x3\t\n"
-      "str d6, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str d6, [%[dst]]\t\n"
 
       "dup v7.2d, v6.d[1]\t\n"
-      "add x2, x2, x3\t\n"
-      "str d7, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str d7, [%[dst]]\t\n"
 
       "zip1 v16.4s, v1.4s, v3.4s\t\n"
-      "add x2, x2, x3\t\n"
-      "str d16, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str d16, [%[dst]]\t\n"
 
       "dup v17.2d, v16.d[1]\t\n"
-      "add x2, x2, x3\t\n"
-      "str d17, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str d17, [%[dst]]\t\n"
 
       "zip2 v18.4s, v1.4s, v3.4s\t\n"
-      "add x2, x2, x3\t\n"
-      "str d18, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str d18, [%[dst]]\t\n"
 
       "dup v19.2d, v18.d[1]\t\n"
-      "add x2, x2, x3\t\n"
-      "str d19, [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "str d19, [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
       : "memory",
         "cc",
-        "x0",
-        "x1",
-        "x2",
-        "x3",
         "v0",
         "v1",
         "v2",
@@ -608,34 +566,32 @@ static inline void transpose_kernel_2x4_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldr q0, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr q1, [x0]\t\n"
+      "ldr q0, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr q1, [%[src]]\t\n"
 
       "zip1 v2.4s, v0.4s, v1.4s\t\n"
 
-      "st1 {v2.d}[0], [x2]\t\n"
-      "lsl x3, x3, #2\t\n"
-      "add x2, x2, x3\t\n"
-      "st1 {v2.d}[1], [x2]\t\n"
+      "st1 {v2.d}[0], [%[dst]]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "st1 {v2.d}[1], [%[dst]]\t\n"
 
       "zip2 v3.4s, v0.4s, v1.4s\t\n"
 
-      "add x2, x2, x3\t\n"
-      "st1 {v3.d}[0], [x2]\t\n"
-      "add x2, x2, x3\t\n"
-      "st1 {v3.d}[1], [x2]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "st1 {v3.d}[0], [%[dst]]\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "st1 {v3.d}[1], [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
-      : "memory", "cc", "x0", "x1", "x2", "x3", "v0", "v1", "v2", "v3");
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
+      : "memory", "cc", "v0", "v1", "v2", "v3");
 }
 
 static inline void transpose_kernel_2x2_neon(
@@ -644,27 +600,25 @@ static inline void transpose_kernel_2x2_neon(
     float* dst,
     int64_t ld_dst) {
   asm volatile(
-      "mov x0, %[src]\t\n"
-      "mov x1, %[ld_src]\t\n"
-      "mov x2, %[dst]\t\n"
-      "mov x3, %[ld_dst]\t\n"
 
-      "ldr d0, [x0]\t\n"
-      "lsl x1, x1, #2\t\n"
-      "add x0, x0, x1\t\n"
-      "ldr d1, [x0]\t\n"
+      "ldr d0, [%[src]]\t\n"
+      "lsl %[ld_src], %[ld_src], #2\t\n"
+      "add %[src], %[src], %[ld_src]\t\n"
+      "ldr d1, [%[src]]\t\n"
 
       "zip1 v2.4s, v0.4s, v1.4s\t\n"
 
-      "st1 {v2.d}[0], [x2]\t\n"
-      "lsl x3, x3, #2\t\n"
-      "add x2, x2, x3\t\n"
-      "st1 {v2.d}[1], [x2]\t\n"
+      "st1 {v2.d}[0], [%[dst]]\t\n"
+      "lsl %[ld_dst], %[ld_dst], #2\t\n"
+      "add %[dst], %[dst], %[ld_dst]\t\n"
+      "st1 {v2.d}[1], [%[dst]]\t\n"
 
-      :
-      :
-      [src] "r"(src), [ld_src] "r"(ld_src), [dst] "r"(dst), [ld_dst] "r"(ld_dst)
-      : "memory", "cc", "x0", "x1", "x2", "x3", "v0", "v1", "v2");
+      : [src] "=r"(src),
+        [ld_src] "=r"(ld_src),
+        [dst] "=r"(dst),
+        [ld_dst] "=r"(ld_dst)
+      : "[src]"(src), "[ld_src]"(ld_src), "[dst]"(dst), "[ld_dst]"(ld_dst)
+      : "memory", "cc", "v0", "v1", "v2");
 }
 
 } // namespace internal
