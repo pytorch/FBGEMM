@@ -94,6 +94,54 @@ class PermuteEmbeddingsTest(unittest.TestCase):
             )
             torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
 
+    @given(
+        weights_dtype=st.sampled_from([torch.float, torch.double, torch.half]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_permute_2D_sparse_data_weights_dtype(
+        self, weights_dtype: torch.dtype
+    ) -> None:
+        """Test permute_2D_sparse_data with different weights dtypes (float, double, half)."""
+        B, T, L = 10, 5, 8
+        lengths = torch.randint(low=1, high=L, size=(T, B), dtype=torch.int32)
+        embeddings = torch.rand(int(lengths.sum().item())).float()
+        permute = torch.randperm(T, dtype=torch.int32)
+        weights = torch.rand(int(lengths.sum().item()), dtype=weights_dtype)
+
+        (
+            permuted_lengths_ref,
+            permuted_embeddings_ref,
+            permuted_weights_ref,
+            # pyre-fixme[6]: For 4th param expected `LongTensor` but got `Tensor`.
+        ) = permute_indices_ref_(lengths, embeddings, weights, permute.long())
+
+        # Test on CPU
+        permuted_lengths_cpu, permuted_embeddings_cpu, permuted_weights_cpu = (
+            torch.ops.fbgemm.permute_2D_sparse_data(
+                permute, lengths, embeddings, weights
+            )
+        )
+        torch.testing.assert_close(permuted_embeddings_cpu, permuted_embeddings_ref)
+        torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
+        torch.testing.assert_close(permuted_weights_cpu, permuted_weights_ref)
+
+        # Test on GPU if available
+        if gpu_available:
+            permuted_lengths_gpu, permuted_embeddings_gpu, permuted_weights_gpu = (
+                torch.ops.fbgemm.permute_2D_sparse_data(
+                    permute.cuda(),
+                    lengths.cuda(),
+                    embeddings.cuda(),
+                    weights.cuda(),
+                )
+            )
+
+            torch.testing.assert_close(
+                permuted_embeddings_gpu.cpu(), permuted_embeddings_cpu
+            )
+            torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+            torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+
 
 extend_test_class(PermuteEmbeddingsTest)
 
