@@ -164,7 +164,7 @@ class SSDScratchPadIndicesQueueImpl
       const Tensor& inserted_indices_curr,
       const Tensor& count_curr) {
     TORCH_CHECK(
-        index_loc_map_queue.size() > 0,
+        !index_loc_map_queue.empty(),
         "index_loc_map_queue must not be empty");
 
     const auto count_ = count_curr.item<int64_t>();

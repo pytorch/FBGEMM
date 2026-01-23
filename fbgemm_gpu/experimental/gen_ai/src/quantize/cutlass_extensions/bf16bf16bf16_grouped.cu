@@ -783,6 +783,7 @@ OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
 
   // Allocate output tensor.
   std::vector<int64_t> output_sizes;
+  output_sizes.reserve(G);
   int64_t total_output_size = 0;
   for (int i = 0; i < G; ++i) {
     int64_t M = X[i].size(0);

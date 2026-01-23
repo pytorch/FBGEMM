@@ -15,7 +15,7 @@
 #ifdef FBGEMM_USE_FOLLY
 #include <folly/container/F14Map.h>
 #else
-#include <map>
+#include <unordered_map>
 #endif
 
 #include "eeg_models.h"
@@ -68,7 +68,7 @@ class IndicesEstimator {
 #ifdef FBGEMM_USE_FOLLY
   folly::F14FastMap<int64_t, int64_t> indexCounts_;
 #else
-  std::map<int64_t, int64_t> indexCounts_;
+  std::unordered_map<int64_t, int64_t> indexCounts_;
 #endif
 
   // After constructor is called, freqs_ is kept in descending order and is

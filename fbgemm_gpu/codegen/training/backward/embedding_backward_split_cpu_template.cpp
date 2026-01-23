@@ -123,8 +123,8 @@ for (const auto t : c10::irange(num_tables)) {
 
     {% if optimizer == "rowwise_adagrad" %}
     const auto hash_size = get_hash_size(feature_begin);
-    constexpr bool use_fbgemm = std::is_same<scalar_t, float>::value
-                                && std::is_same<scalar_t, grad_t>::value;
+    constexpr bool use_fbgemm = std::is_same_v<scalar_t, float>
+                                && std::is_same_v<scalar_t, grad_t>;
     // || std::is_same<scalar_t, at::Half>::value;
     if (use_fbgemm && !is_shared_table) {
       // fbgemm handles common case of no shared table
@@ -259,8 +259,8 @@ void split_embedding_nobag_backward_exact_cpu_kernel(
       const auto offsets_data = offsets.const_data_ptr<index_t>();
       const auto weights_offsets_data = weights_offsets.const_data_ptr<int64_t>();
      
-      typedef std::unordered_map<int64_t, std::vector<at::acc_type<grad_t, true>>> tb_grad_buffer_map_t;
-      typedef std::unordered_map<int64_t, int64_t> tb_fb_map_t;
+      using tb_grad_buffer_map_t = std::unordered_map<int64_t, std::vector<at::acc_type<grad_t, true>>>;
+      using tb_fb_map_t = std::unordered_map<int64_t, int64_t>;
 
       std::unordered_map<index_t, tb_grad_buffer_map_t> idx_tb_grad_buffer;
       std::unordered_map<index_t, tb_fb_map_t> idx_tb_fb;
@@ -268,7 +268,7 @@ void split_embedding_nobag_backward_exact_cpu_kernel(
       int64_t T = weights_offsets.size(0);
       for (const auto t : c10::irange(T)) {
         int64_t hash_size = 0;
-        int64_t t_temp = static_cast<int64_t>(t) + 1;
+        int64_t t_temp = t + 1;
         do {
           hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
           ++t_temp;
