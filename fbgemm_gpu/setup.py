@@ -8,6 +8,7 @@ import argparse
 import logging
 import os
 import pprint
+import re
 import subprocess
 import sys
 import textwrap
@@ -246,9 +247,14 @@ class FbgemmGpuBuild:
         else:
             # For non-Nova workflow contexts, i.e. PyPI, we want to maintain the
             # `rcN` suffix in the version string
-            #
-            # E.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0
-            pkg_version = gitversion.version_from_git().public
+
+            # Remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
+            pkg_version = re.sub(
+                r"\.post0$",
+                "",
+                # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
+                gitversion.version_from_git().public,
+            )
 
         full_version_string = f"{pkg_version}{pkg_vver}"
         logging.debug(
