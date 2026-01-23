@@ -48,7 +48,6 @@ DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
 
   CUDA_DEVICE_GUARD(permute);
 
-  const auto permute_contig = permute.contiguous();
   const auto permute_size = permute.numel();
 
   Tensor output_permute = at::empty({output_size}, permute.options());

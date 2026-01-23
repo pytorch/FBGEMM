@@ -28,15 +28,10 @@
 #define FLOAT32_TRAILING_MBITS 23
 #define FLOAT32_IMPLIED1 (1 << FLOAT32_TRAILING_MBITS)
 #define FLOAT32_FULL_MBITS (FLOAT32_TRAILING_MBITS + 1)
-#define FLOAT32_INF 0x7fe00000
 #define FLOAT32_EXP_OFFSET 23
 #define FLOAT32_SIGN_OFFSET 31
 #define FLOAT32_EXP_MASK 0x7f800000
 #define FLOAT32_MANTISSA_MASK 0x007fffff
-
-#define FLOAT16_MIN_NORMAL_EXP -14
-#define FLOAT16_MAX_EXP 15
-#define FLOAT16_EXP_BIAS 15
 
 //---------------------------------------------------------
 // Helper types/structs

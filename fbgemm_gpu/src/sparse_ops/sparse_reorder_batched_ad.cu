@@ -532,7 +532,6 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
       cat_sequence_embeddings_offsets[input_segment_offset_start];
   const auto input_segment_end =
       cat_sequence_embeddings_offsets[input_segment_offset_end];
-  const auto num_elements = input_segment_end - input_segment_start;
 
   for (size_t i = 0; i < input_segment_end - input_segment_start; i++) {
     const auto output_offset = output_segment_start + i;

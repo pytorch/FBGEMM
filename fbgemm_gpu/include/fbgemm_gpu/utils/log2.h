@@ -21,10 +21,3 @@ template <int x>
 struct log2_calc {
   enum { value = log2_calc_<(x - 1)>::value };
 };
-
-#if 0
-template <>
-struct log2_calc<0> { enum { value = 0 }; };
-template <>
-struct log2_calc<1> { enum { value = 0 }; };
-#endif

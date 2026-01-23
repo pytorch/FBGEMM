@@ -466,10 +466,6 @@ __global__ void __launch_bounds__(
   CollectiveMainloop collective_mainloop;
   CollectiveEpilogue collective_epilogue;
 
-  float descale_q = *mainloop_params.descale_q_ptr;
-  float descale_k = *mainloop_params.descale_k_ptr;
-  float descale_v = *mainloop_params.descale_v_ptr;
-
   // We need this to guarantee that the Pipeline init is visible to all
   // producers and consumer blocks in the Cluster
   if constexpr (size(ClusterShape{}) > 1) {

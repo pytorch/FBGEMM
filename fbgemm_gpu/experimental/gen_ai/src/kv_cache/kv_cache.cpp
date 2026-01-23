@@ -259,10 +259,6 @@ at::Tensor quantize_qkv_per_head_meta(
     int64_t /* B */,
     std::optional<at::Tensor> /* qparam_k */,
     std::optional<at::Tensor> /* qparam_v */) {
-  const at::SymInt B_KV = cache_K.sym_size(0);
-  const at::SymInt N_KVH = cache_K.sym_size(2);
-  auto xq_scale =
-      at::empty_symint({B_KV, N_KVH}, cache_K.options().dtype(at::kFloat));
   return at::empty_like(XQKV);
 }
 

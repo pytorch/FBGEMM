@@ -296,8 +296,8 @@ class FixedBlockPool : public std::pmr::memory_resource {
   // Core deallocation function
   void do_deallocate(
       void* p,
-      [[maybe_unused]] std::size_t bytes,
-      [[maybe_unused]] std::size_t alignment) override {
+      std::size_t bytes [[maybe_unused]],
+      std::size_t alignment [[maybe_unused]]) override {
     // Insert memory block back to the head of free list
     *static_cast<void**>(p) = free_list_;
     free_list_ = p;
