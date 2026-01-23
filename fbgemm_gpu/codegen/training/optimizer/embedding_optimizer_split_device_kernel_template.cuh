@@ -56,7 +56,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     const uint32_t shfl_sync_mask,
     const int32_t max_vecs_per_thread,
     {%- if ssd %}
-    const bool enable_optimizer_offloading,
+    const bool enable_optimizer_offloading [[maybe_unused]],
     {%- endif %}
     {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {

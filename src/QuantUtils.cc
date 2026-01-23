@@ -267,7 +267,7 @@ FBGEMM_SPECIALIZED_QUANTIZE(uint8_t, false)
       const TensorQuantizationParams& qparams,                      \
       int thread_id,                                                \
       int num_threads,                                              \
-      [[maybe_unused]] float noise_ratio) {                         \
+      float noise_ratio [[maybe_unused]]) {                         \
     int64_t i_begin, i_end;                                         \
     fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
     for (int64_t i = i_begin; i < i_end; ++i) {                     \
@@ -627,7 +627,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
     size_t input_rows,
     int input_columns,
     std::uint8_t* output,
-    const InputType* rowwise_min_max) {
+    const InputType* rowwise_min_max [[maybe_unused]]) {
   // Currenlty we can only dequantize if the number of input columns
   // is a multiple of number of elements_per_byte
 
@@ -735,7 +735,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
     size_t input_rows,
     int input_columns,
     std::uint8_t* output,
-    const InputType* rowwise_min_max) {
+    const InputType* rowwise_min_max [[maybe_unused]]) {
 #if HAVE_SVE
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon<InputType>(
       input, input_rows, input_columns, output);
@@ -806,7 +806,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     size_t input_rows,
     int input_columns,
     OutputType* output,
-    [[maybe_unused]] bool scale_bias_last) {
+    bool scale_bias_last [[maybe_unused]]) {
 #if HAVE_SVE
   switch (bit_rate) {
     case 2:
@@ -908,8 +908,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     size_t input_rows,
     int input_columns,
     OutputType* output,
-    const bool scale_bias_last,
-    const bool quant_padding_float_type) {
+    const bool scale_bias_last [[maybe_unused]],
+    const bool quant_padding_float_type [[maybe_unused]]) {
 #if HAVE_SVE
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon<OutputType>(
       input, input_rows, input_columns, output);

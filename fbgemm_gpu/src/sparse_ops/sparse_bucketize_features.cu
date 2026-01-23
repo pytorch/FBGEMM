@@ -163,7 +163,6 @@ bucketize_sparse_features_cuda(
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size}, lengths.options());
   auto new_indices = at::empty_like(indices);
-  auto lengths_contig = lengths.contiguous();
   auto indices_contig = indices.contiguous();
   auto offsets_contig = offsets.contiguous();
   Tensor new_weights;

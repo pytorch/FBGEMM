@@ -101,8 +101,8 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> sorted_{{ locs_or_addrs_tensor }},
-    const bool use_uniq_cache_locations,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
+    const bool use_uniq_cache_locations [[maybe_unused]],
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets [[maybe_unused]],
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
@@ -113,7 +113,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     {%- else %}
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- if optimizer == "none" %}
-    const int32_t max_D,
+    const int32_t max_D [[maybe_unused]],
     {%- endif %}
     {%- endif %} // if not dense and optimizer != "none"
     {%- if vbe %}
@@ -140,7 +140,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     const float gwd_lower_bound,
     {%- endif %}
     {%- if ssd %}
-    const bool enable_optimizer_offloading,
+    const bool enable_optimizer_offloading [[maybe_unused]],
     {%- endif %}
     {%- if is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
@@ -192,8 +192,8 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> sorted_{{ locs_or_addrs_tensor }},
-    const bool use_uniq_cache_locations,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
+    const bool use_uniq_cache_locations [[maybe_unused]],
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets [[maybe_unused]],
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
@@ -226,7 +226,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     const float gwd_lower_bound,
     {%- endif %}
     {%- if ssd %}
-    const bool enable_optimizer_offloading,
+    const bool enable_optimizer_offloading [[maybe_unused]],
     {%- endif %}
     {%- if is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
@@ -275,8 +275,8 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
-    const bool use_uniq_cache_locations,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
+    const bool use_uniq_cache_locations [[maybe_unused]],
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets [[maybe_unused]],
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
@@ -555,7 +555,7 @@ Tensor {{ embedding_cuda_op }}(
     const Tensor& {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if not is_index_select %}
-    const int64_t unused_,
+    const int64_t unused_ [[maybe_unused]],
     {%- endif %}
     const int64_t max_segment_length_per_warp,
     {%- if not dense %}

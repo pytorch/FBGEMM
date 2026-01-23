@@ -30,16 +30,16 @@ class SnapshotHandle {};
 
 KVTensorWrapper::KVTensorWrapper(
     std::vector<int64_t> shape,
-    [[maybe_unused]] int64_t dtype,
+    int64_t dtype [[maybe_unused]],
     int64_t row_offset,
-    [[maybe_unused]] const std::optional<
-        c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>> snapshot_handle,
-    [[maybe_unused]] const std::optional<at::Tensor> sorted_indices,
-    [[maybe_unused]] int64_t width_offset,
+    const std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+        snapshot_handle [[maybe_unused]],
+    const std::optional<at::Tensor> sorted_indices [[maybe_unused]],
+    int64_t width_offset [[maybe_unused]],
     [[maybe_unused]] const std::optional<
         c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>,
-    [[maybe_unused]] bool read_only,
-    [[maybe_unused]] bool only_load_weight)
+    bool read_only [[maybe_unused]],
+    bool only_load_weight [[maybe_unused]])
     // @lint-ignore CLANGTIDY clang-diagnostic-missing-noreturn
     : shape_(std::move(shape)), row_offset_(row_offset) {
   FBEXCEPTION("Not implemented");
@@ -56,19 +56,19 @@ void KVTensorWrapper::set_dram_db_wrapper(
 }
 
 at::Tensor KVTensorWrapper::narrow(
-    [[maybe_unused]] int64_t dim,
-    [[maybe_unused]] int64_t start,
-    [[maybe_unused]] int64_t length) {
+    int64_t dim [[maybe_unused]],
+    int64_t start [[maybe_unused]],
+    int64_t length [[maybe_unused]]) {
   FBEXCEPTION("Not implemented");
   return {};
 }
 
 void KVTensorWrapper::set_range(
-    [[maybe_unused]] int64_t dim,
-    [[maybe_unused]] const int64_t start,
-    [[maybe_unused]] const int64_t length,
+    int64_t dim [[maybe_unused]],
+    const int64_t start [[maybe_unused]],
+    const int64_t length [[maybe_unused]],
     // @lint-ignore CLANGTIDY clang-diagnostic-missing-noreturn
-    [[maybe_unused]] at::Tensor& weights) {
+    at::Tensor& weights [[maybe_unused]]) {
   FBEXCEPTION("Not implemented");
 }
 

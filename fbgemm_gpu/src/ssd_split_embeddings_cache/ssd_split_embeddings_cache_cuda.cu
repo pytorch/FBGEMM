@@ -137,10 +137,6 @@ Tensor masked_index_impl(
       is_index_put ? "masked_index_put" : "masked_index_select",
       [&] {
         using value_t = scalar_t;
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = is_index_put ? "masked_index_put_kernel"
-                                            : "masked_index_select_kernel";
-#endif
         if constexpr (std::is_same_v<value_t, uint8_t>) {
           TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16");
         }
@@ -746,9 +742,6 @@ void compact_indices_cuda(
   }
 
   const auto offsets = asynchronous_complete_cumsum_gpu(masks);
-#ifdef FBGEMM_GPU_MEMCHECK
-  const auto func_name = "compact_indices_kernel";
-#endif
 
   for (auto i = 0; i < num_tensors; ++i) {
     FBGEMM_DISPATCH_INTEGRAL_TYPES(

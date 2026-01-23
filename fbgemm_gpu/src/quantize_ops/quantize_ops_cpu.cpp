@@ -432,7 +432,7 @@ Tensor fusednbitrowwise_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t bit_rate,
     const int64_t output_dtype,
-    [[maybe_unused]] const bool scale_bias_last) {
+    const bool scale_bias_last [[maybe_unused]]) {
   Tensor output;
 
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);

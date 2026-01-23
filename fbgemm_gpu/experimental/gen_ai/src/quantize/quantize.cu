@@ -495,7 +495,6 @@ __global__ void scaleMatrixRowwise2(
     at::PhiloxCudaState stochastic_rounding_philox_args) {
   auto stoc_rounding_state = StochasticRoundingRNGState(
       stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
-  auto input_scal = static_cast<float>(input_scale[0]);
 
   auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
   auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);

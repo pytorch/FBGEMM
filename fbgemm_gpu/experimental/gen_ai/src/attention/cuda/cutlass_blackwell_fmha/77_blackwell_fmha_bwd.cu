@@ -604,8 +604,6 @@ struct BwdRunner {
     // but in problem_shape, they've got to be max_Q/max_K, and B = B
 
     auto shape_Q = make_shape(Q, D, HB);
-    auto shape_K = make_shape(K, D, HB);
-    auto shape_V = make_shape(K, D_VO, HB);
     auto shape_O = make_shape(Q, D_VO, HB);
     auto shape_LSE = make_shape(Q, HB);
 

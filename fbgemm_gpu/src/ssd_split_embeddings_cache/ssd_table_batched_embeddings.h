@@ -359,7 +359,6 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       rocksdb::Options& options,
       bool use_passed_in_path) {
 #ifdef FBGEMM_FBCODE
-    std::string used_path = "";
     auto serviceInfo = std::make_shared<facebook::fb_rocksdb::ServiceInfo>();
     serviceInfo->oncall = "pyper_training";
     serviceInfo->service_name = "ssd_offloading_rocksb";

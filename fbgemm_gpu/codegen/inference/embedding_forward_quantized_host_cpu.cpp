@@ -98,10 +98,10 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
     int64_t pooling_mode,
     std::optional<Tensor> indice_weights,
     int64_t output_dtype,
-    std::optional<Tensor>
-        lxu_cache_weights, // Not used, to match cache interface for CUDA op
-    std::optional<Tensor>
-        lxu_cache_locations, // Not used, to match cache interface for CUDA op
+    std::optional<Tensor> lxu_cache_weights
+    [[maybe_unused]], // Not used, to match cache interface for CUDA op
+    std::optional<Tensor> lxu_cache_locations
+    [[maybe_unused]], // Not used, to match cache interface for CUDA op
     std::optional<int64_t> row_alignment,
     std::optional<int64_t> max_float8_D,
     std::optional<int64_t> fp8_exponent_bits,
@@ -192,10 +192,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     int64_t pooling_mode,
     std::optional<Tensor> indice_weights,
     int64_t output_dtype,
-    std::optional<Tensor>
-        lxu_cache_weights, // Not used, to match cache interface for CUDA op
-    std::optional<Tensor>
-        lxu_cache_locations, // Not used, to match cache interface for CUDA op
+    std::optional<Tensor> lxu_cache_weights,
+    std::optional<Tensor> lxu_cache_locations,
     std::optional<int64_t> row_alignment,
     std::optional<int64_t> max_float8_D,
     std::optional<int64_t> fp8_exponent_bits,
@@ -623,8 +621,9 @@ struct TensorQueue : torch::CustomClassHolder {
       std::tuple<std::string, std::vector<Tensor>>>
   __obj_flatten__() {
     std::vector<Tensor> queue_vec;
+    queue_vec.reserve(queue_.size());
     for (const auto& val : queue_) {
-      queue_vec.push_back(val);
+      queue_vec.emplace_back(val);
     }
     return std::make_tuple(
         std::make_tuple("init_tensor", init_tensor_),
