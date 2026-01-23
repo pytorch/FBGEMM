@@ -1789,6 +1789,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache: int,
         total_static_sparse: int,
         ephemeral: int,
+        cache_weights: int = 0,
+        cache_aux: int = 0,
     ) -> None:
         """Report HBM memory breakdown to stats reporter."""
         stats_reporter.report_data_amount(
@@ -1809,6 +1811,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             iteration_step=self.step,
             event_name="tbe.hbm.cache",
             data_bytes=cache,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.hbm.cache_weights",
+            data_bytes=cache_weights,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.hbm.cache_aux",
+            data_bytes=cache_aux,
             embedding_id=self.logging_table_name,
             tbe_id=self.uuid,
         )
@@ -1835,6 +1851,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache: int,
         total_static_sparse: int,
         ephemeral: int,
+        cache_weights: int = 0,
+        cache_aux: int = 0,
     ) -> None:
         """Report UVM memory breakdown to stats reporter."""
         stats_reporter.report_data_amount(
@@ -1855,6 +1873,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             iteration_step=self.step,
             event_name="tbe.uvm.cache",
             data_bytes=cache,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.uvm.cache_weights",
+            data_bytes=cache_weights,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.uvm.cache_aux",
+            data_bytes=cache_aux,
             embedding_id=self.logging_table_name,
             tbe_id=self.uuid,
         )
@@ -1934,34 +1966,50 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "momentum2_host",
             "momentum2_uvm",
         ]
-        cache_tensors = [
+        # Cache weights tensor (the actual cached embeddings in HBM)
+        cache_weight_tensors = [
             "lxu_cache_weights",
-            "lxu_cache_state",
-            "lxu_state",
-            "cache_hash_size_cumsum",
-            "cache_index_table_map",
-            "cache_miss_counter",
-            "lxu_cache_locking_counter",
+        ]
+        # Cache auxiliary state tensors (metadata for cache management, excluding weights)
+        # Sizes scale with hash_size or cache_slots (hash_size × clf)
+        # Excludes constant-size tensors: cache_hash_size_cumsum, cache_miss_counter, etc.
+        cache_aux_tensors = [
+            "cache_index_table_map",  # int32, 4B × hash_size
+            "lxu_cache_state",  # int64, 8B × cache_slots
+            "lxu_state",  # int64, 8B × cache_slots (LRU) or hash_size (LFU)
+            "lxu_cache_locking_counter",  # int32, 4B × cache_slots (only if prefetch_pipeline)
         ]
 
         # Calculate total memory for each component
         weights_total = sum(self._get_tensor_memory(t) for t in weight_tensors)
         optimizer_total = sum(self._get_tensor_memory(t) for t in optimizer_tensors)
-        cache_total = sum(self._get_tensor_memory(t) for t in cache_tensors)
+        cache_weights_total = sum(
+            self._get_tensor_memory(t) for t in cache_weight_tensors
+        )
+        cache_aux_total = sum(self._get_tensor_memory(t) for t in cache_aux_tensors)
 
         # Categorize memory by location (HBM vs UVM)
         if self.use_cpu:
             weights_hbm, weights_uvm = 0, weights_total
             opt_hbm, opt_uvm = 0, optimizer_total
-            cache_hbm, cache_uvm = 0, cache_total
+            cache_weights_hbm, cache_weights_uvm = 0, cache_weights_total
+            cache_aux_hbm, cache_aux_uvm = 0, cache_aux_total
         else:
             weights_hbm, weights_uvm = self._categorize_memory_by_location(
                 weight_tensors
             )
             opt_hbm, opt_uvm = self._categorize_memory_by_location(optimizer_tensors)
-            cache_hbm, cache_uvm = self._categorize_memory_by_location(cache_tensors)
+            cache_weights_hbm, cache_weights_uvm = self._categorize_memory_by_location(
+                cache_weight_tensors
+            )
+            cache_aux_hbm, cache_aux_uvm = self._categorize_memory_by_location(
+                cache_aux_tensors
+            )
 
         # Calculate ephemeral memory split between HBM and UVM
+        # Total cache = cache weights + cache auxiliary state
+        cache_hbm = cache_weights_hbm + cache_aux_hbm
+        cache_uvm = cache_weights_uvm + cache_aux_uvm
         static_sparse_hbm = weights_hbm + opt_hbm + cache_hbm
         static_sparse_uvm = weights_uvm + opt_uvm + cache_uvm
         ephemeral_hbm = total_hbm_usage - static_sparse_hbm
@@ -1975,6 +2023,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_hbm,
             static_sparse_hbm,
             ephemeral_hbm,
+            cache_weights_hbm,
+            cache_aux_hbm,
         )
         self._report_uvm_breakdown(
             stats_reporter,
@@ -1983,6 +2033,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_uvm,
             static_sparse_uvm,
             ephemeral_uvm,
+            cache_weights_uvm,
+            cache_aux_uvm,
         )
 
     @torch.jit.ignore
