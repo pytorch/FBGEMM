@@ -38,8 +38,6 @@ void split_embedding_nobag_codegen_forward_cpu_kernel(
     const Tensor& offsets,
     const Tensor& output) {
   TORCH_CHECK(weights.is_contiguous());
-  Tensor indices_contig = indices.contiguous();
-  Tensor offsets_contig = offsets.contiguous();
 
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();

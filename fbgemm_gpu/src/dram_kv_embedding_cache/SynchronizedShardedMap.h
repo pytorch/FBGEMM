@@ -29,8 +29,6 @@ namespace kv_mem {
 template <typename K, typename V, typename M = folly::SharedMutexWritePriority>
 class SynchronizedShardedMap {
  public:
-  using iterator = typename folly::F14FastMap<K, V>::const_iterator;
-
   explicit SynchronizedShardedMap(
       std::size_t numShards,
       std::size_t block_size,

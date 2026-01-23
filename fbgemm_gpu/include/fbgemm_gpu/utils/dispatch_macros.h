@@ -286,6 +286,11 @@
 
 #endif
 
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE_CASE(...) \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)  \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)   \
+  AT_DISPATCH_CASE(at::ScalarType::Double, __VA_ARGS__)
+
 #define FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(...)       \
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)
@@ -317,6 +322,10 @@
 #define FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                     \
       TYPE, NAME, FBGEMM_DISPATCH_FLOAT_AND_DOUBLE_CASE(__VA_ARGS__))
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                          \
+      TYPE, NAME, FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE_CASE(__VA_ARGS__))
 
 #define FBGEMM_DISPATCH_FLOAT_AND_HALF(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                   \

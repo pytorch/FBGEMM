@@ -124,7 +124,7 @@ AdjacencyMatrix<Node> get_intermediate_node(
     return
         [=](Node src, Node dst) { return assignments[dst * world_size + src]; };
   } else {
-    return [](Node, Node) { return -1; };
+    return [](Node /* src */, Node /* dst */) { return -1; };
   }
 }
 

@@ -167,7 +167,7 @@ class PackSegmentsV2 : public torch::autograd::Function<PackSegmentsV2> {
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_output) {
-    TORCH_CHECK(grad_output.size() == 2 or grad_output.size() == 1);
+    TORCH_CHECK(grad_output.size() == 2 || grad_output.size() == 1);
     const Tensor& grad = grad_output[0];
     const auto& max_length = ctx->saved_data["max_length"].toSymInt();
     const auto& total_length = ctx->saved_data["total_length"].toSymInt();
@@ -789,7 +789,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
         FBGEMM_DISPATCH_ALL_TYPES(
             indices.scalar_type(), "permute_2D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
-              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(
+              FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_2D_indices_weights_kernel_3",
@@ -1035,8 +1035,6 @@ Tensor expand_into_jagged_permute_cpu(
   TORCH_CHECK(permute.numel() > 0);
   TORCH_CHECK(permute.numel() == input_offsets.numel() - 1);
   TORCH_CHECK(permute.numel() == output_offsets.numel() - 1);
-
-  const auto permute_contig = permute.contiguous();
 
   const auto permute_size = permute.numel();
 

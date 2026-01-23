@@ -269,6 +269,85 @@ function(gpu_cpp_library)
     endif()
 
     ############################################################################
+    # Compilation Flags and Definitions
+    ############################################################################
+
+    if(MSVC)
+        # MSVC needs to define these variables to avoid generating _dllimport
+        # functions.
+        if(args_TYPE STREQUAL STATIC)
+            target_compile_definitions(${lib_name}
+                PUBLIC ASMJIT_STATIC
+                PUBLIC FBGEMM_STATIC)
+        endif()
+
+        set(lib_cc_flags
+            ${args_MSVC_FLAGS}
+            /wd4244
+            /wd4267
+            /wd4305
+            /wd4309)
+
+    else()
+        set(lib_cc_flags
+            ${args_CC_FLAGS}
+            -Wall
+            -Wextra
+            -Werror
+            -Wunknown-pragmas
+            -Wimplicit-fallthrough
+            -Wno-deprecated-enum-enum-conversion
+            -Wno-deprecated-declarations
+            -Wno-unused-command-line-argument
+            -Wno-strict-aliasing
+            -Wunused-variable
+            -Wno-sign-compare
+            -Wno-vla
+            -Wno-error=unused-parameter
+            -Wno-error=unknown-pragmas
+            -Wno-error=attributes)
+
+        if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
+            list(APPEND lib_cc_flags
+                -Wno-c99-extensions
+                -Wno-gnu-zero-variadic-macro-arguments
+                -Wno-deprecated-enum-enum-conversion)
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
+                list(APPEND lib_cc_flags
+                    -Wno-error=unused-but-set-parameter
+                    -Wno-error=unused-but-set-variable)
+            endif()
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+                list(APPEND lib_cc_flags
+                    -Wno-vla-cxx-extension
+                    -Wno-error=global-constructors
+                    -Wno-error=shadow)
+            endif()
+
+        elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+            list(APPEND lib_cc_flags
+                -Wmaybe-uninitialized
+                -Wno-error=unused-but-set-parameter
+                -Wno-error=unused-but-set-variable
+                -Wno-error=array-bounds)
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
+                list(APPEND lib_cc_flags
+                    -Wno-deprecated-enum-enum-conversion)
+            endif()
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0)
+                # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+                list(APPEND lib_cc_flags
+                    -Wno-attributes)
+            endif()
+        endif()
+    endif()
+
+
+    ############################################################################
     # Library Includes and Linking
     ############################################################################
 
@@ -332,10 +411,7 @@ function(gpu_cpp_library)
     # Set the additional compilation flags
     target_compile_options(${lib_name} PRIVATE
         ${args_CC_FLAGS}
-        # Silence compiler warnings (in asmjit)
-        -Wno-deprecated-enum-enum-conversion
-        -Wno-deprecated-declarations
-        -Wno-unused-command-line-argument)
+        $<$<COMPILE_LANGUAGE:CXX>:${lib_cc_flags}>)
 
     ############################################################################
     # Post-Build Steps

@@ -94,9 +94,7 @@ Tensor jagged_index_select_2d_forward_cuda(
   auto num_cols = values.size(1);
 
   const int64_t max_num_blocks = 1024; // Arbitrarily set to this number of now
-  const int64_t max_num_threads = kMaxThreads;
   const int64_t num_blocks = std::min(max_num_blocks, num_dense_output_rows);
-  const int64_t num_threads = std::min(max_num_threads, num_cols);
   Tensor output =
       at::empty({num_dense_output_rows, num_cols}, values.options());
 

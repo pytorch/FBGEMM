@@ -16,12 +16,6 @@ namespace ssd {
 struct EmbeddingSnapshotHandleWrapper;
 }
 
-namespace {
-using DramKVEmbeddingCacheVariant = std::variant<
-    std::shared_ptr<kv_mem::DramKVEmbeddingCache<float>>,
-    std::shared_ptr<kv_mem::DramKVEmbeddingCache<at::Half>>>;
-}
-
 namespace kv_mem {
 
 class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
