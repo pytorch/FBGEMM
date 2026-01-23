@@ -392,7 +392,6 @@ inline __device__ void hstu_compute_dq_dk_dv_1colblock(
       typename Kernel_traits::SmemCopyAtomTransposed{}, tiled_mma_dkv);
   auto smem_thr_copy_QdOt = smem_tiled_copy_QdOt.get_thread_slice(tidx);
   Tensor tdVsdOt = smem_thr_copy_QdOt.partition_S(sdOt);
-  Tensor tdVsdO = smem_thr_copy_QdOt.partition_S(sdO);
   Tensor tdKsQt = smem_thr_copy_QdOt.partition_S(sQt);
 
   auto smem_tiled_copy_dS =
@@ -1098,7 +1097,6 @@ __global__ void hstu_bwd_convert_dq_kernel(
 
   Tensor cdQ = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});
   Tensor tdQcdQ = gmem_thr_copy_dQ.partition_D(cdQ);
-  Tensor tdQpdQ = make_tensor<bool>(make_shape(size<2>(tdQgdQ)));
 
   // Clear_OOB_K must be false since we don't want to write zeros to gmem
   flash::

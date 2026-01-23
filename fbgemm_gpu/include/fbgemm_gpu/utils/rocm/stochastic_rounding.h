@@ -147,8 +147,8 @@ template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Float8_e4m3fnuz* output,
     const Vec2T<float>& value,
-    StochasticRoundingRNGState& state,
-    const float2 qparams) {
+    StochasticRoundingRNGState& /* state */,
+    const float2 /* qparams */) {
 // TODO, make this actually stochastic later.
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
@@ -163,8 +163,8 @@ template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Float8_e4m3fnuz* output,
     const Vec2T<at::Half>& value,
-    StochasticRoundingRNGState& state,
-    const float2 qparams) {
+    StochasticRoundingRNGState& /* state */,
+    const float2 /* qparams */) {
 // TODO, make this stochastic later.
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)

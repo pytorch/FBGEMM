@@ -1421,14 +1421,12 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
     auto thread_t2r = tiled_t2r.get_slice(thread_idx);
 
     Tensor tTR_cDQ   = thread_t2r.partition_D(cDQ);
-    Tensor tTR_gDQ   = thread_t2r.partition_D(gDQ);
     Tensor tTR_sDQ   = thread_t2r.partition_D(sDQ);
     Tensor tTR_tDQ = thread_t2r.partition_S(tDQtDQ);
 
     auto block_tma = mainloop_params.tma_red_dq.get_slice(_0{});
 
     Tensor tDQsDQ = block_tma.partition_S(sDQ);
-    Tensor tDQcDQ = block_tma.partition_S(cDQ);
     Tensor tDQgDQ = block_tma.partition_D(gDQ);
 
     int lane_predicate = (threadIdx.x % (kNumReduceWarps * NumThreadsPerWarp)) == 0;

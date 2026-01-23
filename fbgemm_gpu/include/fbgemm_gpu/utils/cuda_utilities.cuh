@@ -41,9 +41,9 @@ inline auto get_compute_versions() {
 
 template <typename func_t>
 inline void set_max_dynamic_smem(
-    func_t kernel,
-    const int32_t smem_bytes,
-    const int32_t device = at::cuda::current_device()) {
+    func_t kernel [[maybe_unused]],
+    const int32_t smem_bytes [[maybe_unused]],
+    const int32_t device [[maybe_unused]] = at::cuda::current_device()) {
 #ifndef USE_ROCM
 
   // Check

@@ -1370,12 +1370,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
     const int64_t num_split_ks,
     const int64_t kv_cache_quant_num_groups,
     const CacheLogicalDtype kv_data_type) {
-  auto dprops = at::cuda::getCurrentDeviceProperties();
 #ifdef USE_ROCM
   TORCH_CHECK(
       false,
       "gqa_attn_splitk with use_tensor_cores=True is not supported on ROCm");
 #else
+  auto dprops = at::cuda::getCurrentDeviceProperties();
   TORCH_CHECK(
       dprops->major >= 8,
       "Too old compute capability major version to run gqa_attn_splitk_wmma (use_tensor_cores=True)",
@@ -1714,12 +1714,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
       static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
 
   if (use_tensor_cores) {
-    const auto dprops = at::cuda::getCurrentDeviceProperties();
 #ifdef USE_ROCM
     TORCH_CHECK(
         false,
         "gqa_attn_splitk with use_tensor_cores=True is not supported on ROCm");
 #else
+    const auto dprops = at::cuda::getCurrentDeviceProperties();
     TORCH_CHECK(
         dprops->major >= 8,
         "Too old compute capability major version to run gqa_attn_splitk with ",

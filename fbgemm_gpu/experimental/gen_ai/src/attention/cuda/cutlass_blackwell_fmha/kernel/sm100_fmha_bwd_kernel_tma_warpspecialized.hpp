@@ -1561,7 +1561,6 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     auto block_tma = mainloop_params.tma_red_dq.get_slice(_0{});
 
     Tensor tDQsDQ = block_tma.partition_S(sDQ);
-    Tensor tDQcDQ = block_tma.partition_S(cDQ);
     Tensor tDQgDQ = block_tma.partition_D(gDQ);
 
     int lane_predicate = (threadIdx.x % (kNumReduceWarps * NumThreadsPerWarp)) == 0;

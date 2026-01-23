@@ -690,9 +690,6 @@ struct CollectiveMainloopBwd {
     Tensor sdQ = make_tensor(
         make_smem_ptr(shared_storage.smem_dqacc.data()),
         SmemLayoutdQaccumTMA{});
-    Tensor sdQnoswizzle = make_tensor(
-        make_smem_ptr(shared_storage.smem_dqacc.data()),
-        SmemLayoutdQaccumTMANoSwizzle{});
     auto [n_block, bidh, bidb] = block_coord;
 
     int const offset_padded =
@@ -814,10 +811,6 @@ struct CollectiveMainloopBwd {
       const Seqlen_traits& seqlen_traits_k) {
     Tensor sdRab = make_tensor(
         make_smem_ptr(shared_storage.smem_ds.data()), SmemLayoutPdS{});
-    Tensor sdRab_pi = cute::as_position_independent_swizzle_tensor(sdRab);
-    Tensor sdRabt = make_tensor(
-        make_smem_ptr(shared_storage.smem_ds.data()), SmemLayoutPdSt{});
-    Tensor sdRabt_pi = cute::as_position_independent_swizzle_tensor(sdRabt);
     auto [n_block, bidh, bidb] = block_coord;
     int bidh_drab = mainloop_params.qhead_per_rabhead_divmod.divide(bidh);
 
