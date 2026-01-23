@@ -211,6 +211,7 @@ gpu_cpp_library(
     fbgemm_gpu_tbe_cache
     fbgemm_gpu_tbe_optimizers
     fbgemm_gpu_tbe_utils
+    fbgemm_gpu_config
     ${DEP_MAYBE_TBB}
   DESTINATION
     fbgemm_gpu)
