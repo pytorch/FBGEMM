@@ -353,6 +353,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return result;
   }
 
+  void delete_rocksdb_checkpoint_dir() {
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      LOG(INFO) << "removing checkpoint directories: " << db_paths_[shard];
+      kv_db_utils::remove_dir(db_paths_[shard]);
+    }
+  }
+
   void initialize_dbs(
       int64_t num_shards,
       std::string path,
