@@ -205,14 +205,7 @@ void SparseDenseInt8MVAvx512(
         res = _mm512_add_epi32(res, c_i32_v);
       }
       // Horizontal reduce
-      // _mm512_reduce_add_epi32 is only available for gcc version > 7
-#if __GNUC__ >= 7
       int32_t res_i32 = _mm512_reduce_add_epi32(res);
-#else
-      __m256i low = _mm512_castsi512_si256(res);
-      __m256i high = _mm512_extracti64x4_epi64(res, 1);
-      int32_t res_i32 = horizontal_add(_mm256_add_epi32(low, high));
-#endif
 
       // store the results
       if (accum || kt > 0) {
