@@ -1239,8 +1239,8 @@ Tensor {{ embedding_cuda_op }}(
                     int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
                     const int32_t work_group_size = kMaxThreads;
                     {%- endif %}
-                    {%- if enable_optimized_hip_mixed_D_kernel  %}
                     auto cta_blockSize = dim3(kThreadGroupSize, num_cta_per_row_groups);
+                    {%- if enable_optimized_hip_mixed_D_kernel  %}
                     if (max_D <= 128) {
                         backward_cta_per_row_kernel =
                         {{ cta_kernel }}
@@ -1257,8 +1257,6 @@ Tensor {{ embedding_cuda_op }}(
 
                         cta_blockSize = dim3(32, num_cta_per_row_groups);
                     }
-                    {%- else %}
-                    auto cta_blockSize = dim3(kThreadGroupSize, num_cta_per_row_groups);
                     {%- endif %}
 
                     // Compute shared memory size for cta_per_row
@@ -1396,8 +1394,10 @@ Tensor {{ embedding_cuda_op }}(
                     {%- if enable_optimized_hip_mixed_D_kernel %}
                     {%- if vbe %}
                     if (use_hip_kernel) {
+                    // currently, 'hip_kernel' only support vbe is False, so we use 'hip_mixed_d_warp_kernel'
                     {%- else %}
-                    if (use_hip_kernel && mixed_D) {
+                    if (use_hip_kernel && mixed_D) { 
+                    // currently, 'hip_kernel' does not support mixed_D is True, so we use 'hip_mixed_d_warp_kernel'
                     {%- endif %}
                         backward_warp_per_row_kernel =
                         {{ hip_mixed_d_warp_kernel }}
