@@ -161,9 +161,8 @@ void EmbeddingKVDB::update_cache_and_storage(
   if (l2_cache_) {
     auto evicted_tuples_opt = set_cache(indices, weights, count);
     if (evicted_tuples_opt.has_value()) {
-      auto& evicted_indices = std::get<0>(evicted_tuples_opt.value());
-      auto& evicted_weights = std::get<1>(evicted_tuples_opt.value());
-      auto& evicted_count = std::get<2>(evicted_tuples_opt.value());
+      const auto& [evicted_indices, evicted_weights, evicted_count] =
+          evicted_tuples_opt.value();
 
       set_kv_db_async(evicted_indices, evicted_weights, evicted_count, mode)
           .wait();
@@ -202,9 +201,8 @@ void EmbeddingKVDB::flush() {
                    << "]no items exist in L2 cache, flush nothing";
         return;
       }
-      auto& indices = std::get<0>(res_tuple_opt.value());
-      auto& weights = std::get<1>(res_tuple_opt.value());
-      count = std::get<2>(res_tuple_opt.value());
+      const auto& [indices, weights, new_count] = res_tuple_opt.value();
+      count = new_count;
 
       if (count->item<int64_t>() > 0) {
         set_kv_db_async(

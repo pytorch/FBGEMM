@@ -48,7 +48,7 @@
 // Use this to indicate to not inline functions
 #if __clang__ || __GNUC__ || __INTEL_COMPILER
 #define NOINLINE __attribute__((noinline))
-#elif _MSC_VER
+#elif defined(_MSC_VER) && _MSC_VER
 #define NOINLINE __declspec(noinline)
 #else
 #define NOINLINE
@@ -57,7 +57,7 @@
 // Use this to indicate always inline functions
 #if __clang__ || __GNUC__ || __INTEL_COMPILER
 #define ALWAYS_INLINE inline __attribute__((__always_inline__))
-#elif _MSC_VER
+#elif defined(_MSC_VER) && _MSC_VER
 // commenting out because __forceinline takes too long time in MSVC
 #define ALWAYS_INLINE // __forceinline
 #else
@@ -65,7 +65,7 @@
 #endif
 
 // Use the C++11 keyword "alignas" if you can
-#if _MSC_VER
+#if defined(_MSC_VER) && _MSC_VER
 #define ALIGNAS(byte_alignment) __declspec(align(byte_alignment))
 #else
 #define ALIGNAS(byte_alignment) __attribute__((aligned(byte_alignment)))

@@ -23,8 +23,8 @@
 #pragma once
 
 #include <hip/hip_runtime.h>
-#include <set>
 #include <string>
+#include <unordered_set>
 
 #define HIP_CHECK(c)                                  \
   {                                                   \
@@ -38,7 +38,8 @@
 namespace fbgemm_gpu::rocm {
 
 [[nodiscard]] inline bool is_supported_cdna() {
-  const std::set<std::string> supported_archs{"gfx942", "gfx90a", "gfx950"};
+  static const std::unordered_set<std::string> supported_archs{
+      "gfx942", "gfx90a", "gfx950"};
   int device_id = 0;
   HIP_CHECK(hipGetDevice(&device_id));
   hipDeviceProp_t dev_props;

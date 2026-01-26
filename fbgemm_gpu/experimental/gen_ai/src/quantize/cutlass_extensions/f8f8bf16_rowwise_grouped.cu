@@ -280,6 +280,7 @@ OutputType _f8f8bf16_rowwise_grouped(
 
   // Allocate output tensor.
   std::vector<int64_t> output_sizes;
+  output_sizes.reserve(G);
   int64_t total_output_size = 0;
   for (int i = 0; i < G; ++i) {
     int64_t M = XQ[i].size(0);
