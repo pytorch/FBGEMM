@@ -190,7 +190,7 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
 #endif // __aarch64__
 
   } else {
-    assert(0 && "Not supported yet");
+    static_assert(!sizeof(inT*), "Instruction set not supported");
   }
   return nextop_.template f<instSet>(out, out, block, ld_out, ld_out);
 }
