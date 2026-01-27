@@ -191,25 +191,24 @@ int main(int argc, const char* argv[]) {
   const string label_zero = "zero_regs%=";
   const string label_dump_C = "dump_C%=";
 
-  for (auto& d_type : types_to_gen) {
-    if (enabledDataType.count(d_type.second) == 0) {
+  for (const auto& [data_type, type_name] : types_to_gen) {
+    if (enabledDataType.count(type_name) == 0) {
       continue;
     }
-    for (auto s : isa) {
-      bool const isFp16 = d_type.first != DataType::Float32;
+    for (const auto& s : isa) {
+      bool const isFp16 = data_type != DataType::Float32;
       string const B_type = [&]() {
-        if (d_type.first == DataType::Float32)
+        if (data_type == DataType::Float32)
           return "fp32";
-        if (d_type.first == DataType::Float16)
+        if (data_type == DataType::Float16)
           return "fp16";
         throw std::runtime_error("Unknow DataType");
       }();
 
-      string isa_file_name = "Fbgemm" + d_type.second + "UKernels" + s.name;
+      string isa_file_name = "Fbgemm" + type_name + "UKernels" + s.name;
 
       // open all files
-      ofstream srcfile;
-      srcfile.open(isa_file_name + ".cc");
+      ofstream srcfile(isa_file_name + ".cc");
       srcfile << license;
       srcfile << "#include \"./" + isa_file_name + ".h\"\n";
       srcfile << "#include \"./InlineAsmDefines.h\"\n\n";
@@ -218,8 +217,7 @@ int main(int argc, const char* argv[]) {
         srcfile << "#include \"iacaMarks.h\"\n";
       }
 
-      ofstream hdrfile;
-      hdrfile.open(isa_file_name + ".h");
+      ofstream hdrfile(isa_file_name + ".h");
       hdrfile << license;
 
       hdrfile << "#pragma once\n";
@@ -228,7 +226,7 @@ int main(int argc, const char* argv[]) {
       hdrfile << "#include \"fbgemm/FbgemmBuild.h\"\n";
       hdrfile << "#include \"fbgemm/FbgemmFPCommon.h\"\n\n";
       hdrfile << "namespace fbgemm {\n\n";
-      hdrfile << "using GemmParams" << d_type.second << " = GemmParams<float"
+      hdrfile << "using GemmParams" << type_name << " = GemmParams<float"
               << (isFp16 ? "16" : "") << ">;\n\n";
 
       bool fixedA = false, fixedB = false, fixedC = false;
@@ -255,7 +253,7 @@ int main(int argc, const char* argv[]) {
         const string B_stride =
             to_string((vec_len_in_bytes >> (int)isFp16) * ukernel_shape[k][1]);
 
-        const string p1 = "GemmParams" + d_type.second + "* gp";
+        const string p1 = "GemmParams" + type_name + "* gp";
 
         funcname[k] = "gemmkernel_" + to_string(ukernel_shape[k][0]) + "x" +
             to_string(ukernel_shape[k][1]) + "_";
@@ -309,13 +307,13 @@ int main(int argc, const char* argv[]) {
 
         // Generate Loads from Matrix B
         auto const B_load = [&](int c, const string& vBcol, int prefetch_len) {
-          if (d_type.first == DataType::Float32) {
+          if (data_type == DataType::Float32) {
             addi(
                 srcfile,
                 "vmovups " + vBcol + "," +
                     (s.iset == ISA::isaType::avx512 ? "ZMM" : "YMM") +
                     "WORD PTR [r10 + " + to_string(vec_len_in_bytes * c) + "]");
-          } else if (d_type.first == DataType::Float16) {
+          } else if (data_type == DataType::Float16) {
             addi(
                 srcfile,
                 "vcvtph2ps " + vBcol + "," +
