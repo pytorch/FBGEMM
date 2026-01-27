@@ -326,7 +326,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
   ~EmbeddingRocksDB() override {
     // clear all the snapshots if not released
-    if (snapshots_.size() > 0) {
+    if (!snapshots_.empty()) {
       LOG(WARNING)
           << snapshots_.size()
           << " snapshots have not been released when db is closing. Releasing them now.";
@@ -372,7 +372,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     } else {
       paths_.push_back(ssd_mount_point);
     }
-    CHECK(paths_.size() > 0);
+    CHECK(!paths_.empty());
     db_paths_.reserve(num_shards);
     std::string all_shards_path;
 #endif
@@ -575,7 +575,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return snapshots_.find(snapshot_handle) != snapshots_.end();
   }
 
-  bool is_valid_checkpoint(const std::string ckpt_uuid) const {
+  bool is_valid_checkpoint(const std::string& ckpt_uuid) const {
     return checkpoints_.find(ckpt_uuid) != checkpoints_.end();
   }
 
@@ -664,7 +664,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return tbe_uuid_;
   }
 
-  void release_checkpoint(const std::string ckpt_uuid) {
+  void release_checkpoint(const std::string& ckpt_uuid) {
     CHECK_EQ(is_valid_checkpoint(ckpt_uuid), true);
     LOG(INFO) << "Rdb checkpoint " << ckpt_uuid
               << " is released in memory, dir should still exist, "
@@ -1105,7 +1105,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             weight_width);
       } else {
         const auto value = it->value();
-        if constexpr (!std::is_same<VALUE_T, uint8_t>::value) {
+        if constexpr (!std::is_same_v<VALUE_T, uint8_t>) {
           CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
         }
         std::copy(
@@ -1149,7 +1149,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t i = key_indices[j];
       const auto& value = values[j];
       if (s.ok()) {
-        if constexpr (!std::is_same<VALUE_T, uint8_t>::value) {
+        if constexpr (!std::is_same_v<VALUE_T, uint8_t>) {
           CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
         }
         std::copy(
@@ -1584,7 +1584,7 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
           << "doesn't match passed-in key:" << get_key(expected_key);
 
       const auto value = it->value();
-      if constexpr (!std::is_same<VALUE_T, uint8_t>::value) {
+      if constexpr (!std::is_same_v<VALUE_T, uint8_t>) {
         CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
       }
       std::copy(

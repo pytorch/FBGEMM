@@ -84,7 +84,7 @@ DEFINE_int32(
 
 // TODO: align this with uvm_cache_stats_index in
 // split_embeddings_cache_cuda.cu.
-const int kUvmCacheStatsSize = 6;
+constexpr int kUvmCacheStatsSize = 6;
 
 namespace {
 

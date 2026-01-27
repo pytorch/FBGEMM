@@ -1374,9 +1374,11 @@ std::vector<at::Tensor> quantize_fp8_per_col(
   auto _st = input.scalar_type();
   TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
   std::vector<long int> quantized_input_shape;
+  quantized_input_shape.reserve(input.dim());
   for (int i = 0; i < input.dim(); i++)
     quantized_input_shape.push_back(input.size(i));
   std::vector<int64_t> scale_shape;
+  scale_shape.reserve(input.dim() - 1);
   for (int i = 1; i < input.dim(); i++)
     scale_shape.push_back(input.size(i));
 

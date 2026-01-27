@@ -179,8 +179,7 @@ void cblas_gemm_compute(
           if (m != 1) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
             if constexpr (
-                std::is_same<T, float16>::value ||
-                std::is_same<T, float>::value) {
+                std::is_same_v<T, float16> || std::is_same_v<T, float>) {
               gp.A = const_cast<float*>(&A[m2 * k + k_ind]);
             } else {
 #endif
@@ -207,8 +206,7 @@ void cblas_gemm_compute(
           gp.b_block_cols = nbcol;
 #ifdef FBGEMM_ENABLE_KLEIDIAI
           if constexpr (
-              std::is_same<T, float16>::value ||
-              std::is_same<T, float>::value) {
+              std::is_same_v<T, float16> || std::is_same_v<T, float>) {
             gp.lda = k * sizeof(A[0]);
           } else {
 #endif

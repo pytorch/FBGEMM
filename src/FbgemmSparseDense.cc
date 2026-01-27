@@ -26,6 +26,7 @@ template <typename T>
 FBGEMM_API std::unique_ptr<CSRMatrix<T>>
 fbgemmDenseToCSR(int R, int C, const T* inp, int ld) {
   auto csr = std::make_unique<CSRMatrix<T>>();
+  csr->rowPtr.reserve(R + 1);
   csr->rowPtr.push_back(0);
   int nnz = 0;
   for (int i = 0; i < R; ++i) {
@@ -72,10 +73,11 @@ fbgemmDenseToBCSR(int R, int C, const T* inp) {
 
 template <typename T, int RB, int CB>
 void BCSRMatrix<T, RB, CB>::pack(const DTYPE* src, size_t ld) {
-  rowBPtr.push_back(0);
-  int nnzb = 0;
   int numCOLTILEs = (C + COLTILE - 1) / COLTILE;
   int rowBlocks = (R + RB - 1) / RB;
+  rowBPtr.reserve(numCOLTILEs * rowBlocks + 1);
+  rowBPtr.push_back(0);
+  int nnzb = 0;
   for (int jt = 0; jt < numCOLTILEs; ++jt) {
     for (int i = 0; i < rowBlocks; ++i) {
       int curCols = min(C - jt * COLTILE, COLTILE);

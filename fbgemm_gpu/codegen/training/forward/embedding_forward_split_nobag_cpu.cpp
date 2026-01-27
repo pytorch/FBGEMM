@@ -53,7 +53,7 @@ void split_embedding_nobag_codegen_forward_cpu_kernel(
   at::parallel_for(0, T, 0, [&](int64_t t_begin, int64_t t_end) {
     for (const auto t : c10::irange(t_begin, t_end)) {
       int64_t hash_size = 0;
-      int64_t t_temp = static_cast<int64_t>(t) + 1;
+      int64_t t_temp = t + 1;
       do {
         hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
         ++t_temp;
