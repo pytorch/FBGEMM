@@ -140,7 +140,7 @@ class GitRepo:
                     for r, f in itertools.product(regexes, filepaths)
                 ]
             )
-            logging.info(f"{"Will" if result else "Will NOT"} build target: {target}")
+            logging.info(f"{'Will' if result else 'Will NOT'} build target: {target}")
             return result
 
 

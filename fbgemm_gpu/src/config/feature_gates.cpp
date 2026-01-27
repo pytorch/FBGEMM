@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <string>
+#include <unordered_map>
 
 namespace fbgemm_gpu::config {
 

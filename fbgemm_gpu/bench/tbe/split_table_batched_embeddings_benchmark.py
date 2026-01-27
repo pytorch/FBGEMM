@@ -35,6 +35,7 @@ from fbgemm_gpu.tbe.bench import (
     benchmark_requests,
     benchmark_vbe,
     EmbeddingOpsCommonConfigLoader,
+    generate_merged_output_and_offsets,
     TbeBenchClickInterface,
     TBEBenchmarkingConfigLoader,
 )
@@ -1311,6 +1312,24 @@ def device_with_spec(  # noqa C901
 @click.option(
     "--ssd-prefix", type=str, default="/tmp/ssd_benchmark", help="SSD directory prefix"
 )
+@click.option(
+    "--merge-output",
+    is_flag=True,
+    default=False,
+    help="Write VBE outputs to one tensor.",
+)
+@click.option(
+    "--merge-output-num-ranks",
+    type=int,
+    default=8,
+    help="Number of ranks for merged output allocation.",
+)
+@click.option(
+    "--merge-output-num-tbe-ops",
+    type=int,
+    default=2,
+    help="Number of TBE ops for merged output allocation.",
+)
 @TBEBenchmarkingConfigLoader.options
 @EmbeddingOpsCommonConfigLoader.options
 @click.pass_context
@@ -1327,6 +1346,9 @@ def vbe(
     print_kernel_summary: bool,
     ssd: bool,
     ssd_prefix: str,
+    merge_output: bool,
+    merge_output_num_ranks: int,
+    merge_output_num_tbe_ops: int,
     # pyre-ignore[2]
     **kwargs,
 ) -> None:
@@ -1484,6 +1506,21 @@ def vbe(
 
     del all_requests
 
+    batch_size_per_feature_per_rank = [[B] for B in Bs]
+    out = None
+    out_offsets = None
+    if merge_output:
+        (batch_size_per_feature_per_rank, out, out_offsets) = (
+            generate_merged_output_and_offsets(
+                Ds,
+                Bs,
+                embconfig.output_dtype.as_dtype(),
+                get_device(),
+                num_ranks=merge_output_num_ranks,
+                num_tbe_ops=merge_output_num_tbe_ops,
+            )
+        )
+
     with context_factory(
         lambda p: _kineto_trace_handler(p, emb_op_type, print_kernel_summary)
     ):
@@ -1493,7 +1530,9 @@ def vbe(
                 indices,
                 offsets,
                 per_sample_weights,
-                batch_size_per_feature_per_rank=[[B] for B in Bs],
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                vbe_output=out,
+                vbe_output_offsets=out_offsets,
             ),
             num_warmups=benchconfig.warmup_iterations,
         )

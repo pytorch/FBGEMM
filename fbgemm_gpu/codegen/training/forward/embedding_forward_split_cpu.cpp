@@ -84,8 +84,7 @@ void split_embedding_forward_cpu_kernel(
   constexpr bool use_fbgemm = (std::is_same_v<weights_t, float> ||
                                std::is_same_v<weights_t, at::Half> ||
                                std::is_same_v<weights_t, uint8_t>) &&
-      std::is_same_v<output_t, float> &&
-      std::is_same_v<ind_weights_t, float>;
+      std::is_same_v<output_t, float> && std::is_same_v<ind_weights_t, float>;
 
   at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
     for (const auto t : c10::irange(T)) {

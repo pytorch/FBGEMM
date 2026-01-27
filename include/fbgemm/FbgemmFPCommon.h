@@ -15,13 +15,6 @@
 #include <array>
 #include <memory>
 
-#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
-    defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
-#if defined(__APPLE__) && defined(__aarch64__)
-#define FBGEMM_USE_REF_KERNEL
-#endif
-#endif
-
 namespace fbgemm {
 
 using partition_array_t = std::array<std::array<std::array<int, 2>, 2>, 121>;
@@ -140,12 +133,8 @@ void cblas_gemm_compute(
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
   const int mb_max = 120;
 
-#if defined(FBGEMM_USE_REF_KERNEL) && defined(__APPLE__)
-  const auto& [_, partition] = getIsaHandlers<float16>(inst_set_t::sve);
-#else
   const auto iset = fbgemmInstructionSet();
   const auto& [kernels, partition] = getIsaHandlers<T>(iset);
-#endif
 
 #ifdef FBGEMM_USE_REF_KERNEL
   // By some reason, if packed B is using packing layout for avx2, we just use
@@ -162,9 +151,7 @@ void cblas_gemm_compute(
 #endif
 
   GemmParams<T> gp;
-  int i_begin = 0, i_end = 0;
-  i_begin = 0;
-  i_end = m;
+  int i_begin = 0, i_end = m;
   for (auto m0 = i_begin; m0 < i_end; m0 += mb_max) {
     int mb = std::min(mb_max, i_end - m0);
     assert(mb < static_cast<int64_t>(partition.size()));
@@ -192,8 +179,7 @@ void cblas_gemm_compute(
           if (m != 1) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
             if constexpr (
-                std::is_same_v<T, float16> ||
-                std::is_same_v<T, float>) {
+                std::is_same_v<T, float16> || std::is_same_v<T, float>) {
               gp.A = const_cast<float*>(&A[m2 * k + k_ind]);
             } else {
 #endif
@@ -220,8 +206,7 @@ void cblas_gemm_compute(
           gp.b_block_cols = nbcol;
 #ifdef FBGEMM_ENABLE_KLEIDIAI
           if constexpr (
-              std::is_same_v<T, float16> ||
-              std::is_same_v<T, float>) {
+              std::is_same_v<T, float16> || std::is_same_v<T, float>) {
             gp.lda = k * sizeof(A[0]);
           } else {
 #endif
