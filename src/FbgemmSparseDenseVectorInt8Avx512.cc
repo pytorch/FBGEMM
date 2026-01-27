@@ -19,14 +19,6 @@
 
 namespace fbgemm::internal {
 
-static inline int32_t horizontal_add(__m256i a) {
-  __m256i t1 = _mm256_hadd_epi32(a, a);
-  __m256i t2 = _mm256_hadd_epi32(t1, t1);
-  __m128i t3 = _mm256_extracti128_si256(t2, 1);
-  __m128i t4 = _mm_add_epi32(_mm256_castsi256_si128(t2), t3);
-  return _mm_cvtsi128_si32(t4);
-}
-
 template <
     bool FUSE_RELU,
     bool ACT_ZP_0, // is activation zero point 0?
