@@ -44,10 +44,12 @@ static inline EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
   if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
-    return EmbeddingStatsTracker::DataType::BF16;
-  } else {
-    return EmbeddingStatsTracker::DataType::FP16;
+  } else if constexpr (std::is_same_v<OutType, uint16_t>) {
+    if (is_bf16_out) {
+      return EmbeddingStatsTracker::DataType::BF16;
+    } else {
+      return EmbeddingStatsTracker::DataType::FP16;
+    }
   }
 }
 
@@ -95,8 +97,8 @@ static inline void fill_output_sve(
         svst1_f32(lastPredB, ptrOut + 4, trailing_row_1);
       }
     }
-  } else {
-    if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
+  } else if constexpr (std::is_same_v<OutType, uint16_t>) {
+    if (is_bf16_out) {
       auto ptrOut = reinterpret_cast<uint16_t*>(out);
 
       for (; srcPtr < endPtr;) {
@@ -246,8 +248,8 @@ static inline void sve_fma_round(
       buf->val[1] = svget_neonq(in_v_1_f);
 
       buf += 1;
-    } else {
-      if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
+    } else if constexpr (std::is_same_v<OutType, uint16_t>) {
+      if (is_bf16_out) {
         auto svrow_0 = svreinterpret_u32_u16(
             svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
         auto svrow_1 = svreinterpret_u32_u16(
@@ -296,8 +298,8 @@ static inline void sve_fma_round(
     if constexpr (std::is_same_v<OutType, float>) {
       svst1_f32(lastPredA, bufPtr, in_v_0_f);
       svst1_f32(lastPredB, bufPtr + 4, in_v_1_f);
-    } else {
-      if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
+    } else if constexpr (std::is_same_v<OutType, uint16_t>) {
+      if (is_bf16_out) {
         auto trailing_row_0_u32 = svreinterpret_u32_u16(
             svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
         auto trailing_row_1_u32 = svreinterpret_u32_u16(
