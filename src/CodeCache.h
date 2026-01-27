@@ -8,8 +8,8 @@
 
 #pragma once
 #include <future>
+#include <map>
 #include <shared_mutex>
-#include <unordered_map>
 
 #ifdef FBCODE_CAFFE2
 #include <folly/container/F14Map.h>
@@ -29,7 +29,7 @@ class CodeCache {
 #ifdef FBCODE_CAFFE2
   folly::F14FastMap<KEY, std::shared_future<VALUE>> values_;
 #else
-  std::unordered_map<KEY, std::shared_future<VALUE>> values_;
+  std::map<KEY, std::shared_future<VALUE>> values_;
 #endif
 
   std::shared_timed_mutex mutex_;
@@ -86,8 +86,8 @@ class CodeCache<KEY, VALUE, /*THREAD_LOCAL=*/true> {
     return values_;
   }
 #else
-  static std::unordered_map<KEY, VALUE>& getValues_() {
-    static thread_local std::unordered_map<KEY, VALUE> values_;
+  static std::map<KEY, VALUE>& getValues_() {
+    static thread_local std::map<KEY, VALUE> values_;
     return values_;
   }
 #endif
