@@ -39,9 +39,9 @@ bool EmbeddingSpMDMBlockSize1_(
 
     // The following code doesn't speedup
 #if 0
-    constexpr int VLEN = std::is_same<IndexType, std::int64_t>::value ? 4 : 8;
+    constexpr int VLEN = std::is_same_v<IndexType, std::int64_t> ? 4 : 8;
     for (; i < lengths[m] / VLEN * VLEN; i += VLEN) {
-      if constexpr (std::is_same<IndexType, std::int64_t>::value) {
+      if constexpr (std::is_same_v<IndexType, std::int64_t>) {
         __m256i idx_v = _mm256_lddqu_si256(
             reinterpret_cast<const __m256i*>(indices + current));
         // Should be none true

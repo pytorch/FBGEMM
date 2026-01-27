@@ -61,7 +61,7 @@ class PackedGemmMatrixB {
       const int brow = 512)
       : nrow_(nrow), ncol_(ncol), brow_(brow), kernel_ncol_blocks_(2) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-    if constexpr (std::is_same<T, float16>::value) {
+    if constexpr (std::is_same_v<T, float16>) {
       kernel_ncol_blocks_ = 1;
     }
 #endif
@@ -90,7 +90,7 @@ class PackedGemmMatrixB {
         size_(size),
         kernel_ncol_blocks_(2) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-    if constexpr (std::is_same<T, float16>::value) {
+    if constexpr (std::is_same_v<T, float16>) {
       kernel_ncol_blocks_ = 1;
     }
 #endif
@@ -118,7 +118,7 @@ class PackedGemmMatrixB {
         size_(size),
         kernel_ncol_blocks_(kernel_ncol_blocks) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-    if constexpr (std::is_same<T, float16>::value) {
+    if constexpr (std::is_same_v<T, float16>) {
       kernel_ncol_blocks_ = 1;
     }
 #endif

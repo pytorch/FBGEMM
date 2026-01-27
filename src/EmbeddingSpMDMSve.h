@@ -63,7 +63,7 @@ static inline void fill_output_sve(
     float32x4_t scale) {
   const float32x4x2_t* srcPtr = reinterpret_cast<const float32x4x2_t*>(src);
   const float32x4x2_t* endPtr = srcPtr + iters;
-  if constexpr (std::is_same<OutType, float>::value) {
+  if constexpr (std::is_same_v<OutType, float>) {
     if constexpr (WithScale) {
       float32x4x2_t* outPtr = reinterpret_cast<float32x4x2_t*>(out);
       for (; srcPtr < endPtr;) {
@@ -96,7 +96,7 @@ static inline void fill_output_sve(
       }
     }
   } else {
-    if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+    if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
       auto ptrOut = reinterpret_cast<uint16_t*>(out);
 
       for (; srcPtr < endPtr;) {
@@ -203,7 +203,7 @@ static inline void sve_fma_round(
     svbool_t lastPredC,
     const bool is_bf16_out) {
   // If we read from out, they must be float32
-  static_assert(!FuseWithOutput || std::is_same<OutType, float>::value);
+  static_assert(!FuseWithOutput || std::is_same_v<OutType, float>);
 
   float32x4x2_t* buf = reinterpret_cast<float32x4x2_t*>(out);
   float16x4x2_t* outFp16 = reinterpret_cast<float16x4x2_t*>(out);
@@ -241,13 +241,13 @@ static inline void sve_fma_round(
       in_v_1_f = svmad_f32_m(fullRowPred, in_v_1_f, scale, bias);
     }
 
-    if constexpr (std::is_same<OutType, float>::value) {
+    if constexpr (std::is_same_v<OutType, float>) {
       buf->val[0] = svget_neonq(in_v_0_f);
       buf->val[1] = svget_neonq(in_v_1_f);
 
       buf += 1;
     } else {
-      if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+      if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
         auto svrow_0 = svreinterpret_u32_u16(
             svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
         auto svrow_1 = svreinterpret_u32_u16(
@@ -293,11 +293,11 @@ static inline void sve_fma_round(
       in_v_1_f = svmad_f32_m(lastPredB, in_v_1_f, scale, bias);
     }
 
-    if constexpr (std::is_same<OutType, float>::value) {
+    if constexpr (std::is_same_v<OutType, float>) {
       svst1_f32(lastPredA, bufPtr, in_v_0_f);
       svst1_f32(lastPredB, bufPtr + 4, in_v_1_f);
     } else {
-      if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+      if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
         auto trailing_row_0_u32 = svreinterpret_u32_u16(
             svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
         auto trailing_row_1_u32 = svreinterpret_u32_u16(
@@ -343,7 +343,7 @@ bool EmbeddingSpMDM8Bit_Sve(
     const int64_t input_stride,
     const bool scale_bias_last,
     const bool is_bf16_out) {
-  constexpr bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
+  constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
   }
@@ -366,7 +366,7 @@ bool EmbeddingSpMDM8Bit_Sve(
     }
   }
 
-  const int64_t scale_bias_size = 2 * sizeof(float16);
+  constexpr int64_t scale_bias_size = 2 * sizeof(float16);
   const int64_t scale_bias_offset = scale_bias_last ? block_size : 0;
   const int64_t input_offset = scale_bias_last ? 0 : scale_bias_size;
 
@@ -439,7 +439,7 @@ bool EmbeddingSpMDM8Bit_Sve(
   std::unique_ptr<float[]> heap_storage;
   float32x4x2_t* buf;
 
-  if constexpr (!std::is_same<OutType, float>::value) {
+  if constexpr (!std::is_same_v<OutType, float>) {
     if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
       buf = reinterpret_cast<float32x4x2_t*>(local_storage.data());
     } else {
@@ -473,7 +473,7 @@ bool EmbeddingSpMDM8Bit_Sve(
       len = 0;
     }
 
-    if constexpr (std::is_same<OutType, float>::value) {
+    if constexpr (std::is_same_v<OutType, float>) {
       buf = reinterpret_cast<float32x4x2_t*>(out);
     }
 
@@ -598,7 +598,7 @@ bool EmbeddingSpMDM8Bit_Sve(
     }
     if (oneIterationDone) {
       if (len) {
-        float32x4_t len_v = vdupq_n_f32((float)len);
+        float32x4_t len_v = vdupq_n_f32(static_cast<float>(len));
         float32x4_t normalize_scale = vdupq_n_f32(1.f);
         normalize_scale = vdivq_f32(normalize_scale, len_v);
         fill_output_sve<OutType, true>(

@@ -30,7 +30,7 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
         "tps_ips and tps_ports must have the same size");
     std::vector<std::pair<std::string, int>> tpsHosts = {};
     for (int i = 0; i < tps_ips.size(); i++) {
-      tpsHosts.push_back(std::make_pair(tps_ips[i], tps_ports[i]));
+      tpsHosts.emplace_back(tps_ips[i], tps_ports[i]);
     }
 
     impl_ = std::make_shared<ps::EmbeddingParameterServer>(

@@ -1130,7 +1130,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 
 #if HAVE_SVE
-  if constexpr (std::is_same<inType, uint8_t>::value) {
+  if constexpr (std::is_same_v<inType, uint8_t>) {
     if (no_bag) {
       return [=](int64_t output_size,
                  int64_t index_size,

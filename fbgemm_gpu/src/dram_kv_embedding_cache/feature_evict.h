@@ -457,7 +457,7 @@ class FeatureEvict {
   };
 
   void reset_ut_specific() {
-    if (last_iter_shards_.size() == 0) {
+    if (last_iter_shards_.empty()) {
       last_iter_shards_.reserve(num_shards_);
       for (int i = 0; i < num_shards_; ++i) {
         last_iter_shards_.emplace_back(
@@ -562,7 +562,7 @@ class FeatureEvict {
         << "found " << finished_evicts
         << " finished evicts before triggering new round of evict, "
         << "this should be either 0 or num shards:" << num_shards_;
-    CHECK(futures_.size() == 0 || futures_.size() == num_shards_)
+    CHECK(futures_.empty() || futures_.size() == num_shards_)
         << "found " << futures_.size()
         << " futures before triggering new round of evict, "
         << "this should be either 0 or num shards:" << num_shards_;

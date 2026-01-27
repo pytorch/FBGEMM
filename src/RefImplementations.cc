@@ -1837,17 +1837,11 @@ int sparse_adagrad_ref(
     float freq =
         (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
-    const float* g_ = nullptr;
-    const float* h_ = nullptr;
-    const float* w_ = nullptr;
-    float* nh_ = nullptr;
-    float* nw_ = nullptr;
-
-    g_ = g + offsetI;
-    h_ = h + offsetIdx;
-    w_ = w + offsetIdx;
-    nh_ = h + offsetIdx;
-    nw_ = w + offsetIdx;
+    const float* g_ = g + offsetI;
+    const float* h_ = h + offsetIdx;
+    const float* w_ = w + offsetIdx;
+    float* nh_ = h + offsetIdx;
+    float* nw_ = w + offsetIdx;
 
     for (auto j = 0; j < block_size; ++j) {
       float gj = std::fma(weight_decay * freq, w_[j], g_[j]);
@@ -1885,13 +1879,9 @@ int rowwise_sparse_adagrad_ref(
     float freq =
         (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
-    const float* g_ = nullptr;
-    float* h_ = nullptr;
-    float* w_ = nullptr;
-
-    g_ = g + offsetI;
-    h_ = h + idx; // This is different from sparse adagrad
-    w_ = w + offsetIdx;
+    const float* g_ = g + offsetI;
+    float* h_ = h + idx; // This is different from sparse adagrad
+    float* w_ = w + offsetIdx;
 
     float final_sum = 0.0f;
     // Note the following code assumes fbgemm will generate AVX2 code for

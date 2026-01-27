@@ -204,7 +204,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     bool output_is_int8 = o_dtype == SparseType::INT8;
     bool output_is_int4 = o_dtype == SparseType::INT4;
     {% if not nobag %}
-    const int kINT8QparamsBytes = 8;
+    constexpr int kINT8QparamsBytes = 8;
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
       total_adjusted_D += T * kINT8QparamsBytes;
@@ -248,13 +248,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         using bfloat16 = uint16_t;
         using int8 = uint8_t;
         using base_fbgemm_out_t = typename std::conditional<
-            std::is_same<output_t, at::Half>::value,
+            std::is_same_v<output_t, at::Half>,
             float16,
-            std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, std::conditional<std::is_same<output_t, float>::value, float, int8>::type> ::type >::type;
+            std::conditional<std::is_same_v<output_t, at::BFloat16>, bfloat16, std::conditional<std::is_same_v<output_t, float>, float, int8>::type> ::type >::type;
         using other_fbgemm_out_t = typename std::conditional<
-            std::is_same<output_t, at::Half>::value,
+            std::is_same_v<output_t, at::Half>,
             float16,
-            std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, float>::type> ::type;
+            std::conditional<std::is_same_v<output_t, at::BFloat16>, bfloat16, float>::type> ::type;
         AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_", [&] {
             const auto* indices_acc = indices.const_data_ptr<index_t>();
             const auto* offsets_acc = offsets.const_data_ptr<index_t>();

@@ -3663,7 +3663,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   auto group_size = grad_output_group.size() - 2;
   grad_output_group.resize(group_size);
 
-  auto saved_tensors = ctx->get_saved_variables();
+  const auto saved_tensors = ctx->get_saved_variables();
   TORCH_CHECK(saved_tensors.size() == group_size + 3);
   std::vector<c10::SymInt> output_shape_group;
   int i = 0;

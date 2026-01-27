@@ -234,7 +234,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
     const bool& reverse_permute) {
   // we assume that there's at least one input tensor in the list
   // it should be enforced from the caller side who has the knowledge.
-  TORCH_CHECK(pooled_embs.size() > 0);
+  TORCH_CHECK(!pooled_embs.empty());
   CUDA_DEVICE_GUARD(pooled_embs[0]);
   TENSORS_ON_SAME_DEVICE(permutes, pooled_embs[0]);
   TENSORS_ON_SAME_DEVICE(permutes, in_shapes);
