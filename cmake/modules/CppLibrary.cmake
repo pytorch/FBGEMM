@@ -135,12 +135,6 @@ function(cpp_library)
                 list(APPEND lib_cc_flags
                     -Wno-deprecated-enum-enum-conversion)
             endif()
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0)
-                # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
-                list(APPEND lib_cc_flags
-                    -Wno-attributes)
-            endif()
         endif()
     endif()
 

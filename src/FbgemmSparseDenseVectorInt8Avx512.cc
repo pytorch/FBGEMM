@@ -19,7 +19,7 @@
 
 namespace fbgemm::internal {
 
-static inline int32_t horizontal_add(__m256i a) {
+[[maybe_unused]] static inline int32_t horizontal_add(__m256i a) {
   __m256i t1 = _mm256_hadd_epi32(a, a);
   __m256i t2 = _mm256_hadd_epi32(t1, t1);
   __m128i t3 = _mm256_extracti128_si256(t2, 1);
@@ -205,14 +205,7 @@ void SparseDenseInt8MVAvx512(
         res = _mm512_add_epi32(res, c_i32_v);
       }
       // Horizontal reduce
-      // _mm512_reduce_add_epi32 is only available for gcc version > 7
-#if __GNUC__ >= 7
       int32_t res_i32 = _mm512_reduce_add_epi32(res);
-#else
-      __m256i low = _mm512_castsi512_si256(res);
-      __m256i high = _mm512_extracti64x4_epi64(res, 1);
-      int32_t res_i32 = horizontal_add(_mm256_add_epi32(low, high));
-#endif
 
       // store the results
       if (accum || kt > 0) {

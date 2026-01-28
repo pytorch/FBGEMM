@@ -1510,7 +1510,7 @@ def vbe(
     out = None
     out_offsets = None
     if merge_output:
-        (batch_size_per_feature_per_rank, out, out_offsets) = (
+        batch_size_per_feature_per_rank, out, out_offsets = (
             generate_merged_output_and_offsets(
                 Ds,
                 Bs,
