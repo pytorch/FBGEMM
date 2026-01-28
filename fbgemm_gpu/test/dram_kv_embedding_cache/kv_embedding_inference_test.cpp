@@ -7,7 +7,7 @@
  */
 
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_inference_embedding.h"
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/inference_fixed_block_pool.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -90,8 +90,10 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
       const std::vector<float>& embedding,
       uint32_t ts = 1000) {
     auto indices = at::tensor({id}, at::kLong);
+    // Clone the embedding data to avoid const_cast
+    std::vector<float> embedding_copy(embedding);
     auto weights = at::from_blob(
-        const_cast<float*>(embedding.data()),
+        embedding_copy.data(),
         {1, EMBEDDING_DIM},
         at::TensorOptions().dtype(at::kFloat));
     auto count = at::tensor({1}, at::kInt);
