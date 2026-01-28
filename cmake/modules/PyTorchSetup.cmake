@@ -10,6 +10,20 @@
 
 find_package(Torch REQUIRED)
 
+# Filter out specific flags that may have been inherited from PyTorch's
+# CMAKE_CXX_FLAGS: - -Wno-duplicate-decl-specifier: C-only flag in GCC, valid
+# for C++ in clang - -Wno-unused-command-line-argument: clang-specific,
+# unrecognized by GCC
+if(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+  set(_clang_only_flags "-Wno-duplicate-decl-specifier"
+                        "-Wno-unused-command-line-argument")
+
+  foreach(_flag IN LISTS _clang_only_flags)
+    string(REPLACE "${_flag}" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REPLACE "${_flag}" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+  endforeach()
+endif()
+
 #
 # PyTorch CUDA Extensions are normally compiled with the flags below. However we
 # disabled -D__CUDA_NO_HALF_CONVERSIONS__ here as it caused "error: no suitable
