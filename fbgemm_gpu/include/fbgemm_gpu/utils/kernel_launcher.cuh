@@ -437,35 +437,41 @@ struct KernelLauncher {
 //  - The macro expression is wrapped inside a parenthesis to avoid commas from
 //  interfering with preoprocessing when this macro is invoked inside another
 //  macro.
+//
+//  - __VA_OPT__(,) is used to handle the case when no kernel arguments are
+// passed (aside from TORCH_DSA_KERNEL_ARGS)
 ////////////////////////////////////////////////////////////////////////////////
 
-#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)        \
-  ([&] {                                                                    \
-    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
-    auto& kernel = KERNEL;                                                  \
-                                                                            \
-    return fbgemm_gpu::utils::                                              \
-        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)   \
-            .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)           \
+  ([&] {                                                                       \
+    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                   \
+    auto& kernel = KERNEL;                                                     \
+                                                                               \
+    return fbgemm_gpu::utils::                                                 \
+        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)      \
+            .launch_kernel(                                                    \
+                kernel, GRID, BLOCK, SMEM, STREAM __VA_OPT__(, ) __VA_ARGS__); \
   }())
 
-#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)    \
-  ([&] {                                                                    \
-    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
-    auto& kernel = KERNEL;                                                  \
-                                                                            \
-    return fbgemm_gpu::utils::                                              \
-        KernelLauncher<true, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)    \
-            .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)       \
+  ([&] {                                                                       \
+    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                   \
+    auto& kernel = KERNEL;                                                     \
+                                                                               \
+    return fbgemm_gpu::utils::                                                 \
+        KernelLauncher<true, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)       \
+            .launch_kernel(                                                    \
+                kernel, GRID, BLOCK, SMEM, STREAM __VA_OPT__(, ) __VA_ARGS__); \
   }())
 
-#define FBGEMM_TIME_KERNEL_RUN(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)      \
-  ([&] {                                                                    \
-    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
-    auto& kernel = KERNEL;                                                  \
-                                                                            \
-    return fbgemm_gpu::utils::                                              \
-        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_, true>(     \
-               context)                                                     \
-            .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+#define FBGEMM_TIME_KERNEL_RUN(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)         \
+  ([&] {                                                                       \
+    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                   \
+    auto& kernel = KERNEL;                                                     \
+                                                                               \
+    return fbgemm_gpu::utils::                                                 \
+        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_, true>(        \
+               context)                                                        \
+            .launch_kernel(                                                    \
+                kernel, GRID, BLOCK, SMEM, STREAM __VA_OPT__(, ) __VA_ARGS__); \
   }())
