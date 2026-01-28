@@ -65,13 +65,15 @@ static inline void fill_output(
     for (int j = 0; j < block_size; ++j) {
       out[j] = src[j];
     }
-  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
-    for (int j = 0; j < block_size; ++j) {
-      out[j] = cpu_float2bfloat16(src[j]);
-    }
-  } else {
-    for (int j = 0; j < block_size; ++j) {
-      out[j] = cpu_float2half(src[j]);
+  } else if constexpr (std::is_same_v<OutType, uint16_t>) {
+    if (is_bf16_out) {
+      for (int j = 0; j < block_size; ++j) {
+        out[j] = cpu_float2bfloat16(src[j]);
+      }
+    } else {
+      for (int j = 0; j < block_size; ++j) {
+        out[j] = cpu_float2half(src[j]);
+      }
     }
   }
 }
