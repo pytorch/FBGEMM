@@ -81,8 +81,14 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
   assert(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
-  if constexpr (
-      instSet == inst_set_t::anyarch || !std::is_same_v<outT, uint8_t>) {
+#if defined(__aarch64__)
+  // On aarch64, always use the generic implementation
+  constexpr bool kUseGenericImpl = true;
+#else
+  constexpr bool kUseGenericImpl =
+      instSet == inst_set_t::anyarch || !std::is_same_v<outT, uint8_t>;
+#endif
+  if constexpr (kUseGenericImpl) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + (j - block.col_start)];
@@ -216,8 +222,14 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
   assert(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
-  if constexpr (
-      instSet == inst_set_t::anyarch || !std::is_same_v<outT, float>) {
+#if defined(__aarch64__)
+  // On aarch64, always use the generic implementation
+  constexpr bool kUseGenericImpl = true;
+#else
+  constexpr bool kUseGenericImpl =
+      instSet == inst_set_t::anyarch || !std::is_same_v<outT, float>;
+#endif
+  if constexpr (kUseGenericImpl) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + j - block.col_start];
