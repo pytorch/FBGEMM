@@ -25,23 +25,23 @@
 
 #define GCONV_INST_AVX2_HEADER          \
   template <inst_set_t ISET = INST_SET> \
-  typename std::enable_if_t<ISET == inst_set_t::avx2, void>
+  std::enable_if_t<ISET == inst_set_t::avx2, void>
 
 #define GCONV_INST_AVX512_AND_VNNI_HEADER                            \
   template <inst_set_t ISET = INST_SET>                              \
-  typename std::enable_if_t<                                         \
+  std::enable_if_t<                                                  \
       ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
       void>
 
 #define GCONV_INST_DEF_AVX2_HEADER                \
   template <int SPATIAL_DIM, inst_set_t INST_SET> \
   template <inst_set_t ISET>                      \
-  typename std::enable_if_t<ISET == inst_set_t::avx2, void>
+  std::enable_if_t<ISET == inst_set_t::avx2, void>
 
 #define GCONV_INST_DEF_AVX512_AND_VNNI_HEADER                        \
   template <int SPATIAL_DIM, inst_set_t INST_SET>                    \
   template <inst_set_t ISET>                                         \
-  typename std::enable_if_t<                                         \
+  std::enable_if_t<                                                  \
       ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
       void>
 
@@ -136,20 +136,24 @@ class GenConvKernelBase {
   ~GenConvKernelBase() = default;
 
   static std::string getCodeLoggingFile(kernel_sig_t kernel_sig) {
+    const auto& [isZeroPointZero, rowOffset, topEdge, bottomEdge,
+                 isTopBottomSame, useBottomPadding, useRightPadding, accum,
+                 groups, stride, icPerG, ocPerG] = kernel_sig;
+
     std::ostringstream oss;
     oss << "conv";
-    oss << "_G-" << std::get<8>(kernel_sig);
-    oss << "_stride-" << std::get<9>(kernel_sig);
-    oss << "_IC_per_G-" << std::get<10>(kernel_sig);
-    oss << "_OC_per_G-" << std::get<11>(kernel_sig);
-    oss << "_isZeroPointZero-" << std::get<0>(kernel_sig);
-    oss << "_rowoffset-" << std::get<1>(kernel_sig);
-    oss << "_topEdge-" << std::get<2>(kernel_sig);
-    oss << "_bottomEdge-" << std::get<3>(kernel_sig);
-    oss << "_isTopBottomSame-" << std::get<4>(kernel_sig);
-    oss << "_useBottomPadding-" << std::get<5>(kernel_sig);
-    oss << "_useRightPadding-" << std::get<6>(kernel_sig);
-    oss << "_accum-" << std::get<7>(kernel_sig);
+    oss << "_G-" << groups;
+    oss << "_stride-" << stride;
+    oss << "_IC_per_G-" << icPerG;
+    oss << "_OC_per_G-" << ocPerG;
+    oss << "_isZeroPointZero-" << isZeroPointZero;
+    oss << "_rowoffset-" << rowOffset;
+    oss << "_topEdge-" << topEdge;
+    oss << "_bottomEdge-" << bottomEdge;
+    oss << "_isTopBottomSame-" << isTopBottomSame;
+    oss << "_useBottomPadding-" << useBottomPadding;
+    oss << "_useRightPadding-" << useRightPadding;
+    oss << "_accum-" << accum;
 
     if constexpr (INST_SET == inst_set_t::avx512) {
       oss << "_avx512";

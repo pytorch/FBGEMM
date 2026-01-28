@@ -1590,7 +1590,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     std::uint8_t* output,
     const InputType* rowwise_min_max) {
   static_assert(
-      std::is_same<InputType, float>() || std::is_same<InputType, float16>(),
+      std::is_same_v<InputType, float> || std::is_same_v<InputType, float16>,
       "Only float and float16 types are allowed.");
   constexpr int VLEN = 8;
   constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
@@ -1601,7 +1601,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
   float* input_row_float_for_fp16 = nullptr;
   float min_max_row_float_for_fp16[kRowwiseMinMaxNumCols];
   const auto is_valid_rowwise_min_max = (rowwise_min_max != nullptr);
-  if constexpr (std::is_same<InputType, float16>()) {
+  if constexpr (std::is_same_v<InputType, float16>) {
     input_row_float_for_fp16 = static_cast<float*>(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
@@ -1609,7 +1609,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
   for (size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float = nullptr;
-    if constexpr (std::is_same<InputType, float>()) {
+    if constexpr (std::is_same_v<InputType, float>) {
       // NOTE: this reinterpret_cast is only to workaround c++
       // type requirements -- it is not for fp16 case and `input_row` HAS to be
       // float* type. Remove it and use constexpr when pytorch allows C++17.
@@ -1644,7 +1644,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       maximum_element = min_max_row_float[1];
 
       for (int col = 0; col < input_columns; ++col) {
-        if constexpr (std::is_same<InputType, float16>()) {
+        if constexpr (std::is_same_v<InputType, float16>) {
           input_row_float_for_fp16[col] = halfToFloat(input_row[col]);
         }
       }
@@ -1654,7 +1654,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       int col = 0;
       for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
         __m256 in_v;
-        if constexpr (std::is_same<InputType, float>()) {
+        if constexpr (std::is_same_v<InputType, float>) {
           in_v = _mm256_loadu_ps(input_row_float + col);
         } else {
           __m128i in_half_v = _mm_loadu_si128(
@@ -1675,7 +1675,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       }
 
       for (; col < input_columns; ++col) {
-        if constexpr (std::is_same<InputType, float>()) {
+        if constexpr (std::is_same_v<InputType, float>) {
           minimum_element = std::min(minimum_element, input_row_float[col]);
           maximum_element = std::max(maximum_element, input_row_float[col]);
         } else {
@@ -1872,7 +1872,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
       maximum_element = min_max_row_float[1];
 
       for (int col = 0; col < input_columns; ++col) {
-        if constexpr (std::is_same<InputType, float16>()) {
+        if constexpr (std::is_same_v<InputType, float16>) {
           input_row_float_for_fp16[col] = halfToFloat(input_row[col]);
         }
       }
@@ -1883,7 +1883,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
 
       for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
         __m256 in_v;
-        if constexpr (std::is_same<InputType, float>()) {
+        if constexpr (std::is_same_v<InputType, float>) {
           in_v = _mm256_loadu_ps(input_row_float + col);
         } else {
           __m128i in_half_v = _mm_loadu_si128(
@@ -1903,7 +1903,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
       }
 
       for (; col < input_columns; ++col) {
-        if constexpr (std::is_same<InputType, float>()) {
+        if constexpr (std::is_same_v<InputType, float>) {
           minimum_element = std::min(minimum_element, input_row_float[col]);
           maximum_element = std::max(maximum_element, input_row_float[col]);
         } else {
@@ -1978,7 +1978,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     int input_columns,
     OutputType* output) {
   static_assert(
-      std::is_same_v<OutputType, float> || std::is_same<OutputType, float16>(),
+      std::is_same_v<OutputType, float> || std::is_same_v<OutputType, float16>,
       "Only float and float16 types are allowed.");
   constexpr int VLEN = 8;
   constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
@@ -2006,7 +2006,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
                 NUM_OF_32BIT_PER_VLOAD));
     remainder = output_columns % (4 * VLEN);
     int remainder_ratio = 1;
-    if constexpr (std::is_same<OutputType, float16>()) {
+    if constexpr (std::is_same_v<OutputType, float16>) {
       // For fp16 we only need half of the mask.
       //
       // For instance, if reminder is 2, for FP32 the masks are
