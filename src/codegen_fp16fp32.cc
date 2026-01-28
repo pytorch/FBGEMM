@@ -210,8 +210,7 @@ int main(int argc, const char* argv[]) {
       // open all files
       ofstream srcfile(isa_file_name + ".cc");
       srcfile << license;
-      srcfile << "#include \"./" + isa_file_name + ".h\"\n";
-      srcfile << "#include \"./InlineAsmDefines.h\"\n\n";
+      srcfile << "#include \"./" + isa_file_name + ".h\"\n\n";
       srcfile << "namespace fbgemm {\n\n";
       if (iaca) {
         srcfile << "#include \"iacaMarks.h\"\n";
@@ -378,12 +377,7 @@ int main(int argc, const char* argv[]) {
 
         srcfile << "  asm volatile(\n";
 
-        srcfile << "#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK\n";
-        addi(srcfile, "mov %[gp], %%r14");
-        addi(srcfile, ".intel_syntax noprefix");
-        srcfile << "#else\n";
         addi(srcfile, "mov r14, %[gp]");
-        srcfile << "#endif\n";
 
         srcfile << "\n";
         srcfile << "      // Copy parameters\n";
