@@ -7,18 +7,12 @@
  */
 
 #include "./FbgemmFP32UKernelsAvx2.h" // @manual
-#include "../InlineAsmDefines.h" // @manual
 
 namespace fbgemm {
 
 void NOINLINE gemmkernel_1x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
   asm volatile(
-#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
-      "mov %[gp], %%r14\t\n"
-      ".intel_syntax noprefix\t\n"
-#else
       "mov r14, %[gp]\t\n"
-#endif
 
       // Copy parameters
       // k
@@ -135,12 +129,7 @@ void NOINLINE gemmkernel_1x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
 }
 void NOINLINE gemmkernel_2x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
   asm volatile(
-#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
-      "mov %[gp], %%r14\t\n"
-      ".intel_syntax noprefix\t\n"
-#else
       "mov r14, %[gp]\t\n"
-#endif
 
       // Copy parameters
       // k
@@ -278,12 +267,7 @@ void NOINLINE gemmkernel_2x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
 }
 void NOINLINE gemmkernel_3x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
   asm volatile(
-#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
-      "mov %[gp], %%r14\t\n"
-      ".intel_syntax noprefix\t\n"
-#else
       "mov r14, %[gp]\t\n"
-#endif
 
       // Copy parameters
       // k
@@ -440,12 +424,7 @@ void NOINLINE gemmkernel_3x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
 }
 void NOINLINE gemmkernel_4x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
   asm volatile(
-#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
-      "mov %[gp], %%r14\t\n"
-      ".intel_syntax noprefix\t\n"
-#else
       "mov r14, %[gp]\t\n"
-#endif
 
       // Copy parameters
       // k
@@ -621,12 +600,7 @@ void NOINLINE gemmkernel_4x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
 }
 void NOINLINE gemmkernel_5x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
   asm volatile(
-#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
-      "mov %[gp], %%r14\t\n"
-      ".intel_syntax noprefix\t\n"
-#else
       "mov r14, %[gp]\t\n"
-#endif
 
       // Copy parameters
       // k
@@ -821,12 +795,7 @@ void NOINLINE gemmkernel_5x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
 }
 void NOINLINE gemmkernel_6x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
   asm volatile(
-#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
-      "mov %[gp], %%r14\t\n"
-      ".intel_syntax noprefix\t\n"
-#else
       "mov r14, %[gp]\t\n"
-#endif
 
       // Copy parameters
       // k
