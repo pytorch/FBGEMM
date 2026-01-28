@@ -152,7 +152,7 @@ void split_embedding_{{ optimizer }}_update(
         lxu_cache_weights.scalar_type(),
         "split_embedding_{{ optimizer }}_update_kernel",
         [&] {
-            TORCH_CHECK(!(std::is_same<emb_t, uint8_t>::value));
+            TORCH_CHECK(!(std::is_same_v<emb_t, uint8_t>));
 
             at::PhiloxCudaState rng_engine_inputs;
             if (stochastic_rounding && !std::is_same<emb_t, float>::value) {

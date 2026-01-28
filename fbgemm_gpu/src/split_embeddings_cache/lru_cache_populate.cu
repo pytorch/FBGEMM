@@ -208,8 +208,7 @@ void lru_cache_insert_cuda(
         // Stochastic rounding is required only when emb_t and cache_t are
         // not the same type and emb_t is not float
         const bool stochastic_rounding_ = stochastic_rounding &&
-            !std::is_same<emb_t, float>::value &&
-            !std::is_same<emb_t, cache_t>::value;
+            !std::is_same_v<emb_t, float> && !std::is_same_v<emb_t, cache_t>;
 
         at::PhiloxCudaState rng_engine_inputs;
         if (stochastic_rounding_) {
