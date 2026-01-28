@@ -528,6 +528,14 @@ using namespace fbgemm_gpu;
     }
 {%- endmacro %}
 
+{%- set is_optimized_vbe_supported_mode = not dense and 
+    not ssd and
+    not nobag and 
+    not is_index_select and 
+    vbe and 
+    not weighted and 
+    not is_gwd_kernel and 
+    is_rocm %}
 
 {#-
   /* Generate different kernels for global_weight_decay support using Jinja
@@ -537,6 +545,736 @@ using namespace fbgemm_gpu;
      with global_weight_decay, otherwise, only generate regular kernel.
    */
 #}
+
+{%- if is_optimized_vbe_supported_mode %}
+
+template<
+    typename emb_t,
+    typename cache_t,
+    typename output_t,
+    typename index_t,
+    size_t kMaxVecsPerThread,
+    size_t kThreadGroupSize,
+    int kManualUnrollLength,
+    int VEC_WIDTH
+>
+__inline__ __device__ void process_all_sl_vbe(
+    const emb_t* __restrict__ weights,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    // If 2D, shape is [B][total_D]
+    output_t* output_,
+    Vec4T<cache_t>* accumulators, 
+    const int32_t L, 
+    overflow_safe_int_t indices_start,
+    int32_t D_emb,
+    int32_t D,
+    const unsigned int shfl_sync_mask
+){
+    
+    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
+        // Determine the L index that this thread will load data from in cooperative load
+        auto l = l_start + threadIdx.x;
+
+        // Cooperatively load the indices
+        const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
+
+        // If idx is loaded
+        const auto offset_idx = idx * D_emb;
+        Vec4T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];
+        // Iterate over kThreadGroupSize indices
+
+        for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength)
+
+        
+        {
+            // Load index from thread j in the group
+            overflow_safe_int_t offset_idx_j_[kManualUnrollLength];
+            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+            {
+                offset_idx_j_[inner_j] = SHFL_SYNC(offset_idx, outer_j + inner_j);
+            }
+
+
+            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+            {
+                auto j = outer_j + inner_j;
+                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
+
+
+
+                
+                const auto weights_row = WeightRowAccessor
+                    <
+                        emb_t,
+                        cache_t
+                    >(
+                    &weights[offset_idx_j], // Load from the embedding table
+                    D);
+                // Iterate over the row in the weights table, in 4-element strides
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0; i < kMaxVecsPerThread; ++i)
+                {
+                    // Load the slice of the weights
+                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+
+                    d = (d < D) ? d : 0;
+
+                    const auto weights_slice = weights_row.load(d);
+                    vals[inner_j * kMaxVecsPerThread + i] = weights_slice;
+                }
+                            
+            }
+            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+            {
+                auto j = outer_j + inner_j;
+                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
+
+                
+                // Iterate over the row in the weights table, in 4-element strides
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                    ++i) {
+                    // Accumulate the weights
+
+                    accumulators[i].add_(vals[inner_j * kMaxVecsPerThread + i]);
+
+                }
+                
+            }
+        }
+
+        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
+            // Load index from thread j in the group
+            [[maybe_unused]] auto offset_idx_j = SHFL_SYNC(offset_idx, j);
+
+
+            
+            const auto weights_row = WeightRowAccessor
+                <
+                    emb_t,
+                    cache_t
+                >(
+                &weights[offset_idx_j], // Load from the embedding table
+                D);
+            // Iterate over the row in the weights table, in 4-element strides
+            #pragma unroll kMaxVecsPerThread
+            for (int32_t i = 0;
+                i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                ++i) {
+                // Load the slice of the weights
+                const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                const auto weights_slice = weights_row.load(d);
+                // Accumulate the weights
+                accumulators[i].add_(weights_slice);
+            }
+            
+        }
+
+    }
+
+}
+
+template <
+    typename emb_t,
+    typename cache_t,
+    typename output_t,
+    {%- if not dense %}
+    bool use_lxu_cache,
+    {%- endif %}
+    typename index_t,
+    {%- if not nobag %}
+    size_t kMaxVecsPerThread,
+    {%- endif %}
+    size_t kThreadGroupSize>
+__launch_bounds__(kForwardMaxThreads) __global__ void
+hip_preload_{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_kernel(
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag or is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %} // if nobag
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
+    FixedDivisor fd_B,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    int64_t pooling_mode,
+    {%- endif %}
+    {%- if weighted %}
+    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
+    /*
+      NOTE: We pass in `lxu_cache_conflict_misses =
+      uvm_cache_stats[uvm_cache_stats_index::num_conflict_unique_misses]` as a
+      run-time argument here instead of passing the cache miss rate as a
+      compile-time argument, because `lxu_cache_conflict_misses` is only
+      available on the GPU, and invoking a templatized kernel with the cache
+      miss rate as a template argument requires this information to first be
+      passed back to the host, which is an expensive operation.
+    */
+    const int32_t* lxu_cache_conflict_misses,
+    {%- endif %}
+    {%- if is_gwd_kernel %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const float learning_rate,
+    const float weight_decay,
+    const int64_t iter,
+    const float gwd_lower_bound,
+    {%- endif %}
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %}
+    // If 2D, shape is [B][total_D]
+    pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
+    ) {
+// shfl_sync_mask is implicitly used by SHFL_SYNC
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+    const unsigned int shfl_sync_mask =
+        ((1L << kThreadGroupSize) - 1) <<
+        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#else
+    const unsigned int shfl_sync_mask = 0xffffffffu;
+#endif
+
+    // Elements are processed 4 at a time through fbgemm_gpu::Vec4 (CUDA float4, 16 bytes)
+    constexpr int VEC_WIDTH = 4;
+    {%- if is_rocm %}
+    // Unroll factor for ROCm devices
+    constexpr int kManualUnrollLength = 4;
+    {%- endif %}
+
+    // Determine the linearized warp ID, and exit early if needed
+    const auto total_B = offsets.size(0) - 1;
+
+#define BROADCAST(val, srcLane) __builtin_amdgcn_readlane(val,srcLane)
+
+    constexpr uint32_t kPreloadNum = 64;
+
+    const auto b_t_step = blockDim.y * gridDim.x;
+    auto start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
+
+    for (auto out_b_t = start_run_id * kPreloadNum; out_b_t < total_B; out_b_t += b_t_step * kPreloadNum) {
+        auto num_valid_id = min(kPreloadNum, total_B - out_b_t);
+        auto is_valid = threadIdx.x < num_valid_id;
+
+        const auto s_info = is_valid ? reinterpret_cast<const uint32_t*>(&b_t_map[out_b_t + threadIdx.x])[0] : 0;
+        int32_t s_t;  // Table ID
+        int32_t s_b;  // Training Example ID
+        reinterpret_cast<uint32_t*>(&s_t)[0] = s_info >> info_B_num_bits;
+        reinterpret_cast<uint32_t*>(&s_b)[0] = s_info & info_B_mask;
+
+        overflow_safe_int_t s_indices_start = threadIdx.x < num_valid_id ? offsets[out_b_t + threadIdx.x] : -1;
+        overflow_safe_int_t s_indices_end = threadIdx.x < num_valid_id ? offsets[out_b_t + threadIdx.x + 1] : -1;
+
+        const auto s_D_start = D_offsets[s_t];
+        const auto s_D_end = D_offsets[s_t + 1];
+
+        const auto s_weights_offset = weights_offsets[s_t];
+        const auto s_placement = weights_placements[s_t];
+
+        int64_t s_row_output_offsets = is_valid ? row_output_offsets[out_b_t + threadIdx.x] : -1;
+        for (auto unroll_i = 0; unroll_i < num_valid_id; unroll_i++) {
+            auto b_t = out_b_t + unroll_i;
+
+            const auto row_output_offsets_cur = BROADCAST(s_row_output_offsets, unroll_i);
+
+            // Determine the Table and Training Example IDs
+            int32_t t = BROADCAST(s_t, unroll_i);  // Table ID
+            int32_t b = BROADCAST(s_b, unroll_i);  // Training Example ID
+
+            overflow_safe_int_t indices_start = BROADCAST(s_indices_start, unroll_i);
+            overflow_safe_int_t indices_end = BROADCAST(s_indices_end, unroll_i);
+            int32_t L = indices_end - indices_start;
+
+            const auto D_start = BROADCAST(s_D_start, unroll_i);
+            const auto D_end = BROADCAST(s_D_end, unroll_i);
+
+            const auto D = D_end - D_start;
+            // Get total number of tables
+            int32_t T = weights_offsets.size(0);
+
+            // From the Table ID, fetch its weight tensor offset, locate that position
+            // in the input weights tensor, and set the weights table pointer
+            const emb_t* __restrict__ weights;
+            const auto weights_offset = BROADCAST(s_weights_offset, unroll_i);
+            const auto placement = static_cast<PlacementType>(BROADCAST(s_placement, unroll_i));
+
+            output_t* output_ = &output[0][row_output_offsets_cur];
+
+            if (placement == PlacementType::DEVICE) {
+                weights = &dev_weights[weights_offset];
+            } else {
+                weights = &uvm_weights[weights_offset];
+            }
+            // D is computed in the bag case or provided as function arg in the nobag case
+            // (nobag only supports the case where the embedding dimensions are the same for all tables)
+            int32_t D_emb = D;
+            if constexpr (std::is_same_v<emb_t, uint8_t>) {
+                D_emb += kINT8QparamsBytes;
+            }
+            // Determine if we're doing mean pooling
+            const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
+
+            // Compute 1/L - this is used to compute the mean later on
+            const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
+
+            // Set up the accumulator buffer
+            Vec4T<cache_t> accumulators[kMaxVecsPerThread];
+            if constexpr (! use_lxu_cache) {
+                // If use_lxu_cache is false, then the cache conflict miss rate is
+                // effectively 100%
+
+                if (L == 3) {
+                    process_all_sl_vbe<emb_t, cache_t, output_t, index_t, kMaxVecsPerThread, kThreadGroupSize, 3, VEC_WIDTH>(
+                        weights, indices, output_, accumulators, L, indices_start, D_emb, D, shfl_sync_mask);
+                } else if (L == 2) {
+                    process_all_sl_vbe<emb_t, cache_t, output_t, index_t, kMaxVecsPerThread, kThreadGroupSize, 2, VEC_WIDTH>(
+                        weights, indices, output_, accumulators, L, indices_start, D_emb, D, shfl_sync_mask);
+                } else if (L == 1) {
+                    process_all_sl_vbe<emb_t, cache_t, output_t, index_t, kMaxVecsPerThread, kThreadGroupSize, 1, VEC_WIDTH>(
+                        weights, indices, output_, accumulators, L, indices_start, D_emb, D, shfl_sync_mask);
+                } else {
+                    process_all_sl_vbe<emb_t, cache_t, output_t, index_t, kMaxVecsPerThread, kThreadGroupSize, kManualUnrollLength, VEC_WIDTH>(
+                        weights, indices, output_, accumulators, L, indices_start, D_emb, D, shfl_sync_mask); 
+                }
+
+            } else {
+                if (placement != PlacementType::MANAGED_CACHING) {
+                    // Load every row from HBM or UVM
+                    
+                    // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
+                    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
+                        // Determine the L index that this thread will load data from in cooperative load
+                        auto l = l_start + threadIdx.x;
+                        // Cooperatively load the indices
+                        const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
+                        // If idx is loaded
+                        const auto offset_idx = idx * D_emb;
+                        Vec4T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];
+                        // Iterate over kThreadGroupSize indices
+                        for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength)
+                        {
+                            // Load index from thread j in the group
+                            overflow_safe_int_t offset_idx_j_[kManualUnrollLength];
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                offset_idx_j_[inner_j] = SHFL_SYNC(offset_idx, outer_j + inner_j);
+                            }
+
+
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                auto j = outer_j + inner_j;
+                                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
+
+                                const auto weights_row = WeightRowAccessor
+                                    <
+                                        emb_t,
+                                        cache_t
+                                    >(
+                                    &weights[offset_idx_j], // Load from the embedding table
+                                    D);
+                                // Iterate over the row in the weights table, in 4-element strides
+                                #pragma unroll kMaxVecsPerThread
+                                for (int32_t i = 0; i < kMaxVecsPerThread; ++i)
+                                {
+                                    // Load the slice of the weights
+                                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                    d = (d < D) ? d : 0;
+                                    const auto weights_slice = weights_row.load(d);
+                                    vals[inner_j * kMaxVecsPerThread + i] = weights_slice;
+                                }
+                                
+                            }
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                auto j = outer_j + inner_j;
+                                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
+
+                                // Iterate over the row in the weights table, in 4-element strides
+                                #pragma unroll kMaxVecsPerThread
+                                for (int32_t i = 0;
+                                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                    ++i) {
+                                    // Accumulate the weights
+                                    accumulators[i].add_(vals[inner_j * kMaxVecsPerThread + i]);
+                                }
+                                
+                            }
+                        }
+                        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
+                            // Load index from thread j in the group
+                            [[maybe_unused]] auto offset_idx_j = SHFL_SYNC(offset_idx, j);
+                            
+                            const auto weights_row = WeightRowAccessor
+                                <
+                                    emb_t,
+                                    cache_t
+                                >(
+                                &weights[offset_idx_j], // Load from the embedding table
+                                D);
+                            // Iterate over the row in the weights table, in 4-element strides
+                            #pragma unroll kMaxVecsPerThread
+                            for (int32_t i = 0;
+                                i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                ++i) {
+                                // Load the slice of the weights
+                                const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                const auto weights_slice = weights_row.load(d);
+                                // Accumulate the weights
+                                accumulators[i].add_(weights_slice);
+                            }
+                        }
+                    }
+                }
+                else if (lxu_cache_conflict_misses && *lxu_cache_conflict_misses == 0) {
+                    // If the UVM cache stats tensor is valid and tell us there are no
+                    // conflict unique misses, then the miss rate is effectively 0%
+                    
+                    // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
+                    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
+                        // Determine the L index that this thread will load data from in cooperative load
+                        auto l = l_start + threadIdx.x;
+                        // Cooperatively load the cache's indices
+                        [[maybe_unused]] int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+                        Vec4T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];
+                        // Iterate over kThreadGroupSize indices
+                        for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength)
+                        {
+                            // Load cache's index from thread j in the group
+                            [[maybe_unused]] int32_t cache_idx_j_[kManualUnrollLength];
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                cache_idx_j_[inner_j] = use_lxu_cache ? SHFL_SYNC(cache_idx, outer_j + inner_j) : 0;
+                            }
+
+
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                auto j = outer_j + inner_j;
+                                [[maybe_unused]] int32_t cache_idx_j
+                                    = use_lxu_cache ? cache_idx_j_[inner_j] : 0;
+                        
+                                const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
+                                    &lxu_cache_weights[cache_idx_j][0]);
+                                const auto weights_row = WeightRowAccessor
+                                    <
+                                        cache_t,
+                                        cache_t
+                                    >(
+                                    cache_weights, // Load from the cache
+                                    D);
+                                // Iterate over the row in the weights table, in 4-element strides
+                                #pragma unroll kMaxVecsPerThread
+                                for (int32_t i = 0; i < kMaxVecsPerThread; ++i)
+                                {
+                                    // Load the slice of the weights
+                                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                    d = (d < D) ? d : 0;
+                                    const auto weights_slice = weights_row.load(d);
+                                    vals[inner_j * kMaxVecsPerThread + i] = weights_slice;
+                                }
+                                
+                            }
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                auto j = outer_j + inner_j;
+                                [[maybe_unused]] int32_t cache_idx_j = cache_idx_j_[inner_j];
+                        
+                                // Iterate over the row in the weights table, in 4-element strides
+                                #pragma unroll kMaxVecsPerThread
+                                for (int32_t i = 0;
+                                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                    ++i) {
+                                    // Accumulate the weights
+                                    accumulators[i].add_(vals[inner_j * kMaxVecsPerThread + i]);
+                                }
+                                
+                            }
+                        }
+                        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
+                            // Load cache's index from thread j in the group
+                            [[maybe_unused]] int32_t cache_idx_j
+                                = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
+
+                            const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
+                                &lxu_cache_weights[cache_idx_j][0]);
+                            const auto weights_row = WeightRowAccessor
+                                <
+                                    cache_t,
+                                    cache_t
+                                >(
+                                cache_weights, // Load from the cache
+                                D);
+                            // Iterate over the row in the weights table, in 4-element strides
+                            #pragma unroll kMaxVecsPerThread
+                            for (int32_t i = 0;
+                                i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                ++i) {
+                                // Load the slice of the weights
+                                const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                const auto weights_slice = weights_row.load(d);
+                                // Accumulate the weights
+                                accumulators[i].add_(weights_slice);
+                            }
+                            
+                        }
+                    }
+
+                } else {
+                    // Else, the cache conflict miss rate is mixed
+                    
+                    // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
+                    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
+                        // Determine the L index that this thread will load data from in cooperative load
+                        auto l = l_start + threadIdx.x;
+                        // Cooperatively load the indices
+                        const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
+                        // If idx is loaded
+                        const auto offset_idx = idx * D_emb;
+                        // Cooperatively load the cache's indices
+                        [[maybe_unused]] int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+                        Vec4T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];
+                        // Iterate over kThreadGroupSize indices
+                        for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength)
+                        {
+                            // Load index from thread j in the group
+                            overflow_safe_int_t offset_idx_j_[kManualUnrollLength];
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                offset_idx_j_[inner_j] = SHFL_SYNC(offset_idx, outer_j + inner_j);
+                            }
+                            // Load cache's index from thread j in the group
+                            [[maybe_unused]] int32_t cache_idx_j_[kManualUnrollLength];
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                cache_idx_j_[inner_j] = use_lxu_cache ? SHFL_SYNC(cache_idx, outer_j + inner_j) : 0;
+                            }
+
+
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                auto j = outer_j + inner_j;
+                                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
+                                [[maybe_unused]] int32_t cache_idx_j
+                                    = use_lxu_cache ? cache_idx_j_[inner_j] : 0;
+
+                                if (placement == PlacementType::MANAGED_CACHING
+                                    && cache_idx_j != kCacheLocationMissing
+                                ) {
+                                    
+                                    const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
+                                        &lxu_cache_weights[cache_idx_j][0]);
+                                    const auto weights_row = WeightRowAccessor
+                                        <
+                                            cache_t,
+                                            cache_t
+                                        >(
+                                        cache_weights, // Load from the cache
+                                        D);
+                                    // Iterate over the row in the weights table, in 4-element strides
+                                    #pragma unroll kMaxVecsPerThread
+                                    for (int32_t i = 0; i < kMaxVecsPerThread; ++i)
+                                    {
+                                        // Load the slice of the weights
+                                        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                        d = (d < D) ? d : 0;
+                                        const auto weights_slice = weights_row.load(d);
+                                        vals[inner_j * kMaxVecsPerThread + i] = weights_slice;
+                                    }
+                                } else {
+                                    
+                                    const auto weights_row = WeightRowAccessor
+                                        <
+                                            emb_t,
+                                            cache_t
+                                        >(
+                                        &weights[offset_idx_j], // Load from the embedding table
+                                        D);
+                                    // Iterate over the row in the weights table, in 4-element strides
+                                    #pragma unroll kMaxVecsPerThread
+                                    for (int32_t i = 0; i < kMaxVecsPerThread; ++i)
+                                    {
+                                        // Load the slice of the weights
+                                        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                        d = (d < D) ? d : 0;
+                                        const auto weights_slice = weights_row.load(d);
+                                        vals[inner_j * kMaxVecsPerThread + i] = weights_slice;
+                                    }
+                                }
+                                
+                            }
+                            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
+                            {
+                                auto j = outer_j + inner_j;
+                                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
+                                [[maybe_unused]] int32_t cache_idx_j = cache_idx_j_[inner_j];
+
+                                
+                                if (placement == PlacementType::MANAGED_CACHING
+                                    && cache_idx_j != kCacheLocationMissing) {
+                                    
+                                    // Iterate over the row in the weights table, in 4-element strides
+                                    #pragma unroll kMaxVecsPerThread
+                                    for (int32_t i = 0;
+                                        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                        ++i) {
+                                        // Accumulate the weights
+                                        accumulators[i].add_(vals[inner_j * kMaxVecsPerThread + i]);
+                                    }
+                                } else {
+                                    
+                                    // Iterate over the row in the weights table, in 4-element strides
+                                    #pragma unroll kMaxVecsPerThread
+                                    for (int32_t i = 0;
+                                        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                        ++i) {
+                                        // Accumulate the weights
+                                        accumulators[i].add_(vals[inner_j * kMaxVecsPerThread + i]);
+                                    }
+                                }
+                                
+                            }
+                        }
+                        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
+                            // Load index from thread j in the group
+                            [[maybe_unused]] auto offset_idx_j = SHFL_SYNC(offset_idx, j);
+                            // Load cache's index from thread j in the group
+                            [[maybe_unused]] int32_t cache_idx_j
+                                = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
+
+
+                            
+                            if (placement == PlacementType::MANAGED_CACHING
+                                && cache_idx_j != kCacheLocationMissing
+                            ) {
+                                
+                                const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
+                                    &lxu_cache_weights[cache_idx_j][0]);
+                                const auto weights_row = WeightRowAccessor
+                                    <
+                                        cache_t,
+                                        cache_t
+                                    >(
+                                    cache_weights, // Load from the cache
+                                    D);
+                                // Iterate over the row in the weights table, in 4-element strides
+                                #pragma unroll kMaxVecsPerThread
+                                for (int32_t i = 0;
+                                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                    ++i) {
+                                    // Load the slice of the weights
+                                    const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                    const auto weights_slice = weights_row.load(d);
+                                    // Accumulate the weights
+                                    accumulators[i].add_(weights_slice);
+                                }
+                            } else {
+                                
+                                const auto weights_row = WeightRowAccessor
+                                    <
+                                        emb_t,
+                                        cache_t
+                                    >(
+                                    &weights[offset_idx_j], // Load from the embedding table
+                                    D);
+                                // Iterate over the row in the weights table, in 4-element strides
+                                #pragma unroll kMaxVecsPerThread
+                                for (int32_t i = 0;
+                                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                                    ++i) {
+                                    // Load the slice of the weights
+                                    const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                                    const auto weights_slice = weights_row.load(d);
+                                    // Accumulate the weights
+                                    accumulators[i].add_(weights_slice);
+                                }
+                            }
+                            
+                        }
+                    }
+                }
+            }
+
+
+            // If weight type is FP32/16
+            if constexpr (!std::is_same_v<output_t, uint8_t>) {
+
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                    ++i) {
+                    // Compute the mean (for mean pooling) and store directly to memory as is
+                    accumulators[i].mul_(inv_L);
+                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                    accumulators[i].store(output_ + d);
+                }
+
+            } else {
+                // Else weight type is INT8
+                float thread_local_min = std::numeric_limits<float>::max();
+                float thread_local_max = std::numeric_limits<float>::lowest();
+                float2 qparams;
+
+                // Accumulate the min and max values
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                    ++i) {
+                    // Simultaneously multiply by 1/L to compute the mean
+                    accumulators[i].mul_(inv_L);
+                    thread_local_max = max(thread_local_max, accumulators[i].vmax());
+                    thread_local_min = min(thread_local_max, accumulators[i].vmin());
+                }
+
+                // Construct the quantization parameters from the min and max values
+                qparams = warp_find_qparams(thread_local_min, thread_local_max);
+                int output_D_start = D_start + t * 8;
+                int output_D_end = output_D_start + D;
+
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                    ++i) {
+                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+                    // Fused quantize-and-store to memory
+                    nearest_rounding_vector<output_t, cache_t>(&output[b][output_D_start + d], accumulators[i], qparams);
+                }
+
+                // Write out the qparams to the front of the embedding table row
+                if (threadIdx.x == 0) {
+                    store_qparams_to_row(&output[b][output_D_end], qparams);
+                }
+            }
+        } // unroll_i
+    } // for b_t
+}
+
+{%- endif %}
+
+
 template <
     typename emb_t,
     typename cache_t,
@@ -823,6 +1561,7 @@ batch_index_select_dim0_codegen_forward_kernel(
 }
 
 
+
 ////////////////////////////////////////////////////////////////////////////////
 // Explicit Template Instantiations
 ////////////////////////////////////////////////////////////////////////////////
@@ -842,6 +1581,73 @@ batch_index_select_dim0_codegen_forward_kernel(
     kMaxVecsPerThread,
     kThreadGroupSize)
 %}
+{%- if is_optimized_vbe_supported_mode %}
+template __launch_bounds__(kForwardMaxThreads) __global__ void
+hip_preload_{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_kernel
+<
+    {{ emb_type }},
+    {{ cache_type }},
+    {{ output_type }},
+    {%- if not dense %}
+    {{ use_cache }},
+    {%- endif %}
+    {{ index_type }},
+    {%- if not nobag %}
+    {{ kMaxVecsPerThread }},
+    {%- endif %}
+    {{ kThreadGroupSize }}
+> (
+    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    const pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag or is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %}
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
+    FixedDivisor fd_B,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    int64_t pooling_mode,
+    {%- endif %}
+    {%- if weighted %}
+    pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> indice_weights,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
+    const int32_t* lxu_cache_conflict_misses,
+    {%- endif %}
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %}
+    {%- if is_gwd_kernel %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const float learning_rate,
+    const float weight_decay,
+    const int64_t iter,
+    const float gwd_lower_bound,
+    {%- endif %}
+    pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
+
+{%- else %}
 template __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel
@@ -910,6 +1716,9 @@ batch_index_select_dim0_codegen_forward_kernel
     const float gwd_lower_bound,
     {%- endif %}
     pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
+
+{%- endif %}
+
 {%- endmacro %}
 
 {%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}

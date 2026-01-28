@@ -27,6 +27,23 @@
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    has_global_weight_decay_support=True,
+    ssd=ssd) %}
+{%- set is_optimized_vbe_supported_mode = not dense and 
+    not ssd and
+    not nobag and 
+    not is_index_select and 
+    vbe and 
+    not weighted and 
+    not is_gwd_kernel and 
+    not gwd and
+    is_rocm %}
+
 {%- if not dense and not nobag and not vbe %}
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 {%- endif %}
@@ -52,6 +69,74 @@ using namespace fbgemm_gpu;
 ////////////////////////////////////////////////////////////////////////////////
 // External Function Declarations
 ////////////////////////////////////////////////////////////////////////////////
+
+{%- if is_optimized_vbe_supported_mode %}
+template <
+    typename emb_t,
+    typename cache_t,
+    typename output_t,
+    {%- if not dense %}
+    bool use_lxu_cache,
+    {%- endif %}
+    typename index_t,
+    {%- if not nobag %}
+    size_t kMaxVecsPerThread,
+    {%- endif %}
+    size_t kThreadGroupSize = kWarpSize
+    >
+__launch_bounds__(kForwardMaxThreads) __global__ void
+hip_preload_{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ get_desc_suffix(is_gwd_kernel) }}_kernel(
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag or is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %}
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
+    FixedDivisor fd_B,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    int64_t pooling_mode,
+    {%- endif %}
+    {%- if weighted %}
+    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
+    const int32_t* lxu_cache_conflict_misses,
+    {%- endif %}
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %} // if dense
+    {%- if is_gwd_kernel %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const float learning_rate,
+    const float weight_decay,
+    const int64_t iter,
+    const float gwd_lower_bound,
+    {%- endif %}
+    pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
+    );
+{%- endif %}
 
 {%- if not weighted %}
 template <
@@ -741,6 +826,18 @@ batch_index_select_dim0_codegen_forward_cuda(
               utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
 
             FBGEMM_LAUNCH_KERNEL(
+              {%- if is_optimized_vbe_supported_mode %}
+              (hip_preload_{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_kernel
+                <emb_t,
+                cache_t,
+                output_t,
+                {%- if not dense%}
+                use_cache_t,
+                {%- endif %}
+                index_t,
+                kMaxVecsPerThread,
+                kThreadGroupSize>),
+              {%- else %}
               ({{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
                 <emb_t,
                 cache_t,
@@ -751,6 +848,7 @@ batch_index_select_dim0_codegen_forward_cuda(
                 index_t,
                 kMaxVecsPerThread,
                 kThreadGroupSize>),
+              {%- endif %}
               grid,
               dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
               0,
