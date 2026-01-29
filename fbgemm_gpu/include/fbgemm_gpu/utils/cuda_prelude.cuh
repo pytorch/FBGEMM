@@ -52,6 +52,8 @@ namespace fbgemm_gpu {
     assert(err == cudaError::cudaSuccess); \
   } while (0)
 
+#define DIV_ROUND_UP(a, b) (a + b - 1) / b
+
 // Warp size
 #ifdef USE_ROCM
 static constexpr int32_t kWarpSize = 64;
