@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -20,6 +21,10 @@
 #include <arm_sve.h>
 
 #include <arm_neon_sve_bridge.h>
+#endif
+
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
 #endif
 
 #include <cmath>
@@ -117,6 +122,117 @@ static inline void fillZero(float* ptr, int64_t count) {
   }
 #endif
 }
+
+#if defined(__ARM_NEON)
+namespace {
+  // Internal constant table for AArch64 vectorized table lookup
+  static constexpr uint8x16_t idx[] = {
+    // Precompute table indices for packing 4 uint8 per uint32x4 (zeros in between lanes)
+    // idx0: select bytes 0-3 → positions 0,4,8,12
+    {
+        0, 255, 255, 255,   // byte 0 to lane 0
+        1, 255, 255, 255,   // byte 1 to lane 4
+        2, 255, 255, 255,   // byte 2 to lane 8
+        3, 255, 255, 255    // byte 3 to lane 12
+    },
+    // idx1: bytes 4-7
+    {
+        4, 255, 255, 255,
+        5, 255, 255, 255,
+        6, 255, 255, 255,
+        7, 255, 255, 255
+    },
+    // idx2: bytes 8-11
+    {
+        8, 255, 255, 255,
+        9, 255, 255, 255,
+        10, 255, 255, 255,
+        11, 255, 255, 255
+    },
+    // idx3: bytes 12-15
+    {
+        12, 255, 255, 255,
+        13, 255, 255, 255,
+        14, 255, 255, 255,
+        15, 255, 255, 255
+    }
+  };
+}
+
+// 4-bit dequant (vectorized AArch64 path)
+// Processes 16 input bytes -> 32 FP32 outputs per iteration
+// -----------------------------
+static ALWAYS_INLINE void Dequant4bitToF32_neon(
+    const uint8_t* input_row,
+    float* buf,
+    const int block_size,
+    const float scale,
+    const float bias,
+    int64_t offset) {
+  if (block_size >= 32) {
+    // Main vectorized loop: processes 32 floats per iteration (16 input bytes) using table lookup for nibble packing
+    const int64_t vec_end = (block_size / 32) * 32;
+    // Broadcast scale and bias to vectors
+    const float32x4_t vscale = vdupq_n_f32(scale);
+    const float32x4_t vbias = vdupq_n_f32(bias);
+
+    // tbl_low_res/tbl_high_res: table lookup result for low/high nibbles
+    // q_u32  : reinterpret as u32 lanes
+    // q_f32  : converted quant values (float)
+    // buf_tmp: buffer chunk for FMA
+    uint8x16_t tbl_low_res[4];
+    uint8x16_t tbl_high_res[4];
+    uint32x4_t q_u32[8];
+    float32x4_t q_f32[8];
+    float32x4_t buf_tmp[8];
+
+    const uint8x16_t vmask = vdupq_n_u8(0x0F);
+
+    for (; offset < vec_end; offset += 32) {
+        // Load 16 input bytes (two 4-bit values per byte)
+        const uint8x16_t bytes = vld1q_u8(input_row);
+        input_row += 16;
+
+        // Extract low 4-bit nibbles (0x0F mask)
+        const uint8x16_t low_nibs_tmp = vandq_u8(bytes, vmask);
+        // Extract high 4-bit nibbles (>>4)
+        const uint8x16_t high_nibs_tmp = vshrq_n_u8(bytes, 4);
+        // Interleave high/low nibbles for correct line mapping
+        const uint8x16_t low_nibs  = vzip1q_u8(low_nibs_tmp, high_nibs_tmp);
+        const uint8x16_t high_nibs = vzip2q_u8(low_nibs_tmp, high_nibs_tmp);
+
+        // Table lookup -> u32 view -> f32 convert (low/high)
+        for (int i=0; i < 4; i++) {
+          tbl_low_res[i] = vqtbl1q_u8(low_nibs, idx[i]);
+          q_u32[i] = vreinterpretq_u32_u8(tbl_low_res[i]);
+          q_f32[i] = vcvtq_f32_u32(q_u32[i]);
+
+          tbl_high_res[i] = vqtbl1q_u8(high_nibs, idx[i]);
+          q_u32[i + 4] = vreinterpretq_u32_u8(tbl_high_res[i]);
+          q_f32[i + 4] = vcvtq_f32_u32(q_u32[i + 4]);
+        }
+
+        for (int i=0; i < 8; i++) {
+          // Load corresponding buf sections (32 floats = 8x4)
+          buf_tmp[i] = vld1q_f32(buf + offset + i * 4);
+          // FMA: buf + bias + scale * quantized
+          buf_tmp[i]  = vfmaq_f32(vaddq_f32(buf_tmp[i], vbias), vscale, q_f32[i]);
+          // Store back to buf
+          vst1q_f32(buf + offset + i * 4, buf_tmp[i]);
+        }
+    }
+  }
+
+  // Scalar tail: handle remaining elements (<32 floats)
+  for (; offset < block_size; offset += 2) {
+      uint8_t tmp = *input_row++;
+      float quantized1 = float(tmp & 0xf);
+      float quantized2 = float(tmp >> 4);
+      buf[offset] = std::fma(scale, quantized1, buf[offset] + bias);
+      buf[offset + 1] = std::fma(scale, quantized2, buf[offset + 1] + bias);
+  }
+}
+#endif
 
 template <typename OutType>
 static inline EmbeddingStatsTracker::DataType get_output_type(
@@ -485,6 +601,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
           buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
         }
 #endif
+#if defined(__ARM_NEON)
+        Dequant4bitToF32_neon(input_row, buf, block_size, scale, bias, j);
+#else
         for (; j < block_size; j += 2) {
           uint8_t tmp = *input_row++;
           float quantized1 = float(tmp & 0xf);
@@ -492,6 +611,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
           buf[j] = std::fma(scale, quantized1, buf[j] + bias);
           buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
         }
+#endif
       } else if (input_bit_rate == 2) {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
