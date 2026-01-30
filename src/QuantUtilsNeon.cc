@@ -174,7 +174,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon(
 
     float minimum_element;
     float maximum_element;
-    if constexpr (std::is_same<InputType, float>()) {
+    if constexpr (std::is_same_v<InputType, float>) {
       FindMinMaxImpl_f32(
           input_row, &minimum_element, &maximum_element, column_count);
     } else {
@@ -202,7 +202,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon(
       float32x4_t v0;
       float32x4_t v1;
 
-      if constexpr (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same_v<InputType, float>) {
         v0 = vld1q_f32(input_row);
         v1 = vld1q_f32(input_row + 4);
       } else {
@@ -243,7 +243,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon(
 #endif
     while (loopRemainder > 0) {
       float32x4_t v0;
-      if constexpr (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same_v<InputType, float>) {
         v0[0] = *input_row++;
       } else {
         v0[0] =
@@ -272,7 +272,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
   }
 
   static_assert(
-      std::is_same<InputType, float>() || std::is_same<InputType, float16>(),
+      std::is_same_v<InputType, float> || std::is_same_v<InputType, float16>,
       "Only float and float16 types are allowed.");
 
   static_assert(
@@ -295,7 +295,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
     float minimum_element;
     float maximum_element;
     float16_t minimum_element_fp16;
-    if constexpr (std::is_same<InputType, float>()) {
+    if constexpr (std::is_same_v<InputType, float>) {
       FindMinMaxImpl_f32(
           input_row, &minimum_element, &maximum_element, column_count);
       minimum_element_fp16 = static_cast<float16_t>(minimum_element);
@@ -359,7 +359,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
       float32x4_t v0;
       float32x4_t v1;
 
-      if constexpr (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same_v<InputType, float>) {
         v0 = vld1q_f32(input_row);
         v1 = vld1q_f32(input_row + 4);
       } else {
@@ -427,7 +427,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
       float32x4_t v0;
       float32x4_t v1;
 
-      if constexpr (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same_v<InputType, float>) {
         v0 = svget_neonq(svld1_f32(lastPredA, input_row));
         v1 = svget_neonq(svld1_f32(lastPredB, input_row + 4));
       } else {
@@ -538,7 +538,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
       in_v_0_f = svmad_f32_m(allTruePred, in_v_0_f, scale_v, bias_v);
       in_v_1_f = svmad_f32_m(allTruePred, in_v_1_f, scale_v, bias_v);
 
-      if constexpr (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         output_row_v[colIndex].val[0] = svget_neonq(in_v_0_f);
         output_row_v[colIndex].val[1] = svget_neonq(in_v_1_f);
       } else {
@@ -563,7 +563,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
       in_v_0_f = svmad_f32_m(lastPredA, in_v_0_f, scale_v, bias_v);
       in_v_1_f = svmad_f32_m(lastPredB, in_v_1_f, scale_v, bias_v);
 
-      if constexpr (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         svst1_f32(lastPredA, (float32_t*)&(output_row_v[colIndex]), in_v_0_f);
         svst1_f32(
             lastPredB, (float32_t*)&(output_row_v[colIndex].val[1]), in_v_1_f);
@@ -667,7 +667,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
       in_v_0_f = svmad_f32_m(allTruePred, in_v_0_f, scale_v, bias_v);
       in_v_1_f = svmad_f32_m(allTruePred, in_v_1_f, scale_v, bias_v);
 
-      if constexpr (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         vst1q_f32(output, svget_neonq(in_v_0_f));
         vst1q_f32(output + 4, svget_neonq(in_v_1_f));
       } else {
@@ -715,7 +715,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
       in_v_0_f = svmad_f32_m(lastPredA, in_v_0_f, scale_v, bias_v);
       in_v_1_f = svmad_f32_m(lastPredB, in_v_1_f, scale_v, bias_v);
 
-      if constexpr (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         svst1_f32(lastPredA, output, in_v_0_f);
         svst1_f32(lastPredB, output + 4, in_v_1_f);
       } else {
