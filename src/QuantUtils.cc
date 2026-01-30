@@ -551,7 +551,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
   }
 
   static_assert(
-      std::is_same<InputType, float>() || std::is_same<InputType, float16>(),
+      std::is_same_v<InputType, float> || std::is_same_v<InputType, float16>,
       "Only float and float16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
   const int output_columns =
@@ -570,7 +570,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     // NOTE: this can be optimized, however we don't care much about performance
     // for reference implementation.
     for (int col = 0; col < input_columns; ++col) {
-      if constexpr (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same_v<InputType, float>) {
         input_row_float[col] = input_row[col];
       } else {
         input_row_float[col] = cpu_half2float(input_row[col]);
@@ -706,7 +706,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
         reinterpret_cast<float*>(output_row + input_columns);
 
     for (int col = 0; col < input_columns; ++col) {
-      if constexpr (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same_v<InputType, float>) {
         input_row_float[col] = input_row[col];
       } else {
         input_row_float[col] = cpu_half2float(input_row[col]);
@@ -761,7 +761,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     OutputType* output,
     bool scale_bias_last) {
   static_assert(
-      std::is_same<OutputType, float>() || std::is_same<OutputType, float16>(),
+      std::is_same_v<OutputType, float> || std::is_same_v<OutputType, float16>,
       "Only float, float16 or bfloat16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
   const int64_t output_columns =
@@ -786,7 +786,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
       quantized >>= (col % num_elem_per_byte) * bit_rate;
       quantized &= (1 << bit_rate) - 1;
       float output_value = scale * quantized + bias;
-      if constexpr (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else {
         if constexpr (is_uint16_t_of_type_bf16) {
@@ -889,7 +889,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
 
     for (int col = 0; col < output_columns; ++col) {
       float output_value = input_row[col] * scale + bias;
-      if constexpr (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else {
         if constexpr (is_uint16_t_of_type_bf16) {
