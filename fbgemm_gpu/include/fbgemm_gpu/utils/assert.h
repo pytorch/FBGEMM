@@ -32,59 +32,6 @@ namespace fbgemm_gpu::utils {
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Helper Macro: Abort kernel with message
-//
-// ROCm disables kernel assert by default for performance considerations. Though
-// ROCm supports __assert_fail, it uses kernel printf which has a non-negligible
-// performance impact even if the assert condition is never triggered. We choose
-// to use abort() instead which will still terminate the application.
-//
-////////////////////////////////////////////////////////////////////////////////
-
-#if defined(USE_ROCM)
-#define __FBGEMM_KERNEL_ABORT(message) \
-  do {                                 \
-    abort();                           \
-  } while (0)
-#else // CUDA
-#define __FBGEMM_KERNEL_ABORT(message)                                     \
-  do {                                                                     \
-    __assert_fail(                                                         \
-        message, __FILE__, static_cast<unsigned int>(__LINE__), __func__); \
-  } while (0)
-#endif
-
-////////////////////////////////////////////////////////////////////////////////
-//
-// Helper Macro: Prints assertion failure message (if print_error is true) and
-// traps.
-//
-// This is used as a fallback when DSA is not available or disabled at
-// runtime.
-//
-////////////////////////////////////////////////////////////////////////////////
-
-#define __FBGEMM_KERNEL_ASSERT_FAIL(print_error, condition_str) \
-  do {                                                          \
-    if constexpr (print_error) {                                \
-      printf(                                                   \
-          "[FBGEMM] %s:%d ASSERT FAILED: `%s` "                 \
-          "block: [%u,%u,%u], thread: [%u,%u,%u]\n",            \
-          __FILE__,                                             \
-          __LINE__,                                             \
-          condition_str,                                        \
-          blockIdx.x,                                           \
-          blockIdx.y,                                           \
-          blockIdx.z,                                           \
-          threadIdx.x,                                          \
-          threadIdx.y,                                          \
-          threadIdx.z);                                         \
-    }                                                           \
-    __FBGEMM_KERNEL_ABORT(condition_str);                       \
-  } while (0)
-
-////////////////////////////////////////////////////////////////////////////////
-//
 // FBGEMM_KERNEL_ASSERT Macro
 //
 // Unlike PyTorch CUDA_KERNEL_ASSERT2, FBGEMM_KERNEL_ASSERT guarantees an error
@@ -96,11 +43,10 @@ namespace fbgemm_gpu::utils {
 //     Uses CUDA_KERNEL_ASSERT2 for Device Side Assertion support with
 //     detailed error reporting.
 //   If PYTORCH_USE_CUDA_DSA is NOT set at runtime (assertions_data == nullptr):
-//     Falls back to printf + trap to guarantee the error is visible.
+//     Falls back to CUDA_KERNEL_ASSERT.
 //
 // When TORCH_USE_CUDA_DSA is NOT defined:
-//   - CUDA: Uses __assert_fail() which prints the condition and terminates.
-//   - ROCm: Uses printf + __trap() to guarantee the condition is printed.
+//   Falls back to CUDA_KERNEL_ASSERT.
 //
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -123,19 +69,14 @@ namespace fbgemm_gpu::utils {
         return;                                                        \
       } else {                                                         \
         /* Runtime DSA is disabled, fall back to printf + trap */      \
-        __FBGEMM_KERNEL_ASSERT_FAIL(true, #condition);                 \
+        CUDA_KERNEL_ASSERT(condition);                                 \
       }                                                                \
     }                                                                  \
   } while (0)
 
 #else
 
-#define FBGEMM_KERNEL_ASSERT(condition)               \
-  do {                                                \
-    if (C10_UNLIKELY(!(condition))) {                 \
-      __FBGEMM_KERNEL_ASSERT_FAIL(false, #condition); \
-    }                                                 \
-  } while (0)
+#define FBGEMM_KERNEL_ASSERT(condition) CUDA_KERNEL_ASSERT(condition)
 
 #endif // TORCH_USE_CUDA_DSA
 
