@@ -250,39 +250,41 @@ class DramKVInferenceEmbedding
                         std::vector<std::tuple<int64_t, int64_t>> miss_info;
                         hit_info.reserve(indexes.size() / 2);
                         miss_info.reserve(indexes.size() / 10);
-                        auto rlmap = kv_store_.by(shard_id).rlock();
-                        for (const auto index : indexes) {
-                          auto id = int64_t(indices_data_ptr[index]);
-                          auto it = rlmap->find(id);
-                          if (it != rlmap->end()) {
-                            hit_info.emplace_back(index, it->second);
-                          } else {
-                            miss_info.emplace_back(id, index);
+                        {
+                          auto rlmap = kv_store_.by(shard_id).rlock();
+                          for (const auto index : indexes) {
+                            auto id = int64_t(indices_data_ptr[index]);
+                            auto it = rlmap->find(id);
+                            if (it != rlmap->end()) {
+                              hit_info.emplace_back(index, it->second);
+                            } else {
+                              miss_info.emplace_back(id, index);
+                            }
                           }
-                        }
-                        rlmap.unlock();
-                        hit_cnt = hit_info.size();
-                        miss_cnt = miss_info.size();
-                        // 2nd step, no lock on update hits, it is possible that
-                        // inference read is accessing a weight being updated,
-                        // we assume it is fine for now, will iterate on it if
-                        // we find QE regress during inplace update
-                        for (const auto& [tensor_offset, block] : hit_info) {
-                          auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(block);
-                          std::copy(
-                              weights_data_ptr + tensor_offset * stride,
-                              weights_data_ptr + (tensor_offset + 1) * stride,
-                              data_ptr);
-                          // update provided ts for existing blocks
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_ && inplace_update_ts.has_value()) {
-                            FixedBlockPool::set_timestamp(
-                                block, inplace_update_ts.value());
+                          hit_cnt = hit_info.size();
+                          miss_cnt = miss_info.size();
+                          // 2nd step, update hits while holding rlock to
+                          // prevent eviction from invalidating block pointers.
+                          // Note: previous design released the lock here and
+                          // allowed inference reads to see partial updates,
+                          // but that caused race conditions with eviction.
+                          for (const auto& [tensor_offset, block] : hit_info) {
+                            auto* data_ptr =
+                                FixedBlockPool::data_ptr<weight_type>(block);
+                            std::copy(
+                                weights_data_ptr + tensor_offset * stride,
+                                weights_data_ptr + (tensor_offset + 1) * stride,
+                                data_ptr);
+                            // update provided ts for existing blocks
+                            if (feature_evict_config_.has_value() &&
+                                feature_evict_config_.value()->trigger_mode_ !=
+                                    EvictTriggerMode::DISABLED &&
+                                feature_evict_ && inplace_update_ts.has_value()) {
+                              FixedBlockPool::set_timestamp(
+                                  block, inplace_update_ts.value());
+                            }
                           }
-                        }
+                        }  // rlmap automatically unlocked here
 
                         // 3rd step, update misses in fixed block pool, we only
                         // need mempool lock at this stage to avoid race
