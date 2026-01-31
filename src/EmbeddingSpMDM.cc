@@ -7,6 +7,7 @@
  */
 
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #define FBGEMM_EXPORTS
@@ -241,9 +242,11 @@ GenEmbeddingSpMDMLookup<
           filename += "_scale_bias_first";
         }
         filename += ".txt";
-        FILE* codeLogFile = fopen(filename.c_str(), "w");
-        asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
-        code.setLogger(codeLogger);
+        std::unique_ptr<FILE, decltype(&fclose)> codeLogFile(
+            fopen(filename.c_str(), "w"), &fclose);
+        std::unique_ptr<asmjit::FileLogger> codeLogger(
+            new asmjit::FileLogger(codeLogFile.get()));
+        code.setLogger(codeLogger.get());
 #endif
         // arguments to the function created
         x86::Gp output_size = a->zdi();
@@ -957,10 +960,6 @@ GenEmbeddingSpMDMLookup<
           return nullptr;
         }
 
-#if defined(FBGEMM_LOG_CODE)
-        fclose(codeLogFile);
-        delete codeLogger;
-#endif
         return fn;
       });
 }

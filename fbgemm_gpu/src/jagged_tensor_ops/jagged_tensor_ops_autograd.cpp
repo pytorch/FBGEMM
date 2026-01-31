@@ -159,6 +159,7 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
       const std::vector<Tensor>& x_offsets,
       const Tensor& y) {
     std::vector<Tensor> tensors_to_save;
+    tensors_to_save.reserve(2 + x_offsets.size());
     tensors_to_save.push_back(x_values);
     tensors_to_save.insert(
         tensors_to_save.end(), x_offsets.begin(), x_offsets.end());
@@ -181,9 +182,11 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     const Tensor x_values = ctx->get_saved_variables().front();
+    const auto& saved_vars = ctx->get_saved_variables();
     std::vector<Tensor> x_offsets;
-    for (const auto i : c10::irange(1, ctx->get_saved_variables().size() - 1)) {
-      x_offsets.push_back(ctx->get_saved_variables()[i]);
+    x_offsets.reserve(saved_vars.size() - 2);
+    for (const auto i : c10::irange(1, saved_vars.size() - 1)) {
+      x_offsets.push_back(saved_vars[i]);
     }
     Tensor y = ctx->get_saved_variables().back();
     TORCH_CHECK(grad_outputs.size() == 1);

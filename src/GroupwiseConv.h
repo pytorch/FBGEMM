@@ -136,8 +136,9 @@ class GenConvKernelBase {
   ~GenConvKernelBase() = default;
 
   static std::string getCodeLoggingFile(kernel_sig_t kernel_sig) {
-    const auto& [isZeroPointZero, rowOffset, topEdge, bottomEdge, isTopBottomSame, useBottomPadding, useRightPadding, accum, groups, stride, icPerG, ocPerG] =
-        kernel_sig;
+    const auto& [isZeroPointZero, rowOffset, topEdge, bottomEdge,
+                 isTopBottomSame, useBottomPadding, useRightPadding, accum,
+                 groups, stride, icPerG, ocPerG] = kernel_sig;
 
     std::ostringstream oss;
     oss << "conv";

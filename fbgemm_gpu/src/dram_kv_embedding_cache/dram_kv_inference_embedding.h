@@ -204,24 +204,21 @@ class DramKVInferenceEmbedding
       const at::Tensor& weights,
       const at::Tensor& count,
       std::optional<uint32_t> inplace_update_ts) override {
-    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
+    futures.reserve(shardid_to_indexes.size());
 
     auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
         feature_evict_.get());
     CHECK(tt_evict != nullptr);
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
               .thenValue([this,
                           shard_id,
                           indexes,
-                          &indices,
-                          &weights,
+                          indices,
+                          weights,
                           tt_evict,
                           inplace_update_ts](folly::Unit) {
                 int64_t hit_cnt = 0;
@@ -253,45 +250,41 @@ class DramKVInferenceEmbedding
                         std::vector<std::tuple<int64_t, int64_t>> miss_info;
                         hit_info.reserve(indexes.size() / 2);
                         miss_info.reserve(indexes.size() / 10);
-                        auto rlmap = kv_store_.by(shard_id).rlock();
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          auto id = int64_t(indices_data_ptr[*index_iter]);
-                          auto it = rlmap->find(id);
-                          if (it != rlmap->end()) {
-                            hit_info.push_back(
-                                std::make_tuple(*index_iter, it->second));
-                          } else {
-                            miss_info.push_back(
-                                std::make_tuple(id, *index_iter));
+                        {
+                          auto rlmap = kv_store_.by(shard_id).rlock();
+                          for (const auto index : indexes) {
+                            auto id = int64_t(indices_data_ptr[index]);
+                            auto it = rlmap->find(id);
+                            if (it != rlmap->end()) {
+                              hit_info.emplace_back(index, it->second);
+                            } else {
+                              miss_info.emplace_back(id, index);
+                            }
                           }
-                        }
-                        rlmap.unlock();
-                        hit_cnt = hit_info.size();
-                        miss_cnt = miss_info.size();
-                        // 2nd step, no lock on update hits, it is possible that
-                        // inference read is accessing a weight being updated,
-                        // we assume it is fine for now, will iterate on it if
-                        // we find QE regress during inplace update
-                        for (auto& info : hit_info) {
-                          auto tensor_offset = std::get<0>(info);
-                          auto block = std::get<1>(info);
-                          auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(block);
-                          std::copy(
-                              weights_data_ptr + tensor_offset * stride,
-                              weights_data_ptr + (tensor_offset + 1) * stride,
-                              data_ptr);
-                          // update provided ts for existing blocks
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_ && inplace_update_ts.has_value()) {
-                            FixedBlockPool::set_timestamp(
-                                block, inplace_update_ts.value());
+                          hit_cnt = hit_info.size();
+                          miss_cnt = miss_info.size();
+                          // 2nd step, update hits while holding rlock to
+                          // prevent eviction from invalidating block pointers.
+                          // Note: previous design released the lock here and
+                          // allowed inference reads to see partial updates,
+                          // but that caused race conditions with eviction.
+                          for (const auto& [tensor_offset, block] : hit_info) {
+                            auto* data_ptr =
+                                FixedBlockPool::data_ptr<weight_type>(block);
+                            std::copy(
+                                weights_data_ptr + tensor_offset * stride,
+                                weights_data_ptr + (tensor_offset + 1) * stride,
+                                data_ptr);
+                            // update provided ts for existing blocks
+                            if (feature_evict_config_.has_value() &&
+                                feature_evict_config_.value()->trigger_mode_ !=
+                                    EvictTriggerMode::DISABLED &&
+                                feature_evict_ && inplace_update_ts.has_value()) {
+                              FixedBlockPool::set_timestamp(
+                                  block, inplace_update_ts.value());
+                            }
                           }
-                        }
+                        }  // rlmap automatically unlocked here
 
                         // 3rd step, update misses in fixed block pool, we only
                         // need mempool lock at this stage to avoid race
@@ -301,10 +294,7 @@ class DramKVInferenceEmbedding
                         std::unordered_map<int64_t, weight_type*> temp_kv;
                         auto* pool = kv_store_.pool_by(shard_id);
                         auto mem_pool_lock = pool->acquire_lock();
-                        for (auto& info : miss_info) {
-                          auto id = std::get<0>(info);
-                          auto tensor_offset = std::get<1>(info);
-
+                        for (const auto& [id, tensor_offset] : miss_info) {
                           auto block = pool->template allocate_t<weight_type>();
                           FixedBlockPool::set_key(block, id);
                           temp_kv.insert({id, block});
@@ -353,11 +343,11 @@ class DramKVInferenceEmbedding
         .thenValue([this](
                        const std::vector<std::tuple<int64_t, int64_t>>&
                            tuples) {
-          auto hit_cnt = 0;
-          auto miss_cnt = 0;
-          for (const auto& pair : tuples) {
-            hit_cnt += std::get<0>(pair);
-            miss_cnt += std::get<1>(pair);
+          int64_t hit_cnt = 0;
+          int64_t miss_cnt = 0;
+          for (const auto& [hit, miss] : tuples) {
+            hit_cnt += hit;
+            miss_cnt += miss;
           }
           inplace_update_hit_cnt_ += hit_cnt;
           inplace_update_miss_cnt_ += miss_cnt;
@@ -405,18 +395,14 @@ class DramKVInferenceEmbedding
     read_sharding_total_duration_ +=
         facebook::WallClockUtil::NowInUsecFast() - before_shard_ts;
 
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this,
                           shard_id,
                           indexes,
-                          &indices,
-                          &weights,
+                          indices,
+                          weights,
                           width_offset,
                           row_width](folly::Unit) {
                 int64_t local_read_cache_hit_copy_total_duration = 0;
@@ -430,8 +416,8 @@ class DramKVInferenceEmbedding
                     [this,
                      shard_id,
                      indexes,
-                     &indices,
-                     &weights,
+                     indices,
+                     weights,
                      width_offset,
                      row_width,
                      &local_read_cache_hit_copy_total_duration,
@@ -472,10 +458,7 @@ class DramKVInferenceEmbedding
                             init_storage.template data_ptr<weight_type>();
                       }
                       {
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto weights_row_index = *index_iter;
+                        for (const auto weights_row_index : indexes) {
                           auto weight_idx =
                               int64_t(indices_data_ptr[weights_row_index]);
                           auto before_lookup_cache_ts =
@@ -544,12 +527,13 @@ class DramKVInferenceEmbedding
               int64_t read_cache_hit_copy_total_duration = 0;
               int64_t read_acquire_lock_total_duration = 0;
               int64_t read_missing_load = 0;
-              for (const auto& tup : results) {
-                read_lookup_cache_total_duration += std::get<0>(tup);
-                read_fill_row_storage_total_duration += std::get<1>(tup);
-                read_cache_hit_copy_total_duration += std::get<2>(tup);
-                read_acquire_lock_total_duration += std::get<3>(tup);
-                read_missing_load += std::get<4>(tup);
+              for (const auto& [lookup_dur, fill_dur, copy_dur, lock_dur, miss_load] :
+                   results) {
+                read_lookup_cache_total_duration += lookup_dur;
+                read_fill_row_storage_total_duration += fill_dur;
+                read_cache_hit_copy_total_duration += copy_dur;
+                read_acquire_lock_total_duration += lock_dur;
+                read_missing_load += miss_load;
               }
               auto duration =
                   facebook::WallClockUtil::NowInUsecFast() - start_ts;
@@ -571,7 +555,7 @@ class DramKVInferenceEmbedding
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
-    current_iter_++;
+    current_iter_.fetch_add(1, std::memory_order_relaxed);
     return get_kv_db_async_impl(indices, weights, count);
   }
 
@@ -599,7 +583,7 @@ class DramKVInferenceEmbedding
     switch (feature_evict_config_.value()->trigger_mode_) {
       case EvictTriggerMode::ITERATION: {
         if (feature_evict_config_.value()->trigger_step_interval_.value() > 0 &&
-            current_iter_ %
+            current_iter_.load(std::memory_order_relaxed) %
                     feature_evict_config_.value()
                         ->trigger_step_interval_.value() ==
                 0) {
@@ -907,7 +891,7 @@ class DramKVInferenceEmbedding
   std::vector<int64_t> sub_table_hash_cumsum_;
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
-  int current_iter_ = 0;
+  std::atomic<int> current_iter_{0};
   bool disable_random_init_ = false;
 
   // perf stats
