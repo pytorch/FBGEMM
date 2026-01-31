@@ -62,7 +62,7 @@ static void transpose_kernel_mxn_sse(
     float* dst,
     int64_t ld_dst) {
   // clang-format off
-  alignas(64) static const int masks[5][4] = {
+  alignas(64) static constexpr int masks[5][4] = {
     {  0,  0,  0,  0, },
     { -1,  0,  0,  0, },
     { -1, -1,  0,  0, },
