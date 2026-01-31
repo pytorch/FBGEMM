@@ -12,6 +12,7 @@
 #include <functional>
 
 #include <ATen/ATen.h>
+#include <c10/util/bit_cast.h>
 #include <ATen/Parallel.h>
 #include <ATen/TypeDefault.h>
 #include <ATen/core/dispatch/Dispatcher.h>
@@ -570,10 +571,9 @@ void FloatToBFloat16Quantized_ref(
     const size_t numel,
     uint16_t* const output) {
   for (const auto idx : c10::irange(numel)) {
-    const float* input_elem = input + idx;
-    uint16_t* output_elem = output + idx;
-    *output_elem =
-        (*reinterpret_cast<const uint32_t*>(input_elem) + (1 << 15)) >> 16;
+    const float input_val = input[idx];
+    output[idx] =
+        (c10::bit_cast<uint32_t>(input_val) + (1 << 15)) >> 16;
   }
 }
 
@@ -582,13 +582,9 @@ void BFloat16QuantizedToFloat_ref(
     const size_t numel,
     float* const output) {
   for (const auto idx : c10::irange(numel)) {
-    const at::BFloat16* input_elem = input + idx;
-    float* output_elem = output + idx;
-
     uint32_t val_fp32 =
-        static_cast<uint32_t>(*reinterpret_cast<const uint16_t*>(input_elem))
-        << 16;
-    *reinterpret_cast<uint32_t*>(output_elem) = val_fp32;
+        static_cast<uint32_t>(c10::bit_cast<uint16_t>(input[idx])) << 16;
+    output[idx] = c10::bit_cast<float>(val_fp32);
   }
 }
 
