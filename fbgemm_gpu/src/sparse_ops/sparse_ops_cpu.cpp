@@ -3524,6 +3524,7 @@ torch::autograd::variable_list group_index_select_dim0_forward_impl_cpu(
       group_index_select_dim0_unpack(all_indices_input, group_size);
 
   std::vector<Tensor> output_group;
+  output_group.reserve(group_size + 2);
   for (const auto i : c10::irange(group_size)) {
     output_group.push_back(
         at::index_select(input_group[i], 0, indices_group[i]));

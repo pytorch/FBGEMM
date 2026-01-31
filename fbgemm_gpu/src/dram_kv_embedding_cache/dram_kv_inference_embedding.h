@@ -204,8 +204,9 @@ class DramKVInferenceEmbedding
       const at::Tensor& weights,
       const at::Tensor& count,
       std::optional<uint32_t> inplace_update_ts) override {
-    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
+    futures.reserve(shardid_to_indexes.size());
 
     auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
         feature_evict_.get());

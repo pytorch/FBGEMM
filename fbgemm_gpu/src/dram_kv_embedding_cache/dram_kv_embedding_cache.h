@@ -197,11 +197,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t start,
       int64_t end,
       std::optional<int64_t> offset = std::nullopt) override {
-    std::vector<std::vector<int64_t>> ids;
-    for (int i = 0; i < num_shards_; i++) {
-      ids.push_back(std::vector<int64_t>());
-    }
+    std::vector<std::vector<int64_t>> ids(num_shards_);
     std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(num_shards_);
     for (int shard_id = 0; shard_id < num_shards_; shard_id++) {
       auto f =
           folly::via(executor_.get())
@@ -521,8 +519,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const at::Tensor& count,
       std::optional<uint32_t> inplace_update_ts) {
-    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
+    futures.reserve(shardid_to_indexes.size());
 
     auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
         feature_evict_.get());
@@ -571,9 +570,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           for (const auto& idx : indexes) {
                             auto id = int64_t(indices_data_ptr[idx]);
                             if (auto it = rlmap->find(id); it != rlmap->end()) {
-                              hit_info.push_back({idx, it->second});
+                              hit_info.emplace_back(idx, it->second);
                             } else {
-                              miss_info.push_back({id, idx});
+                              miss_info.emplace_back(id, idx);
                             }
                           }
                           hit_cnt = hit_info.size();
@@ -1541,12 +1540,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) {
-    std::vector<folly::Future<folly::Unit>> futures;
     auto row_width = weights_with_metaheader.size(1);
     auto copy_width = width_length.value_or(row_width);
     CHECK_LE(row_width, block_size_);
     CHECK_EQ(copy_width, row_width);
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(shardid_to_indexes.size());
 
     for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
@@ -1632,8 +1632,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights_with_metaheader,
       const at::Tensor& count) {
-    std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(shardid_to_indexes.size());
     for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
