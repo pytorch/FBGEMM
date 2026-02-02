@@ -121,6 +121,21 @@ include(${CMAKEMODULES}/RocmSetup.cmake)
 # Load gpu_cpp_library()
 include(${CMAKEMODULES}/GpuCppLibrary.cmake)
 
+# Minimum compiler version requirements
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
+    message(FATAL_ERROR
+      "GCC version ${CMAKE_CXX_COMPILER_VERSION} is not supported. "
+      "FBGEMM_GPU requires GCC 11 or higher.")
+  endif()
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+    message(FATAL_ERROR
+      "Clang version ${CMAKE_CXX_COMPILER_VERSION} is not supported. "
+      "FBGEMM_GPU requires Clang 16 or higher.")
+  endif()
+endif()
+
 
 ################################################################################
 # Source Includes
