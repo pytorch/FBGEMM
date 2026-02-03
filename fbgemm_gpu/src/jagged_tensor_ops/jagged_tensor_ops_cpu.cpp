@@ -1607,7 +1607,7 @@ Tensor jagged_dense_bmm_forward(
                     x_offsets.accessor<index_t, 1>(),
                     y.accessor<scalar_t, 3>(),
                     output.accessor<scalar_t, 2>(),
-                    (int)max_L);
+                    static_cast<int>(max_L));
               });
         });
   }
