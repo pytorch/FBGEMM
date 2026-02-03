@@ -590,6 +590,7 @@ cat_dim_2d_output_shape(
 
   int64_t total_cat_dim = 0;
   std::vector<int64_t> cumulative_dims;
+  cumulative_dims.reserve(tensors.size() + 1);
   cumulative_dims.push_back(0);
   for (const auto& t : tensors) {
     TORCH_CHECK(t.dim() == 2);

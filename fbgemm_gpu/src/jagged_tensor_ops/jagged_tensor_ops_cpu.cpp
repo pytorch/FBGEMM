@@ -1074,6 +1074,7 @@ static std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
   auto offsets = at::empty({B + 1}, lengths.options());
   offsets[0].zero_();
   std::vector<Tensor> padded_values_per_key;
+  padded_values_per_key.reserve(T);
   for (const auto t : c10::irange(T)) {
     int64_t max_L = max_lengths_per_key[t];
     AT_DISPATCH_INDEX_TYPES(
@@ -1113,6 +1114,8 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
   int32_t T = lengths.size(0);
   std::vector<Tensor> padded_values_per_key;
   std::vector<Tensor> offsets_tensor_per_key;
+  padded_values_per_key.reserve(T);
+  offsets_tensor_per_key.reserve(T);
   for (const auto t : c10::irange(T)) {
     int64_t max_L = max_lengths_per_key[t];
     auto offsets = at::empty({B + 1}, lengths.options());
@@ -1604,7 +1607,7 @@ Tensor jagged_dense_bmm_forward(
                     x_offsets.accessor<index_t, 1>(),
                     y.accessor<scalar_t, 3>(),
                     output.accessor<scalar_t, 2>(),
-                    (int)max_L);
+                    static_cast<int>(max_L));
               });
         });
   }

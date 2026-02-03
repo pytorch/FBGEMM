@@ -8,7 +8,10 @@
 
 #pragma once
 
-#include <chrono>
+#include <c10/util/bit_cast.h>
+
+#include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <memory_resource>
@@ -16,9 +19,6 @@
 #include <numeric>
 #include <stdexcept>
 #include <vector>
-
-#include <cassert>
-#include <cmath>
 
 namespace kv_mem {
 static constexpr uint32_t kMaxInt31Counter = 2147483647;
@@ -78,17 +78,14 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   // Feature score operations
   static void set_feature_score_rate(void* block, float ratio) {
-    uint32_t bits = 0;
-    memcpy(&bits, &ratio, sizeof(float));
+    uint32_t bits = c10::bit_cast<uint32_t>(ratio);
     uint32_t no_sign = bits & 0x7FFFFFFF; // Clear the sign bit, keep 31 bits
     reinterpret_cast<MetaHeader*>(block)->count = no_sign;
   }
   static float get_feature_score_rate(const void* block) {
     uint32_t no_sign = reinterpret_cast<const MetaHeader*>(block)->count;
     uint32_t bits = no_sign & 0x7FFFFFFF; // Ensure sign bit is zero (positive)
-    float ratio = NAN;
-    memcpy(&ratio, &bits, sizeof(float));
-    return ratio;
+    return c10::bit_cast<float>(bits);
   }
 
   // timestamp operations
@@ -117,38 +114,38 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   // Calculate storage size
   template <typename scalar_t>
-  static size_t calculate_block_size(size_t dimension) {
+  static constexpr size_t calculate_block_size(size_t dimension) {
     return sizeof(FixedBlockPool::MetaHeader) + dimension * sizeof(scalar_t);
   }
 
   // Calculate alignment requirements
   template <typename scalar_t>
-  static size_t calculate_block_alignment() {
+  static constexpr size_t calculate_block_alignment() {
     return std::max(alignof(FixedBlockPool::MetaHeader), alignof(scalar_t));
   }
 
   // Get dimension of Metaheader
   template <typename scalar_t>
-  static size_t get_metaheader_dim() {
+  static constexpr size_t get_metaheader_dim() {
     return sizeof(FixedBlockPool::MetaHeader) / sizeof(scalar_t);
   }
 
   // Data pointer retrieval
   template <typename scalar_t>
-  static scalar_t* data_ptr(scalar_t* block) {
+  static constexpr scalar_t* data_ptr(scalar_t* block) {
     return reinterpret_cast<scalar_t*>(
         reinterpret_cast<char*>(block) + sizeof(FixedBlockPool::MetaHeader));
   }
 
   template <typename scalar_t>
-  static const scalar_t* data_ptr(const scalar_t* block) {
+  static constexpr const scalar_t* data_ptr(const scalar_t* block) {
     return reinterpret_cast<const scalar_t*>(
         reinterpret_cast<const char*>(block) +
         sizeof(FixedBlockPool::MetaHeader));
   }
 
   template <typename scalar_t>
-  static scalar_t* ptr_offset_from_front(
+  static constexpr scalar_t* ptr_offset_from_front(
       scalar_t* block,
       const int64_t offset) {
     return reinterpret_cast<scalar_t*>(
@@ -156,7 +153,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
   template <typename scalar_t>
-  static const scalar_t* ptr_offset_from_front(
+  static constexpr const scalar_t* ptr_offset_from_front(
       const scalar_t* block,
       const int64_t offset) {
     return reinterpret_cast<const scalar_t*>(

@@ -93,7 +93,6 @@ static bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
       ret = false;
     }
   }
-  ret = false;
   return ret;
 }
 
@@ -294,7 +293,7 @@ int fbgemmConv(
             num_threads);
 #endif
       } else {
-        assert(false && "1d/3d direct conv not supported");
+        throw std::runtime_error("1d/3d direct conv not supported");
       }
       break;
     }
