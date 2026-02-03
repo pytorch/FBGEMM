@@ -218,12 +218,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           uint8_t value = input_row[j];
-          buf[j] = std::fma(scale, (float)value, bias);
+          buf[j] = std::fma(scale, static_cast<float>(value), bias);
         }
 #endif
         for (; j < block_size; ++j) {
           uint8_t value = input_row[j];
-          buf[j] = std::fma(scale, (float)value, bias);
+          buf[j] = std::fma(scale, static_cast<float>(value), bias);
         }
         fill_output(out, buf, block_size, is_bf16_out);
       }

@@ -250,7 +250,7 @@ int main(int argc, const char* argv[]) {
 
         const string A_stride = to_string(4 * ukernel_shape[k][0]);
         const string B_stride =
-            to_string((vec_len_in_bytes >> (int)isFp16) * ukernel_shape[k][1]);
+            to_string((vec_len_in_bytes >> static_cast<int>(isFp16)) * ukernel_shape[k][1]);
 
         const string p1 = "GemmParams" + type_name + "* gp";
 
