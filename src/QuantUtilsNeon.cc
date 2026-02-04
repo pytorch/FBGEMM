@@ -48,7 +48,7 @@ FindMinMaxImpl_f32(const float* m, float* min, float* max, uint64_t count) {
   uint64_t loopIters = count / kItemsPerIter;
   uint64_t loopRemainder = count % kItemsPerIter;
 
-  if (__builtin_expect(loopIters > 0, 1)) {
+  if (loopIters > 0) [[likely]] {
     do {
       float32x4_t v0 = vld1q_f32(m);
       float32x4_t v1 = vld1q_f32(m + 4);
@@ -84,7 +84,7 @@ FindMinMaxImpl_f32(const float* m, float* min, float* max, uint64_t count) {
 }
 
 void FindMinMax(const float* m, float* min, float* max, int64_t len) {
-  if (__builtin_expect(len <= 0, 0)) {
+  if (len <= 0) [[unlikely]] {
     *min = 0.0f;
     *max = 0.0f;
     return;
@@ -114,7 +114,7 @@ static inline void FindMinMaxImpl_f16(
   uint64_t loopIters = count / kItemsPerIter;
   uint64_t loopRemainder = count % kItemsPerIter;
 
-  if (__builtin_expect(loopIters > 0, 1)) {
+  if (loopIters > 0) [[likely]] {
     do {
       float16x8_t v0 = vld1q_f16(m);
       float16x8_t v1 = vld1q_f16(m + 8);
@@ -165,7 +165,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon(
 
   const uint64_t output_columns = column_count + 2 * sizeof(float);
 
-  for (size_t row = 0; __builtin_expect(row < input_rows, 1); ++row) {
+  for (size_t row = 0; row < input_rows; ++row) [[likely]] {
     const InputType* input_row = input + row * column_count;
     uint8_t* output_row = output + row * output_columns;
 
@@ -198,7 +198,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatNeon(
     output_row_scale_bias[0] = range / 255.0f;
     output_row_scale_bias[1] = minimum_element;
 
-    while (__builtin_expect(loopIters > 0, 1)) {
+    while (loopIters > 0) [[likely]] {
       float32x4_t v0;
       float32x4_t v1;
 
@@ -285,7 +285,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
       (column_count + num_elem_per_byte - 1) / num_elem_per_byte +
       2 * sizeof(float16);
 
-  for (size_t row = 0; __builtin_expect(row < input_rows, 1); ++row) {
+  for (size_t row = 0; row < input_rows; ++row) [[likely]] {
     const InputType* input_row = input + row * column_count;
     std::uint8_t* output_row = output + row * output_columns;
     float16_t* output_row_scale_bias = reinterpret_cast<float16_t*>(
@@ -355,7 +355,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
     svbool_t lastPredA = svwhilelt_b32_u64(0, loopRemainder);
     svbool_t lastPredB = svwhilelt_b32_u64(4, loopRemainder);
 
-    while (__builtin_expect(loopIters > 0, 1)) {
+    while (loopIters > 0) [[likely]] {
       float32x4_t v0;
       float32x4_t v1;
 
@@ -523,9 +523,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
         reinterpret_cast<float16x4x2_t*>(output_row);
 
     size_t colIndex = 0;
-    for (size_t colMax = output_columns / 8;
-         __builtin_expect(colIndex < colMax, 1);
-         ++colIndex) {
+    for (size_t colMax = output_columns / 8; colIndex < colMax; ++colIndex)
+        [[likely]] {
       svuint32_t in_v_0 = svld1ub_u32(
           allTruePred,
           reinterpret_cast<const uint8_t*>(input_row_v_0 + colIndex));
@@ -625,9 +624,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
     svfloat32_t bias_v =
         svcvtlt_f32_f16_m(svundef_f32(), allTruePred, scale_bias_v);
 
-    for (size_t iters = bytesPerRow / kNumBytesPerIter;
-         __builtin_expect(iters > 0, 1);
-         --iters) {
+    for (size_t iters = bytesPerRow / kNumBytesPerIter; iters > 0; --iters)
+        [[likely]] {
       svuint32_t in_v_0;
       svuint32_t in_v_1;
       if constexpr (BIT_RATE == 8) {

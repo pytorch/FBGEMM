@@ -1119,7 +1119,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       local_buckets_per_shard_per_table_[sub_table_id][shard_id][new_idx]++;
     }
     double overall_ratio = FixedBlockPool::get_feature_score_rate(block);
-    const double EPSILON = 1e-9;
+    constexpr double EPSILON = 1e-9;
     bool should_evict = false;
     switch (evict_modes_[sub_table_id]) {
       case EvictMode::NONE:
@@ -1156,7 +1156,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
  private:
   int64_t get_bucket_id_from_ratio(double ratio) {
     int64_t idx = 0;
-    const double EPSILON = 1e-9;
+    constexpr double EPSILON = 1e-9;
     if (std::abs(ratio) < EPSILON) {
       idx = 0;
     } else if (ratio >= num_buckets_ * threshold_calculation_bucket_stride_) {

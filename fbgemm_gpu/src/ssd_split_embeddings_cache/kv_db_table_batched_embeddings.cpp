@@ -189,7 +189,9 @@ void EmbeddingKVDB::flush() {
   wait_util_filling_work_done();
   if (l2_cache_) {
     int block_size = std::max(
-        (int)(flushing_block_size_ / l2_cache_->get_cache_item_size()), 1);
+        static_cast<int>(
+            flushing_block_size_ / l2_cache_->get_cache_item_size()),
+        1);
     folly::Optional<l2_cache::CacheLibCache::Cache::AccessIterator> start_itr =
         folly::none;
     folly::Optional<at::Tensor> count = folly::none;
