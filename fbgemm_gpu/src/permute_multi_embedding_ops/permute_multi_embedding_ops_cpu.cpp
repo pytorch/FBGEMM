@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
+
 #include "fbgemm_gpu/permute_multi_embedding_function.h"
 
 namespace fbgemm_gpu {
@@ -311,9 +313,8 @@ std::vector<Tensor> regroup_keyed_tensor_autograd(
   auto [permutes, in_shapes, out_shapes, out_lengths] =
       op.call(pooled_embs[0], keys, lengths, groups);
   std::vector<at::SymInt> out;
-  std::transform(
-      out_lengths.begin(),
-      out_lengths.end(),
+  std::ranges::transform(
+      out_lengths,
       std::back_inserter(out),
       [](const int32_t v) { return c10::SymInt(v); });
   return PermuteMultiEmbeddingOp::apply(
@@ -339,9 +340,8 @@ std::vector<Tensor> regroup_keyed_tensor_meta(
   auto [permutes, in_shapes, out_shapes, out_lengths] =
       kt_regroup_arguments_meta(pooled_embs[0], keys, lengths, groups);
   std::vector<at::SymInt> out;
-  std::transform(
-      out_lengths.begin(),
-      out_lengths.end(),
+  std::ranges::transform(
+      out_lengths,
       std::back_inserter(out),
       [](const int32_t v) { return c10::SymInt(v); });
   return permute_multi_embedding_function_meta(

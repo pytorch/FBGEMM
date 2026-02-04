@@ -10,6 +10,8 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 
+#include <algorithm>
+
 #include "fbgemm_gpu/input_combine.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
@@ -67,8 +69,8 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
   TORCH_CHECK_GT(num_lists, 0);
   TORCH_CHECK_EQ(lengths_list.size(), num_lists);
   TORCH_CHECK_EQ(per_sample_weights.size(), num_lists);
-  const bool need_weights = std::any_of(
-      per_sample_weights.begin(), per_sample_weights.end(), [](const auto& x) {
+  const bool need_weights = std::ranges::any_of(
+      per_sample_weights, [](const auto& x) {
         return x.numel() > 0;
       });
 

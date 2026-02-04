@@ -87,9 +87,8 @@ AdjacencyMatrix<Node> get_intermediate_node(
     //  the number of two_hop connections already assigned to the
     //  intermediate rank.
     for (const auto i : c10::irange(non_direct_src_ids.size())) {
-      std::sort(
-          direct_connected_peers.begin(),
-          direct_connected_peers.end(),
+      std::ranges::sort(
+          direct_connected_peers,
           [](const auto& a, const auto& b) {
             if (a.num_peer_links > b.num_peer_links) {
               return true;
@@ -113,7 +112,7 @@ AdjacencyMatrix<Node> get_intermediate_node(
       }
     }
   }
-  if (std::any_of(assignments.begin(), assignments.end(), [](Node n) {
+  if (std::ranges::any_of(assignments, [](Node n) {
         return n != -1;
       })) {
     auto tensor = at::from_blob(
