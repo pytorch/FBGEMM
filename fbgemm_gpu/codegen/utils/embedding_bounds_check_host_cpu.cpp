@@ -10,6 +10,8 @@
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
+
+#include <atomic>
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
@@ -114,7 +116,7 @@ void bounds_check_indices_cpu(
       TORCH_CHECK(num_indices == offsets_acc[total_B]);
     } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
       if (num_indices != offsets_acc[total_B]) {
-        if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
+        if (std::atomic_ref<int64_t>(warning_acc[0]).fetch_add(1, std::memory_order_relaxed) == 0) {
           LOG(ERROR)
               << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
               << "): The last element in offsets is incorrect for "
@@ -145,7 +147,7 @@ void bounds_check_indices_cpu(
         } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
           if (indices_start < 0 || indices_start > indices_end ||
               indices_end > num_indices) {
-            if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
+            if (std::atomic_ref<int64_t>(warning_acc[0]).fetch_add(1, std::memory_order_relaxed) == 0) {
               LOG(ERROR)
                   << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
                   << "): (at least one) Out of bounds access for batch: " << b
@@ -182,7 +184,7 @@ void bounds_check_indices_cpu(
             TORCH_CHECK(idx < num_rows);
           } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
             if (idx < 0 || idx >= num_rows) {
-              if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
+              if (std::atomic_ref<int64_t>(warning_acc[0]).fetch_add(1, std::memory_order_relaxed) == 0) {
                 LOG(ERROR)
                     << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
                     << "): (at least one) Out of bounds access for batch: " << b
