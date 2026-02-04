@@ -215,6 +215,7 @@ cc_library(
         ],
         deps = [
             ":test_utils",
+            ":fbgemm_headers",
         ],
     ) for filename in get_fbgemm_tests()
 ]

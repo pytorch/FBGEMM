@@ -18,6 +18,8 @@ cc_library(
         "-fno-tree-vectorize",
         "-fmerge-all-constants",
         "-DTH_BLAS_MKL",
+        "-Wall",
+        "-Wextra",
     ],
     includes = [
         "asmjit/",

@@ -95,6 +95,7 @@ def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
 
 def get_fbgemm_public_headers():
     return [
+        "include/fbgemm/Assert.h",
         "include/fbgemm/ConvUtils.h",
         "include/fbgemm/Fbgemm.h",
         "include/fbgemm/FbgemmBuild.h",
