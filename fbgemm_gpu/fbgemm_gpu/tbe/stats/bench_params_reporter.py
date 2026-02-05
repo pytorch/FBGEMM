@@ -210,14 +210,6 @@ class TBEBenchmarkParamsReporter:
             ).item()
         )
 
-        # Compute indices distribution parameters
-        heavy_hitters, q, s, _, _ = torch.ops.fbgemm.tbe_estimate_indices_distribution(
-            indices_cpu
-        )
-        indices_params = IndicesParams(
-            heavy_hitters, q, s, indices.dtype, offsets.dtype
-        )
-
         # Compute batch parameters
         B = int((offsets.numel() - 1) // T)
         Bs = (
@@ -225,6 +217,31 @@ class TBEBenchmarkParamsReporter:
             if batch_size_per_feature_per_rank
             else [B] * T
         )
+
+        # Compute global indices distribution parameters.
+        heavy_hitters, q, s, _, _ = torch.ops.fbgemm.tbe_estimate_indices_distribution(
+            indices_cpu
+        )
+        indices_params = IndicesParams(
+            heavy_hitters, q, s, indices.dtype, offsets.dtype
+        )
+
+        # Compute per-table indices distribution parameters.
+        indices_params_list = []
+        table_start = 0
+        for t in range(T):
+            start_offset = offsets[table_start]
+            end_offset = offsets[table_start + Bs[t]]
+            heavy_hitters, q, s, _, _ = (
+                torch.ops.fbgemm.tbe_estimate_indices_distribution(
+                    indices_cpu[start_offset:end_offset],
+                )
+            )
+            indices_params_list.append(
+                IndicesParams(heavy_hitters, q, s, indices.dtype, offsets.dtype)
+            )
+            table_start += Bs[t]
+
         batch_params = BatchParams(
             B=B,
             sigma_B=(
@@ -288,6 +305,7 @@ class TBEBenchmarkParamsReporter:
             Ds=Ds,
             embedding_specs=embedding_specs,
             feature_table_map=feature_table_map,
+            indices_params_list=indices_params_list,
         )
 
     def report_stats(
