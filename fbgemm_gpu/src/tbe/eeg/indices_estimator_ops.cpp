@@ -7,6 +7,7 @@
  */
 
 #include <torch/torch.h>
+#include <algorithm>
 #include <tuple>
 #include "indices_estimator.h"
 
@@ -41,10 +42,8 @@ estimate_indices_distribution(const at::Tensor& indices) {
   // std::vector<double>
   auto heavy_hitters =
       torch::zeros((params.heavyHitters.size()), torch::kFloat64);
-  std::copy(
-      params.heavyHitters.begin(),
-      params.heavyHitters.end(),
-      heavy_hitters.mutable_data_ptr<double>());
+  std::ranges::copy(
+      params.heavyHitters, heavy_hitters.mutable_data_ptr<double>());
 
   return {
       heavy_hitters,

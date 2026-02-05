@@ -8,6 +8,7 @@
 
 #include "indices_generator.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <execution>
@@ -36,9 +37,8 @@ IndicesGenerator::IndicesGenerator(
 static torch::Tensor convertVectorToTensor(
     const std::vector<std::pair<int64_t, double>>& indicesWithTags) {
   std::vector<int64_t> indices(indicesWithTags.size());
-  std::transform(
-      std::begin(indicesWithTags),
-      std::end(indicesWithTags),
+  std::ranges::transform(
+      indicesWithTags,
       std::begin(indices),
       [](const std::pair<int64_t, double>& indexWithTag) {
         return indexWithTag.first;
