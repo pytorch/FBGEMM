@@ -208,9 +208,11 @@ __configure_fbgemm_gpu_build_rocm () {
   # build time.  This list needs to be updated if the CI ROCm machines have
   # different hardware.
   #
-  # Target architecture mapping and ROCm compatibility table can be found at:
+  # Target architecture, card model, and ROCm compatibility tables can be found
+  # in the following links:
   #   https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html
   #   https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html
+  #   https://www.coelacanth-dream.com/posts/2019/12/30/did-rid-product-matome-p2/
 
   if [ "$fbgemm_variant_targets" != "" ]; then
     # If targets are manually supplied, override
