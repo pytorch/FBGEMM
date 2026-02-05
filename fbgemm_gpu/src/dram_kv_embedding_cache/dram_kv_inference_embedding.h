@@ -274,9 +274,7 @@ class DramKVInferenceEmbedding
                         // inference read is accessing a weight being updated,
                         // we assume it is fine for now, will iterate on it if
                         // we find QE regress during inplace update
-                        for (auto& info : hit_info) {
-                          auto tensor_offset = std::get<0>(info);
-                          auto block = std::get<1>(info);
+                        for (auto& [tensor_offset, block] : hit_info) {
                           auto* data_ptr =
                               FixedBlockPool::data_ptr<weight_type>(block);
                           std::copy(
@@ -301,9 +299,7 @@ class DramKVInferenceEmbedding
                         std::unordered_map<int64_t, weight_type*> temp_kv;
                         auto* pool = kv_store_.pool_by(shard_id);
                         auto mem_pool_lock = pool->acquire_lock();
-                        for (auto& info : miss_info) {
-                          auto id = std::get<0>(info);
-                          auto tensor_offset = std::get<1>(info);
+                        for (auto& [id, tensor_offset] : miss_info) {
 
                           auto block = pool->template allocate_t<weight_type>();
                           FixedBlockPool::set_key(block, id);
@@ -355,9 +351,9 @@ class DramKVInferenceEmbedding
                            tuples) {
           auto hit_cnt = 0;
           auto miss_cnt = 0;
-          for (const auto& pair : tuples) {
-            hit_cnt += std::get<0>(pair);
-            miss_cnt += std::get<1>(pair);
+          for (const auto& [h_cnt, m_cnt] : tuples) {
+            hit_cnt += h_cnt;
+            miss_cnt += m_cnt;
           }
           inplace_update_hit_cnt_ += hit_cnt;
           inplace_update_miss_cnt_ += miss_cnt;
@@ -544,12 +540,12 @@ class DramKVInferenceEmbedding
               int64_t read_cache_hit_copy_total_duration = 0;
               int64_t read_acquire_lock_total_duration = 0;
               int64_t read_missing_load = 0;
-              for (const auto& tup : results) {
-                read_lookup_cache_total_duration += std::get<0>(tup);
-                read_fill_row_storage_total_duration += std::get<1>(tup);
-                read_cache_hit_copy_total_duration += std::get<2>(tup);
-                read_acquire_lock_total_duration += std::get<3>(tup);
-                read_missing_load += std::get<4>(tup);
+              for (const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load] : results) {
+                read_lookup_cache_total_duration += lookup_cache_dur;
+                read_fill_row_storage_total_duration += fill_row_storage_dur;
+                read_cache_hit_copy_total_duration += cache_hit_copy_dur;
+                read_acquire_lock_total_duration += acquire_lock_dur;
+                read_missing_load += missing_load;
               }
               auto duration =
                   facebook::WallClockUtil::NowInUsecFast() - start_ts;
