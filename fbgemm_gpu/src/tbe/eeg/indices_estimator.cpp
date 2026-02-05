@@ -30,7 +30,7 @@ void IndicesEstimator::populateIndexFreqs_(const torch::Tensor& indices) {
   }
 
   // Sort and normalize the frequencies
-  std::sort(std::begin(freqs_), std::end(freqs_), std::greater{});
+  std::ranges::sort(freqs_, std::greater{});
   auto normalize_const = std::reduce(std::begin(freqs_), std::end(freqs_));
   for (auto& freq : freqs_) {
     freq /= normalize_const;
@@ -113,9 +113,8 @@ int64_t IndicesEstimator::numIndices() const {
 int64_t IndicesEstimator::maxIndex() const {
   if (!cacheMaxIndex_.has_value()) {
     cacheMaxIndex_ =
-        std::max_element(
-            indexCounts_.begin(),
-            indexCounts_.end(),
+        std::ranges::max_element(
+            indexCounts_,
             [](const auto& a, const auto& b) { return a.first < b.first; })
             ->first;
   }
