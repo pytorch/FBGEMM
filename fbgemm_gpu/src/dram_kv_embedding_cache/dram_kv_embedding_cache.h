@@ -1418,7 +1418,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
             const auto shard_id = kv_db_utils::hash_shard(index, num_shards_);
 
-            if (shardid_to_indexes.find(shard_id) == shardid_to_indexes.end()) {
+            if (!shardid_to_indexes.contains(shard_id)) {
               shardid_to_indexes[shard_id] = std::vector<int64_t>();
             }
             shardid_to_indexes[shard_id].push_back(i);

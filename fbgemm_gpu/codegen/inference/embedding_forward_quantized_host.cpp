@@ -457,7 +457,7 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     bool populate_uvm_stats = true;
     {
       std::lock_guard<std::mutex> guard(uvm_cache_stats_mutex);
-      if (tbe_call_count.count(signature) == 0) {
+      if (!tbe_call_count.contains(signature)) {
         tbe_call_count[signature] = 0;
       }
       tbe_call_count[signature]++;

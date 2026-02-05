@@ -93,7 +93,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
       at::zeros({bucket_end - bucket_start, 1}, unordered_indices.options());
   auto bucket_tensor_data_ptr = bucket_tensor.mutable_data_ptr<int64_t>();
   for (int64_t i = bucket_start; i < bucket_end; ++i) {
-    if (bucket_id_to_cnt.find(i) != bucket_id_to_cnt.end()) {
+    if (bucket_id_to_cnt.contains(i)) {
       bucket_tensor_data_ptr[i - bucket_start] = bucket_id_to_cnt[i];
     } else {
       bucket_tensor_data_ptr[i - bucket_start] = 0;
