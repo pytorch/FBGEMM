@@ -85,26 +85,56 @@ def _generate_indices(
 ) -> torch.Tensor:
 
     total_B = sum(Bs)
+    T = len(Bs)
     L_offsets_list = L_offsets.tolist()
     indices_list = []
+    table_start = 0
     for it in range(iters):
-        # L_offsets is defined over the entire set of batches for a single iteration
-        start_offset = L_offsets_list[it * total_B]
-        end_offset = L_offsets_list[(it + 1) * total_B]
+        if (
+            tbe_data_config.indices_params_list is not None
+            and tbe_data_config.Es is not None
+        ):
+            # Per-table indices params generation.
+            Es = tbe_data_config.Es
+            for t in range(T):
+                start_offset = L_offsets_list[table_start]
+                end_offset = L_offsets_list[table_start + Bs[t]]
 
-        logging.info(f"DEBUG_TBE: _generate_indices E = {tbe_data_config.E=}")
+                logging.info(f"TBE_DEBUG: _generate_indices E={Es[t]}")
 
-        indices_list.append(
-            torch.ops.fbgemm.tbe_generate_indices_from_distribution(
-                tbe_data_config.indices_params.heavy_hitters,
-                tbe_data_config.indices_params.zipf_q,
-                tbe_data_config.indices_params.zipf_s,
-                # max_index = dimensions of the embedding table
-                int(tbe_data_config.E),
-                # num_indices = number of indices to generate
-                end_offset - start_offset,
+                indices_params = tbe_data_config.indices_params_list[t]
+                indices_list.append(
+                    torch.ops.fbgemm.tbe_generate_indices_from_distribution(
+                        indices_params.heavy_hitters,
+                        indices_params.zipf_q,
+                        indices_params.zipf_s,
+                        # max_index = dimensions of the embedding table
+                        Es[t],
+                        # num_indices = number of indices to generate
+                        end_offset - start_offset,
+                    )
+                )
+                table_start += Bs[t]
+        else:
+            # Fall back to global indices params generation.
+
+            # L_offsets is defined over the entire set of batches for a single iteration
+            start_offset = L_offsets_list[it * total_B]
+            end_offset = L_offsets_list[(it + 1) * total_B]
+
+            logging.info(f"DEBUG_TBE: _generate_indices E={tbe_data_config.E}")
+
+            indices_list.append(
+                torch.ops.fbgemm.tbe_generate_indices_from_distribution(
+                    tbe_data_config.indices_params.heavy_hitters,
+                    tbe_data_config.indices_params.zipf_q,
+                    tbe_data_config.indices_params.zipf_s,
+                    # max_index = dimensions of the embedding table
+                    int(tbe_data_config.E),
+                    # num_indices = number of indices to generate
+                    end_offset - start_offset,
+                )
             )
-        )
 
     return torch.cat(indices_list)
 
