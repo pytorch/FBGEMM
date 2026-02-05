@@ -10,6 +10,7 @@
 
 #include <c10/util/bit_cast.h>
 
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -193,7 +194,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     }
 
     // Validate that alignment requirement is a power of 2
-    if ((block_alignment_ & (block_alignment_ - 1)) != 0) {
+    if (!std::has_single_bit(block_alignment_)) {
       throw std::invalid_argument("Alignment must be power of two");
     }
 
