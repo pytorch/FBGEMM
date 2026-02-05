@@ -11,6 +11,7 @@
 #include <iostream>
 #include <memory>
 
+#include <c10/util/irange.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
 #include <folly/coro/Task.h>
@@ -351,6 +352,36 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
 
     return result;
+  }
+
+  void delete_rocksdb_checkpoint_dir() {
+    std::lock_guard<std::mutex> lock(checkpoint_delete_mutex_);
+    if (checkpoints_.empty()) {
+      LOG(INFO) << checkpoints_.size();
+      LOG(WARNING) << "No checkpoints found, skipping deletion";
+      return;
+    }
+    // Get the latest checkpoint (most recently added)
+    auto latest_it = checkpoints_.begin();
+    const auto& ckpt_uuid = latest_it->first;
+    auto checkpoint_paths = latest_it->second->get_shard_checkpoints();
+    LOG(INFO) << "Deleting checkpoint " << ckpt_uuid << " with "
+              << checkpoint_paths.size() << " shards";
+    for (const auto& path : checkpoint_paths) {
+      LOG(INFO) << "removing checkpoint directory: " << path;
+      kv_db_utils::remove_dir(path);
+    }
+    // Remove the checkpoint handle after deletion
+    checkpoints_.erase(latest_it);
+    // Also remove from global_step_to_ckpt_uuid_ mapping
+    for (auto it = global_step_to_ckpt_uuid_.begin();
+         it != global_step_to_ckpt_uuid_.end();
+         ++it) {
+      if (it->second == ckpt_uuid) {
+        global_step_to_ckpt_uuid_.erase(it);
+        break;
+      }
+    }
   }
 
   void initialize_dbs(
@@ -1383,6 +1414,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::vector<std::string> db_paths_;
 
   bool disable_random_init_;
+
+  mutable std::mutex checkpoint_delete_mutex_;
+  bool checkpoint_deleted_ = false;
 }; // class EmbeddingRocksDB
 
 /// @ingroup embedding-ssd
@@ -1534,7 +1568,8 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
   }
 
   void delete_rocksdb_checkpoint_dir() {
-    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+    std::lock_guard<std::mutex> lock(checkpoint_delete_mutex_);
+    for (const auto shard : c10::irange(dbs_.size())) {
       LOG(INFO) << "removing checkpoint directories: "
                 << rdb_shard_checkpoint_paths_[shard];
       kv_db_utils::remove_dir(rdb_shard_checkpoint_paths_[shard]);
@@ -1705,6 +1740,9 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
   int64_t elem_size_;
   std::string tbe_uuid_;
   std::vector<std::string> rdb_shard_checkpoint_paths_;
+
+  mutable std::mutex checkpoint_delete_mutex_;
+  bool checkpoint_deleted_ = false;
 }; // class ReadOnlyEmbeddingKVDB
 
 } // namespace ssd

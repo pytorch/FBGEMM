@@ -3344,6 +3344,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 if self.backend_type == BackendType.SSD
                 else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
             )
+
+            # When snapshot and checkpoint handle are available, serialize and
+            # deserialize the KVTensor to create a ReadOnlyEmbeddingKVDB-backed
+            # tensor for cross-process checkpoint reading.
+            if (
+                snapshot_handle is not None
+                and checkpoint_handle is not None
+                and self.backend_type == BackendType.SSD
+            ):
+                logging.info("Serializing KVTensorWrapper")
+                serialized = tensor_wrapper.serialize()
+                tensor_wrapper = (
+                    torch.ops.fbgemm.create_kv_tensor_wrapper_from_serialized(
+                        serialized
+                    )
+                )
+
             table_offset += emb_height
             pmt_splits.append(
                 PartiallyMaterializedTensor(
