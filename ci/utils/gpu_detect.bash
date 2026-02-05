@@ -111,22 +111,18 @@ detect_nvidia_gpu_model() {
 
 # Detect the GPU model of the first AMD GPU.
 #
-# This function queries rocm-smi for the GPU name and extracts the model.
-# It supports custom mappings via the AMD_GPU_MODEL_MAP associative array.
+# This function queries rocm-smi for the GFX Version and maps it to a known
+# GPU model name using the AMD_GFX_MODEL_MAP associative array.
 # The returned model name is always lowercased.
 #
 # Returns:
-#   Lowercased GPU model (e.g., "mi300", "mi250", "mi100")
+#   Lowercased GPU model (e.g., "mi300", "mi350", "mi250")
 #   "" - if rocm-smi is not available or no GPU is detected
 #
 # Usage:
 #   source gpu.bash
 #   model=$(detect_amd_gpu_model)
-#   echo "GPU model: $model"  # e.g., "mi300"
-#
-#   # Add custom mapping before calling:
-#   AMD_GPU_MODEL_MAP["CustomGPU"]="mi300"
-#   model=$(detect_amd_gpu_model)
+#   echo "GPU model: $model"  # e.g., "mi350"
 #
 detect_amd_gpu_model() {
     # Check if rocm-smi is available
@@ -135,58 +131,53 @@ detect_amd_gpu_model() {
         return 1
     fi
 
-    # Associative array for custom AMD GPU model mappings.
-    # Keys should be the model name (after stripping common prefixes).
-    # Values should be the desired lowercased model name.
+    # Associative array mapping GFX versions to GPU model names.
+    # Keys are the GFX versions (from "GFX Version" field in rocm-smi --showproductname).
+    # Values are the desired lowercased model names.
     #
-    # Example:
-    #   AMD_GPU_MODEL_MAP["Instinct MI300X OAM"]="mi300"
+    # Target architecture, card model, and ROCm compatibility tables can be found
+    # in the following links:
+    #   https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html
+    #   https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html
+    #   https://www.coelacanth-dream.com/posts/2019/12/30/did-rid-product-matome-p2/
     #
-    declare -A AMD_GPU_MODEL_MAP=(
-        # Add custom mappings here as needed
+    # To find the GFX version for a new GPU, run:
+    #   rocm-smi --showproductname | grep "GFX Version"
+    #
+    declare -A AMD_GFX_MODEL_MAP=(
+        # MI350 series (CDNA 4)
+        ["gfx950"]="mi350"
+        # MI300 series (CDNA 3)
+        ["gfx942"]="mi300"
+        # MI200 series (CDNA 2)
+        ["gfx90a"]="mi250"
+        # MI100 series (CDNA 1)
+        ["gfx908"]="mi100"
+        # MI50/MI60 (Vega)
+        ["gfx906"]="mi50"
     )
 
-    # Get the raw GPU name from rocm-smi (first GPU only)
+    # Get the GFX Version from rocm-smi (first GPU only)
     # rocm-smi --showproductname outputs something like:
-    #   GPU[0]          : Card Series:       AMD Instinct MI300X OAM
-    local raw_name
-    raw_name=$(rocm-smi --showproductname 2>/dev/null | grep -m1 "Card Series:" | sed 's/.*Card Series:[[:space:]]*//' | xargs)
+    #   GPU[0]          : GFX Version:       gfx950
+    local gfx_version
+    gfx_version=$(rocm-smi --showproductname 2>/dev/null | grep -m1 "GFX Version:" | sed 's/.*GFX Version:[[:space:]]*//' | xargs)
 
-    # If showproductname doesn't work, try alternative methods
-    if [[ -z "$raw_name" ]]; then
-        # Try --showname which outputs: GPU[0] : Name : <name>
-        raw_name=$(rocm-smi --showname 2>/dev/null | grep -m1 "Name" | sed 's/.*Name[[:space:]]*:[[:space:]]*//' | xargs)
+    if [[ -z "$gfx_version" ]]; then
+        echo "Could not detect AMD GPU GFX version" >&2
+        return 1
     fi
 
-    if [[ -z "$raw_name" ]]; then
-        echo ""
-        return
+    # Lowercase the GFX version for consistent lookup
+    gfx_version="${gfx_version,,}"
+
+    # Look up the GFX version in the map
+    if [[ -n "${AMD_GFX_MODEL_MAP[$gfx_version]}" ]]; then
+        echo "${AMD_GFX_MODEL_MAP[$gfx_version]}"
+        return 0
     fi
 
-    # Strip common prefixes like "AMD ", "AMD Instinct "
-    local model
-    model=$(echo "$raw_name" | sed -e 's/^AMD Instinct //' -e 's/^AMD //' -e 's/^Instinct //')
-
-    # Check if there's a custom mapping for this model
-    if [[ -n "${AMD_GPU_MODEL_MAP[$model]}" ]]; then
-        echo "${AMD_GPU_MODEL_MAP[$model]}"
-        return
-    fi
-
-    # Extract just the base model without trailing letters
-    # e.g., "MI300X OAM" -> "MI300", "MI250X" -> "MI250"
-    # This strips trailing letters like X, A after the number
-    local base_model="$model"
-    if [[ "$model" =~ ^([A-Za-z]+[0-9]+) ]]; then
-        base_model="${BASH_REMATCH[1]}"
-    fi
-
-    # Check if there's a custom mapping for the base model
-    if [[ -n "${AMD_GPU_MODEL_MAP[$base_model]}" ]]; then
-        echo "${AMD_GPU_MODEL_MAP[$base_model]}"
-        return
-    fi
-
-    # Lowercase the base model
-    echo "${base_model,,}"
+    # GFX version not found in map
+    echo "Unknown AMD GPU GFX version: $gfx_version" >&2
+    return 1
 }
