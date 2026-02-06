@@ -204,17 +204,14 @@ class DramKVInferenceEmbedding
       const at::Tensor& weights,
       const at::Tensor& count,
       std::optional<uint32_t> inplace_update_ts) override {
-    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
+    futures.reserve(shardid_to_indexes.size());
 
     auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
         feature_evict_.get());
     CHECK(tt_evict != nullptr);
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
               .thenValue([this,
@@ -254,17 +251,13 @@ class DramKVInferenceEmbedding
                         hit_info.reserve(indexes.size() / 2);
                         miss_info.reserve(indexes.size() / 10);
                         auto rlmap = kv_store_.by(shard_id).rlock();
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          auto id = int64_t(indices_data_ptr[*index_iter]);
+                        for (const auto& idx : indexes) {
+                          auto id = int64_t(indices_data_ptr[idx]);
                           auto it = rlmap->find(id);
                           if (it != rlmap->end()) {
-                            hit_info.push_back(
-                                std::make_tuple(*index_iter, it->second));
+                            hit_info.emplace_back(idx, it->second);
                           } else {
-                            miss_info.push_back(
-                                std::make_tuple(id, *index_iter));
+                            miss_info.emplace_back(id, idx);
                           }
                         }
                         rlmap.unlock();
@@ -339,9 +332,9 @@ class DramKVInferenceEmbedding
                         wlmap.unlock();
                       }
                     });
-                return std::make_tuple(hit_cnt, miss_cnt);
+                return std::tuple{hit_cnt, miss_cnt};
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     return folly::collect(std::move(futures))
         .via(executor_.get())
@@ -400,11 +393,7 @@ class DramKVInferenceEmbedding
     read_sharding_total_duration_ +=
         facebook::WallClockUtil::NowInUsecFast() - before_shard_ts;
 
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this,
@@ -467,10 +456,7 @@ class DramKVInferenceEmbedding
                             init_storage.template data_ptr<weight_type>();
                       }
                       {
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto weights_row_index = *index_iter;
+                        for (const auto& weights_row_index : indexes) {
                           auto weight_idx =
                               int64_t(indices_data_ptr[weights_row_index]);
                           auto before_lookup_cache_ts =
@@ -518,12 +504,12 @@ class DramKVInferenceEmbedding
                         }
                       }
                     });
-                return std::make_tuple(
+                return std::tuple{
                     local_read_lookup_cache_total_duration,
                     local_read_fill_row_storage_total_duration,
                     local_read_cache_hit_copy_total_duration,
                     local_read_aquire_lock_duration,
-                    local_read_missing_load);
+                    local_read_missing_load};
               }));
     }
 
@@ -794,10 +780,6 @@ class DramKVInferenceEmbedding
             }
 
             const auto shard_id = kv_db_utils::hash_shard(index, num_shards_);
-
-            if (shardid_to_indexes.find(shard_id) == shardid_to_indexes.end()) {
-              shardid_to_indexes[shard_id] = std::vector<int64_t>();
-            }
             shardid_to_indexes[shard_id].push_back(i);
           }
         });

@@ -462,8 +462,8 @@ void csr2csc_template_(
       for (const auto p : c10::irange(pool_begin, pool_end)) {
         tmpBufKeys[p - FBo] = csr_indices[p];
         if (IS_VALUE_PAIR) {
-          reinterpret_cast<pair_t*>(tmpBufValues)[p - FBo] = std::make_pair(
-              FBs + b, scale_factor * (has_weights ? csr_weights[p] : 1.0f));
+          reinterpret_cast<pair_t*>(tmpBufValues)[p - FBo] = std::pair{
+              FBs + b, scale_factor * (has_weights ? csr_weights[p] : 1.0f)};
         } else {
           reinterpret_cast<int*>(tmpBufValues)[p - FBo] = FBs + b;
         }

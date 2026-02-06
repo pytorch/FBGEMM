@@ -60,9 +60,9 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
         bucket_start,
         " the input data should be empty but get:",
         unordered_indices.numel());
-    return std::make_tuple(
+    return std::tuple{
         at::empty(unordered_indices.sizes(), unordered_indices.options()),
-        at::zeros({0, 1}, unordered_indices.options()));
+        at::zeros({0, 1}, unordered_indices.options())};
   }
 
   const auto indices_data_ptr = unordered_indices.const_data_ptr<int64_t>();
@@ -83,9 +83,6 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
         bucket_start,
         " and ",
         bucket_end);
-    if (bucket_id_to_cnt.find(global_bucket_id) == bucket_id_to_cnt.end()) {
-      bucket_id_to_cnt[global_bucket_id] = 0;
-    }
     bucket_id_to_cnt[global_bucket_id] += 1;
   }
   // fill the bucket_tensor with counts
@@ -131,10 +128,10 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
         bucket_id_to_offset[bucket_id] += 1;
       }
     });
-    futures.push_back(std::move(f));
+    futures.emplace_back(std::move(f));
   }
   folly::collect(futures).wait();
-  return std::make_tuple(id_tensor, bucket_tensor);
+  return std::tuple{id_tensor, bucket_tensor};
 }
 
 } // namespace kv_db_utils

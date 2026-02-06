@@ -69,7 +69,7 @@ class enum_registration {
 
     for (auto next = registration_list; next != nullptr; next = next->next_) {
       result.emplace_back(
-          std::make_tuple(std::string(next->name_), next->items_));
+          std::tuple{std::string(next->name_), next->items_});
     }
 
     return result;

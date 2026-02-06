@@ -275,7 +275,7 @@ void cblas_gemm_compute(
                 for (int j = last_blk_col; j < n; j++) {
                   assert(
                       i * Bp.blockColSize() + (j - last_blk_col) <
-                      static_cast<int64_t>(sizeof(c_tmp) / sizeof(c_tmp[0])));
+                      static_cast<int64_t>(c_tmp.size()));
                   if (beta_ == 0.f) {
                     C[(m2 + i) * ldc + j] =
                         c_tmp[i * Bp.blockColSize() + (j - last_blk_col)];

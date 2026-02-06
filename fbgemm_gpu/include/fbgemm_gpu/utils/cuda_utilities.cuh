@@ -33,7 +33,7 @@ inline auto get_compute_versions() {
     int driver_version = 0;
     cudaDriverGetVersion(&driver_version);
 
-    return std::make_tuple(runtime_version, driver_version);
+    return std::tuple{runtime_version, driver_version};
   }();
 
   return versions;

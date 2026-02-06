@@ -200,13 +200,13 @@ __global__ void __launch_bounds__(
     const int n_masking_steps = (!Is_causal || is_in_context)
         ? 0
         : n_masking_block_max - n_masking_block_min;
-    return std::make_tuple(
+    return std::tuple{
         n_block_max,
         n_block_min,
         n_masking_steps,
         is_jump,
         n_block_history,
-        actual_seqlen_q);
+        actual_seqlen_q};
   };
 
   static_assert(Ktraits::kNWarps == 12 || Ktraits::kNWarps == 16);
