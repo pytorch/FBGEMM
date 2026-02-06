@@ -124,7 +124,15 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU Wheel
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV ${{ inputs.pytorch-channel-version }} ${{ matrix.build-target }}/cuda
+      run: |
+        . $PRELUDE
+        cd fbgemm_gpu
+
+        # Extract channel from channel/version string
+        PYTORCH_CHANNEL_VERSION="${{ inputs.pytorch-channel-version }}"
+        PYTORCH_CHANNEL_ONLY="${PYTORCH_CHANNEL_VERSION%%/*}"
+
+        build_fbgemm_gpu_package $BUILD_ENV "$PYTORCH_CHANNEL_ONLY" ${{ matrix.build-target }}/cuda
 
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v6
