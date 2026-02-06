@@ -296,8 +296,10 @@ void zero_collision_hash_cpu_out(
     TORCH_CHECK(offsets->is_cpu());
     TORCH_CHECK(input.numel() == offsets->numel());
   }
+  // for use case of always opt-in, opt_in_prob should be 100, and
+  // num_reserved_slots must be >0.
   if (opt_in_prob != -1) {
-    TORCH_CHECK(opt_in_prob > 0 && opt_in_prob < 100);
+    TORCH_CHECK(opt_in_prob > 0 && opt_in_prob <= 100);
     TORCH_CHECK(num_reserved_slots > 0);
   }
   if (num_reserved_slots != -1) {

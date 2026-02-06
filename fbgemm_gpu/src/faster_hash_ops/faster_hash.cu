@@ -791,8 +791,12 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
     TORCH_CHECK(input.numel() == offsets->numel());
   }
   if (opt_in_prob != -1) {
-    TORCH_CHECK(opt_in_prob > 0 && opt_in_prob < 100);
+    TORCH_CHECK(opt_in_prob > 0 && opt_in_prob <= 100);
     TORCH_CHECK(num_reserved_slots > 0);
+    // for use case of always opt-in, opt_in_rands must be null
+    if (opt_in_prob == 100) {
+      TORCH_CHECK(opt_in_rands.has_value() == false);
+    }
   }
   if (num_reserved_slots != -1) {
     TORCH_CHECK(opt_in_prob != -1);
