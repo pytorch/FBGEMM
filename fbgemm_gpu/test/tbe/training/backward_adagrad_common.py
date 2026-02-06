@@ -34,6 +34,7 @@ from hypothesis import assume, HealthCheck, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (  # noqa E402
+    create_tbe_from_config,
     format_ref_tensors_in_mixed_B_layout,
     gen_mixed_B_batch_sizes,
     MAX_EXAMPLES_LONG_RUNNING,
@@ -120,6 +121,7 @@ def execute_backward_adagrad(  # noqa C901
     weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
     max_norm: float = 0.0,
     compile: bool = False,
+    tbe_op: SplitTableBatchedEmbeddingBagsCodegen | None = None,
 ) -> None:
     # NOTE: cache is not applicable to CPU version.
     assume(not use_cpu or not use_cache)
@@ -168,25 +170,47 @@ def execute_backward_adagrad(  # noqa C901
     # only row-wise supports caching
     assume(row_wise or not use_cache)
 
-    E = int(10**log_E)
-    if use_cpu:
-        D = (D + 15) // 16 * 4
-    else:
-        D = D * 4
-    if not mixed:
-        Ds = [D] * T
-        Es = [E] * T
-    else:
-        Ds = [
-            round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
-            for _ in range(T)
-        ]
-        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
-    # autograd with shared embedding only works for exact
     table_to_replicate = T // 2
     Bs = [B] * T
+
+    if not tbe_op:
+        E = int(10**log_E)
+        if use_cpu:
+            D = (D + 15) // 16 * 4
+        else:
+            D = D * 4
+        if not mixed:
+            Ds = [D] * T
+            Es = [E] * T
+        else:
+            Ds = [
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
+                for _ in range(T)
+            ]
+            Es = [
+                np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
+            ]
+        feature_table_map = list(range(T))
+        # autograd with shared embedding only works for exact
+        feature_table_map.insert(table_to_replicate, table_to_replicate)
+
+    else:
+        assert tbe_op is not None, "tbe_op cannot be None"
+        assert T == len(
+            tbe_op.embedding_specs
+        ), f"T={T} mismatches embedding_specs {len(tbe_op.embedding_specs)}"
+        assert row_wise == (
+            tbe_op.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+        ), f"row_wise={row_wise} but tbe_op.optimizer={tbe_op.optimizer}"
+        feature_table_map = tbe_op.feature_table_map
+        Es = [tbe_op.embedding_specs[t][0] for t in range(T)]
+        Ds = [tbe_op.embedding_specs[t][1] for t in range(T)]
+
     compute_device: ComputeDevice = ComputeDevice.CUDA
-    if use_cpu:
+    if tbe_op:
+        managed = [s[2] for s in tbe_op.embedding_specs]
+        compute_device = ComputeDevice(tbe_op.embedding_specs[0][3])
+    elif use_cpu:
         managed = [EmbeddingLocation.HOST] * T
         compute_device = ComputeDevice.CPU
     elif TEST_WITH_ROCM:
@@ -227,29 +251,34 @@ def execute_backward_adagrad(  # noqa C901
     if weights_precision == SparseType.FP16:
         bs = [b.half() for b in bs]
 
-    feature_table_map = list(range(T))
-    # pyre-fixme[6]: For 2nd param expected `Embedding` but got
-    #  `Union[Embedding, EmbeddingBag]`.
-    feature_table_map.insert(table_to_replicate, table_to_replicate)
-    # do SGD update
-    lr = 0.5
-    eps = 0.2
+    # Get optimizer parameters - use tbe_op's values if provided, otherwise use defaults
+    lr = tbe_op.get_learning_rate() if tbe_op else 0.5
+    eps = tbe_op.optimizer_args.eps if tbe_op else 0.2
+    max_norm = tbe_op.optimizer_args.max_norm if tbe_op else max_norm
 
-    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
+    optimizer = (
+        (OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD)
+        if not tbe_op
+        else tbe_op.optimizer
+    )
 
-    cc = emb_op(
-        embedding_specs=[
-            (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
-        ],
-        feature_table_map=feature_table_map,
-        optimizer=optimizer,
-        learning_rate=lr,
-        eps=eps,
-        max_norm=max_norm,
-        weights_precision=weights_precision,
-        stochastic_rounding=stochastic_rounding,
-        pooling_mode=pooling_mode,
-        output_dtype=output_dtype,
+    cc = (
+        tbe_op
+        if tbe_op
+        else emb_op(
+            embedding_specs=[
+                (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
+            ],
+            feature_table_map=feature_table_map,
+            optimizer=optimizer,
+            learning_rate=lr,
+            eps=eps,
+            max_norm=max_norm,
+            weights_precision=weights_precision,
+            stochastic_rounding=stochastic_rounding,
+            pooling_mode=pooling_mode,
+            output_dtype=output_dtype,
+        )
     )
     # TODO: make it compile for CPU and unweighted
     # FIXME: remove once dynamo is supported by 3.12
@@ -266,7 +295,25 @@ def execute_backward_adagrad(  # noqa C901
         cc.split_embedding_weights()[t].data.copy_(b_weight)
 
     num_features = len(feature_table_map)
-    bs.insert(table_to_replicate, bs[table_to_replicate])
+    # Match nn.Embedding to features
+    bs_features = list(bs)
+    if tbe_op:
+        for t in range(T):
+            count = feature_table_map.count(t) - 1
+            for _ in range(count):
+                bs_features.insert(t, bs[t])
+
+    else:
+        bs_features.insert(table_to_replicate, bs[table_to_replicate])
+
+    assert (
+        len(bs_features) == num_features
+    ), f"num bs_feature {len(bs_features)} != num_features {num_features}, feature_table_map: {feature_table_map}"
+    assert len(bs) == T, f"num bs {len(bs)} != num_tables {T}"
+    for f in range(num_features):
+        assert (
+            bs_features[f] is bs[feature_table_map[f]]
+        ), f"Mismatched nn.Embedding/EmbeddingBag on feature {f}: {bs_features[f]} is not {bs[feature_table_map[f]]}"
     if not mixed_B:
         Bs = [B] * num_features
         Bs_rank_feature = [[0]]
@@ -292,7 +339,7 @@ def execute_backward_adagrad(  # noqa C901
     fs = (
         [
             b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
-            for (b, x) in zip(bs, xs)
+            for (b, x) in zip(bs_features, xs)
         ]
         if not weighted
         else [
@@ -303,7 +350,7 @@ def execute_backward_adagrad(  # noqa C901
                 use_cpu=use_cpu,
                 do_pooling=do_pooling,
             )
-            for (b, x, xw) in zip(bs, xs, xws)
+            for (b, x, xw) in zip(bs_features, xs, xws)
         ]
     )
 
@@ -313,7 +360,6 @@ def execute_backward_adagrad(  # noqa C901
 
     gos = [torch.randn_like(f) for f in fs]
     [f.backward(go) for (f, go) in zip(fs, gos)]
-    del bs[table_to_replicate]
 
     x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
     xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
@@ -382,6 +428,7 @@ def execute_backward_adagrad(  # noqa C901
         get_optimizer_states = cc.get_optimizer_state()
         assert len(get_optimizer_states) == T
 
+    # Validate optimizer states
     for t in range(T):
         expected_keys = {"sum"}
         if row_wise and weight_decay_mode == WeightDecayMode.COUNTER:
@@ -405,6 +452,8 @@ def execute_backward_adagrad(  # noqa C901
             atol=tolerance,
             rtol=tolerance,
         )
+
+    # Weight update validation and gradcheck
     for t in range(T):
         # optimizer_state = squares (no row-wise) or sum squares (row-wise)
         if row_wise and weight_decay_mode == WeightDecayMode.COUNTER:
