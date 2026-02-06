@@ -13,26 +13,6 @@
 #include <string>
 #include <string_view>
 
-// Define __has_builtin for compilers that don't support it (GCC < 10)
-#ifndef __has_builtin
-#define __has_builtin(x) 0
-#endif
-
-#ifndef __has_include
-#define __has_include(x) 0
-#endif
-
-#if (                                                                    \
-    __cplusplus > 201703L && __has_builtin(__builtin_source_location) && \
-    __has_include(<source_location>)) || defined(_MSC_VER)
-#include <source_location>
-#else
-#include <experimental/source_location>
-namespace std {
-using source_location = std::experimental::source_location;
-}
-#endif
-
 namespace fbgemm {
 
 template <typename... Args>
@@ -46,18 +26,10 @@ class Error : public std::exception {
  public:
   explicit Error(
       std::string_view msg,
-      std::source_location loc = std::source_location::current()) {
-    what_ =
-        str("[",
-            loc.file_name(),
-            "(",
-            loc.line(),
-            ":",
-            loc.column(),
-            ")] [",
-            loc.function_name(),
-            "]: ",
-            msg);
+      const char* file,
+      int line,
+      const char* func) {
+    what_ = str("[", file, "(", line, ")] [", func, "]: ", msg);
   }
 
   const char* what() const noexcept override {
@@ -69,12 +41,6 @@ class Error : public std::exception {
 };
 
 namespace detail {
-
-[[noreturn]] inline void fbgemmCheckFail(
-    std::string_view msg,
-    std::source_location loc = std::source_location::current()) {
-  throw ::fbgemm::Error(msg, loc);
-}
 
 // Helper to construct check message.
 // If no extra args, use the default message; otherwise, use str() to build it.
@@ -109,12 +75,15 @@ auto fbgemmCheckMsg(const char* defaultMsg, const Args&... args) {
 
 #define FBGEMM_CHECK(cond, ...)                                 \
   if (FBGEMM_UNLIKELY(!(cond))) {                               \
-    ::fbgemm::detail::fbgemmCheckFail(                          \
+    throw ::fbgemm::Error(                                      \
         ::fbgemm::detail::fbgemmCheckMsg(                       \
             "Expected " #cond " to be true, but got false.  "   \
             "(Could this error message be improved?  If so, "   \
             "please report an enhancement request to FBGEMM.)", \
-            ##__VA_ARGS__));                                    \
+            ##__VA_ARGS__),                                     \
+        __FILE__,                                               \
+        __LINE__,                                               \
+        __func__);                                              \
   }
 
 } // namespace fbgemm

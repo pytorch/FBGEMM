@@ -20,6 +20,7 @@
 #include "./KleidiAIFP32UKernelsNeon.h" // @manual
 #endif
 #endif
+#include "fbgemm/Assert.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
 
@@ -161,7 +162,7 @@ FBGEMM_API void ref_kernel<float>(
         for (int j = 0; j < block_col_size; ++j) {
           float* C_ptr =
               gp->C + i * (gp->ldc / sizeof(float)) + jb * block_col_size + j;
-          assert(C_ptr < C_base + m_total * n_total);
+          FBGEMM_CHECK(C_ptr < C_base + m_total * n_total);
           float b = gp->B[(jb * gp->k + k) * block_col_size + j];
           if (k == 0) {
             if (gp->beta) {
