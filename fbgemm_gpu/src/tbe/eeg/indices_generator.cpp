@@ -38,10 +38,8 @@ static torch::Tensor convertVectorToTensor(
     const std::vector<std::pair<int64_t, double>>& indicesWithTags) {
   std::vector<int64_t> indices(indicesWithTags.size());
   std::ranges::transform(
-      indicesWithTags,
-      std::begin(indices),
-      [](const std::pair<int64_t, double>& indexWithTag) {
-        return indexWithTag.first;
+      indicesWithTags, std::begin(indices), [](const auto& tuple) {
+        return tuple.first;
       });
   return torch::from_blob(
              indices.data(),
@@ -80,13 +78,13 @@ torch::Tensor IndicesGenerator::generate() {
   random::bernoulli_distribution tagUniformSelector(1 - kTagClusterProbability);
 
   // First handle the index
-  for (auto& indicesWithTag : indicesWithTags) {
+  for (auto& [index, tag] : indicesWithTags) {
     if (heavyHitterSelectorDist_(rng_)) {
-      indicesWithTag.first = heavyHittersDist_(rng_);
+      index = heavyHittersDist_(rng_);
     } else {
-      indicesWithTag.first = zipfianDist_(rng_) + params_.heavyHitters.size();
+      index = zipfianDist_(rng_) + params_.heavyHitters.size();
     }
-    auto curIdx = indicesWithTag.first;
+    auto curIdx = index;
     indicesMetadata[curIdx].freq++;
   }
 
@@ -97,20 +95,20 @@ torch::Tensor IndicesGenerator::generate() {
 
   // Now handle the tags
   random::exponential_distribution exponentialDist;
-  for (auto& indicesWithTag : indicesWithTags) {
-    double tag = NAN;
+  for (auto& [index, tag] : indicesWithTags) {
+    double newTag = NAN;
 
     // In the case where the current metadata for the index is empty, simply
     // push in a U[0,1]
-    auto curIdx = indicesWithTag.first;
+    auto curIdx = index;
     if (indicesMetadata[curIdx].tags.empty()) {
-      tag = tagUniformDist(rng_);
+      newTag = tagUniformDist(rng_);
     }
 
     // Otherwise follow the algorithm sketch
     else {
       if (tagUniformSelector(rng_)) {
-        tag = tagUniformDist(rng_);
+        newTag = tagUniformDist(rng_);
       } else {
         // Pick a nearby tag at random from the existing tags for the idx
         random::uniform_int_distribution<int64_t> nearbyTagSelector(
@@ -120,12 +118,12 @@ torch::Tensor IndicesGenerator::generate() {
         // Shift by an exponential rv
         double exponentialRate =
             kTagClusterCoeff * indicesMetadata[curIdx].freq;
-        tag = nearbyTag + exponentialDist(rng_) / exponentialRate;
+        newTag = nearbyTag + exponentialDist(rng_) / exponentialRate;
       }
     }
 
-    indicesWithTag.second = tag;
-    indicesMetadata[curIdx].tags.push_back(tag);
+    tag = newTag;
+    indicesMetadata[curIdx].tags.push_back(newTag);
   }
 
   // Now sort the indices by their tags. Use parallel sort for some extra speed
@@ -134,10 +132,7 @@ torch::Tensor IndicesGenerator::generate() {
       std::execution::par,
       std::begin(indicesWithTags),
       std::end(indicesWithTags),
-      [](const std::pair<int64_t, double>& lhs,
-         const std::pair<int64_t, double>& rhs) {
-        return lhs.second < rhs.second;
-      });
+      [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
 
   auto t = convertVectorToTensor(indicesWithTags);
 

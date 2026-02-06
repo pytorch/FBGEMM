@@ -82,10 +82,11 @@ std::unique_ptr<Cache> CacheLibCache::initializeCacheLib(
   Cache::Config cacheLibConfig;
   int64_t rough_num_items =
       cache_config_.cache_size_bytes / cache_config_.item_size_bytes;
-  unsigned int bucket_power = std::log(rough_num_items) / std::log(2) + 1;
+  unsigned int bucket_power =
+      static_cast<unsigned int>(std::log2(rough_num_items)) + 1;
   // 15 here is a magic number between 10 and 20
   unsigned int lock_power =
-      std::log(cache_config_.num_shards * 15) / std::log(2) + 1;
+      static_cast<unsigned int>(std::log2(cache_config_.num_shards * 15)) + 1;
   XLOG(INFO) << fmt::format(
       "[TBE_ID{}] Setting up Cachelib for L2 cache, capacity: {}GB, "
       "item_size: {}B, max_num_items: {}, bucket_power: {}, lock_power: {}",

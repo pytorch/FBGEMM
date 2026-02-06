@@ -46,6 +46,7 @@ class TBEDataConfig:
     max_indices: Optional[int] = None
     embedding_specs: Optional[List[Tuple[int, int]]] = None
     feature_table_map: Optional[List[int]] = None
+    indices_params_list: Optional[list[IndicesParams]] = None
     """
     Configuration for TBE (Table Batched Embedding) benchmark data collection and generation.
 
@@ -102,6 +103,8 @@ class TBEDataConfig:
         feature_table_map (Optional[List[int]] = None): An optional list that
             specifies feature-table mapping. feature_table_map[i] indicates the
             physical embedding table that feature i maps to.
+        indices_params_list (Optional[list[IndicesParams]] = None): Per-feature
+            index parameters. If provided, must have length equal to T.
     """
 
     def __post_init__(self) -> None:
@@ -122,6 +125,11 @@ class TBEDataConfig:
     @classmethod
     # pyre-ignore [3]
     def from_dict(cls, data: dict[str, Any]):
+        if data.get("indices_params_list") is not None:
+            data["indices_params_list"] = [
+                IndicesParams.from_dict(el) for el in data["indices_params_list"]
+            ]
+
         for field, Type in cls.complex_fields().items():
             if not isinstance(data[field], Type):
                 data[field] = Type.from_dict(data[field])
@@ -147,6 +155,10 @@ class TBEDataConfig:
 
     def dict(self) -> dict[str, Any]:
         tmp = dataclasses.asdict(self)
+        if self.__dict__.get("indices_params_list") is not None:
+            tmp["indices_params_list"] = [
+                el.dict() for el in self.__dict__["indices_params_list"]
+            ]
         for field in TBEDataConfig.complex_fields().keys():
             tmp[field] = self.__dict__[field].dict()
         return tmp
@@ -178,6 +190,12 @@ class TBEDataConfig:
                 len(self.batch_params.Bs) == self.T
             ), f"Length of Bs must be equal to T. Expected: {self.T}, but got: {len(self.batch_params.Bs)}"
         self.indices_params.validate()
+        if self.indices_params_list is not None:
+            assert (
+                len(self.indices_params_list) == self.T
+            ), "len(indices_params_list) must be equal to T"
+            for indices_params in self.indices_params_list:
+                indices_params.validate()
         self.pooling_params.validate()
         if self.pooling_params.Ls is not None:
             assert (
