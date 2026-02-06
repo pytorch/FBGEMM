@@ -394,9 +394,9 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
       TORCH_CHECK(
           map.size() == (table_offsets_acc[t + 1] - table_offsets_acc[t]));
       int index = 0;
-      for (const auto& kv : map) {
-        values_acc[table_start + index][0] = kv.first;
-        values_acc[table_start + index][1] = kv.second;
+      for (const auto& [key, value] : map) {
+        values_acc[table_start + index][0] = key;
+        values_acc[table_start + index][1] = value;
         index++;
       }
     }

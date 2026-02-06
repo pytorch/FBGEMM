@@ -572,11 +572,11 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   bool is_valid_snapshot(const SnapshotHandle* snapshot_handle) const {
-    return snapshots_.find(snapshot_handle) != snapshots_.end();
+    return snapshots_.contains(snapshot_handle);
   }
 
   bool is_valid_checkpoint(const std::string& ckpt_uuid) const {
-    return checkpoints_.find(ckpt_uuid) != checkpoints_.end();
+    return checkpoints_.contains(ckpt_uuid);
   }
 
   int64_t get_snapshot_count() const {
@@ -607,8 +607,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     // time create_checkpoint is call, we assume the prev ckpt hanlder has
     // fullfilled its job already, thus it is ok to replace it with the new rdb
     // checkpoint for next use cases within the same global step
-    if (global_step_to_ckpt_uuid_.find(global_step) !=
-        global_step_to_ckpt_uuid_.end()) {
+    if (global_step_to_ckpt_uuid_.contains(global_step)) {
       LOG(WARNING)
           << "multiple rdb checkpoint in one global step are being created, "
              "removing the prev rdb ckpt, please make sure it has fullfilled "
@@ -645,17 +644,15 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   std::optional<std::string> get_active_checkpoint_uuid(int64_t global_step) {
-    if (global_step_to_ckpt_uuid_.find(global_step) !=
-        global_step_to_ckpt_uuid_.end()) {
-      return std::make_optional<std::string>(
-          global_step_to_ckpt_uuid_[global_step]);
+    if (global_step_to_ckpt_uuid_.contains(global_step)) {
+      return global_step_to_ckpt_uuid_[global_step];
     }
     return std::nullopt;
   }
 
   std::vector<std::string> get_checkpoints(const std::string& ckpt_uuid) const {
     std::vector<std::string> ret;
-    CHECK(checkpoints_.find(ckpt_uuid) != checkpoints_.end())
+    CHECK(checkpoints_.contains(ckpt_uuid))
         << "Checkpoint missing, it should exist when it is queried for";
     return checkpoints_.at(ckpt_uuid)->get_shard_checkpoints();
   }
