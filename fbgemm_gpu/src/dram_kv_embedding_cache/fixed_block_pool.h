@@ -319,7 +319,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     // Record chunk information for later release
     {
       std::lock_guard<std::mutex> guard(chunks_mutex_);
-      chunks_.push_back({chunk_ptr, chunk_size, block_alignment_});
+      chunks_.emplace_back(chunk_ptr, chunk_size, block_alignment_);
     }
 
     // Initialize free list: link blocks in reverse order from chunk end to

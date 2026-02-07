@@ -2427,7 +2427,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
             bin_ids.mutable_data_ptr<int64_t>());
       });
 
-  return std::make_tuple(calibrated_prediction, bin_ids);
+  return std::tuple{calibrated_prediction, bin_ids};
 }
 
 template <typename LogitType, typename SegmentValueType>
@@ -2540,7 +2540,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
             });
       });
 
-  return std::make_tuple(calibrated_prediction, bin_ids);
+  return std::tuple{calibrated_prediction, bin_ids};
 }
 
 template <typename LogitType, typename SegmentValueType>
@@ -2668,7 +2668,7 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
             });
       });
 
-  return std::make_tuple(calibrated_prediction, bin_ids);
+  return std::tuple{calibrated_prediction, bin_ids};
 }
 template <typename value_t, typename index_t>
 void _segment_sum_csr_cpu_kernel(
@@ -3473,7 +3473,7 @@ group_index_select_dim0_unpack(
 
   TORCH_CHECK(group_size == static_cast<int64_t>(indices_group.size()));
 
-  return std::make_pair(input_group, indices_group);
+  return std::pair{input_group, indices_group};
 }
 
 torch::autograd::variable_list group_index_select_dim0(

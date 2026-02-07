@@ -121,20 +121,20 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
 
 template <>
 const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa) {
-  static isa_descriptor<float16> avx2_descriptor =
-      std::make_tuple(kernel_fp16_avx2, partition_avx2);
-  static isa_descriptor<float16> avx512_descriptor =
-      std::make_tuple(kernel_fp16_avx512, partition_avx512);
-  static isa_descriptor<float16> avx512_256_descriptor =
-      std::make_tuple(kernel_fp16_avx512_256, partition_avx512);
+  static isa_descriptor<float16> avx2_descriptor{
+      kernel_fp16_avx2, partition_avx2};
+  static isa_descriptor<float16> avx512_descriptor{
+      kernel_fp16_avx512, partition_avx512};
+  static isa_descriptor<float16> avx512_256_descriptor{
+      kernel_fp16_avx512_256, partition_avx512};
 #ifdef __aarch64__
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-  static isa_descriptor<float16> neon_descriptor =
-      std::make_tuple(kernel_fp16_neon, partition_neon);
+  static isa_descriptor<float16> neon_descriptor{
+      kernel_fp16_neon, partition_neon};
 #endif
 #ifdef FBGEMM_ENABLE_FP16_SVE128
-  static isa_descriptor<float16> sve128_descriptor =
-      std::make_tuple(kernel_fp16_sve128, partition_sve128);
+  static isa_descriptor<float16> sve128_descriptor{
+      kernel_fp16_sve128, partition_sve128};
 #endif
 #endif
 
