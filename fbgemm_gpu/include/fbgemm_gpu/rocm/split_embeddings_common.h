@@ -548,9 +548,9 @@ struct store_row_per_warp<float, 320> {
     llvm_amdgcn_raw_buffer_store_fp32(
         acc[2], out_res, (lane_id + 128) * sizeof(float));
     llvm_amdgcn_raw_buffer_store_fp32(
-        acc[4], out_res, (lane_id + 192) * sizeof(float));
+        acc[3], out_res, (lane_id + 192) * sizeof(float));
     llvm_amdgcn_raw_buffer_store_fp32(
-        acc[5], out_res, (lane_id + 256) * sizeof(float));
+        acc[4], out_res, (lane_id + 256) * sizeof(float));
   }
 };
 
