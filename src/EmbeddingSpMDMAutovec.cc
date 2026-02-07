@@ -123,8 +123,9 @@ static inline EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
   if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
-    return EmbeddingStatsTracker::DataType::BF16;
+  } else if constexpr (std::is_same_v<OutType, uint16_t>) {
+    return is_bf16_out ? EmbeddingStatsTracker::DataType::BF16
+                       : EmbeddingStatsTracker::DataType::FP16;
   } else {
     return EmbeddingStatsTracker::DataType::FP16;
   }
