@@ -437,8 +437,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
     int prefetch,
     bool rowwise,
     bool has_weight_decay) {
-  std::tuple<int, int, bool, bool> kernelSig =
-      std::make_tuple(block_size, prefetch, rowwise, has_weight_decay);
+  auto kernelSig = std::tuple{block_size, prefetch, rowwise, has_weight_decay};
 
   return codeCache_.getOrCreate(
       kernelSig,

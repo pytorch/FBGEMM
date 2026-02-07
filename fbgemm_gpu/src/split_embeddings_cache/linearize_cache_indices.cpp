@@ -104,7 +104,7 @@ get_unique_indices_cpu_impl(
 
   // Handle empty input
   if (N == 0) {
-    return std::make_tuple(
+    return std::tuple{
         at::empty_like(linear_indices),
         at::zeros({1}, linear_indices.options().dtype(at::kInt)),
         compute_count ? std::optional<Tensor>(at::zeros(
@@ -113,7 +113,7 @@ get_unique_indices_cpu_impl(
         compute_inverse_indices
             ? std::optional<Tensor>(
                   at::zeros({0}, linear_indices.options().dtype(at::kInt)))
-            : std::nullopt);
+            : std::nullopt};
   }
 
   // Use torch::unique to get unique indices
@@ -164,11 +164,11 @@ get_unique_indices_cpu_impl(
     linear_index_positions_sorted = sort_indices.to(at::kInt);
   }
 
-  return std::make_tuple(
+  return std::tuple{
       unique_indices_output,
       unique_indices_length,
       unique_indices_count,
-      linear_index_positions_sorted);
+      linear_index_positions_sorted};
 }
 
 DLL_PUBLIC

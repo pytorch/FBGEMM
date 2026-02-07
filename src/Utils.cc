@@ -753,8 +753,8 @@ std::pair<K*, V*> radix_sort_parallel(
   fbgemm::fbgemmAlignedFree(histogram_ps);
 #endif
   return (
-      num_passes % 2 == 0 ? std::make_pair(inp_key_buf, inp_value_buf)
-                          : std::make_pair(tmp_key_buf, tmp_value_buf));
+      num_passes % 2 == 0 ? std::pair{inp_key_buf, inp_value_buf}
+                          : std::pair{tmp_key_buf, tmp_value_buf});
 }
 
 #define FORALL_INT_TYPES_AND_KEY(key_t, _) \

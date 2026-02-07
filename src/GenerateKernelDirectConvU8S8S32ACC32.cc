@@ -186,8 +186,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
   // int nRegBlockSizeMin;
   int row_interleave = 4;
 
-  auto kernelSig = std::make_tuple(
-      accum, O1, i1Xich, strideXich, i1Xich, mRegBlockSize, nRegBlockSize);
+  auto kernelSig = std::tuple{
+      accum, O1, i1Xich, strideXich, i1Xich, mRegBlockSize, nRegBlockSize};
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
     asmjit::CodeHolder code;
@@ -608,7 +608,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
   // int nRegBlockSizeMin;
   int row_interleave = 4;
 
-  auto kernelSig = std::make_tuple(accum, stride, mRegBlockSize, nRegBlockSize);
+  auto kernelSig = std::tuple{accum, stride, mRegBlockSize, nRegBlockSize};
 
   return codeCacheT_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp_convT {
     asmjit::CodeHolder code;
