@@ -216,6 +216,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     impl_->release_snapshot(handle);
   }
 
+  void delete_rocksdb_checkpoint_dir() {
+    impl_->delete_rocksdb_checkpoint_dir();
+  }
+
   int64_t get_snapshot_count() const {
     return impl_->get_snapshot_count();
   }
