@@ -2108,6 +2108,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets,
             self.feature_table_map,
             self._writeback_first_feature_only,
+            self.is_nobag,
         )
 
     def forward(  # noqa: C901

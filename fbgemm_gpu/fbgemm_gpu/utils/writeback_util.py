@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+
 import torch
 
 
@@ -87,10 +88,39 @@ def writeback_update_gradient_first_feature_only(
     _, ind_sorted = torch.sort(idx, stable=True)
     cum_sum = counts.cumsum(0)
     cum_sum = torch.cat((torch.tensor([0]).to(shrink_indices.device), cum_sum[:-1]))
-    first_indicies = ind_sorted[cum_sum]
+    first_indices = ind_sorted[cum_sum]
     mask = torch.zeros_like(grad, device=grad.device)
 
-    mask[first_indicies] = grad[first_indicies]
+    mask[first_indices] = grad[first_indices]
+    return mask
+
+
+def writeback_update_gradient_ec(
+    indices: torch.Tensor,
+    offsets: torch.Tensor,
+    grad: tuple[torch.Tensor],
+    feature_table_map: list[int],
+) -> torch.Tensor:
+    if indices.numel() == 0:
+        return grad[0]
+    # grad has the same size as indices
+    num_of_tables: int = len(feature_table_map)
+    assert num_of_tables * indices.max() < torch.iinfo(indices.dtype).max
+    batch_size = offsets.shape[0] // num_of_tables
+    max_indices = indices.max()
+    non_empty_index = (offsets[1:] - offsets[:-1]).nonzero().flatten()
+    # disable dedup across different table
+    indices = ((offsets[non_empty_index]) // batch_size) * (1 + max_indices) + indices
+    grad_tensor = grad[0]
+    _, idx, counts = torch.unique(
+        indices, dim=0, sorted=True, return_inverse=True, return_counts=True
+    )
+    _idx_sorted, ind_sorted = torch.sort(idx, stable=True)
+    cum_sum = counts.cumsum(0)
+    cum_sum = torch.cat((torch.tensor([0]).to(indices.device), cum_sum[:-1]))
+    first_indices = ind_sorted[cum_sum]
+    mask = torch.zeros_like(grad_tensor, device=grad_tensor.device)
+    mask[first_indices] = grad_tensor[first_indices]
     return mask
 
 
@@ -100,6 +130,7 @@ def writeback_gradient(
     offsets: torch.Tensor,
     feature_table_map: list[int],
     writeback_first_feature_only: bool = False,
+    no_bag: bool = False,
 ) -> tuple[torch.Tensor]:
     """
     Compute deduplicated gradient for writeback operation.
@@ -119,6 +150,10 @@ def writeback_gradient(
             writeback_update_gradient_first_feature_only(
                 indices, offsets, grad, feature_table_map
             ),
+        )
+    elif no_bag:
+        return (
+            writeback_update_gradient_ec(indices, offsets, grad, feature_table_map),
         )
     else:
         return (writeback_update_gradient(indices, offsets, grad, feature_table_map),)
