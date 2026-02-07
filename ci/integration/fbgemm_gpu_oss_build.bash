@@ -75,8 +75,18 @@ integration_setup_conda_environment "$BUILD_ENV" gcc "$PYTHON_VERSION" "$PYTORCH
 echo "[FBGEMM_GPU CI] Building the package ..."
 integration_fbgemm_gpu_build_and_install "$BUILD_ENV" "$BUILD_TARGET/$BUILD_VARIANT" "$REPO_ROOT" || exit 1
 
+# Run checks and update the Conda environment to support FBGEMM testing
+echo "[FBGEMM_GPU CI] Updating the conda environment to support testing ..."
+fbgemm_gpu_testing_setup "$BUILD_ENV" || exit 1
+
 echo "[FBGEMM_GPU CI] Exporting the build environment name ..."
 export CURRENT_FBGEMM_BUILD_ENV="$BUILD_ENV"
 
-echo ""
 echo "[FBGEMM_GPU CI] Package is now installed into $BUILD_ENV"
+echo ""
+echo ""
+echo "################################################################################"
+echo "#"
+echo "# FBGEMM_GPU package build and install has successfully completed!"
+echo "#"
+echo "################################################################################"

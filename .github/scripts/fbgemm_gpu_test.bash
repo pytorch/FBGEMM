@@ -340,7 +340,15 @@ __determine_test_directories () {
   echo ""
 }
 
-__test_fbgemm_gpu_common_pre_steps () {
+fbgemm_gpu_testing_setup () {
+  env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env        # Run test setup for FBGEMM_GPU"
+    return 1
+  fi
+
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
@@ -402,13 +410,13 @@ test_all_fbgemm_gpu_modules () {
     repo=$(pwd)
   fi
 
-  __test_fbgemm_gpu_common_pre_steps  || return 1
+  fbgemm_gpu_testing_setup "$env_name"  || return 1
 
   # Go to the repo root directory
-  print_exec pushd "${repo}"          || return 1
+  print_exec pushd "${repo}"            || return 1
 
   # Determine the test directories to include for testing
-  __determine_test_directories        || return 1
+  __determine_test_directories          || return 1
 
   # Iterate through the test directories and run bulk tests
   for test_dir in "${target_directories[@]}"; do
