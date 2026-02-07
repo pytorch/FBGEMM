@@ -10,6 +10,7 @@
 
 #include <iostream>
 #include <memory>
+#include <ranges>
 
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
@@ -1245,10 +1246,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                               return;
                             }
 
-                            std::sort(
-                                key_indices.begin(),
-                                key_indices.end(),
-                                [&](int32_t lhs, int32_t rhs) {
+                            std::ranges::sort(
+                                key_indices, [&](int32_t lhs, int32_t rhs) {
                                   auto lhs_key = indices_data_ptr[lhs];
                                   auto rhs_key = indices_data_ptr[rhs];
                                   return lhs_key < rhs_key;
@@ -1658,10 +1657,8 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
                               return;
                             }
 
-                            std::sort(
-                                key_indices.begin(),
-                                key_indices.end(),
-                                [&](int32_t lhs, int32_t rhs) {
+                            std::ranges::sort(
+                                key_indices, [&](int32_t lhs, int32_t rhs) {
                                   auto lhs_key = indices_data_ptr[lhs];
                                   auto rhs_key = indices_data_ptr[rhs];
                                   return lhs_key < rhs_key;
