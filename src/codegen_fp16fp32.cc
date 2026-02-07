@@ -39,8 +39,7 @@ struct ISA {
 enum class DataType { Float32, Float16, BFloat16 };
 
 constexpr std::array<std::pair<DataType, std::string>, 2> types_to_gen = {
-    std::make_pair(DataType::Float32, "FP32"),
-    std::make_pair(DataType::Float16, "FP16")};
+    {{DataType::Float32, "FP32"}, {DataType::Float16, "FP16"}}};
 
 constexpr int cache_line_size = 64;
 

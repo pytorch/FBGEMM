@@ -186,21 +186,20 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     int bottom_skip,
     int left_skip,
     int right_skip) {
-  std::tuple<int, int, int, int, int, bool, int, int, int, int, int, int, int>
-      kernelSig = std::make_tuple(
-          D,
-          F[0],
-          F[1],
-          F[2],
-          oc_per_g,
-          compute_a_sum,
-          remainder,
-          prev_skip,
-          next_skip,
-          top_skip,
-          bottom_skip,
-          left_skip,
-          right_skip);
+  auto kernelSig = std::tuple{
+      D,
+      F[0],
+      F[1],
+      F[2],
+      oc_per_g,
+      compute_a_sum,
+      remainder,
+      prev_skip,
+      next_skip,
+      top_skip,
+      bottom_skip,
+      left_skip,
+      right_skip};
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_kernel_signature {
     asmjit::CodeHolder code;
