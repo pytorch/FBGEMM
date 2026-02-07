@@ -7,14 +7,20 @@
 
 # pyre-strict
 
+import json
 from typing import Any, Dict, List, Optional
 
 import fbgemm_gpu
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    EmbeddingLocation,
+    PoolingMode,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     CacheAlgorithm,
+    ComputeDevice,
     invokers,
     is_torchdynamo_compiling,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -630,3 +636,135 @@ def v1_lookup(
         optim_kwargs,
         vbe_metadata,
     )
+
+
+def parse_sparse_type(type_str: str) -> SparseType:
+    """Parse SparseType from string."""
+    type_map = {
+        "fp16": SparseType.FP16,
+        "fp32": SparseType.FP32,
+        "int8": SparseType.INT8,
+        "fp8": SparseType.FP8,
+    }
+    return type_map.get(type_str.lower(), SparseType.FP32)
+
+
+def parse_pooling_mode(mode_str: str) -> PoolingMode:
+    """Parse PoolingMode from string."""
+    mode_map = {
+        "SUM": PoolingMode.SUM,
+        "MEAN": PoolingMode.MEAN,
+        "NONE": PoolingMode.NONE,
+    }
+    return mode_map.get(mode_str, PoolingMode.SUM)
+
+
+def parse_embedding_location(loc_str: str) -> EmbeddingLocation:
+    """Parse EmbeddingLocation from string."""
+    loc_map = {
+        "DEVICE": EmbeddingLocation.DEVICE,
+        "MANAGED": EmbeddingLocation.MANAGED,
+        "MANAGED_CACHING": EmbeddingLocation.MANAGED_CACHING,
+        "HOST": EmbeddingLocation.HOST,
+    }
+    return loc_map.get(loc_str, EmbeddingLocation.DEVICE)
+
+
+def parse_cache_algorithm(algo_str: str) -> CacheAlgorithm:
+    """Parse CacheAlgorithm from string."""
+    algo_map = {
+        "LRU": CacheAlgorithm.LRU,
+        "LFU": CacheAlgorithm.LFU,
+    }
+    return algo_map.get(algo_str, CacheAlgorithm.LRU)
+
+
+def parse_compute_device(device_str: str) -> ComputeDevice:
+    """Parse ComputeDevice from string."""
+    device_map = {
+        "CPU": ComputeDevice.CPU,
+        "CUDA": ComputeDevice.CUDA,
+        "MTIA": ComputeDevice.MTIA,
+    }
+    return device_map.get(device_str, ComputeDevice.CUDA)
+
+
+def create_tbe_from_config(
+    config: dict[str, Any],
+    common_config: dict[str, Any],
+    use_cpu: bool = False,
+) -> SplitTableBatchedEmbeddingBagsCodegen:
+    """
+    Create a TBE op from a configuration dictionary for backward testing.
+
+    Args:
+        config: Per-TBE configuration dictionary with embedding_specs, feature_table_map, etc.
+        common_config: Common configuration dictionary with weights_precision, pooling_mode, etc.
+        use_cpu: Whether to use CPU device
+
+    Returns:
+        SplitTableBatchedEmbeddingBagsCodegen instance
+    """
+    embedding_specs = [
+        (
+            spec["num_embeddings"],
+            spec["embedding_dim"],
+            (
+                parse_embedding_location(spec.get("location", "DEVICE"))
+                if not use_cpu
+                else EmbeddingLocation.HOST
+            ),
+            (
+                parse_compute_device(spec.get("compute_device"))
+                if not use_cpu
+                else ComputeDevice.CPU
+            ),
+        )
+        for spec in config["embedding_specs"]
+    ]
+
+    weights_precision = parse_sparse_type(
+        common_config.get("weights_precision", "fp16")
+    )
+    output_dtype = parse_sparse_type(common_config.get("output_dtype", "fp32"))
+    pooling_mode = parse_pooling_mode(common_config.get("pooling_mode", "SUM"))
+    cache_algorithm = parse_cache_algorithm(common_config.get("cache_algorithm", "LRU"))
+
+    # Use rowwise adagrad for backward testing
+    cc = SplitTableBatchedEmbeddingBagsCodegen(
+        embedding_specs=embedding_specs,
+        feature_table_map=config.get("feature_table_map"),
+        weights_precision=weights_precision,
+        optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+        learning_rate=common_config.get("learning_rate", 0.05),
+        eps=0.2,
+        cache_algorithm=cache_algorithm,
+        pooling_mode=pooling_mode,
+        output_dtype=output_dtype,
+        stochastic_rounding=common_config.get("stochastic_rounding", False),
+    )
+
+    return cc
+
+
+def load_tbe_configs_from_file(
+    config_path: str,
+) -> tuple[int, int, dict[str, Any], list[dict[str, Any]]]:
+    """
+    Load TBE configurations from a JSON file.
+
+    Args:
+        config_path: Path to the JSON config file
+
+    Returns:
+        Tuple of (batch_size, total_ranks, common_config dict, list of TBE config dicts)
+    """
+    with open(config_path, "r") as f:
+        data = json.load(f)
+
+    batch_size = data.get("batch_size", 2048)
+    total_ranks = data.get("total_ranks", 1)
+    common_config = data.get("common_config", {})
+    tbe_configs = data.get("tbe_configs", [])
+
+    return batch_size, total_ranks, common_config, tbe_configs
