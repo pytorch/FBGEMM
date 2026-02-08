@@ -12,6 +12,7 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include <array>
 #include <cstddef>
 #include <functional>
 #include "ATen/Parallel.h"
@@ -44,7 +45,7 @@ inline bool walk_down_tensor_storage_tree_except_last_(
     const int64_t* jagged_dims,
     const std::vector<at::TensorAccessor<index_t, 1>>& x_offsets) {
   // compute coorindates
-  int jagged_coords[NUM_JAGGED_DIM];
+  std::array<int, NUM_JAGGED_DIM> jagged_coords;
   int j_temp = flattened_jagged_idx;
 #pragma unroll
   for (int d = NUM_JAGGED_DIM - 2; d >= 0; --d) {
