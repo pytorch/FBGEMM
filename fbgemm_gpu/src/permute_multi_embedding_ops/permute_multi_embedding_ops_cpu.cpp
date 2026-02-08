@@ -13,7 +13,6 @@
 namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
-using torch::autograd::AutogradContext;
 using torch::autograd::variable_list;
 
 std::vector<Tensor> permute_multi_embedding_function_cpu(
