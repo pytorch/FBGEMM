@@ -81,6 +81,60 @@ class JaggedToPaddedDenseOp
   }
 };
 
+class JaggedToPaddedDenseTensorMaxLengthsOp
+    : public torch::autograd::Function<JaggedToPaddedDenseTensorMaxLengthsOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& values,
+      const std::vector<Tensor>& offsets,
+      const Tensor& max_lengths,
+      const double padding_value) {
+    ctx->save_for_backward(offsets);
+    ctx->saved_data["total_L"] = values.sym_size(0);
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::jagged_to_padded_dense_forward", "tensor_max_lengths")
+            .typed<at::Tensor(
+                const Tensor& values,
+                const std::vector<Tensor>& offsets,
+                const Tensor& max_lengths,
+                const double padding_value)>();
+
+    at::AutoDispatchBelowAutograd mode;
+    Tensor padded_values = op.call(values, offsets, max_lengths, padding_value);
+
+    return {padded_values};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    at::SymInt total_L = ctx->saved_data["total_L"].toSymInt();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    TORCH_CHECK(total_L >= 0);
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_to_padded_dense_backward", "")
+            .typed<at::Tensor(
+                const Tensor& grad_output,
+                const std::vector<Tensor>& offsets,
+                at::SymInt total_L)>();
+    auto grad_values = op.call(grad_outputs[0], {offsets}, total_L);
+
+    return {
+        grad_values,
+        torch::autograd::Variable(), // offsets
+        torch::autograd::Variable(), // max_lengths
+        torch::autograd::Variable(), // padding_value
+    };
+  }
+};
+
 class JaggedDenseDenseAddJaggedOutputOp
     : public torch::autograd::Function<JaggedDenseDenseAddJaggedOutputOp> {
  public:
@@ -816,6 +870,32 @@ Tensor jagged_to_padded_dense(
   return output;
 }
 
+Tensor jagged_to_padded_dense_forward_autograd_tensor_max_lengths(
+    const Tensor& values,
+    const std::vector<Tensor>& offsets,
+    const Tensor& max_lengths,
+    const double padding_value) {
+  return JaggedToPaddedDenseTensorMaxLengthsOp::apply(
+      values, offsets, max_lengths, padding_value)[0];
+}
+Tensor jagged_to_padded_dense_tensor_max_lengths(
+    const Tensor& values,
+    const std::vector<Tensor>& offsets,
+    const Tensor& max_lengths,
+    const double padding_value) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow(
+              "fbgemm::jagged_to_padded_dense_forward", "tensor_max_lengths")
+          .typed<at::Tensor(
+              const Tensor& values,
+              const std::vector<Tensor>& offsets,
+              const Tensor& max_lengths,
+              const double padding_value)>();
+  Tensor output = op.call(values, offsets, max_lengths, padding_value);
+  return output;
+}
+
 ///@ingroup jagged-tensor-ops-cpu
 /// Output = x + y where x is jagged, y and output are dense
 Tensor jagged_dense_elementwise_add(
@@ -1012,6 +1092,11 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
       "jagged_to_padded_dense_forward",
       TORCH_FN(fbgemm_gpu::jagged_to_padded_dense_forward_autograd));
   m.impl(
+      "jagged_to_padded_dense_forward.tensor_max_lengths",
+      TORCH_FN(
+          fbgemm_gpu::
+              jagged_to_padded_dense_forward_autograd_tensor_max_lengths));
+  m.impl(
       "dense_to_jagged_forward",
       TORCH_FN(fbgemm_gpu::dense_to_jagged_forward_autograd));
 }
@@ -1021,4 +1106,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CompositeImplicitAutograd, m) {
   m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
   m.impl(
       "jagged_to_padded_dense", TORCH_FN(fbgemm_gpu::jagged_to_padded_dense));
+  m.impl(
+      "jagged_to_padded_dense.tensor_max_lengths",
+      TORCH_FN(fbgemm_gpu::jagged_to_padded_dense_tensor_max_lengths));
 }

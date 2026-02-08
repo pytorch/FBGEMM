@@ -148,7 +148,7 @@ class JaggedToPaddedDenseTest(unittest.TestCase):
         self.assertEqual(num_composite_ops, 0)
 
         torch.library.opcheck(
-            torch.ops.fbgemm.jagged_to_padded_dense,
+            torch.ops.fbgemm.jagged_to_padded_dense.default,
             (
                 x_values.float().requires_grad_(True),
                 x_offsets,
@@ -194,6 +194,81 @@ class JaggedToPaddedDenseTest(unittest.TestCase):
         )
 
         assert output.size() == output_ref.size()
+
+    @given(
+        num_jagged_dim=st.integers(1, 5),
+        outer_dense_size=st.integers(0, 5),
+        inner_dense_size=st.integers(0, 5),
+        fold_inner_dense=st.booleans(),
+        padding_value=st.sampled_from([0, -1e-8]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
+        device_type=cpu_and_maybe_gpu(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_to_padded_dense_tensor_max_lengths(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        fold_inner_dense: bool,
+        padding_value: float,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        # CPU doesn't support bfloat16
+        assume(device_type != "cpu" or dtype != torch.bfloat16)
+        assume(not fold_inner_dense or inner_dense_size == 1)
+
+        device = torch.device(device_type)
+
+        x_values, x_offsets, max_lengths = generate_jagged_tensor(
+            num_jagged_dim,
+            outer_dense_size,
+            inner_dense_size,
+            torch.float,
+            device,
+            fold_inner_dense,
+        )
+
+        # Convert max_lengths to a Tensor
+        max_lengths_tensor = torch.tensor(
+            max_lengths.astype(int).tolist(),
+            dtype=torch.long,
+        )
+
+        output_ref = to_padded_dense(
+            x_values, x_offsets, max_lengths, padding_value=padding_value
+        )
+        output = torch.ops.fbgemm.jagged_to_padded_dense(
+            x_values,
+            x_offsets,
+            max_lengths_tensor,
+            padding_value=padding_value,
+        )
+
+        torch.testing.assert_close(output, output_ref)
+
+        # Also verify it matches the SymInt[] overload
+        output_list = torch.ops.fbgemm.jagged_to_padded_dense(
+            x_values,
+            x_offsets,
+            max_lengths,
+            padding_value=padding_value,
+        )
+        torch.testing.assert_close(output, output_list)
+
+        gradcheck(
+            torch.ops.fbgemm.jagged_to_padded_dense,
+            (
+                x_values.float().requires_grad_(True),
+                x_offsets,
+                max_lengths_tensor,
+                padding_value,
+            ),
+            eps=1e-2,
+            atol=1e-3,
+            rtol=1e-3,
+        )
 
 
 if __name__ == "__main__":
