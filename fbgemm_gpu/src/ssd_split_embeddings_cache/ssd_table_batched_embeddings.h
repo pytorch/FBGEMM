@@ -759,7 +759,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto key_ptr = returned_keys.data_ptr<int64_t>();
     int64_t offset = 0;
     for (const auto& keys : keys_in_db_shards) {
-      std::copy(keys.begin(), keys.end(), &key_ptr[offset]);
+      std::ranges::copy(keys, &key_ptr[offset]);
       offset += keys.size();
     }
     return returned_keys;

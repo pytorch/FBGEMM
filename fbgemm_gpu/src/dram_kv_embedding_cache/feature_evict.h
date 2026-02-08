@@ -808,8 +808,7 @@ class FeatureEvict {
   }
 
   [[nodiscard]] int get_sub_table_id(int64_t key) const {
-    auto it = std::upper_bound(
-        sub_table_hash_cumsum_.begin(), sub_table_hash_cumsum_.end(), key);
+    auto it = std::ranges::upper_bound(sub_table_hash_cumsum_, key);
     if (it == sub_table_hash_cumsum_.end()) {
       CHECK(false) << "key " << key << " doesn't belong to any feature";
     }
