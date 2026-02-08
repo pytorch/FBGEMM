@@ -182,7 +182,7 @@ void dram_kv_embedding_inplace_update_cpu(
 
     const int64_t* row_ids_ptr = update_row_idx_ptr + window_start;
     auto row_id_tensor = at::from_blob(
-        const_cast<int64_t*>(row_ids_ptr),
+        const_cast<int64_t*>(row_ids_ptr), // NOLINT(cppcoreguidelines-pro-type-const-cast)
         {window_size},
         at::TensorOptions().dtype(at::kLong));
 

@@ -3662,7 +3662,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   std::vector<c10::SymInt> output_shape_group;
   int i = 0;
   while (true) {
-    if (!ctx->saved_data.contains("input_shape_group_" + std::to_string(i))) {
+    if (ctx->saved_data.count("input_shape_group_" + std::to_string(i)) == 0) {
       break;
     }
     output_shape_group.push_back(
