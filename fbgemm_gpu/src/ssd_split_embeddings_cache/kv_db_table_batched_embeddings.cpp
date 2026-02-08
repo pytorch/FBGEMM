@@ -556,7 +556,7 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
                       }
                     });
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     folly::collect(futures).wait();
 
@@ -658,7 +658,7 @@ EmbeddingKVDB::set_cache(
                       }
                     });
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     // folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
     folly::collect(futures).wait();
@@ -704,7 +704,7 @@ folly::SemiFuture<std::vector<folly::Unit>> EmbeddingKVDB::cache_memcpy(
                       &weights_data_ptr[row_id * max_D_]); // dst_start
                 }
               });
-          futures.push_back(std::move(f));
+          futures.emplace_back(std::move(f));
         }
       });
   get_cache_memcpy_duration_ +=

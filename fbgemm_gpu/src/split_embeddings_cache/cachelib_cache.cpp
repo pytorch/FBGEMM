@@ -218,10 +218,10 @@ CacheLibCache::get_n_items(int n, Cache::AccessIterator& itr) {
               }
             });
       });
-  return std::make_tuple(
+  return std::tuple{
       indices,
       weights,
-      at::tensor({cnt}, at::TensorOptions().dtype(at::kLong).device(at::kCPU)));
+      at::tensor({cnt}, at::TensorOptions().dtype(at::kLong).device(at::kCPU))};
 }
 
 void CacheLibCache::init_tensor_for_l2_eviction(
@@ -255,10 +255,10 @@ CacheLibCache::get_tensors_and_reset() {
   if (evicted_indices_opt_.has_value()) {
     CHECK(evicted_weights_opt_.has_value());
     if (eviction_row_id > 0) {
-      ret = std::make_tuple(
+      ret = std::tuple{
           evicted_indices_opt_.value(),
           evicted_weights_opt_.value(),
-          at::tensor(eviction_row_id, evicted_indices_opt_->options()));
+          at::tensor(eviction_row_id, evicted_indices_opt_->options())};
     }
   }
   reset_eviction_states();

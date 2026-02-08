@@ -230,12 +230,12 @@ __global__ void __launch_bounds__(
     if constexpr (Is_target) {
       m_block_max = is_jump ? m_masking_block_max : m_block_max;
     }
-    return std::make_tuple(
+    return std::tuple{
         m_block_min,
         m_block_max,
         m_masking_steps,
         is_in_context,
-        m_block_context);
+        m_block_context};
   };
 
   if (warp_group_idx == 0) { // Producer
