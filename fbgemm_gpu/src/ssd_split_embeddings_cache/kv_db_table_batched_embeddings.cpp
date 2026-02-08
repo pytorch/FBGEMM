@@ -10,6 +10,7 @@
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
 #include <algorithm>
+#include <c10/util/irange.h>
 #include "common/time/Time.h"
 #include "kv_db_cuda_utils.h"
 #include "torch/csrc/autograd/record_function_ops.h"
@@ -687,8 +688,8 @@ folly::SemiFuture<std::vector<folly::Unit>> EmbeddingKVDB::cache_memcpy(
         for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
           auto f =
               folly::via(executor_tp_.get()).thenValue([=, this](folly::Unit) {
-                for (int row_id = 0; row_id < cached_addr_list.size();
-                     row_id++) {
+                for (const auto row_id :
+                     c10::irange(cached_addr_list.size())) {
                   if (row_id % num_shards != shard_id) {
                     continue;
                   }
