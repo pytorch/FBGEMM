@@ -34,7 +34,7 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
   int32_t B = pooled_embs[0].size(0);
   std::vector<Tensor> outputs;
   outputs.reserve(out_lengths.size());
-  const auto lengths = reinterpret_cast<const int64_t*>(out_lengths.data());
+  const auto* lengths = out_lengths.data();
   for (const auto i : c10::irange(out_lengths.size())) {
     outputs.push_back(at::empty({B, lengths[i]}, pooled_embs[0].options()));
     TORCH_CHECK(outputs[i].is_contiguous());
@@ -292,7 +292,7 @@ kt_regroup_arguments_meta(
     }
   }
 
-  int64_t* __restrict__ olp = reinterpret_cast<int64_t*>(out_lengths.data());
+  int64_t* __restrict__ olp = out_lengths.data();
   for (auto i : c10::irange(out_tensors)) {
     for (auto j : c10::irange(groups[i].size())) {
       auto length = lookup.at(groups[i][j]);
