@@ -12,6 +12,8 @@
 #include <memory>
 #include <ranges>
 
+#include <c10/util/irange.h>
+
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
 #include <folly/coro/Task.h>
@@ -983,7 +985,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       return max_D_;
     }
     auto index = *reinterpret_cast<const int64_t*>(index_slice.data());
-    for (int i = 0; i < sub_table_hash_cumsum_.size(); i++) {
+    for (const auto i : c10::irange(sub_table_hash_cumsum_.size())) {
       if (index < sub_table_hash_cumsum_[i]) {
         return sub_table_dims_[i];
       }

@@ -3631,7 +3631,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
         input_shape_group.end(), input_shape.begin(), input_shape.end());
   }
 
-  for (int i = 0; i < input_shape_group.size(); i++) {
+  for (const auto i : c10::irange(input_shape_group.size())) {
     ctx->saved_data["input_shape_group_" + std::to_string(i)] =
         input_shape_group[i];
   }

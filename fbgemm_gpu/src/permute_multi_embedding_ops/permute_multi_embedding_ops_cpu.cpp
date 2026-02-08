@@ -272,8 +272,8 @@ kt_regroup_arguments_meta(
     const std::vector<std::vector<std::string>>& keys,
     const std::vector<std::vector<int64_t>>& lengths,
     const std::vector<std::vector<std::string>>& groups) {
-  const int32_t in_tensors = keys.size();
-  const int32_t out_tensors = groups.size();
+  const auto in_tensors = static_cast<int32_t>(keys.size());
+  const auto out_tensors = static_cast<int32_t>(groups.size());
   int32_t out_num = 0; // total number of features in the output KTs
   for (auto i : c10::irange(out_tensors)) {
     out_num += groups[i].size();

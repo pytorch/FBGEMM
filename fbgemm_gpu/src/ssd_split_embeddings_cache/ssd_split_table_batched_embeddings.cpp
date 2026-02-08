@@ -9,6 +9,7 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/core/ScalarTypeToTypeMeta.h>
+#include <c10/util/irange.h>
 #include <nlohmann/json.hpp>
 #include <torch/custom_class.h>
 #include <torch/library.h>
@@ -444,7 +445,7 @@ std::string KVTensorWrapper::logs() const {
     // EmbeddingKVDB class which is inherited by the EmbeddingRocksDB class
     auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
     auto ckpts = db->get_checkpoints(checkpoint_handle_->uuid);
-    for (int i = 0; i < ckpts.size(); i++) {
+    for (const auto i : c10::irange(ckpts.size())) {
       ss << "  shard:" << i << ", ckpt_path:" << ckpts[i] << std::endl;
     }
     ss << "  tbe_uuid: " << db->get_tbe_uuid() << std::endl;
@@ -461,7 +462,7 @@ std::string KVTensorWrapper::logs() const {
     ss << "from ckpt paths: " << std::endl;
     auto* db = dynamic_cast<ReadOnlyEmbeddingKVDB*>(readonly_db_.get());
     auto rdb_shard_checkpoint_paths = db->get_rdb_shard_checkpoint_paths();
-    for (int i = 0; i < rdb_shard_checkpoint_paths.size(); i++) {
+    for (const auto i : c10::irange(rdb_shard_checkpoint_paths.size())) {
       ss << "  shard:" << i << ", ckpt_path:" << rdb_shard_checkpoint_paths[i]
          << std::endl;
     }
