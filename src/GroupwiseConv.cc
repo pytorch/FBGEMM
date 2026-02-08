@@ -1066,7 +1066,7 @@ void fbgemmGroupwiseConv(
         false);
 #endif
 
-    int ih_start = 0;
+    int64_t ih_start = 0;
     if (oh_start > 0) {
       ih_start = -conv_param.pad[SPATIAL_DIM - 2] +
           oh_start * conv_param.stride[SPATIAL_DIM - 2];
@@ -1075,7 +1075,7 @@ void fbgemmGroupwiseConv(
     const uint8_t* in_start = activations + ih_start * IW * IC;
     int32_t* rowOffsetBuf_start =
         rowOffsetBuf ? rowOffsetBuf + oh_start * OW * G_together : nullptr;
-    for (int i = batch_start; i < batch_end; ++i) {
+    for (int64_t i = batch_start; i < batch_end; ++i) {
       const uint8_t* in_start_batch = in_start + i * IH_IW * conv_param.IC;
       int32_t* out_start_batch = out_start + i * OH_OW * OC;
       int32_t* rowOffsetBuf_start_batch =
@@ -1210,7 +1210,7 @@ void fbgemmGroupwiseConv(
     jit_conv_kernel_fp fpConv = nullptr;
 #endif
 
-    int ih_start = 0;
+    int64_t ih_start = 0;
     if (oh_start > 0) {
       ih_start = -conv_p_2d.pad[0] + oh_start * conv_p_2d.stride[0];
     }
@@ -1220,7 +1220,7 @@ void fbgemmGroupwiseConv(
     const uint8_t* in_start = activations + ih_start * IW * IC;
     int32_t* rowOffsetBuf_start =
         rowOffsetBuf ? rowOffsetBuf + oh_start * OW * G_together : nullptr;
-    for (int i = batch_start; i < batch_end; ++i) {
+    for (int64_t i = batch_start; i < batch_end; ++i) {
       const uint8_t* in_start_batch = in_start + i * IT_IH_IW * IC;
       int32_t* out_start_batch = out_start + i * OT_OH_OW * OC;
       int32_t* rowOffsetBuf_start_batch = rowOffsetBuf
