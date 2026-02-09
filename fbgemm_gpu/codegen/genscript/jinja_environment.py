@@ -63,7 +63,7 @@ env.globals["max_embedding_dim"] = 2048
 
 # Max embedding dimension for legacy embedding kernels. TBE v2 can support
 # larger max embedding dimension.
-env.globals["legacy_max_embedding_dim"] = 2048
+env.globals["legacy_max_embedding_dim"] = 1024
 
 # An optimization for ROCm
 env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
