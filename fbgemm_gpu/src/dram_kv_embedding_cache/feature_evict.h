@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstddef>
 #include <memory_resource>
+#include <ranges>
 #include <stdexcept>
 #include <vector>
 
@@ -318,12 +319,9 @@ struct FeatureEvictMetrics {
   }
 
   void reset() {
-    std::fill(evicted_counts.begin(), evicted_counts.end(), 0);
-    std::fill(processed_counts.begin(), processed_counts.end(), 0);
-    std::fill(
-        eviction_threshold_with_dry_run.begin(),
-        eviction_threshold_with_dry_run.end(),
-        0.0);
+    std::ranges::fill(evicted_counts, 0);
+    std::ranges::fill(processed_counts, 0);
+    std::ranges::fill(eviction_threshold_with_dry_run, 0.0);
     exec_duration_ms = 0;
     full_duration_ms = 0;
     start_time_ms =
@@ -810,8 +808,7 @@ class FeatureEvict {
   }
 
   [[nodiscard]] int get_sub_table_id(int64_t key) const {
-    auto it = std::upper_bound(
-        sub_table_hash_cumsum_.begin(), sub_table_hash_cumsum_.end(), key);
+    auto it = std::ranges::upper_bound(sub_table_hash_cumsum_, key);
     if (it == sub_table_hash_cumsum_.end()) {
       CHECK(false) << "key " << key << " doesn't belong to any feature";
     }

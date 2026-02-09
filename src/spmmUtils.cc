@@ -71,13 +71,13 @@ FBGEMM_API void trRequantizeRef(
         raw -= r.act_col_offsets[j - block.col_start] *
             r.weight_zero_points[weight_zeropoint_idx];
       }
-      float raw_f = raw;
+      auto raw_f = static_cast<float>(raw);
       if (r.bias) {
         raw_f += r.bias[i] / r.act_times_w_scale[weight_zeropoint_idx];
       }
 
       float ab = raw_f * r.act_times_w_scale[weight_zeropoint_idx] / r.C_scale;
-      int rounded = std::rintf(ab) + r.C_zero_point;
+      auto rounded = static_cast<int>(std::lrintf(ab) + r.C_zero_point);
       out[i * ld_out + j] = std::max(
           FUSE_RELU ? static_cast<int>(r.C_zero_point) : 0,
           std::min(255, rounded));

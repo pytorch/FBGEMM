@@ -8,6 +8,7 @@
 
 #include "./ps_table_batched_embeddings.h"
 
+#include <c10/util/irange.h>
 #include <torch/custom_class.h>
 
 using namespace at;
@@ -29,7 +30,7 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
         tps_ips.size() == tps_ports.size(),
         "tps_ips and tps_ports must have the same size");
     std::vector<std::pair<std::string, int>> tpsHosts = {};
-    for (int i = 0; i < tps_ips.size(); i++) {
+    for (const auto i : c10::irange(tps_ips.size())) {
       tpsHosts.emplace_back(tps_ips[i], tps_ports[i]);
     }
 
