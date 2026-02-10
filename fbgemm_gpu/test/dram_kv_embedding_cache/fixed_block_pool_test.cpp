@@ -411,7 +411,7 @@ TEST(FixedBlockPool, DataIntegrity) {
   // Allocate and write data
   auto* block = pool.allocate_t<float>();
   auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
-  std::ranges::copy(src_data, data_ptr);
+  std::copy(src_data.begin(), src_data.end(), data_ptr);
 
   // Verify data consistency
   for (int i = 0; i < dim; ++i) {
