@@ -12,6 +12,7 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include <array>
 #include <cstddef>
 #include <functional>
 #include "ATen/Parallel.h"
@@ -44,7 +45,7 @@ inline bool walk_down_tensor_storage_tree_except_last_(
     const int64_t* jagged_dims,
     const std::vector<at::TensorAccessor<index_t, 1>>& x_offsets) {
   // compute coorindates
-  int jagged_coords[NUM_JAGGED_DIM];
+  std::array<int, NUM_JAGGED_DIM> jagged_coords;
   int j_temp = flattened_jagged_idx;
 #pragma unroll
   for (int d = NUM_JAGGED_DIM - 2; d >= 0; --d) {
@@ -1160,7 +1161,7 @@ void jagged_index_select_2d_kernel(
           int index_pos = 0;
           binary_search_range_cpu(
               &index_pos,
-              reinterpret_cast<const offset_t*>(output_offsets.data()),
+              output_offsets.data(),
               static_cast<offset_t>(dense_output_offset),
               num_output_rows);
           const offset_t rel_index = dense_output_offset -
@@ -1290,25 +1291,16 @@ void jagged_index_add_2d_kernel(
   const auto num_input_rows = input_offsets.size(0);
   const auto num_dense_input_rows = input.size(0);
   const auto num_cols = input.size(1);
-  // Allocate one lock per row
+  // Allocate one lock per row.
+  // C++20 guarantees value initialization of std::atomic_flag to clear state.
   std::vector<std::atomic_flag> locks(output.size(0));
-  // C++20 supports value initialization of std::atomic_flag, but old C++20
-  // compilers may not implement it.
-#ifndef __cpp_lib_atomic_value_initialization
-  // Initialize all locks since before c++20 std::atomic_flag is initialized to
-  // an unspecified state.
-  // https://en.cppreference.com/w/cpp/atomic/atomic_flag/atomic_flag
-  for (auto& lock : locks) {
-    lock.clear();
-  }
-#endif
 
   at::parallel_for(0, num_dense_input_rows, 0, [&](int64_t start, int64_t end) {
     for (const auto dense_input_offset : c10::irange(start, end)) {
       int index_pos = 0;
       binary_search_range_cpu(
           &index_pos,
-          reinterpret_cast<const offset_t*>(input_offsets.data()),
+          input_offsets.data(),
           static_cast<offset_t>(dense_input_offset),
           num_input_rows);
       const offset_t rel_index = dense_input_offset -
