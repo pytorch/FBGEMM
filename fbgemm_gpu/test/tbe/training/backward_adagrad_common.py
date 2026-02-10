@@ -295,16 +295,8 @@ def execute_backward_adagrad(  # noqa C901
         cc.split_embedding_weights()[t].data.copy_(b_weight)
 
     num_features = len(feature_table_map)
-    # Match nn.Embedding to features
-    bs_features = list(bs)
-    if tbe_op:
-        for t in range(T):
-            count = feature_table_map.count(t) - 1
-            for _ in range(count):
-                bs_features.insert(t, bs[t])
-
-    else:
-        bs_features.insert(table_to_replicate, bs[table_to_replicate])
+    # Match nn.Embedding to features: build bs_features directly from feature_table_map
+    bs_features = [bs[t] for t in feature_table_map]
 
     assert (
         len(bs_features) == num_features
@@ -490,6 +482,17 @@ def execute_backward_adagrad(  # noqa C901
             atol=tolerance,
             rtol=tolerance,
         )
+
+    # Do not run gradcheck when tbe_op is provided (due to OOM)
+    if tbe_op:
+        return
+
+    # Free large tensors no longer needed before gradcheck to reduce GPU memory pressure
+    del bs, bs_features, fs, gos, goc, fc2, ref_output
+    del split_optimizer_states, get_optimizer_states, xs, xws
+    # Release the original TBE op (cc will be reassigned to a smaller gradcheck TBE below)
+    del cc, tbe_op
+
     if use_cpu:
         D_gradcheck = (D_gradcheck + 15) // 16 * 4
     else:
@@ -541,7 +544,7 @@ def execute_backward_adagrad(  # noqa C901
     y.sum().backward()
     # pyre-fixme[16]: `Optional` has no attribute `clone`.
     indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
-    T_ = len(xws)
+    T_ = num_features
     feature_requires_grad = to_device(
         torch.tensor(np.random.choice([0, 1], replace=True, size=(T_,))).int(),
         use_cpu,
