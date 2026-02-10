@@ -7,6 +7,7 @@
  */
 
 #include "kv_db_table_batched_embeddings.h"
+#include <c10/util/irange.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
 #include <algorithm>
@@ -687,8 +688,7 @@ folly::SemiFuture<std::vector<folly::Unit>> EmbeddingKVDB::cache_memcpy(
         for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
           auto f =
               folly::via(executor_tp_.get()).thenValue([=, this](folly::Unit) {
-                for (int row_id = 0; row_id < cached_addr_list.size();
-                     row_id++) {
+                for (const auto row_id : c10::irange(cached_addr_list.size())) {
                   if (row_id % num_shards != shard_id) {
                     continue;
                   }

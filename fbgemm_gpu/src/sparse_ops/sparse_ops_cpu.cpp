@@ -569,10 +569,12 @@ void _block_bucketize_sparse_features_cpu_kernel(
 void FloatToBFloat16Quantized_ref(
     const float* const input,
     const size_t numel,
-    uint16_t* const output) {
+    at::BFloat16* const output) {
   for (const auto idx : c10::irange(numel)) {
     const float input_val = input[idx];
-    output[idx] = (c10::bit_cast<uint32_t>(input_val) + (1 << 15)) >> 16;
+    const uint16_t bf16_bits =
+        (c10::bit_cast<uint32_t>(input_val) + (1 << 15)) >> 16;
+    output[idx] = c10::bit_cast<at::BFloat16>(bf16_bits);
   }
 }
 
@@ -581,30 +583,26 @@ void BFloat16QuantizedToFloat_ref(
     const size_t numel,
     float* const output) {
   for (const auto idx : c10::irange(numel)) {
-    uint32_t val_fp32 =
+    const uint32_t val_fp32 =
         static_cast<uint32_t>(c10::bit_cast<uint16_t>(input[idx])) << 16;
     output[idx] = c10::bit_cast<float>(val_fp32);
   }
 }
 
-// TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
 at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
   TENSOR_ON_CPU(input);
 
   const auto input_sizes = input.sizes();
-  auto output = at::empty(
-      input_sizes,
-      input.options().dtype(at::kHalf)); // at::kHalf
+  auto output = at::empty(input_sizes, input.options().dtype(at::kBFloat16));
 
   FloatToBFloat16Quantized_ref(
       input.const_data_ptr<float>(),
       input.numel(),
-      reinterpret_cast<uint16_t*>(output.mutable_data_ptr<at::Half>()));
+      output.mutable_data_ptr<at::BFloat16>());
 
   return output;
 }
 
-// TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
 at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   TENSOR_ON_CPU(input);
 
@@ -613,7 +611,7 @@ at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   auto output = at::empty(input_sizes, input.options().dtype(at::kFloat));
 
   BFloat16QuantizedToFloat_ref(
-      reinterpret_cast<const at::BFloat16*>(input.const_data_ptr<at::Half>()),
+      input.const_data_ptr<at::BFloat16>(),
       input.numel(),
       output.mutable_data_ptr<float>());
 
@@ -3633,7 +3631,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
         input_shape_group.end(), input_shape.begin(), input_shape.end());
   }
 
-  for (int i = 0; i < input_shape_group.size(); i++) {
+  for (const auto i : c10::irange(input_shape_group.size())) {
     ctx->saved_data["input_shape_group_" + std::to_string(i)] =
         input_shape_group[i];
   }
@@ -3664,8 +3662,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   std::vector<c10::SymInt> output_shape_group;
   int i = 0;
   while (true) {
-    if (ctx->saved_data.find("input_shape_group_" + std::to_string(i)) ==
-        ctx->saved_data.end()) {
+    if (ctx->saved_data.count("input_shape_group_" + std::to_string(i)) == 0) {
       break;
     }
     output_shape_group.push_back(
