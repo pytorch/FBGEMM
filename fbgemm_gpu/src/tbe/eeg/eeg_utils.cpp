@@ -29,7 +29,7 @@ Evaluate p[1]*c[1] + x*p[2]*c[2] + x^2*p[3]*c[3] + ...
 The entries of p must be literal constants and there must be > 1 of them. */
 template <size_t N>
 inline double pgHorner(double x, double m, const std::array<double, N>& p) {
-  int k = p.size();
+  auto k = p.size();
   double ex = ((m + 2 * k - 1)) * (m + 2 * k - 2) *
       (p.back() / ((2 * k - 1) * (2 * k - 2)));
   for (k = p.size() - 1; k >= 2; k--) {
