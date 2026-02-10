@@ -455,7 +455,7 @@ test_single_fbgemm_gpu_module () {
     repo=$(pwd)
   fi
 
-  __test_fbgemm_gpu_common_pre_steps            || return 1
+  fbgemm_gpu_testing_setup "$env_name"          || return 1
 
   # Go to the repo root directory
   print_exec pushd "${repo}"                    || return 1
