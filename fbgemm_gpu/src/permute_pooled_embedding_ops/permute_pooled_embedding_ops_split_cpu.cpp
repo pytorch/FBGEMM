@@ -21,6 +21,7 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
+using torch::autograd::AutogradContext;
 using torch::autograd::Variable;
 using torch::autograd::variable_list;
 

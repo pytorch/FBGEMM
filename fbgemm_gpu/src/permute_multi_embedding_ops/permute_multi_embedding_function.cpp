@@ -147,8 +147,8 @@ kt_regroup_arguments_impl(
     const std::vector<std::vector<std::string>>& keys,
     const std::vector<std::vector<int64_t>>& lengths,
     const std::vector<std::vector<std::string>>& groups) {
-  const auto in_tensors = static_cast<int32_t>(keys.size());
-  const auto out_tensors = static_cast<int32_t>(groups.size());
+  const int32_t in_tensors = keys.size();
+  const int32_t out_tensors = groups.size();
   std::vector<int32_t> in_lengths(in_tensors, 0);
   std::vector<int32_t> out_lengths(out_tensors, 0);
   int32_t out_num = 0;
