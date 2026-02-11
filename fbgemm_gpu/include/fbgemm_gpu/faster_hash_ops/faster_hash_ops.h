@@ -98,6 +98,7 @@ Tensor murmur_hash3_cpu(const Tensor& input, int64_t y, int64_t seed);
 /// @param opt_in_prob The opt-in probability
 /// @param num_reserved_slots The number of reserved slots
 /// @param opt_in_rands The opt-in randoms tensor
+/// @param runtime_meta The runtime_meta tensor
 ///
 /// @return A tuple of two tensors, the first tensor is the
 /// output tensor and the second tensor is the slots to be evicted
@@ -119,7 +120,8 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cpu(
     int64_t /* eviction_policy */,
     int64_t opt_in_prob,
     int64_t num_reserved_slots,
-    const std::optional<Tensor>& opt_in_rands);
+    const std::optional<Tensor>& opt_in_rands,
+    const std::optional<Tensor>& runtime_meta);
 
 /// @ingroup faster-hash-ops-cpu
 ///
@@ -163,6 +165,7 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cpu(
 /// @param opt_in_prob The opt-in probability
 /// @param num_reserved_slots The number of reserved slots
 /// @param opt_in_rands The opt-in randoms tensor
+/// @param runtime_meta The runtime_meta tensor
 ///
 /// @return A tuple of two tensors, the first tensor is the
 /// output tensor and the second tensor is the slots to be evicted
@@ -184,7 +187,8 @@ std::tuple<Tensor, Tensor> zero_collision_hash_meta(
     int64_t /* eviction_policy */,
     int64_t /* opt_in_prob */,
     int64_t /* num_reserved_slots */,
-    const std::optional<Tensor>& /* opt_in_rands */);
+    const std::optional<Tensor>& /* opt_in_rands */,
+    const std::optional<Tensor>& /*runtime_meta*/);
 
 /// @ingroup faster-hash-ops-cpu
 ///
