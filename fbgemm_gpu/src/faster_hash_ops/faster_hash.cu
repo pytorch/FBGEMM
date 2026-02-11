@@ -46,6 +46,40 @@ CAS<int64_t>(int64_t* data, int64_t cmp, int64_t val) {
       static_cast<unsigned long long>(val)));
 }
 
+template <bool ID_FREQ>
+__device__ __inline__ void increment_freq_counter(
+    int64_t* /* runtime_meta */,
+    int64_t /* output_index */) {
+  static_assert(!ID_FREQ);
+  // no op.
+}
+
+template <>
+__device__ __inline__ void increment_freq_counter<true>(
+    int64_t* runtime_meta,
+    int64_t output_index) {
+  atomicAdd(
+      (unsigned long long*)(runtime_meta + output_index),
+      (unsigned long long)1);
+}
+
+template <bool ID_FREQ>
+__device__ __inline__ void reset_freq_counter(
+    int64_t* /* runtime_meta */,
+    int64_t /* output_index */) {
+  static_assert(!ID_FREQ);
+  // no op.
+}
+
+template <>
+__device__ __inline__ void reset_freq_counter<true>(
+    int64_t* runtime_meta,
+    int64_t output_index) {
+  atomicExch(
+      (unsigned long long*)(runtime_meta + output_index),
+      (unsigned long long)1);
+}
+
 template <int32_t METADATA_COUNT>
 __device__ __inline__ void update_metadata(
     int32_t* /* metadata */,
@@ -252,6 +286,7 @@ __device__ __inline__ int64_t get_identity_slot(
 }
 
 template <
+    bool ID_FREQ,
     int32_t EVICTION_POLICY,
     bool DISABLE_FALLBACK,
     int32_t HASH_IDENTITY,
@@ -278,6 +313,7 @@ __global__ void process_item_zch(
     int64_t opt_in_prob,
     int64_t num_reserved_slots,
     const int32_t* const opt_in_rands,
+    int64_t* runtime_meta,
     TORCH_DSA_KERNEL_ARGS) {
   static_assert(EVICTION_POLICY == 0);
 
@@ -357,6 +393,7 @@ __global__ void process_item_zch(
           opt_in_block_size + static_cast<int64_t>(hash % num_reserved_slots);
       update_metadata<METADATA_COUNT>(
           metadata, output_index + offset, metadata_val);
+      // don't update freq counter for reserved slots
     }
 
     while (max_probe_local-- > 0 && opt_in) {
@@ -364,6 +401,7 @@ __global__ void process_item_zch(
       if (check_and_maybe_update_slot<READONLY, TIdentity>(
               &identities[insert_idx][0], identity, old_value)) {
         update_metadata<METADATA_COUNT>(metadata, insert_idx, metadata_val);
+        increment_freq_counter<ID_FREQ>(runtime_meta, insert_idx);
         break;
       }
 
@@ -375,6 +413,8 @@ __global__ void process_item_zch(
         if (current_slot_value == old_value || current_slot_value == identity) {
           evict_slots[process_index] = insert_idx;
           update_metadata<METADATA_COUNT>(metadata, insert_idx, metadata_val);
+          // reset freq counter to 1 when id is evicted
+          reset_freq_counter<ID_FREQ>(runtime_meta, insert_idx);
           break;
         }
       }
@@ -402,6 +442,7 @@ __global__ void process_item_zch(
 }
 
 template <
+    bool ID_FREQ,
     int32_t EVICTION_POLICY,
     bool DISABLE_FALLBACK,
     int32_t HASH_IDENTITY,
@@ -428,6 +469,7 @@ __global__ void process_item_zch(
     int64_t /* opt_in_prob */,
     int64_t /* num_reserved_slots */,
     const int32_t* const /* opt_in_rands */,
+    int64_t* runtime_meta,
     TORCH_DSA_KERNEL_ARGS) {
   static_assert(EVICTION_POLICY == 1);
 
@@ -482,6 +524,7 @@ __global__ void process_item_zch(
               &identities[insert_idx][0], identity, old_value)) {
         update_metadata_lru<METADATA_COUNT>(
             metadata, insert_idx, metadata_val, process_lock);
+        increment_freq_counter<ID_FREQ>(runtime_meta, insert_idx);
         break;
       }
 
@@ -530,6 +573,8 @@ __global__ void process_item_zch(
           update_metadata_lru<METADATA_COUNT>(
               metadata, insert_idx, metadata_val, process_lock);
           evict_slots[process_index] = insert_idx;
+          // reset freq counter when id is evicted
+          reset_freq_counter<ID_FREQ>(runtime_meta, insert_idx);
         }
       }
     }
@@ -560,7 +605,8 @@ void _zero_collision_hash_cuda(
     int64_t eviction_policy,
     int64_t opt_in_prob,
     int64_t num_reserved_slots,
-    const std::optional<Tensor>& opt_in_rands) {
+    const std::optional<Tensor>& opt_in_rands,
+    const std::optional<Tensor>& runtime_meta) {
   constexpr int64_t kThreads = 256L;
   auto block_size = kThreads;
   // check at::cuda::getCurrentDeviceProperties() is not null
@@ -578,7 +624,10 @@ void _zero_collision_hash_cuda(
         kDefaultTensor,
         c10::TensorOptions().dtype(at::kInt).device(metadata->device()));
   }
+  bool track_id_freq = runtime_meta.has_value() && !readonly;
+
 #define INVOKE_KERNEL(                                                        \
+    ID_FREQ,                                                                  \
     EVICTION_POLICY,                                                          \
     DISABLE_FALLBACK,                                                         \
     HASH_IDENTITY,                                                            \
@@ -588,6 +637,7 @@ void _zero_collision_hash_cuda(
   {                                                                           \
     FBGEMM_LAUNCH_DSA_KERNEL(                                                 \
         (process_item_zch<                                                    \
+            ID_FREQ,                                                          \
             EVICTION_POLICY,                                                  \
             DISABLE_FALLBACK,                                                 \
             HASH_IDENTITY,                                                    \
@@ -618,14 +668,45 @@ void _zero_collision_hash_cuda(
         opt_in_prob,                                                          \
         num_reserved_slots,                                                   \
         opt_in_rands.has_value() ? opt_in_rands->data_ptr<int32_t>()          \
+                                 : nullptr,                                   \
+        runtime_meta.has_value() ? runtime_meta->data_ptr<int64_t>()          \
                                  : nullptr);                                  \
+  }
+
+#define INVOKE_KERNEL_ID_FREQ( \
+    EVICTION_POLICY,           \
+    DISABLE_FALLBACK,          \
+    HASH_IDENTITY,             \
+    METADATA_COUNT,            \
+    CIRCULAR_PROBE,            \
+    READONLY)                  \
+  {                            \
+    if (track_id_freq) {       \
+      INVOKE_KERNEL(           \
+          true,                \
+          EVICTION_POLICY,     \
+          DISABLE_FALLBACK,    \
+          HASH_IDENTITY,       \
+          METADATA_COUNT,      \
+          CIRCULAR_PROBE,      \
+          READONLY);           \
+    } else {                   \
+      INVOKE_KERNEL(           \
+          false,               \
+          EVICTION_POLICY,     \
+          DISABLE_FALLBACK,    \
+          HASH_IDENTITY,       \
+          METADATA_COUNT,      \
+          CIRCULAR_PROBE,      \
+          READONLY);           \
+    }                          \
   }
 
 #define INVOKE_KERNEL_EVICT_POLICY(                                            \
     DISABLE_FALLBACK, HASH_IDENTITY, METADATA_COUNT, CIRCULAR_PROBE, READONLY) \
   {                                                                            \
     if (eviction_policy == 0) {                                                \
-      INVOKE_KERNEL(                                                           \
+      INVOKE_KERNEL_ID_FREQ(                                                   \
           0,                                                                   \
           DISABLE_FALLBACK,                                                    \
           HASH_IDENTITY,                                                       \
@@ -633,7 +714,7 @@ void _zero_collision_hash_cuda(
           CIRCULAR_PROBE,                                                      \
           READONLY);                                                           \
     } else {                                                                   \
-      INVOKE_KERNEL(                                                           \
+      INVOKE_KERNEL_ID_FREQ(                                                   \
           1,                                                                   \
           DISABLE_FALLBACK,                                                    \
           HASH_IDENTITY,                                                       \
@@ -723,7 +804,8 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
     int64_t eviction_policy,
     int64_t opt_in_prob,
     int64_t num_reserved_slots,
-    const std::optional<Tensor>& opt_in_rands) {
+    const std::optional<Tensor>& opt_in_rands,
+    const std::optional<Tensor>& runtime_meta) {
   TORCH_CHECK(input.is_cuda());
   TORCH_CHECK(identities.dim() == 2);
 
@@ -807,6 +889,13 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
     TORCH_CHECK(opt_in_rands->dtype() == torch::kInt32);
   }
 
+  if (runtime_meta.has_value()) {
+    TORCH_CHECK(runtime_meta->dim() == 2);
+    TORCH_CHECK(runtime_meta->is_cuda());
+    TORCH_CHECK(runtime_meta->size(0) == identities.size(0));
+    TORCH_CHECK(runtime_meta->size(1) == 1);
+  }
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
 
@@ -863,7 +952,8 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
                   eviction_policy,
                   opt_in_prob,
                   num_reserved_slots,
-                  opt_in_rands);
+                  opt_in_rands,
+                  runtime_meta);
             });
       });
 
