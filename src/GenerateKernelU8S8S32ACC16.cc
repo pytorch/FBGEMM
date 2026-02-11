@@ -131,8 +131,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
         PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::ROW_INTERLEAVE;
   }
 
-  auto kernelSig = std::make_tuple(
-      accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
+  auto kernelSig =
+      std::tuple{accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize};
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
     asmjit::CodeHolder code;

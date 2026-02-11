@@ -7,6 +7,7 @@
  */
 
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #define FBGEMM_EXPORTS
@@ -169,7 +170,7 @@ GenEmbeddingSpMDMLookup<
         bool scale_bias_last,
         bool is_bf16_out,
         bool is_bf16_in) {
-  auto kernelSig = std::make_tuple(
+  auto kernelSig = std::tuple{
       block_size,
       has_weight,
       is_weight_positional,
@@ -180,7 +181,7 @@ GenEmbeddingSpMDMLookup<
       input_stride,
       scale_bias_last,
       is_bf16_out,
-      is_bf16_in);
+      is_bf16_in};
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -241,9 +242,11 @@ GenEmbeddingSpMDMLookup<
           filename += "_scale_bias_first";
         }
         filename += ".txt";
-        FILE* codeLogFile = fopen(filename.c_str(), "w");
-        asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
-        code.setLogger(codeLogger);
+        std::unique_ptr<FILE, decltype(&fclose)> codeLogFile(
+            fopen(filename.c_str(), "w"), &fclose);
+        std::unique_ptr<asmjit::FileLogger> codeLogger(
+            new asmjit::FileLogger(codeLogFile.get()));
+        code.setLogger(codeLogger.get());
 #endif
         // arguments to the function created
         x86::Gp output_size = a->zdi();
@@ -957,10 +960,6 @@ GenEmbeddingSpMDMLookup<
           return nullptr;
         }
 
-#if defined(FBGEMM_LOG_CODE)
-        fclose(codeLogFile);
-        delete codeLogger;
-#endif
         return fn;
       });
 }

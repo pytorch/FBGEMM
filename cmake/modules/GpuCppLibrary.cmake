@@ -298,7 +298,6 @@ function(gpu_cpp_library)
             -Wimplicit-fallthrough
             -Wno-deprecated-enum-enum-conversion
             -Wno-deprecated-declarations
-            -Wno-unused-command-line-argument
             -Wno-strict-aliasing
             -Wunused-variable
             -Wno-sign-compare
@@ -309,6 +308,7 @@ function(gpu_cpp_library)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
             list(APPEND lib_cc_flags
+                -Wno-unused-command-line-argument
                 -Wno-c99-extensions
                 -Wno-gnu-zero-variadic-macro-arguments
                 -Wno-deprecated-enum-enum-conversion)

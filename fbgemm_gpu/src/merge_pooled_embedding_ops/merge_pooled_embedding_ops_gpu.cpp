@@ -87,10 +87,8 @@ AdjacencyMatrix<Node> get_intermediate_node(
     //  the number of two_hop connections already assigned to the
     //  intermediate rank.
     for (const auto i : c10::irange(non_direct_src_ids.size())) {
-      std::sort(
-          direct_connected_peers.begin(),
-          direct_connected_peers.end(),
-          [](const auto& a, const auto& b) {
+      std::ranges::sort(
+          direct_connected_peers, [](const auto& a, const auto& b) {
             if (a.num_peer_links > b.num_peer_links) {
               return true;
             } else if (a.num_peer_links == b.num_peer_links) {
@@ -113,9 +111,7 @@ AdjacencyMatrix<Node> get_intermediate_node(
       }
     }
   }
-  if (std::any_of(assignments.begin(), assignments.end(), [](Node n) {
-        return n != -1;
-      })) {
+  if (std::ranges::any_of(assignments, [](Node n) { return n != -1; })) {
     auto tensor = at::from_blob(
         assignments.data(),
         {world_size, world_size},
@@ -590,6 +586,7 @@ cat_dim_2d_output_shape(
 
   int64_t total_cat_dim = 0;
   std::vector<int64_t> cumulative_dims;
+  cumulative_dims.reserve(tensors.size() + 1);
   cumulative_dims.push_back(0);
   for (const auto& t : tensors) {
     TORCH_CHECK(t.dim() == 2);
@@ -617,7 +614,7 @@ cat_dim_2d_output_shape(
     output_shape = {uncat_dim_size, total_cat_dim};
   }
 
-  return std::make_tuple(output_shape, cumulative_dims, total_cat_dim);
+  return std::tuple{output_shape, cumulative_dims, total_cat_dim};
 }
 
 Tensor cat_dim_2d(

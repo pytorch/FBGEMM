@@ -701,7 +701,7 @@ std::pair<K*, V*> radix_sort_parallel(
 
   const auto maxthreads = omp_get_max_threads();
 #ifdef _MSC_VER
-  const size_t array_size = (size_t)RDX_HIST_SIZE * maxthreads;
+  const size_t array_size = static_cast<size_t>(RDX_HIST_SIZE) * maxthreads;
   // fixes MSVC error C2131
   auto* const histogram = static_cast<int64_t*>(
       fbgemm::fbgemmAlignedAlloc(64, array_size * sizeof(int64_t)));
@@ -753,8 +753,8 @@ std::pair<K*, V*> radix_sort_parallel(
   fbgemm::fbgemmAlignedFree(histogram_ps);
 #endif
   return (
-      num_passes % 2 == 0 ? std::make_pair(inp_key_buf, inp_value_buf)
-                          : std::make_pair(tmp_key_buf, tmp_value_buf));
+      num_passes % 2 == 0 ? std::pair{inp_key_buf, inp_value_buf}
+                          : std::pair{tmp_key_buf, tmp_value_buf});
 }
 
 #define FORALL_INT_TYPES_AND_KEY(key_t, _) \

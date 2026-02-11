@@ -1252,7 +1252,9 @@ Tensor {{ embedding_cuda_op }}(
                     constexpr bool supported_grad_type = std::is_same_v<grad_t, float> || std::is_same_v<grad_t, at::Half>;
                     const bool cached = uvm_weights.numel() > 0 || lxu_cache_weights.numel() > 0;
 
-                    if (use_hip_kernel && !mixed_D && !cached && supported_weights_type && supported_grad_type && rocm::is_supported_cdna())
+                    constexpr bool same_precision = std::is_same_v<emb_t, grad_t>;
+
+                    if (use_hip_kernel && !mixed_D && !cached && supported_weights_type && supported_grad_type && same_precision && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}

@@ -39,8 +39,7 @@ struct ISA {
 enum class DataType { Float32, Float16, BFloat16 };
 
 constexpr std::array<std::pair<DataType, std::string>, 2> types_to_gen = {
-    std::make_pair(DataType::Float32, "FP32"),
-    std::make_pair(DataType::Float16, "FP16")};
+    {{DataType::Float32, "FP32"}, {DataType::Float16, "FP16"}}};
 
 constexpr int cache_line_size = 64;
 
@@ -249,8 +248,9 @@ int main(int argc, const char* argv[]) {
             "shape: %d x %d * 32\n", ukernel_shape[k][0], ukernel_shape[k][1]);
 
         const string A_stride = to_string(4 * ukernel_shape[k][0]);
-        const string B_stride =
-            to_string((vec_len_in_bytes >> (int)isFp16) * ukernel_shape[k][1]);
+        const string B_stride = to_string(
+            (vec_len_in_bytes >> static_cast<int>(isFp16)) *
+            ukernel_shape[k][1]);
 
         const string p1 = "GemmParams" + type_name + "* gp";
 

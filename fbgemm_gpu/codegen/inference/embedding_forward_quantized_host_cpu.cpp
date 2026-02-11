@@ -394,9 +394,9 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
       TORCH_CHECK(
           map.size() == (table_offsets_acc[t + 1] - table_offsets_acc[t]));
       int index = 0;
-      for (const auto& kv : map) {
-        values_acc[table_start + index][0] = kv.first;
-        values_acc[table_start + index][1] = kv.second;
+      for (const auto& [key, value] : map) {
+        values_acc[table_start + index][0] = key;
+        values_acc[table_start + index][1] = value;
         index++;
       }
     }
@@ -519,8 +519,7 @@ class AtomicCounter : public torch::jit::CustomClassHolder {
   }
 
   std::tuple<std::tuple<std::string, int64_t>> __obj_flatten__() {
-    return std::make_tuple(
-        std::make_tuple(std::string("counter_"), counter_.load()));
+    return std::tuple{std::tuple{std::string("counter_"), counter_.load()}};
   }
 
   std::string serialize() const {
@@ -625,9 +624,9 @@ struct TensorQueue : torch::CustomClassHolder {
     for (const auto& val : queue_) {
       queue_vec.emplace_back(val);
     }
-    return std::make_tuple(
-        std::make_tuple("init_tensor", init_tensor_),
-        std::make_tuple("queue", queue_vec));
+    return std::tuple{
+        std::tuple{"init_tensor", init_tensor_},
+        std::tuple{"queue", queue_vec}};
   }
 
  private:

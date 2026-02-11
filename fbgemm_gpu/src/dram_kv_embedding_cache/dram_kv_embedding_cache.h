@@ -197,28 +197,21 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t start,
       int64_t end,
       std::optional<int64_t> offset = std::nullopt) override {
-    std::vector<std::vector<int64_t>> ids;
-    for (int i = 0; i < num_shards_; i++) {
-      ids.push_back(std::vector<int64_t>());
-    }
+    std::vector<std::vector<int64_t>> ids(num_shards_);
     std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(num_shards_);
     for (int shard_id = 0; shard_id < num_shards_; shard_id++) {
-      auto f =
-          folly::via(executor_.get())
-              .thenValue([this, shard_id, start, end, offset, &ids](
-                             folly::Unit) {
-                auto rlmap = kv_store_.by(shard_id).rlock();
-                for (auto iter = rlmap->begin(); iter != rlmap->end(); iter++) {
-                  if (iter->first >= start && iter->first < end) {
-                    if (offset.has_value()) {
-                      ids[shard_id].push_back(iter->first - offset.value());
-                    } else {
-                      ids[shard_id].push_back(iter->first);
-                    }
-                  }
-                }
-              });
-      futures.push_back(std::move(f));
+      auto f = folly::via(executor_.get())
+                   .thenValue([this, shard_id, start, end, offset, &ids](
+                                  folly::Unit) {
+                     auto rlmap = kv_store_.by(shard_id).rlock();
+                     for (const auto& [key, value] : *rlmap) {
+                       if (key >= start && key < end) {
+                         ids[shard_id].push_back(offset ? key - *offset : key);
+                       }
+                     }
+                   });
+      futures.emplace_back(std::move(f));
     }
     folly::collect(futures).get();
 
@@ -252,11 +245,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     auto shardid_to_indexes = shard_input(indices, count);
     read_metadata_sharding_total_duration_ +=
         facebook::WallClockUtil::NowInUsecFast() - before_shard_ts;
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this, shard_id, indexes, &indices, &metadata_tensor](
@@ -287,10 +276,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         local_read_aquire_lock_duration =
                             facebook::WallClockUtil::NowInUsecFast() -
                             before_read_lock_ts;
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto& id_index = *index_iter;
+                        for (const auto& id_index : indexes) {
                           auto id = int64_t(indices_data_ptr[id_index]);
 
                           // use mempool
@@ -314,23 +300,24 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         }
                       }
                     });
-                return std::make_tuple(
+                return std::tuple{
                     local_read_lookup_cache_total_duration,
                     local_read_cache_hit_copy_total_duration,
-                    local_read_aquire_lock_duration);
+                    local_read_aquire_lock_duration};
               }));
     }
     auto results = folly::collectAll(futures).get();
 
-    for (size_t i = 0; i < results.size(); ++i) {
-      if (results[i].hasValue()) {
-        auto& dataTuple = results[i].value();
+    for (const auto& result : results) {
+      if (result.hasValue()) {
+        auto [lookup_cache_dur, cache_hit_copy_dur, acquire_lock_dur] =
+            result.value();
         read_metadata_lookup_cache_total_avg_duration_ +=
-            std::get<0>(dataTuple) / num_shards_;
+            lookup_cache_dur / num_shards_;
         read_metadata_cache_hit_copy_avg_duration_ +=
-            std::get<1>(dataTuple) / num_shards_;
+            cache_hit_copy_dur / num_shards_;
         read_metadata_acquire_lock_avg_duration_ +=
-            std::get<2>(dataTuple) / num_shards_;
+            acquire_lock_dur / num_shards_;
       }
     }
     read_metadata_total_duration_ +=
@@ -367,11 +354,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     write_sharding_total_duration_ +=
         facebook::WallClockUtil::NowInUsecFast() - before_shard_ts;
 
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this, shard_id, indexes, &indices, &weights](
@@ -409,10 +392,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             facebook::WallClockUtil::NowInUsecFast() -
                             before_write_lock_ts;
                         auto* pool = kv_store_.pool_by(shard_id);
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto& id_index = *index_iter;
+                        for (const auto& id_index : indexes) {
                           auto id = int64_t(indices_data_ptr[id_index]);
                           // use mempool
                           weight_type* block = nullptr;
@@ -470,71 +450,74 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         }
                       }
                     });
-                return std::make_tuple(
+                return std::tuple{
                     local_write_allocate_total_duration,
                     local_write_cache_copy_total_duration,
                     local_write_lookup_cache_total_duration,
                     local_write_acquire_lock_duration,
-                    local_write_missing_load);
+                    local_write_missing_load};
               }));
     }
     return folly::collect(std::move(futures))
         .via(executor_.get())
-        .thenValue(
-            [this, start_ts, w_mode](
-                const std::vector<
-                    std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
-                    results) {
-              int64_t write_allocate_total_duration = 0;
-              int64_t write_cache_copy_total_duration = 0;
-              int64_t write_lookup_cache_total_duration = 0;
-              int64_t write_acquire_lock_total_duration = 0;
-              int64_t write_missing_load = 0;
-              for (const auto& tup : results) {
-                write_allocate_total_duration += std::get<0>(tup);
-                write_cache_copy_total_duration += std::get<1>(tup);
-                write_lookup_cache_total_duration += std::get<2>(tup);
-                write_acquire_lock_total_duration += std::get<3>(tup);
-                write_missing_load += std::get<4>(tup);
-              }
-              auto duration =
-                  facebook::WallClockUtil::NowInUsecFast() - start_ts;
-              switch (w_mode) {
-                case kv_db::RocksdbWriteMode::BWD_L1_CNFLCT_MISS_WRITE_BACK:
-                  bwd_l1_cnflct_miss_write_total_duration_ += duration;
-                  bwd_l1_cnflct_miss_write_allocate_avg_duration_ +=
-                      write_allocate_total_duration / num_shards_;
-                  bwd_l1_cnflct_miss_write_cache_copy_avg_duration_ +=
-                      write_cache_copy_total_duration / num_shards_;
-                  bwd_l1_cnflct_miss_write_lookup_cache_avg_duration_ +=
-                      write_lookup_cache_total_duration / num_shards_;
-                  bwd_l1_cnflct_miss_write_acquire_lock_avg_duration_ +=
-                      write_acquire_lock_total_duration / num_shards_;
-                  bwd_l1_cnflct_miss_write_missing_load_avg_ +=
-                      write_missing_load / num_shards_;
-                  break;
-                case kv_db::RocksdbWriteMode::FWD_L1_EVICTION:
-                  fwd_l1_eviction_write_total_duration_ += duration;
-                  fwd_l1_eviction_write_allocate_avg_duration_ +=
-                      write_allocate_total_duration / num_shards_;
-                  fwd_l1_eviction_write_cache_copy_avg_duration_ +=
-                      write_cache_copy_total_duration / num_shards_;
-                  fwd_l1_eviction_write_lookup_cache_avg_duration_ +=
-                      write_lookup_cache_total_duration / num_shards_;
-                  fwd_l1_eviction_write_acquire_lock_avg_duration_ +=
-                      write_acquire_lock_total_duration / num_shards_;
-                  fwd_l1_eviction_write_missing_load_avg_ +=
-                      write_missing_load / num_shards_;
-                  break;
-                case kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ:
-                  break;
-                case kv_db::RocksdbWriteMode::FLUSH:
-                  break;
-                case kv_db::RocksdbWriteMode::STREAM:
-                  break;
-              }
-              return std::vector<folly::Unit>(results.size());
-            });
+        .thenValue([this, start_ts, w_mode](
+                       const std::vector<std::tuple<
+                           int64_t,
+                           int64_t,
+                           int64_t,
+                           int64_t,
+                           int64_t>>& results) {
+          int64_t write_allocate_total_duration = 0;
+          int64_t write_cache_copy_total_duration = 0;
+          int64_t write_lookup_cache_total_duration = 0;
+          int64_t write_acquire_lock_total_duration = 0;
+          int64_t write_missing_load = 0;
+          for (
+              const auto& [allocate_dur, cache_copy_dur, lookup_cache_dur, acquire_lock_dur, missing_load] :
+              results) {
+            write_allocate_total_duration += allocate_dur;
+            write_cache_copy_total_duration += cache_copy_dur;
+            write_lookup_cache_total_duration += lookup_cache_dur;
+            write_acquire_lock_total_duration += acquire_lock_dur;
+            write_missing_load += missing_load;
+          }
+          auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+          switch (w_mode) {
+            case kv_db::RocksdbWriteMode::BWD_L1_CNFLCT_MISS_WRITE_BACK:
+              bwd_l1_cnflct_miss_write_total_duration_ += duration;
+              bwd_l1_cnflct_miss_write_allocate_avg_duration_ +=
+                  write_allocate_total_duration / num_shards_;
+              bwd_l1_cnflct_miss_write_cache_copy_avg_duration_ +=
+                  write_cache_copy_total_duration / num_shards_;
+              bwd_l1_cnflct_miss_write_lookup_cache_avg_duration_ +=
+                  write_lookup_cache_total_duration / num_shards_;
+              bwd_l1_cnflct_miss_write_acquire_lock_avg_duration_ +=
+                  write_acquire_lock_total_duration / num_shards_;
+              bwd_l1_cnflct_miss_write_missing_load_avg_ +=
+                  write_missing_load / num_shards_;
+              break;
+            case kv_db::RocksdbWriteMode::FWD_L1_EVICTION:
+              fwd_l1_eviction_write_total_duration_ += duration;
+              fwd_l1_eviction_write_allocate_avg_duration_ +=
+                  write_allocate_total_duration / num_shards_;
+              fwd_l1_eviction_write_cache_copy_avg_duration_ +=
+                  write_cache_copy_total_duration / num_shards_;
+              fwd_l1_eviction_write_lookup_cache_avg_duration_ +=
+                  write_lookup_cache_total_duration / num_shards_;
+              fwd_l1_eviction_write_acquire_lock_avg_duration_ +=
+                  write_acquire_lock_total_duration / num_shards_;
+              fwd_l1_eviction_write_missing_load_avg_ +=
+                  write_missing_load / num_shards_;
+              break;
+            case kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ:
+              break;
+            case kv_db::RocksdbWriteMode::FLUSH:
+              break;
+            case kv_db::RocksdbWriteMode::STREAM:
+              break;
+          }
+          return std::vector<folly::Unit>(results.size());
+        });
   }
 
   folly::SemiFuture<std::vector<folly::Unit>> inference_set_kv_db_async(
@@ -542,17 +525,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const at::Tensor& count,
       std::optional<uint32_t> inplace_update_ts) {
-    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
+    futures.reserve(shardid_to_indexes.size());
 
     auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
         feature_evict_.get());
     CHECK(tt_evict != nullptr);
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
               .thenValue([this,
@@ -592,17 +572,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         hit_info.reserve(indexes.size() / 2);
                         miss_info.reserve(indexes.size() / 10);
                         auto rlmap = kv_store_.by(shard_id).rlock();
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          auto id = int64_t(indices_data_ptr[*index_iter]);
+                        for (const auto& idx : indexes) {
+                          auto id = int64_t(indices_data_ptr[idx]);
                           auto it = rlmap->find(id);
                           if (it != rlmap->end()) {
-                            hit_info.push_back(
-                                std::make_tuple(*index_iter, it->second));
+                            hit_info.emplace_back(idx, it->second);
                           } else {
-                            miss_info.push_back(
-                                std::make_tuple(id, *index_iter));
+                            miss_info.emplace_back(id, idx);
                           }
                         }
                         rlmap.unlock();
@@ -612,9 +588,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         // inference read is accessing a weight being updated,
                         // we assume it is fine for now, will iterate on it if
                         // we find QE regress during inplace update
-                        for (auto& info : hit_info) {
-                          auto tensor_offset = std::get<0>(info);
-                          auto block = std::get<1>(info);
+                        for (auto& [tensor_offset, block] : hit_info) {
                           auto* data_ptr =
                               FixedBlockPool::data_ptr<weight_type>(block);
                           std::copy(
@@ -639,10 +613,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         std::unordered_map<int64_t, weight_type*> temp_kv;
                         auto* pool = kv_store_.pool_by(shard_id);
                         auto mem_pool_lock = pool->acquire_lock();
-                        for (auto& info : miss_info) {
-                          auto id = std::get<0>(info);
-                          auto tensor_offset = std::get<1>(info);
-
+                        for (auto& [id, tensor_offset] : miss_info) {
                           auto block = pool->template allocate_t<weight_type>();
                           FixedBlockPool::set_key(block, id);
                           temp_kv.insert({id, block});
@@ -682,17 +653,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         wlmap.unlock();
                       }
                     });
-                return std::make_tuple(hit_cnt, miss_cnt);
+                return std::tuple{hit_cnt, miss_cnt};
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     return folly::collect(std::move(futures))
         .via(executor_.get())
         .thenValue(
             [this](const std::vector<std::tuple<int64_t, int64_t>>& tuples) {
-              for (const auto& pair : tuples) {
-                inplace_update_hit_cnt_ += std::get<0>(pair);
-                inplace_update_miss_cnt_ += std::get<1>(pair);
+              for (const auto& [hit_cnt, miss_cnt] : tuples) {
+                inplace_update_hit_cnt_ += hit_cnt;
+                inplace_update_miss_cnt_ += miss_cnt;
               }
               return std::vector<folly::Unit>(tuples.size());
             });
@@ -734,11 +705,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         folly::Future<std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>>
         futures;
 
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this,
@@ -782,10 +749,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             before_write_lock_ts;
                         auto* pool = kv_store_.pool_by(shard_id);
 
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto& id_index = *index_iter;
+                        for (const auto& id_index : indexes) {
                           auto id = int64_t(indices_data_ptr[id_index]);
                           float engege_rate = float(engage_rate_ptr[id_index]);
                           // use mempool
@@ -823,12 +787,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         }
                       }
                     });
-                return std::make_tuple(
+                return std::tuple{
                     updated_id_count,
                     local_write_allocate_total_duration,
                     local_write_lookup_cache_total_duration,
                     local_write_acquire_lock_duration,
-                    local_write_cache_miss);
+                    local_write_cache_miss};
               }));
     }
     return folly::collect(std::move(futures))
@@ -846,12 +810,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           int64_t write_lookup_cache_total_duration = 0;
           int64_t write_acquire_lock_total_duration = 0;
           int64_t write_cache_miss = 0;
-          for (const auto& tup : results) {
-            total_updated_ids += std::get<0>(tup);
-            write_allocate_total_duration += std::get<1>(tup);
-            write_lookup_cache_total_duration += std::get<2>(tup);
-            write_acquire_lock_total_duration += std::get<3>(tup);
-            write_cache_miss += std::get<4>(tup);
+          for (
+              const auto& [updated_ids, allocate_dur, lookup_cache_dur, acquire_lock_dur, cache_miss] :
+              results) {
+            total_updated_ids += updated_ids;
+            write_allocate_total_duration += allocate_dur;
+            write_lookup_cache_total_duration += lookup_cache_dur;
+            write_acquire_lock_total_duration += acquire_lock_dur;
+            write_cache_miss += cache_miss;
           }
           auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
           metadata_write_total_duration_ += duration;
@@ -908,11 +874,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     read_sharding_total_duration_ +=
         facebook::WallClockUtil::NowInUsecFast() - before_shard_ts;
 
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this,
@@ -975,10 +937,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             init_storage.template data_ptr<weight_type>();
                       }
                       {
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto weights_row_index = *index_iter;
+                        for (const auto& weights_row_index : indexes) {
                           auto weight_idx =
                               int64_t(indices_data_ptr[weights_row_index]);
                           auto before_lookup_cache_ts =
@@ -1026,48 +985,51 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         }
                       }
                     });
-                return std::make_tuple(
+                return std::tuple{
                     local_read_lookup_cache_total_duration,
                     local_read_fill_row_storage_total_duration,
                     local_read_cache_hit_copy_total_duration,
                     local_read_aquire_lock_duration,
-                    local_read_missing_load);
+                    local_read_missing_load};
               }));
     }
 
     return folly::collect(std::move(futures))
         .via(executor_.get())
-        .thenValue(
-            [this, start_ts](
-                const std::vector<
-                    std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
-                    results) {
-              int64_t read_lookup_cache_total_duration = 0;
-              int64_t read_fill_row_storage_total_duration = 0;
-              int64_t read_cache_hit_copy_total_duration = 0;
-              int64_t read_acquire_lock_total_duration = 0;
-              int64_t read_missing_load = 0;
-              for (const auto& tup : results) {
-                read_lookup_cache_total_duration += std::get<0>(tup);
-                read_fill_row_storage_total_duration += std::get<1>(tup);
-                read_cache_hit_copy_total_duration += std::get<2>(tup);
-                read_acquire_lock_total_duration += std::get<3>(tup);
-                read_missing_load += std::get<4>(tup);
-              }
-              auto duration =
-                  facebook::WallClockUtil::NowInUsecFast() - start_ts;
-              read_total_duration_ += duration;
-              read_cache_hit_copy_avg_duration_ +=
-                  read_cache_hit_copy_total_duration / num_shards_;
-              read_fill_row_storage_avg_duration_ +=
-                  read_fill_row_storage_total_duration / num_shards_;
-              read_lookup_cache_total_avg_duration_ +=
-                  read_lookup_cache_total_duration / num_shards_;
-              read_acquire_lock_avg_duration_ +=
-                  read_acquire_lock_total_duration / num_shards_;
-              read_missing_load_avg_ += read_missing_load / num_shards_;
-              return std::vector<folly::Unit>(results.size());
-            });
+        .thenValue([this, start_ts](
+                       const std::vector<std::tuple<
+                           int64_t,
+                           int64_t,
+                           int64_t,
+                           int64_t,
+                           int64_t>>& results) {
+          int64_t read_lookup_cache_total_duration = 0;
+          int64_t read_fill_row_storage_total_duration = 0;
+          int64_t read_cache_hit_copy_total_duration = 0;
+          int64_t read_acquire_lock_total_duration = 0;
+          int64_t read_missing_load = 0;
+          for (
+              const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load] :
+              results) {
+            read_lookup_cache_total_duration += lookup_cache_dur;
+            read_fill_row_storage_total_duration += fill_row_storage_dur;
+            read_cache_hit_copy_total_duration += cache_hit_copy_dur;
+            read_acquire_lock_total_duration += acquire_lock_dur;
+            read_missing_load += missing_load;
+          }
+          auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+          read_total_duration_ += duration;
+          read_cache_hit_copy_avg_duration_ +=
+              read_cache_hit_copy_total_duration / num_shards_;
+          read_fill_row_storage_avg_duration_ +=
+              read_fill_row_storage_total_duration / num_shards_;
+          read_lookup_cache_total_avg_duration_ +=
+              read_lookup_cache_total_duration / num_shards_;
+          read_acquire_lock_avg_duration_ +=
+              read_acquire_lock_total_duration / num_shards_;
+          read_missing_load_avg_ += read_missing_load / num_shards_;
+          return std::vector<folly::Unit>(results.size());
+        });
   };
 
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
@@ -1421,10 +1383,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             }
 
             const auto shard_id = kv_db_utils::hash_shard(index, num_shards_);
-
-            if (shardid_to_indexes.find(shard_id) == shardid_to_indexes.end()) {
-              shardid_to_indexes[shard_id] = std::vector<int64_t>();
-            }
             shardid_to_indexes[shard_id].push_back(i);
           }
         });
@@ -1586,18 +1544,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) {
-    std::vector<folly::Future<folly::Unit>> futures;
     auto row_width = weights_with_metaheader.size(1);
     auto copy_width = width_length.value_or(row_width);
     CHECK_LE(row_width, block_size_);
     CHECK_EQ(copy_width, row_width);
     auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(shardid_to_indexes.size());
 
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
               .thenValue([this,
@@ -1627,10 +1582,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       auto weights_data_ptr =
                           weights_with_metaheader.data_ptr<weight_type>();
                       {
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto weights_row_index = *index_iter;
+                        for (const auto& weights_row_index : indexes) {
                           auto weight_idx =
                               int64_t(indices_data_ptr[weights_row_index]);
                           const auto cached_iter = wlmap->find(weight_idx);
@@ -1661,7 +1613,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       }
                     });
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     return folly::collect(futures);
   }
@@ -1684,13 +1636,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights_with_metaheader,
       const at::Tensor& count) {
-    std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
-    for (auto iter = shardid_to_indexes.begin();
-         iter != shardid_to_indexes.end();
-         iter++) {
-      const auto shard_id = iter->first;
-      const auto indexes = iter->second;
+    std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(shardid_to_indexes.size());
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
               .thenValue([this,
@@ -1718,10 +1667,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         auto indices_data_ptr = indices.data_ptr<index_t>();
                         auto weights_data_ptr =
                             weights_with_metaheader.data_ptr<weight_type>();
-                        for (auto index_iter = indexes.begin();
-                             index_iter != indexes.end();
-                             index_iter++) {
-                          const auto& id_index = *index_iter;
+                        for (const auto& id_index : indexes) {
                           auto id = int64_t(indices_data_ptr[id_index]);
                           // Defensive programming
                           // used is false shouldn't occur under normal
@@ -1767,7 +1713,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       }
                     });
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     return folly::collect(futures);
   }
