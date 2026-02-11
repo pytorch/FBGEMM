@@ -42,7 +42,7 @@ memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
     auto startInsert = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < numInserts; i++) {
       float* arr = alloc.allocate(dimension);
-      std::ranges::copy(fixedEmbedding, arr);
+      std::copy(fixedEmbedding.begin(), fixedEmbedding.end(), arr);
       wlock->insert_or_assign(i, arr);
     }
     auto endInsert = std::chrono::high_resolution_clock::now();
@@ -101,7 +101,7 @@ memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
     for (size_t i = 0; i < numInserts; i++) {
       auto* block = pool->allocate_t<float>();
       auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
-      std::ranges::copy(fixedEmbedding, data_ptr);
+      std::copy(fixedEmbedding.begin(), fixedEmbedding.end(), data_ptr);
       wlock->insert_or_assign(i, block);
     }
     auto endInsert = std::chrono::high_resolution_clock::now();
@@ -160,7 +160,7 @@ void memPoolEmbeddingMemSize(int dimension, size_t numInserts) {
     for (size_t i = 0; i < numInserts; i++) {
       auto* block = pool->allocate_t<float>();
       auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
-      std::ranges::copy(fixedEmbedding, data_ptr);
+      std::copy(fixedEmbedding.begin(), fixedEmbedding.end(), data_ptr);
       wlock->insert_or_assign(i, block);
     }
   }

@@ -628,7 +628,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
     auto* block = pool->allocate_t<float>();
     auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
     FixedBlockPool::set_key(block, i);
-    std::ranges::copy(weight1, data_ptr);
+    std::copy(weight1.begin(), weight1.end(), data_ptr);
     FixedBlockPool::set_used(block, true);
     wlock->insert({i, block});
   }
@@ -640,7 +640,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
     auto* block = pool->allocate_t<float>();
     auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
     FixedBlockPool::set_key(block, i);
-    std::ranges::copy(weight2, data_ptr);
+    std::copy(weight2.begin(), weight2.end(), data_ptr);
     FixedBlockPool::set_used(block, true);
     wlock->insert({i, block});
   }

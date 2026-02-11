@@ -30,7 +30,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
 
-  const auto n = dim_sum_per_rank.size();
+  int n = dim_sum_per_rank.size();
   std::vector<int64_t> accum_dim_sum(n + 1);
   accum_dim_sum[0] = 0;
   std::partial_sum(
