@@ -293,9 +293,14 @@ class BackwardAdagradTest(unittest.TestCase):
         # Use a smaller batch size for testing to reduce memory usage (otherwise OOM)
         test_batch_size = min(batch_size, 512)
         L = 10 if test_batch_size < batch_size else 2
+        config_idx = os.environ.get("TBE_CONFIG_INDEX", None)
         max_config = os.environ.get("TBE_MAX_CONFIG", "5")
         max_config = int(max_config) if max_config != "all" else -1
-        configs_to_test = tbe_configs[:max_config]
+        configs_to_test = (
+            tbe_configs[:max_config]
+            if config_idx is None
+            else [tbe_configs[int(config_idx)]]
+        )
 
         total_start_time = time.perf_counter()
         end_time = total_start_time

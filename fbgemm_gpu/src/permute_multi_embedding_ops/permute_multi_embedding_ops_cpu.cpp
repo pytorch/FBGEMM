@@ -13,6 +13,7 @@
 namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
+using torch::autograd::AutogradContext;
 using torch::autograd::variable_list;
 
 std::vector<Tensor> permute_multi_embedding_function_cpu(
@@ -33,7 +34,7 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
   int32_t B = pooled_embs[0].size(0);
   std::vector<Tensor> outputs;
   outputs.reserve(out_lengths.size());
-  const auto* lengths = out_lengths.data();
+  const auto lengths = reinterpret_cast<const int64_t*>(out_lengths.data());
   for (const auto i : c10::irange(out_lengths.size())) {
     outputs.push_back(at::empty({B, lengths[i]}, pooled_embs[0].options()));
     TORCH_CHECK(outputs[i].is_contiguous());
@@ -272,8 +273,8 @@ kt_regroup_arguments_meta(
     const std::vector<std::vector<std::string>>& keys,
     const std::vector<std::vector<int64_t>>& lengths,
     const std::vector<std::vector<std::string>>& groups) {
-  const auto in_tensors = static_cast<int32_t>(keys.size());
-  const auto out_tensors = static_cast<int32_t>(groups.size());
+  const int32_t in_tensors = keys.size();
+  const int32_t out_tensors = groups.size();
   int32_t out_num = 0; // total number of features in the output KTs
   for (auto i : c10::irange(out_tensors)) {
     out_num += groups[i].size();
@@ -291,7 +292,7 @@ kt_regroup_arguments_meta(
     }
   }
 
-  int64_t* __restrict__ olp = out_lengths.data();
+  int64_t* __restrict__ olp = reinterpret_cast<int64_t*>(out_lengths.data());
   for (auto i : c10::irange(out_tensors)) {
     for (auto j : c10::irange(groups[i].size())) {
       auto length = lookup.at(groups[i][j]);

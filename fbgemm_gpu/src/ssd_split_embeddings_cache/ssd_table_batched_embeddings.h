@@ -10,9 +10,6 @@
 
 #include <iostream>
 #include <memory>
-#include <ranges>
-
-#include <c10/util/irange.h>
 
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
@@ -761,7 +758,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto key_ptr = returned_keys.data_ptr<int64_t>();
     int64_t offset = 0;
     for (const auto& keys : keys_in_db_shards) {
-      std::ranges::copy(keys, &key_ptr[offset]);
+      std::copy(keys.begin(), keys.end(), &key_ptr[offset]);
       offset += keys.size();
     }
     return returned_keys;
@@ -985,7 +982,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       return max_D_;
     }
     auto index = *reinterpret_cast<const int64_t*>(index_slice.data());
-    for (const auto i : c10::irange(sub_table_hash_cumsum_.size())) {
+    for (int i = 0; i < sub_table_hash_cumsum_.size(); i++) {
       if (index < sub_table_hash_cumsum_[i]) {
         return sub_table_dims_[i];
       }
@@ -1248,8 +1245,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                               return;
                             }
 
-                            std::ranges::sort(
-                                key_indices, [&](int32_t lhs, int32_t rhs) {
+                            std::sort(
+                                key_indices.begin(),
+                                key_indices.end(),
+                                [&](int32_t lhs, int32_t rhs) {
                                   auto lhs_key = indices_data_ptr[lhs];
                                   auto rhs_key = indices_data_ptr[rhs];
                                   return lhs_key < rhs_key;
@@ -1659,8 +1658,10 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
                               return;
                             }
 
-                            std::ranges::sort(
-                                key_indices, [&](int32_t lhs, int32_t rhs) {
+                            std::sort(
+                                key_indices.begin(),
+                                key_indices.end(),
+                                [&](int32_t lhs, int32_t rhs) {
                                   auto lhs_key = indices_data_ptr[lhs];
                                   auto rhs_key = indices_data_ptr[rhs];
                                   return lhs_key < rhs_key;

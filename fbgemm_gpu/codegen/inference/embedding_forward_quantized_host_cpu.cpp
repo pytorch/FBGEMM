@@ -119,7 +119,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
         max_float8_D ? *max_float8_D : 0,
         max_float16_D,
         max_float32_D};
-    int64_t max_D = std::ranges::max(max_D_list);
+    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
     return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
         std::move(dev_weights),
         std::move(uvm_weights),
