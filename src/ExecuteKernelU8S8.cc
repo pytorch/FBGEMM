@@ -218,7 +218,7 @@ void ExecuteKernel<
   auto t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  for (int64_t jb = jb_begin; jb < jb_end; ++jb) {
+  for (int jb = jb_begin; jb < jb_end; ++jb) {
     if (jb == bColBlocks - 1) {
       int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
       if (nc != nbSize_) {
@@ -358,7 +358,7 @@ void ExecuteKernel<
               C_tile_.data(),
               {row_start_A,
                packed_rows_A,
-               static_cast<int>(NDim * group + jb * nbSize_),
+               NDim * group + jb * nbSize_,
                packedB_.lastBcol()},
               ldc_,
               leadingDim);
