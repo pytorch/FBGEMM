@@ -12,6 +12,7 @@ from enum import IntEnum
 # pyre-ignore[21]
 import fbgemm_gpu  # noqa: F401
 import torch
+from hypothesis import given, settings, strategies as st
 
 # check if we are in open source env to decide how to import necessary modules
 try:
@@ -1910,3 +1911,79 @@ class FasterHashTest(unittest.TestCase):
         output_item_first_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
         output_item_second_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
         self.assertTrue(torch.equal(output_item_first_round, output_item_second_round))
+
+    @skipIfRocm("The CUDA kernel is not supported on ROCm")
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(deadline=None)
+    # pyre-ignore [56]
+    @given(
+        eviction_policy=st.sampled_from(
+            [
+                HashZchKernelEvictionPolicy.LRU_EVICTION,
+                HashZchKernelEvictionPolicy.THRESHOLD_EVICTION,
+            ]
+        )
+    )
+    def test_eviction_updates_most_recent(self, eviction_policy: int) -> None:
+        """
+        This test is to verify that when the input/input_metadata is not the most recent,
+        then it doesn't overwrite the most recent from identities/metadata.
+
+        This test creates a simple example to do this.
+        """
+        max_probe = 2
+        identities, metadata = torch.ops.fbgemm.create_zch_buffer(
+            10,
+            support_evict=True,
+            long_type=True,
+            device=torch.accelerator.current_accelerator(),
+        )
+        # The input to be looked
+        input_ids = torch.tensor(
+            [10, 4, 8, 83, 42, 14, 12, 26, 0, 6],
+            dtype=torch.int64,
+            device=torch.accelerator.current_accelerator(),
+        )
+        input_md = torch.tensor(
+            [2, 14, 9, 1, 20, 10, 2, 4, 103, 203],
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator(),
+        )
+        # Replace 83 in input_ids with 20000 with high metadata val
+        #   so when inserting 83 it can either replace 20000 or 42, but
+        #   their metadata (491802 & 20) is greater than metadata 1 of 83.
+        #   so 83 should not be added
+        # In addition, replace index 0 [10] metadata to [200], to make
+        #   sure that the above input [10] with MD [2] doesn't replace 200.
+        identities = torch.tensor(
+            [[10], [4], [8], [20000], [42], [14], [12], [26], [0], [6]],
+            dtype=torch.int64,
+            device=torch.accelerator.current_accelerator(),
+        )
+        metadata = torch.tensor(
+            [[200], [14], [9], [491802], [20], [10], [2], [4], [103], [203]],
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator(),
+        )
+        old_metadata = metadata.clone()
+
+        remapped_ids, evictions = torch.ops.fbgemm.zero_collision_hash(
+            input=input_ids,
+            input_metadata=input_md,
+            identities=identities,
+            metadata=metadata,
+            max_probe=max_probe,
+            circular_probe=True,
+            exp_hours=-1,
+            readonly=False,
+            disable_fallback=True,
+            eviction_threshold=100,
+            eviction_policy=eviction_policy,
+        )
+
+        # Assert that 83 should not be in identities
+        self.assertTrue(torch.any(remapped_ids == -1))
+        self.assertTrue(torch.all(identities != 83))
+        # Assert that the metadata got updated to be the most recent, e.g. for id=10
+        self.assertTrue(torch.all(metadata >= old_metadata))
+        self.assertTrue(evictions.numel() == 0)

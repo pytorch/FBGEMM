@@ -80,7 +80,7 @@ __device__ __inline__ void update_metadata_lru<1>(
     int32_t val,
     int32_t* process_lock) {
   // These should be atomic as we release process lock as last step
-  atomicExch(metadata + output_index, val);
+  atomicMax(metadata + output_index, val);
   // Release process lock from index
   atomicExch(process_lock + output_index, kDefaultTensor);
 }
@@ -102,7 +102,8 @@ __device__ __inline__ int64_t check_min(
         2,
         at::RestrictPtrTraits> /* identities */,
     TIdentity& /* min_slot_identity */,
-    int32_t /* eviction_threshold */) {
+    int32_t /* eviction_threshold */,
+    int32_t /* metadata_input_val */) {
   static_assert(METADATA_COUNT == 0);
   // For inference, we keep the same min_index until the ID is found.
   return min_index;
@@ -122,7 +123,8 @@ __device__ __inline__ int64_t check_min(
     int32_t* process_lock,
     at::PackedTensorAccessor64<TIdentity, 2, at::RestrictPtrTraits> identities,
     TIdentity& min_slot_identity,
-    int32_t eviction_threshold) {
+    int32_t eviction_threshold,
+    int32_t metadata_input_val) {
   static_assert(METADATA_COUNT == 1);
   // There could be a case, one id has already occupy the slot,
   // and last update hour is not written yet, while the other id checking the
@@ -139,7 +141,10 @@ __device__ __inline__ int64_t check_min(
   }
 
   // only check those expired slots
-  if (eviction_threshold > last_seen && min_hours > last_seen) {
+  bool threshold_met = (eviction_threshold > last_seen);
+  bool oldest_seen_hour = (min_hours > last_seen);
+  bool is_recent_to_input = (last_seen < metadata_input_val);
+  if (threshold_met && oldest_seen_hour && is_recent_to_input) {
     // Try to lock index for thread
     auto old_pid =
         atomicCAS(process_lock + insert_idx, kDefaultTensor, process_index);
@@ -169,7 +174,8 @@ template <int32_t METADATA_COUNT>
 __device__ __inline__ bool check_evict(
     int32_t* /* metadata */,
     int64_t /* output_index */,
-    int32_t /* eviction_threshold */) {
+    int32_t /* eviction_threshold */,
+    int32_t /* metadata_val */) {
   static_assert(METADATA_COUNT != 1);
   return false;
 }
@@ -178,7 +184,8 @@ template <>
 __device__ __inline__ bool check_evict<1>(
     int32_t* metadata,
     int64_t output_index,
-    int32_t eviction_threshold) {
+    int32_t eviction_threshold,
+    int32_t metadata_val) {
   // In rare case, one id may have already occupied the slot but its metadata
   // has not been written yet, while the other id checking the slot's eviction
   // status. Therefore, wait until the metadata is not -1.
@@ -190,8 +197,9 @@ __device__ __inline__ bool check_evict<1>(
       break;
     }
   }
-
-  return eviction_threshold > identity_metadata;
+  bool is_more_recent = (identity_metadata < metadata_val);
+  bool threshold_met = (eviction_threshold > identity_metadata);
+  return threshold_met && is_more_recent;
 }
 
 template <bool READONLY, typename TIdentity>
@@ -369,7 +377,7 @@ __global__ void process_item_zch(
 
       if (identity_slot == -1 &&
           check_evict<METADATA_COUNT>(
-              metadata, insert_idx, eviction_threshold)) {
+              metadata, insert_idx, eviction_threshold, metadata_val)) {
         auto current_slot_value =
             CAS<TIdentity>(&identities[insert_idx][0], old_value, identity);
         if (current_slot_value == old_value || current_slot_value == identity) {
@@ -495,7 +503,8 @@ __global__ void process_item_zch(
           process_lock,
           identities,
           min_slot_identity,
-          eviction_threshold);
+          eviction_threshold,
+          metadata_val);
 
       output_index = next_output_index<CIRCULAR_PROBE>(
           output_index, modulo, max_probe_local);
@@ -509,6 +518,7 @@ __global__ void process_item_zch(
         //  1. Hashes are concentrated in a probing distance
         //  2. Probing distance is too small
         //  3. in eval mode, can't find the identity in probing distance
+        //  4. if incoming item is more stale than entire probe distance
         if constexpr (DISABLE_FALLBACK) {
           output_index = -1;
           offset = 0;
