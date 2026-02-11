@@ -70,6 +70,28 @@ at::Tensor jagged_to_padded_dense_forward(
   return padded_values;
 }
 
+at::Tensor jagged_to_padded_dense_forward_tensor_max_lengths(
+    const Tensor& values,
+    const std::vector<Tensor>& offsets,
+    const Tensor& max_lengths,
+    const double padding_value) {
+  TORCH_CHECK(max_lengths.dim() == 1, "max_lengths must be a 1-D tensor");
+  TORCH_CHECK(
+      max_lengths.scalar_type() == at::kLong,
+      "max_lengths must be int64 dtype");
+  Tensor max_lengths_cpu =
+      max_lengths.is_cpu() ? max_lengths : max_lengths.cpu();
+  const auto* data = max_lengths_cpu.data_ptr<int64_t>();
+  const int64_t n = max_lengths_cpu.size(0);
+  std::vector<at::SymInt> max_lengths_vec;
+  max_lengths_vec.reserve(n);
+  for (int64_t i = 0; i < n; ++i) {
+    max_lengths_vec.emplace_back(data[i]);
+  }
+  return jagged_to_padded_dense_forward(
+      values, offsets, max_lengths_vec, padding_value);
+}
+
 std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
     Tensor values,
     Tensor lengths,
@@ -391,6 +413,10 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "jagged_to_padded_dense_forward",
     fbgemm_gpu::jagged_to_padded_dense_forward);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "jagged_to_padded_dense_forward.tensor_max_lengths",
+    fbgemm_gpu::jagged_to_padded_dense_forward_tensor_max_lengths);
 FBGEMM_OP_DISPATCH(
     CUDA,
     "stacked_jagged_1d_to_dense",
