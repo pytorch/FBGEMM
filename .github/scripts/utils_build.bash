@@ -153,7 +153,7 @@ __conda_install_gcc () {
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
 
-  if [ "$SET_GLIBCXX_PRELOAD" == "1" ]; then
+  if [ "${SET_GLIBCXX_PRELOAD:-}" == "1" ]; then
     # Set libstdc++ preload options
     __set_glibcxx_preload
   fi
