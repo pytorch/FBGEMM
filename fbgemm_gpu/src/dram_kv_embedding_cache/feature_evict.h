@@ -1129,7 +1129,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         should_evict = std::abs(overall_ratio) < EPSILON;
         break;
       case EvictMode::THRESHOLD:
-        should_evict = overall_ratio < threshold;
+        should_evict = overall_ratio <= threshold;
         break;
       default:
         LOG(ERROR) << "Invalid evict mode";

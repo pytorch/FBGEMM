@@ -227,7 +227,8 @@ std::tuple<Tensor, Tensor> zero_collision_hash_meta(
     int64_t /* eviction_policy */,
     int64_t /* opt_in_prob */,
     int64_t /* num_reserved_slots */,
-    const std::optional<Tensor>& /* opt_in_rands */) {
+    const std::optional<Tensor>& /* opt_in_rands */,
+    const std::optional<Tensor>& /*runtime_meta*/) {
   auto evcit_slots = at::zeros_symint({0}, input.options());
   return {input, evcit_slots};
 }
@@ -347,7 +348,8 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cpu(
     int64_t /* eviction_policy */,
     int64_t opt_in_prob,
     int64_t num_reserved_slots,
-    const std::optional<Tensor>& opt_in_rands) {
+    const std::optional<Tensor>& opt_in_rands,
+    const std::optional<Tensor>& runtime_meta) {
   TORCH_CHECK(exp_hours == -1);
   TORCH_CHECK(readonly);
   TORCH_CHECK(metadata.has_value() == false);
@@ -505,7 +507,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "int eviction_policy=0, "
       "int opt_in_prob=-1, "
       "int num_reserved_slots=-1, "
-      "Tensor? opt_in_rands=None "
+      "Tensor? opt_in_rands=None, "
+      "Tensor? runtime_meta=None"
       ") -> (Tensor, Tensor)");
 
   // define the
@@ -575,7 +578,8 @@ REGISTER_NATIVE_OPERATOR_FUNCTOR(
                   "int eviction_policy=0, "
                   "int opt_in_prob=-1, "
                   "int num_reserved_slots=-1, "
-                  "Tensor? opt_in_rands=None"
+                  "Tensor? opt_in_rands=None,"
+                  "Tensor? runtime_meta=None"
                   ") -> (Tensor, Tensor)"))) {
         LogAndDumpSchema(n);
         return nullptr;
