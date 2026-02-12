@@ -47,7 +47,7 @@ __set_cuda_symlinks_envvars () {
 
   # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
   # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+  if [ "${ADD_LIBCUDA_SYMLINK:-}" == "1" ]; then
     echo "[INSTALL] Setting up symlink to libcuda.so.1"
     print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
   fi
@@ -58,7 +58,7 @@ __set_cuda_symlinks_envvars () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${libnvml_path}"
 
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+  if [ "${ADD_LIBCUDA_SYMLINK:-}" == "1" ]; then
     echo "[INSTALL] Setting up symlink to libnvidia-ml.so.1"
     print_exec ln "${libnvml_path}" -s "${conda_prefix}/lib/libnvidia-ml.so.1"
   fi
