@@ -78,7 +78,7 @@ __conda_install_glibc () {
   #   https://stackoverflow.com/questions/72540359/glibcxx-3-4-30-not-found-for-librosa-in-conda-virtual-environment-after-tryin
   if [[ ${gcc_version_arr[0]} -lt 12 ]]; then
     # shellcheck disable=SC2155
-    local glibc_version="${GLIBC_VERSION:-2.17}"
+    local glibc_version="${GLIBC_VERSION:-2.28}"
     # shellcheck disable=SC2086
     (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
       "sysroot_linux-${COMPILER_ARCHNAME}=${glibc_version}") || return 1
