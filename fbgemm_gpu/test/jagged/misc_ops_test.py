@@ -95,7 +95,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype=st.sampled_from([torch.int, torch.long]),
         jagged_tensor_dtype=st.sampled_from([torch.int, torch.long]),
         empty_lengths=st.booleans(),
-        use_cpu=st.just(True),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(max_examples=20, deadline=None)
     def test_masked_select_jagged_1d(
@@ -118,7 +118,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 dtype=index_dtype,
                 device=device,
             )
-        lengths[batch_size // 2] = 0  # test a corner case
+        lengths[batch_size // 2] = 0
         n = int(lengths.sum().item())
         values = torch.randint(
             2**16,
@@ -126,7 +126,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             dtype=jagged_tensor_dtype,
             device=device,
         )
-        mask = torch.randint(2, (n,)) > 0
+        mask = torch.randint(2, (n,), device=device) > 0
 
         masked_values, masked_lengths = torch.ops.fbgemm.masked_select_jagged_1d(
             values,
@@ -136,7 +136,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         masked_values_ref = values[mask]
         cum_count = torch.cumsum(mask, 0)
-        cum_count = torch.cat((cum_count, torch.tensor([0])))
+        cum_count = torch.cat((cum_count, torch.tensor([0], device=device)))
         cum_length = cum_count[torch.cumsum(lengths, 0) - 1]
         cum_length_shift_right = torch.roll(cum_length, 1)
         cum_length_shift_right[0] = 0
@@ -148,33 +148,37 @@ class JaggedTensorOpsTest(unittest.TestCase):
     def test_masked_select_jagged_1d_invalid_mask(
         self,
     ) -> None:
-        lengths = torch.randint(
-            low=0,
-            high=100,
-            size=(1,),
-            dtype=torch.int,
-            device="cpu",
-        )
-        N = int(lengths.sum().item())
-        values = torch.randint(
-            2**16,
-            (N,),
-            dtype=torch.int,
-            device="cpu",
-        )
-        # Use a broken mask that is greater than values.numel()
-        mask = torch.randint(2, (N + 10,)) > 0
-
-        with self.assertRaisesRegex(
-            RuntimeError,
-            r"mask and values should have the same numel, but got mask numel: .+ values numel: .+",
-        ):
-            torch.ops.fbgemm.masked_select_jagged_1d(
-                values,
-                lengths,
-                mask,
-                True,
+        devices = ["cpu"]
+        if torch.cuda.is_available():
+            devices.append("cuda")
+        for device in devices:
+            lengths = torch.randint(
+                low=0,
+                high=100,
+                size=(1,),
+                dtype=torch.int,
+                device=device,
             )
+            N = int(lengths.sum().item())
+            values = torch.randint(
+                2**16,
+                (N,),
+                dtype=torch.int,
+                device=device,
+            )
+            # Use a broken mask that is greater than values.numel()
+            mask = torch.randint(2, (N + 10,), device=device) > 0
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"mask and values should have the same numel, but got mask numel: .+ values numel: .+",
+            ):
+                torch.ops.fbgemm.masked_select_jagged_1d(
+                    values,
+                    lengths,
+                    mask,
+                    True,
+                )
 
     @given(
         B=st.integers(1, 512),
