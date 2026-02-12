@@ -20,6 +20,8 @@
 __verify_pytorch_gpu_integration () {
   echo "[CHECK] Verifying PyTorch device properties ..."
   # shellcheck disable=SC2086,SC2155
+  local torch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
+  # shellcheck disable=SC2086,SC2155
   local torch_cuda_available=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.is_available())")
   # shellcheck disable=SC2086,SC2155
   local torch_version_cuda=$(conda run ${env_prefix} python -c "import torch; print(torch.version.cuda)")
@@ -32,6 +34,7 @@ __verify_pytorch_gpu_integration () {
 
   echo ""
   echo "################################################################################"
+  echo "[CHECK] torch.__version__: ${torch_version}"
   echo "[CHECK] torch.cuda.is_available(): ${torch_cuda_available}"
   echo "[CHECK] torch.cuda.get_device_capability(): ${torch_device_compatibility}"
   echo "[CHECK] torch.cuda.get_device_name(): ${torch_device_name}"
