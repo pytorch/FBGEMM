@@ -28,15 +28,21 @@ from .common import (
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, optests
+    from test_utils import gpu_available, optests, running_on_github
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, optests
+    from fbgemm_gpu.test.test_utils import gpu_available, optests, running_on_github
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 torch.ops.import_module("fbgemm_gpu.sparse_ops")
 
 no_long_tests: bool = False
+
+
+is_rocm_and_github: tuple[bool, str] = (
+    torch.version.hip is not None and running_on_github[0],
+    "Since torch nightly/2.11.0.dev20260204, certain ROCm tests fail on Github but not other OSS environments",
+)
 
 
 @optests.generate_opcheck_tests(fast=True)
@@ -50,6 +56,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         is_half=st.booleans(),
         test_float_or_half_op=st.booleans(),
     )
+    @unittest.skipIf(*is_rocm_and_github)
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_op(
         self,
@@ -336,6 +343,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         ),
         test_generic_op=st.booleans(),
     )
+    @unittest.skipIf(*is_rocm_and_github)
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op_cpu(  # noqa: C901
         self,

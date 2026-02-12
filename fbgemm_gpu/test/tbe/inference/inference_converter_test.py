@@ -43,9 +43,13 @@ from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, on_arm_platform
+    from test_utils import gpu_available, on_arm_platform, running_in_oss
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, on_arm_platform
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        on_arm_platform,
+        running_in_oss,
+    )
 
 EMB_WEIGHT_UNIFORM_INIT_BOUND = 0.000316
 MAX_EXAMPLES = 40
@@ -248,12 +252,18 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         use_array_for_index_remapping=st.booleans(),
         quantize_type=st.sampled_from(
             [
-                SparseType.FP32,
-                SparseType.FP16,
                 SparseType.INT8,
                 SparseType.INT4,
                 SparseType.INT2,
             ]
+            + (
+                []
+                if running_in_oss[0]
+                else [
+                    SparseType.FP32,
+                    SparseType.FP16,
+                ]
+            )
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
