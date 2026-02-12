@@ -49,7 +49,7 @@ elif [[ "$BUILD_VARIANT" == "cuda" ]]; then
 echo "BUILD_CUDA_VERSION        : $BUILD_CUDA_VERSION"
 fi
 echo ""
-echo "Target Conda Enviroment   : $BUILD_ENV"
+echo "Target Conda Environment   : $BUILD_ENV"
 echo ""
 echo "################################################################################"
 
@@ -67,7 +67,7 @@ else
   setup_miniconda "$HOME/miniconda" || exit 1
 fi
 
-# Set up the Conda enviroment for building the package
+# Set up the Conda environment for building the package
 echo "[FBGEMM_GPU CI] Setting up the conda environment ..."
 integration_setup_conda_environment "$BUILD_ENV" gcc "$PYTHON_VERSION" "$PYTORCH_VERSION" "$BUILD_VARIANT/$BUILD_VARIANT_VERSION" || exit 1
 

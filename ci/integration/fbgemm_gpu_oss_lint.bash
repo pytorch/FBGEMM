@@ -25,7 +25,7 @@ echo "REPO_ROOT                 : $REPO_ROOT"
 echo ""
 echo "PYTHON_VERSION            : $PYTHON_VERSION"
 echo ""
-echo "Target Conda Enviroment   : $BUILD_ENV"
+echo "Target Conda Environment   : $BUILD_ENV"
 echo ""
 echo "################################################################################"
 
@@ -45,7 +45,7 @@ else
   setup_miniconda "$HOME/miniconda" || exit 1
 fi
 
-# Set up the Conda enviroment for building the package
+# Set up the Conda environment for building the package
 echo "[FBGEMM_GPU CI] Setting up the conda environment ..."
 create_conda_environment "$BUILD_ENV" "$PYTHON_VERSION" || exit 1
 
