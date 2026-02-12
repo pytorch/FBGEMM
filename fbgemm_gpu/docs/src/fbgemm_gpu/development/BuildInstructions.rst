@@ -263,7 +263,7 @@ symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
 
   conda install -n ${env_name} -c conda-forge --override-channels -y \
     gxx_linux-64=${gcc_version} \
-    sysroot_linux-64=2.17
+    sysroot_linux-64=2.28
 
 While newer versions of GCC can be used, binaries compiled under newer versions
 of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
