@@ -201,6 +201,12 @@ for (const auto t : c10::irange(num_tables)) {
       // no fbgemm
       // TODO: to parallelize, we should easily identify segments belong to
       // the same column.
+
+      {%- for tensor in args.split_tensors %}
+      const int64_t {{ tensor }}_offset = {{ tensor }}_offsets[feature_begin];
+      [[maybe_unused]] {{ args.split_tensor_types[tensor] }}* {{ tensor }} = &{{ tensor }}_host[{{ tensor }}_offset];
+      {%- endfor %}
+
       at::acc_type<grad_t, true> grad_buffer[D];
       for (const auto c : c10::irange(num_non_zero_columns)) {
         int64_t idx = col_segment_indices[c];
@@ -208,14 +214,14 @@ for (const auto t : c10::irange(num_tables)) {
           memset(grad_buffer, 0, D * sizeof(at::acc_type<grad_t, true>));
         }
         [[maybe_unused]] const int64_t embedding_begin = table_begin + idx * D;
-        
+
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
           int D_offset = D_begin;
           if (is_shared_table) {
             D_offset += cscs[t].column_segment_ids[r] * D;
           }
           int b = cscs[t].row_indices[r];
-          
+
           for (const auto d : c10::irange(D)) {
             if (cscs[t].weights != nullptr) {
               grad_buffer[d] += grad_output_data[b * grad_stride + D_offset + d] *
@@ -226,6 +232,7 @@ for (const auto t : c10::irange(num_tables)) {
           }
         }
         if (c == num_non_zero_columns - 1 || col_segment_indices[c + 1] != idx) {
+          [[maybe_unused]] auto weights = &host_weights_data[embedding_begin];
           {{ split_weight_update_cpu }}
         }
       } // for each c
@@ -258,13 +265,13 @@ void split_embedding_nobag_backward_exact_cpu_kernel(
       const auto indices_data = indices.const_data_ptr<index_t>();
       const auto offsets_data = offsets.const_data_ptr<index_t>();
       const auto weights_offsets_data = weights_offsets.const_data_ptr<int64_t>();
-     
+
       using tb_grad_buffer_map_t = std::unordered_map<int64_t, std::vector<at::acc_type<grad_t, true>>>;
       using tb_fb_map_t = std::unordered_map<int64_t, int64_t>;
 
       std::unordered_map<index_t, tb_grad_buffer_map_t> idx_tb_grad_buffer;
       std::unordered_map<index_t, tb_fb_map_t> idx_tb_fb;
-      
+
       int64_t T = weights_offsets.size(0);
       for (const auto t : c10::irange(T)) {
         int64_t hash_size = 0;
@@ -273,54 +280,59 @@ void split_embedding_nobag_backward_exact_cpu_kernel(
           hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
           ++t_temp;
         } while (hash_size == 0);
-        
+
         [[maybe_unused]] const auto feature_begin = t;
         [[maybe_unused]] const auto table_begin = weights_offsets_data[feature_begin];
         bool success = true;
-        
+
         for (const auto b : c10::irange(B)) {
           const auto indices_start = offsets_data[t * B + b];
           const auto indices_end = offsets_data[t * B + b + 1];
-          
+
           for (auto i = indices_start; i < indices_end; ++i) {
             const auto idx = indices_data[i];
             if (idx < 0 || idx >= hash_size) {
               success = false;
               continue;
             }
-            
+
             auto& grad_buffer = idx_tb_grad_buffer[idx][table_begin];
             idx_tb_fb[idx][table_begin] = feature_begin;
             if (grad_buffer.empty()) {
               grad_buffer.resize(D, 0);
             }
-            
+
             for (const auto d : c10::irange(D)) {
               grad_buffer[d] += grad_output_data[i * D + d];
             }
           }
         }
-        
+
         if (!success) {
           fbgemm_gpu::report_embedding_error(
             t, B, 0, B, offsets_data, indices_data, hash_size);
         }
       }
-    
+
       std::vector<index_t> idx_vec;
       idx_vec.reserve(idx_tb_grad_buffer.size());
       for (const auto& [idx, _] : idx_tb_grad_buffer) {
         idx_vec.push_back(idx);
       }
-    
+
       at::parallel_for(0, idx_vec.size(), 0, [&](int64_t start_idx, int64_t end_idx) {
         for (int64_t i = start_idx; i < end_idx; ++i) {
           const auto idx = idx_vec[i];
           const auto& tb_grad_buffer = idx_tb_grad_buffer[idx];
-          
+
           for (const auto& [table_begin, grad_buffer] : tb_grad_buffer) {
             [[maybe_unused]] const auto feature_begin = idx_tb_fb[idx][table_begin];
             [[maybe_unused]] const int64_t embedding_begin = table_begin + idx * D;
+            [[maybe_unused]] auto weights = &host_weights_data[embedding_begin];
+            {%- for tensor in args.split_tensors %}
+            const int64_t {{ tensor }}_offset = {{ tensor }}_offsets[feature_begin];
+            [[maybe_unused]] auto {{ tensor }} = &{{ tensor }}_host[{{ tensor }}_offset];
+            {%- endfor %}
             {{ split_weight_update_cpu }}
           }
         }
@@ -432,12 +444,12 @@ for (const auto d : c10::irange(D)) {
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK_GE(B, 0);
-  
+
   {%- if "learning_rate" in args.split_cpu_kernel_arg_constructors %}
   // convert `learning rate` to float since `learning rate` is float in kernels
   const float learning_rate = learning_rate_tensor.item<float>();
   {%- endif %}
-  
+
   {%- if not nobag %}
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   {%- endif %}
@@ -469,16 +481,16 @@ for (const auto d : c10::irange(D)) {
   grad_output = grad_output.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
-    indices.scalar_type(), 
+    indices.scalar_type(),
     "split_embedding_backward_exact_cpu_kernel_1", [&] {
-      
+
     FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(),
       "split_embedding_backward_exact_cpu_kernel_2", [&] {
       using grad_t = scalar_t;
 
       FBGEMM_DISPATCH_FLOAT_AND_HALF(
-        host_weights.scalar_type(), 
+        host_weights.scalar_type(),
         "split_embedding_backward_exact_cpu_kernel_3", [&] {
 
           split_embedding{{ ndesc }}_backward_exact_cpu_kernel<index_t, scalar_t, grad_t>(
@@ -519,11 +531,11 @@ for (const auto d : c10::irange(D)) {
   // When input is dense enough, avoid sorting and just treat as dense.
   auto grad = zeros_like(host_weights, grad_output.dtype());
   AT_DISPATCH_INDEX_TYPES(
-    indices.scalar_type(), 
+    indices.scalar_type(),
     "split_embedding_backward_exact_cpu_dense_kernel", [&] {
 
     FBGEMM_DISPATCH_FLOAT_AND_HALF(
-      grad_output.scalar_type(), 
+      grad_output.scalar_type(),
       "split_embedding_backward_exact_cpu", [&] {
 
         split_embedding_backward_exact_cpu_dense_kernel<index_t, scalar_t>(
@@ -544,7 +556,7 @@ for (const auto d : c10::irange(D)) {
   return grad;
   {% endif %}
 }
-{%- endfor %} {#-/*for nobag*/#}   
+{%- endfor %} {#-/*for nobag*/#}
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   {%- for nobag in ([False] if (dense) else [True, False]) %}
@@ -581,7 +593,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   {% endif %}
   DISPATCH_TO_CPU("split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu", split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu);
 
-  {%- endfor %} {#-/*for nobag*/#}   
+  {%- endfor %} {#-/*for nobag*/#}
 }
 
 // clang-format on
