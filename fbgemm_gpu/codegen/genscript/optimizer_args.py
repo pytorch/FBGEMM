@@ -687,7 +687,7 @@ class PT2ArgsSet:
                         split_saved_data.append(
                             (
                                 s.name,
-                                f'optim_int[{len(split_args_dict["optim_int"]) - 1}]',
+                                f"optim_int[{len(split_args_dict['optim_int']) - 1}]",
                                 make_ivalue_cast(s.ty),
                                 "int64_t",
                             )
@@ -708,7 +708,7 @@ class PT2ArgsSet:
                     split_saved_data.append(
                         (
                             s.name,
-                            f'optim_float[{len(split_args_dict["optim_float"])- 1}]',
+                            f"optim_float[{len(split_args_dict['optim_float']) - 1}]",
                             make_ivalue_cast(s.ty),
                             "double",
                         )
@@ -719,7 +719,7 @@ class PT2ArgsSet:
                     split_saved_data.append(
                         (
                             s.name,
-                            f'optim_bool[{len(split_args_dict["optim_bool"])- 1}]',
+                            f"optim_bool[{len(split_args_dict['optim_bool']) - 1}]",
                             make_ivalue_cast(s.ty),
                             "bool",
                         )
@@ -811,6 +811,7 @@ class OptimizerArgs:
     def create(
         split_arg_spec: List[OptimItem],
         arg_spec: List[OptimItem],
+        gpu: bool,
         additional_spec: Optional[dict[str, Any]] = None,
     ):
         # Keep the argument order for forward/backward compatibility
@@ -954,7 +955,7 @@ class OptimizerArgs:
             ],
             split_tensor_types={
                 s.name: (
-                    "at::acc_type<cache_t, true>"
+                    "at::acc_type<" + ("cache_t" if gpu else "scalar_t") + ", true>"
                     if s.ty == ArgType.TENSOR
                     else (s.name + "_ph_t")
                 )
@@ -1015,6 +1016,7 @@ class OptimizerArgsSet:
     def create_optim_args(
         arg_spec: List[OptimItem],
         ext_fn: Callable[[OptimItem], List[OptimItem]],
+        gpu: bool,
         additional_spec: Optional[dict[str, Any]] = None,
     ) -> OptimizerArgs:
         split_arg_spec = []
@@ -1030,7 +1032,7 @@ class OptimizerArgsSet:
                 assert s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)
                 # Treat PLACEHOLDER_TENSOR as TENSOR for CPU
                 split_arg_spec.extend(ext_fn(s))
-        return OptimizerArgs.create(split_arg_spec, arg_spec, additional_spec)
+        return OptimizerArgs.create(split_arg_spec, arg_spec, gpu, additional_spec)
 
     @staticmethod
     def extend_for_cpu(spec: OptimItem) -> List[OptimItem]:
@@ -1112,11 +1114,13 @@ class OptimizerArgsSet:
     ):
         return OptimizerArgsSet(
             *(
-                OptimizerArgsSet.create_optim_args(arg_spec, ext_fn, additional_spec)
-                for ext_fn in (
-                    OptimizerArgsSet.extend_for_cpu,
-                    OptimizerArgsSet.extend_for_cuda,
-                    OptimizerArgsSet.extend_for_any,
+                OptimizerArgsSet.create_optim_args(
+                    arg_spec, ext_fn, gpu, additional_spec
+                )
+                for ext_fn, gpu in (
+                    (OptimizerArgsSet.extend_for_cpu, False),
+                    (OptimizerArgsSet.extend_for_cuda, True),
+                    (OptimizerArgsSet.extend_for_any, True),
                 )
             )
         )
