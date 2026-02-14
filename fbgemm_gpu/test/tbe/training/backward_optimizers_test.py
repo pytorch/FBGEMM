@@ -387,6 +387,26 @@ class BackwardOptimizersTest(unittest.TestCase):
             **optimizer_kwargs,
         )
 
+        # Set distinct initial optimizer state values per table to detect incorrect offset indexing.
+        exact_adagrad = optimizer in (
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            OptimType.EXACT_ADAGRAD,
+        )
+        if exact_adagrad:
+            split_optimizer_states = cc.split_optimizer_states()
+            rowwise = optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            for t in range(T):
+                if rowwise and weight_decay_mode in (
+                    WeightDecayMode.COUNTER,
+                    WeightDecayMode.COWCLIP,
+                ):
+                    m1, prev_iter, row_counter = split_optimizer_states[t]
+                    prev_iter.fill_(100.0 * t)
+                    row_counter.fill_(10.0 * t)
+                else:
+                    (m1,) = split_optimizer_states[t]
+                m1.fill_(1.0 * t)
+
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
@@ -451,7 +471,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 )
 
-        if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
+        if exact_adagrad:
             rowwise = optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             for t in range(T):
                 row_counter: Optional[torch.Tensor] = None
@@ -469,7 +489,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 # coalescing and floating point non-associativity.
                 # pyre-fixme[16]: `Optional` has no attribute `cpu`.
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
-                if rowwise and not use_cpu:
+                if rowwise:
                     # We need to skip when using cpu because use_fbgemm (https://fburl.com/code/12131iub)
                     # is true and the template code (https://fburl.com/code/1kctlup3) is not executed.
                     if weight_decay_mode == WeightDecayMode.L2:
@@ -501,7 +521,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     dense_cpu_grad.pow(2)
                     if not rowwise
                     else dense_cpu_grad.pow(2).mean(dim=1)
-                )
+                ) + 1.0 * t
                 torch.testing.assert_close(
                     m1.float().index_select(dim=0, index=xs[t].view(-1)).cpu(),
                     m1_ref.float().index_select(dim=0, index=xs[t].view(-1).cpu()),
@@ -515,7 +535,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     )
                     + eps
                 )
-                if rowwise and not use_cpu:
+                if rowwise:
                     if weight_decay_mode == WeightDecayMode.DECOUPLE:
                         weights_ref = bs[t].weight.cpu() - lr * (
                             dense_cpu_grad / denom + weight_decay * bs[t].weight.cpu()
@@ -554,12 +574,11 @@ class BackwardOptimizersTest(unittest.TestCase):
                     # pyre-fixme[58]: `/` is not supported for operand types `float`
                     #  and `Tensor`.
                     weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
-                # TODO: why is tolerance off here?
                 torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=xs[t].view(-1)).cpu(),
                     weights_ref.index_select(dim=0, index=xs[t].view(-1).cpu()),
-                    atol=1.0e-2,
-                    rtol=1.0e-2,
+                    atol=1.0e-4,
+                    rtol=1.0e-4,
                 )
 
                 # pyre-ignore: ['Undefined attribute : `Optional` has no attribute `__getitem__`.']
@@ -1247,9 +1266,6 @@ class BackwardOptimizersTest(unittest.TestCase):
             counter_halflife=counter_halflife,
         )
 
-    @unittest.skipIf(
-        True, "Skipped the test for now until the optimizer logic is fixed"
-    )
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -1288,7 +1304,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    # @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_adagrad_with_counter_cpu(  # noqa C901
         self,
         T: int,
