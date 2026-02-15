@@ -186,25 +186,25 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
 
     asmjit::FuncFrame frame;
     frame.init(func);
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(
         asmjit::RegGroup::kVec,
-        asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
-    frame.setDirtyRegs(
+        asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+            asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
+    args.assign_all(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    a->emitProlog(frame);
-    a->emitArgsAssignment(frame, args);
+    a->emit_prolog(frame);
+    a->emit_args_assignment(frame, args);
 
-    asmjit::Label Loopk = a->newLabel();
-    asmjit::Label LoopMBlocks = a->newLabel();
+    asmjit::Label Loopk = a->new_label();
+    asmjit::Label LoopMBlocks = a->new_label();
 
     const x86::Gp& buffer_B_saved = a->gpz(10);
     const x86::Gp& C_Offset = a->gpz(11);
@@ -276,7 +276,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     }
     // generate code for remainder
     if (mRegBlocksRem > 0) {
-      asmjit::Label LoopkRem = a->newLabel();
+      asmjit::Label LoopkRem = a->new_label();
       int rowRegs = mRegBlocksRem;
 
       // init C registers
@@ -311,15 +311,15 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
           a, rowRegs, colRegs, C_Offset, ldcReg, accum);
     }
 
-    a->emitEpilog(frame);
+    a->emit_epilog(frame);
 
     jit_micro_kernel_fp fn = nullptr;
-    asmjit::Error err = 0;
+    asmjit::Error err = asmjit::Error::kOk;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
     }
-    if (err) {
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }

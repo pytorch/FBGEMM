@@ -509,25 +509,25 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         frame.init(func);
 
         if constexpr (instSet == inst_set_t::avx2) {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+              asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
         } else {
-          frame.setDirtyRegs(
+          frame.set_dirty_regs(
               asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-                  asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-                  asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
+              asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+                  asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15) |
+                  asmjit::Support::bit_mask<int>(16, 17, 18, 19, 20, 21, 22, 23) |
+                  asmjit::Support::bit_mask<int>(24, 25, 26, 27, 28, 29, 30, 31));
         }
 
-        frame.setDirtyRegs(
+        frame.set_dirty_regs(
             asmjit::RegGroup::kGp,
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+            asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
 
         asmjit::FuncArgsAssignment args(&func);
-        args.assignAll(
+        args.assign_all(
             num_rows,
             param_size,
             w,
@@ -541,10 +541,10 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
             counter,
             counter_halflife);
 
-        args.updateFuncFrame(frame);
+        args.update_func_frame(frame);
         frame.finalize();
-        a->emitProlog(frame);
-        a->emitArgsAssignment(frame, args);
+        a->emit_prolog(frame);
+        a->emit_args_assignment(frame, args);
 
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
@@ -603,9 +603,9 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           unroll_factor = unroll_factor / 2; // accont for g_vreg
         }
 
-        asmjit::Label exit = a->newLabel();
-        asmjit::Label LoopRangeIndexBegin = a->newLabel();
-        asmjit::Label LoopRangeIndexEnd = a->newLabel();
+        asmjit::Label exit = a->new_label();
+        asmjit::Label LoopRangeIndexBegin = a->new_label();
+        asmjit::Label LoopRangeIndexEnd = a->new_label();
 
         a->vpbroadcastd(epsilon_vreg, epsilon);
         a->vpbroadcastd(lr_vreg, lr);
@@ -644,7 +644,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           // Check counter != nullptr && counter[idx] > 0
           a->vmovaps(adjusted_weight_decay_vreg, weight_decay_vreg);
 
-          asmjit::Label skip_adjust_freq = a->newLabel();
+          asmjit::Label skip_adjust_freq = a->new_label();
 
           a->cmp(counter, 0);
           a->je(skip_adjust_freq);
@@ -680,8 +680,8 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         a->jg(exit);
 
         if (prefetch) {
-          asmjit::Label pref_dist_reset_start = a->newLabel();
-          asmjit::Label pref_dist_reset_end = a->newLabel();
+          asmjit::Label pref_dist_reset_start = a->new_label();
+          asmjit::Label pref_dist_reset_end = a->new_label();
 
           a->mov(temp2_, temp1_);
           a->add(temp2_, prefetch);
@@ -755,16 +755,16 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 
         a->bind(exit);
         a->mov(x86::eax, temp1_.r32());
-        a->emitEpilog(frame);
+        a->emit_epilog(frame);
 
         typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
             fn;
-        asmjit::Error err = 0;
+        asmjit::Error err = asmjit::Error::kOk;
         {
           std::unique_lock<std::mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);
         }
-        if (err) {
+        if (err != asmjit::Error::kOk) {
           std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }

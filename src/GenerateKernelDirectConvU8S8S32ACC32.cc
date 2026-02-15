@@ -233,30 +233,30 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
+    auto dirtyVecRegs = asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15);
     if (numRegs >= 16) {
-      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-          asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+      dirtyVecRegs |= asmjit::Support::bit_mask<int>(16, 17, 18, 19, 20, 21, 22, 23) |
+          asmjit::Support::bit_mask<int>(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(asmjit::RegGroup::kVec, dirtyVecRegs);
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(buffer_A, buffer_B, B_pf, CBase, ichXk1, ldcReg);
+    args.assign_all(buffer_A, buffer_B, B_pf, CBase, ichXk1, ldcReg);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    a->emitProlog(frame);
-    a->emitArgsAssignment(frame, args);
+    a->emit_prolog(frame);
+    a->emit_args_assignment(frame, args);
 
-    asmjit::Label LoopMBlocks = a->newLabel();
-    // asmjit::Label LoopOBlocks = a->newLabel();
-    // asmjit::Label LoopNBlocks = a->newLabel();
+    asmjit::Label LoopMBlocks = a->new_label();
+    // asmjit::Label LoopOBlocks = a->new_label();
+    // asmjit::Label LoopNBlocks = a->new_label();
 
     const x86::Gp& buffer_B_saved = a->gpz(10);
     const x86::Gp& C_Offset = a->gpz(11);
@@ -279,8 +279,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     auto issueLoopOverK = [&](int rowRegs) {
       // loopKLabel: corresponds to loop "r" where r = 0
       // loopK0Label: corresponds to loop "r" where r = 1
-      asmjit::Label LoopKLabel = a->newLabel();
-      asmjit::Label LoopK0Label = a->newLabel();
+      asmjit::Label LoopKLabel = a->new_label();
+      asmjit::Label LoopK0Label = a->new_label();
 
       // Init C (result) vector registers
       initCRegs(a, rowRegs, colRegs);
@@ -392,15 +392,15 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       issueLoopOverK(O1RegBlocksRem);
     }
 
-    a->emitEpilog(frame);
+    a->emit_epilog(frame);
 
     jit_micro_kernel_fp fn = nullptr;
-    asmjit::Error err = 0;
+    asmjit::Error err = asmjit::Error::kOk;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
     }
-    if (err) {
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
@@ -651,28 +651,28 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
+    auto dirtyVecRegs = asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15);
     if (numRegs >= 16) {
-      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-          asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+      dirtyVecRegs |= asmjit::Support::bit_mask<int>(16, 17, 18, 19, 20, 21, 22, 23) |
+          asmjit::Support::bit_mask<int>(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(asmjit::RegGroup::kVec, dirtyVecRegs);
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(buffer_A, buffer_B, CBase, ic, ldcReg, o1Xoc, i1);
+    args.assign_all(buffer_A, buffer_B, CBase, ic, ldcReg, o1Xoc, i1);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    a->emitProlog(frame);
-    a->emitArgsAssignment(frame, args);
+    a->emit_prolog(frame);
+    a->emit_args_assignment(frame, args);
 
-    asmjit::Label LoopMBlocks = a->newLabel();
+    asmjit::Label LoopMBlocks = a->new_label();
 
     const x86::Gp& C_offset = a->gpz(12);
     const x86::Gp& buffer_B_saved = a->gpz(13);
@@ -687,7 +687,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     int colRegs = maxNRegs;
 
     auto issueLoopOverK = [&](int rowRegs) {
-      asmjit::Label LoopKLabel = a->newLabel();
+      asmjit::Label LoopKLabel = a->new_label();
 
       // Init C (result) vector registers
       initCRegs(a, rowRegs, colRegs);
@@ -753,15 +753,15 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
       a->jl(LoopMBlocks);
     }
 
-    a->emitEpilog(frame);
+    a->emit_epilog(frame);
 
     jit_micro_kernel_fp_convT fn = nullptr;
-    asmjit::Error err = 0;
+    asmjit::Error err = asmjit::Error::kOk;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
     }
-    if (err) {
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
