@@ -764,14 +764,17 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     __shared__ long smem[NUM_PARAMS * NUM_WARPS + kForwardMaxThreads];
     const uint32_t params_offset = NUM_PARAMS * threadIdx.y;
 
-    const auto global_warp_id = blockIdx.x * blockDim.y + threadIdx.y;
-    int32_t t;
-    int32_t table_warp_id;
-    fd_num_warps_per_table.DivMod(global_warp_id, &t, &table_warp_id);
+    for (
+        auto global_warp_id = blockIdx.x * blockDim.y + threadIdx.y;
+        ;
+        global_warp_id += blockDim.y * gridDim.x) {
+      int32_t t;
+      int32_t table_warp_id;
+      fd_num_warps_per_table.DivMod(global_warp_id, &t, &table_warp_id);
 
-    if (t >= T) {
-      return;
-    }
+      if (t >= T) {
+        break;
+      }
 
     const auto total_L = offsets[(t + 1) * B] - offsets[t * B];
     const auto is_zero_total_L = total_L == 0;
@@ -782,7 +785,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
       const uint32_t load_D = (D_offsets[t + 1] / VEC_WIDTH) - D_start;
       const uint32_t num_warps_per_row = DIV_ROUND_UP(load_D, kWarpSize);
       if (table_warp_id >= num_warps_per_row * B) {
-        return;
+        continue;
       }
       const uint32_t load_d = (table_warp_id % num_warps_per_row) * kWarpSize;
       if (load_d + threadIdx.x < load_D) {
@@ -796,7 +799,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
         Vec4StepT<1, emb_t> accumulator;
         accumulator.store(output_ptr);
       }
-      return;
+      continue;
     }
 
     // Use the small-L optimization if average L <= 8
@@ -809,7 +812,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     // NUM_OFFSETS_PER_WARP = 32
     // Return if table_warp_id > ceil(B / 32) * 8
     if (is_small_L && table_warp_id >= num_warps_for_small_L * 8) {
-      return;
+      continue;
     }
 
     uint32_t load_D = 0;
@@ -825,7 +828,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     const uint32_t num_warps_per_row = DIV_ROUND_UP(load_D, kWarpSize);
 
     if (table_warp_id >= num_warps_per_row * (is_small_L ? num_warps_for_small_L : B)) {
-      return;
+      continue;
     }
 
     // Compute d (same for all Ls)
@@ -916,7 +919,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 
     if (is_small_L) {
       INVOKE_PROCESS_ALL_INDICES(small_Ls, kWarpSize, 0xf)
-      return;
+      continue;
     }
 
     // Special cases
@@ -961,7 +964,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
           accumulator.store(output_ptr);
         }
       }
-      return;
+      continue;
     }
 
     // Tail warp
@@ -992,6 +995,8 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     {% else %}
     INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
     {% endif %}
+
+  }
 
 #undef INVOKE_PROCESS_ALL_INDICES_HELPER
 #undef INVOKE_PROCESS_ALL_INDICES
