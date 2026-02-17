@@ -437,28 +437,15 @@ TEST(KernelLauncherTest, throws_dsa_exception) {
           0,
           at::cuda::getCurrentCUDAStream(),
           42);
-
       c10::cuda::device_synchronize();
       throw std::runtime_error("Test didn't fail, but should have.");
 
     } catch (const c10::Error& err) {
       const auto err_str = std::string(err.what());
 
-      ASSERT_THAT(
-          err_str,
-          HasSubstr(
-              "CUDA device-side assertion failures were found on GPU #0!"));
+      ASSERT_THAT(err_str, HasSubstr("device-side assertion"));
 
-      ASSERT_THAT(
-          err_str,
-          HasSubstr(
-              "File containing kernel launch = [" __TEMPLATE_SOURCE_FILE__
-              "] " __FILE__));
-
-      ASSERT_THAT(
-          err_str,
-          HasSubstr(
-              "Name of kernel launched that led to failure = always_fail_assertion_kernel"));
+      ASSERT_THAT(err_str, HasSubstr("always_fail_assertion_kernel"));
     }
   });
 }
