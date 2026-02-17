@@ -135,10 +135,11 @@ void QuantizeAvx2(
 }
 
 uint32_t Xor128() {
-  /* library-local */ static uint32_t x = 123456789;
-  /* library-local */ static uint32_t y = 362436069;
-  /* library-local */ static uint32_t z = 521288629;
-  /* library-local */ static uint32_t w = 88675123;
+  // Use thread_local to avoid data races when called from multiple threads
+  thread_local uint32_t x = 123456789;
+  thread_local uint32_t y = 362436069;
+  thread_local uint32_t z = 521288629;
+  thread_local uint32_t w = 88675123;
   uint32_t t = x ^ (x << 11);
   x = y;
   y = z;
