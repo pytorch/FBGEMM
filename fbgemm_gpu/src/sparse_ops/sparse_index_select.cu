@@ -28,12 +28,14 @@ __global__ __launch_bounds__(kMaxThreads) void index_select_2d_kernel(
   const int N = indices.size(0);
   const int input_size = input.size(0);
   const int D = input.size(1);
-  CUDA_KERNEL_ASSERT2(output.size(0) == N);
+  CUDA_KERNEL_ASSERT(
+      output.size(0) == N && "output.size(0) must equal the number of indices");
 
   for (auto row = blockIdx.x; row < N; row += gridDim.x) {
     const index_t src_idx = indices[row];
     const int64_t dst_idx = indices_sorted ? orig_indices[row] : row;
-    CUDA_KERNEL_ASSERT2(src_idx < input_size);
+    CUDA_KERNEL_ASSERT(
+        src_idx < input_size && "src_idx must be less than input_size");
     int col;
     for (col = threadIdx.x * UNROLL_FACTOR;
          col < D / UNROLL_FACTOR * UNROLL_FACTOR;

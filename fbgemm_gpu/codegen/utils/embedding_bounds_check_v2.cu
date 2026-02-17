@@ -41,7 +41,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   // Check the last element
   if (b_t_start == 0 && threadIdx.x == 0) {
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      CUDA_KERNEL_ASSERT2(num_indices == offsets[total_B]);
+      CUDA_KERNEL_ASSERT(
+          num_indices == offsets[total_B] &&
+          "num_indices must match the last element in offsets");
     } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
       if (num_indices != offsets[total_B]) {
         if (gpuAtomicIncrement(&warning[0]) == 0) {
@@ -84,9 +86,14 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     auto indices_end = offsets[b_t + 1];
 
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      CUDA_KERNEL_ASSERT2(indices_start >= 0);
-      CUDA_KERNEL_ASSERT2(indices_start <= indices_end);
-      CUDA_KERNEL_ASSERT2(indices_end <= num_indices);
+      CUDA_KERNEL_ASSERT(
+          indices_start >= 0 && "indices_start must be non-negative");
+      CUDA_KERNEL_ASSERT(
+          indices_start <= indices_end &&
+          "indices_start must not exceed indices_end");
+      CUDA_KERNEL_ASSERT(
+          indices_end <= num_indices &&
+          "indices_end must not exceed num_indices");
     } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
       if (indices_start < 0 || indices_start > indices_end ||
           indices_end > num_indices) {
@@ -128,9 +135,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
         continue;
       }
       if (bounds_check_mode == BoundsCheckMode::FATAL) {
-        CUDA_KERNEL_ASSERT2(
+        CUDA_KERNEL_ASSERT(
             idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
-        CUDA_KERNEL_ASSERT2(
+        CUDA_KERNEL_ASSERT(
             idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
       } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
         if (idx < 0 || idx >= num_rows) {
