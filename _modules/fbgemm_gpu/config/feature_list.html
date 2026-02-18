@@ -519,6 +519,9 @@
     <span class="c1"># Enable tuned max segment length per CTA for B200</span>
     <span class="n">TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
+    <span class="c1"># Enable warp-parallel kernel for populate_bucketized_permute</span>
+    <span class="n">BUCKETIZED_PERMUTE_WARP_KERNEL</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
 
