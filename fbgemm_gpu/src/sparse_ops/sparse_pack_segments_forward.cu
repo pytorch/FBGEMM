@@ -26,8 +26,9 @@ __global__ void pack_segments_cuda_kernel(
     TORCH_DSA_KERNEL_ARGS) {
   // PackSegments requires that the sum of the lengths is equal to the first
   //  dimension of data
-  CUDA_KERNEL_ASSERT2(
-      data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1]);
+  CUDA_KERNEL_ASSERT(
+      data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1] &&
+      "data first dimension must equal the sum of segment lengths");
 
   CUDA_KERNEL_LOOP(i, num_seq * max_length * cell_size) {
     const auto seq = (i / cell_size) / max_length;
@@ -57,8 +58,9 @@ __global__ void pack_segments_cuda_v2_kernel(
     TORCH_DSA_KERNEL_ARGS) {
   // PackSegments requires that the sum of the lengths is equal to the first
   //  dimension of data
-  CUDA_KERNEL_ASSERT2(
-      data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1]);
+  CUDA_KERNEL_ASSERT(
+      data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1] &&
+      "data first dimension must equal the sum of segment lengths");
 
   CUDA_KERNEL_LOOP_TYPE(i, num_seq * max_length * cell_size, int64_t) {
     const auto seq = (i / cell_size) / max_length;
