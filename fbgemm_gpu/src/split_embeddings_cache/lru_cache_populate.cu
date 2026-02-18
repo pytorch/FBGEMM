@@ -149,7 +149,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
         lru_state[cache_set][insert_slot] = time_stamp;
         if (lock_cache_line) {
-          lxu_cache_locking_counter[cache_set][insert_slot] += 1;
+          atomicAdd(&lxu_cache_locking_counter[cache_set][insert_slot], 1);
         }
       }
 
