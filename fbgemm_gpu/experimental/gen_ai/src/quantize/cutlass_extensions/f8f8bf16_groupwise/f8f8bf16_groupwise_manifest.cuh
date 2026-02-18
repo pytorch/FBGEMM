@@ -10,13 +10,13 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor f8f8bf16_groupwise_128_128_128_1_2_1_9_f(
+at::Tensor f8f8bf16_groupwise_128_128_128_1_2_1_9_f_f_8(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale);
 
-at::Tensor f8f8bf16_groupwise_128_16_128_1_1_1_9_t(
+at::Tensor f8f8bf16_groupwise_128_16_128_1_1_1_9_t_t_0(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
