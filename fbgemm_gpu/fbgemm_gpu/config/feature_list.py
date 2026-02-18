@@ -66,6 +66,9 @@ class FeatureGateName(Enum):
     # Enable tuned max segment length per CTA for B200
     TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200 = auto()
 
+    # Enable warp-parallel kernel for populate_bucketized_permute
+    BUCKETIZED_PERMUTE_WARP_KERNEL = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
