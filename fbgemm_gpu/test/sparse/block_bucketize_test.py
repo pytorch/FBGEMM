@@ -1305,6 +1305,291 @@ class BlockBucketizeTest(unittest.TestCase):
                 bucket_mapping_cpu,
             )
 
+    def _run_populate_bucketized_permute_test(
+        self,
+        lengths: torch.Tensor,
+        indices: torch.Tensor,
+        block_sizes: torch.Tensor,
+        my_size: int,
+        index_type: torch.dtype,
+    ) -> None:
+        """Run populate_bucketized_permute and verify the result matches
+        the unbucketize_permute from block_bucketize_sparse_features_inference
+        on both CPU and GPU."""
+        lengths = lengths.to(index_type)
+        indices = indices.to(index_type)
+        block_sizes = block_sizes.to(index_type)
+
+        (
+            new_lengths_cpu,
+            _new_indices_cpu,
+            _,
+            _,
+            unbucketize_permute_cpu,
+            bucket_mapping_cpu,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
+            lengths,
+            indices,
+            False,
+            True,
+            block_sizes,
+            my_size,
+            None,
+            return_bucket_mapping=True,
+        )
+
+        unbucketize_permute_populated_cpu = (
+            torch.ops.fbgemm.populate_bucketized_permute(
+                lengths,
+                new_lengths_cpu,
+                bucket_mapping_cpu,
+            )
+        )
+        torch.testing.assert_close(
+            unbucketize_permute_populated_cpu,
+            unbucketize_permute_cpu,
+            rtol=0,
+            atol=0,
+        )
+
+        if gpu_available:
+            (
+                new_lengths_gpu,
+                _new_indices_gpu,
+                _,
+                _,
+                unbucketize_permute_gpu,
+                bucket_mapping_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
+                lengths.cuda(),
+                indices.cuda(),
+                False,
+                True,
+                block_sizes.cuda(),
+                my_size,
+                None,
+                return_bucket_mapping=True,
+            )
+
+            unbucketize_permute_populated_gpu = (
+                torch.ops.fbgemm.populate_bucketized_permute(
+                    lengths.cuda(),
+                    new_lengths_gpu,
+                    bucket_mapping_gpu,
+                )
+            )
+            torch.testing.assert_close(
+                unbucketize_permute_gpu.cpu(),
+                unbucketize_permute_populated_gpu.cpu(),
+                rtol=0,
+                atol=0,
+            )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        my_size=st.integers(min_value=1, max_value=16),
+        num_sequences=st.integers(min_value=1, max_value=32),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_populate_bucketized_permute_long_sequences(
+        self,
+        index_type: torch.dtype,
+        my_size: int,
+        num_sequences: int,
+    ) -> None:
+        """Test with sequences longer than warp size (32) to exercise
+        multi-chunk processing in the warp-parallel kernel."""
+        torch.manual_seed(0)
+        block_sizes = torch.tensor([50])
+        # Generate lengths with some sequences > 32 to trigger multi-chunk
+        lengths = torch.randint(0, 129, (num_sequences,))
+        total = int(lengths.sum().item())
+        indices = torch.randint(0, my_size * int(block_sizes[0].item()), (total,))
+        self._run_populate_bucketized_permute_test(
+            lengths, indices, block_sizes, my_size, index_type
+        )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        num_sequences=st.integers(min_value=1, max_value=16),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_populate_bucketized_permute_my_size_boundary(
+        self,
+        index_type: torch.dtype,
+        num_sequences: int,
+    ) -> None:
+        """Test with my_size=32 (kWarpSize), the maximum bucket count
+        supported by the warp-parallel kernel path."""
+        torch.manual_seed(0)
+        my_size = 32
+        block_sizes = torch.tensor([1])
+        lengths = torch.randint(0, 33, (num_sequences,))
+        total = int(lengths.sum().item())
+        indices = torch.randint(0, my_size * int(block_sizes[0].item()), (total,))
+        self._run_populate_bucketized_permute_test(
+            lengths, indices, block_sizes, my_size, index_type
+        )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        my_size=st.integers(min_value=33, max_value=64),
+        num_sequences=st.integers(min_value=1, max_value=16),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_populate_bucketized_permute_fallback_kernel(
+        self,
+        index_type: torch.dtype,
+        my_size: int,
+        num_sequences: int,
+    ) -> None:
+        """Test with my_size > 32 (kWarpSize) to exercise the original
+        serial _populate_bucketized_permute_cuda_kernel, which is used
+        as a fallback when the bucket count exceeds warp size."""
+        torch.manual_seed(0)
+        block_sizes = torch.tensor([1])
+        lengths = torch.randint(0, 10, (num_sequences,))
+        total = int(lengths.sum().item())
+        indices = torch.randint(0, my_size * int(block_sizes[0].item()), (total,))
+        self._run_populate_bucketized_permute_test(
+            lengths, indices, block_sizes, my_size, index_type
+        )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        my_size=st.integers(min_value=1, max_value=32),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_populate_bucketized_permute_many_sequences(
+        self,
+        index_type: torch.dtype,
+        my_size: int,
+    ) -> None:
+        """Test with a large number of sequences (256) to stress
+        grid-level parallelism across many warps."""
+        torch.manual_seed(0)
+        block_sizes = torch.tensor([10])
+        lengths = torch.randint(0, 17, (256,))
+        total = int(lengths.sum().item())
+        indices = torch.randint(0, my_size * int(block_sizes[0].item()), (total,))
+        self._run_populate_bucketized_permute_test(
+            lengths, indices, block_sizes, my_size, index_type
+        )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @unittest.skipIf(not gpu_available, "No GPU available")
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_populate_bucketized_permute_warp_parallel_vs_original(
+        self,
+        index_type: torch.dtype,
+    ) -> None:
+        """Test that the warp-parallel kernel (my_size <= 32) produces
+        identical results to the original kernel by comparing both GPU
+        code paths against the CPU reference."""
+        torch.manual_seed(42)
+
+        # Test configurations: (my_size, block_size, lengths)
+        # These exercise the warp-parallel kernel path (my_size <= 32)
+        # with various sequence lengths, including multi-chunk (>32 elements),
+        # zero-length, and single-element sequences.
+        test_configs = [
+            # my_size=2: common serving case, sequences span multiple warp chunks
+            (2, 50, torch.tensor([40, 64, 33, 0, 1, 128])),
+            # my_size=8: moderate bucket count with varied lengths
+            (8, 10, torch.tensor([0, 1, 2, 31, 32, 33, 64, 100])),
+            # my_size=16: larger bucket count, stress multi-chunk processing
+            (16, 5, torch.tensor([48, 96, 0, 0, 17, 65])),
+            # my_size=32: boundary case, maximum for warp-parallel path
+            (32, 1, torch.tensor([10, 5, 20, 0, 32, 64])),
+            # my_size=1: degenerate single-bucket case
+            (1, 100, torch.tensor([50, 0, 100, 1])),
+            # Large number of sequences to stress grid-level parallelism
+            (4, 10, torch.randint(0, 65, (512,))),
+        ]
+
+        for my_size, block_size, lengths in test_configs:
+            lengths = lengths.to(index_type)
+            block_sizes = torch.tensor([block_size], dtype=index_type)
+            total = int(lengths.sum().item())
+            indices = torch.randint(0, my_size * block_size, (total,), dtype=index_type)
+
+            # Get ground truth from block_bucketize_sparse_features_inference
+            (
+                new_lengths_cpu,
+                _,
+                _,
+                _,
+                unbucketize_permute_ref,
+                bucket_mapping_cpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
+                lengths,
+                indices,
+                False,
+                True,
+                block_sizes,
+                my_size,
+                None,
+                return_bucket_mapping=True,
+            )
+
+            # CPU path uses the original serial kernel
+            permute_cpu = torch.ops.fbgemm.populate_bucketized_permute(
+                lengths,
+                new_lengths_cpu,
+                bucket_mapping_cpu,
+            )
+
+            # GPU path uses the warp-parallel kernel (my_size <= 32)
+            (
+                new_lengths_gpu,
+                _,
+                _,
+                _,
+                _,
+                bucket_mapping_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
+                lengths.cuda(),
+                indices.cuda(),
+                False,
+                True,
+                block_sizes.cuda(),
+                my_size,
+                None,
+                return_bucket_mapping=True,
+            )
+            permute_gpu = torch.ops.fbgemm.populate_bucketized_permute(
+                lengths.cuda(),
+                new_lengths_gpu,
+                bucket_mapping_gpu,
+            )
+
+            # Verify GPU (warp-parallel) matches CPU (original)
+            torch.testing.assert_close(
+                permute_gpu.cpu(),
+                permute_cpu,
+                rtol=0,
+                atol=0,
+                msg=f"Warp-parallel vs original mismatch for "
+                f"my_size={my_size}, lengths={lengths}",
+            )
+
+            # Verify both match the ground truth
+            torch.testing.assert_close(
+                permute_gpu.cpu(),
+                unbucketize_permute_ref,
+                rtol=0,
+                atol=0,
+                msg=f"Warp-parallel vs ground truth mismatch for "
+                f"my_size={my_size}, lengths={lengths}",
+            )
+
     @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
@@ -1511,9 +1796,21 @@ class BlockBucketizeTest(unittest.TestCase):
 
         if gpu_available:
             block_bucketize_pos = [
-                torch.tensor([0, 2, 8], dtype=index_type, device="cuda"),
-                torch.tensor([0, 5, 10], dtype=index_type, device="cuda"),
-                torch.tensor([0, 7, 12], dtype=index_type, device="cuda"),
+                torch.tensor(
+                    [0, 2, 8],
+                    dtype=index_type,
+                    device=torch.accelerator.current_accelerator(),
+                ),
+                torch.tensor(
+                    [0, 5, 10],
+                    dtype=index_type,
+                    device=torch.accelerator.current_accelerator(),
+                ),
+                torch.tensor(
+                    [0, 7, 12],
+                    dtype=index_type,
+                    device=torch.accelerator.current_accelerator(),
+                ),
             ]
             (
                 new_lengths_gpu,
