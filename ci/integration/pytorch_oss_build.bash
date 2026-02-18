@@ -68,6 +68,43 @@ __pytorch_log_error() {
 #
 ################################################################################
 
+__configure_pytorch_cuda_build () {
+    # Configure CUDA environment variables for PyTorch build.
+    #
+    # This function sets environment variables that CMake's FindCUDA.cmake
+    # module respects. For newer conda CUDA installations (12.6+), the include
+    # files are located in targets/<arch>-linux/include/ rather than include/,
+    # so we need to explicitly set the toolkit root.
+    #
+    # Environment variables set:
+    #   CUDA_TOOLKIT_ROOT     - Used by FindCUDA.cmake (line 891) to locate CUDA
+    #   CUDA_NVCC_EXECUTABLE  - Used by FindCUDA.cmake (lines 938-939) for nvcc path
+    #
+    # Arguments:
+    #   env_name    - Name of the Conda environment
+    #   conda_prefix - Path to the Conda environment prefix
+    #
+    # Exports (for use by caller):
+    #   PYTORCH_CUDA_TOOLKIT_ROOT
+    #   PYTORCH_CUDA_NVCC_EXECUTABLE
+
+    local env_name="$1"
+    local conda_prefix="$2"
+
+    # shellcheck disable=SC2155
+    local machine_name_lc=$(uname -m | tr '[:upper:]' '[:lower:]')
+
+    # For newer CUDA conda packages (12.6+), the CUDA toolkit files are organized
+    # under targets/<arch>-linux/ instead of directly under the conda prefix.
+    # This is required for FindCUDA.cmake to locate cuda_runtime.h and other headers.
+    export PYTORCH_CUDA_TOOLKIT_ROOT="${conda_prefix}/targets/${machine_name_lc}-linux"
+    export PYTORCH_CUDA_NVCC_EXECUTABLE="${conda_prefix}/bin/nvcc"
+
+    __pytorch_log_info "Configured CUDA build environment:"
+    __pytorch_log_info "  CUDA_TOOLKIT_ROOT=${PYTORCH_CUDA_TOOLKIT_ROOT}"
+    __pytorch_log_info "  CUDA_NVCC_EXECUTABLE=${PYTORCH_CUDA_NVCC_EXECUTABLE}"
+}
+
 build_pytorch_from_source() {
     local env_name="$1"
     local git_sha="$2"
@@ -137,7 +174,7 @@ build_pytorch_from_source() {
 
     __pytorch_log_info "Installing build dependencies ..."
 
-    # Install common dependencies from PyTorch's pyproject.toml
+    # Install common dependencies from PyTorch's requirements.txt
     # shellcheck disable=SC2086
     (exec_with_retries 3 conda run ${env_prefix} pip install -r requirements.txt) || true
 
@@ -154,50 +191,20 @@ build_pytorch_from_source() {
     (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
         numpy) || return 1
 
+    # Install numactl (provides libnuma for NUMA support in libc10.so)
+    __pytorch_log_info "Installing numactl ..."
+    # shellcheck disable=SC2086
+    (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+        numactl) || return 1
+
     ############################################################################
     # Step 3: Configure Build Environment
     ############################################################################
 
     __pytorch_log_info "Configuring build environment ..."
 
-    # Set CMAKE_PREFIX_PATH
     # shellcheck disable=SC2155,SC2086
     local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-
-    # shellcheck disable=SC2086
-    print_exec conda env config vars set ${env_prefix} CMAKE_PREFIX_PATH="${conda_prefix}"
-
-    # Configure build variant environment variables
-    if [[ "$build_variant" == "rocm" ]]; then
-        __pytorch_log_info "Configuring ROCm build environment ..."
-        # shellcheck disable=SC2086
-        print_exec conda env config vars set ${env_prefix} USE_ROCM=1
-        # shellcheck disable=SC2086
-        print_exec conda env config vars set ${env_prefix} USE_CUDA=0
-
-        # Run AMD build script
-        __pytorch_log_info "Running AMD build preprocessing script ..."
-        # shellcheck disable=SC2086
-        (conda run ${env_prefix} python tools/amd_build/build_amd.py) || return 1
-
-    elif [[ "$build_variant" == "cuda" ]]; then
-        __pytorch_log_info "Configuring CUDA build environment ..."
-        # shellcheck disable=SC2086
-        print_exec conda env config vars set ${env_prefix} USE_CUDA=1
-        # shellcheck disable=SC2086
-        print_exec conda env config vars set ${env_prefix} USE_ROCM=0
-
-        # Set CUDA_HOME to the conda prefix where CUDA is installed
-        # shellcheck disable=SC2086
-        print_exec conda env config vars set ${env_prefix} CUDA_HOME="${conda_prefix}"
-
-    elif [[ "$build_variant" == "cpu" ]]; then
-        __pytorch_log_info "Configuring CPU build environment ..."
-        # shellcheck disable=SC2086
-        print_exec conda env config vars set ${env_prefix} USE_CUDA=0
-        # shellcheck disable=SC2086
-        print_exec conda env config vars set ${env_prefix} USE_ROCM=0
-    fi
 
     ############################################################################
     # Step 4: Build and Install PyTorch
@@ -207,9 +214,64 @@ build_pytorch_from_source() {
 
     cd "$clone_dir"
 
-    # Build PyTorch
-    # shellcheck disable=SC2086
-    (exec_with_retries 3 conda run ${env_prefix} python -m pip install --no-build-isolation -v -e .) || return 1
+    # NOTE: Large CUDA builds can hit relocation overflow errors during linking.
+    # The --no-relax flag prevents the linker from using relaxation optimizations
+    # that can cause "relocation truncated to fit" errors.
+    # We also add the conda lib path for libraries like libnuma.
+    # NOTE: -mcmodel=medium is needed for large CUDA builds to handle symbol tables
+    # that exceed the small code model limits (relocation truncated to fit errors).
+    local compiler_flags="-mcmodel=medium"
+    local linker_flags="-Wl,--no-relax -L${conda_prefix}/lib -Wl,-rpath,${conda_prefix}/lib -Wl,-rpath-link,${conda_prefix}/lib"
+
+    if [[ "$build_variant" == "cuda" ]]; then
+        # Configure CUDA environment variables
+        __configure_pytorch_cuda_build "${env_name}" "${conda_prefix}"
+
+        # shellcheck disable=SC2086
+        (exec_with_retries 3 conda run ${env_prefix} \
+            env LD_LIBRARY_PATH="${conda_prefix}/lib:${LD_LIBRARY_PATH:-}" \
+                CUDA_TOOLKIT_ROOT="${PYTORCH_CUDA_TOOLKIT_ROOT}" \
+                CUDA_NVCC_EXECUTABLE="${PYTORCH_CUDA_NVCC_EXECUTABLE}" \
+                CMAKE_C_FLAGS="${compiler_flags}" \
+                CMAKE_CXX_FLAGS="${compiler_flags}" \
+                CFLAGS="${compiler_flags}" \
+                CXXFLAGS="${compiler_flags}" \
+                MAX_JOBS=8 \
+                USE_CUDA=1 \
+                USE_ROCM=0 \
+                CMAKE_PREFIX_PATH="${conda_prefix}" \
+                LDFLAGS="${linker_flags}" \
+                CMAKE_SHARED_LINKER_FLAGS="${linker_flags}" \
+                CMAKE_EXE_LINKER_FLAGS="${linker_flags}" \
+            python -m pip install --no-build-isolation -v -e .) || return 1
+
+    elif [[ "$build_variant" == "rocm" ]]; then
+        # Run AMD build preprocessing script
+        __pytorch_log_info "Running AMD build preprocessing script ..."
+        # shellcheck disable=SC2086
+        (conda run ${env_prefix} python tools/amd_build/build_amd.py) || return 1
+
+        # shellcheck disable=SC2086
+        (exec_with_retries 3 conda run ${env_prefix} \
+            env USE_ROCM=1 \
+                USE_CUDA=0 \
+                CMAKE_PREFIX_PATH="${conda_prefix}" \
+                LDFLAGS="${linker_flags}" \
+                CMAKE_SHARED_LINKER_FLAGS="${linker_flags}" \
+                CMAKE_EXE_LINKER_FLAGS="${linker_flags}" \
+            python -m pip install --no-build-isolation -v -e .) || return 1
+    else
+        # CPU build
+        # shellcheck disable=SC2086
+        (exec_with_retries 3 conda run ${env_prefix} \
+            env USE_CUDA=0 \
+                USE_ROCM=0 \
+                CMAKE_PREFIX_PATH="${conda_prefix}" \
+                LDFLAGS="${linker_flags}" \
+                CMAKE_SHARED_LINKER_FLAGS="${linker_flags}" \
+                CMAKE_EXE_LINKER_FLAGS="${linker_flags}" \
+            python -m pip install --no-build-isolation -v -e .) || return 1
+    fi
 
     ############################################################################
     # Step 5: Verify Installation
@@ -274,6 +336,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     PYTORCH_CLONE_DIR=${PYTORCH_CLONE_DIR:-/tmp/pytorch}
     BUILD_SCRIPTS_INIT=${BUILD_SCRIPTS_INIT:-"${REPO_ROOT}/.github/scripts/setup_env.bash"}
 
+    # Use glibc 2.28 sysroot for compatibility with newer NCCL
+    # NOTE: NCCL v2.28.9+ requires pthread_setattr_default_np which is only
+    # available in glibc 2.18+. The default sysroot_linux-64=2.17 doesn't have it.
+    export GLIBC_VERSION=${GLIBC_VERSION:-2.28}
+
     print_usage() {
         echo "Usage: $0 <GIT_SHA>"
         echo ""
@@ -289,6 +356,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "  BUILD_ROCM_VERSION  - ROCm version for ROCm builds (default: 7.0)"
         echo "  PYTORCH_REPO_URL    - PyTorch repository URL (default: https://github.com/pytorch/pytorch)"
         echo "  PYTORCH_CLONE_DIR   - Directory to clone PyTorch into (default: /tmp/pytorch)"
+        echo "  GLIBC_VERSION       - GLIBC sysroot version (default: 2.28)"
         echo ""
         echo "Example:"
         echo "  $0 abc123def456"
@@ -336,6 +404,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     elif [[ "$BUILD_VARIANT" == "cuda" ]]; then
     echo "BUILD_CUDA_VERSION        : $BUILD_CUDA_VERSION"
     fi
+    echo "GLIBC_VERSION             : $GLIBC_VERSION"
     echo ""
     echo "Target Conda Environment  : $BUILD_ENV"
     echo ""
