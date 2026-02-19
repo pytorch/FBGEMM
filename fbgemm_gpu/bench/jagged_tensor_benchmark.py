@@ -495,22 +495,25 @@ def jagged_1d_to_truncated_values(
 @cli.command()
 @click.option("--batch-size", type=int, default=1024)
 @click.option("--max-len", type=int, default=256)
+@click.option("--use-cpu", is_flag=True, default=False)
 def masked_select_jagged_1d(
     batch_size: int,
     max_len: int,
+    use_cpu: bool,
 ) -> None:
-    lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
+    device = "cpu" if use_cpu else "cuda"
+    lengths = torch.randint(2 * max_len, size=(batch_size,), device=device)
     total_lengths = int(lengths.sum().item())
     dtype = torch.long
-    values = torch.randint(2**16, (total_lengths,), dtype=dtype)
-    mask = torch.randint(2, (total_lengths,)) > 0
+    values = torch.randint(2**16, (total_lengths,), dtype=dtype, device=device)
+    mask = torch.randint(2, (total_lengths,), device=device) > 0
 
     def ref(
         values: torch.Tensor, lengths: torch.Tensor, mask: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         masked_values_ref = values[mask]
         cum_count = torch.cumsum(mask, 0)
-        cum_count = torch.cat((cum_count, torch.tensor([0])))
+        cum_count = torch.cat((cum_count, torch.tensor([0], device=values.device)))
         cum_length = cum_count[torch.cumsum(lengths, 0) - 1]
         cum_length_shift_right = torch.roll(cum_length, 1)
         cum_length_shift_right[0] = 0
@@ -532,8 +535,10 @@ def masked_select_jagged_1d(
 
     bytes = (2 * values.numel() + 2 * lengths.numel() + 2 * masked_values.numel()) * 4
 
-    logging.info(f"reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
-    logging.info(f"masked_select_jagged_1d {time} sec {bytes / time / 1e9} GB/s")
+    logging.info(f"[{device}] reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
+    logging.info(
+        f"[{device}] masked_select_jagged_1d {time} sec {bytes / time / 1e9} GB/s"
+    )
 
 
 @cli.command()
