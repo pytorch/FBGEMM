@@ -112,6 +112,10 @@ auto raw_embedding_streamer =
                 torch::arg("count"),
                 torch::arg("require_tensor_copy"),
                 torch::arg("blocking_tensor_copy"),
-            });
+                torch::arg("event_ptr_to_wait") = std::nullopt,
+            })
+        .def(
+            "join_stream_tensor_copy_thread",
+            &fbgemm_gpu::RawEmbeddingStreamer::join_stream_tensor_copy_thread);
 
 } // namespace
