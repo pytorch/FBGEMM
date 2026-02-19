@@ -609,8 +609,11 @@ batch_index_select_dim0_codegen_forward_cuda(
         const bool is_experimental_ = (
             is_experimental && !(std::is_same<emb_t, uint8_t>() || std::is_same<output_t, uint8_t>())
         );
-        // if max_D > {{ legacy_max_embedding_dim }}, use TBE v2
-        if (!is_experimental_ && max_D <= {{ legacy_max_embedding_dim }}) {
+        // if max_D > {{ max_embedding_dim }}, use TBE v2
+        // Use max_embedding_dim (2048) instead of legacy_max_embedding_dim (1024)
+        // to allow dimensions 1024-2048 to use the stable legacy kernel instead of
+        // experimental TBE v2, while keeping code generation at legacy limit.
+        if (!is_experimental_ && max_D <= {{ max_embedding_dim }}) {
         {%- endif %} {#-/* if has_experimental */#}
 
         {#-/* Sequence TBE Case (nobag=True) ****************************************************/#}
