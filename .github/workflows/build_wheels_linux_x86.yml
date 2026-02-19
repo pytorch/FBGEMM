@@ -79,3 +79,7 @@ jobs:
       # Based on current measurements for CUDA 12.9 workflows, builds take
       # 3.5 hours while tests take 0.75 hours
       timeout: 300
+    secrets:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
