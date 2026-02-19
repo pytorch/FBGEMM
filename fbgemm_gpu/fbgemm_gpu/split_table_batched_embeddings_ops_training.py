@@ -2206,7 +2206,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         return FeatureGate.is_enabled(feature)
 
     # pyre-fixme[2]: For 1st argument expected not ANY
-    def writeback_hook(self, module: Any, grad: Tensor) -> tuple[Tensor]:
+    def writeback_hook(self, module: Any, grad: tuple[Tensor]) -> tuple[Tensor]:
         indices = self._indices
         offsets = self._offsets
         return writeback_gradient(
@@ -2215,6 +2215,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets,
             self.feature_table_map,
             self._writeback_first_feature_only,
+            self.is_nobag,
         )
 
     def forward(  # noqa: C901
