@@ -1080,15 +1080,7 @@ at::Tensor bf16bf16bf16_grouped_wgrad(
           "Output tensor must be BFloat16 or Float16 when output_accum=False");
     }
   } else {
-    // When total_M is 0, we need to allocate zeros for the output since none
-    // will be written.
-    if (total_M == 0) {
-      Y = at::zeros({G, N, K}, X.options());
-      // Otherwise, using empty is more efficient since all N, K outputs are
-      // written.
-    } else {
-      Y = at::empty(G * N * K, X.options());
-    }
+    Y = at::zeros({G, N, K}, X.options());
   }
 
   // Early exit for empty inputs.
