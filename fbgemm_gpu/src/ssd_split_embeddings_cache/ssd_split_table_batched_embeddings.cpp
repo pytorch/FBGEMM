@@ -412,26 +412,71 @@ std::string KVTensorWrapper::serialize() const {
   return json_serialized.dump();
 }
 
+void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
+  std::lock_guard<std::mutex> lock(mtx);
+  if (readonly_db_ != nullptr) {
+    LOG(INFO) << "deleting checkpoint dir for " << checkpoint_uuid;
+    readonly_db_->delete_rocksdb_checkpoint_dir();
+  } else if (db_ != nullptr) {
+    auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
+    if (db != nullptr) {
+      LOG(INFO) << "embedding delete";
+      db->delete_rocksdb_checkpoint_dir();
+    } else {
+      LOG(INFO) << "Skipping delete_rocksdb_checkpoint_dir: "
+                << "db_ is not EmbeddingRocksDB (likely DRAM backend)";
+    }
+  }
+}
+
 std::vector<std::string> KVTensorWrapper::get_kvtensor_serializable_metadata()
     const {
   std::vector<std::string> metadata;
+  std::vector<std::string> checkpoint_paths;
+  std::string tbe_uuid;
+  int64_t num_shards;
+  int64_t num_threads;
+  int64_t max_D;
+  std::string checkpoint_uuid_str;
+
   auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
-  auto checkpoint_paths = db->get_checkpoints(checkpoint_handle_->uuid);
+  if (db != nullptr) {
+    // Return empty metadata if checkpoint_handle_ is not initialized yet
+    if (checkpoint_handle_ == nullptr) {
+      return metadata;
+    }
+    checkpoint_paths = db->get_checkpoints(checkpoint_handle_->uuid);
+    tbe_uuid = db->get_tbe_uuid();
+    num_shards = db->num_shards();
+    num_threads = db->num_threads();
+    max_D = db->get_max_D();
+    checkpoint_uuid_str = checkpoint_handle_->uuid;
+  } else if (readonly_db_ != nullptr) {
+    checkpoint_paths = readonly_db_->get_rdb_shard_checkpoint_paths();
+    tbe_uuid = readonly_db_->get_tbe_uuid();
+    num_shards = readonly_db_->num_shards();
+    num_threads = readonly_db_->num_threads();
+    max_D = readonly_db_->get_max_D();
+    checkpoint_uuid_str = checkpoint_uuid;
+  } else {
+    // No valid db, return empty metadata
+    return metadata;
+  }
   metadata.push_back(std::to_string(checkpoint_paths.size()));
   for (const auto& path : checkpoint_paths) {
     metadata.push_back(path);
   }
-  metadata.push_back(db->get_tbe_uuid());
-  metadata.push_back(std::to_string(db->num_shards()));
-  metadata.push_back(std::to_string(db->num_threads()));
-  metadata.push_back(std::to_string(db->get_max_D()));
+  metadata.push_back(tbe_uuid);
+  metadata.push_back(std::to_string(num_shards));
+  metadata.push_back(std::to_string(num_threads));
+  metadata.push_back(std::to_string(max_D));
   metadata.push_back(std::to_string(row_offset_));
   CHECK_EQ(shape_.size(), 2);
   metadata.push_back(std::to_string(shape_[0]));
   metadata.push_back(std::to_string(shape_[1]));
   metadata.push_back(
       std::to_string(static_cast<int64_t>(options_.dtype().toScalarType())));
-  metadata.push_back(checkpoint_handle_->uuid);
+  metadata.push_back(checkpoint_uuid_str);
   return metadata;
 }
 
@@ -642,17 +687,50 @@ void to_json(ssd::json& j, const KVTensorWrapper& kvt) {
   // EmbeddingKVDB class which is inherited by the EmbeddingRocksDB class
   std::shared_ptr<EmbeddingRocksDB> db =
       std::dynamic_pointer_cast<EmbeddingRocksDB>(kvt.db_);
+
+  std::vector<std::string> rdb_shard_checkpoint_paths;
+  std::string tbe_uuid;
+  int64_t num_shards;
+  int64_t num_threads;
+  int64_t max_D;
+  std::string checkpoint_uuid_str;
+
+  if (db != nullptr) {
+    // Use EmbeddingRocksDB for serialization
+    if (kvt.checkpoint_handle_ != nullptr) {
+      rdb_shard_checkpoint_paths =
+          db->get_checkpoints(kvt.checkpoint_handle_->uuid);
+      checkpoint_uuid_str = kvt.checkpoint_handle_->uuid;
+    }
+    tbe_uuid = db->get_tbe_uuid();
+    num_shards = db->num_shards();
+    num_threads = db->num_threads();
+    max_D = db->get_max_D();
+  } else if (kvt.readonly_db_ != nullptr) {
+    // Fallback to ReadOnlyEmbeddingKVDB for serialization
+    rdb_shard_checkpoint_paths =
+        kvt.readonly_db_->get_rdb_shard_checkpoint_paths();
+    tbe_uuid = kvt.readonly_db_->get_tbe_uuid();
+    num_shards = kvt.readonly_db_->num_shards();
+    num_threads = kvt.readonly_db_->num_threads();
+    max_D = kvt.readonly_db_->get_max_D();
+    checkpoint_uuid_str = kvt.checkpoint_uuid;
+  } else {
+    TORCH_CHECK(
+        false,
+        "KVTensorWrapper has no valid db_ or readonly_db_ for serialization");
+  }
+
   j = ssd::json{
-      {"rdb_shard_checkpoint_paths",
-       db->get_checkpoints(kvt.checkpoint_handle_->uuid)},
-      {"tbe_uuid", db->get_tbe_uuid()},
-      {"num_shards", db->num_shards()},
-      {"num_threads", db->num_threads()},
-      {"max_D", db->get_max_D()},
+      {"rdb_shard_checkpoint_paths", rdb_shard_checkpoint_paths},
+      {"tbe_uuid", tbe_uuid},
+      {"num_shards", num_shards},
+      {"num_threads", num_threads},
+      {"max_D", max_D},
       {"row_offset", kvt.row_offset_},
       {"shape", kvt.shape_},
       {"dtype", static_cast<int64_t>(kvt.options_.dtype().toScalarType())},
-      {"checkpoint_uuid", kvt.checkpoint_handle_->uuid},
+      {"checkpoint_uuid", checkpoint_uuid_str},
       {"width_offset", kvt.width_offset_}};
 }
 
@@ -743,6 +821,12 @@ std::string KVTensorWrapper::layout_str() {
   return oss.str();
 }
 } // namespace ssd
+
+// Factory function to create KVTensorWrapper from serialized JSON string
+c10::intrusive_ptr<ssd::KVTensorWrapper>
+create_kv_tensor_wrapper_from_serialized(const std::string& serialized) {
+  return c10::make_intrusive<ssd::KVTensorWrapper>(serialized);
+}
 
 namespace {
 
@@ -947,6 +1031,9 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::wait_util_filling_work_done)
         .def("create_snapshot", &EmbeddingRocksDBWrapper::create_snapshot)
         .def("release_snapshot", &EmbeddingRocksDBWrapper::release_snapshot)
+        .def(
+            "delete_rocksdb_checkpoint_dir",
+            &EmbeddingRocksDBWrapper::delete_rocksdb_checkpoint_dir)
         .def("get_snapshot_count", &EmbeddingRocksDBWrapper::get_snapshot_count)
         .def(
             "get_keys_in_range_by_snapshot",
@@ -1157,11 +1244,22 @@ static auto kv_tensor_wrapper =
               return c10::make_intrusive<KVTensorWrapper>(data);
             })
         .def("logs", &KVTensorWrapper::logs, "")
+        .def("serialize", &KVTensorWrapper::serialize)
         .def(
             "get_kvtensor_serializable_metadata",
-            &KVTensorWrapper::get_kvtensor_serializable_metadata);
+            &KVTensorWrapper::get_kvtensor_serializable_metadata)
+        .def(
+            "delete_rocksdb_checkpoint_dir",
+            &KVTensorWrapper::delete_rocksdb_checkpoint_dir);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "create_kv_tensor_wrapper_from_serialized("
+      "    str serialized"
+      ") -> __torch__.torch.classes.fbgemm.KVTensorWrapper");
+  m.impl(
+      "create_kv_tensor_wrapper_from_serialized",
+      ::create_kv_tensor_wrapper_from_serialized);
   m.def(
       "get_bucket_sorted_indices_and_bucket_tensor("
       "    Tensor unordered_indices,"
