@@ -14,6 +14,11 @@
 #include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
 #include "servicerouter/client/cpp2/mocks/MockSRClientFactory.h"
 #include "thrift/lib/cpp2/util/ScopedServerInterfaceThread.h"
+#ifdef USE_ROCM
+#include <ATen/hip/HIPEvent.h>
+#elif defined(USE_CUDA)
+#include <ATen/cuda/CUDAEvent.h>
+#endif
 #endif
 
 using namespace ::testing;
@@ -332,5 +337,64 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithIdentities) {
   streamer->stream(
       indices, weights, identities, runtime_meta, count, true, true);
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
+}
+
+TEST(RawEmbeddingStreamerTest, TestStreamWithEventPtrNonBlockingCopy) {
+  if (!at::cuda::is_available()) {
+    GTEST_SKIP() << "Skipping test because CUDA/HIP is not available";
+  }
+
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_event_nonblocking", true, table_names, table_offsets, table_sizes);
+
+  // Create CPU tensors
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  // Create and record a GPU event (compatible with both CUDA and HIP)
+#ifdef USE_ROCM
+  hipEvent_t event = nullptr;
+  AT_CUDA_CHECK(hipEventCreate(&event));
+  AT_CUDA_CHECK(hipEventRecord(event, at::cuda::getCurrentHIPStream()));
+#else
+  cudaEvent_t event = nullptr;
+  AT_CUDA_CHECK(cudaEventCreate(&event));
+  AT_CUDA_CHECK(cudaEventRecord(event, at::cuda::getCurrentCUDAStream()));
+#endif
+
+  // Stop the dequeue thread to get accurate queue size
+  streamer->join_weights_stream_thread();
+
+  // Test with valid event_ptr_to_wait in non-blocking mode
+  streamer->stream(
+      indices,
+      weights,
+      std::nullopt,
+      std::nullopt,
+      count,
+      true,
+      false,
+      reinterpret_cast<int64_t>(event));
+
+  // Wait for the async thread to complete
+  streamer->join_stream_tensor_copy_thread();
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
+
+  // Cleanup
+#ifdef USE_ROCM
+  AT_CUDA_CHECK(hipEventDestroy(event));
+#else
+  AT_CUDA_CHECK(cudaEventDestroy(event));
+#endif
 }
 #endif

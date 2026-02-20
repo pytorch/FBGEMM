@@ -83,7 +83,7 @@ static inline void fill_output(
 // single vector register.
 static inline void fillZero(float* ptr, int64_t count) {
 #if defined(__clang__) && HAVE_SVE
-  if constexpr (!__builtin_constant_p(count)) {
+  if (!__builtin_constant_p(count)) {
     float32x4_t zeroVec;
     // Inline asm prevents compiler from replacing with a call to memset
     asm volatile("movi  %[zeroVec].2d, #0000000000000000"

@@ -16,7 +16,10 @@
 #include "servicerouter/client/cpp2/ServiceRouter.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 #include "torch/types.h"
+
+#include "fbgemm_gpu/utils/cuda_event_sync.cuh"
 #endif
+
 #include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
@@ -207,7 +210,8 @@ void RawEmbeddingStreamer::stream(
     std::optional<at::Tensor> runtime_meta [[maybe_unused]],
     const at::Tensor& count [[maybe_unused]],
     bool require_tensor_copy [[maybe_unused]],
-    bool blocking_tensor_copy [[maybe_unused]]) {
+    bool blocking_tensor_copy [[maybe_unused]],
+    std::optional<int64_t> event_ptr_to_wait [[maybe_unused]]) {
   if (!enable_raw_embedding_streaming_) {
     return;
   }
@@ -225,6 +229,7 @@ void RawEmbeddingStreamer::stream(
     return;
   }
   if (blocking_tensor_copy) {
+    maybe_synchronize_cuda_event(event_ptr_to_wait, weights);
     copy_and_enqueue_stream_tensors(
         indices,
         weights,
@@ -239,10 +244,29 @@ void RawEmbeddingStreamer::stream(
   // callbacks don't need to be serialized.
   // So, We need to spin up a new thread to unblock the CUDA stream, so the CUDA
   // can continue executing other host callbacks, eg. get/evict.
-  stream_tensor_copy_thread_ = std::make_unique<std::thread>([=, this]() {
+  stream_tensor_copy_thread_ = std::make_unique<std::thread>([this,
+                                                              event_ptr_to_wait,
+                                                              indices,
+                                                              weights,
+                                                              identities,
+                                                              runtime_meta,
+                                                              count]() {
+    maybe_synchronize_cuda_event(event_ptr_to_wait, weights);
     copy_and_enqueue_stream_tensors(
         indices, weights, identities, runtime_meta, count);
   });
+  rec->record.end();
+#endif
+}
+
+void RawEmbeddingStreamer::join_stream_tensor_copy_thread() {
+#ifdef FBGEMM_FBCODE
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## RawEmbeddingStreamer::join_stream_tensor_copy_thread ##");
+  if (stream_tensor_copy_thread_ != nullptr &&
+      stream_tensor_copy_thread_->joinable()) {
+    stream_tensor_copy_thread_->join();
+  }
   rec->record.end();
 #endif
 }
@@ -375,16 +399,6 @@ void RawEmbeddingStreamer::copy_and_enqueue_stream_tensors(
   auto stream_item = tensor_copy(
       indices, weights, std::move(identities), std::move(runtime_meta), count);
   weights_to_stream_queue_.enqueue(stream_item);
-  rec->record.end();
-}
-
-void RawEmbeddingStreamer::join_stream_tensor_copy_thread() {
-  auto rec = torch::autograd::profiler::record_function_enter_new(
-      "## RawEmbeddingStreamer::join_stream_tensor_copy_thread ##");
-  if (stream_tensor_copy_thread_ != nullptr &&
-      stream_tensor_copy_thread_->joinable()) {
-    stream_tensor_copy_thread_->join();
-  }
   rec->record.end();
 }
 
