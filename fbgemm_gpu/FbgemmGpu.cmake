@@ -205,6 +205,7 @@ gpu_cpp_library(
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm
+    fbgemm_gpu_config
     fbgemm_gpu_sparse_async_cumsum
     fbgemm_gpu_embedding_inplace_ops
     fbgemm_gpu_tbe_index_select

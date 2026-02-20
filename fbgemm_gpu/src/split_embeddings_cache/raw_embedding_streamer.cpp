@@ -16,10 +16,11 @@
 #include "servicerouter/client/cpp2/ServiceRouter.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 #include "torch/types.h"
+
+#include "fbgemm_gpu/utils/cuda_event_sync.cuh"
 #endif
 
 #include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
-#include "fbgemm_gpu/utils/cuda_event_sync.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
 namespace fbgemm_gpu {
