@@ -8,467 +8,319 @@
 ################################################################################
 # PyTorch OSS Build Script
 #
-# This script builds PyTorch from source at a specified git SHA and installs
-# it into a Conda environment. It reuses the FBGEMM build infrastructure for
-# proper CUDA/ROCm setup.
-#
-# The script is organized into two parts:
-#   Part 1: Environment setup (main script) - Sets up Conda environment with
-#           compilers, CUDA/ROCm, etc.
-#   Part 2: Build PyTorch (build_pytorch_from_source function) - Clones and
-#           builds PyTorch. Can be called independently with a pre-configured
-#           environment.
+# Builds PyTorch from source at a specified git SHA and installs it into a
+# Conda environment. Reuses FBGEMM build infrastructure for CUDA/ROCm setup.
 #
 # Usage:
 #   ./pytorch_oss_build.bash <GIT_SHA>
 #
-# Example:
-#   ./pytorch_oss_build.bash abc123def456
-#
 # Environment Variables:
-#   PYTHON_VERSION      - Python version to use (default: 3.12)
-#   BUILD_VARIANT       - Build variant: cuda, rocm, or cpu (default: cuda)
-#   BUILD_CUDA_VERSION  - CUDA version for CUDA builds (default: 12.9.1)
-#   BUILD_ROCM_VERSION  - ROCm version for ROCm builds (default: 7.0)
-#   PYTORCH_REPO_URL    - PyTorch repository URL (default: https://github.com/pytorch/pytorch)
-#   PYTORCH_CLONE_DIR   - Directory to clone PyTorch into (default: /tmp/pytorch)
+#   PYTHON_VERSION      - Python version (default: 3.12)
+#   BUILD_VARIANT       - cuda, rocm, or cpu (default: cuda)
+#   BUILD_CUDA_VERSION  - CUDA version (default: 12.9.1)
+#   BUILD_ROCM_VERSION  - ROCm version (default: 7.0)
+#   PYTORCH_REPO_URL    - Repository URL (default: https://github.com/pytorch/pytorch)
+#   PYTORCH_CLONE_DIR   - Clone directory (default: /tmp/pytorch)
 #   BUILD_ENV           - Conda environment name (default: auto-generated)
-#
 ################################################################################
 
-# Only set these if running as main script (not being sourced)
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    set -eo pipefail
-fi
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && set -eo pipefail
 
 ################################################################################
 # Helper Functions
 ################################################################################
 
-__pytorch_log_info() {
-    echo "[PYTORCH BUILD] $*"
-}
+__pytorch_log_info()  { echo "[PYTORCH BUILD] $*"; }
+__pytorch_log_error() { echo "[PYTORCH BUILD] ERROR: $*" >&2; }
 
-__pytorch_log_error() {
-    echo "[PYTORCH BUILD] ERROR: $*" >&2
+# Configure CUDA environment variables for PyTorch build.
+# For newer conda CUDA (12.6+), headers are in targets/<arch>-linux/include/
+__configure_pytorch_cuda_build() {
+  local env_name="$1" conda_prefix="$2"
+  local machine_name_lc
+  machine_name_lc=$(uname -m | tr '[:upper:]' '[:lower:]')
+
+  export PYTORCH_CUDA_TOOLKIT_ROOT="${conda_prefix}/targets/${machine_name_lc}-linux"
+  export PYTORCH_CUDA_NVCC_EXECUTABLE="${conda_prefix}/bin/nvcc"
+
+  __pytorch_log_info "CUDA config: TOOLKIT_ROOT=${PYTORCH_CUDA_TOOLKIT_ROOT}, NVCC=${PYTORCH_CUDA_NVCC_EXECUTABLE}"
 }
 
 ################################################################################
-# Part 2: Build PyTorch from Source
-#
-# This function can be called independently with a pre-configured Conda
-# environment. It clones PyTorch at the specified SHA and builds it.
+# Install PyTorch Wheel
+################################################################################
+
+install_pytorch_wheel_only() {
+  local env_name="$1" wheel_path="$2"
+
+  if [[ -z "$wheel_path" ]]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME WHEEL_PATH"
+    return 1
+  fi
+
+  cat <<EOF
+################################################################################
+# Install PyTorch Wheel
+# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}
+################################################################################
+EOF
+
+  __pytorch_log_info "Installing wheel: $wheel_path into env: $env_name"
+
+  [[ ! -f "$wheel_path" ]] && { __pytorch_log_error "Wheel not found: $wheel_path"; return 1; }
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # Uninstall existing PyTorch, install new wheel (both without deps)
+  # shellcheck disable=SC2086
+  conda run --no-capture-output ${env_prefix} pip uninstall -y --no-deps torch 2>/dev/null || true
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run --no-capture-output ${env_prefix} pip install --no-deps "$wheel_path") || return 1
+
+  # Verify installation
+  (test_python_import_package "${env_name}" torch) || return 1
+
+  # shellcheck disable=SC2086,SC2155
+  local version=$(conda run --no-capture-output ${env_prefix} python -c "import torch; print(torch.__version__)")
+  __pytorch_log_info "Installed PyTorch version: $version"
+}
+
+################################################################################
+# Build PyTorch from Source
 #
 # Arguments:
-#   ENV_NAME         - Name of the pre-configured Conda environment
-#   GIT_SHA          - Git SHA to build PyTorch from
-#   BUILD_VARIANT    - Build variant: cuda, rocm, or cpu
-#   PYTORCH_REPO_URL - (optional) PyTorch repository URL
-#   PYTORCH_CLONE_DIR - (optional) Directory to clone PyTorch into
-#
+#   ENV_NAME          - Pre-configured Conda environment
+#   GIT_SHA           - Git SHA to build
+#   BUILD_VARIANT     - cuda, rocm, or cpu
+#   PYTORCH_REPO_URL  - (optional) Repository URL
+#   PYTORCH_CLONE_DIR - (optional) Clone directory
 ################################################################################
-
-__configure_pytorch_cuda_build () {
-    # Configure CUDA environment variables for PyTorch build.
-    #
-    # This function sets environment variables that CMake's FindCUDA.cmake
-    # module respects. For newer conda CUDA installations (12.6+), the include
-    # files are located in targets/<arch>-linux/include/ rather than include/,
-    # so we need to explicitly set the toolkit root.
-    #
-    # Environment variables set:
-    #   CUDA_TOOLKIT_ROOT     - Used by FindCUDA.cmake (line 891) to locate CUDA
-    #   CUDA_NVCC_EXECUTABLE  - Used by FindCUDA.cmake (lines 938-939) for nvcc path
-    #
-    # Arguments:
-    #   env_name    - Name of the Conda environment
-    #   conda_prefix - Path to the Conda environment prefix
-    #
-    # Exports (for use by caller):
-    #   PYTORCH_CUDA_TOOLKIT_ROOT
-    #   PYTORCH_CUDA_NVCC_EXECUTABLE
-
-    local env_name="$1"
-    local conda_prefix="$2"
-
-    # shellcheck disable=SC2155
-    local machine_name_lc=$(uname -m | tr '[:upper:]' '[:lower:]')
-
-    # For newer CUDA conda packages (12.6+), the CUDA toolkit files are organized
-    # under targets/<arch>-linux/ instead of directly under the conda prefix.
-    # This is required for FindCUDA.cmake to locate cuda_runtime.h and other headers.
-    export PYTORCH_CUDA_TOOLKIT_ROOT="${conda_prefix}/targets/${machine_name_lc}-linux"
-    export PYTORCH_CUDA_NVCC_EXECUTABLE="${conda_prefix}/bin/nvcc"
-
-    __pytorch_log_info "Configured CUDA build environment:"
-    __pytorch_log_info "  CUDA_TOOLKIT_ROOT=${PYTORCH_CUDA_TOOLKIT_ROOT}"
-    __pytorch_log_info "  CUDA_NVCC_EXECUTABLE=${PYTORCH_CUDA_NVCC_EXECUTABLE}"
-}
 
 build_pytorch_from_source() {
-    local env_name="$1"
-    local git_sha="$2"
-    local build_variant="$3"
-    local repo_url="${4:-https://github.com/pytorch/pytorch}"
-    local clone_dir="${5:-/tmp/pytorch}"
+  local env_name="$1" git_sha="$2" build_variant="$3"
+  local repo_url="${4:-https://github.com/pytorch/pytorch}"
+  local clone_dir="${5:-/tmp/pytorch}"
 
-    if [ "$build_variant" == "" ]; then
-        echo "Usage: ${FUNCNAME[0]} ENV_NAME GIT_SHA BUILD_VARIANT [PYTORCH_REPO_URL] [PYTORCH_CLONE_DIR]"
-        echo "Example(s):"
-        echo "    ${FUNCNAME[0]} build_env abc123def456 cuda"
-        echo "    ${FUNCNAME[0]} build_env abc123def456 rocm https://github.com/pytorch/pytorch /tmp/pytorch"
-        return 1
-    else
-        echo "################################################################################"
-        echo "# Build PyTorch from Source"
-        echo "#"
-        echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
-        echo "################################################################################"
-        echo ""
-    fi
+  if [[ -z "$build_variant" ]]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME GIT_SHA BUILD_VARIANT [REPO_URL] [CLONE_DIR]"
+    return 1
+  fi
 
-    __pytorch_log_info "Building PyTorch from source ..."
-    __pytorch_log_info "  Environment: ${env_name}"
-    __pytorch_log_info "  Git SHA: ${git_sha}"
-    __pytorch_log_info "  Build Variant: ${build_variant}"
-    __pytorch_log_info "  Repo URL: ${repo_url}"
-    __pytorch_log_info "  Clone Dir: ${clone_dir}"
+  cat <<EOF
+################################################################################
+# Build PyTorch from Source
+# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}
+################################################################################
 
-    # shellcheck disable=SC2155
-    local env_prefix=$(env_name_or_prefix "${env_name}")
+Environment:    $env_name
+Git SHA:        $git_sha
+Build Variant:  $build_variant
+Repo URL:       $repo_url
+Clone Dir:      $clone_dir
+EOF
 
-    ############################################################################
-    # Step 1: Clone PyTorch Repository (Shallow Clone at Specific SHA)
-    ############################################################################
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
 
-    __pytorch_log_info "Cloning PyTorch repository at SHA: $git_sha ..."
-    if [ -d "$clone_dir" ]; then
-        __pytorch_log_info "Removing existing PyTorch directory: $clone_dir"
-        rm -rf "$clone_dir"
-    fi
+  # Clone repository (shallow at specific SHA)
+  __pytorch_log_info "Cloning PyTorch at SHA: $git_sha"
+  rm -rf "$clone_dir"
+  mkdir -p "$clone_dir" && cd "$clone_dir"
+  git init && git remote add origin "$repo_url"
+  (exec_with_retries 3 git fetch --depth=1 origin "$git_sha") || return 1
+  git checkout FETCH_HEAD || return 1
+  git submodule sync || return 1
+  (exec_with_retries 3 git submodule update --init --recursive --depth=1) || return 1
 
-    # Create the directory and initialize an empty git repo
-    mkdir -p "$clone_dir"
-    cd "$clone_dir"
-    git init
+  # Install build dependencies
+  __pytorch_log_info "Installing build dependencies..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run --no-capture-output ${env_prefix} pip install -r requirements.txt) || true
 
-    # Add the remote
-    git remote add origin "$repo_url"
-
-    # Fetch only the specific commit with depth=1 (shallow fetch)
-    __pytorch_log_info "Fetching commit $git_sha (shallow fetch) ..."
-    (exec_with_retries 3 git fetch --depth=1 origin "$git_sha") || return 1
-
-    # Checkout the fetched commit
-    __pytorch_log_info "Checking out git SHA: $git_sha"
-    git checkout FETCH_HEAD || return 1
-
-    # Initialize and update submodules (shallow)
-    __pytorch_log_info "Initializing and updating submodules (shallow) ..."
-    git submodule sync || return 1
-    (exec_with_retries 3 git submodule update --init --recursive --depth=1) || return 1
-
-    ############################################################################
-    # Step 2: Install Build Dependencies
-    ############################################################################
-
-    __pytorch_log_info "Installing build dependencies ..."
-
-    # Install common dependencies from PyTorch's requirements.txt
+  if [[ "$(uname -m)" == "x86_64" ]]; then
     # shellcheck disable=SC2086
-    (exec_with_retries 3 conda run ${env_prefix} pip install -r requirements.txt) || true
+    (exec_with_retries 3 conda run --no-capture-output ${env_prefix} pip install mkl-static mkl-include) || return 1
+  fi
 
-    # Install MKL for x86_64
-    if [[ "$(uname -m)" == "x86_64" ]]; then
-        __pytorch_log_info "Installing MKL for x86_64 ..."
-        # shellcheck disable=SC2086
-        (exec_with_retries 3 conda run ${env_prefix} pip install mkl-static mkl-include) || return 1
-    fi
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y numpy numactl) || return 1
 
-    # Install numpy (required for PyTorch build)
-    __pytorch_log_info "Installing numpy ..."
-    # shellcheck disable=SC2086
-    (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
-        numpy) || return 1
+  # Configure build environment
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run --no-capture-output ${env_prefix} printenv CONDA_PREFIX)
 
-    # Install numactl (provides libnuma for NUMA support in libc10.so)
-    __pytorch_log_info "Installing numactl ..."
-    # shellcheck disable=SC2086
-    (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
-        numactl) || return 1
+  # Compiler/linker flags for large CUDA builds
+  # -mcmodel=medium: Handle large symbol tables
+  # --no-relax: Prevent relocation overflow errors
+  local compiler_flags="-mcmodel=medium"
+  local linker_flags="-Wl,--no-relax -L${conda_prefix}/lib -Wl,-rpath,${conda_prefix}/lib -Wl,-rpath-link,${conda_prefix}/lib"
 
-    ############################################################################
-    # Step 3: Configure Build Environment
-    ############################################################################
+  __pytorch_log_info "Building PyTorch (this may take a while)..."
+  cd "$clone_dir"
 
-    __pytorch_log_info "Configuring build environment ..."
+  # Common build environment
+  local -a build_env=(
+    "CMAKE_PREFIX_PATH=${conda_prefix}"
+    "LDFLAGS=${linker_flags}"
+    "CMAKE_SHARED_LINKER_FLAGS=${linker_flags}"
+    "CMAKE_EXE_LINKER_FLAGS=${linker_flags}"
+  )
 
-    # shellcheck disable=SC2155,SC2086
-    local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  case "$build_variant" in
+    cuda)
+      __configure_pytorch_cuda_build "${env_name}" "${conda_prefix}"
+      build_env+=(
+        "LD_LIBRARY_PATH=${conda_prefix}/lib:${LD_LIBRARY_PATH:-}"
+        "CUDA_TOOLKIT_ROOT=${PYTORCH_CUDA_TOOLKIT_ROOT}"
+        "CUDA_NVCC_EXECUTABLE=${PYTORCH_CUDA_NVCC_EXECUTABLE}"
+        "CMAKE_C_FLAGS=${compiler_flags}"
+        "CMAKE_CXX_FLAGS=${compiler_flags}"
+        "CFLAGS=${compiler_flags}"
+        "CXXFLAGS=${compiler_flags}"
+        "MAX_JOBS=8"
+        "USE_CUDA=1"
+        "USE_ROCM=0"
+      )
+      ;;
+    rocm)
+      __pytorch_log_info "Running AMD build preprocessing..."
+      # shellcheck disable=SC2086
+      conda run --no-capture-output ${env_prefix} python tools/amd_build/build_amd.py || return 1
+      build_env+=("USE_ROCM=1" "USE_CUDA=0")
+      ;;
+    *)
+      build_env+=("USE_CUDA=0" "USE_ROCM=0")
+      ;;
+  esac
 
-    ############################################################################
-    # Step 4: Build and Install PyTorch
-    ############################################################################
+  # Build and install
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run --no-capture-output ${env_prefix} \
+    env "${build_env[@]}" python -m pip install --no-build-isolation -v -e .) || return 1
 
-    __pytorch_log_info "Building and installing PyTorch (this may take a while) ..."
+  # Verify installation
+  __pytorch_log_info "Verifying installation..."
+  (test_python_import_package "${env_name}" torch) || return 1
+  (test_python_import_package "${env_name}" torch.distributed) || return 1
 
-    cd "$clone_dir"
+  # shellcheck disable=SC2086,SC2155
+  local version=$(conda run --no-capture-output ${env_prefix} python -c "import torch; print(torch.__version__)")
+  __pytorch_log_info "Installed PyTorch version: $version"
 
-    # NOTE: Large CUDA builds can hit relocation overflow errors during linking.
-    # The --no-relax flag prevents the linker from using relaxation optimizations
-    # that can cause "relocation truncated to fit" errors.
-    # We also add the conda lib path for libraries like libnuma.
-    # NOTE: -mcmodel=medium is needed for large CUDA builds to handle symbol tables
-    # that exceed the small code model limits (relocation truncated to fit errors).
-    local compiler_flags="-mcmodel=medium"
-    local linker_flags="-Wl,--no-relax -L${conda_prefix}/lib -Wl,-rpath,${conda_prefix}/lib -Wl,-rpath-link,${conda_prefix}/lib"
-
-    if [[ "$build_variant" == "cuda" ]]; then
-        # Configure CUDA environment variables
-        __configure_pytorch_cuda_build "${env_name}" "${conda_prefix}"
-
-        # shellcheck disable=SC2086
-        (exec_with_retries 3 conda run ${env_prefix} \
-            env LD_LIBRARY_PATH="${conda_prefix}/lib:${LD_LIBRARY_PATH:-}" \
-                CUDA_TOOLKIT_ROOT="${PYTORCH_CUDA_TOOLKIT_ROOT}" \
-                CUDA_NVCC_EXECUTABLE="${PYTORCH_CUDA_NVCC_EXECUTABLE}" \
-                CMAKE_C_FLAGS="${compiler_flags}" \
-                CMAKE_CXX_FLAGS="${compiler_flags}" \
-                CFLAGS="${compiler_flags}" \
-                CXXFLAGS="${compiler_flags}" \
-                MAX_JOBS=8 \
-                USE_CUDA=1 \
-                USE_ROCM=0 \
-                CMAKE_PREFIX_PATH="${conda_prefix}" \
-                LDFLAGS="${linker_flags}" \
-                CMAKE_SHARED_LINKER_FLAGS="${linker_flags}" \
-                CMAKE_EXE_LINKER_FLAGS="${linker_flags}" \
-            python -m pip install --no-build-isolation -v -e .) || return 1
-
-    elif [[ "$build_variant" == "rocm" ]]; then
-        # Run AMD build preprocessing script
-        __pytorch_log_info "Running AMD build preprocessing script ..."
-        # shellcheck disable=SC2086
-        (conda run ${env_prefix} python tools/amd_build/build_amd.py) || return 1
-
-        # shellcheck disable=SC2086
-        (exec_with_retries 3 conda run ${env_prefix} \
-            env USE_ROCM=1 \
-                USE_CUDA=0 \
-                CMAKE_PREFIX_PATH="${conda_prefix}" \
-                LDFLAGS="${linker_flags}" \
-                CMAKE_SHARED_LINKER_FLAGS="${linker_flags}" \
-                CMAKE_EXE_LINKER_FLAGS="${linker_flags}" \
-            python -m pip install --no-build-isolation -v -e .) || return 1
-    else
-        # CPU build
-        # shellcheck disable=SC2086
-        (exec_with_retries 3 conda run ${env_prefix} \
-            env USE_CUDA=0 \
-                USE_ROCM=0 \
-                CMAKE_PREFIX_PATH="${conda_prefix}" \
-                LDFLAGS="${linker_flags}" \
-                CMAKE_SHARED_LINKER_FLAGS="${linker_flags}" \
-                CMAKE_EXE_LINKER_FLAGS="${linker_flags}" \
-            python -m pip install --no-build-isolation -v -e .) || return 1
-    fi
-
-    ############################################################################
-    # Step 5: Verify Installation
-    ############################################################################
-
-    __pytorch_log_info "Verifying PyTorch installation ..."
-
-    # Check that PyTorch is importable
-    (test_python_import_package "${env_name}" torch) || return 1
-    (test_python_import_package "${env_name}" torch.distributed) || return 1
-
-    # Print installed version
+  # Check device availability
+  if [[ "$build_variant" == "cuda" ]]; then
     # shellcheck disable=SC2086,SC2155
-    local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
-    __pytorch_log_info "Installed PyTorch version: ${installed_pytorch_version}"
+    local cuda_avail=$(conda run --no-capture-output ${env_prefix} python -c "import torch; print(torch.cuda.is_available())")
+    # shellcheck disable=SC2086,SC2155
+    local cuda_ver=$(conda run --no-capture-output ${env_prefix} python -c "import torch; print(torch.version.cuda)")
+    __pytorch_log_info "CUDA available: $cuda_avail, version: $cuda_ver"
+  elif [[ "$build_variant" == "rocm" ]]; then
+    # shellcheck disable=SC2086,SC2155
+    local hip_avail=$(conda run --no-capture-output ${env_prefix} python -c "import torch; print(torch.cuda.is_available())")
+    # shellcheck disable=SC2086,SC2155
+    local hip_ver=$(conda run --no-capture-output ${env_prefix} python -c "import torch; print(torch.version.hip)")
+    __pytorch_log_info "HIP available: $hip_avail, version: $hip_ver"
+  fi
 
-    # Print device availability
-    if [[ "$build_variant" == "cuda" ]]; then
-        # shellcheck disable=SC2086
-        local cuda_available
-        cuda_available=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.is_available())")
-        __pytorch_log_info "CUDA available: ${cuda_available}"
-        # shellcheck disable=SC2086
-        local cuda_version
-        cuda_version=$(conda run ${env_prefix} python -c "import torch; print(torch.version.cuda)")
-        __pytorch_log_info "CUDA version: ${cuda_version}"
-    elif [[ "$build_variant" == "rocm" ]]; then
-        # shellcheck disable=SC2086
-        local hip_available
-        hip_available=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.is_available())")
-        __pytorch_log_info "HIP/ROCm available: ${hip_available}"
-        # shellcheck disable=SC2086
-        local hip_version
-        hip_version=$(conda run ${env_prefix} python -c "import torch; print(torch.version.hip)")
-        __pytorch_log_info "HIP version: ${hip_version}"
-    fi
-
-    __pytorch_log_info "Successfully built and installed PyTorch from source"
-    __pytorch_log_info "PyTorch source directory: $clone_dir"
+  __pytorch_log_info "Successfully built PyTorch from source at: $clone_dir"
 }
 
 ################################################################################
-# Part 1: Main Script (Environment Setup + Build)
-#
-# This is the main entry point when running the script directly.
-# It sets up the Conda environment and then calls build_pytorch_from_source.
+# Main Script (when executed directly)
 ################################################################################
 
-# Only run main if this script is being executed directly (not sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-    # Get the script directory
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  # Configuration
+  PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
+  BUILD_VARIANT="${BUILD_VARIANT:-cuda}"
+  BUILD_CUDA_VERSION="${BUILD_CUDA_VERSION:-12.9.1}"
+  BUILD_ROCM_VERSION="${BUILD_ROCM_VERSION:-7.0}"
+  PYTORCH_REPO_URL="${PYTORCH_REPO_URL:-https://github.com/pytorch/pytorch}"
+  PYTORCH_CLONE_DIR="${PYTORCH_CLONE_DIR:-/tmp/pytorch}"
+  BUILD_SCRIPTS_INIT="${BUILD_SCRIPTS_INIT:-${REPO_ROOT}/.github/scripts/setup_env.bash}"
 
-    # Set default values for configuration
-    PYTHON_VERSION=${PYTHON_VERSION:-3.12}
-    BUILD_VARIANT=${BUILD_VARIANT:-cuda}
-    BUILD_CUDA_VERSION=${BUILD_CUDA_VERSION:-12.9.1}
-    BUILD_ROCM_VERSION=${BUILD_ROCM_VERSION:-7.0}
-    PYTORCH_REPO_URL=${PYTORCH_REPO_URL:-https://github.com/pytorch/pytorch}
-    PYTORCH_CLONE_DIR=${PYTORCH_CLONE_DIR:-/tmp/pytorch}
-    BUILD_SCRIPTS_INIT=${BUILD_SCRIPTS_INIT:-"${REPO_ROOT}/.github/scripts/setup_env.bash"}
+  # NCCL v2.28.9+ requires glibc 2.18+ for pthread_setattr_default_np
+  export GLIBC_VERSION="${GLIBC_VERSION:-2.28}"
 
-    # Use glibc 2.28 sysroot for compatibility with newer NCCL
-    # NOTE: NCCL v2.28.9+ requires pthread_setattr_default_np which is only
-    # available in glibc 2.18+. The default sysroot_linux-64=2.17 doesn't have it.
-    export GLIBC_VERSION=${GLIBC_VERSION:-2.28}
+  if [[ $# -lt 1 ]]; then
+    cat <<EOF
+Usage: $0 <GIT_SHA>
 
-    print_usage() {
-        echo "Usage: $0 <GIT_SHA>"
-        echo ""
-        echo "Build PyTorch from source at a specified git SHA."
-        echo ""
-        echo "Arguments:"
-        echo "  GIT_SHA    The git commit SHA to build PyTorch from"
-        echo ""
-        echo "Environment Variables:"
-        echo "  PYTHON_VERSION      - Python version to use (default: 3.12)"
-        echo "  BUILD_VARIANT       - Build variant: cuda, rocm, or cpu (default: cuda)"
-        echo "  BUILD_CUDA_VERSION  - CUDA version for CUDA builds (default: 12.9.1)"
-        echo "  BUILD_ROCM_VERSION  - ROCm version for ROCm builds (default: 7.0)"
-        echo "  PYTORCH_REPO_URL    - PyTorch repository URL (default: https://github.com/pytorch/pytorch)"
-        echo "  PYTORCH_CLONE_DIR   - Directory to clone PyTorch into (default: /tmp/pytorch)"
-        echo "  GLIBC_VERSION       - GLIBC sysroot version (default: 2.28)"
-        echo ""
-        echo "Example:"
-        echo "  $0 abc123def456"
-        echo "  BUILD_VARIANT=rocm $0 abc123def456"
-    }
+Build PyTorch from source at a specified git SHA.
 
-    # Check for required argument
-    if [ $# -lt 1 ]; then
-        __pytorch_log_error "Missing required argument: GIT_SHA"
-        print_usage
-        exit 1
-    fi
+Environment Variables:
+  PYTHON_VERSION, BUILD_VARIANT, BUILD_CUDA_VERSION, BUILD_ROCM_VERSION,
+  PYTORCH_REPO_URL, PYTORCH_CLONE_DIR, GLIBC_VERSION
 
-    PYTORCH_GIT_SHA="$1"
+Example:
+  $0 abc123def456
+  BUILD_VARIANT=rocm $0 abc123def456
+EOF
+    exit 1
+  fi
 
-    # Set build environment name based on variant
-    if [[ "$BUILD_VARIANT" == "rocm" ]]; then
-        BUILD_VARIANT_VERSION=${BUILD_ROCM_VERSION}
-    elif [[ "$BUILD_VARIANT" == "cuda" ]]; then
-        BUILD_VARIANT_VERSION=${BUILD_CUDA_VERSION}
-    elif [[ "$BUILD_VARIANT" == "cpu" ]]; then
-        BUILD_VARIANT_VERSION=none
-    else
-        __pytorch_log_error "Invalid build variant: $BUILD_VARIANT"
-        exit 1
-    fi
+  PYTORCH_GIT_SHA="$1"
 
-    # Generate environment name if not provided
-    BUILD_ENV=${BUILD_ENV:-"pytorch-py${PYTHON_VERSION}-${BUILD_VARIANT}${BUILD_VARIANT_VERSION}-${PYTORCH_GIT_SHA:0:8}"}
+  # Set variant version
+  case "$BUILD_VARIANT" in
+    cuda) BUILD_VARIANT_VERSION="$BUILD_CUDA_VERSION" ;;
+    rocm) BUILD_VARIANT_VERSION="$BUILD_ROCM_VERSION" ;;
+    cpu)  BUILD_VARIANT_VERSION="none" ;;
+    *)    __pytorch_log_error "Invalid BUILD_VARIANT: $BUILD_VARIANT"; exit 1 ;;
+  esac
 
-    echo "################################################################################"
-    echo "# PyTorch OSS Build from Source"
-    echo "#"
-    echo "# [$(date --utc +%FT%T.%3NZ)] + ${0} ${*}"
-    echo "################################################################################"
-    echo ""
-    echo "PYTORCH_GIT_SHA           : $PYTORCH_GIT_SHA"
-    echo "PYTORCH_REPO_URL          : $PYTORCH_REPO_URL"
-    echo "PYTORCH_CLONE_DIR         : $PYTORCH_CLONE_DIR"
-    echo ""
-    echo "PYTHON_VERSION            : $PYTHON_VERSION"
-    echo "BUILD_VARIANT             : $BUILD_VARIANT"
-    if [[ "$BUILD_VARIANT" == "rocm" ]]; then
-    echo "BUILD_ROCM_VERSION        : $BUILD_ROCM_VERSION"
-    elif [[ "$BUILD_VARIANT" == "cuda" ]]; then
-    echo "BUILD_CUDA_VERSION        : $BUILD_CUDA_VERSION"
-    fi
-    echo "GLIBC_VERSION             : $GLIBC_VERSION"
-    echo ""
-    echo "Target Conda Environment  : $BUILD_ENV"
-    echo ""
-    echo "################################################################################"
+  BUILD_ENV="${BUILD_ENV:-pytorch-py${PYTHON_VERSION}-${BUILD_VARIANT}${BUILD_VARIANT_VERSION}-${PYTORCH_GIT_SHA:0:8}}"
 
-    # Load the build scripts
-    # shellcheck disable=SC1091,SC1090
-    source "${BUILD_SCRIPTS_INIT}" || exit 1
-    __pytorch_log_info "Loaded the build scripts from: $BUILD_SCRIPTS_INIT"
+  cat <<EOF
+################################################################################
+# PyTorch OSS Build from Source
+# [$(date --utc +%FT%T.%3NZ)] + ${0} ${*}
+################################################################################
 
-    ############################################################################
-    # Step 1: Set up Conda
-    ############################################################################
+Git SHA:        $PYTORCH_GIT_SHA
+Repo URL:       $PYTORCH_REPO_URL
+Clone Dir:      $PYTORCH_CLONE_DIR
+Python:         $PYTHON_VERSION
+Build Variant:  $BUILD_VARIANT ${BUILD_VARIANT_VERSION}
+GLIBC:          $GLIBC_VERSION
+Environment:    $BUILD_ENV
 
-    if command -v conda &> /dev/null; then
-        __pytorch_log_info "conda was found ..."
-        conda info || exit 1
-    else
-        __pytorch_log_info "conda was NOT found; will install conda ..."
-        setup_miniconda "$HOME/miniconda" || exit 1
-    fi
+################################################################################
+EOF
 
-    ############################################################################
-    # Step 2: Set up Conda Environment with CUDA/ROCm
-    ############################################################################
+  # Load build scripts
+  # shellcheck disable=SC1091,SC1090
+  source "${BUILD_SCRIPTS_INIT}" || exit 1
+  __pytorch_log_info "Loaded build scripts from: $BUILD_SCRIPTS_INIT"
 
-    __pytorch_log_info "Setting up Conda environment with ${BUILD_VARIANT} support ..."
+  # Setup conda
+  if command -v conda &>/dev/null; then
+    __pytorch_log_info "conda found"
+    conda info || exit 1
+  else
+    __pytorch_log_info "Installing conda..."
+    setup_miniconda "$HOME/miniconda" || exit 1
+  fi
 
-    integration_setup_conda_environment_base \
-        "$BUILD_ENV" \
-        "gcc" \
-        "$PYTHON_VERSION" \
-        "$BUILD_VARIANT" \
-        "$BUILD_VARIANT_VERSION" \
-        || exit 1
+  # Setup environment and build
+  __pytorch_log_info "Setting up Conda environment with ${BUILD_VARIANT} support..."
+  integration_setup_conda_environment_base "$BUILD_ENV" gcc "$PYTHON_VERSION" "$BUILD_VARIANT" "$BUILD_VARIANT_VERSION" || exit 1
 
-    ############################################################################
-    # Step 3: Build PyTorch from source (calls Part 2 function)
-    ############################################################################
+  build_pytorch_from_source "$BUILD_ENV" "$PYTORCH_GIT_SHA" "$BUILD_VARIANT" "$PYTORCH_REPO_URL" "$PYTORCH_CLONE_DIR" || exit 1
 
-    build_pytorch_from_source \
-        "$BUILD_ENV" \
-        "$PYTORCH_GIT_SHA" \
-        "$BUILD_VARIANT" \
-        "$PYTORCH_REPO_URL" \
-        "$PYTORCH_CLONE_DIR" \
-        || exit 1
+  export CURRENT_PYTORCH_BUILD_ENV="$BUILD_ENV"
 
-    ############################################################################
-    # Step 4: Export Environment
-    ############################################################################
+  cat <<EOF
 
-    __pytorch_log_info "Exporting the build environment name ..."
-    export CURRENT_PYTORCH_BUILD_ENV="$BUILD_ENV"
-
-    echo ""
-    echo "################################################################################"
-    echo "#"
-    echo "# PyTorch build and install has successfully completed!"
-    echo "#"
-    echo "# To activate the environment, run:"
-    echo "#     conda activate $BUILD_ENV"
-    echo "#"
-    echo "# PyTorch source directory: $PYTORCH_CLONE_DIR"
-    echo "#"
-    echo "################################################################################"
+################################################################################
+# PyTorch build completed successfully!
+#
+# Activate: conda activate $BUILD_ENV
+# Source:   $PYTORCH_CLONE_DIR
+################################################################################
+EOF
 fi
