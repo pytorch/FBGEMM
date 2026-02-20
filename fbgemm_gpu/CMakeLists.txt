@@ -167,12 +167,13 @@ set(fbgemm_sources_include_directories
 
 # These dependencies should be declared and built before building FBGEMM_GPU
 
-# Target: `asmjit`
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Asmjit.cmake)
+if(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_DEFAULT)
+  # Target: `asmjit`
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Asmjit.cmake)
 
-# Target: `fbgemm`
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Fbgemm.cmake)
-
+  # Target: `fbgemm`
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Fbgemm.cmake)
+endif()
 
 ################################################################################
 # TBE Code Generation
