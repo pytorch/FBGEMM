@@ -78,6 +78,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ps_client_thread_num: Optional[int] = None,
         ps_max_local_index_length: Optional[int] = None,
         tbe_unique_id: int = -1,  # unique id for this embedding, if not set, will derive based on current rank and tbe index id
+        prefetch_dist: int = 1,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(SSDIntNBitTableBatchedEmbeddingBags, self).__init__()
 
@@ -85,6 +86,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
         self.pooling_mode = pooling_mode
+        self.prefetch_dist: int = prefetch_dist
         self.embedding_specs = embedding_specs
         T_ = len(self.embedding_specs)
         assert T_ > 0
@@ -391,7 +393,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.total_hash_size,
             self.lxu_cache_state,
             self.timestep_counter.get(),
-            1,  # for now assume prefetch_dist == 1
+            self.prefetch_dist,
             self.lru_state,
         )
         actions_count_cpu = torch.empty(

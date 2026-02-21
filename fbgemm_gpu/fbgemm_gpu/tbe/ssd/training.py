@@ -170,6 +170,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         l2_cache_size: int = 0,
         # Set to True to enable pipeline prefetching
         prefetch_pipeline: bool = False,
+        prefetch_dist: int = 1,  # Number of batches to prefetch ahead; protects recently-prefetched cache entries from eviction
         # Set to True to alloc a UVM tensor using malloc+cudaHostRegister.
         # Set to False to use cudaMallocManaged
         uvm_host_mapped: bool = False,
@@ -423,6 +424,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # Set prefetch pipeline
         self.prefetch_pipeline: bool = prefetch_pipeline
+        self.prefetch_dist: int = prefetch_dist
         self.prefetch_stream: Optional[torch.cuda.Stream] = None
 
         # Cache locking counter for pipeline prefetching
@@ -1851,7 +1853,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.total_hash_size,
                 self.lxu_cache_state,
                 self.timestep,
-                1,  # for now assume prefetch_dist == 1
+                self.prefetch_dist,
                 self.lru_state,
                 self.gather_ssd_cache_stats,
                 self.local_ssd_cache_stats,
