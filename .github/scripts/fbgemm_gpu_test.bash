@@ -243,6 +243,7 @@ __setup_fbgemm_gpu_test () {
     -rsx
     -s
     -W ignore::pytest.PytestCollectionWarning
+    -W ignore::DeprecationWarning
   )
 
   # shellcheck disable=SC2145

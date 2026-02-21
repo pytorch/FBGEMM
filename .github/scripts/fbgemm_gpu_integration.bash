@@ -157,7 +157,7 @@ integration_fbgemm_gpu_build_and_install () {
     return 1
   else
     echo "################################################################################"
-    echo "# FBGEMM build + install Combo Step"
+    echo "# FBGEMM Build + Install Combo Step"
     echo "#"
     echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
