@@ -76,14 +76,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> runtime_meta,
       const at::Tensor& count,
       bool require_tensor_copy,
-      bool blocking_tensor_copy = true,
-      std::optional<int64_t> event_ptr_to_wait = std::nullopt);
-
-  /*
-   * Join the stream tensor copy thread, make sure the thread is properly
-   * finished before creating new.
-   */
-  void join_stream_tensor_copy_thread();
+      bool blocking_tensor_copy = true);
 
 #ifdef FBGEMM_FBCODE
   folly::coro::Task<void> tensor_stream(
@@ -101,6 +94,12 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> identities,
       std::optional<at::Tensor> runtime_meta,
       const at::Tensor& count);
+
+  /*
+   * Join the stream tensor copy thread, make sure the thread is properly
+   * finished before creating new.
+   */
+  void join_stream_tensor_copy_thread();
 
   /*
    * FOR TESTING: Join the weight stream thread, make sure the thread is
