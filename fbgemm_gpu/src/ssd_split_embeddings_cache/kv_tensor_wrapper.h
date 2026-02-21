@@ -123,7 +123,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   void deserialize(const std::string& serialized);
 
   std::vector<std::string> get_kvtensor_serializable_metadata() const;
-
+  void delete_rocksdb_checkpoint_dir() const;
   friend void to_json(json& j, const KVTensorWrapper& kvt);
   friend void from_json(const json& j, KVTensorWrapper& kvt);
 
@@ -136,7 +136,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   int64_t row_offset_;
   std::optional<at::Tensor> sorted_indices_ = std::nullopt;
   int64_t width_offset_;
-  std::mutex mtx;
+  mutable std::mutex mtx;
   c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle_;
   //   Used for initializting a readonly rocksdb instance, that we will used for
   //   cross process async read

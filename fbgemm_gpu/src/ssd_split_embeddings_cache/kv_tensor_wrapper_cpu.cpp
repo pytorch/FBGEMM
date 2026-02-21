@@ -108,4 +108,15 @@ std::string KVTensorWrapper::layout_str() {
   oss << options_.layout();
   return oss.str();
 }
+
+std::vector<std::string> KVTensorWrapper::get_kvtensor_serializable_metadata()
+    const {
+  FBEXCEPTION("Not implemented");
+  return {};
+  return std::vector<std::string>{};
+}
+
+void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
+  FBEXCEPTION("Not implemented");
+}
 } // namespace ssd
