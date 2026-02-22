@@ -248,6 +248,15 @@ def use_cpu_strategy() -> st.SearchStrategy[bool]:
     )
 
 
+def gpu_memory_lt_gb(x: int) -> tuple[bool, str]:
+    assert x > 0, "GB value must be positive"
+    return (
+        torch.cuda.is_available()
+        and (torch.cuda.get_device_properties(0).total_memory / (1024**3)) < x,
+        "GPU memory < 40GB",
+    )
+
+
 # pyre-fixme[3]: Return annotation cannot be `Any`.
 def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") -> Any:
     # pyre-fixme[3]: Return annotation cannot be `Any`.

@@ -34,6 +34,7 @@ from .backward_adagrad_common import (
     common_settings,
     common_strategy,
     execute_backward_adagrad,
+    gpu_memory_lt_gb,
     gpu_unavailable,
     optests,
     PoolingMode,
@@ -257,6 +258,7 @@ class BackwardAdagradTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(40))
     def test_backward_adagrad_from_config_file(self) -> None:
         """
         Test backward adagrad pass using TBE specs loaded from a JSON file.
