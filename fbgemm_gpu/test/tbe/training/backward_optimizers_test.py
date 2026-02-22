@@ -59,6 +59,7 @@ if open_source:
         additional_decorators,
         gpu_unavailable,
         optests,
+        running_in_oss,
         skipIfNotRocm,
         TEST_WITH_ROCM,
         use_cpu_strategy,
@@ -68,6 +69,7 @@ else:
         additional_decorators,
         gpu_unavailable,
         optests,
+        running_in_oss,
         skipIfNotRocm,
         TEST_WITH_ROCM,
         use_cpu_strategy,
@@ -1835,6 +1837,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_in_oss)
     def test_backward_optimizers_v1_rowwise_adagrad(  # noqa C901
         self,
         T: int,

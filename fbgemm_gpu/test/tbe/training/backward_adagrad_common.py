@@ -46,6 +46,7 @@ if open_source:
     from test_utils import (
         additional_decorators,
         gpu_available,
+        gpu_memory_lt_gb,
         gpu_unavailable,
         gradcheck,
         optests,
@@ -57,6 +58,7 @@ else:
     from fbgemm_gpu.test.test_utils import (  # noqa F401
         additional_decorators,
         gpu_available,
+        gpu_memory_lt_gb,
         gpu_unavailable,
         gradcheck,
         optests,
