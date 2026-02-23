@@ -337,6 +337,11 @@ function(gpu_cpp_library)
                 list(APPEND lib_cc_flags
                     -Wno-deprecated-enum-enum-conversion)
             endif()
+
+            if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.5)
+                list(APPEND lib_cc_flags
+                    -Wno-unused-command-line-argument)
+            endif()
         endif()
     endif()
 
