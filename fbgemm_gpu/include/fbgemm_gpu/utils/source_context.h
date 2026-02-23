@@ -17,7 +17,8 @@
 // Handles experiemntal source location import for different versions of C++
 ////////////////////////////////////////////////////////////////////////////////
 
-#if __cplusplus > 201703L && __has_builtin(__builtin_source_location)
+#if __cplusplus > 201703L && __has_builtin(__builtin_source_location) && \
+    __has_include(<source_location>)
 #include <source_location>
 #else
 #include <experimental/source_location>
@@ -36,7 +37,8 @@ namespace fbgemm_gpu::utils {
 //    https://github.com/root-project/root/issues/14601
 ////////////////////////////////////////////////////////////////////////////////
 
-#if __cplusplus > 201703L && __has_builtin(__builtin_source_location)
+#if __cplusplus > 201703L && __has_builtin(__builtin_source_location) && \
+    __has_include(<source_location>)
 using source_location = std::source_location;
 #else
 using source_location = std::experimental::source_location;
