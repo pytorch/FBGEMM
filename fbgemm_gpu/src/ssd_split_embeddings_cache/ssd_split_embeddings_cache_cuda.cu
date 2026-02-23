@@ -270,7 +270,8 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
       lock_cache_line && (lxu_cache_locking_counter[cache_set][slot] > 0);
   // Check if the slot has the inserted row that was a cache hit.
   const int64_t slot_idx = lxu_cache_state[cache_set][slot];
-  const bool slot_has_idx = slot_idx != -1 && slot_time == time_stamp;
+  const bool slot_has_idx =
+      slot_idx != -1 && slot_time >= time_stamp - prefetch_dist;
   // Check if the slot is unavailable: either it is locked or contains
   // a cache hit inserted row
   const bool is_slot_unavailable = is_slot_locked || slot_has_idx;
@@ -317,7 +318,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
 
       // Lock cache line
       if (lock_cache_line) {
-        lxu_cache_locking_counter[cache_set][insert_slot] += 1;
+        atomicAdd(&lxu_cache_locking_counter[cache_set][insert_slot], 1);
       }
     }
   }

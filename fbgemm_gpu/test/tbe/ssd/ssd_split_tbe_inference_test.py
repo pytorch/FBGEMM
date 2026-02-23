@@ -446,3 +446,127 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=1.0e-2,
             )
         time.sleep(0.1)
+
+
+@unittest.skipIf(*running_in_oss)
+@unittest.skipIf(*gpu_unavailable)
+class SSDCachePrefetchDistTest(unittest.TestCase):
+    def test_prefetch_dist_eviction_protection(self) -> None:
+        """
+        Verify that prefetch_dist controls the eviction protection window.
+
+        Sets up a single cache set (32 slots) fully populated at timestamp T,
+        then attempts to insert new indices at timestamp T+1 with different
+        prefetch_dist values.
+
+        We check assigned_cache_slots (not actions_count) because
+        actions_count tracks cache misses, while assigned_cache_slots
+        indicates whether an eviction+insertion actually occurred:
+        -1 means the slot was protected and no eviction happened.
+        """
+        ASSOC = 32  # cache associativity (warp size)
+        C = 1  # single cache set
+        total_hash_size = 128
+
+        # --- Helper: set up fully-populated cache at a given timestamp ---
+        def make_cache_state(
+            timestamp: int,
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            # All 32 slots filled with indices 0..31
+            lxu_cache_state = torch.arange(
+                ASSOC, dtype=torch.int64, device=torch.accelerator.current_accelerator()
+            ).unsqueeze(
+                0
+            )  # [1, 32]
+            lru_state = torch.full(
+                (C, ASSOC),
+                timestamp,
+                dtype=torch.int64,
+                device=torch.accelerator.current_accelerator(),
+            )
+            return lxu_cache_state, lru_state
+
+        # New indices that map to the same cache set but are different from
+        # cached ones. With C=1, all indices map to cache set 0.
+        new_indices = torch.arange(
+            ASSOC,
+            2 * ASSOC,
+            dtype=torch.int64,
+            device=torch.accelerator.current_accelerator(),
+        )
+
+        # --- Case 1: prefetch_dist=0, timestamp gap=1 → NOT protected ---
+        lxu_cache_state, lru_state = make_cache_state(timestamp=10)
+        (_, _, assigned_cache_slots, _, _, _, _, _) = (
+            torch.ops.fbgemm.ssd_cache_populate_actions(
+                new_indices,
+                total_hash_size,
+                lxu_cache_state,
+                11,
+                0,
+                lru_state,
+            )
+        )
+        num_inserted = (assigned_cache_slots != -1).sum().item()
+        self.assertGreater(
+            num_inserted,
+            0,
+            "prefetch_dist=0: slots at t=10 should be evictable at t=11",
+        )
+
+        # --- Case 2: prefetch_dist=1, timestamp gap=1 → PROTECTED ---
+        lxu_cache_state, lru_state = make_cache_state(timestamp=10)
+        (_, _, assigned_cache_slots, _, _, _, _, _) = (
+            torch.ops.fbgemm.ssd_cache_populate_actions(
+                new_indices,
+                total_hash_size,
+                lxu_cache_state,
+                11,
+                1,
+                lru_state,
+            )
+        )
+        num_inserted = (assigned_cache_slots != -1).sum().item()
+        self.assertEqual(
+            num_inserted,
+            0,
+            "prefetch_dist=1: slots at t=10 should be protected at t=11",
+        )
+
+        # --- Case 3: prefetch_dist=2, timestamp gap=1 → PROTECTED ---
+        lxu_cache_state, lru_state = make_cache_state(timestamp=10)
+        (_, _, assigned_cache_slots, _, _, _, _, _) = (
+            torch.ops.fbgemm.ssd_cache_populate_actions(
+                new_indices,
+                total_hash_size,
+                lxu_cache_state,
+                11,
+                2,
+                lru_state,
+            )
+        )
+        num_inserted = (assigned_cache_slots != -1).sum().item()
+        self.assertEqual(
+            num_inserted,
+            0,
+            "prefetch_dist=2: slots at t=10 should be protected at t=11",
+        )
+
+        # --- Case 4: prefetch_dist=1, timestamp gap=2 → expired → evictions ---
+        lxu_cache_state, lru_state = make_cache_state(timestamp=10)
+        (_, _, assigned_cache_slots, _, _, _, _, _) = (
+            torch.ops.fbgemm.ssd_cache_populate_actions(
+                new_indices,
+                total_hash_size,
+                lxu_cache_state,
+                12,
+                1,
+                lru_state,
+            )
+        )
+        num_inserted = (assigned_cache_slots != -1).sum().item()
+        self.assertGreater(
+            num_inserted,
+            0,
+            "prefetch_dist=1: slots at t=10 should be evictable at t=12",
+        )
