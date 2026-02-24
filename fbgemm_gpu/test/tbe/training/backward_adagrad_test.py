@@ -293,7 +293,7 @@ class BackwardAdagradTest(unittest.TestCase):
         )
 
         # Use a smaller batch size for testing to reduce memory usage (otherwise OOM)
-        test_batch_size = min(batch_size, 512)
+        test_batch_size = 294400
         L = 10 if test_batch_size < batch_size else 2
         config_idx = os.environ.get("TBE_CONFIG_INDEX", None)
         max_config = os.environ.get("TBE_MAX_CONFIG", "5")
@@ -360,10 +360,10 @@ class BackwardAdagradTest(unittest.TestCase):
         This test verifies that execute_backward_adagrad works correctly
         with a manually created TBE op passed via the cc parameter.
         """
-        T = 1  # Number of tables
+        T = 230  # Number of tables
         D = 4  # Embedding dimension
         E = 10  # Number of embeddings per table
-        B = 1  # Batch size
+        B = 294400  # Batch size
         L = 1  # Sequence length
         pooling_mode = PoolingMode.SUM
         weights_precision = SparseType.FP32
