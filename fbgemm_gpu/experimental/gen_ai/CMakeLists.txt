@@ -167,9 +167,6 @@ gpu_cpp_library(
     # Below flags are required for strong CK performance
     # on certain kernel instances
     -mllvm
-    # Reduce register spillage on certain kernels
-    -amdgpu-coerce-illegal-types=1
-    -mllvm
     -enable-post-misched=0
     -mllvm
     -greedy-reverse-local-assignment=1
