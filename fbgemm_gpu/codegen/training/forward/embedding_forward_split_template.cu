@@ -740,6 +740,13 @@ batch_index_select_dim0_codegen_forward_cuda(
               div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
               utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
 
+            std::cout << "roundup (total_B: " << total_B << " / ( kForwardMaxThreads: " << kForwardMaxThreads << " /  kThreadGroupSize: " << kThreadGroupSize << ")" << "\n"
+                      << " = " << div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize) << "\n"
+                      << "utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream())); = " << utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()) << "\n"
+                      << "min = " << min(div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize), utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream())) << "\n"
+                      << "grid = " << grid << "\n"
+                      << "block x = " << "kThreadGroupSize: " << kThreadGroupSize << " block y = kForwardMaxThreads / kThreadGroupSize = " << kForwardMaxThreads / kThreadGroupSize << "\n";
+
             FBGEMM_LAUNCH_KERNEL(
               ({{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
                 <emb_t,
@@ -808,14 +815,22 @@ batch_index_select_dim0_codegen_forward_cuda(
         // if (!is_experimental)
         } else {
             // Allocate num warps per table based on max_D
-            
+
             const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
             #ifdef USE_ROCM
               const uint32_t num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2);
             #else
               const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
             #endif
-            
+
+            std::cout << "B: " << B << " * roundup (max_D: " << max_D << " / ( kWarpSize: " << kWarpSize << " * 4 = " << kWarpSize * 4 << ")" << "\n"
+            << "num_warps_per_table = " << num_warps_per_table << "\n"
+            << "num_warps_per_threadblock = " << "kForwardMaxThreads: " << kForwardMaxThreads << " / kWarpSize * 2: " << kWarpSize * 2 << " = " << num_warps_per_threadblock << "\n"
+            << "utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream())); = " << utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()) << "\n"
+            << "grid x = round(T: " << T << " * num_warps_per_table / num_warps_per_threadblock) = " << div_round_up(T * num_warps_per_table, num_warps_per_threadblock) << "\n"
+            << "min = " << min(div_round_up(T * num_warps_per_table, num_warps_per_threadblock), utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream())) << "\n"
+            << "block x = " << "kWarpSize: " << kWarpSize << " block y = " << "num_warps_per_threadblock: " << num_warps_per_threadblock << "\n";
+
             const auto kernel_func =
               (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
                                   emb_t, cache_t, output_t, index_t, true>

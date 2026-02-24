@@ -393,13 +393,84 @@ def execute_backward_adagrad(  # noqa C901
         ref_output.shape == fc2.shape
     ), f"VBE={mixed_B} ref_output shape {ref_output.shape} != TBE output shape {fc2.shape}"
 
-    torch.testing.assert_close(
-        fc2,
-        ref_output,
-        atol=tolerance,
-        rtol=1.0e-2 if weights_precision != SparseType.FP32 else 1.0e-4,
-        msg=f"Forward output mismatch: VBE={mixed_B} pooling_mode={pooling_mode}, weight_precision={weights_precision} output_dtype={output_dtype} output_shape={fc2.shape}",
-    )
+    try:
+        torch.testing.assert_close(
+            fc2,
+            ref_output,
+            atol=tolerance,
+            rtol=1.0e-2 if weights_precision != SparseType.FP32 else 1.0e-4,
+        )
+        assert torch.equal(fc2, ref_output)
+    except Exception as e:
+        print(
+            f"Forward output mismatch: VBE={mixed_B} pooling_mode={pooling_mode}, weight_precision={weights_precision} output_dtype={output_dtype} output_shape={fc2.shape}"
+        )
+        # Find and print mismatched rows
+        _mismatch_indices = (fc2 != ref_output).nonzero(as_tuple=True)[0]
+        num_mismatched = len(_mismatch_indices)
+        exceed = num_mismatched > 2**31
+        if exceed:
+            half = num_mismatched // 2
+            mismatched_indices0 = _mismatch_indices[:half].unique()
+            mismatched_indices1 = _mismatch_indices[half:].unique()
+        else:
+            mismatched_indices0 = _mismatch_indices.unique()
+            mismatched_indices1 = None
+        total_mismatched_rows = len(mismatched_indices0) + (
+            len(mismatched_indices1) if mismatched_indices1 is not None else 0
+        )
+        print(f"Forward mismatched output = {num_mismatched}, total D = {fc2.shape[1]}")
+        print(
+            f"Forward output rows = {total_mismatched_rows}/{fc2.shape[0]}, batch mismatch {total_mismatched_rows / fc2.shape[0] * 100}%"
+        )
+        _mismatch_cols_prev = torch.tensor([], device=fc2.device)
+        _max_print = 20
+        _counter = 0
+        for idx in mismatched_indices0:
+            _mismatch_cols = (
+                (fc2[idx] != ref_output[idx]).nonzero(as_tuple=True)[0].unique()
+            )
+            if not torch.equal(_mismatch_cols_prev, _mismatch_cols):
+                _mismatch_cols_prev = _mismatch_cols
+                print(f" mismatch row {idx} : {len(_mismatch_cols)}\n{_mismatch_cols}")
+            else:
+                print(f" mismatch row {idx} : same as previous")
+            _counter += 1
+            if _counter >= _max_print:
+                break
+        if _counter < _max_print and mismatched_indices1 is not None:
+            for idx in mismatched_indices1:
+                _counter += 1
+                _mismatch_cols = (
+                    (fc2[idx] != ref_output[idx]).nonzero(as_tuple=True)[0].unique()
+                )
+                if not torch.equal(_mismatch_cols_prev, _mismatch_cols):
+                    _mismatch_cols_prev = _mismatch_cols
+                    print(
+                        f" mismatch row {idx} : {len(_mismatch_cols)}\n{_mismatch_cols}"
+                    )
+                else:
+                    print(f" mismatch row {idx} : same as previous")
+        raise e
+
+    # tbe_weights_before = cc.split_embedding_weights()
+    # for t in range(T):
+    #     weights_ref = bs[t].weight.float().cpu()
+    #     tbe_weights = tbe_weights_before[t].float().cpu()
+    #     if not torch.equal(weights_ref, tbe_weights):
+    #         # Find and print mismatched rows
+    #         mismatch_indices = (
+    #             (tbe_weights != weights_ref).nonzero(as_tuple=True)[0].unique()
+    #         )
+    #         print(
+    #             f"Before backward: mismatch rows = {len(mismatch_indices)}: {mismatch_indices}"
+    #         )
+    #         for idx in mismatch_indices:
+    #             print(f"mismatch row {idx} : {weights_ref[idx]} vs {tbe_weights[idx]}")
+    #         assert False, f"Embedding weights mismatch before backward at table {t}"
+
+    return
+
     if do_pooling:
         if mixed_B:
             goc = format_ref_tensors_in_mixed_B_layout(gos, Bs_rank_feature)
@@ -466,6 +537,16 @@ def execute_backward_adagrad(  # noqa C901
             .view(Es[t], 1 if row_wise else Ds[t])
             .cpu(),
         )
+        tbe_weights = cc.split_embedding_weights()[t].float().cpu()
+        if not torch.equal(weights_ref, tbe_weights):
+            # Find and print mismatched rows
+            mismatch_indices = (
+                (tbe_weights != weights_ref).nonzero(as_tuple=True)[0].unique()
+            )
+            print(f"mismatch rows = {len(mismatch_indices)}: {mismatch_indices}")
+            for idx in mismatch_indices:
+                print(f"mismatch row {idx} : {weights_ref[idx]} vs {tbe_weights[idx]}")
+
         # clip updated embedding rows by max_norm if it is specified
         if max_norm > 0:
             non_zero_grads = grads.abs().sum(dim=1, keepdim=True) > 0
