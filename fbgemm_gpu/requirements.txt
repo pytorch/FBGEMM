@@ -17,6 +17,7 @@ click
 einops
 hypothesis
 jinja2
+MarkupSafe>=3.0.0
 mpmath==1.3.0
 ninja
 numpy>=2.0.2
