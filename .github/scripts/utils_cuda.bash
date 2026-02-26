@@ -208,8 +208,20 @@ install_cuda () {
       cuda) || return 1
   else
     # shellcheck disable=SC2086
-    (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
-      cuda=${cuda_version}) || return 1
+    (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+      "cuda-version=${cuda_version%.*}" \
+      cuda-compiler \
+      cuda-libraries-dev \
+      cuda-cudart-dev \
+      cuda-cudart-static \
+      cuda-driver-dev \
+      cuda-nvtx \
+      cuda-nvml-dev \
+      cuda-nvrtc-dev \
+      cuda-cupti-dev \
+      cuda-profiler-api \
+      cuda-opencl-dev \
+      nsight-compute) || return 1
   fi
 
   # Set the symlinks and environment variables not covered by conda install
