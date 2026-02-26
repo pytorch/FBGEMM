@@ -319,14 +319,9 @@ __configure_fbgemm_gpu_build_cuda () {
           [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
       # NOTE: If we reach this point, then we are building the package for
-      # publishing to PyPI
-      if [ "${PYPI_PUBLISH_CHANNEL:-}" = "release" ]; then
-        # FBGEMM non-nightly releases can be built with a different version of
-        # CUDA, which migh result in a larger binary size than what PyPI allows.
-        local arch_list="8.0;9.0a;10.0a"
-      else
-        local arch_list="8.0;9.0a;10.0a;12.0a"
-      fi
+      # publishing to PyPI.  12.0a arch is excluded to maintain
+      # compliance with the PyPI binary size limit.
+      local arch_list="8.0;9.0a;10.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
