@@ -190,13 +190,31 @@ __remove_gcc_activation_scripts () {
   # Clang.
   #   https://stackoverflow.com/questions/64289376/how-to-circumvent-anaconda-gcc-compiler
   #
+  # Additionally, the deactivation scripts reference CONDA_BACKUP_CXX and other
+  # variables that are only set during activation.  When these deactivation
+  # scripts are triggered by post-link hooks (e.g. from the gdb package during
+  # CUDA installation), the unbound variables cause the transaction to fail and
+  # corrupt the conda environment.  Removing these scripts prevents this issue
+  # for both GCC and Clang builds.
+  #
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # shellcheck disable=SC2155,SC2086
-  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
-      echo "[INSTALL] Removing GCC package activation scripts ..."
+  if  [[ "${BUILD_CUDA_VERSION:-}" =~ ^11.*$ ]] ||
+      [[ "${BUILD_CUDA_VERSION:-}" =~ ^12.1.*$ ]] ||
+      [[ "${BUILD_CUDA_VERSION:-}" =~ ^12.4.*$ ]] ||
+      [[ -z "${BUILD_CUDA_VERSION:-}" ]]; then
+      echo "[INSTALL] No need to remove GCC package activation/deactivation scripts on older CUDA installations ..."
+  else
+      echo "[INSTALL] Removing GCC package activation and deactivation scripts ..."
       local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
       print_exec ls -la ${conda_prefix}/etc/conda/activate.d
       print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gcc_linux-${COMPILER_ARCHNAME}.sh
       print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gxx_linux-${COMPILER_ARCHNAME}.sh
+      print_exec ls -la ${conda_prefix}/etc/conda/deactivate.d
+      print_exec rm -rf ${conda_prefix}/etc/conda/deactivate.d/deactivate-gcc_linux-${COMPILER_ARCHNAME}.sh
+      print_exec rm -rf ${conda_prefix}/etc/conda/deactivate.d/deactivate-gxx_linux-${COMPILER_ARCHNAME}.sh
   fi
 }
 
@@ -222,9 +240,6 @@ __conda_install_clang () {
   # will need to be created
   echo "[INSTALL] Setting the C/C++ compiler symlinks ..."
   set_clang_symlinks "${env_name}"
-
-  # Remove the Conda activations scripts for gcc; see comments in the method for details
-  __remove_gcc_activation_scripts
 
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} CC="${cc_path}"
@@ -313,6 +328,12 @@ install_cxx_compiler () {
   #   https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#host-compiler-support-policy
   #   https://forums.developer.nvidia.com/t/cuda-issues-with-clang-compiler/177589/8
   __conda_install_gcc
+
+  # Remove the Conda activation/deactivation scripts for gcc; see comments in
+  # the method for details.  This must happen after __conda_install_gcc and
+  # before any subsequent conda install (e.g. CUDA), because the deactivation
+  # scripts can be triggered by post-link hooks and fail with unbound variables.
+  __remove_gcc_activation_scripts
 
   # Install Clang if needed
   if [ "$compiler" == "clang" ]; then
