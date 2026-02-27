@@ -27,11 +27,11 @@ def get_table_batched_offsets_from_dense(
         total_B = T * B
     # pyre-fixme[6]: For 1st argument expected `Union[Sequence[SupportsIndex],
     #  SupportsIndex]` but got `Optional[int]`.
-    lengths = np.ones(total_B) * L
+    lengths = np.ones(total_B, dtype=np.int64) * L
     return (
         to_device(merged_indices.contiguous().view(-1), use_cpu),
         to_device(
-            torch.tensor(([0] + np.cumsum(lengths).tolist())).long(),
+            torch.tensor(([0] + np.cumsum(lengths).tolist()), dtype=torch.int64),
             use_cpu,
         ),
     )
