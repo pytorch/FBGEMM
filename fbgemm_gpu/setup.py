@@ -373,6 +373,17 @@ class FbgemmGpuBuild:
                 ]
             )
 
+            # In Nova CI, GCC toolset 13 must be explicitly specified for C++20
+            # features like std::atomic_ref. ROCm's clang auto-detects GCC
+            # installations and may pick up an older toolset that lacks C++20.
+            if self.nova_flag() is not None:
+                gcc_toolchain_path = "/opt/rh/gcc-toolset-13/root"
+                if os.path.isdir(gcc_toolchain_path):
+                    print(
+                        f"[SETUP.PY] Nova CI detected - using GCC toolchain: {gcc_toolchain_path}"
+                    )
+                    cxx_flags.append(f"--gcc-toolchain={gcc_toolchain_path}")
+
         cmake_args.extend(
             [
                 f"-DCMAKE_C_FLAGS='{' '.join(cxx_flags)}'",
