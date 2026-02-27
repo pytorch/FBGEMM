@@ -58,13 +58,15 @@ def get_table_batched_offsets_from_dense(
     gpu_num,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     T, B, L = merged_indices.size()
-    lengths = np.ones((T, B)) * L
+    lengths = np.ones((T, B), dtype=np.int64) * L
     flat_lengths = lengths.flatten()
     return (
         merged_indices.int().contiguous().view(-1).to(device=get_gpu_device(gpu_num)),
         torch.tensor(
-            ([0] + np.cumsum(flat_lengths).tolist()), device=get_gpu_device(gpu_num)
-        ).int(),
+            ([0] + np.cumsum(flat_lengths).tolist()),
+            dtype=torch.int32,
+            device=get_gpu_device(gpu_num),
+        ),
     )
 
 

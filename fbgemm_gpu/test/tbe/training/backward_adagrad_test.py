@@ -353,6 +353,7 @@ class BackwardAdagradTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(20))
     def test_backward_adagrad_with_simple_tbe_op(self) -> None:
         """
         Test execute_backward_adagrad with a pre-created TBE op.
@@ -360,11 +361,11 @@ class BackwardAdagradTest(unittest.TestCase):
         This test verifies that execute_backward_adagrad works correctly
         with a manually created TBE op passed via the cc parameter.
         """
-        T = 1  # Number of tables
+        T = 57  # Number of tables
         D = 4  # Embedding dimension
         E = 10  # Number of embeddings per table
-        B = 1  # Batch size
-        L = 1  # Sequence length
+        B = 294400  # Batch size
+        L = 1  # Pooling factor
         pooling_mode = PoolingMode.SUM
         weights_precision = SparseType.FP32
         output_dtype = SparseType.FP32

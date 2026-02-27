@@ -63,12 +63,12 @@ def get_table_batched_offsets_from_dense(
     merged_indices: torch.Tensor, use_cpu: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor]:
     T, B, L = merged_indices.size()
-    lengths = np.ones((T, B)) * L
+    lengths = np.ones((T, B), dtype=np.int64) * L
     flat_lengths = lengths.flatten()
     return (
         to_device(merged_indices.contiguous().view(-1), use_cpu),
         to_device(
-            torch.tensor(([0] + np.cumsum(flat_lengths).tolist())).long(),
+            torch.tensor(([0] + np.cumsum(flat_lengths).tolist()), dtype=torch.int64),
             use_cpu,
         ),
     )
