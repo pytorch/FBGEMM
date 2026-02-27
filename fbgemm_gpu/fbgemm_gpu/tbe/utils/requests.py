@@ -394,6 +394,9 @@ def generate_requests(  # noqa C901
     # If sigma_L is not None, treat L as mu_L and generate Ls from sigma_L
     # and mu_L
     sigma_L: Optional[int] = None,
+    # If Ls is not None, use these per-table bag sizes directly instead of
+    # generating from sigma_L. Must have len(Ls) == T.
+    Ls: Optional[list[int]] = None,
     # If sigma_B is not None, treat B as mu_B and generate Bs from sigma_B
     sigma_B: Optional[int] = None,
     emulate_pruning: bool = False,
@@ -450,7 +453,22 @@ def generate_requests(  # noqa C901
         Bs = [B] * T
         Bs_feature_rank = None
 
-    if sigma_L is not None:
+    if Ls is not None:
+        # Use per-table bag sizes directly
+        assert sigma_L is None, "Cannot specify both Ls and sigma_L"
+        assert len(Ls) == T, f"len(Ls)={len(Ls)} must equal T={T}"
+        use_variable_L = True
+        # Build per-row lengths matching generate_pooling_factors_from_stats layout
+        Ls_list = []
+        for t in range(T):
+            Ls_list.append(np.array([Ls[t]] * Bs[t], dtype=np.int32))
+        Ls_np = np.concatenate(Ls_list)
+        # Use the same L distribution across iters
+        Ls_np = np.tile(Ls_np, iters)
+        L = int(Ls_np.max())
+        # Make it exclusive cumsum
+        L_offsets = torch.from_numpy(np.insert(Ls_np.cumsum(), 0, 0)).to(torch.long)
+    elif sigma_L is not None:
         # Generate L from stats
         use_variable_L = True
         L, L_offsets = generate_pooling_factors_from_stats(
