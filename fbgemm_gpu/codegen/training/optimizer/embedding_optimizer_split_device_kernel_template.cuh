@@ -23,7 +23,7 @@ template<int32_t kThreadGroupSize, typename T>
 DEVICE_INLINE __device__ T subwarp_reduce_add(T value) {
     static_assert(kThreadGroupSize == 8 || kThreadGroupSize == 16 || kThreadGroupSize == 32 || kThreadGroupSize == 64, "Wavefront size must be 16/32/64");
     if (kThreadGroupSize == 8) {
-        // Reduce across 4 groups of 8 threads
+        // Reduce across 8 groups of 8 threads
         value += __shfl_xor(value, 1, 8);
         value += __shfl_xor(value, 2, 8);
         value += __shfl_xor(value, 4, 8);
