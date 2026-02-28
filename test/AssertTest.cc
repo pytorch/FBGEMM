@@ -53,18 +53,18 @@ TEST(AssertTest, CheckMessageContainsSourceLocation) {
     FAIL() << "Expected fbgemm::Error to be thrown";
   } catch (const Error& e) {
     std::string what = e.what();
-    // Format: [file_name(line:column)] [function_name]: message
+    // Format: [file_name(line)] [function_name]: message
     // Should start with [
     EXPECT_EQ(what[0], '[')
         << "Error message should start with [. Got: " << what;
     // Should contain file name
     EXPECT_NE(what.find("AssertTest.cc"), std::string::npos)
         << "Error message should contain file name. Got: " << what;
-    // Should contain line and column in format (line:column)]
+    // Should contain line number in format (line)]
     EXPECT_NE(what.find("("), std::string::npos)
         << "Error message should contain opening paren. Got: " << what;
     EXPECT_NE(what.find(")]"), std::string::npos)
-        << "Error message should contain )] after line:column. Got: " << what;
+        << "Error message should contain )] after line number. Got: " << what;
     // Should contain function name in brackets
     EXPECT_NE(what.find("] ["), std::string::npos)
         << "Error message should contain ] [ between location and function. Got: "

@@ -20,6 +20,7 @@
 #include "./KleidiAIFP32UKernelsNeon.h" // @manual
 #endif
 #endif
+#include "fbgemm/Assert.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
 
@@ -103,16 +104,15 @@ constexpr kernel_array_t<float> kernel_fp32_neon = {
 
 template <>
 const isa_descriptor<float>& getIsaHandlers(inst_set_t isa) {
-  static isa_descriptor<float> avx2_descriptor =
-      std::make_tuple(kernel_f32_avx2, partition_avx2);
-  static isa_descriptor<float> avx512_descriptor =
-      std::make_tuple(kernel_f32_avx512, partition_avx512);
-  static isa_descriptor<float> avx512_256_descriptor =
-      std::make_tuple(kernel_f32_avx512_256, partition_avx512);
+  static isa_descriptor<float> avx2_descriptor{kernel_f32_avx2, partition_avx2};
+  static isa_descriptor<float> avx512_descriptor{
+      kernel_f32_avx512, partition_avx512};
+  static isa_descriptor<float> avx512_256_descriptor{
+      kernel_f32_avx512_256, partition_avx512};
 #ifdef __aarch64__
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-  static isa_descriptor<float> neon_descriptor =
-      std::make_tuple(kernel_fp32_neon, partition_sve128);
+  static isa_descriptor<float> neon_descriptor{
+      kernel_fp32_neon, partition_sve128};
 #endif
 #endif
 
@@ -161,7 +161,7 @@ FBGEMM_API void ref_kernel<float>(
         for (int j = 0; j < block_col_size; ++j) {
           float* C_ptr =
               gp->C + i * (gp->ldc / sizeof(float)) + jb * block_col_size + j;
-          assert(C_ptr < C_base + m_total * n_total);
+          FBGEMM_CHECK(C_ptr < C_base + m_total * n_total);
           float b = gp->B[(jb * gp->k + k) * block_col_size + j];
           if (k == 0) {
             if (gp->beta) {
