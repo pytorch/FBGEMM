@@ -978,13 +978,7 @@ static auto dram_kv_embedding_cache_wrapper =
                 std::optional<at::Tensor>,
                 bool,
                 bool,
-                bool,
-                bool,
-                int64_t,
-                int64_t,
-                std::vector<std::string>,
-                std::vector<int64_t>,
-                std::vector<int64_t>>(),
+                bool>(),
             "",
             {
                 torch::arg("max_D"),
@@ -999,12 +993,6 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("backend_return_whole_row") = false,
                 torch::arg("enable_async_update") = false,
                 torch::arg("disable_random_init") = false,
-                torch::arg("enable_raw_embedding_streaming") = false,
-                torch::arg("res_store_shards") = 0,
-                torch::arg("res_server_port") = 0,
-                torch::arg("table_names") = std::vector<std::string>{},
-                torch::arg("table_offsets") = std::vector<int64_t>{},
-                torch::arg("table_sizes") = std::vector<int64_t>{},
             })
         .def(
             "set_cuda",

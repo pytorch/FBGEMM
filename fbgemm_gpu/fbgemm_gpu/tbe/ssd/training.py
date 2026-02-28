@@ -783,12 +783,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.backend_return_whole_row,  # backend_return_whole_row
                 False,  # enable_async_update
                 self._embedding_cache_mode,  # disable_random_init
-                self.enable_raw_embedding_streaming,
-                self.res_params.res_store_shards,
-                self.res_params.res_server_port,
-                self.res_params.table_names,
-                self.res_params.table_offsets,
-                self.res_params.table_sizes,
             )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
