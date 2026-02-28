@@ -492,6 +492,159 @@ class PermuteIndicesTest(unittest.TestCase):
                     permuted_weights_cpu_edge,
                 )
 
+    @given(
+        long_index=st.booleans(),
+        has_weight=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_vec_remainder(
+        self,
+        long_index: bool,
+        has_weight: bool,
+    ) -> None:
+        """
+        Test vectorized permute_2D_sparse_data kernel vec4 remainder handling.
+
+        Uses hand-crafted segment lengths (0, 1, 2, 3, 4, 5, 7, 8) to explicitly
+        exercise the vec4 vectorized path and scalar remainder path in
+        permute_2D_data_kernel_vec. Lengths cover:
+        - Pure remainder: 0, 1, 2, 3
+        - Exact vec4: 4, 8
+        - Mixed vec4 + remainder: 5, 7
+        """
+        index_dtype = torch.int64 if long_index else torch.int32
+        T = 4  # number of tables
+        # Hand-crafted lengths with specific remainder patterns
+        # Shape [T, B=2] — each entry is a segment length
+        lengths_list = [
+            [0, 1],  # table 0: pure remainder (0 and 1)
+            [2, 3],  # table 1: pure remainder (2 and 3)
+            [4, 5],  # table 2: exact vec4 (4) and vec4+1 remainder (5)
+            [7, 8],  # table 3: vec4+3 remainder (7) and exact 2xvec4 (8)
+        ]
+        lengths = torch.tensor(lengths_list, dtype=index_dtype)
+        total = int(lengths.sum().item())
+
+        indices = torch.randint(
+            low=1,
+            high=int(1e5),
+            size=(total,),
+            dtype=index_dtype,
+        )
+        weights = torch.rand(total, dtype=torch.float32) if has_weight else None
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        # CPU reference
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, None
+        )
+
+        # GPU (uses vectorized kernel)
+        weights_cuda = weights.cuda() if has_weight and weights is not None else None
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights_cuda,
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        if has_weight:
+            torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+        else:
+            self.assertIsNone(permuted_weights_gpu)
+
+    @given(
+        index_dtype=st.sampled_from([torch.int32, torch.int64, torch.float32]),
+        has_weight=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_large_segments(
+        self,
+        index_dtype: torch.dtype,
+        has_weight: bool,
+    ) -> None:
+        """
+        Test vectorized permute_2D_sparse_data kernel with large segments.
+
+        Uses segment lengths in the hundreds to ensure the vec4 vectorized path
+        in permute_2D_data_kernel_vec works correctly on realistic workloads.
+        Tests all index dtypes (int32, int64, float32) and with/without weights.
+        """
+        T = 6  # number of tables
+        # Large segment lengths to heavily exercise the vec4 loop
+        # Shape [T, B=4]
+        lengths_list = [
+            [256, 512, 1000, 333],
+            [128, 257, 513, 100],
+            [1024, 750, 64, 999],
+            [500, 501, 502, 503],
+            [1000, 1, 0, 1000],
+            [255, 256, 257, 1023],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        if index_dtype == torch.float32:
+            indices = torch.rand(total, dtype=index_dtype)
+        else:
+            indices = torch.randint(
+                low=0,
+                high=2**31 - 1,
+                size=(total,),
+                dtype=index_dtype,
+            )
+        weights = torch.rand(total, dtype=torch.float32) if has_weight else None
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        # CPU reference
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, None
+        )
+
+        # GPU (uses vectorized kernel)
+        weights_cuda = weights.cuda() if has_weight and weights is not None else None
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights_cuda,
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        if has_weight:
+            torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+        else:
+            self.assertIsNone(permuted_weights_gpu)
+
 
 extend_test_class(PermuteIndicesTest)
 
