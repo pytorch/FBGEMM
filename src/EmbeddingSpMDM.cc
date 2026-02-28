@@ -170,7 +170,7 @@ GenEmbeddingSpMDMLookup<
         bool scale_bias_last,
         bool is_bf16_out,
         bool is_bf16_in) {
-  auto kernelSig = std::make_tuple(
+  auto kernelSig = std::tuple{
       block_size,
       has_weight,
       is_weight_positional,
@@ -181,7 +181,7 @@ GenEmbeddingSpMDMLookup<
       input_stride,
       scale_bias_last,
       is_bf16_out,
-      is_bf16_in);
+      is_bf16_in};
 
   return codeCache_.getOrCreate(
       kernelSig,

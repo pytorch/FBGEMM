@@ -47,7 +47,7 @@ __set_cuda_symlinks_envvars () {
 
   # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
   # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+  if [ "${ADD_LIBCUDA_SYMLINK:-}" == "1" ]; then
     echo "[INSTALL] Setting up symlink to libcuda.so.1"
     print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
   fi
@@ -58,7 +58,7 @@ __set_cuda_symlinks_envvars () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${libnvml_path}"
 
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+  if [ "${ADD_LIBCUDA_SYMLINK:-}" == "1" ]; then
     echo "[INSTALL] Setting up symlink to libnvidia-ml.so.1"
     print_exec ln "${libnvml_path}" -s "${conda_prefix}/lib/libnvidia-ml.so.1"
   fi
@@ -208,8 +208,20 @@ install_cuda () {
       cuda) || return 1
   else
     # shellcheck disable=SC2086
-    (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
-      cuda=${cuda_version}) || return 1
+    (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+      "cuda-version=${cuda_version%.*}" \
+      cuda-compiler \
+      cuda-libraries-dev \
+      cuda-cudart-dev \
+      cuda-cudart-static \
+      cuda-driver-dev \
+      cuda-nvtx \
+      cuda-nvml-dev \
+      cuda-nvrtc-dev \
+      cuda-cupti-dev \
+      cuda-profiler-api \
+      cuda-opencl-dev \
+      nsight-compute) || return 1
   fi
 
   # Set the symlinks and environment variables not covered by conda install

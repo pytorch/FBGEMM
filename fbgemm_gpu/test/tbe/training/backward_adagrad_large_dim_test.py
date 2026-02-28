@@ -23,7 +23,6 @@ from .backward_adagrad_common import (
     gpu_unavailable,
     optests,
     PoolingMode,
-    skipIfRocm,
     SparseType,
     st,
 )
@@ -35,7 +34,6 @@ test_st["D"] = st.integers(min_value=128, max_value=512)
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardAdagradLargeDimTest(unittest.TestCase):
-    @skipIfRocm("Unblock large dim enablement on other GPUs")
     @unittest.skipIf(*gpu_unavailable)
     @given(
         weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),

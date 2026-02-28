@@ -54,7 +54,7 @@ jobs:
         python-version: [ "3.14" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
-        rocm-version: [ "6.3" ]
+        rocm-version: [ "7.0" ]
         compiler: [ "gcc" ]
 
 
@@ -132,11 +132,11 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.rocm.gpu.2" },
+          { arch: x86, instance: "linux.rocm.gpu.gfx942.1" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.14" ]
-        rocm-version: [ "6.3" ]
+        rocm-version: [ "7.0" ]
         compiler: [ "gcc" ]
     needs: build_artifact
 

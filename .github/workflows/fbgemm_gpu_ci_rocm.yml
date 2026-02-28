@@ -158,7 +158,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.rocm.gpu.2" },
+          { arch: x86, instance: "linux.rocm.gpu.gfx942.1" },
         ]
         build-target: [ "default", "genai" ]
         # ROCm machines are limited, so we only test a subset of Python versions

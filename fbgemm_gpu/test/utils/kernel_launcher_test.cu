@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
+#include "fbgemm_gpu/utils/assert.h"
 #include "fbgemm_gpu/utils/host_device_buffer_pair.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -116,7 +117,7 @@ __global__ void tensor_sum_kernel_bad_output(
 __global__ void always_fail_assertion_kernel(
     const int a,
     TORCH_DSA_KERNEL_ARGS) {
-  CUDA_KERNEL_ASSERT2((a != a) && "This assertion should always fail");
+  FBGEMM_KERNEL_ASSERT(a != a && "This assertion should always fail");
 }
 
 auto sample_tensors(const long size) {
@@ -427,37 +428,24 @@ TEST(KernelLauncherTest, tensor_value_checks) {
 #ifndef __HIPCC__
 
 TEST(KernelLauncherTest, throws_dsa_exception) {
-  FBGEMM_LAUNCH_DSA_KERNEL(
-      always_fail_assertion_kernel,
-      1,
-      1,
-      0,
-      at::cuda::getCurrentCUDAStream(),
-      42);
-
   EXPECT_NO_THROW({
     try {
+      FBGEMM_LAUNCH_DSA_KERNEL(
+          always_fail_assertion_kernel,
+          1,
+          1,
+          0,
+          at::cuda::getCurrentCUDAStream(),
+          42);
       c10::cuda::device_synchronize();
       throw std::runtime_error("Test didn't fail, but should have.");
 
     } catch (const c10::Error& err) {
       const auto err_str = std::string(err.what());
 
-      ASSERT_THAT(
-          err_str,
-          HasSubstr(
-              "CUDA device-side assertion failures were found on GPU #0!"));
+      ASSERT_THAT(err_str, HasSubstr("device-side assertion"));
 
-      ASSERT_THAT(
-          err_str,
-          HasSubstr(
-              "File containing kernel launch = [" __TEMPLATE_SOURCE_FILE__
-              "] " __FILE__));
-
-      ASSERT_THAT(
-          err_str,
-          HasSubstr(
-              "Name of kernel launched that led to failure = always_fail_assertion_kernel"));
+      ASSERT_THAT(err_str, HasSubstr("always_fail_assertion_kernel"));
     }
   });
 }

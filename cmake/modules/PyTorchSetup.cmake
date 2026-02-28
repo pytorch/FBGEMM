@@ -15,12 +15,24 @@ find_package(Torch REQUIRED)
 # for C++ in clang - -Wno-unused-command-line-argument: clang-specific,
 # unrecognized by GCC
 if(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
-  set(_clang_only_flags "-Wno-duplicate-decl-specifier"
+  set(clang_only_flags "-Wno-duplicate-decl-specifier"
                         "-Wno-unused-command-line-argument")
 
-  foreach(_flag IN LISTS _clang_only_flags)
+  foreach(_flag IN LISTS clang_only_flags)
     string(REPLACE "${_flag}" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     string(REPLACE "${_flag}" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+  endforeach()
+
+  foreach(torch_target torch torch_cpu torch_cuda torch_hip)
+    if(TARGET ${torch_target})
+      get_target_property(options ${torch_target} INTERFACE_COMPILE_OPTIONS)
+      if(options)
+        foreach(_flag IN LISTS clang_only_flags)
+          list(REMOVE_ITEM options "${_flag}")
+        endforeach()
+        set_target_properties(${torch_target} PROPERTIES INTERFACE_COMPILE_OPTIONS "${options}")
+      endif()
+    endif()
   endforeach()
 endif()
 

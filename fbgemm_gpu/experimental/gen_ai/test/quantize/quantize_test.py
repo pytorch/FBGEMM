@@ -2874,6 +2874,131 @@ class BF16Tests(unittest.TestCase):
             y_half_Y_preallocated, ref_y_half, atol=1e-3, rtol=1.6e-2
         )
 
+    @unittest.skipIf(
+        not torch.version.cuda,
+        "Skip on AMD: test not yet supported.",
+    )
+    @settings(deadline=None)
+    @given(
+        N=st.sampled_from([256, 2048]),
+        K=st.sampled_from([128, 1024]),
+        output_accum=st.booleans(),
+        all_zero=st.booleans(),
+    )
+    def test_grouped_gemm_wgrad_zero_token_experts(
+        self,
+        N: int,
+        K: int,
+        output_accum: bool,
+        all_zero: bool,
+    ) -> None:
+        """Test wgrad produces zeros (not NaN) for experts with zero tokens.
+
+        Covers two cases:
+        - all_zero=True:  total_M == 0, all experts receive zero tokens.
+        - all_zero=False: total_M > 0, some experts receive tokens, others don't.
+        """
+        G = 8
+        if all_zero:
+            M = 0
+            m_sizes = torch.zeros(
+                G, dtype=torch.int32, device=torch.accelerator.current_accelerator()
+            )
+            zero_experts = list(range(G))
+        else:
+            M = 100
+            m_sizes = torch.zeros(
+                G, dtype=torch.int32, device=torch.accelerator.current_accelerator()
+            )
+            # Experts 0, 3, 5 get tokens; others get zero
+            m_sizes[0] = 40
+            m_sizes[3] = 30
+            m_sizes[5] = 30
+            zero_experts = [1, 2, 4, 6, 7]
+
+        torch.manual_seed(hash((G, M, N, K)))
+        dy_bf16 = torch.randn(
+            (M, N), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        )
+        x_bf16 = torch.randn(
+            (M, K), dtype=torch.bfloat16, device=torch.accelerator.current_accelerator()
+        )
+
+        if output_accum:
+            wgrad_accum = torch.randn(
+                (G, N, K),
+                dtype=torch.float32,
+                device=torch.accelerator.current_accelerator(),
+            )
+        else:
+            wgrad_accum = None
+
+        sm_margin = 0
+        num_sms = (
+            torch.cuda.get_device_properties("cuda").multi_processor_count - sm_margin
+        )
+
+        # Poison the CUDA caching allocator by running the same kernel with all
+        # experts having tokens, producing a non-zero output buffer of exactly
+        # G*N*K elements. When freed, the caching allocator will reuse this
+        # dirty block for the next at::empty(G*N*K, ...) call inside the kernel.
+        # Zero-token experts then retain stale non-zero values.
+        warmup_M = G * 10
+        warmup_dy = torch.randn(
+            (warmup_M, N),
+            dtype=torch.bfloat16,
+            device=torch.accelerator.current_accelerator(),
+        )
+        warmup_x = torch.randn(
+            (warmup_M, K),
+            dtype=torch.bfloat16,
+            device=torch.accelerator.current_accelerator(),
+        )
+        warmup_m_sizes = torch.full(
+            (G,), 10, dtype=torch.int64, device=torch.accelerator.current_accelerator()
+        )
+        warmup_result = torch.ops.fbgemm.bf16bf16bf16_grouped_wgrad(
+            warmup_dy,
+            warmup_x,
+            warmup_m_sizes,
+            output_accum=False,
+            num_sms=num_sms,
+        )
+        # Sanity: warmup produced non-zero values that will pollute the buffer
+        assert warmup_result.abs().sum() > 0, "Warmup should produce non-zero output"
+        del warmup_result, warmup_dy, warmup_x, warmup_m_sizes
+
+        test_wgrad = torch.ops.fbgemm.bf16bf16bf16_grouped_wgrad(
+            dy_bf16,
+            x_bf16,
+            m_sizes.to(torch.int64),
+            output=wgrad_accum.clone() if output_accum else None,
+            output_accum=output_accum,
+            num_sms=num_sms,
+        )
+
+        self.assertFalse(
+            torch.isnan(test_wgrad).any().item(),
+            f"NaN found in wgrad (all_zero={all_zero})",
+        )
+
+        for idx in zero_experts:
+            if output_accum:
+                expected = wgrad_accum[idx].to(test_wgrad.dtype)
+            else:
+                expected = torch.zeros(
+                    (N, K),
+                    dtype=test_wgrad.dtype,
+                    device=torch.accelerator.current_accelerator(),
+                )
+            torch.testing.assert_close(
+                test_wgrad[idx],
+                expected,
+                atol=1e-4,
+                rtol=1e-3,
+                msg=f"Expert {idx} (zero tokens, all_zero={all_zero}) has unexpected gradient values",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

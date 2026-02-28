@@ -546,7 +546,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                           });
                     });
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     // co_await folly::coro::collectAllRange(std::move(tasks));
 #ifdef FBGEMM_FBCODE
@@ -743,7 +743,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
                 delete it;
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     folly::collect(futures).wait();
     int64_t total_num = 0;
@@ -841,7 +841,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             }
             return false;
           });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     auto results = folly::coro::blockingWait(folly::collectAll(futures));
     for (auto& result : results) {
@@ -1306,7 +1306,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                           });
                     });
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
 #ifdef FBGEMM_FBCODE
     auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
@@ -1689,7 +1689,7 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
                           });
                     });
               });
-      futures.push_back(std::move(f));
+      futures.emplace_back(std::move(f));
     }
     return folly::collect(futures);
   }

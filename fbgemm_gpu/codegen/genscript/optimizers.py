@@ -600,23 +600,98 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
     exp_reg_correction = SHFL_SYNC(exp_reg_correction, 0);
     """
     split_weight_update_cpu = """
-        at::acc_type<grad_t, true> g_local_sum_square = 0.0;
-        for (int64_t d = 0; d < D; ++d) {
-            g_local_sum_square += grad_buffer[d] * grad_buffer[d];
+        at::acc_type<grad_t, true> freq = 1.0;
+        at::acc_type<grad_t, true> tail_id_threshold_val = tail_id_threshold;
+        TORCH_CHECK(max_counter != 0.0, "Max counter is equal to 0 during rowwise adagrad."); // avoid divide by zero error
+        if (is_tail_id_thresh_ratio == 1){
+            tail_id_threshold_val = floorf(tail_id_threshold * max_counter);
         }
-        auto g_avg_square = g_local_sum_square / D;
-        auto offset_idx = momentum1_offsets_data[feature_begin] + idx;
-        at::acc_type<grad_t, true> new_sum_square_grads = momentum1_host[offset_idx] + g_avg_square;
-        momentum1_host[offset_idx] = new_sum_square_grads;
-        at::acc_type<grad_t, true> multiplier;
-        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        const auto iter_delta = iter * 1.0 - prev_iter_host[offset_idx];
-        prev_iter_host[offset_idx] = iter * 1.0;
-        const auto exp_reg = 1.0 / (weight_decay * multiplier + 1.0);
-        const auto exp_reg_correction = powf(exp_reg, iter_delta);
+        if (counter_halflife > 0) { // decay based on counter_halflife
+            // if id occurs multiple times in a batch, iter_delta=1
+            const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+            const auto counter_log_rho = logf(2.0) / counter_halflife;
+            row_counter[idx] = 1.0 + expf(-iter_delta * counter_log_rho) * row_counter[idx];
+        } else if (counter_halflife == 0) { // count only 1 (appear or not)
+            row_counter[idx] = 1.0;
+        } else { // count raw appearance without decaying
+            row_counter[idx] += 1.0;
+        }
+        freq = counter_halflife / row_counter[idx];
+
+        at::acc_type<grad_t, true> g_sum_square = 0.0;
+        at::acc_type<grad_t, true> w_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
-            const auto weight = host_weights_data[embedding_begin + d];
-            host_weights_data[embedding_begin + d] = exp_reg_correction * weight - exp_reg * multiplier * grad_buffer[d];
+            auto grad = grad_buffer[d];
+            if (weight_decay_mode == 1) {
+                // L2 regularization
+                grad += weight_decay * weights[d];
+            }
+            g_sum_square += grad * grad;
+
+            if (regularization_mode == 4) {
+                // Calculate weight norm for cow-clip
+                w_sum_square += weights[d] * weights[d];
+            }
+        }
+
+        auto g_avg_square = g_sum_square / D;
+        at::acc_type<grad_t, true> adjusted_multiplier = 0.0;
+        at::acc_type<grad_t, true> exp_reg_correction = 0.0;
+        at::acc_type<grad_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
+        momentum1[idx] = new_sum_square_grads;
+        const auto multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        const auto adjustment_enabled = adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter);
+
+        if (regularization_mode == 3) { // counter-based regularization (regularization_mode=3)
+            adjusted_multiplier = multiplier;
+            if (learning_rate_mode >=0 && adjustment_enabled) {
+                if (row_counter[idx] > tail_id_threshold_val) {
+                    if ( learning_rate_mode == 0 ) {
+                        adjusted_multiplier = multiplier * fmax(fmin(powf(max_counter/(row_counter[idx] + 1.0), adjustment_ub), 10.0), 1.0);
+                    } else if ( learning_rate_mode == 1 ) {
+                        adjusted_multiplier = multiplier * fmin(fmax(powf((row_counter[idx] + 1.0)/max_counter, adjustment_ub), 0.1), 1.0);
+                    } else if (learning_rate_mode == 2) {
+                        adjusted_multiplier = learning_rate / (sqrtf(adjustment_ub*row_counter[idx]) + eps);
+                    }
+                }
+            }
+        } else if (regularization_mode == 4) { // cow-clip (regularization_mode=4)
+            const auto clip_thresh = row_counter[idx] * fmax(weight_norm_coefficient * sqrtf(w_sum_square), lower_bound);
+            adjusted_multiplier = fmin(1.0f, clip_thresh / sqrtf(g_sum_square)) * multiplier;
+        }
+
+        exp_reg_correction = 1.0;
+        if (regularization_mode == 3) { // counter-based regularization (regularization_mode=3)
+            if (adjustment_enabled) {
+            if (weight_decay_mode == 3) { // AdagradW (weight_decay_mode=3)
+                    if (counter_halflife == -1) {
+                        adjusted_multiplier = multiplier * sqrtf(row_counter[idx] * 1.0);
+                    }
+                    else if (counter_halflife == -2) {
+                        adjusted_multiplier = fmin(learning_rate * powf(row_counter[idx] * 1.0, 1.0), adjustment_ub) / (sqrtf(new_sum_square_grads) + eps);
+                    }
+                    exp_reg_correction = 1.0 - weight_decay * learning_rate;
+                    const auto lazy_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+                    const auto lazy_multiplier = powf(exp_reg_correction, fmin(lazy_delta, iter * 1.0 - adjustment_iter) - 1.0);
+                    adjusted_multiplier *= lazy_multiplier;
+                    exp_reg_correction *= lazy_multiplier;
+                } else if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
+                    exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
+                } else if (weight_decay_mode == 1) { // L2 regularization (coupled wd)
+                    exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
+                }
+            }
+        } else if (regularization_mode == 4) { // cow-clip (regularization_mode=4)
+            if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
+                exp_reg_correction = 1.0 -  weight_decay * learning_rate;
+            } else if (weight_decay_mode == 1) { // L2 regularization (coupled wd)
+                exp_reg_correction = 1.0 - weight_decay * adjusted_multiplier;
+            }
+        }
+
+        prev_iter[idx] = iter * 1.0;
+        for (int64_t d = 0; d < D; ++d) {
+            weights[d] = exp_reg_correction * weights[d] - adjusted_multiplier * grad_buffer[d];
         }
     """
 

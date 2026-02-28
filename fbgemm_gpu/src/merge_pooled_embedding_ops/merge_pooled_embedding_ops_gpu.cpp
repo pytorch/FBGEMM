@@ -614,7 +614,7 @@ cat_dim_2d_output_shape(
     output_shape = {uncat_dim_size, total_cat_dim};
   }
 
-  return std::make_tuple(output_shape, cumulative_dims, total_cat_dim);
+  return std::tuple{output_shape, cumulative_dims, total_cat_dim};
 }
 
 Tensor cat_dim_2d(
