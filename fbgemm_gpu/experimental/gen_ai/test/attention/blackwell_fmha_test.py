@@ -8,6 +8,7 @@ import math
 import os
 import random
 import unittest
+from contextlib import nullcontext
 from typing import cast, Optional
 
 import torch
@@ -291,6 +292,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         window_size: tuple[int, int],
         sm_scale: Optional[float],
         use_full_seqlen: bool = False,
+        use_compile: bool = False,
     ) -> None:
         device = torch.accelerator.current_accelerator()
         assert device is not None
@@ -384,23 +386,29 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             print(f"KV padding (constant): {kv_padding}")
             print(f"seqlen_kv (variable): {_seqused_k}")
         # Run decode-specific kernel
-        out, lse = cutlass_blackwell_fmha_decode_forward(
-            q,
-            k,
-            v,
-            seqlen_kv=_seqused_k,
-            cu_seqlens_q=None,
-            cu_seqlens_k=None,
-            max_seq_len_q=None,
-            max_seq_len_k=None,
-            softmax_scale=sm_scale,
-            causal=causal,
-            window_left=window_size[0],
-            window_right=window_size[1],
-            bottom_right=True,
-            split_k_size=0,
-            use_heuristic=False,
-        )
+        func_to_test = cutlass_blackwell_fmha_decode_forward
+        forward_test_ctx = nullcontext()
+        if use_compile:
+            func_to_test = torch.compile(func_to_test, fullgraph=True)
+            forward_test_ctx = torch.no_grad()
+        with forward_test_ctx:
+            out, lse = func_to_test(
+                q,
+                k,
+                v,
+                seqlen_kv=_seqused_k,
+                cu_seqlens_q=None,
+                cu_seqlens_k=None,
+                max_seq_len_q=None,
+                max_seq_len_k=None,
+                softmax_scale=sm_scale,
+                causal=causal,
+                window_left=window_size[0],
+                window_right=window_size[1],
+                bottom_right=True,
+                split_k_size=0,
+                use_heuristic=False,
+            )
 
         # Output is [B, 1, H, 1, D] - squeeze num_splits dimension
         out = out.squeeze(3)  # [B, 1, H, D]
@@ -522,63 +530,68 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
 
         # Run tested kernel
         func_to_test = cutlass_blackwell_fmha_func
+        forward_test_ctx = nullcontext()
         if use_compile:
             func_to_test = torch.compile(func_to_test, fullgraph=True)
-        if is_paged:
-            assert k_paged is not None and v_paged is not None
-            out_paged = func_to_test(
+            if fwd_only:
+                forward_test_ctx = torch.no_grad()
+
+        with forward_test_ctx:
+            if is_paged:
+                assert k_paged is not None and v_paged is not None
+                out_paged = func_to_test(
+                    q,
+                    k_paged,
+                    v_paged,
+                    causal=causal,
+                    window_size=window_size,
+                    seqlen_kv=seqlen_kv,
+                    page_table=page_table,
+                    seqlen_k=seqlen_k,
+                    deterministic=deterministic,
+                    softmax_scale=sm_scale,
+                )
+
+            out = func_to_test(
                 q,
-                k_paged,
-                v_paged,
+                k,
+                v,
                 causal=causal,
                 window_size=window_size,
                 seqlen_kv=seqlen_kv,
-                page_table=page_table,
+                page_table=None,
                 seqlen_k=seqlen_k,
                 deterministic=deterministic,
                 softmax_scale=sm_scale,
             )
 
-        out = func_to_test(
-            q,
-            k,
-            v,
-            causal=causal,
-            window_size=window_size,
-            seqlen_kv=seqlen_kv,
-            page_table=None,
-            seqlen_k=seqlen_k,
-            deterministic=deterministic,
-            softmax_scale=sm_scale,
-        )
+            if DEBUG:
+                print("cutlass_blackwell_fmha_func completed successfully!")
 
-        if DEBUG:
-            print("cutlass_blackwell_fmha_func completed successfully!")
+            # Follow FlashAttention's numerical evaluation
+            # Compare outputs
+            if is_paged:
+                # Compare paged output with both reference and non paged output
+                self._allclose(out_paged, out_ref, out_pt)
+                self._allclose(out_paged, out, out_pt)
+            else:
+                self._allclose(out, out_ref, out_pt)
 
-        # Follow FlashAttention's numerical evaluation
-        # Compare outputs
-        if is_paged:
-            # Compare paged output with both reference and non paged output
-            self._allclose(out_paged, out_ref, out_pt)
-            self._allclose(out_paged, out, out_pt)
-        else:
-            self._allclose(out, out_ref, out_pt)
-
-        if deterministic:
-            # Rerun the test. The outputs must be bit-wise exact
-            out_d = func_to_test(
-                q,
-                cast(torch.Tensor, k_paged) if is_paged else k,
-                cast(torch.Tensor, v_paged) if is_paged else v,
-                causal=causal,
-                window_size=window_size,
-                seqlen_kv=seqlen_kv,
-                page_table=page_table if is_paged else None,
-                seqlen_k=seqlen_k,
-                deterministic=deterministic,
-                softmax_scale=sm_scale,
-            )
-            assert torch.equal(out, out_d)
+            if deterministic:
+                # Rerun the test. The outputs must be bit-wise exact
+                out_d = func_to_test(
+                    q,
+                    cast(torch.Tensor, k_paged) if is_paged else k,
+                    cast(torch.Tensor, v_paged) if is_paged else v,
+                    causal=causal,
+                    window_size=window_size,
+                    seqlen_kv=seqlen_kv,
+                    page_table=page_table if is_paged else None,
+                    seqlen_k=seqlen_k,
+                    deterministic=deterministic,
+                    softmax_scale=sm_scale,
+                )
+                assert torch.equal(out, out_d)
 
         if fwd_only:
             return
@@ -729,69 +742,74 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         )
 
         func_to_test = cutlass_blackwell_fmha_func
+        forward_test_ctx = nullcontext()
         if use_compile:
             func_to_test = torch.compile(func_to_test, fullgraph=True)
-        if is_paged:
-            assert k_paged is not None and v_paged is not None
-            out_unpad_paged = func_to_test(
+            if fwd_only:
+                forward_test_ctx = torch.no_grad()
+
+        with forward_test_ctx:
+            if is_paged:
+                assert k_paged is not None and v_paged is not None
+                out_unpad_paged = func_to_test(
+                    q_unpad,
+                    k_paged,
+                    v_paged,
+                    causal=causal,
+                    cu_seqlens_q=cu_seqlens_q,
+                    cu_seqlens_k=cu_seqlens_k,
+                    max_seq_len_q=max_seqlen_q,
+                    max_seq_len_k=max_seqlen_k,
+                    page_table=page_table,
+                    window_size=window_size,
+                    deterministic=deterministic,
+                    softmax_scale=sm_scale,
+                )
+                out_paged = output_pad_fn(out_unpad_paged)
+
+            out_unpad = func_to_test(
                 q_unpad,
-                k_paged,
-                v_paged,
+                k_unpad,
+                v_unpad,
                 causal=causal,
                 cu_seqlens_q=cu_seqlens_q,
                 cu_seqlens_k=cu_seqlens_k,
                 max_seq_len_q=max_seqlen_q,
                 max_seq_len_k=max_seqlen_k,
-                page_table=page_table,
+                page_table=None,
                 window_size=window_size,
                 deterministic=deterministic,
                 softmax_scale=sm_scale,
             )
-            out_paged = output_pad_fn(out_unpad_paged)
+            out = output_pad_fn(out_unpad)
 
-        out_unpad = func_to_test(
-            q_unpad,
-            k_unpad,
-            v_unpad,
-            causal=causal,
-            cu_seqlens_q=cu_seqlens_q,
-            cu_seqlens_k=cu_seqlens_k,
-            max_seq_len_q=max_seqlen_q,
-            max_seq_len_k=max_seqlen_k,
-            page_table=None,
-            window_size=window_size,
-            deterministic=deterministic,
-            softmax_scale=sm_scale,
-        )
-        out = output_pad_fn(out_unpad)
+            # Follow FlashAttention's numerical evaluation
+            # Compare outputs
+            if is_paged:
+                # Compare paged output with both reference and non paged output
+                self._allclose(out_paged, out_ref, out_pt)
+                self._allclose(out_paged, out, out_pt)
+            else:
+                self._allclose(out, out_ref, out_pt)
 
-        # Follow FlashAttention's numerical evaluation
-        # Compare outputs
-        if is_paged:
-            # Compare paged output with both reference and non paged output
-            self._allclose(out_paged, out_ref, out_pt)
-            self._allclose(out_paged, out, out_pt)
-        else:
-            self._allclose(out, out_ref, out_pt)
-
-        if deterministic:
-            # Rerun the test. The outputs must be bit-wise exact
-            out_unpad_d = func_to_test(
-                q_unpad,
-                cast(torch.Tensor, k_paged) if is_paged else k_unpad,
-                cast(torch.Tensor, v_paged) if is_paged else v_unpad,
-                causal=causal,
-                cu_seqlens_q=cu_seqlens_q,
-                cu_seqlens_k=cu_seqlens_k,
-                max_seq_len_q=max_seqlen_q,
-                max_seq_len_k=max_seqlen_k,
-                page_table=page_table,
-                window_size=window_size,
-                deterministic=deterministic,
-                softmax_scale=sm_scale,
-            )
-            out_d = output_pad_fn(out_unpad_d)
-            assert torch.equal(out, out_d)
+            if deterministic:
+                # Rerun the test. The outputs must be bit-wise exact
+                out_unpad_d = func_to_test(
+                    q_unpad,
+                    cast(torch.Tensor, k_paged) if is_paged else k_unpad,
+                    cast(torch.Tensor, v_paged) if is_paged else v_unpad,
+                    causal=causal,
+                    cu_seqlens_q=cu_seqlens_q,
+                    cu_seqlens_k=cu_seqlens_k,
+                    max_seq_len_q=max_seqlen_q,
+                    max_seq_len_k=max_seqlen_k,
+                    page_table=page_table,
+                    window_size=window_size,
+                    deterministic=deterministic,
+                    softmax_scale=sm_scale,
+                )
+                out_d = output_pad_fn(out_unpad_d)
+                assert torch.equal(out, out_d)
 
         if fwd_only:
             return
@@ -1530,7 +1548,6 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         kv_heads = 2 if is_mqa else q_heads
         batch_size = 2
         seqlen_k = 128
-        kv_heads = 2
         head_dim = 128
         dtype = torch.bfloat16
         causal = True
@@ -1553,6 +1570,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 dtype=dtype,
                 window_size=window_size,
                 sm_scale=None,
+                use_compile=True,
             )
             return
 
@@ -1571,6 +1589,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
             deterministic=deterministic,
             sm_scale=sm_scale,
             is_paged=False,
+            use_compile=True,
         )
 
     @skip_cuda_lt_sm100
