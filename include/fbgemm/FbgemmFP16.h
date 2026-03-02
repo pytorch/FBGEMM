@@ -13,6 +13,7 @@
 
 #include <cpuinfo.h>
 
+#include "fbgemm/FbgemmFPCommon.h"
 #include "./FbgemmPackMatrixB.h" // @manual
 #include "./FloatConversion.h" // @manual
 #include "./Types.h" // @manual
@@ -30,17 +31,6 @@ struct TypeConverter<float16> {
 };
 
 using PackedGemmMatrixFP16 = PackedGemmMatrixB<float16>;
-
-template <typename T>
-FBGEMM_API void cblas_gemm_compute(
-    const matrix_op_t transa,
-    const int m,
-    const float* A,
-    const PackedGemmMatrixB<T>& Bp,
-    const float beta,
-    float* C,
-    int thread_id = 0,
-    int num_threads = 1);
 
 extern template void cblas_gemm_compute<float16>(
     const matrix_op_t transa,
