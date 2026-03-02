@@ -789,6 +789,15 @@ _block_bucketize_sparse_features_cuda(
     const std::optional<Tensor>& keep_orig_idx_per_feature) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
+  // Validate dtype consistency for key tensor arguments
+  TORCH_CHECK(
+      block_sizes.scalar_type() == indices.scalar_type(),
+      "block_bucketize_sparse_features: block_sizes has dtype ",
+      block_sizes.scalar_type(),
+      " but expected ",
+      indices.scalar_type(),
+      " (must match indices dtype)");
+
   CUDA_DEVICE_GUARD(lengths);
 
   // allocate tensors and buffers
@@ -852,10 +861,24 @@ _block_bucketize_sparse_features_cuda(
       at::empty({1}, indices_contig.options());
 
   if (block_bucketize_pos.has_value()) {
-    block_bucketize_pos_concat = at::cat(block_bucketize_pos.value(), 0);
+    // Validate dtype of block_bucketize_pos tensors before concatenation
+    const auto& pos_tensors = block_bucketize_pos.value();
+    const auto expected_dtype = indices_contig.scalar_type();
+    for (size_t i = 0; i < pos_tensors.size(); ++i) {
+      TORCH_CHECK(
+          pos_tensors[i].scalar_type() == expected_dtype,
+          "block_bucketize_sparse_features: block_bucketize_pos[",
+          i,
+          "] has dtype ",
+          pos_tensors[i].scalar_type(),
+          " but expected ",
+          expected_dtype,
+          " (must match indices dtype)");
+    }
+    block_bucketize_pos_concat = at::cat(pos_tensors, 0);
     std::vector<int64_t> sizes_;
-    sizes_.reserve(block_bucketize_pos.value().size() + 1);
-    for (auto const& t : block_bucketize_pos.value()) {
+    sizes_.reserve(pos_tensors.size() + 1);
+    for (auto const& t : pos_tensors) {
       sizes_.push_back(t.numel());
     }
     sizes_.push_back(0);
