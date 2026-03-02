@@ -100,14 +100,15 @@ append_to_envvar () {
   local env_name="$1"
   local key="$2"
   local value="$3"
+  local separator="${4:-:}"
 
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   echo "[ENV] Appending to ${key}: ${value} ..."
   # shellcheck disable=SC2155,SC2086
-  local current_value=$(conda run ${env_prefix} printenv ${key})
+  local current_value=$(conda run ${env_prefix} printenv ${key} 2>/dev/null || true)
   # shellcheck disable=SC2086
-  (print_exec conda env config vars set ${env_prefix} "${key}"="${current_value:+${current_value}:}${value}") || return 1
+  (print_exec conda env config vars set ${env_prefix} "${key}"="${current_value:+${current_value}${separator}}${value}") || return 1
 }
 
 append_to_library_path () {

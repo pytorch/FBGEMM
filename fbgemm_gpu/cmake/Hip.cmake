@@ -79,6 +79,15 @@ if(HIP_FOUND)
   list(APPEND HIP_CXX_FLAGS -mfma)
   list(APPEND HIP_CXX_FLAGS -std=c++20)
 
+  # In Nova CI, we need to explicitly specify the GCC toolchain for HIP/Clang
+  # so it uses GCC 13 headers (which have std::atomic_ref for C++20).
+  # This flag is Clang-specific and must NOT be added to CMAKE_CXX_FLAGS
+  # (which would also be used by GCC).
+  if(DEFINED FBGEMM_HIP_GCC_TOOLCHAIN AND EXISTS "${FBGEMM_HIP_GCC_TOOLCHAIN}")
+    message(STATUS "Using GCC toolchain for HIP: ${FBGEMM_HIP_GCC_TOOLCHAIN}")
+    list(APPEND HIP_CXX_FLAGS "--gcc-toolchain=${FBGEMM_HIP_GCC_TOOLCHAIN}")
+  endif()
+
   set(HIP_HCC_FLAGS ${HIP_CXX_FLAGS})
   # Ask hcc to generate device code during compilation so we can use
   # host linker to link.
