@@ -399,7 +399,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
           facebook::fb_rocksdb::getDefaultProfileOptions(),
           db_monitor_options);
 #else
-      auto s = rocksdb::DB::Open(options, shard_path, &db);
+      std::unique_ptr<rocksdb::DB> db_ptr;
+      auto s = rocksdb::DB::Open(options, shard_path, &db_ptr);
+      db = db_ptr.release();
 #endif
       if (!s.ok() && s.code() == rocksdb::Status::kInvalidArgument &&
           (options.use_direct_reads ||
@@ -411,7 +413,18 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         options.use_direct_io_for_flush_and_compaction = false;
         LOG(WARNING)
             << "Trying again, any subsequent failures will be fatal...";
-        s = rocksdb::DB::Open(options, shard_path, &db);
+#ifdef FBGEMM_FBCODE
+        s = facebook::fb_rocksdb::openRocksDB(
+            options,
+            shard_path,
+            &db,
+            serviceInfo,
+            facebook::fb_rocksdb::getDefaultProfileOptions(),
+            db_monitor_options);
+#else
+        s = rocksdb::DB::Open(options, shard_path, &db_ptr);
+        db = db_ptr.release();
+#endif
       }
       CHECK(s.ok()) << s.ToString();
       dbs_.emplace_back(db);
