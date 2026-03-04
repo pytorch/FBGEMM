@@ -5,6 +5,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
 #include <ATen/Dispatch.h> // @manual
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h> // @manual
@@ -466,9 +467,9 @@ __global__ void process_item_zch(
     const int32_t* const input_metadata,
     int32_t eviction_threshold,
     int32_t* process_lock,
-    int64_t /* opt_in_prob */,
-    int64_t /* num_reserved_slots */,
-    const int32_t* const /* opt_in_rands */,
+    int64_t opt_in_prob,
+    int64_t num_reserved_slots,
+    const int32_t* const opt_in_rands,
     int64_t* runtime_meta,
     TORCH_DSA_KERNEL_ARGS) {
   static_assert(EVICTION_POLICY == 1);
@@ -493,7 +494,10 @@ __global__ void process_item_zch(
     int32_t metadata_val =
         input_metadata != nullptr ? input_metadata[process_index] : cur_hour;
     auto hash = murmur_hash3_2x64(static_cast<uint64_t>(item), 0, 0);
-    auto output_index = static_cast<int64_t>(hash % modulo); // Local idx
+    auto opt_in_block_size =
+        opt_in_prob == -1 ? modulo : modulo - num_reserved_slots;
+    auto output_index =
+        static_cast<int64_t>(hash % opt_in_block_size); // Local idx
     TIdentity identity;
 
     if constexpr (HASH_IDENTITY == 1) {
@@ -513,12 +517,35 @@ __global__ void process_item_zch(
     auto max_probe_local = max_probe;
     TIdentity old_value = kDefaultTensor;
 
+    // Pre-check if identity already exists in probing distance.
+    // This avoids evicting a slot when the identity is already present.
+    int64_t identity_slot = get_identity_slot<CIRCULAR_PROBE, TIdentity>(
+        identities,
+        identity,
+        output_index,
+        offset,
+        opt_in_block_size,
+        max_probe);
+
+    bool opt_in = true;
+    if (identity_slot == -1 && opt_in_rands != nullptr &&
+        opt_in_rands[process_index] >= opt_in_prob) {
+      // ID with rand value > opt_in_prob will not be accepted and will
+      // instead be assigned to one of the reserved slots.
+      opt_in = false;
+      output_index =
+          opt_in_block_size + static_cast<int64_t>(hash % num_reserved_slots);
+      update_metadata_lru<METADATA_COUNT>(
+          metadata, output_index + offset, metadata_val, process_lock);
+      // don't update freq counter for reserved slots
+    }
+
     int64_t min_index = -1; // local_index; initially set it as -1
     int32_t min_hours = kMaxHours;
-    // tracks the existing value of canddiate slot may be evicted during
+    // tracks the existing value of candidate slot may be evicted during
     // probing;
     TIdentity min_slot_identity = kDefaultTensor;
-    while (max_probe_local-- > 0) {
+    while (max_probe_local-- > 0 && opt_in) {
       auto insert_idx = output_index + offset;
       if (check_and_maybe_update_slot<READONLY, TIdentity>(
               &identities[insert_idx][0], identity, old_value)) {
@@ -541,7 +568,9 @@ __global__ void process_item_zch(
           eviction_threshold);
 
       output_index = next_output_index<CIRCULAR_PROBE>(
-          output_index, modulo, max_probe_local);
+          output_index,
+          opt_in_block_size, // only probe within the opt-in block
+          max_probe_local);
     }
 
     if (max_probe_local < 0) {
@@ -559,7 +588,9 @@ __global__ void process_item_zch(
           return;
         } else {
           // collide
-          output_index = static_cast<int64_t>(hash % modulo);
+          output_index = opt_in_prob == -1 ? static_cast<int64_t>(hash % modulo)
+                                           : opt_in_block_size +
+                  static_cast<int64_t>(hash % num_reserved_slots);
         }
       } else {
         // find an expire slot to evict
