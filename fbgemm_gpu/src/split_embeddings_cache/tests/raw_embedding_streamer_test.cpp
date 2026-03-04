@@ -333,4 +333,45 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithIdentities) {
       indices, weights, identities, runtime_meta, count, true, true);
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
 }
+
+TEST(RawEmbeddingStreamerTest, TestStreamWithCopyDoneFlagNonBlockingCopy) {
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_nonblocking", true, table_names, table_offsets, table_sizes);
+
+  // Create CPU tensors
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  // Create a CPU int32 tensor with value 1 (already "done")
+  auto copy_done_flag =
+      at::ones({1}, at::TensorOptions().device(at::kCPU).dtype(at::kInt));
+
+  // Stop the dequeue thread to get accurate queue size
+  streamer->join_weights_stream_thread();
+
+  // Test with copy_done_flag in non-blocking mode
+  streamer->stream(
+      indices,
+      weights,
+      std::nullopt,
+      std::nullopt,
+      count,
+      true,
+      false,
+      copy_done_flag);
+
+  // Wait for the async thread to complete
+  streamer->join_stream_tensor_copy_thread();
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
+}
 #endif

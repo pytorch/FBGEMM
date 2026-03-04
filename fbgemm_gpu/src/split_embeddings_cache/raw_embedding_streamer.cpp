@@ -18,6 +18,7 @@
 #include "torch/types.h"
 
 #endif
+
 #include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
@@ -25,6 +26,10 @@ namespace fbgemm_gpu {
 namespace {
 
 #ifdef FBGEMM_FBCODE
+
+// Timeout for copy_done_flag polling loop (microseconds).
+constexpr int64_t kCopyDonePollTimeoutUs = 10'000'000; // 10 seconds
+
 /*
  * Get the thrift client to the training parameter server service
  * There is a destruction double free issue when wrapping the member
@@ -208,7 +213,8 @@ void RawEmbeddingStreamer::stream(
     std::optional<at::Tensor> runtime_meta [[maybe_unused]],
     const at::Tensor& count [[maybe_unused]],
     bool require_tensor_copy [[maybe_unused]],
-    bool blocking_tensor_copy [[maybe_unused]]) {
+    bool blocking_tensor_copy [[maybe_unused]],
+    std::optional<at::Tensor> copy_done_flag [[maybe_unused]]) {
   if (!enable_raw_embedding_streaming_) {
     return;
   }
@@ -226,6 +232,24 @@ void RawEmbeddingStreamer::stream(
     return;
   }
   if (blocking_tensor_copy) {
+    if (copy_done_flag.has_value()) {
+      auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
+      folly::stop_watch<std::chrono::microseconds> poll_watch;
+      while (*ptr == 0) {
+        std::this_thread::yield();
+        if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
+          LOG(ERROR) << "[TBE_ID" << unique_id_
+                     << "] copy_done_flag blocking: poll timed out after "
+                     << kCopyDonePollTimeoutUs / 1'000'000 << "s";
+          return;
+        }
+      }
+      *ptr = 0; // Reset for next iteration
+    } else {
+      XLOG_EVERY_MS(INFO, 60000)
+          << "[TBE_ID" << unique_id_
+          << "] copy_done_flag not provided, skipping wait (blocking)";
+    }
     copy_and_enqueue_stream_tensors(
         indices,
         weights,
@@ -240,10 +264,46 @@ void RawEmbeddingStreamer::stream(
   // callbacks don't need to be serialized.
   // So, We need to spin up a new thread to unblock the CUDA stream, so the CUDA
   // can continue executing other host callbacks, eg. get/evict.
-  stream_tensor_copy_thread_ = std::make_unique<std::thread>([=, this]() {
+  stream_tensor_copy_thread_ = std::make_unique<std::thread>([this,
+                                                              copy_done_flag,
+                                                              indices,
+                                                              weights,
+                                                              identities,
+                                                              runtime_meta,
+                                                              count]() {
+    if (copy_done_flag.has_value()) {
+      auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
+      folly::stop_watch<std::chrono::microseconds> poll_watch;
+      while (*ptr == 0) {
+        std::this_thread::yield();
+        if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
+          LOG(ERROR) << "[TBE_ID" << unique_id_
+                     << "] copy_done_flag non-blocking: poll timed out after "
+                     << kCopyDonePollTimeoutUs / 1'000'000 << "s";
+          return;
+        }
+      }
+      *ptr = 0; // Reset for next iteration
+    } else {
+      XLOG_EVERY_MS(INFO, 60000)
+          << "[TBE_ID" << unique_id_
+          << "] copy_done_flag not provided, skipping wait (non-blocking)";
+    }
     copy_and_enqueue_stream_tensors(
         indices, weights, identities, runtime_meta, count);
   });
+  rec->record.end();
+#endif
+}
+
+void RawEmbeddingStreamer::join_stream_tensor_copy_thread() {
+#ifdef FBGEMM_FBCODE
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## RawEmbeddingStreamer::join_stream_tensor_copy_thread ##");
+  if (stream_tensor_copy_thread_ != nullptr &&
+      stream_tensor_copy_thread_->joinable()) {
+    stream_tensor_copy_thread_->join();
+  }
   rec->record.end();
 #endif
 }
@@ -376,16 +436,6 @@ void RawEmbeddingStreamer::copy_and_enqueue_stream_tensors(
   auto stream_item = tensor_copy(
       indices, weights, std::move(identities), std::move(runtime_meta), count);
   weights_to_stream_queue_.enqueue(stream_item);
-  rec->record.end();
-}
-
-void RawEmbeddingStreamer::join_stream_tensor_copy_thread() {
-  auto rec = torch::autograd::profiler::record_function_enter_new(
-      "## RawEmbeddingStreamer::join_stream_tensor_copy_thread ##");
-  if (stream_tensor_copy_thread_ != nullptr &&
-      stream_tensor_copy_thread_->joinable()) {
-    stream_tensor_copy_thread_->join();
-  }
   rec->record.end();
 }
 
