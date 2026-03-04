@@ -62,11 +62,13 @@ def bench_warmup_with_spec(
         while time.time() * 1000 - start_time_ms < warmup_ms:
             out = func(indices, offsets, weights, batch_size_per_feature_per_rank)
             if bwd_only:
+                grad = torch.rand_like(out) if grad is None else grad
                 out.backward(grad)
     else:
         for _ in range(warmup_runs):
             out = func(indices, offsets, weights, batch_size_per_feature_per_rank)
             if bwd_only:
+                grad = torch.rand_like(out) if grad is None else grad
                 out.backward(grad)
 
 
@@ -405,7 +407,7 @@ def benchmark_requests_with_spec(  # noqa: C901
         # logging.info(
         #     f"[Benchmark Request] batch_size_per_feature_per_rank {batch_size_per_feature_per_rank} {indices.device}"
         # )
-
+        out = None
         if bwd_only:
             # Run forward before profiling if does backward only
             out = func(indices, offsets, weights, batch_size_per_feature_per_rank)
@@ -423,6 +425,8 @@ def benchmark_requests_with_spec(  # noqa: C901
             torch.cuda.nvtx.range_push(f"{nvtx_range}-{it}")
 
         if bwd_only:
+            assert out is not None
+            grad = torch.rand_like(out) if grad is None else grad
             out.backward(grad)
         else:
             func(indices, offsets, weights, batch_size_per_feature_per_rank)

@@ -12,7 +12,7 @@ import logging
 import os
 import tempfile
 from contextlib import nullcontext
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import click
 import numpy as np
@@ -33,6 +33,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 from fbgemm_gpu.tbe.bench import (
     benchmark_pipelined_requests,
     benchmark_requests,
+    benchmark_requests_with_spec,
     benchmark_vbe,
     EmbeddingOpsCommonConfigLoader,
     generate_merged_output_and_offsets,
@@ -58,6 +59,59 @@ except Exception:
 @click.group()
 def cli() -> None:
     pass
+
+
+def get_compute_device(d: torch.device) -> Tuple[ComputeDevice, EmbeddingLocation]:
+    if d.type == "cuda":
+        return (ComputeDevice.CUDA, EmbeddingLocation.DEVICE)
+    elif d.type == "mtia":
+        return (ComputeDevice.MTIA, EmbeddingLocation.HOST)
+    else:
+        return (ComputeDevice.CPU, EmbeddingLocation.HOST)
+
+
+def get_pooling(pooling: Optional[str]) -> Tuple[PoolingMode, bool]:
+    if pooling is None or pooling == "sum":
+        pooling = "sum"
+        pooling_mode = PoolingMode.SUM
+        do_pooling = True
+    elif pooling == "mean":
+        pooling_mode = PoolingMode.MEAN
+        do_pooling = True
+    else:  # "none"
+        pooling_mode = PoolingMode.NONE
+        do_pooling = False
+    return pooling_mode, do_pooling
+
+
+def compute_read_write_bytes(
+    Es: list[int],
+    Bs: list[int],
+    Ds: list[int],
+    L: int | float,
+    do_pooling: bool,
+    output_dtype: SparseType,
+    weights_precision: SparseType,
+) -> float:
+    # Calculate read/write bytes for bandwidth calculation
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+
+    nparams = sum(d * e for d, e in zip(Ds, Es))
+
+    logging.info(
+        f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
+        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+    numel_per_batch = sum([b * d for b, d in zip(Bs, Ds)])
+    _L = 1 if do_pooling else L
+    total_batch_accesses = param_size_multiplier * numel_per_batch * L
+
+    read_write_bytes = (
+        output_size_multiplier * numel_per_batch * _L + total_batch_accesses
+    )
+    logging.info(f"Accessed weights per batch: {total_batch_accesses / 1.0e9: .2f} GB")
+    return read_write_bytes
 
 
 @cli.command()
@@ -219,16 +273,7 @@ def device(  # noqa C901
     else:
         raise ValueError(f"Unknown --managed-option {managed}")
 
-    if pooling is None or pooling == "sum":
-        pooling = "sum"
-        pooling_mode = PoolingMode.SUM
-        do_pooling = True
-    elif pooling == "mean":
-        pooling_mode = PoolingMode.MEAN
-        do_pooling = True
-    else:  # "none"
-        pooling_mode = PoolingMode.NONE
-        do_pooling = False
+    pooling_mode, do_pooling = get_pooling(pooling)
 
     common_split_args: dict[str, Any] = {
         "weights_precision": weights_precision,
@@ -433,7 +478,7 @@ def device(  # noqa C901
     type=str,
     default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
 )
-def uvm(
+def uvm(  # noqa: C901
     alpha: bool,
     bag_size: int,
     batch_size: int,
@@ -1075,16 +1120,7 @@ def device_with_spec(  # noqa C901
     else:
         managed_option = EmbeddingLocation.MANAGED
 
-    if pooling is None or pooling == "sum":
-        pooling = "sum"
-        pooling_mode = PoolingMode.SUM
-        do_pooling = True
-    elif pooling == "mean":
-        pooling_mode = PoolingMode.MEAN
-        do_pooling = True
-    else:  # "none"
-        pooling_mode = PoolingMode.NONE
-        do_pooling = False
+    pooling_mode, do_pooling = get_pooling(pooling)
 
     if not do_pooling:
         ref_D = Ds[0]
@@ -1540,6 +1576,440 @@ def vbe(
         f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}\n"
         f"fwd: {fwd_time_sec * 1.0e6:.0f}us, bwd: {bwd_time_sec * 1.0e6:.0f}us"
     )
+
+
+@cli.command()
+@TbeBenchClickInterface.common_options
+@TbeBenchClickInterface.device_options
+@click.option(
+    "--weighted-num-requires-grad",
+    type=int,
+    default=None,
+    help="Number of tables requiring gradient computation for weighted embeddings. Default is None.",
+)
+@click.option(
+    "--output-dtype",
+    type=SparseType,
+    default=SparseType.FP32,
+    help="Data type of the output embeddings. Default is FP32.",
+)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="bench_tbe_{device}_{phase}_trace_{emb_loc}_{ospid}.json",
+    help="URL for trace file. Default is bench_tbe_{device}_{phase}_trace_{embbeding_location}_{ospid}.json.",
+)
+@click.option(
+    "--optimizer",
+    type=OptimType,
+    default=OptimType.EXACT_ROWWISE_ADAGRAD,
+    help="Optimizer type for embedding updates. Default is EXACT_ROWWISE_ADAGRAD.",
+)
+@click.option(
+    "--indices-file",
+    type=str,
+    default=None,
+    help="Path to the indices file. Default is None.",
+)
+@click.option(
+    "--offsets-file",
+    type=str,
+    default=None,
+    help="Path to the offsets file. Default is None.",
+)
+@click.option(
+    "--specs-file",
+    type=str,
+    default=None,
+    help="Path to the specs.pt file containing embedding specs. "
+    "Expected format: dict with 'embedding_specs' key containing list of "
+    "(num_embeddings, embedding_dim, location, compute_device) tuples. "
+    "When provided, overrides --num-embeddings, --embedding-dim, --num-tables.",
+)
+@click.option(
+    "--feature-table-map-file",
+    type=str,
+    default=None,
+    help="Comma-separated feature table map. Default is None (uses range(T)).",
+)
+@click.option(
+    "--batch-size-per-feature-per-rank-file",
+    type=str,
+    default=None,
+    help="a file or Comma-separated list of batch sizes per table for VBE mode. "
+    "Each value represents the batch size for a table. "
+    "If provided, enables Variable Batch Embedding (VBE) mode. "
+    "Example: '128,256,512' for 3 tables with different batch sizes.",
+)
+@click.option(
+    "--compare",
+    is_flag=True,
+    type=bool,
+    default=False,
+    help="Run CPU benchmark",
+)
+def device_from_files(  # noqa C901
+    alpha: float,  # unused
+    batch_size: int,  # unused
+    reuse: float,  # unused
+    cache_precision: SparseType,  # unused
+    managed: str,  # unused
+    row_wise: bool,  # unused
+    weights_precision: SparseType,
+    stoc: bool,
+    iters: int,
+    warmup_runs: int,
+    weighted: bool,
+    pooling: str,
+    weighted_num_requires_grad: Optional[int],
+    bounds_check_mode: int,
+    flush_gpu_cache_size_mb: int,
+    output_dtype: SparseType,
+    optimizer: OptimType,
+    export_trace: bool,
+    trace_url: str,
+    compare: bool,
+    indices_file: str,
+    offsets_file: str,
+    specs_file: str,
+    feature_table_map_file: str,
+    batch_size_per_feature_per_rank_file: Optional[str],
+) -> None:
+    """
+    Benchmark that compares TBE performance between current accelerator (GPU/CUDA/MTIA)
+    and CPU. This helps understand the performance difference between accelerated
+    and CPU-based embedding operations.
+    """
+    assert specs_file is not None, "Required embedding specs"
+    assert indices_file is not None, "Required indices file"
+    assert offsets_file is not None, "Required offsets file"
+    assert os.path.exists(
+        specs_file
+    ), f"Expect a specs_file file but file not found: {specs_file}"
+    assert os.path.exists(
+        indices_file
+    ), f"Expect a indices_file file but file not found: {indices_file}"
+    assert os.path.exists(
+        offsets_file
+    ), f"Expect a offsets_file file but file not found: {offsets_file}"
+
+    # Determine current accelerator
+    accelerator_device = torch.accelerator.current_accelerator(check_available=True)
+
+    if accelerator_device is None and not compare:
+        raise AssertionError(
+            "No accelerator available. Please specify --compare to run on CPU"
+        )
+    map_location = torch.device("cpu") if compare else accelerator_device
+
+    # Load specs from file
+    embedding_specs: list[Tuple[int, int, EmbeddingLocation, ComputeDevice]] = (
+        torch.load(specs_file, weights_only=False)
+    )
+    logging.info(f"Loaded embedding_specs: {embedding_specs}")
+    _Es: list[int]
+    _Ds: list[int]
+    emb_loc: list[EmbeddingLocation]
+    compute_device: list[ComputeDevice]
+    _Es, _Ds, emb_loc, compute_device = zip(*embedding_specs)
+
+    # Determine location suffix for trace URL based on embedding locations
+    location_suffix: str = "device"
+    if EmbeddingLocation.MANAGED_CACHING in emb_loc:
+        location_suffix = "cache"
+    elif EmbeddingLocation.MANAGED in emb_loc:
+        location_suffix = "uvm"
+
+    Es: list[int] = _Es
+    Ds: list[int] = _Ds
+    assert len(Es) == len(
+        Ds
+    ), f"Number of embeddings and dimensions mismatched {len(Es)} != {len(Ds)}"
+    feature_table_map = list(range(len(Es)))
+    if feature_table_map_file is not None:
+        assert os.path.exists(
+            feature_table_map_file
+        ), f"Expect a feature_table_map file but file not found: {feature_table_map_file}"
+        feature_table_map = torch.load(feature_table_map_file, weights_only=False)
+        Es = [_Es[t] for t in feature_table_map]
+        Ds = [_Ds[t] for t in feature_table_map]
+        logging.info(f"Loaded feature_table_map: {feature_table_map}")
+    else:
+        logging.info(
+            f"feature_table_map file is not provided, set to f{feature_table_map}"
+            + "Please note that this assumption may be wrong. If you see boundscheck error, "
+            + "provide feature_table_map."
+        )
+
+    T: int = len(Es)
+    num_features: int = len(feature_table_map)
+    assert (
+        T == num_features
+    ), f"Number of features mismatched, found {num_features} from feature_table_map but T = {T}"
+    logging.info(f"_Es: {_Es} _Ds: {_Ds} num_features: {T}")
+
+    indices_tensor: Tensor = torch.load(
+        indices_file, map_location=map_location, weights_only=True
+    )
+    offsets_tensor: Tensor = torch.load(
+        offsets_file, map_location=map_location, weights_only=True
+    )
+    per_sample_weights_tensor: Optional[Tensor] = (
+        None if not weighted else torch.randn(indices_tensor.size())
+    )
+    logging.info(f"Loaded indices: {indices_tensor.shape} on {indices_tensor.device}")
+    logging.info(f"Loaded offsets: {offsets_tensor.shape} on {offsets_tensor.device}")
+
+    total_B: int = offsets_tensor.numel() - 1
+    assert total_B > 0, f"Invalid offsets tensor: total_B={total_B} must be positive"
+    avg_E: float = float(np.mean(Es))
+    avg_D: float = float(np.mean(Ds))
+    avg_L: float = float(indices_tensor.numel() / total_B)
+
+    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None
+    if batch_size_per_feature_per_rank_file is not None:
+        batch_size_per_feature_per_rank = torch.load(
+            batch_size_per_feature_per_rank_file, weights_only=True
+        ).tolist()
+        assert (
+            len(batch_size_per_feature_per_rank) == T
+        ), f"Number of features mismatched, found {len(batch_size_per_feature_per_rank)} from batch_size_per_feature_per_rank but T = {T}"
+    else:
+        assert (
+            total_B % T == 0
+        ), f"Expect constant batch size but total_B = {total_B} and T = {T}"
+
+    Bs = (
+        [sum(b_r) for b_r in batch_size_per_feature_per_rank]
+        if batch_size_per_feature_per_rank is not None
+        else [total_B // T] * T
+    )
+
+    pooling_mode, do_pooling = get_pooling(pooling)
+
+    # Calculate read/write bytes for bandwidth calculation
+    read_write_bytes: float = compute_read_write_bytes(
+        Es, Bs, Ds, avg_L, do_pooling, output_dtype, weights_precision
+    )
+
+    common_args: Dict[str, Any] = {
+        "weights_precision": weights_precision,
+        "stochastic_rounding": stoc,
+        "output_dtype": output_dtype,
+        "pooling_mode": pooling_mode,
+        "bounds_check_mode": BoundsCheckMode(bounds_check_mode),
+        "optimizer": optimizer,
+        "learning_rate": 0.1,
+        "eps": 0.1,
+        "feature_table_map": feature_table_map,
+    }
+
+    # TODO: Refactor to only use one request over multiple iterations
+    def gen_requests(
+        indices_tensor: torch.Tensor,
+        offsets_tensor: torch.Tensor,
+        device: torch.device,
+        per_sample_weights_tensor: Optional[torch.Tensor],
+        batch_size_per_feature_per_rank: Optional[list[list[int]]],
+    ) -> list[TBERequest]:
+        rs = []
+        indices = indices_tensor.to(device)
+        offsets = offsets_tensor.to(device)
+        per_sample_weights = (
+            per_sample_weights_tensor.to(device)
+            if per_sample_weights_tensor is not None
+            else None
+        )
+        for _ in range(iters):
+            rs.append(
+                TBERequest(
+                    indices,
+                    offsets,
+                    per_sample_weights,
+                    batch_size_per_feature_per_rank,
+                )
+            )
+        return rs
+
+    results: Dict[str, Dict[str, float]] = {}
+
+    def _kineto_trace_handler(p: profile, device_name: str, phase: str) -> None:
+        trace_filename = trace_url.format(
+            device=device_name, phase=phase, emb_loc=location_suffix, ospid=os.getpid()
+        )
+        p.export_chrome_trace(trace_filename)
+
+    def context_factory(
+        on_trace_ready: Callable[[profile], None],
+    ) -> profile | nullcontext[None]:
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    # Helper function to run benchmark on a specific device
+    def run_benchmark_on_device(device: torch.device) -> Dict[str, float]:
+        device_name = device.type.upper()
+        use_cpu = device_name == "CPU"
+
+        logging.info(f"\n{'=' * 60}")
+        logging.info(f"Running benchmark on {device_name}")
+        logging.info(f"{'=' * 60}")
+
+        # Create TBE for this device
+        emb = SplitTableBatchedEmbeddingBagsCodegen(
+            [
+                (
+                    e,
+                    d,
+                    loc if not use_cpu else EmbeddingLocation.HOST,
+                    dev if not use_cpu else ComputeDevice.CPU,
+                )
+                for (e, d, loc, dev) in zip(_Es, _Ds, emb_loc, compute_device)
+            ],
+            **common_args,
+        )
+        emb = emb.to(device)
+        if weights_precision in [SparseType.INT8, SparseType.NFP8]:
+            emb.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+        requests = gen_requests(
+            indices_tensor,
+            offsets_tensor,
+            device,
+            per_sample_weights_tensor,
+            batch_size_per_feature_per_rank,
+        )
+
+        # Prepare feature_requires_grad if needed
+        feature_requires_grad: Optional[Tensor] = None
+        if weighted_num_requires_grad:
+            weighted_requires_grad_tables = np.random.choice(
+                T, replace=False, size=(weighted_num_requires_grad,)
+            ).tolist()
+            feature_requires_grad = (
+                torch.tensor(
+                    [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
+                )
+                .to(device)
+                .int()
+            )
+
+        with context_factory(lambda p: _kineto_trace_handler(p, device_name, "fwd")):
+            fwd_time_per_iter = benchmark_requests_with_spec(
+                requests,
+                lambda indices, offsets, psw, batch_size_per_feature_per_rank: emb.forward(
+                    indices,
+                    offsets,
+                    psw,
+                    feature_requires_grad=feature_requires_grad,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                ),
+                flush_gpu_cache_size_mb=(flush_gpu_cache_size_mb if not use_cpu else 0),
+                num_warmups=warmup_runs,
+            )
+
+        fwd_time_us = fwd_time_per_iter * 1.0e6
+        fwd_bw_gbs = read_write_bytes / fwd_time_per_iter / 1.0e9
+        logging.info(
+            f"[{device_name}] Forward, total B: {total_B}, "
+            f"E: {avg_E:.0f}, T: {T}, D: {avg_D:.0f}, L: {avg_L:.1f}, W: {weighted}, "
+            f"BW: {fwd_bw_gbs: .2f} GB/s, "
+            f"T: {fwd_time_us:.0f}us"
+        )
+
+        result: Dict[str, float] = {
+            "fwd_time_us": fwd_time_us,
+            "fwd_bw_gbs": fwd_bw_gbs,
+        }
+
+        if output_dtype == SparseType.INT8:
+            # backward bench not representative for INT8 output
+            return result
+
+        with context_factory(
+            lambda p: _kineto_trace_handler(p, device_name, "fwd_bwd")
+        ):
+            bwd_time_per_iter = benchmark_requests_with_spec(
+                requests,
+                lambda indices, offsets, psw, batch_size_per_feature_per_rank: emb.forward(
+                    indices,
+                    offsets,
+                    psw,
+                    feature_requires_grad=feature_requires_grad,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                ),
+                flush_gpu_cache_size_mb=(flush_gpu_cache_size_mb if not use_cpu else 0),
+                num_warmups=warmup_runs,
+                bwd_only=True,
+            )
+        bwd_time_us = bwd_time_per_iter * 1.0e6
+        bwd_bw_gbs = 2 * read_write_bytes / bwd_time_per_iter / 1.0e9
+        logging.info(
+            f"[{device_name}] Backward, total B: {total_B}, "
+            f"E: {avg_E:.0f}, T: {T}, D: {avg_D:.0f}, L: {avg_L:.1f}, W: {weighted}, "
+            f"BW: {bwd_bw_gbs: .2f} GB/s, "
+            f"T: {bwd_time_us:.0f}us"
+        )
+        result["bwd_time_us"] = bwd_time_us
+        result["bwd_bw_gbs"] = bwd_bw_gbs
+        return result
+
+    # Run CPU benchmark
+    if compare:
+        cpu_device = torch.device("cpu")
+        results["CPU"] = run_benchmark_on_device(cpu_device)
+
+    # Run accelerator benchmark if available
+    if accelerator_device is not None:
+        accel_name = accelerator_device.type.upper()
+        if emb_loc is None:
+            dev, loc = get_compute_device(accelerator_device)
+            emb_loc = [loc] * len(_Es)
+            compute_device = [dev] * len(_Es)
+        results[accel_name] = run_benchmark_on_device(accelerator_device)
+
+    # Print comparison summary
+    logging.info(f"\n{'=' * 60}")
+    logging.info("COMPARISON SUMMARY")
+    logging.info(f"{'=' * 60}")
+    logging.info(
+        f"Configuration: B={total_B}, E={avg_E:.0f}, T={T}, "
+        f"D={avg_D:.0f}, L={avg_L:.1f}, W={weighted}"
+    )
+    logging.info(
+        f"Weights precision: {weights_precision}, Output dtype: {output_dtype}"
+    )
+    logging.info("")
+
+    # Print table header
+    header = f"{'Device':<15} {'Fwd Time (us)':<15} {'Fwd BW (GB/s)':<15}"
+    if output_dtype != SparseType.INT8:
+        header += f" {'Bwd Time (us)':<15} {'Bwd BW (GB/s)':<15}"
+    logging.info(header)
+    logging.info("-" * len(header))
+
+    for device_name, metrics in results.items():
+        row = f"{device_name:<15} {metrics['fwd_time_us']:<15.2f} {metrics['fwd_bw_gbs']:<15.2f}"
+        if output_dtype != SparseType.INT8:
+            row += f" {metrics.get('bwd_time_us', 0):<15.2f} {metrics.get('bwd_bw_gbs', 0):<15.2f}"
+        logging.info(row)
+
+    # Print speedup if accelerator is available
+    if compare and accelerator_device is not None:
+        accel_name = accelerator_device.type.upper()
+        fwd_speedup = results["CPU"]["fwd_time_us"] / results[accel_name]["fwd_time_us"]
+        logging.info("")
+        logging.info(f"Forward Speedup ({accel_name} vs CPU): {fwd_speedup:.2f}x")
+
+        if output_dtype != SparseType.INT8:
+            bwd_speedup = (
+                results["CPU"]["bwd_time_us"] / results[accel_name]["bwd_time_us"]
+            )
+            logging.info(f"Backward Speedup ({accel_name} vs CPU): {bwd_speedup:.2f}x")
 
 
 if __name__ == "__main__":
