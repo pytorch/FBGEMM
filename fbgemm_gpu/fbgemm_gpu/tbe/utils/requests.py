@@ -62,6 +62,7 @@ def generate_requests_from_data_file(
     L: int,
     E: int,
     weighted: bool,
+    device: torch.device,
     requests_data_file: Optional[str] = None,
     indices_file: Optional[str] = None,
     offsets_file: Optional[str] = None,
@@ -77,13 +78,13 @@ def generate_requests_from_data_file(
     assert not (
         requests_data_file and (indices_file or offsets_file)
     ), "If requests_data_file is provided, indices_file and offsets_file cannot be provided."
-    assert (
-        indices_file and offsets_file
-    ), "Both indices_file and offsets_file must be provided if either is provided."
 
     if requests_data_file:
         indices_tensor, offsets_tensor, *rest = torch.load(requests_data_file)
     else:
+        assert (
+            indices_file and offsets_file
+        ), "Both indices_file and offsets_file must be provided if either is provided."
         indices_tensor = torch.load(indices_file)
         offsets_tensor = torch.load(offsets_file)
 
@@ -132,16 +133,14 @@ def generate_requests_from_data_file(
     )
 
     weights_tensor = (
-        None
-        if not weighted
-        else torch.randn(indices_tensor.size(), device=get_device())
+        None if not weighted else torch.randn(indices_tensor.size(), device=device)
     )
     rs = []
     for _ in range(iters):
         rs.append(
             TBERequest(
-                maybe_to_dtype(indices_tensor.to(get_device()), index_dtype),
-                maybe_to_dtype(offsets_tensor.to(get_device()), offset_dtype),
+                maybe_to_dtype(indices_tensor.to(device), index_dtype),
+                maybe_to_dtype(offsets_tensor.to(device), offset_dtype),
                 weights_tensor,
             )
         )
@@ -239,16 +238,19 @@ def generate_indices_uniform(
     E: int,
     use_variable_L: bool,
     L_offsets: torch.Tensor,
+    device: Optional[torch.device] = None,
 ) -> torch.Tensor:
     """
     Generate indices for the TBE requests using the uniform distribution
     """
+    if device is None:
+        device = get_device()
     total_B = sum(Bs)
     indices = torch.randint(
         low=0,
         high=E,
         size=(iters, total_B, L),
-        device="cpu" if use_variable_L else get_device(),
+        device="cpu" if use_variable_L else device,
         dtype=torch.int32,
     )
     # each bag is usually sorted
@@ -258,7 +260,7 @@ def generate_indices_uniform(
         indices = torch.ops.fbgemm.bottom_k_per_row(
             indices.to(torch.long), L_offsets, False
         )
-        indices = indices.to(get_device()).int()
+        indices = indices.to(device).int()
     else:
         # 2D layout
         indices = indices.reshape(iters, total_B * L)
@@ -275,15 +277,18 @@ def generate_indices_zipf(
     use_variable_L: bool,
     L_offsets: torch.Tensor,
     deterministic_output: bool,
+    device: Optional[torch.device] = None,
 ) -> torch.Tensor:
     """
     Generate indices for the TBE requests using the zipf distribution
     """
     assert E >= L, "num-embeddings must be greater than equal to bag-size"
+    if device is None:
+        device = get_device()
     # oversample and then remove duplicates to obtain sampling without
     # replacement
     if L == 0:
-        return torch.empty(iters, 0, dtype=torch.int).to(get_device())
+        return torch.empty(iters, 0, dtype=torch.int).to(device)
     total_B = sum(Bs)
     zipf_shape = (iters, total_B, zipf_oversample_ratio * L)
     if torch.cuda.is_available():
@@ -316,7 +321,7 @@ def generate_indices_zipf(
         rng.choice(E, size=indices.max().item() + 1, replace=False)
     )
     indices = permutation.gather(0, indices.flatten())
-    indices = indices.to(get_device()).int()
+    indices = indices.to(device).int()
     if not use_variable_L:
         indices = indices.reshape(iters, total_B * L)
     return indices
@@ -328,16 +333,17 @@ def update_indices_with_random_reuse(
     L: int,
     reuse: float,
     indices: torch.Tensor,
+    device: Optional[torch.device] = None,
 ) -> torch.Tensor:
     """
     Update the generated indices with random reuse
     """
+    if device is None:
+        device = get_device()
     for it in range(iters - 1):
         B_offset = 0
         for B in Bs:
-            reused_indices = torch.randperm(B * L, device=get_device())[
-                : int(B * L * reuse)
-            ]
+            reused_indices = torch.randperm(B * L, device=device)[: int(B * L * reuse)]
             reused_indices += B_offset
             indices[it + 1, reused_indices] = indices[it, reused_indices]
             B_offset += B * L
@@ -417,6 +423,7 @@ def generate_requests(  # noqa C901
 ) -> list[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
+    device = torch.device("cpu") if use_cpu else get_device()
     if (
         requests_data_file is not None
         or indices_file is not None
@@ -432,6 +439,7 @@ def generate_requests(  # noqa C901
             L=L,
             E=E,
             weighted=weighted,
+            device=device,
             requests_data_file=requests_data_file,
             indices_file=indices_file,
             offsets_file=offsets_file,
@@ -486,7 +494,7 @@ def generate_requests(  # noqa C901
     if alpha <= 1.0:
         # Generate indices using uniform dist
         all_indices = generate_indices_uniform(
-            iters, Bs, L, E, use_variable_L, L_offsets
+            iters, Bs, L, E, use_variable_L, L_offsets, device
         )
     else:
         # Generate indices using zipf dist
@@ -500,13 +508,16 @@ def generate_requests(  # noqa C901
             use_variable_L,
             L_offsets,
             deterministic_output,
+            device=device,
         )
 
     if reuse > 0.0:
         assert (
             not use_variable_L
         ), "Does not support generating Ls from stats for reuse > 0.0"
-        all_indices = update_indices_with_random_reuse(iters, Bs, L, reuse, all_indices)
+        all_indices = update_indices_with_random_reuse(
+            iters, Bs, L, reuse, all_indices, device
+        )
 
     # Some indices are set to -1 for emulating pruned rows.
     if emulate_pruning:
@@ -538,7 +549,7 @@ def generate_requests(  # noqa C901
                 None
                 if not weighted
                 else torch.randn(
-                    int(it_L_offsets[-1].item()), device=get_device()
+                    int(it_L_offsets[-1].item()), device=device
                 )  # per sample weights will always be FP32
             )
             rs.append(
@@ -547,7 +558,7 @@ def generate_requests(  # noqa C901
                         all_indices[start_offset : L_offsets[(it + 1) * total_B]],
                         index_dtype,
                     ),
-                    maybe_to_dtype(it_L_offsets.to(get_device()), offset_dtype),
+                    maybe_to_dtype(it_L_offsets.to(device), offset_dtype),
                     weights_tensor,
                     Bs_feature_rank if use_variable_B else None,
                 )
@@ -558,7 +569,7 @@ def generate_requests(  # noqa C901
                 None
                 if not weighted
                 else torch.randn(
-                    T * B * L, device=get_device()
+                    T * B * L, device=device
                 )  # per sample weights will always be FP32
             )
             indices, offsets = get_table_batched_offsets_from_dense(
