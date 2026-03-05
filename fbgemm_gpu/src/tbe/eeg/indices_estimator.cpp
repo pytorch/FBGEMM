@@ -81,7 +81,7 @@ IndicesEstimator::IndicesEstimator(const std::filesystem::path& tensors_path) {
 
   // Load the tensor
   auto ival = torch::pickle_load(bytes);
-  assert((ival.isTensor()) && "Loaded file is not a tensor!");
+  TORCH_CHECK((ival.isTensor()), "Loaded file is not a tensor!");
 
   // Pass it to the tensor-based constructor
   init(ival.toTensor());

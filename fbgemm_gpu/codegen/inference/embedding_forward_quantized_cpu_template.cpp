@@ -391,7 +391,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 } else if (weight_ty == SparseType::INT8) {
                     {{ generate_and_exec_kernel("uint8_t", True, False, False) }}
                 } else if (weight_ty == SparseType::FP8) {
-                    assert(fp8_exponent_bits > 0 && fp8_exponent_bias > 0);
+                    TORCH_CHECK(fp8_exponent_bits > 0 && fp8_exponent_bias > 0, "FP8 requires fp8_exponent_bits > 0 (got ", fp8_exponent_bits, ") and fp8_exponent_bias > 0 (got ", fp8_exponent_bias, ")");
                     {{ generate_and_exec_kernel("uint8_t", False, False, True) }}
                 } else if (weight_ty == SparseType::INT4 || weight_ty == SparseType::INT2) {
                     int bit_rate;
