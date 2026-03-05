@@ -262,6 +262,19 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
             auto* output_acc = output.mutable_data_ptr<output_t>();
 
+            // Reconstruct sorted unique physical offsets so we can
+            // correctly compute num_rows for each table.
+            // weights_offsets may be non-monotonic when feature_table_map
+            // reorders features vs physical tables.
+            std::vector<int64_t> physical_offsets;
+            for (int32_t i = 0; i < T; ++i) {
+                physical_offsets.push_back(weights_offsets_acc[i]);
+            }
+            std::sort(physical_offsets.begin(), physical_offsets.end());
+            physical_offsets.erase(
+                std::unique(physical_offsets.begin(), physical_offsets.end()),
+                physical_offsets.end());
+
             for (const auto t : c10::irange(T)) {
                 {% if not nobag %}
                 const auto* D_offsets_acc = D_offsets.const_data_ptr<int32_t>();
@@ -286,9 +299,20 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 // default to 1 byte alignment for CPU TBE
                 const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment, scale_bias_size);
 
-                int tt;
-                for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
-                const size_t num_rows = ((tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t]) / D_bytes;
+                // Use reconstructed physical offsets to find the next
+                // physical boundary for this table's weights, then compute
+                // num_rows. The original heuristic of scanning forward in
+                // weights_offsets breaks when feature_table_map makes them
+                // non-monotonic.
+                const auto it = std::upper_bound(
+                    physical_offsets.begin(),
+                    physical_offsets.end(),
+                    weights_offsets_acc[t]);
+                const int64_t next_offset =
+                    (it != physical_offsets.end())
+                    ? *it : weight_tensor.numel();
+                const size_t num_rows =
+                    (next_offset - weights_offsets_acc[t]) / D_bytes;
                 const index_t* offsets_begin_ptr = offsets_acc + t * B;
 
                 bool success = true;
