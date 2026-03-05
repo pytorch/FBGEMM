@@ -114,6 +114,52 @@ def get_max_thread_blocks(stream: torch.cuda.streams.Stream) -> int:
     )
 
 
+def get_v2_kernel_overflow_params() -> tuple[int, int, int]:
+    """
+    Calculate parameters T, B, D that would trigger grid × block > 2^32 - 1
+    on the V2 forward kernel for ROCm.
+
+    The V2 forward kernel launch parameters on ROCm:
+        kWarpSize = 64 (AMD wavefront size)
+        kForwardMaxThreads = 1024
+        num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2) = 8
+        threads_per_block = kWarpSize * num_warps_per_threadblock = 512
+
+    Grid calculation:
+        num_warps_per_table = B * ceil(D / (kWarpSize * 4)) = B * ceil(D / 256)
+        grid = ceil(T * num_warps_per_table / num_warps_per_threadblock)
+             = ceil(T * B * ceil(D / 256) / 8)
+
+    Overflow condition:
+        grid * 512 > 2^32 - 1
+        grid >= 8,388,608
+
+    To trigger overflow:
+        T * B * ceil(D / 256) >= 67,108,864
+
+    Memory optimization:
+        D only affects memory, NOT grid calculation when D <= 256 (ceil(D/256)=1)
+        Using D=64 requires T*B >= 67,108,864 and uses only ~8.6 GB output
+        This is 2x smaller than D=128 (~17.2 GB) and 4x smaller than D=256
+
+    Returns:
+        Tuple of (T, B, D) that triggers overflow on ROCm V2 kernel
+        while fitting in memory on most GPUs
+    """
+    # Memory-efficient parameters that trigger overflow on V2 kernel
+    # T=8400, B=8000, D=64 => ceil(64/256)=1
+    # num_warps_per_table = 8000 * 1 = 8,000
+    # total_warps = 8400 * 8,000 = 67,200,000
+    # grid = ceil(67,200,000 / 8) = 8,400,000
+    # total_threads = 8,400,000 * 512 = 4,300,800,000 > 2^32 ✓
+    # Output tensor: 8000 * 8400 * 64 * 2 = 8.6 GB (fits on most GPUs)
+    T = 8400
+    B = 8000
+    D = 64
+
+    return T, B, D
+
+
 def recompute_offsets_vbe_cpu(
     original_offsets: torch.Tensor,
     T: int,
