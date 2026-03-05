@@ -167,7 +167,7 @@ torch::Tensor loadTensorFromFile(const std::filesystem::path& tensorsPath) {
 
   input.close();
   auto ival = torch::pickle_load(bytes);
-  assert((ival.isTensor()) && "Loaded file is not a tensor!");
+  TORCH_CHECK((ival.isTensor()), "Loaded file is not a tensor!");
   return ival.toTensor();
 }
 
@@ -181,7 +181,12 @@ void saveTensorToFile(
 }
 
 double getZipfianConstant(double s, double q, int64_t n) {
-  assert(((n >= 1) || (s > 1.0)) && "For infinite zipfian, s must be > 1.0!");
+  TORCH_CHECK(
+      ((n >= 1) || (s > 1.0)),
+      "For infinite zipfian, s must be > 1.0! Got n=",
+      n,
+      ", s=",
+      s);
   if (n < 0) {
     return hurwitzZeta(s, q);
   }
