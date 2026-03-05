@@ -43,6 +43,7 @@ from ..common import (
     FORWARD_MAX_THREADS,
     gen_mixed_B_batch_sizes,
     get_max_thread_blocks,
+    get_v2_kernel_overflow_params,
     MAX_EXAMPLES_LONG_RUNNING,
     open_source,
 )
@@ -689,6 +690,124 @@ class ForwardTest(unittest.TestCase):
             L,
             use_experimental_tbe,
         )
+
+    @unittest.skip(
+        "Test will be un-skipped with https://github.com/pytorch/FBGEMM/pull/5447"
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(
+        not torch.version.hip,
+        "V2 kernel overflow test is specific to ROCm - skipping on non-ROCm platforms",
+    )
+    def test_forward_gpu_v2_kernel_large_grid_rocm(
+        self,
+    ) -> None:
+        """
+        Test that the V2 forward kernel handles large grid sizes correctly on ROCm.
+
+        This test validates the fix in D94944619, which prevents runtime errors when
+        the total number of threads (grid × block) exceeds 2^32 - 1 on the V2 forward
+        kernel for ROCm.
+
+        The V2 forward kernel launch parameters on ROCm:
+            kWarpSize = 64 (AMD wavefront size)
+            kForwardMaxThreads = 1024
+            num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2) = 8
+            threads_per_block = kWarpSize * num_warps_per_threadblock = 512
+
+        Grid calculation:
+            num_warps_per_table = B * ceil(D / (kWarpSize * 4)) = B * ceil(D / 256)
+            grid = ceil(T * num_warps_per_table / num_warps_per_threadblock)
+
+        Overflow condition (what D94944619 fixes):
+            grid * 512 > 2^32 - 1
+            grid >= 8,388,608
+
+        This test uses parameters that would cause grid × block > 2^32 - 1,
+        which would fail on pre-D94944619 code but should pass with the fix.
+        """
+        torch.cuda.empty_cache()
+
+        # Get parameters that trigger the overflow condition
+        T, B, D = get_v2_kernel_overflow_params()
+
+        # Verify the parameters would trigger overflow
+        # For ROCm: kWarpSize=64, num_warps_per_threadblock=8, threads_per_block=512
+        num_warps_per_table = B * ((D + 255) // 256)  # ceil(D / 256)
+        total_warps = T * num_warps_per_table
+        grid = (total_warps + 7) // 8  # ceil(total_warps / 8)
+        total_threads = grid * 512
+
+        assert total_threads > 2**32 - 1, (
+            f"Test parameters should trigger overflow: "
+            f"grid={grid}, total_threads={total_threads}"
+        )
+
+        weights_precision = SparseType.FP16
+        log_E = 3  # Small embedding table (10^3 = 1000 rows) to minimize memory
+        E = int(10**log_E)
+        L = 1  # Minimal pooling size
+
+        # Use SUM pooling mode (required for V2 kernel / experimental TBE)
+        pooling_mode = PoolingMode.SUM
+
+        Ds = [D] * T
+        Es = [E] * T
+
+        # Create the TBE op with use_experimental_tbe=True to use V2 kernel
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            [
+                (
+                    E,
+                    D,
+                    EmbeddingLocation.DEVICE,
+                    ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            weights_precision=weights_precision,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            learning_rate=0.05,
+            pooling_mode=pooling_mode,
+            output_dtype=SparseType.FP32,
+            use_experimental_tbe=True,  # Enable V2 kernel
+        )
+        cc = cc.cuda()
+
+        # Generate random indices and offsets
+        # Use simple uniform distribution for indices
+        indices = torch.randint(
+            low=0,
+            high=E,
+            size=(T * B * L,),
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+
+        # Create offsets for uniform batch sizes
+        offsets = torch.arange(
+            0,
+            T * B * L + 1,
+            L,
+            device=torch.cuda.current_device(),
+            dtype=torch.int64,
+        )
+
+        try:
+            output = cc(indices, offsets)
+            # Basic sanity check on output shape
+            # For pooled TBE, output shape is (B, total_D) where total_D = T * D
+            self.assertEqual(output.shape[0], B)
+            self.assertEqual(output.shape[1], T * D)
+            # Total elements = B * T * D
+            self.assertEqual(output.numel(), B * T * D)
+        except RuntimeError as e:
+            # If we get a CUDA error, the fix is not working
+            self.fail(
+                f"V2 kernel forward pass failed with large grid size. "
+                f"This suggests D94944619 fix is not applied correctly. "
+                f"Error: {e}"
+            )
 
     @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
     @unittest.skipIf(*gpu_unavailable)
