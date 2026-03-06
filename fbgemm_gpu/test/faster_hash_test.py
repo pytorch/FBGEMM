@@ -148,50 +148,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output_readonly.cpu(), output_readonly_cpu))
 
-        # no evict + no circular probe
-        identities, _ = torch.ops.fbgemm.create_zch_buffer(
-            100, device=torch.device("cuda")
-        )
-        output, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            numbers,
-            identities,
-            100,
-            circular_probe=False,
-        )
-        self.assertFalse(torch.all(identities != -1))
-        unique_indices = torch.unique(output)
-        all_indices = torch.arange(identities.size(0), device="cuda")
-        not_select_indices = torch.isin(all_indices, unique_indices, invert=True)
-        self.assertTrue(torch.all(identities[unique_indices] != -1))
-        self.assertTrue(torch.all(identities[not_select_indices] == -1))
-
-        unique_elements, counts = torch.unique(
-            identities[identities[:, 0] != -1][:, 0], return_counts=True
-        )
-        self.assertTrue(torch.all(counts == 1))
-
-        # readonly lookup.
-        output_readonly, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            numbers,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(torch.equal(output, output_readonly))
-
-        # CPU
-        output_readonly_cpu, _ = torch.ops.fbgemm.zero_collision_hash(
-            input=numbers.cpu(),
-            identities=identities.cpu(),
-            max_probe=100,
-            circular_probe=True,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(torch.equal(output_readonly.cpu(), output_readonly_cpu))
-
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_no_evict_rand(self) -> None:
@@ -252,51 +208,6 @@ class FasterHashTest(unittest.TestCase):
             identities.cpu(),
             100,
             circular_probe=True,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(torch.equal(output.cpu(), output_readonly_cpu))
-
-        # no evict + no circular probe
-        identities, _ = torch.ops.fbgemm.create_zch_buffer(
-            100, device=torch.device("cuda")
-        )
-        output, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            random_numbers,
-            identities,
-            100,
-            circular_probe=False,
-        )
-        unique_indices_no_circular = torch.unique(output)
-        all_indices_no_circular = torch.arange(identities.size(0), device="cuda")
-        not_select_indices_no_circular = torch.isin(
-            all_indices_no_circular, unique_indices_no_circular, invert=True
-        )
-        self.assertTrue(torch.all(identities[unique_indices_no_circular] != -1))
-        self.assertTrue(torch.all(identities[not_select_indices_no_circular] == -1))
-        self.assertTrue(unique_indices_no_circular.size(0) <= unique_indices.size(0))
-        unique_elements, counts = torch.unique(
-            identities[identities[:, 0] != -1][:, 0], return_counts=True
-        )
-        self.assertTrue(torch.all(counts == 1))
-
-        # readonly lookup.
-        output_readonly, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            random_numbers,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(torch.equal(output, output_readonly))
-
-        # CPU
-        output_readonly_cpu, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            random_numbers.cpu(),
-            identities.cpu(),
-            100,
-            circular_probe=False,
             exp_hours=-1,
             readonly=True,
         )
@@ -372,73 +283,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output, output_readonly))
 
-        # evict + no circular probe
-        identities, metadata = torch.ops.fbgemm.create_zch_buffer(
-            100, support_evict=True, device=torch.device("cuda")
-        )
-        output, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            numbers,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=7 * 24,
-            metadata=metadata,
-        )
-        self.assertFalse(torch.all(identities != -1))
-        unique_indices = torch.unique(output)
-        all_indices = torch.arange(identities.size(0), device="cuda")
-        not_select_indices = torch.isin(all_indices, unique_indices, invert=True)
-        self.assertTrue(torch.all(identities[unique_indices] != -1))
-        self.assertTrue(torch.all(identities[not_select_indices] == -1))
-        unique_elements, counts = torch.unique(
-            identities[identities[:, 0] != -1][:, 0], return_counts=True
-        )
-        self.assertTrue(torch.all(counts == 1))
-
-        # readonly lookup.
-        output_readonly, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            numbers,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(torch.equal(output, output_readonly))
-
-        # evict with all expired hours + no circular probe
-        evict_slot_candidate_mask = metadata[:, 0] != -1
-        evict_slot_candidates = torch.nonzero(evict_slot_candidate_mask)
-        self.assertTrue(evict_slot_candidates.size(0) != 0)
-        metadata[evict_slot_candidate_mask, 0] -= 7 * 24 + 1
-        old_time_value = metadata[evict_slot_candidates[0], 0]
-        numbers_100_200 = torch.arange(100, 200, dtype=torch.int64, device="cuda")
-        output, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            numbers_100_200,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=7 * 24,
-            metadata=metadata,
-        )
-        self.assertTrue(torch.all(torch.isin(evict_slots, evict_slot_candidates)))
-        self.assertTrue(torch.all(metadata[evict_slots][:, 0] != old_time_value))
-        unique_elements, counts = torch.unique(
-            identities[identities[:, 0] != -1][:, 0], return_counts=True
-        )
-        self.assertTrue(torch.all(counts == 1))
-
-        # readonly lookup.
-        output_readonly, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            numbers_100_200,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(torch.equal(output, output_readonly))
-
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_evict_with_rand_unique_numbers(self) -> None:
@@ -494,86 +338,6 @@ class FasterHashTest(unittest.TestCase):
             readonly=True,
         )
         self.assertTrue(torch.equal(output, output_readonly))
-
-        # evict - rand number + no circular probe
-        identities, metadata = torch.ops.fbgemm.create_zch_buffer(
-            100, support_evict=True, device=torch.device("cuda")
-        )
-        output, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            random_numbers,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=7 * 24,
-            metadata=metadata,
-        )
-
-        for i in range(100):
-            to_test = output[random_numbers == i]
-            if len(to_test) > 0:
-                self.assertTrue(torch.all(to_test == to_test[0]))
-
-        unique_indices_no_circular = torch.unique(output)
-        all_indices_no_circular = torch.arange(identities.size(0), device="cuda")
-        not_select_indices_no_circular = torch.isin(
-            all_indices_no_circular, unique_indices_no_circular, invert=True
-        )
-        self.assertTrue(torch.all(identities[unique_indices_no_circular] != -1))
-        self.assertTrue(torch.all(identities[not_select_indices_no_circular] == -1))
-        self.assertTrue(unique_indices_no_circular.size(0) <= unique_indices.size(0))
-        unique_elements, counts = torch.unique(
-            identities[identities[:, 0] != -1][:, 0], return_counts=True
-        )
-        self.assertTrue(torch.all(counts == 1))
-
-        # readonly lookup.
-        output_readonly, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            random_numbers,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(torch.equal(output, output_readonly))
-
-        # evict with all expired hours + no circular probe
-        evict_slot_candidate_mask = metadata[:, 0] != -1
-        evict_slot_candidates = torch.nonzero(evict_slot_candidate_mask)
-        self.assertTrue(evict_slot_candidates.size(0) != 0)
-        metadata[evict_slot_candidate_mask, 0] -= 7 * 24 + 1
-        old_time_value = metadata[evict_slot_candidates[0], 0]
-        random_numbers_100_200 = torch.unique(
-            torch.randint(100, 200, (100,), device="cuda")
-        )
-        output, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            random_numbers_100_200,
-            identities,
-            100,
-            circular_probe=False,
-            exp_hours=7 * 24,
-            metadata=metadata,
-        )
-        self.assertTrue(torch.all(torch.isin(evict_slots, evict_slot_candidates)))
-        self.assertTrue(torch.all(metadata[evict_slots][:, 0] != old_time_value))
-
-        unique_elements, counts = torch.unique(
-            identities[identities[:, 0] != -1][:, 0], return_counts=True
-        )
-        self.assertTrue(torch.all(counts == 1), counts)
-
-        # readonly lookup.
-        output_readonly, evict_slots = torch.ops.fbgemm.zero_collision_hash(
-            random_numbers_100_200,
-            identities[:, 0].unsqueeze(1),
-            100,
-            circular_probe=False,
-            exp_hours=-1,
-            readonly=True,
-        )
-        self.assertTrue(
-            torch.equal(output, output_readonly), f"{output=}, {output_readonly=}"
-        )
 
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
@@ -661,44 +425,6 @@ class FasterHashTest(unittest.TestCase):
             metadata=metadata,
         )
         self.assertTrue(evict_slots.numel() == 1)
-
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
-    @unittest.skipIf(*gpu_unavailable)
-    def test_zch_output_on_uvm(self) -> None:
-        """
-        Test the zero collision hash output on uvm.
-        It creates a identity table with 200 slots, and insert 100 numbers
-        with zero collision hash. Then it inserts 100 random numbers with zero
-        collision hash. The output should be on uvm (cpu).
-
-        Assertions:
-            1. The output is on cpu.
-            2. The output is correct.
-
-        Raises:
-            AssertionError: If the test detects a mismatch from the expected behavior.
-        """
-        # no evict
-        identities, _ = torch.ops.fbgemm.create_zch_buffer(
-            200, device=torch.device("cuda")
-        )
-        numbers = torch.arange(0, 100, dtype=torch.int64, device="cuda")
-
-        output, _ = torch.ops.fbgemm.zero_collision_hash(
-            input=numbers,
-            identities=identities,
-            max_probe=100,
-            circular_probe=True,
-            output_on_uvm=True,
-        )
-
-        self.assertTrue(output.device.type == "cpu")
-
-        add_on = torch.arange(100, 200, dtype=torch.int64)
-        self.assertTrue(
-            # pyre-fixme[6]: For 2nd argument expected `Tensor` but got `int`.
-            torch.equal(((output + add_on) + (output - add_on)), 2 * output)
-        )
 
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
