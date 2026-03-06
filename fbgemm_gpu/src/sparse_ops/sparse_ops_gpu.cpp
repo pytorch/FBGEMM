@@ -295,6 +295,30 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     const auto& input = input_group[i];
     const auto& indices = indices_group[i];
 
+    // Verify that all input tensors have the same dtype
+    TORCH_CHECK_VALUE(
+        input.dtype() == first_input.dtype(),
+        "All inputs in ",
+        group_size,
+        " groups need to have the same dtype. Expect group ",
+        i,
+        ", to be ",
+        first_input.dtype(),
+        " but got ",
+        input.dtype());
+
+    // Verify that all indices have the same dtype
+    TORCH_CHECK_VALUE(
+        indices.dtype() == first_indices.dtype(),
+        "All indices in ",
+        group_size,
+        " groups need to have the same dtype. Expect group ",
+        i,
+        ", to be ",
+        first_indices.dtype(),
+        " but got ",
+        indices.dtype());
+
     // Verify that all input tensors have the same number of dimensions
     TORCH_CHECK_VALUE(
         input_dim == input.dim(),
