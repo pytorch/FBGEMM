@@ -110,14 +110,26 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
       bool is_training = true,
-      bool disable_random_init = false)
+      bool disable_random_init = false,
+      bool enable_raw_embedding_streaming = false,
+      int64_t res_store_shards = 0,
+      int64_t res_server_port = 0,
+      std::vector<std::string> table_names = {},
+      std::vector<int64_t> table_offsets = {},
+      std::vector<int64_t> table_sizes = {})
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
             0, // l2_cache_size_gb =0 to disable l2 cache
             0, // tbe_unqiue_id
             2, // ele_size_bytes
-            enable_async_update),
+            enable_async_update,
+            enable_raw_embedding_streaming,
+            res_store_shards,
+            res_server_port,
+            std::move(table_names),
+            std::move(table_offsets),
+            table_sizes),
         max_D_(max_D),
         num_shards_(num_shards),
         block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
