@@ -1084,7 +1084,9 @@ at::Tensor nope_qkv_varseq_prefill(
 
   at::Tensor XK, XV;
   if (!update_kv) {
-    assert(!XK_.has_value());
+    TORCH_CHECK(
+        !XK_.has_value(),
+        "XK_ should not have a value when update_kv is false");
     XK = at::empty_like(XQ);
     // at::zeros({0, 0, 0}, at::BFloat16); // at::zeros(0);
     XV = at::empty_like(XQ);
@@ -1289,7 +1291,9 @@ at::Tensor nope_qkv_decoding(
   auto N_KVH = 0;
   at::Tensor XK, XV;
   if (!update_kv) {
-    assert(!XK_.has_value());
+    TORCH_CHECK(
+        !XK_.has_value(),
+        "XK_ should not have a value when update_kv is false");
     XK = at::empty_like(XQ);
     // at::zeros({0, 0, 0}, at::BFloat16); // at::zeros(0);
     XV = at::empty_like(XQ);
@@ -1492,7 +1496,9 @@ at::Tensor rope_qkv_varseq_prefill(
 
   at::Tensor XK, XV;
   if (!update_kv) {
-    assert(!XK_.has_value());
+    TORCH_CHECK(
+        !XK_.has_value(),
+        "XK_ should not have a value when update_kv is false");
     XK = at::empty_like(XQ);
     // at::zeros({0, 0, 0}, at::BFloat16); // at::zeros(0);
     XV = at::empty_like(XQ);
@@ -1875,7 +1881,9 @@ at::Tensor rope_qkv_decoding(
   auto N_KVH = 0;
   at::Tensor XK, XV;
   if (!update_kv) {
-    assert(!XK_.has_value());
+    TORCH_CHECK(
+        !XK_.has_value(),
+        "XK_ should not have a value when update_kv is false");
     XK = at::empty_like(XQ);
     // at::zeros({0, 0, 0}, at::BFloat16); // at::zeros(0);
     XV = at::empty_like(XQ);

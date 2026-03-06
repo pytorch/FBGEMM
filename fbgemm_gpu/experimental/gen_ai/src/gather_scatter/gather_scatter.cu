@@ -212,9 +212,24 @@ void gather_or_scatter_along_first_dim(
     at::Tensor src,
     at::Tensor index,
     at::Tensor dst) {
-  assert(src.dtype() == TorchDTypeTrait<DataType>::dtype());
-  assert(dst.dtype() == TorchDTypeTrait<DataType>::dtype());
-  assert(index.dtype() == TorchDTypeTrait<IndexType>::dtype());
+  TORCH_CHECK(
+      src.dtype() == TorchDTypeTrait<DataType>::dtype(),
+      "src dtype mismatch: expected ",
+      TorchDTypeTrait<DataType>::dtype(),
+      ", got ",
+      src.dtype());
+  TORCH_CHECK(
+      dst.dtype() == TorchDTypeTrait<DataType>::dtype(),
+      "dst dtype mismatch: expected ",
+      TorchDTypeTrait<DataType>::dtype(),
+      ", got ",
+      dst.dtype());
+  TORCH_CHECK(
+      index.dtype() == TorchDTypeTrait<IndexType>::dtype(),
+      "index dtype mismatch: expected ",
+      TorchDTypeTrait<IndexType>::dtype(),
+      ", got ",
+      index.dtype());
 
   constexpr int L = kL;
   const int M = src.size(0);
@@ -347,14 +362,15 @@ void scatter_add_along_first_dim(
   const int K = src.size(1);
   const int N = index.size(0);
   if (N == 0 || M == 0) {
-    assert(M == 0);
+    TORCH_CHECK(M == 0, "Expected M == 0 when N == 0 || M == 0, but got M=", M);
     return;
   }
   if (dst.is_contiguous() && dst.dim() == 2 && src.is_contiguous() &&
       src.dim() == 2 && index.is_contiguous() && index.dim() == 1) {
     using T = cutlass::bfloat16_t;
 
-    assert(dst.size(1) == K);
+    TORCH_CHECK(
+        dst.size(1) == K, "dst.size(1) (", dst.size(1), ") != K (", K, ")");
     // TODO(shikaili): Make it supports more configurations.
     if (dst.dtype() == at::kBFloat16 && src.dtype() == at::kBFloat16 &&
         (K * sizeof(T) % kTmaGmemAlignment == 0) && (K % kL == 0)) {
