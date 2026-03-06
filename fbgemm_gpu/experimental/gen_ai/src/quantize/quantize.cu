@@ -691,7 +691,7 @@ __inline__ __device__ T blockReduceMax(T val) {
 }
 
 __device__ float atomicMaxExtd(float* address, float val) {
-  assert(val >= 0);
+  CUDA_KERNEL_ASSERT(val >= 0 && "atomicMaxExtd requires non-negative val");
   unsigned int* address_as_u = reinterpret_cast<unsigned int*>(address);
   unsigned int old = atomicMax(address_as_u, __float_as_uint(val));
   return __uint_as_float(old);
