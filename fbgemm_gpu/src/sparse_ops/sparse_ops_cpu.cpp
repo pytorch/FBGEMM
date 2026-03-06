@@ -424,7 +424,13 @@ void _block_bucketize_sparse_features_cpu_kernel(
 
   // count nonzeros
   prefix_sum(lengths_size, lengths_data, offsets_data);
-  assert(offsets_data[lengths_size] == indices.numel());
+  TORCH_CHECK(
+      offsets_data[lengths_size] == indices.numel(),
+      "offsets_data[lengths_size] (",
+      offsets_data[lengths_size],
+      ") != indices.numel() (",
+      indices.numel(),
+      ")");
   int64_t cur_offset = 0;
   for (const auto t : c10::irange(T)) {
     const auto blk_size = block_sizes_data[t];
@@ -667,7 +673,13 @@ void _bucketize_sparse_features_cpu(
   }
   // count nonzeros
   prefix_sum(lengths_size, lengths_data, offsets_data);
-  assert(offsets_data[lengths_size] == indices.numel());
+  TORCH_CHECK(
+      offsets_data[lengths_size] == indices.numel(),
+      "offsets_data[lengths_size] (",
+      offsets_data[lengths_size],
+      ") != indices.numel() (",
+      indices.numel(),
+      ")");
   for (const auto r : c10::irange(lengths_size)) {
     const index_t rowstart = offsets_data[r];
     const index_t rowend = offsets_data[r + 1];
@@ -1438,7 +1450,13 @@ void _block_bucketize_sparse_features_2d_weights_cpu_kernel(
 
   // count nonzeros
   prefix_sum(lengths_size, lengths_data, offsets_data);
-  assert(offsets_data[lengths_size] == indices.numel());
+  TORCH_CHECK(
+      offsets_data[lengths_size] == indices.numel(),
+      "offsets_data[lengths_size] (",
+      offsets_data[lengths_size],
+      ") != indices.numel() (",
+      indices.numel(),
+      ")");
   int64_t cur_offset = 0;
   for (const auto t : c10::irange(T)) {
     const auto blk_size = block_sizes_data[t];

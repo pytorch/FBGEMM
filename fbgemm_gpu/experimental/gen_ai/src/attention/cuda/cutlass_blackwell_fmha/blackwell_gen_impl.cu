@@ -171,7 +171,7 @@ struct GenRunner {
     int sq = q_sizes[1];
     int h = q_sizes[2];
     int d = q_sizes[3];
-    assert(sq == 1);
+    TORCH_CHECK(sq == 1, "Expected sq == 1 for decode, got sq=", sq);
     int sk = k_sizes[1];
     int h_k = k_sizes[2];
 
