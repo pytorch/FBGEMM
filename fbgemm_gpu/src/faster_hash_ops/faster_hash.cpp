@@ -30,7 +30,6 @@ constexpr int64_t kMaxIdentityNum = INT32_MAX;
 template <
     bool DISABLE_FALLBACK,
     int32_t HASH_IDENTITY,
-    bool CIRCULAR_PROBE,
     bool HAS_OFFSET,
     typename TInput,
     typename TIdentity>
@@ -98,10 +97,9 @@ void process_item_zch(
               break;
             }
 
-            output_index = next_output_index<CIRCULAR_PROBE>(
+            output_index = next_output_index(
                 output_index,
-                opt_in_block_size, // only probe within the opt-in block
-                max_probe_local);
+                opt_in_block_size);
           }
 
           // can't find a slot (all slot full after probing)
@@ -145,12 +143,11 @@ void _zero_collision_hash_cpu_out(
       offsets.has_value() ? offsets->const_data_ptr<int64_t>() : nullptr;
 
 #define INVOKE_KERNEL(                                           \
-    DISABLE_FALLBACK, HASH_IDENTITY, CIRCULAR_PROBE, HAS_OFFSET) \
+    DISABLE_FALLBACK, HASH_IDENTITY, HAS_OFFSET)                  \
   {                                                              \
     process_item_zch<                                            \
         DISABLE_FALLBACK,                                        \
         HASH_IDENTITY,                                           \
-        CIRCULAR_PROBE,                                          \
         HAS_OFFSET,                                              \
         TInput,                                                  \
         TIdentity>(                                              \
@@ -165,34 +162,25 @@ void _zero_collision_hash_cpu_out(
         num_reserved_slots);                                     \
   }
 
-#define INVOKE_HASH_IDENTITY(HASH_IDENTITY, CIRCULAR_PROBE, HAS_OFFSET) \
-  {                                                                     \
-    if (disable_fallback) {                                             \
-      INVOKE_KERNEL(true, HASH_IDENTITY, CIRCULAR_PROBE, HAS_OFFSET)    \
-    } else {                                                            \
-      INVOKE_KERNEL(false, HASH_IDENTITY, CIRCULAR_PROBE, HAS_OFFSET)   \
-    }                                                                   \
+#define INVOKE_HASH_IDENTITY(HASH_IDENTITY, HAS_OFFSET) \
+  {                                                      \
+    if (disable_fallback) {                              \
+      INVOKE_KERNEL(true, HASH_IDENTITY, HAS_OFFSET)     \
+    } else {                                             \
+      INVOKE_KERNEL(false, HASH_IDENTITY, HAS_OFFSET)    \
+    }                                                    \
   }
 
-#define INVOKE_KERNEL_CIRCULAR_PROBE(CIRCULAR_PROBE, HAS_OFFSET) \
-  {                                                              \
-    if (hash_identity == 1) {                                    \
-      INVOKE_HASH_IDENTITY(1, CIRCULAR_PROBE, HAS_OFFSET);       \
-    }                                                            \
-    if (hash_identity == 2) {                                    \
-      INVOKE_HASH_IDENTITY(2, CIRCULAR_PROBE, HAS_OFFSET);       \
-    } else {                                                     \
-      INVOKE_HASH_IDENTITY(0, CIRCULAR_PROBE, HAS_OFFSET);       \
-    }                                                            \
-  }
-
-#define INVOKE_KERNEL_HAS_OFFSET(HAS_OFFSET)           \
-  {                                                    \
-    if (circular_probe) {                              \
-      INVOKE_KERNEL_CIRCULAR_PROBE(true, HAS_OFFSET);  \
-    } else {                                           \
-      INVOKE_KERNEL_CIRCULAR_PROBE(false, HAS_OFFSET); \
-    }                                                  \
+#define INVOKE_KERNEL_HAS_OFFSET(HAS_OFFSET)        \
+  {                                                 \
+    if (hash_identity == 1) {                       \
+      INVOKE_HASH_IDENTITY(1, HAS_OFFSET);          \
+    }                                               \
+    if (hash_identity == 2) {                       \
+      INVOKE_HASH_IDENTITY(2, HAS_OFFSET);          \
+    } else {                                        \
+      INVOKE_HASH_IDENTITY(0, HAS_OFFSET);          \
+    }                                               \
   }
 
   if (local_sizes_ptr != nullptr) {
@@ -202,7 +190,6 @@ void _zero_collision_hash_cpu_out(
   }
 
 #undef INVOKE_KERNEL_HAS_OFFSET
-#undef INVOKE_KERNEL_CIRCULAR_PROBE
 #undef INVOKE_HASH_IDENTITY
 #undef INVOKE_KERNEL
 }
@@ -281,7 +268,9 @@ void zero_collision_hash_cpu_out(
   TORCH_CHECK(input.is_cpu());
   TORCH_CHECK(identities.dim() == 2);
 
-  int hash_identity = _modulo_identity_DPRECATED ? 2 : 1;
+  TORCH_CHECK(circular_probe, "circular_probe must be true");
+  TORCH_CHECK(!_modulo_identity_DPRECATED, "_modulo_identity_DPRECATED must be false");
+  int hash_identity = 1;
   if (identities.dtype() == input.dtype()) {
     hash_identity = 0;
   }

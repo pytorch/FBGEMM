@@ -102,27 +102,9 @@ murmur_hash3_2x64(const uint64_t x, const uint64_t y, const uint64_t seed) {
 }
 
 // NOLINTNEXTLINE:
-template <bool CIRCULAR_PROBE>
-TORBOREC_INLINE int64_t next_output_index(
-    int64_t output_index,
-    int64_t modulo,
-    int64_t& /* max_probe_local */) {
-  static_assert(CIRCULAR_PROBE);
+TORBOREC_INLINE int64_t
+next_output_index(int64_t output_index, int64_t modulo) {
   return (output_index + 1) % modulo;
-}
-
-// NOLINTNEXTLINE:
-template <>
-TORBOREC_INLINE int64_t next_output_index<false>(
-    int64_t output_index,
-    int64_t modulo,
-    int64_t& max_probe_local) {
-  output_index = (output_index + 1) % modulo;
-  if (output_index == 0) {
-    // circular, using max_probe_local to control exit.
-    max_probe_local = 0;
-  }
-  return output_index;
 }
 
 TORBOREC_INLINE bool is_eviction_enabled(
