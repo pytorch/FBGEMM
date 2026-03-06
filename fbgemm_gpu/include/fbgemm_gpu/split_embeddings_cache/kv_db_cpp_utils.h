@@ -174,6 +174,7 @@ inline void remove_dir(const std::string& path) {
       } else {
         std::filesystem::remove(path);
       }
+      LOG(INFO) << "DELETED PATH: " << path;
     } catch (const std::filesystem::filesystem_error& e) {
       LOG(ERROR) << "Error removing path: " << path
                  << ", exception:" << e.what();
