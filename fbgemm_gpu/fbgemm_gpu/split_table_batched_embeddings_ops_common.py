@@ -250,6 +250,7 @@ class KVZCHParams(NamedTuple):
     load_ckpt_without_opt: bool = False
     optimizer_type_for_st: Optional[str] = None
     optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
+    feature_score_collection_enabled: bool = False
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
