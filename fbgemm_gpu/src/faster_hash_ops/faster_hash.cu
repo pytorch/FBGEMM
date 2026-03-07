@@ -259,7 +259,7 @@ __device__ __inline__ bool check_and_maybe_update_slot(
   return false;
 }
 
-template <bool CIRCULAR_PROBE, typename TIdentity>
+template <typename TIdentity>
 __device__ __inline__ int64_t get_identity_slot(
     at::PackedTensorAccessor64<TIdentity, 2, at::RestrictPtrTraits> identities,
     TIdentity identity,
@@ -278,8 +278,7 @@ __device__ __inline__ int64_t get_identity_slot(
       return output_index;
     }
 
-    output_index =
-        next_output_index<CIRCULAR_PROBE>(output_index, modulo, max_probe);
+    output_index = next_output_index(output_index, modulo);
   }
 
   // Nothing found, don't disable eviction.
@@ -292,7 +291,6 @@ template <
     bool DISABLE_FALLBACK,
     int32_t HASH_IDENTITY,
     int32_t METADATA_COUNT,
-    bool CIRCULAR_PROBE,
     bool READONLY,
     typename TInput,
     typename TIdentity,
@@ -346,14 +344,7 @@ __global__ void process_item_zch(
         static_cast<int64_t>(hash % opt_in_block_size); // Local idx
     TIdentity identity;
 
-    if constexpr (HASH_IDENTITY == 1) {
-      identity = static_cast<TIdentity>(
-          murmur_hash3_2x64(
-              static_cast<uint64_t>(item),
-              0x17, // seed
-              0) %
-          kMaxIdentityNum);
-    } else if (HASH_IDENTITY == 2) {
+    if constexpr (HASH_IDENTITY == 2) {
       identity = static_cast<TIdentity>(item % kMaxIdentityNum);
     } else {
       identity = item;
@@ -376,7 +367,7 @@ __global__ void process_item_zch(
     // time, it would pick up an expired slot.
     // Also, we don't need lock here. As we are readonly here and other
     // concurrent write should have no impact on us.
-    int64_t identity_slot = get_identity_slot<CIRCULAR_PROBE, TIdentity>(
+    int64_t identity_slot = get_identity_slot<TIdentity>(
         identities,
         identity,
         output_index,
@@ -420,10 +411,7 @@ __global__ void process_item_zch(
         }
       }
 
-      output_index = next_output_index<CIRCULAR_PROBE>(
-          output_index,
-          opt_in_block_size, // only probe within the opt-in block
-          max_probe_local);
+      output_index = next_output_index(output_index, opt_in_block_size);
     }
 
     // can't find a slot (all slot full after probing), collide
@@ -448,7 +436,6 @@ template <
     bool DISABLE_FALLBACK,
     int32_t HASH_IDENTITY,
     int32_t METADATA_COUNT,
-    bool CIRCULAR_PROBE,
     bool READONLY,
     typename TInput,
     typename TIdentity,
@@ -500,14 +487,7 @@ __global__ void process_item_zch(
         static_cast<int64_t>(hash % opt_in_block_size); // Local idx
     TIdentity identity;
 
-    if constexpr (HASH_IDENTITY == 1) {
-      identity = static_cast<TIdentity>(
-          murmur_hash3_2x64(
-              static_cast<uint64_t>(item),
-              0x17, // seed
-              0) %
-          kMaxIdentityNum);
-    } else if (HASH_IDENTITY == 2) {
+    if constexpr (HASH_IDENTITY == 2) {
       identity = static_cast<TIdentity>(item % kMaxIdentityNum);
     } else {
       identity = item;
@@ -519,7 +499,7 @@ __global__ void process_item_zch(
 
     // Pre-check if identity already exists in probing distance.
     // This avoids evicting a slot when the identity is already present.
-    int64_t identity_slot = get_identity_slot<CIRCULAR_PROBE, TIdentity>(
+    int64_t identity_slot = get_identity_slot<TIdentity>(
         identities,
         identity,
         output_index,
@@ -567,10 +547,7 @@ __global__ void process_item_zch(
           min_slot_identity,
           eviction_threshold);
 
-      output_index = next_output_index<CIRCULAR_PROBE>(
-          output_index,
-          opt_in_block_size, // only probe within the opt-in block
-          max_probe_local);
+      output_index = next_output_index(output_index, opt_in_block_size);
     }
 
     if (max_probe_local < 0) {
@@ -622,7 +599,6 @@ void _zero_collision_hash_cuda(
     const Tensor& input,
     Tensor& identities,
     int64_t max_probe,
-    bool circular_probe,
     int64_t cur_hour,
     bool readonly,
     bool support_evict,
@@ -663,7 +639,6 @@ void _zero_collision_hash_cuda(
     DISABLE_FALLBACK,                                                         \
     HASH_IDENTITY,                                                            \
     METADATA_COUNT,                                                           \
-    CIRCULAR_PROBE,                                                           \
     READONLY)                                                                 \
   {                                                                           \
     FBGEMM_LAUNCH_DSA_KERNEL(                                                 \
@@ -673,7 +648,6 @@ void _zero_collision_hash_cuda(
             DISABLE_FALLBACK,                                                 \
             HASH_IDENTITY,                                                    \
             METADATA_COUNT,                                                   \
-            CIRCULAR_PROBE,                                                   \
             READONLY,                                                         \
             TInput,                                                           \
             TIdentity>),                                                      \
@@ -709,7 +683,6 @@ void _zero_collision_hash_cuda(
     DISABLE_FALLBACK,          \
     HASH_IDENTITY,             \
     METADATA_COUNT,            \
-    CIRCULAR_PROBE,            \
     READONLY)                  \
   {                            \
     if (track_id_freq) {       \
@@ -719,7 +692,6 @@ void _zero_collision_hash_cuda(
           DISABLE_FALLBACK,    \
           HASH_IDENTITY,       \
           METADATA_COUNT,      \
-          CIRCULAR_PROBE,      \
           READONLY);           \
     } else {                   \
       INVOKE_KERNEL(           \
@@ -728,72 +700,49 @@ void _zero_collision_hash_cuda(
           DISABLE_FALLBACK,    \
           HASH_IDENTITY,       \
           METADATA_COUNT,      \
-          CIRCULAR_PROBE,      \
           READONLY);           \
     }                          \
   }
 
-#define INVOKE_KERNEL_EVICT_POLICY(                                            \
-    DISABLE_FALLBACK, HASH_IDENTITY, METADATA_COUNT, CIRCULAR_PROBE, READONLY) \
-  {                                                                            \
-    if (eviction_policy == 0) {                                                \
-      INVOKE_KERNEL_ID_FREQ(                                                   \
-          0,                                                                   \
-          DISABLE_FALLBACK,                                                    \
-          HASH_IDENTITY,                                                       \
-          METADATA_COUNT,                                                      \
-          CIRCULAR_PROBE,                                                      \
-          READONLY);                                                           \
-    } else {                                                                   \
-      INVOKE_KERNEL_ID_FREQ(                                                   \
-          1,                                                                   \
-          DISABLE_FALLBACK,                                                    \
-          HASH_IDENTITY,                                                       \
-          METADATA_COUNT,                                                      \
-          CIRCULAR_PROBE,                                                      \
-          READONLY);                                                           \
-    }                                                                          \
+#define INVOKE_KERNEL_EVICT_POLICY(                                      \
+    DISABLE_FALLBACK, HASH_IDENTITY, METADATA_COUNT, READONLY)           \
+  {                                                                      \
+    if (eviction_policy == 0) {                                          \
+      INVOKE_KERNEL_ID_FREQ(                                             \
+          0, DISABLE_FALLBACK, HASH_IDENTITY, METADATA_COUNT, READONLY); \
+    } else {                                                             \
+      INVOKE_KERNEL_ID_FREQ(                                             \
+          1, DISABLE_FALLBACK, HASH_IDENTITY, METADATA_COUNT, READONLY); \
+    }                                                                    \
   }
 
-#define INVOKE_HASH_IDENTITY(                                             \
-    HASH_IDENTITY, METADATA_COUNT, CIRCULAR_PROBE, READONLY)              \
-  {                                                                       \
-    if (disable_fallback) {                                               \
-      INVOKE_KERNEL_EVICT_POLICY(                                         \
-          true, HASH_IDENTITY, METADATA_COUNT, CIRCULAR_PROBE, READONLY)  \
-    } else {                                                              \
-      INVOKE_KERNEL_EVICT_POLICY(                                         \
-          false, HASH_IDENTITY, METADATA_COUNT, CIRCULAR_PROBE, READONLY) \
-    }                                                                     \
+#define INVOKE_HASH_IDENTITY(HASH_IDENTITY, METADATA_COUNT, READONLY) \
+  {                                                                   \
+    if (disable_fallback) {                                           \
+      INVOKE_KERNEL_EVICT_POLICY(                                     \
+          true, HASH_IDENTITY, METADATA_COUNT, READONLY)              \
+    } else {                                                          \
+      INVOKE_KERNEL_EVICT_POLICY(                                     \
+          false, HASH_IDENTITY, METADATA_COUNT, READONLY)             \
+    }                                                                 \
   }
 
-#define INVOKE_KERNEL_METADATA_COUNT(METADATA_COUNT, CIRCULAR_PROBE, READONLY) \
-  {                                                                            \
-    if (hash_identity == 1) {                                                  \
-      INVOKE_HASH_IDENTITY(1, METADATA_COUNT, CIRCULAR_PROBE, READONLY);       \
-    } else if (hash_identity == 2) {                                           \
-      INVOKE_HASH_IDENTITY(2, METADATA_COUNT, CIRCULAR_PROBE, READONLY);       \
-    } else {                                                                   \
-      INVOKE_HASH_IDENTITY(0, METADATA_COUNT, CIRCULAR_PROBE, READONLY);       \
-    }                                                                          \
+#define INVOKE_KERNEL_METADATA_COUNT(METADATA_COUNT, READONLY) \
+  {                                                            \
+    if (hash_identity == 2) {                                  \
+      INVOKE_HASH_IDENTITY(2, METADATA_COUNT, READONLY);       \
+    } else {                                                   \
+      INVOKE_HASH_IDENTITY(0, METADATA_COUNT, READONLY);       \
+    }                                                          \
   }
 
-#define INVOKE_KERNEL_CIRCULAR_PROBE(CIRCULAR_PROBE, READONLY)   \
-  {                                                              \
-    if (support_evict) {                                         \
-      INVOKE_KERNEL_METADATA_COUNT(1, CIRCULAR_PROBE, READONLY); \
-    } else {                                                     \
-      INVOKE_KERNEL_METADATA_COUNT(0, CIRCULAR_PROBE, READONLY); \
-    }                                                            \
-  }
-
-#define INVOKE_KERNEL_READ_ONLY(READONLY)            \
-  {                                                  \
-    if (circular_probe) {                            \
-      INVOKE_KERNEL_CIRCULAR_PROBE(true, READONLY);  \
-    } else {                                         \
-      INVOKE_KERNEL_CIRCULAR_PROBE(false, READONLY); \
-    }                                                \
+#define INVOKE_KERNEL_READ_ONLY(READONLY)        \
+  {                                              \
+    if (support_evict) {                         \
+      INVOKE_KERNEL_METADATA_COUNT(1, READONLY); \
+    } else {                                     \
+      INVOKE_KERNEL_METADATA_COUNT(0, READONLY); \
+    }                                            \
   }
 
   if (readonly) {
@@ -803,7 +752,6 @@ void _zero_collision_hash_cuda(
   }
 
 #undef INVOKE_KERNEL_READ_ONLY
-#undef INVOKE_KERNEL_CIRCULAR_PROBE
 #undef INVOKE_KERNEL_METADATA_COUNT
 #undef INVOKE_HASH_IDENTITY
 #undef INVOKE_KERNEL
@@ -840,7 +788,9 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
   TORCH_CHECK(input.is_cuda());
   TORCH_CHECK(identities.dim() == 2);
 
-  int32_t hash_identity = _modulo_identity_DPRECATED ? 1 : 2;
+  TORCH_CHECK(
+      !_modulo_identity_DPRECATED, "_modulo_identity_DPRECATED must be false");
+  int32_t hash_identity = 2;
   if (identities.dtype() == input.dtype()) {
     hash_identity = 0;
   }
@@ -927,19 +877,15 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
     TORCH_CHECK(runtime_meta->size(1) == 1);
   }
 
+  TORCH_CHECK(!output_on_uvm, "output_on_uvm is no longer supported");
+  TORCH_CHECK(circular_probe, "circular_probe must be true");
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
 
   int64_t output_size = input.size(0);
-  c10::TensorOptions options;
-
-  if (output_on_uvm) {
-    options =
-        c10::TensorOptions().dtype(at::kLong).device(at::kCPU).pinned_memory(
-            true);
-  } else {
-    options = c10::TensorOptions().dtype(at::kLong).device(input.device());
-  }
+  c10::TensorOptions options =
+      c10::TensorOptions().dtype(at::kLong).device(input.device());
 
   Tensor output = at::empty({output_size}, options);
 
@@ -969,7 +915,6 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
                   input,
                   identities,
                   max_probe,
-                  circular_probe,
                   cur_hour,
                   readonly,
                   support_evict,
@@ -991,9 +936,6 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
   if (support_evict) {
     evict_slots = std::get<0>(torch::_unique(
         evict_slots.masked_select(evict_slots != kDefaultTensor)));
-  }
-  if (output_on_uvm) {
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
   }
   return {output, evict_slots};
 }
