@@ -217,6 +217,8 @@ template void directConvRowSum<3>(
     int32_t* inSum,
     int32_t* rowSum);
 
+#ifndef __aarch64__
+
 template <
     int SPATIAL_DIM,
     QuantizationGranularity Q_GRAN,
@@ -239,11 +241,6 @@ void fbgemmDirectConv(
   if (thread_id > 0 || thread_id >= num_threads) {
     return;
   }
-
-#if !defined(FBGEMM_FBCODE) && defined(__aarch64__)
-  throw std::runtime_error(
-      "fbgemmDirectConv<SPATIAL_DIM, Q_GRAN, FUSE_RELU, BIAS_TYPE>(): No fallback available for aarch64");
-#else
 
   if constexpr (SPATIAL_DIM != 2) {
     static_assert(false && SPATIAL_DIM, "1d/3d direct conv not supported");
@@ -459,8 +456,6 @@ void fbgemmDirectConv(
       assert(false && "non-transposed direct conv not integrated yet.");
     }
   } // else SPATIAL_DIM
-
-#endif // !defined(__aarch64__)
 }
 
 #define INSTANTIATE_REQUANTIZE_SPATIAL_DIM(                        \
@@ -496,5 +491,7 @@ INSTANTIATE_Q_GRANS(false)
 #undef INSTANTIATE_REQUANTIZE_BIAS_TYPE
 #undef INSTANTIATE_REQUANTIZE
 #undef INSTANTIATE_Q_GRANS
+
+#endif // !defined(__aarch64__)
 
 } // namespace fbgemm

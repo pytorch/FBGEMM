@@ -1427,6 +1427,8 @@ FBGEMM_API void fbgemmGroupwiseConv(
     int thread_id,
     int num_threads);
 
+#ifndef __aarch64__
+
 template <
     int SPATIAL_DIM,
     QuantizationGranularity Q_GRAN,
@@ -1442,6 +1444,8 @@ FBGEMM_API void fbgemmDirectConv(
     const BIAS_TYPE* bias,
     int thread_id,
     int num_threads);
+
+#endif // !defined(__aarch64__)
 
 /**
  * @return Size of row offset buffer in number of elements needed for
