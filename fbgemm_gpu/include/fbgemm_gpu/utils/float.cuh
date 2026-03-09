@@ -51,9 +51,12 @@ struct Half4 {
 
   __device__ inline void store(at::Half* p) {
 #ifdef USE_ROCM
-    *reinterpret_cast<unsigned int*>(p) = *reinterpret_cast<unsigned int*>(&a);
-    *reinterpret_cast<unsigned int*>(p + 2) =
-        *reinterpret_cast<unsigned int*>(&b);
+    const unsigned int lo = *reinterpret_cast<unsigned int*>(&a);
+    const unsigned int hi = *reinterpret_cast<unsigned int*>(&b);
+    const unsigned long long packed =
+      static_cast<unsigned long long>(lo) |
+      (static_cast<unsigned long long>(hi) << 32);
+    *reinterpret_cast<unsigned long long*>(p) = packed;
 #else
 
 #ifndef __HALF2_TO_UI
