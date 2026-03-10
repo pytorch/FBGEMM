@@ -181,3 +181,69 @@ detect_amd_gpu_model() {
     echo "Unknown AMD GPU GFX version: $gfx_version" >&2
     return 1
 }
+
+# Resolve GPU vendor and model from an optional vendor/model argument, falling
+# back to auto-detection when no argument is provided.
+#
+# On success, this function sets two global variables:
+#   GPU_VENDOR  - "nvidia" or "amd"
+#   GPU_MODEL   - lowercased model name (e.g., "h100", "mi350")
+#
+# If a vendor/model argument is supplied (e.g., "nvidia/h100"), the vendor is
+# validated and both values are accepted directly.  Otherwise, detect_gpu_vendor
+# and the vendor-specific model detection functions are called.
+#
+# Arguments:
+#   $1 (optional) - GPU specification in "vendor/model" format
+#
+# Returns:
+#   0 on success (GPU_VENDOR and GPU_MODEL are set)
+#   1 on failure (with an error message on stderr)
+#
+# Usage:
+#   source gpu_detect.bash
+#
+#   # With an explicit argument
+#   resolve_gpu "nvidia/h100"
+#
+#   # With auto-detection
+#   resolve_gpu
+#
+#   echo "Vendor: $GPU_VENDOR  Model: $GPU_MODEL"
+#
+resolve_gpu() {
+    local gpu_spec="${1:-}"
+
+    if [ -n "${gpu_spec}" ] && [[ "${gpu_spec}" =~ ^[^/]+/[^/]+$ ]]; then
+        GPU_VENDOR=$(echo "${gpu_spec}" | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')
+        GPU_MODEL=$(echo "${gpu_spec}" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
+
+        case "${GPU_VENDOR}" in
+            nvidia|amd) ;;
+            *)
+                echo "Error: Unsupported vendor '${GPU_VENDOR}'. Supported vendors: nvidia, amd" >&2
+                return 1
+                ;;
+        esac
+    else
+        echo "No GPU specification provided. Auto-detecting GPU..."
+
+        GPU_VENDOR=$(detect_gpu_vendor)
+        if [ -z "${GPU_VENDOR}" ]; then
+            echo "Error: Could not detect GPU vendor. Please specify <vendor>/<model> manually." >&2
+            return 1
+        fi
+
+        case "${GPU_VENDOR}" in
+            nvidia) GPU_MODEL=$(detect_nvidia_gpu_model) ;;
+            amd)    GPU_MODEL=$(detect_amd_gpu_model) ;;
+        esac
+
+        if [ -z "${GPU_MODEL}" ]; then
+            echo "Error: Could not detect GPU model. Please specify <vendor>/<model> manually." >&2
+            return 1
+        fi
+
+        echo "Detected GPU: ${GPU_VENDOR}/${GPU_MODEL}"
+    fi
+}
