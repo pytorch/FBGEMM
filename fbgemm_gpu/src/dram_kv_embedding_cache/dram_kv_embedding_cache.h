@@ -564,46 +564,44 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       auto indices_data_ptr = indices.data_ptr<index_t>();
                       auto weights_data_ptr = weights.data_ptr<weight_type>();
                       {
-                        // 1st step, collect hit/miss per inplace update chunk
                         // [tensor_offset, weight_addr]
                         std::vector<std::tuple<int64_t, weight_type*>> hit_info;
                         // [id, tensor_offset]
                         std::vector<std::tuple<int64_t, int64_t>> miss_info;
                         hit_info.reserve(indexes.size() / 2);
                         miss_info.reserve(indexes.size() / 10);
-                        auto rlmap = kv_store_.by(shard_id).rlock();
-                        for (const auto& idx : indexes) {
-                          auto id = int64_t(indices_data_ptr[idx]);
-                          auto it = rlmap->find(id);
-                          if (it != rlmap->end()) {
-                            hit_info.emplace_back(idx, it->second);
-                          } else {
-                            miss_info.emplace_back(id, idx);
+                        {
+                          // 1st step, collect hit/miss per inplace update chunk
+                          auto rlmap = kv_store_.by(shard_id).rlock();
+                          for (const auto idx : indexes) {
+                            auto id = int64_t(indices_data_ptr[idx]);
+                            if (auto it = rlmap->find(id); it != rlmap->end()) {
+                              hit_info.emplace_back(idx, it->second);
+                            } else {
+                              miss_info.emplace_back(id, idx);
+                            }
                           }
-                        }
-                        rlmap.unlock();
-                        hit_cnt = hit_info.size();
-                        miss_cnt = miss_info.size();
-                        // 2nd step, no lock on update hits, it is possible that
-                        // inference read is accessing a weight being updated,
-                        // we assume it is fine for now, will iterate on it if
-                        // we find QE regress during inplace update
-                        for (auto& [tensor_offset, block] : hit_info) {
-                          auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(block);
-                          std::copy(
-                              weights_data_ptr + tensor_offset * stride,
-                              weights_data_ptr + (tensor_offset + 1) * stride,
-                              data_ptr);
-                          // update provided ts for existing blocks
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_ && inplace_update_ts.has_value()) {
-                            FixedBlockPool::set_timestamp(
-                                block, inplace_update_ts.value());
+                          hit_cnt = hit_info.size();
+                          miss_cnt = miss_info.size();
+                          // 2nd step, update hits while holding rlock to prevent
+                          // eviction from invalidating block pointers
+                          for (auto& [tensor_offset, block] : hit_info) {
+                            auto* data_ptr =
+                                FixedBlockPool::data_ptr<weight_type>(block);
+                            std::copy(
+                                weights_data_ptr + tensor_offset * stride,
+                                weights_data_ptr + (tensor_offset + 1) * stride,
+                                data_ptr);
+                            // update provided ts for existing blocks
+                            if (feature_evict_config_.has_value() &&
+                                feature_evict_config_.value()->trigger_mode_ !=
+                                    EvictTriggerMode::DISABLED &&
+                                feature_evict_ && inplace_update_ts.has_value()) {
+                              FixedBlockPool::set_timestamp(
+                                  block, inplace_update_ts.value());
+                            }
                           }
-                        }
+                        }  // rlmap released here
 
                         // 3rd step, update misses in fixed block pool, we only
                         // need mempool lock at this stage to avoid race
@@ -1735,7 +1733,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<int64_t> sub_table_hash_cumsum_;
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
-  int current_iter_ = 0;
+  std::atomic<int> current_iter_{0};
   const bool is_training_;
 
   // perf stats

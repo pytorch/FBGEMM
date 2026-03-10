@@ -443,13 +443,15 @@ class FeatureEvict {
   }
 
   virtual ~FeatureEvict() {
-    std::unique_lock<std::mutex> lock(mutex_);
-    // set shutdown flag before setting evict_interrupt to guarantee when
-    // evict_interrupt check happens shtudown flag is set already
-    shutdown_.store(true);
-    evict_interrupt_.store(true);
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      // set shutdown flag before setting evict_interrupt to guarantee when
+      // evict_interrupt check happens shutdown flag is set already
+      shutdown_.store(true);
+      evict_interrupt_.store(true);
 
-    evict_cv_.notify_all();
+      evict_cv_.notify_all();
+    }  // release mutex before waiting
 
     // wait until futures all finished
     folly::collectAll(futures_).wait();
