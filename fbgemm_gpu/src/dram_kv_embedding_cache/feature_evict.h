@@ -1378,7 +1378,7 @@ class TimeThresholdBasedEvict : public FeatureEvict<weight_type> {
   void pre_calculate_thresholds(int shard_id) override {}
 
  private:
-  uint32_t eviction_timestamp_threshold_ = 0;
+  std::atomic<uint32_t> eviction_timestamp_threshold_{0};
 };
 
 template <typename weight_type>
