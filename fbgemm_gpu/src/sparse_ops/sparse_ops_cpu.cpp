@@ -3523,7 +3523,7 @@ torch::autograd::variable_list group_index_select_dim0(
           .typed<decltype(group_index_select_dim0_autograd_impl)>();
   auto res = forward_op.call(
       all_indices_input_tensor, static_cast<int64_t>(group_size));
-  TORCH_CHECK(res.size() == group_size + 4);
+  TORCH_CHECK(res.size() >= group_size + 2);
   // only return the outputs (the first group_size elements)
   res.resize(group_size);
   return res;
@@ -3537,16 +3537,14 @@ torch::autograd::variable_list group_index_select_dim0_forward_impl_cpu(
       group_index_select_dim0_unpack(all_indices_input, group_size);
 
   std::vector<Tensor> output_group;
-  output_group.reserve(group_size + 4);
+  output_group.reserve(group_size + 2);
   for (const auto i : c10::irange(group_size)) {
     output_group.push_back(
         at::index_select(input_group[i], 0, indices_group[i]));
   }
 
   // to match return format in CUDA implementation
-  // (group_size outputs, 1 args_tensor, 1 saved_data, 1 sorted tensor, 1 reverse tensor)
-  output_group.push_back(at::empty({0}, at::TensorOptions().dtype(at::kLong)));
-  output_group.push_back(at::empty({0}, at::TensorOptions().dtype(at::kLong)));
+  // (group_size outputs, 1 args_tensor, 1 saved_data)
   output_group.push_back(at::empty({0}, at::TensorOptions().dtype(at::kLong)));
   output_group.push_back(at::empty({0}, at::TensorOptions().dtype(at::kLong)));
   return output_group;
@@ -3555,10 +3553,10 @@ torch::autograd::variable_list group_index_select_dim0_forward_impl_cpu(
 torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
     at::TensorList all_inputs,
     c10::SymIntArrayRef output_shape_group_ref) {
-  TORCH_CHECK(all_inputs.size() > 4);
+  TORCH_CHECK(all_inputs.size() > 2);
   // all input size =  group_size * 2 (from grads, indices)
   // + 1 args_tensor + 1 saved_data + 1 first output
-  const int64_t group_size = static_cast<int64_t>((all_inputs.size() - 5) / 2);
+  const int64_t group_size = static_cast<int64_t>((all_inputs.size() - 3) / 2);
 
   auto grad_output_group = std::vector<Tensor>(
       all_inputs.cbegin(), all_inputs.cbegin() + group_size);
@@ -3566,7 +3564,7 @@ torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
   auto indices_group = std::vector<Tensor>(
       all_inputs.cbegin() + group_size, all_inputs.cbegin() + 2 * group_size);
 
-  const Tensor& fwd_input = all_inputs[2 * group_size + 4];
+  const Tensor& fwd_input = all_inputs[2 * group_size + 2];
   const int64_t output_dim = fwd_input.dim();
 
   std::vector<int64_t> output_shape_group;
@@ -3637,7 +3635,8 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
           .findSchemaOrThrow("fbgemm::group_index_select_dim0_gpu_impl", "")
           .typed<decltype(group_index_select_dim0_forward_impl_cpu)>();
   auto result = forward_op.call(all_indices_input, group_size);
-  TORCH_CHECK(static_cast<int64_t>(result.size()) == group_size + 4);
+  TORCH_CHECK(static_cast<int64_t>(result.size()) >= group_size + 2);
+  ctx->saved_data["group_size"] = group_size;
 
   auto [input_group, indices_group] =
       group_index_select_dim0_unpack(all_indices_input, group_size);
@@ -3657,7 +3656,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
     ctx->saved_data["input_shape_group_" + std::to_string(i)] =
         input_shape_group[i];
   }
-  // save indices, args_tensor, saved_data, sorted tensor, reverse tensor
+  // save indices, args_tensor, saved_data
   auto saved_tensors = std::vector<at::Tensor>(indices_group);
   saved_tensors.insert(
       saved_tensors.end(), result.cbegin() + group_size, result.cend());
@@ -3670,17 +3669,17 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
 torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
     torch::autograd::AutogradContext* ctx,
     torch::autograd::variable_list grad_output_group) {
-  TORCH_CHECK(grad_output_group.size() >= 4);
-  if (grad_output_group.size() == 4) {
+  TORCH_CHECK(grad_output_group.size() >= 2);
+  if (grad_output_group.size() == 2) {
     // empty outputs
     return torch::autograd::variable_list(1);
   }
   // remove redundant grads
-  auto group_size = grad_output_group.size() - 4;
+  const auto group_size = ctx->saved_data["group_size"].toInt();
   grad_output_group.resize(group_size);
 
   const auto saved_tensors = ctx->get_saved_variables();
-  TORCH_CHECK(saved_tensors.size() == group_size + 5);
+  TORCH_CHECK(saved_tensors.size() == group_size + 3);
   std::vector<c10::SymInt> output_shape_group;
   int i = 0;
   while (true) {
