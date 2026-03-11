@@ -544,8 +544,10 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   const bool use_var_cols = saved_data_ptr[1];
   const bool use_packed_rows = saved_data_ptr[2];
   const bool use_sorted_indices = saved_data_ptr[3];
-  int64_t* warp_offsets_group = reinterpret_cast<int64_t*>(saved_data_ptr[4]);
-  int32_t* num_cols_group = reinterpret_cast<int32_t*>(saved_data_ptr[5]);
+  const int64_t* warp_offsets_group =
+      reinterpret_cast<const int64_t*>(saved_data_ptr[4]);
+  const int32_t* num_cols_group =
+      reinterpret_cast<const int32_t*>(saved_data_ptr[5]);
   int64_t total_num_warps = saved_data_ptr[6];
 
   // We checked in forward that all output rows are the same for all member
