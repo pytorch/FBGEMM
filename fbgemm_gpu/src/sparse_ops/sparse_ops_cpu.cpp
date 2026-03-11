@@ -3523,7 +3523,7 @@ torch::autograd::variable_list group_index_select_dim0(
           .typed<decltype(group_index_select_dim0_autograd_impl)>();
   auto res = forward_op.call(
       all_indices_input_tensor, static_cast<int64_t>(group_size));
-  TORCH_CHECK(res.size() >= group_size + 2);
+  TORCH_CHECK(res.size() == group_size + 2);
   // only return the outputs (the first group_size elements)
   res.resize(group_size);
   return res;
@@ -3635,7 +3635,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
           .findSchemaOrThrow("fbgemm::group_index_select_dim0_gpu_impl", "")
           .typed<decltype(group_index_select_dim0_forward_impl_cpu)>();
   auto result = forward_op.call(all_indices_input, group_size);
-  TORCH_CHECK(static_cast<int64_t>(result.size()) >= group_size + 2);
+  TORCH_CHECK(static_cast<int64_t>(result.size()) == group_size + 2);
   ctx->saved_data["group_size"] = group_size;
 
   auto [input_group, indices_group] =
