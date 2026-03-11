@@ -98,11 +98,7 @@ std::tuple<at::Tensor, at::Tensor> sort_indices_with_rocprim(const at::Tensor& i
         return {sorted_indices, reverse_indices};
     }
 
-    TORCH_CHECK(
-        numel <= static_cast<int64_t>(std::numeric_limits<int>::max()),
-        "sort_indices_with_rocprim only supports up to INT_MAX elements");
-
-    const int num_items = static_cast<int>(numel);
+    const auto num_items = static_cast<size_t>(numel);
     auto stream = at::cuda::getCurrentCUDAStream();
 
     const auto scalar_type = contiguous_indices.scalar_type();
