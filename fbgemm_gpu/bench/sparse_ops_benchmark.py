@@ -1497,7 +1497,9 @@ def block_bucketize_sparse_features_bench(
     block_sizes = torch.tensor([bucket_size] * batch_size, dtype=dtype)
 
     bucket_pos = [j * bucket_size for j in range(bucket_num + 1)]
-    block_bucketize_pos = [torch.tensor(bucket_pos, device=device)] * batch_size
+    block_bucketize_pos = [
+        torch.tensor(bucket_pos, device=device, dtype=dtype)
+    ] * batch_size
     test_param = {"uneven": block_bucketize_pos, "even": None}
     print(f"device {device}")
 
