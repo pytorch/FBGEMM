@@ -297,14 +297,9 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   int64_t warp_offset = 0;
   bool use_var_cols = false;
 
-  Tensor sorted_indices_storage =
-    at::empty({0}, first_indices.options());
-  Tensor reverse_indices_storage =
-    at::empty({0}, first_indices.options());
-
   // Allocate memory for output_group
   std::vector<Tensor> output_group;
-  output_group.reserve(group_size + 4);
+  output_group.reserve(group_size + 2);
 
   // We need to store contiguous inputs and indices outside the for-loop to
   // guarantee that the contiguous tensors will outlive the kernel
@@ -499,11 +494,9 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
 
   output_group.push_back(args_tensor);
   output_group.push_back(saved_data_t);
-  output_group.push_back(sorted_indices_storage);
-  output_group.push_back(reverse_indices_storage);
 
   // return format:
-  // (group_size outputs, 1 args_tensor, 1 saved_data, 1 sorted tensor, 1 reverse tensor)
+  // (group_size outputs, 1 args_tensor, 1 saved_data)
   return output_group;
 }
 
@@ -511,19 +504,17 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     at::TensorList all_inputs,
     c10::SymIntArrayRef output_shape_group_ref) {
   TORCH_CHECK_VALUE(
-      all_inputs.size() > 4,
-      "all_inputs size must be larger than 4, but got ",
+      all_inputs.size() > 2,
+      "all_inputs size must be larger than 2, but got ",
       all_inputs.size());
 
   // all_input size =  group_size * 2 (from grads, indices)
   // + 1 args_tensor + 1 saved_data + 1 first input
-  const int64_t group_size = (all_inputs.size() - 5) / 2;
+  const int64_t group_size = (all_inputs.size() - 3) / 2;
 
-  const Tensor& fwd_input = all_inputs[2 * group_size + 4];
+  const Tensor& fwd_input = all_inputs[2 * group_size + 2];
   const int64_t output_dim = fwd_input.dim();
   const Tensor& saved_data = all_inputs[2 * group_size + 1];
-  const Tensor& sorted_indices_storage = all_inputs[2 * group_size + 2];
-  const Tensor& reverse_indices_storage = all_inputs[2 * group_size + 3];
   const Tensor& first_indices = all_inputs[group_size];
 
   auto grad_output_group = std::vector<Tensor>(
