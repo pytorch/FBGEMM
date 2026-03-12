@@ -1335,6 +1335,18 @@ def permute_1d_sparse_data_bench(
 )
 @click.option("--has-weight", is_flag=True, default=False)
 @click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cuda")
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of kineto trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="permute_2d_sparse_data_trace_{ospid}.json",
+    help="Output path for trace file. {ospid} will be replaced with process ID.",
+)
 def permute_2d_sparse_data_bench(
     num_segments: int,
     batch_size: int,
@@ -1342,6 +1354,8 @@ def permute_2d_sparse_data_bench(
     index_dtype: str,
     has_weight: bool,
     device: str,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     """Benchmark permute_2D_sparse_data operator.
 
@@ -1361,13 +1375,16 @@ def permute_2d_sparse_data_bench(
 
     # Generate variable-length segments to test vectorization
     # lengths must be 2D with shape [T, B] for permute_2D_sparse_data
+    # Use int64 to avoid integer overflow when summing large configurations
+    # (e.g., num_segments=40, batch_size=512, max_segment_length=2000, emb_dim=256
+    # can exceed INT32_MAX ~2.1 billion)
     emb_dim = 256
     lengths = (
         torch.randint(
             low=max_segment_length // 2,
             high=max_segment_length,
             size=(num_segments, batch_size),
-            dtype=torch.int32,
+            dtype=torch.int64,
             device=device,
         )
         * emb_dim
@@ -1397,14 +1414,40 @@ def permute_2d_sparse_data_bench(
     permute = torch.tensor(permute_list, dtype=torch.int32, device=device)
 
     # Benchmark the operation
-    time, (permuted_lengths, permuted_indices, permuted_weights) = (
-        benchmark_torch_function(
-            torch.ops.fbgemm.permute_2D_sparse_data,
-            (permute, lengths, indices, weights, None),
-            num_warmups=100,
-            iters=1000,
+    # Create a context factory for kineto tracing if export_trace is enabled
+    if export_trace:
+        import os
+
+        from torch.profiler import profile
+
+        def _kineto_trace_handler(p: profile) -> None:
+            trace_url_expanded = trace_url.replace("{ospid}", str(os.getpid()))
+            p.export_chrome_trace(trace_url_expanded)
+
+        # pyre-ignore[3]
+        def context_factory():
+            return profile(on_trace_ready=_kineto_trace_handler)
+
+        with context_factory():
+            time, (permuted_lengths, permuted_indices, permuted_weights) = (
+                benchmark_torch_function(
+                    torch.ops.fbgemm.permute_2D_sparse_data,
+                    (permute, lengths, indices, weights, None),
+                    num_warmups=100,
+                    iters=1000,
+                    device=device,
+                )
+            )
+    else:
+        time, (permuted_lengths, permuted_indices, permuted_weights) = (
+            benchmark_torch_function(
+                torch.ops.fbgemm.permute_2D_sparse_data,
+                (permute, lengths, indices, weights, None),
+                num_warmups=100,
+                iters=1000,
+                device=device,
+            )
         )
-    )
 
     # Calculate memory bandwidth
     num_bytes = (
