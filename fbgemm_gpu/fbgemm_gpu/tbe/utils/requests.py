@@ -239,20 +239,68 @@ def generate_indices_uniform(
     use_variable_L: bool,
     L_offsets: torch.Tensor,
     device: Optional[torch.device] = None,
+    Es: Optional[list[int]] = None,
 ) -> torch.Tensor:
     """
-    Generate indices for the TBE requests using the uniform distribution
+    Generate indices for the TBE requests using the uniform distribution.
+    If Es is provided, generates indices per-table so that each table t's
+    indices are in [0, Es[t]).
     """
     if device is None:
         device = get_device()
+    T = len(Bs)
     total_B = sum(Bs)
-    indices = torch.randint(
-        low=0,
-        high=E,
-        size=(iters, total_B, L),
-        device="cpu" if use_variable_L else device,
-        dtype=torch.int32,
-    )
+    dev = "cpu" if use_variable_L else device
+
+    if Es is not None and len(set(Es)) > 1:
+        assert len(Es) == T, f"len(Es)={len(Es)} must equal T={T}"
+        if use_variable_L:
+            # Generate per-table indices with each table's E range and
+            # per-table max bag size, then flatten.
+            all_table_indices = []
+            for t in range(T):
+                table_row_start = sum(Bs[:t])
+                table_lengths = (
+                    L_offsets[table_row_start + 1 : table_row_start + Bs[t] + 1]
+                    - L_offsets[table_row_start : table_row_start + Bs[t]]
+                )
+                L_t = int(table_lengths.max().item())
+                if L_t == 0:
+                    all_table_indices.append(
+                        torch.empty(iters, 0, dtype=torch.int).to(device)
+                    )
+                    continue
+                tbl_indices = torch.randint(
+                    low=0,
+                    high=Es[t],
+                    size=(iters, Bs[t], L_t),
+                    device=dev,
+                    dtype=torch.int32,
+                )
+                tbl_indices, _ = torch.sort(tbl_indices)
+                tbl_indices = tbl_indices.reshape(iters, Bs[t] * L_t)
+                all_table_indices.append(tbl_indices)
+            return torch.cat(all_table_indices, dim=1).flatten().to(device)
+        table_indices = []
+        for t in range(T):
+            table_indices.append(
+                torch.randint(
+                    low=0,
+                    high=Es[t],
+                    size=(iters, Bs[t], L),
+                    device=dev,
+                    dtype=torch.int32,
+                )
+            )
+        indices = torch.cat(table_indices, dim=1)
+    else:
+        indices = torch.randint(
+            low=0,
+            high=E,
+            size=(iters, total_B, L),
+            device=dev,
+            dtype=torch.int32,
+        )
     # each bag is usually sorted
     indices, _ = torch.sort(indices)
     if use_variable_L:
@@ -267,7 +315,164 @@ def generate_indices_uniform(
     return indices
 
 
-def generate_indices_zipf(
+def _generate_zipf_indices_single_table(
+    iters: int,
+    B: int,
+    L: int,
+    E: int,
+    alpha: float,
+    zipf_oversample_ratio: int,
+    deterministic_output: bool,
+) -> torch.Tensor:
+    """
+    Core zipf generation for a single table (or batched tables with same E).
+    Returns indices of shape (iters, B * L).
+    """
+    if L == 0:
+        return torch.empty(iters, 0, dtype=torch.int).to(get_device())
+
+    # For small L, the default oversample ratio may not produce enough unique
+    # values.  Ensure at least 20 candidates so that even highly concentrated
+    # Zipf draws are unlikely to all collide across many rows.
+    effective_oversample_L = max(zipf_oversample_ratio * L, 20)
+    zipf_shape = (iters, B, effective_oversample_L)
+
+    if torch.cuda.is_available():
+        zipf_shape_total_len = np.prod(zipf_shape)
+        indices_list = []
+        chunk_len = int(1e9)
+        for chunk_begin in range(0, zipf_shape_total_len, chunk_len):
+            indices_gpu = torch.ops.fbgemm.zipf_cuda(
+                alpha,
+                min(zipf_shape_total_len - chunk_begin, chunk_len),
+                seed=torch.randint(2**31 - 1, (1,))[0],
+            )
+            indices_list.append(indices_gpu.cpu())
+        indices = torch.cat(indices_list).reshape(zipf_shape)
+    else:
+        indices = torch.as_tensor(np.random.zipf(a=alpha, size=zipf_shape))
+
+    indices = (indices - 1) % E
+
+    indices = torch.ops.fbgemm.bottom_k_per_row(
+        indices, torch.tensor([0, L], dtype=torch.long), True
+    )
+
+    if deterministic_output:
+        rng = default_rng(12345)
+    else:
+        rng = default_rng()
+    permutation = torch.as_tensor(
+        rng.choice(E, size=indices.max().item() + 1, replace=False)
+    )
+    indices = permutation.gather(0, indices.flatten())
+    indices = indices.reshape(iters, B * L)
+
+    return indices.to(get_device()).int()
+
+
+def _generate_zipf_single_table_with_fallback(
+    iters: int,
+    B: int,
+    L: int,
+    E: int,
+    alpha: float,
+    zipf_oversample_ratio: int,
+    deterministic_output: bool,
+    device: torch.device,
+    table_idx: int,
+) -> torch.Tensor:
+    """Generate Zipf indices for one table, falling back to uniform on skew error."""
+    try:
+        return _generate_zipf_indices_single_table(
+            iters=iters,
+            B=B,
+            L=L,
+            E=E,
+            alpha=alpha,
+            zipf_oversample_ratio=zipf_oversample_ratio,
+            deterministic_output=deterministic_output,
+        )
+    except RuntimeError as e:
+        if "too skewed distribution" not in str(e):
+            raise
+        logging.warning(
+            f"Zipf index generation failed for table {table_idx} "
+            f"(E={E}, L={L}, alpha={alpha}): "
+            f"distribution too skewed. "
+            f"Falling back to uniform distribution for this table."
+        )
+        indices_t = torch.randint(
+            low=0,
+            high=E,
+            size=(iters, B, L),
+            device="cpu",
+            dtype=torch.int32,
+        )
+        indices_t, _ = torch.sort(indices_t)
+        return indices_t.reshape(iters, B * L).to(device).int()
+
+
+def _generate_zipf_per_table(
+    iters: int,
+    Bs: list[int],
+    L: int,
+    Es: list[int],
+    T: int,
+    alpha: float,
+    zipf_oversample_ratio: int,
+    use_variable_L: bool,
+    L_offsets: torch.Tensor,
+    deterministic_output: bool,
+    device: torch.device,
+) -> torch.Tensor:
+    """Per-table Zipf generation: generate separately for each table, then concat."""
+    if use_variable_L:
+        all_table_indices = []
+        for t in range(T):
+            table_row_start = sum(Bs[:t])
+            table_lengths = (
+                L_offsets[table_row_start + 1 : table_row_start + Bs[t] + 1]
+                - L_offsets[table_row_start : table_row_start + Bs[t]]
+            )
+            L_t = int(table_lengths.max().item())
+            if L_t == 0:
+                all_table_indices.append(
+                    torch.empty(iters, 0, dtype=torch.int).to(device)
+                )
+                continue
+            indices_t = _generate_zipf_single_table_with_fallback(
+                iters,
+                Bs[t],
+                L_t,
+                Es[t],
+                alpha,
+                zipf_oversample_ratio,
+                deterministic_output,
+                device,
+                t,
+            )
+            all_table_indices.append(indices_t)
+        return torch.cat(all_table_indices, dim=1).flatten()
+    else:
+        all_table_indices = []
+        for t in range(T):
+            indices_t = _generate_zipf_single_table_with_fallback(
+                iters,
+                Bs[t],
+                L,
+                Es[t],
+                alpha,
+                zipf_oversample_ratio,
+                deterministic_output,
+                device,
+                t,
+            )
+            all_table_indices.append(indices_t)
+        return torch.cat(all_table_indices, dim=1)
+
+
+def _generate_zipf_batched(
     iters: int,
     Bs: list[int],
     L: int,
@@ -277,16 +482,9 @@ def generate_indices_zipf(
     use_variable_L: bool,
     L_offsets: torch.Tensor,
     deterministic_output: bool,
-    device: Optional[torch.device] = None,
+    device: torch.device,
 ) -> torch.Tensor:
-    """
-    Generate indices for the TBE requests using the zipf distribution
-    """
-    assert E >= L, "num-embeddings must be greater than equal to bag-size"
-    if device is None:
-        device = get_device()
-    # oversample and then remove duplicates to obtain sampling without
-    # replacement
+    """Single-E batched Zipf generation for all tables."""
     if L == 0:
         return torch.empty(iters, 0, dtype=torch.int).to(device)
     total_B = sum(Bs)
@@ -307,24 +505,94 @@ def generate_indices_zipf(
     else:
         indices = torch.as_tensor(np.random.zipf(a=alpha, size=zipf_shape))
     indices = (indices - 1) % E
-    if use_variable_L:
-        indices = torch.ops.fbgemm.bottom_k_per_row(indices, L_offsets, True)
-    else:
-        indices = torch.ops.fbgemm.bottom_k_per_row(
-            indices, torch.tensor([0, L], dtype=torch.long), True
+    try:
+        if use_variable_L:
+            indices = torch.ops.fbgemm.bottom_k_per_row(indices, L_offsets, True)
+        else:
+            indices = torch.ops.fbgemm.bottom_k_per_row(
+                indices, torch.tensor([0, L], dtype=torch.long), True
+            )
+        if deterministic_output:
+            rng = default_rng(12345)
+        else:
+            rng = default_rng()
+        permutation = torch.as_tensor(
+            rng.choice(E, size=indices.max().item() + 1, replace=False)
         )
-    if deterministic_output:
-        rng = default_rng(12345)
-    else:
-        rng = default_rng()
-    permutation = torch.as_tensor(
-        rng.choice(E, size=indices.max().item() + 1, replace=False)
+        indices = permutation.gather(0, indices.flatten())
+        if not use_variable_L:
+            indices = indices.reshape(iters, total_B * L)
+
+        indices = indices.to(device).int()
+        return indices
+    except RuntimeError as e:
+        if "too skewed distribution" not in str(e):
+            raise
+        logging.warning(
+            f"Zipf index generation failed for batched tables "
+            f"(E={E}, L={L}, alpha={alpha}): "
+            f"distribution too skewed. "
+            f"Falling back to uniform distribution for all tables."
+        )
+        return generate_indices_uniform(
+            iters, Bs, L, E, use_variable_L, L_offsets, device
+        )
+
+
+def generate_indices_zipf(
+    iters: int,
+    Bs: list[int],
+    L: int,
+    E: int,
+    alpha: float,
+    zipf_oversample_ratio: int,
+    use_variable_L: bool,
+    L_offsets: torch.Tensor,
+    deterministic_output: bool,
+    device: Optional[torch.device] = None,
+    Es: Optional[list[int]] = None,
+) -> torch.Tensor:
+    """
+    Generate indices for the TBE requests using the zipf distribution.
+
+    If Es is provided with variable values, generates true Zipf distribution
+    per table (each table t's indices follow Zipf in [0, Es[t])).
+    Otherwise, uses batched generation with single E for all tables.
+    """
+    T = len(Bs)
+    assert E >= L, "num-embeddings must be greater than equal to bag-size"
+
+    if device is None:
+        device = get_device()
+    # Per-table Zipf: generate separately for each table, then concatenate
+    if Es is not None and len(set(Es)) > 1:
+        assert len(Es) == T, f"len(Es)={len(Es)} must equal T={T}"
+        return _generate_zipf_per_table(
+            iters,
+            Bs,
+            L,
+            Es,
+            T,
+            alpha,
+            zipf_oversample_ratio,
+            use_variable_L,
+            L_offsets,
+            deterministic_output,
+            device,
+        )
+    # Single E case: batched generation
+    return _generate_zipf_batched(
+        iters,
+        Bs,
+        L,
+        E,
+        alpha,
+        zipf_oversample_ratio,
+        use_variable_L,
+        L_offsets,
+        deterministic_output,
+        device,
     )
-    indices = permutation.gather(0, indices.flatten())
-    indices = indices.to(device).int()
-    if not use_variable_L:
-        indices = indices.reshape(iters, total_B * L)
-    return indices
 
 
 def update_indices_with_random_reuse(
@@ -420,6 +688,9 @@ def generate_requests(  # noqa C901
     vbe_num_ranks: Optional[int] = None,
     index_dtype: Optional[torch.dtype] = None,
     offset_dtype: Optional[torch.dtype] = None,
+    # Per-table num_embeddings. If provided, indices for table t are generated
+    # in [0, Es[t]). Must have len(Es) == T.
+    Es: Optional[list[int]] = None,
 ) -> list[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
@@ -494,7 +765,7 @@ def generate_requests(  # noqa C901
     if alpha <= 1.0:
         # Generate indices using uniform dist
         all_indices = generate_indices_uniform(
-            iters, Bs, L, E, use_variable_L, L_offsets, device
+            iters, Bs, L, E, use_variable_L, L_offsets, device, Es=Es
         )
     else:
         # Generate indices using zipf dist
@@ -509,6 +780,7 @@ def generate_requests(  # noqa C901
             L_offsets,
             deterministic_output,
             device=device,
+            Es=Es,
         )
 
     if reuse > 0.0:

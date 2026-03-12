@@ -51,9 +51,17 @@ struct Half4 {
 
   __device__ inline void store(at::Half* p) {
 #ifdef USE_ROCM
-    *reinterpret_cast<unsigned int*>(p) = *reinterpret_cast<unsigned int*>(&a);
-    *reinterpret_cast<unsigned int*>(p + 2) =
-        *reinterpret_cast<unsigned int*>(&b);
+    // CRITICAL PERFORMANCE FIX: Use single 64-bit store instead of two 32-bit
+    // stores. With UVM (managed memory), each separate store can trigger a
+    // page fault, causing significant slowdown. A single 64-bit store (uint2)
+    // reduces this to at most one page fault.
+    union {
+      half2 h[2];
+      uint2 ui;
+    } tmp;
+    tmp.h[0] = a;
+    tmp.h[1] = b;
+    *reinterpret_cast<uint2*>(p) = tmp.ui;
 #else
 
 #ifndef __HALF2_TO_UI
