@@ -528,6 +528,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   // -- commone path
   std::atomic<int64_t> total_cache_update_duration_{0};
+
+ protected:
   std::unique_ptr<fbgemm_gpu::RawEmbeddingStreamer> raw_embedding_streamer_;
 }; // class EmbeddingKVDB
 

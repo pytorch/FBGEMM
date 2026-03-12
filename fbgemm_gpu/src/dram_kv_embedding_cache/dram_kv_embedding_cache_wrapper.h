@@ -33,7 +33,13 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
       bool backend_return_whole_row = false,
       bool enable_async_update = false,
-      bool disable_random_init = false) {
+      bool disable_random_init = false,
+      bool enable_raw_embedding_streaming = false,
+      int64_t res_store_shards = 0,
+      int64_t res_server_port = 0,
+      std::vector<std::string> table_names = {},
+      std::vector<int64_t> table_offsets = {},
+      std::vector<int64_t> table_sizes = {}) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -48,7 +54,13 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           table_dims,
           hash_size_cumsum,
           true, // is_training
-          disable_random_init);
+          disable_random_init,
+          enable_raw_embedding_streaming,
+          res_store_shards,
+          res_server_port,
+          std::move(table_names),
+          std::move(table_offsets),
+          std::move(table_sizes));
     } else if (row_storage_bitwidth == 32) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
           max_D,
@@ -63,7 +75,13 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           table_dims,
           hash_size_cumsum,
           true, // is_training
-          disable_random_init);
+          disable_random_init,
+          enable_raw_embedding_streaming,
+          res_store_shards,
+          res_server_port,
+          std::move(table_names),
+          std::move(table_offsets),
+          std::move(table_sizes));
     } else {
       throw std::runtime_error("Failed to create recording device");
     }
