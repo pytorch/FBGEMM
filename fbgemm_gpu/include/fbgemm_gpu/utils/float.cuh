@@ -68,7 +68,6 @@ struct Half4 {
 // cuda_fp16.hpp doesn't export this
 #define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
 #endif
-
     asm("st.v2.u32 [%0], {%1, %2};"
         :
         : "l"(p), "r"(__HALF2_TO_UI(a)), "r"(__HALF2_TO_UI(b)));
