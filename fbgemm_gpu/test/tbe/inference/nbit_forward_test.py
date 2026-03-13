@@ -248,7 +248,14 @@ class NBitFowardTest(NBitFowardTestCommon):
                 ref_weights.copy_(rand_weights)
             else:
                 deq_rand_weights = dequantize_embs(
-                    rand_weights, rand_scale_shift, weights_ty_list[t], use_cpu=False
+                    # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
+                    #  `Optional[Tensor]`.
+                    rand_weights,
+                    # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
+                    #  `Optional[Tensor]`.
+                    rand_scale_shift,
+                    weights_ty_list[t],
+                    use_cpu=False,
                 )
                 assert deq_rand_weights.dtype == torch.float32
                 ref_weights.copy_(deq_rand_weights)
@@ -360,6 +367,10 @@ class NBitFowardTest(NBitFowardTestCommon):
         implementation
         """
         self.execute_nbit_forward_fused_pooled_emb_quant_(
+            # pyre-fixme[6]: For 1st argument expected
+            #  `Union[IntNBitTableBatchedEmbeddingBagsCodegen,
+            #  SplitTableBatchedEmbeddingBagsCodegen]` but got
+            #  `Type[SplitTableBatchedEmbeddingBagsCodegen]`.
             ref_module=SplitTableBatchedEmbeddingBagsCodegen,
             **kwargs,
         )
@@ -408,6 +419,7 @@ class NBitFowardTest(NBitFowardTestCommon):
             weights_ref[0], SparseType.INT4
         )
         weights[0][0].copy_(quant_weights)
+        # pyre-fixme[16]: `Optional` has no attribute `copy_`.
         weights[0][1].copy_(quant_scale_shift)
 
         # Generate inputs
@@ -499,6 +511,10 @@ class NBitFowardTest(NBitFowardTestCommon):
     ) -> None:
         self.execute_nbit_forward_fused_pooled_emb_quant_(
             weighted=False,
+            # pyre-fixme[6]: For 2nd argument expected
+            #  `Union[IntNBitTableBatchedEmbeddingBagsCodegen,
+            #  SplitTableBatchedEmbeddingBagsCodegen]` but got
+            #  `Type[IntNBitTableBatchedEmbeddingBagsCodegen]`.
             ref_module=IntNBitTableBatchedEmbeddingBagsCodegen,
             **kwargs,
         )
@@ -818,6 +834,7 @@ class NBitFowardTest(NBitFowardTestCommon):
             self.assertEqual(weights.size(), ref_weights.size())
             weights.copy_(ref_weights)
             if ref_scale_shift is not None:
+                # pyre-fixme[16]: `Optional` has no attribute `copy_`.
                 scale_shift.copy_(ref_scale_shift)
 
         requests = generate_requests(iters, B, T, L, min(Es), reuse=0.1)
