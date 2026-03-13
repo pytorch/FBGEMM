@@ -165,10 +165,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 
       #pragma unroll
       for (uint32_t outer_i = 0; outer_i < OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; outer_i += kRowUnroll) {
-        uint4 row_data_v[kRowUnroll];
         const uint4* row_v[kRowUnroll];
         int32_t idx_v[kRowUnroll];
         int32_t cache_idx_v[kRowUnroll];
+        bool row_valid_v[kRowUnroll];
         #pragma unroll
         for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
           uint32_t i = outer_i + inner_i;
@@ -176,50 +176,54 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
           idx_v[inner_i] = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
           cache_idx_v[inner_i] = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
+          row_valid_v[inner_i] = valid;
         }
 
 
         #pragma unroll
         for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
           uint32_t i = outer_i + inner_i;
-          bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
-          bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
-          valid = valid && (idx_v[inner_i] != -1);
+          bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && row_valid_v[inner_i]);
+          bool final_valid = row_valid_v[inner_i] && (idx_v[inner_i] != -1);
           if (!DeviceOnly && cache_valid && cache_idx_v[inner_i] != kCacheLocationMissing) {
             row_v[inner_i] = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx_v[inner_i])][0]);
-          } else
-          if (valid) {
+          } else if (final_valid) {
             row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx_v[inner_i]) * D_bytes]);
           } else {
             row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[0]);
           }
+          row_valid_v[inner_i] = final_valid;
         }
         #pragma unroll
         for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
           uint32_t i = outer_i + inner_i;
-          row_data_v[inner_i] = row_v[inner_i][row_load_idx];
-        }
-        uint4 zeros = {0, 0, 0, 0};
-        #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
-          uint32_t i = outer_i + inner_i;
-          bool valid = load_idx_valid && (L_start + input_row_idx < Ls[i]) && (idx_v[inner_i] != -1);
-          uint4 data = valid ? row_data_v[inner_i] : zeros;
+          bool final_valid = row_valid_v[inner_i];
           if constexpr (PackedMode) {
             // Store row data with uint4_loads_per_row offset
-            buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx] = data;
+            cp_async_zfill_cg<sizeof(uint4)>(
+                &buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx],
+                &row_v[inner_i][row_load_idx],
+                final_valid);
           } else {
-            buffers[warp_idx][i][input_row_idx][row_load_idx] = data;
+            cp_async_zfill_cg<sizeof(uint4)>(
+                &buffers[warp_idx][i][input_row_idx][row_load_idx],
+                &row_v[inner_i][row_load_idx],
+                final_valid);
           }
-          {% if weighted %}
+        }
+        {% if weighted %}
+        #pragma unroll
+        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+          uint32_t i = outer_i + inner_i;
+          bool final_valid = row_valid_v[inner_i] && (idx_v[inner_i] != -1);
           if (row_load_idx == 0)  {
             // Use only one thread to load the index weight to prevent a race
             // condition when writing to the shared memory
             buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] =
-              valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+              final_valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
           }
-          {% endif %}
         }
+        {% endif %}
       }
       {%- endif %}
 
