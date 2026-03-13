@@ -228,11 +228,8 @@ void EmbeddingKVDB::get_cuda(
   auto self = shared_from_this();
   std::function<void()>* functor =
       new std::function<void()>([=]() { self->get(indices, weights, count); });
-  AT_CUDA_CHECK(cudaStreamAddCallback(
-      at::cuda::getCurrentCUDAStream(),
-      kv_db_utils::cuda_callback_func,
-      functor,
-      0));
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
   rec->record.end();
 }
 
@@ -251,11 +248,8 @@ void EmbeddingKVDB::set_cuda(
     self->set(indices, weights, count, is_bwd);
     self->flush_or_compact(timestep);
   });
-  AT_CUDA_CHECK(cudaStreamAddCallback(
-      at::cuda::getCurrentCUDAStream(),
-      kv_db_utils::cuda_callback_func,
-      functor,
-      0));
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
   rec->record.end();
 }
 
@@ -270,11 +264,24 @@ void EmbeddingKVDB::set_feature_score_metadata_cuda(
     set_kv_zch_eviction_metadata_async(
         std::move(indices), std::move(count), std::move(engage_show_count));
   });
-  AT_CUDA_CHECK(cudaStreamAddCallback(
-      at::cuda::getCurrentCUDAStream(),
-      kv_db_utils::cuda_callback_func,
-      functor,
-      0));
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
+  rec->record.end();
+}
+
+void EmbeddingKVDB::set_embedding_cache_enrich_query_id_cuda(
+    const at::Tensor& hashed_indices,
+    const at::Tensor& unhashed_indices,
+    const at::Tensor& count) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::set_embedding_cache_enrich_query_id_cuda ##");
+  // take reference to self to avoid lifetime issues.
+  std::function<void()>* functor = new std::function<void()>([=, this]() {
+    set_embedding_cache_enrich_query_id_async(
+        hashed_indices, unhashed_indices, count);
+  });
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
   rec->record.end();
 }
 
@@ -298,11 +305,8 @@ void EmbeddingKVDB::stream_cuda(
         true, /*require_tensor_copy*/
         blocking_tensor_copy);
   });
-  AT_CUDA_CHECK(cudaStreamAddCallback(
-      at::cuda::getCurrentCUDAStream(),
-      kv_db_utils::cuda_callback_func,
-      functor,
-      0));
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
   rec->record.end();
 }
 
@@ -314,11 +318,8 @@ void EmbeddingKVDB::stream_sync_cuda() {
   std::function<void()>* functor = new std::function<void()>([=]() {
     self->raw_embedding_streamer_->join_stream_tensor_copy_thread();
   });
-  AT_CUDA_CHECK(cudaStreamAddCallback(
-      at::cuda::getCurrentCUDAStream(),
-      kv_db_utils::cuda_callback_func,
-      functor,
-      0));
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
   rec->record.end();
 }
 
