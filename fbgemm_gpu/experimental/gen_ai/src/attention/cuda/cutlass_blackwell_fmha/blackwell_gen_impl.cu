@@ -425,15 +425,27 @@ std::tuple<at::Tensor, at::Tensor> dispatch_fmha_gen_fwd_meta(
     int64_t window_right,
     int64_t split_k_size
   ) {
-  // Return tuple matching the operator signature: (output, lse)
-  at::Tensor output = at::empty_like(q);
-  // LSE should have shape [B, num_splits, H]
-  int b = q.size(0);
-  int h = q.size(2);
-  // For meta, just create a dummy LSE with single split
-  at::Tensor lse = at::empty(
-      {b, 1, h},
-      at::TensorOptions().dtype(at::kFloat).device(at::kMeta));
+  auto b = q.sym_size(0);
+  auto sq = q.sym_size(1);
+  auto h = q.sym_size(2);
+  auto d = q.sym_size(3);
+  assert(sq == 1);
+  auto sk = k.sym_size(1);
+  auto h_k = k.sym_size(2);
+
+  c10::SymInt split_kv = 1;
+  if (split_k_size > 0) {
+    split_kv = (sk + split_k_size - 1) / split_k_size;
+  }
+
+  auto out_dtype = q.scalar_type();
+  if(q.scalar_type() == at::kFloat8_e4m3fn) {
+    // Output is BF16 when input is FP8
+    out_dtype = at::kBFloat16;
+  }
+
+  auto output = at::empty_symint({b, h, split_kv, d}, q.options().dtype(out_dtype));
+  auto lse = at::empty_symint({b, split_kv, h}, q.options().dtype(at::kFloat));
   return std::make_tuple(output, lse);
 }
 
