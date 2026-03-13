@@ -790,6 +790,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.opentab_vec_payload_indexes,
                     ep.opentab_timeout_ms,
                     ep.opentab_batch_size,
+                    ep.fs_tier,
+                    ep.fs_caller_id,
+                    ep.fs_timeout_ms,
+                    ep.fs_batch_size,
+                    ep.fs_feature_group_id,
+                    ep.fs_feature_group_name,
+                    ep.fs_feature_name,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
