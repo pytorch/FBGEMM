@@ -128,7 +128,10 @@ permute_2D_sparse_data_cuda(
     const at::Tensor& lengths,
     const at::Tensor& indices,
     const std::optional<at::Tensor>& weights,
-    const std::optional<int64_t>& permuted_lengths_sum);
+    const std::optional<int64_t>& permuted_lengths_sum,
+    const std::optional<at::Tensor>& permuted_lengths_out,
+    const std::optional<at::Tensor>& permuted_indices_out,
+    const std::optional<at::Tensor>& permuted_weights_out);
 
 std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_1D_sparse_data_cuda(
@@ -361,7 +364,10 @@ permute_2D_sparse_data_cpu(
     const at::Tensor& lengths,
     const at::Tensor& indices,
     const std::optional<at::Tensor>& weights,
-    const std::optional<int64_t>& permuted_lengths_sum);
+    const std::optional<int64_t>& permuted_lengths_sum,
+    const std::optional<at::Tensor>& permuted_lengths_out,
+    const std::optional<at::Tensor>& permuted_indices_out,
+    const std::optional<at::Tensor>& permuted_weights_out);
 
 ///@ingroup sparse-data-cpu
 std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
@@ -597,7 +603,7 @@ at::Tensor cat_reorder_batched_ad_indices_cpu(
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
     const bool broadcast_indices,
-    const int64_t num_indices_after_broadcast,
+    const int64_t total_num_indices,
     const bool pinned_memory = false,
     const int64_t max_batch_size = 0);
 at::Tensor recat_embedding_grad_output_cuda(
