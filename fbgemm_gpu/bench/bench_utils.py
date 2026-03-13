@@ -121,9 +121,13 @@ def benchmark_torch_function(  # noqa: C901
         torch.cuda.empty_cache()
 
     else:
+        use_nvtx = torch.cuda.is_available()
         start_time = time.time()
         for _ in range(iters):
-            with torch.cuda.nvtx.range(f"RunCPUModule_{name}"):
+            if use_nvtx:
+                with torch.cuda.nvtx.range(f"RunCPUModule_{name}"):
+                    output = f(*args)
+            else:
                 output = f(*args)
         elapsed_time = (time.time() - start_time) / iters
 
