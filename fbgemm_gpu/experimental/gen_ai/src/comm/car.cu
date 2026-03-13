@@ -37,6 +37,38 @@
 
 namespace fbgemm_gpu {
 
+#ifdef USE_ROCM
+DEVICE_INLINE float hip_low2float(__nv_bfloat162 x) {
+  uint32_t tmp = __builtin_bit_cast(uint32_t, x);
+  return __builtin_bit_cast(float, tmp << 16);
+}
+
+DEVICE_INLINE float hip_high2float(__nv_bfloat162 x) {
+  uint32_t tmp = __builtin_bit_cast(uint32_t, x);
+  return __builtin_bit_cast(float, tmp & 0xffff0000);
+}
+
+DEVICE_INLINE __nv_bfloat16 float2bhalf(float x) {
+  uint16_t tmp = __builtin_bit_cast(uint32_t, x) >> 16;
+  return __builtin_bit_cast(hip_bfloat16, tmp);
+}
+
+DEVICE_INLINE float2 add_pk_f32(float2 a, float2 b) {
+  float2 tmp;
+  asm volatile("v_pk_add_f32 %[v_tmp], %[v_src_0], %[v_src_1]\n"
+               : [v_tmp] "+v"(tmp), [v_src_0] "+v"(a), [v_src_1] "+v"(b)
+               :);
+  return tmp;
+}
+
+DEVICE_INLINE __nv_bfloat162 __floats2bfloat162_rz(float a, float b) {
+  __nv_bfloat162 tmp;
+  tmp.x = float2bhalf(a);
+  tmp.y = float2bhalf(b);
+  return tmp;
+}
+#endif
+
 DEVICE_INLINE __nv_bfloat162
 bf16hadd2(const __nv_bfloat162 x, const __nv_bfloat162 y) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
@@ -47,12 +79,24 @@ bf16hadd2(const __nv_bfloat162 x, const __nv_bfloat162 y) {
   fyh = __high2float(y);
   return __floats2bfloat162_rn(fxl + fyl, fxh + fyh);
 #elif defined(USE_ROCM)
-  float fxl, fxh, fyl, fyh;
-  fxl = __bfloat162float(x.x);
-  fxh = __bfloat162float(x.y);
-  fyl = __bfloat162float(y.x);
-  fyh = __bfloat162float(y.y);
-  return __floats2bfloat162_rn(fxl + fyl, fxh + fyh);
+  float2 fx, fy;
+  fx.x = hip_low2float(x);
+  fx.y = hip_high2float(x);
+  fy.x = hip_low2float(y);
+  fy.y = hip_high2float(y);
+
+#ifdef ROCM_EXPERIMENTAL_CAR_USE_PK_ADD_F32_ASM
+  float2 tmp = add_pk_f32(fx, fy);
+#else
+  float2 tmp = fx + fy;
+#endif
+
+#ifdef ROCM_EXPERIMENTAL_CAR_USE_BF16_RTZ
+  return __floats2bfloat162_rz(tmp.x, tmp.y);
+#else
+  return __floats2bfloat162_rn(tmp.x, tmp.y);
+#endif
+
 #else
   return __hadd2(x, y);
 #endif
