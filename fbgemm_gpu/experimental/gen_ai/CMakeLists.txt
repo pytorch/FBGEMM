@@ -78,14 +78,6 @@ if(USE_FB_ONLY
     BLOCK_PRINT(
       "[FBPKG] FBGEMM_FBPKG_BUILD is NOT set,"
       "certain FB-internal sources will be excluded from the build.")
-
-    # NOTE: Some FB-internal code explicitly require an FB-internal
-    # environment to build, such as code that depends on NCCLX
-    list(FILTER fb_only_sources_cpu
-      EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cpp$")
-
-    list(FILTER fb_only_sources_gpu
-      EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cu$")
   endif()
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
