@@ -1220,6 +1220,15 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("unhashed_indices"),
                 torch::arg("count"),
             })
+        .def(
+            "fetch_sids_sync",
+            &DramKVEmbeddingCacheWrapper::fetch_sids_sync,
+            "",
+            {
+                torch::arg("hashed_indices"),
+                torch::arg("unhashed_indices"),
+                torch::arg("count"),
+            })
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",

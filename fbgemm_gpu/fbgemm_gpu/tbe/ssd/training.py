@@ -5102,3 +5102,28 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                                 dtype=torch.long,
                             ),
                         )
+
+    def fetch_sids_sync(
+        self,
+        hashed_ids: torch.Tensor,
+        unhashed_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Sync fetch SIDs for given VIDs. For publish use only.
+        Cache-first: reads SIDs from kv_store if available,
+        only calls remote (FeatureStore/OpenTab) for cache misses.
+        Blocks until fetch completes — do NOT call during training.
+
+        Args:
+            hashed_ids: int64 tensor of hashed/linearized cache indices
+            unhashed_ids: int64 tensor of unhashed VIDs (object IDs)
+            Must be same length and correspond 1:1.
+
+        Returns:
+            (vids_with_sids, sids): both int64 tensors of shape [M]
+            where M <= len(unhashed_ids) (only VIDs that got SIDs)
+        """
+        hashed_cpu = hashed_ids.cpu().contiguous()
+        unhashed_cpu = unhashed_ids.cpu().contiguous()
+        count = torch.tensor([hashed_cpu.shape[0]], device="cpu", dtype=torch.long)
+        return self.ssd_db.fetch_sids_sync(hashed_cpu, unhashed_cpu, count)
