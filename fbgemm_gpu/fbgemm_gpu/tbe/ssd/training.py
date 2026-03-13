@@ -778,11 +778,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         "Please specify a valid EnrichmentType."
                     )
                 enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
-                    ep.enrichment_type,
+                    ep.enrichment_type.value,
                     ep.provider_name,
                     ep.client_id,
                     ep.enrichment_dim,
-                    ep.response_format,
+                    ep.response_format.value,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
