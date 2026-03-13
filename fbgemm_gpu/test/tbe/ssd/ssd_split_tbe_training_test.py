@@ -683,6 +683,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         lr = 0.5
         eps = 0.2
         ssd_shards = 2
+        log_E = 3 if log_E > 3 else log_E
 
         trigger_bounds_check = False  # don't stimulate boundary check cases
         assume(not weighted or pooling_mode == PoolingMode.SUM)
