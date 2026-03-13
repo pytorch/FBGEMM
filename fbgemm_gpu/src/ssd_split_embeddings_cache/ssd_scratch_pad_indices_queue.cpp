@@ -45,11 +45,10 @@ class SSDScratchPadIndicesQueueImpl
     auto self = shared_from_this();
     std::function<void()>* functor =
         new std::function<void()>([=]() { self->insert(indices, count); });
-    AT_CUDA_CHECK(cudaStreamAddCallback(
+    AT_CUDA_CHECK(cudaLaunchHostFunc(
         at::cuda::getCurrentCUDAStream(),
-        kv_db_utils::cuda_callback_func,
-        functor,
-        0));
+        kv_db_utils::cuda_host_func,
+        functor));
   }
 
   void lookup_mask_and_pop_front_cuda(
@@ -68,11 +67,10 @@ class SSDScratchPadIndicesQueueImpl
           inserted_indices_curr,
           count_curr);
     });
-    AT_CUDA_CHECK(cudaStreamAddCallback(
+    AT_CUDA_CHECK(cudaLaunchHostFunc(
         at::cuda::getCurrentCUDAStream(),
-        kv_db_utils::cuda_callback_func,
-        functor,
-        0));
+        kv_db_utils::cuda_host_func,
+        functor));
   }
 
   int64_t size() {
