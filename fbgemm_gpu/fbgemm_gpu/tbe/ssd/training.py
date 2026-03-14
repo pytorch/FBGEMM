@@ -217,6 +217,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.enable_optimizer_offloading: bool = False
         self.backend_return_whole_row: bool = False
         self._embedding_cache_mode: bool = False
+        self._enrichment_enabled: bool = False
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -249,6 +250,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 assert self.optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD
                 ], f"only EXACT_ROWWISE_ADAGRAD supports embedding cache mode, but got {self.optimizer}"
+            # pyre-ignore [16]
+            self._enrichment_enabled = self.kv_zch_params.enrichment_policy is not None
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -766,6 +769,35 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     eviction_policy.interval_for_sufficient_eviction_s,
                     eviction_policy.interval_for_feature_statistics_decay_s,
                 )
+            enrichment_config = None
+            if self.kv_zch_params and self.kv_zch_params.enrichment_policy is not None:
+                ep = self.kv_zch_params.enrichment_policy
+                if ep.enrichment_type is None:
+                    raise ValueError(
+                        "enrichment_policy is set but enrichment_type is None. "
+                        "Please specify a valid EnrichmentType."
+                    )
+                enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
+                    ep.enrichment_type.value,
+                    ep.provider_name,
+                    ep.client_id,
+                    ep.enrichment_dim,
+                    ep.response_format.value,
+                    ep.opentab_tier_name,
+                    ep.opentab_payload_ids,
+                    ep.opentab_payload_types,
+                    ep.opentab_column_group_ids,
+                    ep.opentab_vec_payload_indexes,
+                    ep.opentab_timeout_ms,
+                    ep.opentab_batch_size,
+                    ep.fs_tier,
+                    ep.fs_caller_id,
+                    ep.fs_timeout_ms,
+                    ep.fs_batch_size,
+                    ep.fs_feature_group_id,
+                    ep.fs_feature_group_name,
+                    ep.fs_feature_name,
+                )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
                 ssd_uniform_init_lower,
@@ -789,6 +821,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.res_params.table_names,
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
+                enrichment_config,  # enrichment_config
             )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
@@ -801,6 +834,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_memcpy_stream = torch.cuda.Stream(priority=low_priority)
         # GPU stream for async metadata operation
         self.feature_score_stream = torch.cuda.Stream(priority=low_priority)
+        # GPU stream for embedding cache
+        self.enrichment_query_stream = torch.cuda.Stream(priority=low_priority)
 
         # SSD get completion event
         self.ssd_event_get = torch.cuda.Event()
@@ -1231,7 +1266,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             row_count,
             self.cache_row_dim,
             dtype=self.weights_precision.as_dtype(),
-            device="cuda",
+            device=torch.accelerator.current_accelerator(),
         )
         cpu_tensor = torch.empty_like(chunk_tensor, device="cpu")
         for row_offset in range(0, total_dim0, row_count):
@@ -1595,16 +1630,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     blocking_tensor_copy=True,
                     name="scratch_pad",
                 )
-            self.evict(
-                rows=inserted_rows,
-                indices_cpu=post_bwd_evicted_indices_cpu,
-                actions_count_cpu=actions_count_cpu,
-                stream=self.ssd_eviction_stream,
-                pre_event=self.ssd_event_backward,
-                post_event=self.ssd_event_sp_evict,
-                is_rows_uvm=True,
-                name="scratch_pad",
-            )
+            # Embedding cache mode skips eviction since DRAM cache handles
+            # its own lifecycle; eviction only applies to RocksDB-backed TBE.
+            if not self._embedding_cache_mode:
+                self.evict(
+                    rows=inserted_rows,
+                    indices_cpu=post_bwd_evicted_indices_cpu,
+                    actions_count_cpu=actions_count_cpu,
+                    stream=self.ssd_eviction_stream,
+                    pre_event=self.ssd_event_backward,
+                    post_event=self.ssd_event_sp_evict,
+                    is_rows_uvm=True,
+                    name="scratch_pad",
+                )
 
             if self.prefetch_stream:
                 self.prefetch_stream.wait_stream(current_stream)
@@ -1881,7 +1919,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # number of rows in `lxu_cache_evicted_weights` might be smaller
             # than the number of elements in `evicted_indices`. Without this
             # step, we can run into the index out of bound issue
-            current_stream.wait_event(self.ssd_event_cache_evict)
+            # NOTE: In embedding_cache_mode, evict() is skipped (see below), so
+            # ssd_event_cache_evict is never recorded. Skip waiting for it to
+            # avoid latency accumulation.
+            if not self._embedding_cache_mode:
+                current_stream.wait_event(self.ssd_event_cache_evict)
             torch.ops.fbgemm.compact_indices(
                 compact_indices=[
                     self.lxu_cache_evicted_indices,
@@ -2179,8 +2221,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 use_pipeline=self.prefetch_pipeline,
             )
 
+            # When enrichment is enabled, invalidate L1 slots that received all-zero
+            # rows from DRAM so they will be re-fetched next prefetch
+            if self._enrichment_enabled:
+                n = actions_count_gpu.item()
+                if n > 0:
+                    slots = assigned_cache_slots[:n]
+                    valid_mask = slots >= 0
+                    if valid_mask.any():
+                        valid_slots = slots[valid_mask]
+                        rows = self.lxu_cache_weights[valid_slots]
+                        zero_rows = (rows == 0).all(dim=1)
+                        if zero_rows.any():
+                            zero_slots = valid_slots[zero_rows]
+                            self.lxu_cache_state.view(-1)[zero_slots] = -1
+
             if self.training:
-                if linear_cache_indices.numel() > 0:
+                if linear_cache_indices.numel() > 0 and not self._embedding_cache_mode:
                     # Evict rows from cache to SSD
                     self.evict(
                         rows=self.lxu_cache_evicted_weights,
@@ -3687,6 +3744,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # for eval mode, we should not write anything to embedding
             return
 
+        if self._enrichment_enabled:
+            # When enrichment is enabled, reset cache state for slots where weights are all zeros
+            active_slots_mask = self.lxu_cache_state != -1
+            if active_slots_mask.any():
+                # Get flat indices of active slots
+                active_flat_indices = active_slots_mask.view(-1).nonzero(as_tuple=True)[
+                    0
+                ]
+                # Get weights for active slots
+                active_weights_for_check = self.lxu_cache_weights[
+                    active_flat_indices
+                ].view(-1, self.cache_row_dim)
+                # Defensive check: zero-weight rows can appear when an async
+                # enrichment write hasn't completed yet, or when a cache slot
+                # was allocated but the backend returned no data. The -1 index
+                # guards against empty slots, but occupied slots may still
+                # hold stale all-zero weights that need invalidation.
+                zero_weight_mask = (active_weights_for_check == 0).all(dim=1)
+
+                if zero_weight_mask.any():
+                    # Get indices of slots with zero weights
+                    zero_weight_indices = active_flat_indices[zero_weight_mask]
+                    num_reset = zero_weight_indices.numel()
+                    logging.info(
+                        f"[flush] Resetting {num_reset} cache slots with zero weights"
+                    )
+                    # Reset state to -1 for zero weight entries
+                    self.lxu_cache_state.view(-1)[zero_weight_indices] = -1
+                    # Reset weights to 0 (already zero, but ensure consistency)
+                    self.lxu_cache_weights[zero_weight_indices] = 0
+            return
+
         if self.step == self.last_flush_step and not force:
             logging.info(
                 f"SSD TBE has been flushed at {self.last_flush_step=} already for tbe:{self.tbe_unique_id}"
@@ -4950,3 +5039,66 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Reset the inference mode
         """
         self.eval()
+
+    def enrichment_query_id(
+        self,
+        indices: torch.Tensor,
+        offsets: torch.Tensor,
+        weights: torch.Tensor,
+    ) -> None:
+        assert (
+            self._enrichment_enabled
+        ), "Must be in _enrichment_enabled to support direct_write_embedding method."
+        with record_function(f"## enrichment_query_id_{self.tbe_unique_id} ##"):
+            with torch.no_grad():
+                # Run all GPU operations on enrichment_query_stream to avoid
+                # CUDA driver mutex contention with the main training stream
+                with torch.cuda.stream(self.enrichment_query_stream):
+                    self.enrichment_query_stream.wait_stream(
+                        torch.cuda.current_stream()
+                    )  # wait for input tensors to be ready
+
+                    B_offsets = None
+                    max_B = -1
+
+                    # Step 1: Linearize original indices first (with correct offsets)
+                    linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+                        self.hash_size_cumsum,
+                        indices,
+                        offsets,
+                        B_offsets,
+                        max_B,
+                    )
+                    weights_flat = weights.contiguous().view(torch.int64).flatten()
+
+                    # Step 2: Dedup on linearized indices
+                    sorted_linear_indices, idx = torch.sort(linear_cache_indices)
+                    sorted_weights = weights_flat[idx]
+                    mask = torch.ones_like(sorted_linear_indices, dtype=torch.bool)
+                    mask[1:] = sorted_linear_indices[1:] != sorted_linear_indices[:-1]
+                    dedup_linear_indices = sorted_linear_indices[mask]
+                    dedup_weights = sorted_weights[mask]
+
+                    if len(self.ssd_scratch_pad_eviction_data) > 0:
+                        # IMPORTANT: Clear ALL accumulated scratch pad data, not just one!
+                        # _prefetch appends one element per forward, but enrichment_query_id
+                        # may not be called every forward. This prevents memory leak from
+                        # accumulated GPU tensors (inserted_rows is a UVA tensor).
+                        self.ssd_scratch_pad_eviction_data.clear()
+
+                    # D2H copy on the same stream (already on enrichment_query_stream)
+                    linear_cache_indices_cpu = self.to_pinned_cpu(dedup_linear_indices)
+                    dedup_weights_cpu = self.to_pinned_cpu(dedup_weights)
+
+                    with record_function("## set_embedding_cache_enrich_query_id ##"):
+                        self.record_function_via_dummy_profile(
+                            "## set_embedding_cache_enrich_query_id ##",
+                            self.ssd_db.set_embedding_cache_enrich_query_id_cuda,
+                            linear_cache_indices_cpu,
+                            dedup_weights_cpu,
+                            torch.tensor(
+                                [linear_cache_indices_cpu.shape[0]],
+                                device="cpu",
+                                dtype=torch.long,
+                            ),
+                        )

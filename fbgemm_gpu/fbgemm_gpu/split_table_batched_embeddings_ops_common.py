@@ -233,6 +233,48 @@ class EvictionPolicy(NamedTuple):
             )
 
 
+class EnrichmentType(enum.IntEnum):
+    IGR_LASER_EMBEDDING = 0
+    IGR_LASER_SID = 1
+    ONEFLOW_OPENTAB_SID = 2
+    ONEFLOW_FEATURE_STORE_SID = 3
+
+
+class EnrichmentResponseFormat(enum.IntEnum):
+    JSON = 0
+    THRIFT_FLOAT = 1
+    THRIFT_INT64 = 2
+
+
+class EnrichmentPolicy(NamedTuple):
+    # Model and method identifier
+    enrichment_type: EnrichmentType = EnrichmentType.IGR_LASER_EMBEDDING
+    # External provider name (e.g. Laser provider name)
+    provider_name: str = ""
+    # Client identifier for the external service
+    client_id: str = ""
+    # Dimension of data returned by the source
+    enrichment_dim: int = 0
+    # Deserialization format
+    response_format: EnrichmentResponseFormat = EnrichmentResponseFormat.JSON
+    # OpenTab/Maple configuration (used for ONEFLOW_OPENTAB_SID)
+    opentab_tier_name: str = ""
+    opentab_payload_ids: str = ""  # comma-separated, e.g. "31739"
+    opentab_payload_types: str = ""  # comma-separated, e.g. "2"
+    opentab_column_group_ids: str = ""  # comma-separated, e.g. "12"
+    opentab_vec_payload_indexes: str = ""  # comma-separated, e.g. "0"
+    opentab_timeout_ms: int = 5000
+    opentab_batch_size: int = 100
+    # Feature Store configuration (used for ONEFLOW_FEATURE_STORE_SID)
+    fs_tier: str = ""
+    fs_caller_id: str = ""
+    fs_timeout_ms: int = 5000
+    fs_batch_size: int = 500
+    fs_feature_group_id: int = 0
+    fs_feature_group_name: str = ""
+    fs_feature_name: str = ""
+
+
 class KVZCHParams(NamedTuple):
     # global bucket id start and global bucket id end offsets for each logical table,
     # where start offset is inclusive and end offset is exclusive
@@ -250,6 +292,8 @@ class KVZCHParams(NamedTuple):
     load_ckpt_without_opt: bool = False
     optimizer_type_for_st: Optional[str] = None
     optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
+    # Enrichment config for embedding cache enrichment from external sources
+    enrichment_policy: Optional[EnrichmentPolicy] = None
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
@@ -279,6 +323,8 @@ class KVZCHTBEConfig(NamedTuple):
     optimizer_type_for_st: Optional[str] = None
     # [DO NOT USE] This is for st publish only, do not set it in your config
     optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
+    # Enrichment policy for embedding cache enrichment from external sources (e.g. Laser)
+    enrichment_policy: Optional[EnrichmentPolicy] = None
 
 
 class BackendType(enum.IntEnum):
