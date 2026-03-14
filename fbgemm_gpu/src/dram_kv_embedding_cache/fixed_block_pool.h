@@ -172,6 +172,20 @@ class FixedBlockPool : public std::pmr::memory_resource {
             [](scalar_t sum, scalar_t val) { return sum + val * val; }));
   }
 
+  // Check if all weights in the block are zero
+  // Uses memcmp against a static zero buffer for efficiency
+  template <typename scalar_t>
+  static bool is_weights_all_zero(const scalar_t* block, size_t block_size) {
+    const scalar_t* data = FixedBlockPool::data_ptr(block);
+    const size_t data_byte_size = block_size - sizeof(MetaHeader);
+    // Use a thread-local zero buffer to avoid allocation overhead
+    thread_local std::vector<char> zero_buffer;
+    if (zero_buffer.size() < data_byte_size) {
+      zero_buffer.resize(data_byte_size, 0);
+    }
+    return std::memcmp(data, zero_buffer.data(), data_byte_size) == 0;
+  }
+
   explicit FixedBlockPool(
       std::size_t block_size, // Size of each memory block
       std::size_t block_alignment, // Memory block alignment requirement
