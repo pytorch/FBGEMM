@@ -9,7 +9,6 @@
 #pragma once
 
 #include <atomic>
-#include <barrier>
 #include <chrono>
 #include <cstddef>
 #include <memory_resource>
@@ -512,6 +511,9 @@ class FeatureEvict {
     auto evict_state = evict_state_.load();
     if (evict_state == EvictState::Idle)
       return;
+    if (thresholds_need_computation_.exchange(false)) {
+      compute_thresholds();
+    }
     evict_interrupt_.store(false);
     evict_cv_.notify_all();
     return;
@@ -588,6 +590,7 @@ class FeatureEvict {
     metrics_.reset();
     futures_.clear();
     finished_evictions_.store(0);
+    thresholds_need_computation_.store(true);
     // make sure we don't start right away, wait until resume() is called
     evict_interrupt_.store(true);
   }
@@ -672,6 +675,8 @@ class FeatureEvict {
           pool->template deallocate_t<weight_type>(block);
           evicted_counts[sub_table_id]++;
         }
+      } else {
+        rebuild_block_histogram(block, sub_table_id, shard_id);
       }
     }
   }
@@ -737,13 +742,19 @@ class FeatureEvict {
   void process_shard(int shard_id) {
     std::chrono::milliseconds duration{};
 
-    pre_calculate_thresholds(shard_id);
     std::vector<int64_t> evicted_counts(sub_table_hash_cumsum_.size(), 0);
     std::vector<int64_t> processed_counts(sub_table_hash_cumsum_.size(), 0);
+    bool shard_histogram_reset = false;
     // each active eviction round
     while (block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
       if (!wait_until_resume(shard_id)) {
         return;
+      }
+      if (!shard_histogram_reset) {
+        // Reset after first wait_until_resume() so that compute_thresholds()
+        // in resume() can still read the old histogram before we rebuild it.
+        reset_shard_histogram(shard_id);
+        shard_histogram_reset = true;
       }
       auto start_time = std::chrono::high_resolution_clock::now();
       if (is_training_) {
@@ -777,7 +788,17 @@ class FeatureEvict {
   virtual bool
   evict_block(weight_type* block, int sub_table_id, int shard_id) = 0;
 
-  virtual void pre_calculate_thresholds(int shard_id) = 0;
+  virtual void compute_thresholds() {}
+
+  // Called before eviction scan to reset per-shard histogram for rebuild.
+  virtual void reset_shard_histogram(int /*shard_id*/) {}
+
+  // Called for each non-evicted block during the eviction scan to rebuild
+  // the histogram from actual block scores.
+  virtual void rebuild_block_histogram(
+      weight_type* /*block*/,
+      int /*sub_table_id*/,
+      int /*shard_id*/) {}
 
   // Check and reset the eviction state .
   void update_evict_finish_flags(int shard_id) {
@@ -913,6 +934,8 @@ class FeatureEvict {
 
   // decay
   std::atomic<bool> should_decay_ = false;
+  // flag to compute thresholds in resume() before waking eviction threads
+  std::atomic<bool> thresholds_need_computation_{false};
   std::atomic<int64_t> last_decay_ts_{
       std::chrono::duration_cast<std::chrono::seconds>(
           std::chrono::high_resolution_clock::now().time_since_epoch())
@@ -984,8 +1007,6 @@ class CounterBasedEvict : public FeatureEvict<weight_type> {
     return current_count < threshold;
   }
 
-  void pre_calculate_thresholds(int shard_id) override {}
-
  private:
   const std::vector<double>& decay_rates_; // Decay rate for the block count.
   const std::vector<int64_t>& thresholds_; // Threshold for eviction.
@@ -1026,8 +1047,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
             enable_eviction_for_feature_score_eviction_policy),
         threshold_calculation_bucket_stride_(
             threshold_calculation_bucket_stride),
-        num_buckets_(threshold_calculation_bucket_num),
-        finalize_barrier_(this->num_shards_) {
+        num_buckets_(threshold_calculation_bucket_num) {
     LOG(WARNING)
         << "FeatureScoreBasedEvict is not supported for Non-UT cases for now, "
         << "make sure you know what you are doing";
@@ -1109,14 +1129,9 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
     if (this->should_decay_) {
       double ratio = FixedBlockPool::get_feature_score_rate(block);
-      int64_t old_idx = get_bucket_id_from_ratio(ratio);
       double decay_rate = decay_rates_[sub_table_id];
       double new_ratio = ratio * decay_rate;
-      int64_t new_idx = get_bucket_id_from_ratio(new_ratio);
       FixedBlockPool::set_feature_score_rate(block, new_ratio);
-
-      local_buckets_per_shard_per_table_[sub_table_id][shard_id][old_idx]--;
-      local_buckets_per_shard_per_table_[sub_table_id][shard_id][new_idx]++;
     }
     double overall_ratio = FixedBlockPool::get_feature_score_rate(block);
     constexpr double EPSILON = 1e-9;
@@ -1137,20 +1152,39 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         break;
     }
 
-    if (should_evict) {
-      int64_t idx = get_bucket_id_from_ratio(overall_ratio);
-
-      local_buckets_per_shard_per_table_[sub_table_id][shard_id][idx]--;
-      local_blocks_num_per_shard_per_table_[sub_table_id][shard_id]--;
-    }
     return should_evict;
   }
 
-  void pre_calculate_thresholds(int shard_id) override {
-    if (shard_id == 0) {
-      compute_thresholds_from_buckets();
+  void compute_thresholds() override {
+    compute_thresholds_from_buckets();
+  }
+
+  void reset_shard_histogram(int shard_id) override {
+    for (int table_id = 0; table_id < num_tables_; ++table_id) {
+      if (ttls_in_mins_[table_id] > 0) {
+        // TTL tables don't use the feature score histogram;
+        // their block counts are maintained incrementally.
+        continue;
+      }
+      std::fill(
+          local_buckets_per_shard_per_table_[table_id][shard_id].begin(),
+          local_buckets_per_shard_per_table_[table_id][shard_id].end(),
+          0);
+      local_blocks_num_per_shard_per_table_[table_id][shard_id] = 0;
     }
-    finalize_barrier_.arrive_and_wait();
+  }
+
+  void rebuild_block_histogram(
+      weight_type* block,
+      int sub_table_id,
+      int shard_id) override {
+    if (ttls_in_mins_[sub_table_id] > 0) {
+      return;
+    }
+    double ratio = FixedBlockPool::get_feature_score_rate(block);
+    int64_t idx = get_bucket_id_from_ratio(ratio);
+    local_buckets_per_shard_per_table_[sub_table_id][shard_id][idx]++;
+    local_blocks_num_per_shard_per_table_[sub_table_id][shard_id]++;
   }
 
  private:
@@ -1295,8 +1329,6 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
   const double threshold_calculation_bucket_stride_; // stride for bucketing
   int num_buckets_; // number of buckets for threshold calculation
-
-  std::barrier<> finalize_barrier_;
 };
 
 template <typename weight_type>
@@ -1335,8 +1367,6 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
     return current_time - FixedBlockPool::get_timestamp(block) > ttl * 60;
   }
 
-  void pre_calculate_thresholds(int shard_id) override {}
-
  private:
   const std::vector<int64_t>& ttls_in_mins_; // Time-to-live for eviction.
 };
@@ -1372,8 +1402,6 @@ class TimeThresholdBasedEvict : public FeatureEvict<weight_type> {
       override {
     return FixedBlockPool::get_timestamp(block) < eviction_timestamp_threshold_;
   }
-
-  void pre_calculate_thresholds(int shard_id) override {}
 
  private:
   uint32_t eviction_timestamp_threshold_ = 0;
@@ -1432,8 +1460,6 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
         (current_count < threshold);
   }
 
-  void pre_calculate_thresholds(int shard_id) override {}
-
  private:
   const std::vector<int64_t>& ttls_in_mins_; // Time-to-live for eviction.
   const std::vector<double>& decay_rates_; // Decay rate for the block count.
@@ -1477,8 +1503,6 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
     auto l2weight = FixedBlockPool::get_l2weight(block, dimension);
     return l2weight < threshold;
   }
-
-  void pre_calculate_thresholds(int shard_id) override {}
 
  private:
   const std::vector<double>& thresholds_; // L2 weight threshold for eviction.
