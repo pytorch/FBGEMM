@@ -233,17 +233,28 @@ class EvictionPolicy(NamedTuple):
             )
 
 
+class EnrichmentType(enum.IntEnum):
+    IGR_LASER_EMBEDDING = 0
+    IGR_LASER_SID = 1
+
+
+class EnrichmentResponseFormat(enum.IntEnum):
+    JSON = 0
+    THRIFT_FLOAT = 1
+    THRIFT_INT64 = 2
+
+
 class EnrichmentPolicy(NamedTuple):
-    # Model and method identifier, e.g. "igr_laser_embedding", "igr_laser_sid"
-    enrichment_type: str = ""
+    # Model and method identifier
+    enrichment_type: EnrichmentType = EnrichmentType.IGR_LASER_EMBEDDING
     # External provider name (e.g. Laser provider name)
     provider_name: str = ""
     # Client identifier for the external service
     client_id: str = ""
     # Dimension of data returned by the source
     enrichment_dim: int = 0
-    # Deserialization format: "json", "thrift_float", "thrift_int64"
-    response_format: str = "json"
+    # Deserialization format
+    response_format: EnrichmentResponseFormat = EnrichmentResponseFormat.JSON
 
 
 class KVZCHParams(NamedTuple):
@@ -294,6 +305,8 @@ class KVZCHTBEConfig(NamedTuple):
     optimizer_type_for_st: Optional[str] = None
     # [DO NOT USE] This is for st publish only, do not set it in your config
     optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
+    # Enrichment policy for embedding cache enrichment from external sources (e.g. Laser)
+    enrichment_policy: Optional[EnrichmentPolicy] = None
 
 
 class BackendType(enum.IntEnum):
