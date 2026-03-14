@@ -517,6 +517,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         std::vector<folly::Unit>{});
   }
 
+  void set_embedding_cache_enrich_query_id_async(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) override {
+    return;
+  }
+
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,

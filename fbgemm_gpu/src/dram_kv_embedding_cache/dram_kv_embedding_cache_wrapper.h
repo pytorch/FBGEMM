@@ -39,7 +39,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t res_server_port = 0,
       std::vector<std::string> table_names = {},
       std::vector<int64_t> table_offsets = {},
-      std::vector<int64_t> table_sizes = {}) {
+      std::vector<int64_t> table_sizes = {},
+      std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>
+          enrichment_config = std::nullopt) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -60,7 +62,8 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           res_server_port,
           std::move(table_names),
           std::move(table_offsets),
-          std::move(table_sizes));
+          std::move(table_sizes),
+          enrichment_config);
     } else if (row_storage_bitwidth == 32) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
           max_D,
@@ -81,7 +84,8 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           res_server_port,
           std::move(table_names),
           std::move(table_offsets),
-          std::move(table_sizes));
+          std::move(table_sizes),
+          enrichment_config);
     } else {
       throw std::runtime_error("Failed to create recording device");
     }
@@ -204,6 +208,24 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor count,
       at::Tensor engage_show_count) {
     impl_->set_feature_score_metadata_cuda(indices, count, engage_show_count);
+  }
+
+  void set_embedding_cache_enrich_query_id_cuda(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) {
+    impl_->set_embedding_cache_enrich_query_id_cuda(
+        hashed_indices, unhashed_indices, count);
+  }
+
+  std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) {
+    return impl_->fetch_sids_sync(
+        std::move(hashed_indices),
+        std::move(unhashed_indices),
+        std::move(count));
   }
 
  private:

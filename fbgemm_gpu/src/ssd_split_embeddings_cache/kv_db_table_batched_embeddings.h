@@ -220,6 +220,22 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       at::Tensor count,
       at::Tensor engage_show_count) = 0;
 
+  virtual void set_embedding_cache_enrich_query_id_async(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) = 0;
+
+  /// Sync fetch SIDs for publish. Cache-first: reads SIDs from kv_store if
+  /// available, only calls remote (FeatureStore/OpenTab) for cache misses.
+  /// Default no-op for non-DRAM backends.
+  /// @return (vids_tensor, sids_tensor) both int64
+  virtual std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) {
+    return {at::empty({0}, at::kLong), at::empty({0}, at::kLong)};
+  }
+
   virtual void compact() = 0;
 
   /// Flush L2 cache into backend storage
@@ -249,6 +265,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& indices,
       const at::Tensor& count,
       const at::Tensor& engage_show_count);
+
+  void set_embedding_cache_enrich_query_id_cuda(
+      const at::Tensor& hashed_indices,
+      const at::Tensor& unhashed_indices,
+      const at::Tensor& count);
 
   void stream_cuda(
       const at::Tensor& indices,

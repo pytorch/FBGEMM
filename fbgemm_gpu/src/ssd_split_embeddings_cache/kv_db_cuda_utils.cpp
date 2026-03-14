@@ -27,13 +27,8 @@ void host_async_threadpool_executor(void (*f)(void*), void* userData) {
 
 }; // namespace
 
-void cuda_callback_func(
-    cudaStream_t /*stream*/,
-    cudaError_t status,
-    void* functor) {
-  AT_CUDA_CHECK(status);
+void cuda_host_func(void* functor) {
   auto* f = reinterpret_cast<std::function<void()>*>(functor);
-  AT_CUDA_CHECK(cudaGetLastError());
   (*f)();
   // delete f; // unfortunately, this invoke destructors that call CUDA
   // API functions (e.g. caching host allocators issue cudaGetDevice(..),
