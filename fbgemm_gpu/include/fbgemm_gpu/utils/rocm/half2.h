@@ -33,8 +33,7 @@ struct Half2 {
   half2 a;
 
   __device__ inline void store(at::Half* p) {
-    p[0] = __low2half(a);
-    p[1] = __high2half(a);
+    *reinterpret_cast<half2*>(p) = a;
   }
 };
 
