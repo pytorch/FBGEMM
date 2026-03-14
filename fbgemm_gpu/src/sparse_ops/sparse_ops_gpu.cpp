@@ -12,14 +12,19 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
+#ifdef USE_ROCM
+#include "fbgemm_gpu/utils/rocm/sparse_group_utils.h"
+#endif
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <torch/script.h>
 #include <cstdint>
 #include <stdexcept> // for logic_error
+#include <utility>
 
 using Tensor = at::Tensor;
 
@@ -27,13 +32,15 @@ namespace fbgemm_gpu {
 
 namespace {
 
-constexpr int32_t NUM_ARGS = 5;
+constexpr int32_t NUM_ARGS = 7;
 enum args_pos {
   P_input_ptrs = 0,
   P_output_ptrs = 1,
   P_indices_ptrs = 2,
-  P_warp_offsets_group_ptrs = 3,
-  P_num_cols_group_ptrs = 4
+  P_sorted_indices_ptrs = 3,
+  P_reverse_indices_ptrs = 4,
+  P_warp_offsets_group_ptrs = 5,
+  P_num_cols_group_ptrs = 6,
 };
 
 template <typename T>
@@ -47,6 +54,8 @@ void offset_args(
     int64_t** input_ptrs,
     int64_t** output_ptrs,
     int64_t** indices_ptrs,
+    int64_t** sorted_indices_ptrs,
+    int64_t** reverse_indices_ptrs,
     int64_t** warp_offsets_group,
     int32_t** num_cols_group,
     int64_t* base_addr,
@@ -54,6 +63,8 @@ void offset_args(
   *input_ptrs = base_addr + ptr_offsets[P_input_ptrs];
   *output_ptrs = base_addr + ptr_offsets[P_output_ptrs];
   *indices_ptrs = base_addr + ptr_offsets[P_indices_ptrs];
+  *sorted_indices_ptrs = base_addr + ptr_offsets[P_sorted_indices_ptrs];
+  *reverse_indices_ptrs = base_addr + ptr_offsets[P_reverse_indices_ptrs];
   *warp_offsets_group = base_addr + ptr_offsets[P_warp_offsets_group_ptrs];
   *num_cols_group = reinterpret_cast<int32_t*>(
       base_addr + ptr_offsets[P_num_cols_group_ptrs]);
@@ -213,6 +224,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   //   input_ptrs (group_size int64_t elements)
   //   output_ptrs (group_size int64_t elements)
   //   indices_ptrs (group_size int64_t elements)
+  //   sorted_indices_ptrs (group_size int64_t elements)
+  //   reverse_indices_ptrs (group_size int64_t elements)
   //   warp_offsets_group (group_size + 1 int64_t elements)
   //   num_cols_group (group_size int32_t elements)
   int64_t args_ptrs_offsets[NUM_ARGS + 1];
@@ -224,6 +237,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   args_ptrs_offsets[P_input_ptrs] = group_size;
   args_ptrs_offsets[P_output_ptrs] = group_size;
   args_ptrs_offsets[P_indices_ptrs] = group_size;
+  args_ptrs_offsets[P_sorted_indices_ptrs] = group_size;
+  args_ptrs_offsets[P_reverse_indices_ptrs] = group_size;
   args_ptrs_offsets[P_warp_offsets_group_ptrs] = group_size + 1;
   args_ptrs_offsets[P_num_cols_group_ptrs] = numels_num_cols_group_64;
 
@@ -251,6 +266,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   int64_t* input_ptrs = nullptr;
   int64_t* output_ptrs = nullptr;
   int64_t* indices_ptrs = nullptr;
+  int64_t* sorted_indices_ptrs = nullptr;
+  int64_t* reverse_indices_ptrs = nullptr;
   int64_t* warp_offsets_group = nullptr;
   int32_t* num_cols_group = nullptr;
 
@@ -259,6 +276,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       &input_ptrs,
       &output_ptrs,
       &indices_ptrs,
+      &sorted_indices_ptrs,
+      &reverse_indices_ptrs,
       &warp_offsets_group,
       &num_cols_group,
       reinterpret_cast<int64_t*>(args_tensor.mutable_data_ptr()),
@@ -290,6 +309,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   input_contigs.reserve(group_size);
   index_contigs.reserve(group_size);
 
+  bool use_packed_rows = false;
+  size_t num_total_indices = 0;
   // For each group, copy input to output
   for (const auto i : c10::irange(group_size)) {
     const auto& input = input_group[i];
@@ -335,6 +356,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input, indices);
 
     auto num_output_rows_ = indices.size(0);
+    num_total_indices += num_output_rows_;
 
     // Verify that all input tensors have the same shape[0]
     TORCH_CHECK_VALUE(
@@ -358,6 +380,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       // Optimization: Pack multiple rows into one warp
       int rows_per_warp = cols_per_warp / num_cols_;
       warps_needed = (num_output_rows_ + rows_per_warp - 1) / rows_per_warp;
+      use_packed_rows = true;
     } else {
       // Standard: One or more warps per row
       int warps_per_row = (num_cols_ + cols_per_warp - 1) / cols_per_warp;
@@ -400,6 +423,17 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     warp_offset += warps_per_row * num_output_rows;
 #endif // USE_ROCM
   }
+  
+#ifdef USE_ROCM
+  // The value is selected empirically. Potential
+  // place for optimization.
+  constexpr size_t kSortIndicesThreshold = 15'000'000;
+  const bool use_sorted_indices_for_bwd =
+      (num_total_indices < kSortIndicesThreshold);
+#else
+  const bool use_sorted_indices_for_bwd = false;
+  (void)num_total_indices;
+#endif
 
   // Store the last offset
   warp_offsets_group[group_size] = warp_offset;
@@ -414,6 +448,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       &input_ptrs,
       &output_ptrs,
       &indices_ptrs,
+      &sorted_indices_ptrs,
+      &reverse_indices_ptrs,
       &warp_offsets_group,
       &num_cols_group,
       reinterpret_cast<int64_t*>(args_tensor.mutable_data_ptr()),
@@ -422,6 +458,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   int64_t saved_data[] = {
       static_cast<int64_t>(group_size),
       use_var_cols,
+      use_packed_rows,
+      use_sorted_indices_for_bwd,
       reinterpret_cast<int64_t>(warp_offsets_group),
       reinterpret_cast<int64_t>(num_cols_group),
       warp_offset,
@@ -438,6 +476,8 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       input_ptrs,
       output_ptrs,
       indices_ptrs,
+      /*sorted_indices_ptrs=*/nullptr,
+      /*reverse_indices_ptrs=*/nullptr,
       warp_offsets_group,
       num_cols_group,
       first_input.scalar_type(),
@@ -447,7 +487,10 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       /*total_num_warps=*/warp_offset,
       group_size,
       /*use_index_select=*/true,
-      use_var_cols);
+      use_var_cols,
+      /*use_contiguous_warps=*/false,
+      /*use_cache=*/false,
+      use_packed_rows);
 
   output_group.push_back(args_tensor);
   output_group.push_back(saved_data_t);
@@ -499,11 +542,13 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       " but got ",
       saved_data_ptr[0]);
   const bool use_var_cols = saved_data_ptr[1];
+  const bool use_packed_rows = saved_data_ptr[2];
+  const bool use_sorted_indices = saved_data_ptr[3];
   const int64_t* warp_offsets_group =
-      reinterpret_cast<const int64_t*>(saved_data_ptr[2]);
+      reinterpret_cast<const int64_t*>(saved_data_ptr[4]);
   const int32_t* num_cols_group =
-      reinterpret_cast<const int32_t*>(saved_data_ptr[3]);
-  int64_t total_num_warps = saved_data_ptr[4];
+      reinterpret_cast<const int32_t*>(saved_data_ptr[5]);
+  int64_t total_num_warps = saved_data_ptr[6];
 
   // We checked in forward that all output rows are the same for all member
   // in the group
@@ -528,7 +573,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
 
   // Allocate Tensor for ptrs of grad output and input, and indices
   Tensor args_tensor = at::empty(
-      {group_size * 3},
+      {group_size * 5},
       at::TensorOptions().dtype(at::kLong).pinned_memory(true));
   // Ensure that args_tensor is contiguous
   TORCH_CHECK(
@@ -538,6 +583,8 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       args_tensor.mutable_data_ptr<int64_t>() + group_size;
   int64_t* indices_ptrs =
       args_tensor.mutable_data_ptr<int64_t>() + 2 * group_size;
+  int64_t* sorted_indices_ptrs = args_tensor.data_ptr<int64_t>() + 3 * group_size;
+  int64_t* reverse_indices_ptrs = args_tensor.data_ptr<int64_t>() + 4 * group_size;
 
   int64_t group_grad_input_numel = 0;
   std::vector<int64_t> grad_input_numels;
@@ -607,21 +654,53 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
 
   // Calculate indices_ptrs
   std::vector<c10::MaybeOwned<at::Tensor>> index_contigs;
+  std::vector<at::Tensor> sorted_indices_contigs;
+  std::vector<at::Tensor> reverse_indices_contigs;
   index_contigs.reserve(group_size);
+  if (use_sorted_indices) {
+    sorted_indices_contigs.reserve(group_size);
+    reverse_indices_contigs.reserve(group_size);
+  }
   for (const auto i : c10::irange(group_size)) {
     const auto& indices = indices_group[i];
     index_contigs.push_back(indices.expect_contiguous());
     indices_ptrs[i] =
         reinterpret_cast<int64_t>(index_contigs[i]->const_data_ptr());
+    reverse_indices_ptrs[i] = 0;
+#ifdef USE_ROCM
+    if (use_sorted_indices) {
+      auto [sorted_tensor, reverse_tensor] =
+        rocm::sort_indices_with_rocprim(*index_contigs[i]);
+      const auto stream = at::cuda::getCurrentCUDAStream();
+      sorted_tensor.record_stream(stream);
+      reverse_tensor.record_stream(stream);
+      sorted_indices_contigs.push_back(std::move(sorted_tensor));
+      reverse_indices_contigs.push_back(std::move(reverse_tensor));
+      sorted_indices_ptrs[i] = reinterpret_cast<int64_t>(
+          sorted_indices_contigs.back().data_ptr());
+      reverse_indices_ptrs[i] = reinterpret_cast<int64_t>(
+          reverse_indices_contigs.back().data_ptr());
+    }
+#endif
   }
 
   // Transfer grad output pointers to GPU
   args_tensor = args_tensor.to(first_indices.device(), /*non_blocking=*/true);
 
+#ifdef USE_ROCM
+  constexpr bool use_contiguous_warps = true;
+  constexpr bool use_cache = true;
+#else
+  constexpr bool use_contiguous_warps = false;
+  constexpr bool use_cache = false;
+#endif
+
   group_index_select_or_add_cuda(
       args_tensor.const_data_ptr<int64_t>(),
       args_tensor.const_data_ptr<int64_t>() + group_size,
       args_tensor.const_data_ptr<int64_t>() + 2 * group_size,
+      use_sorted_indices ? args_tensor.data_ptr<int64_t>() + 3 * group_size : nullptr,
+      use_sorted_indices ? args_tensor.data_ptr<int64_t>() + 4 * group_size : nullptr,
       warp_offsets_group,
       num_cols_group,
       fwd_input.scalar_type(),
@@ -631,7 +710,10 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       total_num_warps,
       group_size,
       /*use_index_select=*/false,
-      use_var_cols);
+      use_var_cols,
+      use_contiguous_warps,
+      use_cache,
+      use_packed_rows);
 
   return outputs;
 }

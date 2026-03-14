@@ -3636,6 +3636,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
           .typed<decltype(group_index_select_dim0_forward_impl_cpu)>();
   auto result = forward_op.call(all_indices_input, group_size);
   TORCH_CHECK(static_cast<int64_t>(result.size()) == group_size + 2);
+  ctx->saved_data["group_size"] = group_size;
 
   auto [input_group, indices_group] =
       group_index_select_dim0_unpack(all_indices_input, group_size);
@@ -3674,7 +3675,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
     return torch::autograd::variable_list(1);
   }
   // remove redundant grads
-  auto group_size = grad_output_group.size() - 2;
+  const auto group_size = ctx->saved_data["group_size"].toInt();
   grad_output_group.resize(group_size);
 
   const auto saved_tensors = ctx->get_saved_variables();
