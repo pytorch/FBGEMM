@@ -589,17 +589,14 @@
 </dd></dl>
 
 <dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv">
-<span id="_CPPv318cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="_CPPv218cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="cuda_callback_func__cudaStream_t.cudaError_t.voidP"></span><span class="target" id="group__embedding-ssd_1ga14b70f98db5378da5071b9049b7356db"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">cuda_callback_func</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">cudaStream_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">stream</span></span>, <span class="n"><span class="pre">cudaError_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">status</span></span>, <span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">functor</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>A callback function for <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code></p>
-<p>A common callback function for <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code>, i.e., <code class="docutils literal notranslate"><span class="pre">cudaStreamCallback_t</span> <span class="pre">callback</span></code>. This function casts <code class="docutils literal notranslate"><span class="pre">functor</span></code> into a void function, invokes it and then delete it (the deletion occurs in another thread)</p>
+<dt class="sig sig-object cpp" id="_CPPv414cuda_host_funcPv">
+<span id="_CPPv314cuda_host_funcPv"></span><span id="_CPPv214cuda_host_funcPv"></span><span id="cuda_host_func__voidP"></span><span class="target" id="group__embedding-ssd_1ga460c4bada57c3fd0efcefeecce1e6d61"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">cuda_host_func</span></span></span><span class="sig-paren">(</span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">functor</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv414cuda_host_funcPv" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>A host function for <code class="docutils literal notranslate"><span class="pre">cudaLaunchHostFunc</span></code></p>
+<p>A common host function for <code class="docutils literal notranslate"><span class="pre">cudaLaunchHostFunc</span></code>, i.e., <code class="docutils literal notranslate"><span class="pre">cudaHostFn_t</span></code>. This function casts <code class="docutils literal notranslate"><span class="pre">functor</span></code> into a void function, invokes it and then deletes it (the deletion occurs in another thread).</p>
+<p>Unlike <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code>, <code class="docutils literal notranslate"><span class="pre">cudaLaunchHostFunc</span></code> does not hold the CUDA driver mutex during execution, allowing concurrent CUDA API calls from other threads (e.g., NCCL kernel launches on other streams).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>stream</strong> – CUDA stream that <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code> operates on </p></li>
-<li><p><strong>status</strong> – CUDA status </p></li>
-<li><p><strong>functor</strong> – A functor that will be called</p></li>
-</ul>
+<dd class="field-odd"><p><strong>functor</strong> – A functor that will be called</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>None </p>

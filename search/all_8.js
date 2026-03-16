@@ -36,5 +36,5 @@ var searchData=
   ['cuda_33',['CUDA',['../group__permute-pooled-embs-gpu.html',1,'Permute Pooled Embeddings Operators (CUDA)'],['../group__quantize-ops-cuda.html',1,'Quantization Operators (CUDA)']]],
   ['cuda_20memory_20operators_34',['CUDA Memory Operators',['../group__cumem-utils.html',1,'']]],
   ['cuda_20operators_35',['CUDA Operators',['../group__faster-hash-ops-cuda.html',1,'CUDA Operators'],['../group__table-batched-embed-cuda.html',1,'CUDA Operators'],['../group__embedding-cuda.html',1,'Embedding CUDA Operators'],['../group__jagged-tensor-ops-cuda.html',1,'Jagged Tensor CUDA Operators'],['../group__layout-transform-cuda.html',1,'Layout Transformation CUDA Operators'],['../group__sparse-data-cuda.html',1,'Sparse Data CUDA Operators']]],
-  ['cuda_5fcallback_5ffunc_36',['cuda_callback_func',['../group__embedding-ssd.html#ga14b70f98db5378da5071b9049b7356db',1,'kv_db_utils']]]
+  ['cuda_5fhost_5ffunc_36',['cuda_host_func',['../group__embedding-ssd.html#ga460c4bada57c3fd0efcefeecce1e6d61',1,'kv_db_utils']]]
 ];

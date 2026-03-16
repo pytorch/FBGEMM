@@ -9,12 +9,13 @@ var searchData=
   ['depthwise_5f3d_5fsame_5fpad_6',['depthwise_3d_same_pad',['../namespacefbgemm.html#a0bfa499fd1b485bc3e457842343bca57',1,'fbgemm']]],
   ['details_7',['details',['../namespacefbgemm__gpu.html#autotoc_md9',1,'']]],
   ['direct_5fmapped_5flxu_5fcache_5flookup_5fcuda_8',['direct_mapped_lxu_cache_lookup_cuda',['../group__table-batched-embed-cuda.html#ga588c4e7ce44cac1a072e708a2fd52d16',1,'split_embeddings_cache_cuda.cuh']]],
-  ['donothing_9',['DoNothing',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
-  ['donothing_3c_20float_2c_20float_20_3e_10',['DoNothing&lt; float, float &gt;',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
-  ['donothing_3c_20std_3a_3aint32_5ft_2c_20std_3a_3aint32_5ft_20_3e_11',['DoNothing&lt; std::int32_t, std::int32_t &gt;',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
-  ['donothing_3c_20std_3a_3auint8_5ft_2c_20std_3a_3auint8_5ft_20_3e_12',['DoNothing&lt; std::uint8_t, std::uint8_t &gt;',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
-  ['dosconvoninpbuffer_13',['DoSConvOnInpBuffer',['../classfbgemm_1_1_do_s_conv_on_inp_buffer.html',1,'fbgemm']]],
-  ['dospmdmoninpbuffer_14',['DoSpmdmOnInpBuffer',['../classfbgemm_1_1_do_spmdm_on_inp_buffer.html',1,'fbgemm']]],
-  ['dramkvembeddingcache_15',['DramKVEmbeddingCache',['../classkv__mem_1_1_dram_k_v_embedding_cache.html',1,'DramKVEmbeddingCache&lt; weight_type &gt;'],['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a97c4ec2c8ee6c47a15f4d6b6d7914178',1,'kv_mem::DramKVEmbeddingCache::DramKVEmbeddingCache()']]],
-  ['dramkvinferenceembedding_16',['DramKVInferenceEmbedding',['../classkv__mem_1_1_dram_k_v_inference_embedding.html',1,'DramKVInferenceEmbedding&lt; weight_type &gt;'],['../classkv__mem_1_1_dram_k_v_inference_embedding.html#ab0c68a345d8e1601c5a8e487312e50a1',1,'kv_mem::DramKVInferenceEmbedding::DramKVInferenceEmbedding()']]]
+  ['dispatchenrichmentasync_9',['dispatchEnrichmentAsync',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a047abf23fb18225675fcb9846a39f2dd',1,'kv_mem::DramKVEmbeddingCache']]],
+  ['donothing_10',['DoNothing',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
+  ['donothing_3c_20float_2c_20float_20_3e_11',['DoNothing&lt; float, float &gt;',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
+  ['donothing_3c_20std_3a_3aint32_5ft_2c_20std_3a_3aint32_5ft_20_3e_12',['DoNothing&lt; std::int32_t, std::int32_t &gt;',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
+  ['donothing_3c_20std_3a_3auint8_5ft_2c_20std_3a_3auint8_5ft_20_3e_13',['DoNothing&lt; std::uint8_t, std::uint8_t &gt;',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
+  ['dosconvoninpbuffer_14',['DoSConvOnInpBuffer',['../classfbgemm_1_1_do_s_conv_on_inp_buffer.html',1,'fbgemm']]],
+  ['dospmdmoninpbuffer_15',['DoSpmdmOnInpBuffer',['../classfbgemm_1_1_do_spmdm_on_inp_buffer.html',1,'fbgemm']]],
+  ['dramkvembeddingcache_16',['DramKVEmbeddingCache',['../classkv__mem_1_1_dram_k_v_embedding_cache.html',1,'DramKVEmbeddingCache&lt; weight_type &gt;'],['../classkv__mem_1_1_dram_k_v_embedding_cache.html#ac9db2b8665f362eb6109cbff9a51b425',1,'kv_mem::DramKVEmbeddingCache::DramKVEmbeddingCache()']]],
+  ['dramkvinferenceembedding_17',['DramKVInferenceEmbedding',['../classkv__mem_1_1_dram_k_v_inference_embedding.html',1,'DramKVInferenceEmbedding&lt; weight_type &gt;'],['../classkv__mem_1_1_dram_k_v_inference_embedding.html#ab0c68a345d8e1601c5a8e487312e50a1',1,'kv_mem::DramKVInferenceEmbedding::DramKVInferenceEmbedding()']]]
 ];
