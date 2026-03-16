@@ -977,6 +977,15 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("engage_rates"),
             })
         .def(
+            "set_embedding_cache_enrich_query_id_cuda",
+            &EmbeddingRocksDBWrapper::set_embedding_cache_enrich_query_id_cuda,
+            "",
+            {
+                torch::arg("hashed_indices"),
+                torch::arg("unhashed_indices"),
+                torch::arg("count"),
+            })
+        .def(
             "stream_cuda",
             &EmbeddingRocksDBWrapper::stream_cuda,
             "",
@@ -1048,6 +1057,19 @@ static auto embedding_rocks_db_wrapper =
             "get_active_checkpoint_uuid",
             &EmbeddingRocksDBWrapper::get_active_checkpoint_uuid);
 
+auto enrichment_config =
+    torch::class_<kv_mem::EnrichmentConfig>("fbgemm", "EnrichmentConfig")
+        .def(
+            torch::init<int64_t, std::string, std::string, int64_t, int64_t>(),
+            "",
+            {
+                torch::arg("enrichment_type"),
+                torch::arg("provider_name"),
+                torch::arg("client_id"),
+                torch::arg("enrichment_dim"),
+                torch::arg("response_format"),
+            });
+
 static auto dram_kv_embedding_cache_wrapper =
     torch::class_<DramKVEmbeddingCacheWrapper>(
         "fbgemm",
@@ -1071,7 +1093,8 @@ static auto dram_kv_embedding_cache_wrapper =
                 int64_t,
                 std::vector<std::string>,
                 std::vector<int64_t>,
-                std::vector<int64_t>>(),
+                std::vector<int64_t>,
+                std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>>(),
             "",
             {
                 torch::arg("max_D"),
@@ -1092,6 +1115,7 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("table_names") = std::vector<std::string>{},
                 torch::arg("table_offsets") = std::vector<int64_t>{},
                 torch::arg("table_sizes") = std::vector<int64_t>{},
+                torch::arg("enrichment_config") = std::nullopt,
             })
         .def(
             "set_cuda",
@@ -1152,6 +1176,16 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("indices"),
                 torch::arg("count"),
                 torch::arg("engage_rates"),
+            })
+        .def(
+            "set_embedding_cache_enrich_query_id_cuda",
+            &DramKVEmbeddingCacheWrapper::
+                set_embedding_cache_enrich_query_id_cuda,
+            "",
+            {
+                torch::arg("hashed_indices"),
+                torch::arg("unhashed_indices"),
+                torch::arg("count"),
             })
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
