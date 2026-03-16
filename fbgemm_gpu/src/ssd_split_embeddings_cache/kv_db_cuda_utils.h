@@ -14,18 +14,19 @@ namespace kv_db_utils {
 
 /// @ingroup embedding-ssd
 ///
-/// @brief A callback function for `cudaStreamAddCallback`
+/// @brief A host function for `cudaLaunchHostFunc`
 ///
-/// A common callback function for `cudaStreamAddCallback`, i.e.,
-/// `cudaStreamCallback_t callback`. This function casts `functor`
-/// into a void function, invokes it and then delete it (the deletion
-/// occurs in another thread)
+/// A common host function for `cudaLaunchHostFunc`, i.e.,
+/// `cudaHostFn_t`. This function casts `functor` into a void function,
+/// invokes it and then deletes it (the deletion occurs in another thread).
 ///
-/// @param stream CUDA stream that `cudaStreamAddCallback` operates on
-/// @param status CUDA status
+/// Unlike `cudaStreamAddCallback`, `cudaLaunchHostFunc` does not hold the
+/// CUDA driver mutex during execution, allowing concurrent CUDA API calls
+/// from other threads (e.g., NCCL kernel launches on other streams).
+///
 /// @param functor A functor that will be called
 ///
 /// @return None
-void cuda_callback_func(cudaStream_t stream, cudaError_t status, void* functor);
+void cuda_host_func(void* functor);
 
 }; // namespace kv_db_utils
