@@ -59,6 +59,14 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
     impl_->set_feature_score_metadata_cuda(indices, count, engage_show_count);
   }
 
+  void set_embedding_cache_enrich_query_id_cuda(
+      const Tensor& hashed_indices,
+      const Tensor& unhashed_indices,
+      const Tensor& count) {
+    impl_->set_embedding_cache_enrich_query_id_cuda(
+        hashed_indices, unhashed_indices, count);
+  }
+
   void stream_cuda(
       const Tensor& indices,
       const Tensor& weights,
@@ -118,6 +126,10 @@ static auto embedding_parameter_server_wrapper =
         .def(
             "set_feature_score_metadata_cuda",
             &EmbeddingParameterServerWrapper::set_feature_score_metadata_cuda)
+        .def(
+            "set_embedding_cache_enrich_query_id_cuda",
+            &EmbeddingParameterServerWrapper::
+                set_embedding_cache_enrich_query_id_cuda)
         .def("stream_cuda", &EmbeddingParameterServerWrapper::stream_cuda)
         .def(
             "stream_sync_cuda",
