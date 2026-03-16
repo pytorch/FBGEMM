@@ -317,7 +317,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
 
       // Lock cache line
       if (lock_cache_line) {
-        lxu_cache_locking_counter[cache_set][insert_slot] += 1;
+        atomicAdd(&lxu_cache_locking_counter[cache_set][insert_slot], 1);
       }
     }
   }

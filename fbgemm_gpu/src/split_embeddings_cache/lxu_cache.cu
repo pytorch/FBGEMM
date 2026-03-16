@@ -176,7 +176,7 @@ __launch_bounds__(kMaxThreads) void lxu_cache_locking_counter_decrement_kernel(
        i += gridDim.x * blockDim.y) {
     const auto j = threadIdx.x;
     if (count[i][j] > 0) {
-      lxu_cache_locking_counter[i][j] -= 1;
+      atomicAdd(&lxu_cache_locking_counter[i][j], -1);
     }
   }
 }
