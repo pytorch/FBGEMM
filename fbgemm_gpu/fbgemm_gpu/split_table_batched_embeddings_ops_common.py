@@ -233,6 +233,19 @@ class EvictionPolicy(NamedTuple):
             )
 
 
+class EnrichmentPolicy(NamedTuple):
+    # Model and method identifier, e.g. "igr_laser_embedding", "igr_laser_sid"
+    enrichment_type: str = ""
+    # External provider name (e.g. Laser provider name)
+    provider_name: str = ""
+    # Client identifier for the external service
+    client_id: str = ""
+    # Dimension of data returned by the source
+    enrichment_dim: int = 0
+    # Deserialization format: "json", "thrift_float", "thrift_int64"
+    response_format: str = "json"
+
+
 class KVZCHParams(NamedTuple):
     # global bucket id start and global bucket id end offsets for each logical table,
     # where start offset is inclusive and end offset is exclusive
@@ -250,6 +263,8 @@ class KVZCHParams(NamedTuple):
     load_ckpt_without_opt: bool = False
     optimizer_type_for_st: Optional[str] = None
     optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
+    # Enrichment config for embedding cache enrichment from external sources
+    enrichment_policy: Optional[EnrichmentPolicy] = None
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (

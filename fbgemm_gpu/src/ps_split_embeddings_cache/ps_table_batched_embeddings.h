@@ -67,6 +67,12 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
       at::Tensor engage_show_count) override {
     return std::vector<folly::Unit>(1);
   }
+
+  void set_embedding_cache_enrich_query_id_async(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) override {}
+
   void flush() {}
   void compact() override {}
   // cleanup cached results in server side

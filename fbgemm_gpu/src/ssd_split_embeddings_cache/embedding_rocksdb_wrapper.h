@@ -107,6 +107,15 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     impl_->set_feature_score_metadata_cuda(indices, count, engage_show_count);
   }
 
+  void set_embedding_cache_enrich_query_id_cuda(
+      const at::Tensor& hashed_indices,
+      const at::Tensor& unhashed_indices,
+      const at::Tensor& count) {
+    LOG(INFO) << "set_embedding_cache_enrich_query_id_cuda";
+    impl_->set_embedding_cache_enrich_query_id_cuda(
+        hashed_indices, unhashed_indices, count);
+  }
+
   void stream_sync_cuda() {
     return impl_->stream_sync_cuda();
   }

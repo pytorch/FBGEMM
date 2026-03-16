@@ -269,6 +269,22 @@ void EmbeddingKVDB::set_feature_score_metadata_cuda(
   rec->record.end();
 }
 
+void EmbeddingKVDB::set_embedding_cache_enrich_query_id_cuda(
+    const at::Tensor& hashed_indices,
+    const at::Tensor& unhashed_indices,
+    const at::Tensor& count) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::set_embedding_cache_enrich_query_id_cuda ##");
+  // take reference to self to avoid lifetime issues.
+  std::function<void()>* functor = new std::function<void()>([=, this]() {
+    set_embedding_cache_enrich_query_id_async(
+        hashed_indices, unhashed_indices, count);
+  });
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
+  rec->record.end();
+}
+
 void EmbeddingKVDB::stream_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
