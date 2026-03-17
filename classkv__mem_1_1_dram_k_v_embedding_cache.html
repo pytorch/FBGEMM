@@ -116,9 +116,6 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:ab197c34bb53bdad19a2521898a341ffc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:acc859d874e8e1164db9af461f34d39ff" id="r_acc859d874e8e1164db9af461f34d39ff"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acc859d874e8e1164db9af461f34d39ff">set_kv_db_async_on_enrichment_executor</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
 <tr class="separator:acc859d874e8e1164db9af461f34d39ff"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a047abf23fb18225675fcb9846a39f2dd" id="r_a047abf23fb18225675fcb9846a39f2dd"><td class="memTemplParams" colspan="2">template&lt;typename FetchFn, typename PrepareFn&gt; </td></tr>
-<tr class="memitem:a047abf23fb18225675fcb9846a39f2dd"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a047abf23fb18225675fcb9846a39f2dd">dispatchEnrichmentAsync</a> (std::vector&lt; int64_t &gt; hashed_ids, std::vector&lt; int64_t &gt; unhashed_ids, const char *log_prefix, FetchFn fetchFn, PrepareFn prepareFn)</td></tr>
-<tr class="separator:a047abf23fb18225675fcb9846a39f2dd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a31225c0d4a54952f46db295152b22065" id="r_a31225c0d4a54952f46db295152b22065"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31225c0d4a54952f46db295152b22065">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt)</td></tr>
 <tr class="separator:a31225c0d4a54952f46db295152b22065"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a089b321f90b6319a7c99cf01406cbd76" id="r_a089b321f90b6319a7c99cf01406cbd76"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a089b321f90b6319a7c99cf01406cbd76">maybe_evict</a> () override</td></tr>
@@ -284,55 +281,6 @@ template&lt;typename weight_type&gt; </div>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
-<a id="a047abf23fb18225675fcb9846a39f2dd" name="a047abf23fb18225675fcb9846a39f2dd"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a047abf23fb18225675fcb9846a39f2dd">&#9670;&#160;</a></span>dispatchEnrichmentAsync()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename weight_type&gt; </div>
-<div class="memtemplate">
-template&lt;typename FetchFn, typename PrepareFn&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">void dispatchEnrichmentAsync </td>
-          <td>(</td>
-          <td class="paramtype">std::vector&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>hashed_ids</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">std::vector&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>unhashed_ids</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const char *</td>          <td class="paramname"><span class="paramname"><em>log_prefix</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">FetchFn</td>          <td class="paramname"><span class="paramname"><em>fetchFn</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">PrepareFn</td>          <td class="paramname"><span class="paramname"><em>prepareFn</em></span>&#160;)</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-<p>Helper: schedule a fetch+prepare+write coroutine on enrichment_executor_. Eliminates boilerplate duplication across enrichment type branches. FetchFn: (const vector&lt;int64_t&gt;&amp;) -&gt; Task&lt;PayloadMap&gt; PrepareFn: (const vector&lt;int64_t&gt;&amp;, const vector&lt;int64_t&gt;&amp;, const PayloadMap&amp;) -&gt; optional&lt;EnrichmentResult&gt; </p>
-
-</div>
-</div>
 <a id="a3ec3ec693cdf42996def471797fcbba9" name="a3ec3ec693cdf42996def471797fcbba9"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a3ec3ec693cdf42996def471797fcbba9">&#9670;&#160;</a></span>get_keys_in_range_impl()</h2>
 
