@@ -35,7 +35,6 @@
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
 #include "igr_enrichment.h"
-#include "oneflow_enrichment.h"
 
 namespace kv_mem {
 
@@ -167,13 +166,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               kv_mem::EnrichmentType::IGR_LASER_SID) {
         laser_client_ =
             igr_enrichment::initializeLaserClient(*enrichment_config_.value());
-      }
-
-      // Initialize OpenTab reader if type is ONEFLOW_OPENTAB_SID
-      if (enrichment_config_.value()->enrichment_type_ ==
-          kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
-        open_tab_reader_ = oneflow_enrichment::initializeOpenTabReader(
-            *enrichment_config_.value());
       }
     }
     initialize_initializers(
@@ -1050,47 +1042,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             auto result =
                                 igr_enrichment::prepareSIDCacheWriteTensors(
                                     hashed_ids, unhashed_ids, sid_map, max_D_);
-                            if (result.has_value()) {
-                              set_kv_db_async_on_enrichment_executor(
-                                  result->indices,
-                                  result->weights,
-                                  result->count);
-                            }
-                          }
-                          pending_laser_requests_.fetch_sub(1);
-                          laser_write_in_progress_.store(false);
-                        })
-                        .scheduleOn(enrichment_executor_.get())
-                        .start();
-                  } else if (
-                      enrichment_type ==
-                      kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
-                    folly::coro::co_invoke(
-                        [this,
-                         hashed_ids = std::move(all_zero_weight_hashed_ids),
-                         unhashed_ids =
-                             std::move(all_zero_weight_unhashed_ids)]() mutable
-                            -> folly::coro::Task<void> {
-                          auto start_time =
-                              facebook::WallClockUtil::NowInUsecFast();
-                          auto payloads =
-                              co_await oneflow_enrichment::fetchFromOpenTab(
-                                  open_tab_reader_,
-                                  *enrichment_config_.value(),
-                                  unhashed_ids);
-                          auto opentab_latency_ms =
-                              (facebook::WallClockUtil::NowInUsecFast() -
-                               start_time) /
-                              1000;
-                          XLOG(INFO)
-                              << "[EmbeddingCacheEnrich] opentab_hit: "
-                              << payloads.size() << "/" << unhashed_ids.size()
-                              << ", latency_ms: " << opentab_latency_ms;
-                          if (!payloads.empty()) {
-                            auto result =
-                                oneflow_enrichment::prepareInt64PayloadTensors<
-                                    weight_type>(
-                                    hashed_ids, unhashed_ids, payloads, max_D_);
                             if (result.has_value()) {
                               set_kv_db_async_on_enrichment_executor(
                                   result->indices,
@@ -2283,9 +2234,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   // Pre-initialized LaserClient for IGR enrichment (reused across fetches)
   std::shared_ptr<facebook::laser::LaserClient> laser_client_;
-
-  // OpenTab/Maple reader for ONEFLOW_OPENTAB_SID enrichment
-  std::shared_ptr<facebook::multifeed::opentab::ObjectReader> open_tab_reader_;
 }; // class DramKVEmbeddingCache
 
 } // namespace kv_mem

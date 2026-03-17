@@ -21,7 +21,6 @@ namespace kv_mem {
 enum class EnrichmentType : int64_t {
   IGR_LASER_EMBEDDING = 0,
   IGR_LASER_SID = 1,
-  ONEFLOW_OPENTAB_SID = 2,
 };
 
 /// Must match Python EnrichmentResponseFormat(IntEnum) in
@@ -41,55 +40,24 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
   /// @param client_id Client identifier for the external service
   /// @param enrichment_dim Dimension of data returned by the source
   /// @param response_format EnrichmentResponseFormat int value
-  /// @param opentab_tier_name OpenTab/Maple tier name
-  /// @param opentab_payload_ids Comma-separated payload IDs
-  /// @param opentab_payload_types Comma-separated payload types (0=INT, 2=VEC)
-  /// @param opentab_column_group_ids Comma-separated column group IDs
-  /// @param opentab_vec_payload_indexes Comma-separated vec payload indexes
-  /// @param opentab_timeout_ms OpenTab request timeout in ms
-  /// @param opentab_batch_size OpenTab batch size
   explicit EnrichmentConfig(
       int64_t enrichment_type,
       std::string provider_name,
       std::string client_id,
       int64_t enrichment_dim,
-      int64_t response_format,
-      std::string opentab_tier_name = "",
-      std::string opentab_payload_ids = "",
-      std::string opentab_payload_types = "",
-      std::string opentab_column_group_ids = "",
-      std::string opentab_vec_payload_indexes = "",
-      int64_t opentab_timeout_ms = 5000,
-      int64_t opentab_batch_size = 100)
+      int64_t response_format)
       : enrichment_type_(static_cast<EnrichmentType>(enrichment_type)),
         provider_name_(std::move(provider_name)),
         client_id_(std::move(client_id)),
         enrichment_dim_(enrichment_dim),
         response_format_(
-            static_cast<EnrichmentResponseFormat>(response_format)),
-        opentab_tier_name_(std::move(opentab_tier_name)),
-        opentab_payload_ids_(std::move(opentab_payload_ids)),
-        opentab_payload_types_(std::move(opentab_payload_types)),
-        opentab_column_group_ids_(std::move(opentab_column_group_ids)),
-        opentab_vec_payload_indexes_(std::move(opentab_vec_payload_indexes)),
-        opentab_timeout_ms_(opentab_timeout_ms),
-        opentab_batch_size_(opentab_batch_size) {}
+            static_cast<EnrichmentResponseFormat>(response_format)) {}
 
   EnrichmentType enrichment_type_;
   std::string provider_name_;
   std::string client_id_;
   int64_t enrichment_dim_;
   EnrichmentResponseFormat response_format_;
-
-  // OpenTab/Maple configuration (used when enrichment_type_ ==
-  // ONEFLOW_OPENTAB_SID)
-  std::string opentab_tier_name_;
-  std::string opentab_payload_ids_;
-  std::string opentab_payload_types_;
-  std::string opentab_column_group_ids_;
-  std::string opentab_vec_payload_indexes_;
-  int64_t opentab_timeout_ms_;
-  int64_t opentab_batch_size_;
 };
 
 } // namespace kv_mem
