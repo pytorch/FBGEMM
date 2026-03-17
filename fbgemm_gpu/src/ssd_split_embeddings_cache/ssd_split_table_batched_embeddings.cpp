@@ -1072,14 +1072,7 @@ auto enrichment_config =
                 std::string,
                 std::string,
                 int64_t,
-                int64_t,
-                std::string,
-                std::string,
-                int64_t,
-                int64_t,
-                int64_t,
-                std::string,
-                std::string>(),
+                int64_t>(),
             "",
             {
                 torch::arg("enrichment_type"),
@@ -1094,13 +1087,6 @@ auto enrichment_config =
                 torch::arg("opentab_vec_payload_indexes") = "",
                 torch::arg("opentab_timeout_ms") = 5000,
                 torch::arg("opentab_batch_size") = 100,
-                torch::arg("fs_tier") = "",
-                torch::arg("fs_caller_id") = "",
-                torch::arg("fs_timeout_ms") = 5000,
-                torch::arg("fs_batch_size") = 500,
-                torch::arg("fs_feature_group_id") = 0,
-                torch::arg("fs_feature_group_name") = "",
-                torch::arg("fs_feature_name") = "",
             });
 
 static auto dram_kv_embedding_cache_wrapper =

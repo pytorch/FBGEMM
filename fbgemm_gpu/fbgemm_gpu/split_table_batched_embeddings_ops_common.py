@@ -237,7 +237,6 @@ class EnrichmentType(enum.IntEnum):
     IGR_LASER_EMBEDDING = 0
     IGR_LASER_SID = 1
     ONEFLOW_OPENTAB_SID = 2
-    ONEFLOW_FEATURE_STORE_SID = 3
 
 
 class EnrichmentResponseFormat(enum.IntEnum):
@@ -265,14 +264,6 @@ class EnrichmentPolicy(NamedTuple):
     opentab_vec_payload_indexes: str = ""  # comma-separated, e.g. "0"
     opentab_timeout_ms: int = 5000
     opentab_batch_size: int = 100
-    # Feature Store configuration (used for ONEFLOW_FEATURE_STORE_SID)
-    fs_tier: str = ""
-    fs_caller_id: str = ""
-    fs_timeout_ms: int = 5000
-    fs_batch_size: int = 500
-    fs_feature_group_id: int = 0
-    fs_feature_group_name: str = ""
-    fs_feature_name: str = ""
 
 
 class KVZCHParams(NamedTuple):
