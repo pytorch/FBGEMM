@@ -1,4 +1,12 @@
 /*
+ * Portions Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/*
  * The MIT License (MIT)
  *
  * Copyright (C) 2016 ExplosionAI GmbH, 2014-2015 Matthew Honnibal, 2016 spaCy
@@ -22,13 +30,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *
- */
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree.
  */
 
 #pragma once
