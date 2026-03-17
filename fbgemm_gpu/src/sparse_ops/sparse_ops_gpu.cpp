@@ -666,6 +666,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     index_contigs.push_back(indices.expect_contiguous());
     indices_ptrs[i] =
         reinterpret_cast<int64_t>(index_contigs[i]->const_data_ptr());
+    sorted_indices_ptrs[i] = 0;
     reverse_indices_ptrs[i] = 0;
 #ifdef USE_ROCM
     if (use_sorted_indices) {
