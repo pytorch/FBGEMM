@@ -267,7 +267,7 @@ def generate_indices_uniform(
                 L_t = int(table_lengths.max().item())
                 if L_t == 0:
                     all_table_indices.append(
-                        torch.empty(iters, 0, dtype=torch.int).to(device)
+                        torch.empty(iters, 0, dtype=torch.int).to(dev)
                     )
                     continue
                 tbl_indices = torch.randint(
