@@ -127,7 +127,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
       // Don't lock the line one more time if we have locked it in the same
       // batch (timestamp)
       if (lock_cache_line && !already_locked) {
-        lxu_cache_locking_counter[cache_set][slot] += 1;
+        atomicAdd(&lxu_cache_locking_counter[cache_set][slot], 1);
       }
     }
 
