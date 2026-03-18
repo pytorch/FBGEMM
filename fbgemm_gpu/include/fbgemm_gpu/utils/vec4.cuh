@@ -112,10 +112,22 @@ struct Vec4T<float> : public Vec4BaseT<float> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
+#ifdef USE_ROCM
+    union {
+      at::BFloat16 bf[4];
+      uint2 ui;
+    } tmp;
+    tmp.ui = *reinterpret_cast<const uint2*>(p);
+    acc.x = tmp.bf[0];
+    acc.y = tmp.bf[1];
+    acc.z = tmp.bf[2];
+    acc.w = tmp.bf[3];
+#else
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
+#endif
   }
 
   DEVICE_INLINE void load(const at::Float8_e4m3fnuz* p) {
@@ -168,10 +180,22 @@ struct Vec4T<float> : public Vec4BaseT<float> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
+#ifdef USE_ROCM
+    union {
+      at::BFloat16 bf[4];
+      uint2 ui;
+    } tmp;
+    tmp.bf[0] = acc.x;
+    tmp.bf[1] = acc.y;
+    tmp.bf[2] = acc.z;
+    tmp.bf[3] = acc.w;
+    *reinterpret_cast<uint2*>(p) = tmp.ui;
+#else
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
+#endif
   }
 
   DEVICE_INLINE void store(at::Float8_e4m3fn* p) const {
@@ -296,10 +320,22 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
+#ifdef USE_ROCM
+    union {
+      at::BFloat16 bf[4];
+      uint2 ui;
+    } tmp;
+    tmp.ui = *reinterpret_cast<const uint2*>(p);
+    acc.x = tmp.bf[0];
+    acc.y = tmp.bf[1];
+    acc.z = tmp.bf[2];
+    acc.w = tmp.bf[3];
+#else
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
+#endif
   }
 
   DEVICE_INLINE void load(const float* p) {
@@ -326,10 +362,22 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
+#ifdef USE_ROCM
+    union {
+      at::BFloat16 bf[4];
+      uint2 ui;
+    } tmp;
+    tmp.bf[0] = acc.x;
+    tmp.bf[1] = acc.y;
+    tmp.bf[2] = acc.z;
+    tmp.bf[3] = acc.w;
+    *reinterpret_cast<uint2*>(p) = tmp.ui;
+#else
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
+#endif
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -441,10 +489,22 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
+#ifdef USE_ROCM
+    union {
+      at::BFloat16 bf[4];
+      uint2 ui;
+    } tmp;
+    tmp.ui = *reinterpret_cast<const uint2*>(p);
+    acc.x = tmp.bf[0];
+    acc.y = tmp.bf[1];
+    acc.z = tmp.bf[2];
+    acc.w = tmp.bf[3];
+#else
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
+#endif
   }
 
   DEVICE_INLINE void load(const at::Half* p) {
@@ -504,10 +564,22 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
+#ifdef USE_ROCM
+    union {
+      at::BFloat16 bf[4];
+      uint2 ui;
+    } tmp;
+    tmp.bf[0] = acc.x;
+    tmp.bf[1] = acc.y;
+    tmp.bf[2] = acc.z;
+    tmp.bf[3] = acc.w;
+    *reinterpret_cast<uint2*>(p) = tmp.ui;
+#else
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
+#endif
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -519,10 +591,14 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE static void copy(const at::BFloat16* src, at::BFloat16* dst) {
+#ifdef USE_ROCM
+    *reinterpret_cast<uint2*>(dst) = *reinterpret_cast<const uint2*>(src);
+#else
     dst[0] = src[0];
     dst[1] = src[1];
     dst[2] = src[2];
     dst[3] = src[3];
+#endif
   }
 
   // this <- this + a * b

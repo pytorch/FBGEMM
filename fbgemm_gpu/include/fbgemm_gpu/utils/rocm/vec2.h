@@ -112,8 +112,13 @@ struct Vec2T<float> : public Vec2BaseT<float> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
-    acc.x = p[0];
-    acc.y = p[1];
+    union {
+      at::BFloat16 bf[2];
+      unsigned int ui;
+    } tmp;
+    tmp.ui = *reinterpret_cast<const unsigned int*>(p);
+    acc.x = tmp.bf[0];
+    acc.y = tmp.bf[1];
   }
 
   DEVICE_INLINE void load(const at::Float8_e4m3fnuz* p) {
@@ -150,8 +155,13 @@ struct Vec2T<float> : public Vec2BaseT<float> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
-    p[0] = acc.x;
-    p[1] = acc.y;
+    union {
+      at::BFloat16 bf[2];
+      unsigned int ui;
+    } tmp;
+    tmp.bf[0] = acc.x;
+    tmp.bf[1] = acc.y;
+    *reinterpret_cast<unsigned int*>(p) = tmp.ui;
   }
 
   DEVICE_INLINE void store(at::Float8_e4m3fnuz* p) const {
@@ -233,8 +243,13 @@ struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
-    acc.x = p[0];
-    acc.y = p[1];
+    union {
+      at::BFloat16 bf[2];
+      unsigned int ui;
+    } tmp;
+    tmp.ui = *reinterpret_cast<const unsigned int*>(p);
+    acc.x = tmp.bf[0];
+    acc.y = tmp.bf[1];
   }
 
   DEVICE_INLINE void load(const float* p) {
@@ -256,8 +271,13 @@ struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
-    p[0] = acc.x;
-    p[1] = acc.y;
+    union {
+      at::BFloat16 bf[2];
+      unsigned int ui;
+    } tmp;
+    tmp.bf[0] = acc.x;
+    tmp.bf[1] = acc.y;
+    *reinterpret_cast<unsigned int*>(p) = tmp.ui;
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -336,8 +356,13 @@ struct Vec2T<at::BFloat16> : public Vec2BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
-    acc.x = p[0];
-    acc.y = p[1];
+    union {
+      at::BFloat16 bf[2];
+      unsigned int ui;
+    } tmp;
+    tmp.ui = *reinterpret_cast<const unsigned int*>(p);
+    acc.x = tmp.bf[0];
+    acc.y = tmp.bf[1];
   }
 
   DEVICE_INLINE void load(const at::Half* p) {
@@ -374,8 +399,13 @@ struct Vec2T<at::BFloat16> : public Vec2BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
-    p[0] = acc.x;
-    p[1] = acc.y;
+    union {
+      at::BFloat16 bf[2];
+      unsigned int ui;
+    } tmp;
+    tmp.bf[0] = acc.x;
+    tmp.bf[1] = acc.y;
+    *reinterpret_cast<unsigned int*>(p) = tmp.ui;
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -387,8 +417,8 @@ struct Vec2T<at::BFloat16> : public Vec2BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE static void copy(const at::BFloat16* src, at::BFloat16* dst) {
-    dst[0] = src[0];
-    dst[1] = src[1];
+    *reinterpret_cast<unsigned int*>(dst) =
+        *reinterpret_cast<const unsigned int*>(src);
   }
 
   // this <- this + a * b
