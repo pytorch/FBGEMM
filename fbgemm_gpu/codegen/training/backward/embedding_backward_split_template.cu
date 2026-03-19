@@ -1367,6 +1367,7 @@ Tensor {{ embedding_cuda_op }}(
                             desc_suffix,
                         )
                     %}
+                    // When 'enable_optimized_hip_mixed_D_kernel' and 'is_optimized_hip_kernel_supported_mode' is False, we use the default kernel.
                     auto backward_warp_per_row_kernel =
                         {{ warp_kernel }}
                             <emb_t,
@@ -1392,13 +1393,18 @@ Tensor {{ embedding_cuda_op }}(
                         int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
                     {%- endif %}
                     auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
+                    // We made targeted performance optimizations for certain backward kernels. These optimizations take effect when 'enable_optimized_hip_mixed_D_kernel' is True.
                     {%- if enable_optimized_hip_mixed_D_kernel %}
+                    // Currently, 'hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1' kernel 
+                    // don`t support vbe==True and mixed_D==True, so we use 'hip_mixed_d_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1' 
+                    // kernel as a fallback for vbe==True and mixed_D==True cases when 'use_hip_kernel' is True. For !vbe and !mixed_D cases, we use 
+                    // 'hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1' kernel when the 
+                    // condition 'use_hip_kernel' is True and "is_optimized_hip_kernel_supported_mode" is True. If no optimization is available for current
+                    // condition , it will fallback to the default kernel.
                     {%- if vbe %}
                     if (use_hip_kernel) {
-                    // currently, 'hip_kernel' only support vbe is False, so we use 'hip_mixed_d_warp_kernel'
                     {%- else %}
                     if (use_hip_kernel && mixed_D) { 
-                    // currently, 'hip_kernel' does not support mixed_D is True, so we use 'hip_mixed_d_warp_kernel'
                     {%- endif %}
                         backward_warp_per_row_kernel =
                         {{ hip_mixed_d_warp_kernel }}
