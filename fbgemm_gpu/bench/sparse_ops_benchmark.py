@@ -8,13 +8,12 @@
 
 import contextlib
 import functools
-import json
 import logging
 import math
 import os
 import random
 from contextlib import nullcontext
-from typing import Callable, List, Optional, Tuple
+from typing import Callable
 
 import click
 import fbgemm_gpu
@@ -337,22 +336,6 @@ def jagged_index_select_2d_bench(
     type=str,
     default="group_index_select_2d_{phase}_trace_{ospid}.json",
 )
-@click.option(
-    "--input-dims",
-    type=str,
-    default=None,
-    help="JSON list of [num_rows, row_size] per group, e.g. '[[27330,96],[4914,96]]'. "
-    "When provided, --row-size, --batch-size, --unique-batch-size, and --num-groups are ignored.",
-)
-@click.option(
-    "--input-strides",
-    type=str,
-    default=None,
-    help="JSON list of [stride0, stride1] per group. Defaults to contiguous strides if not provided.",
-)
-@click.option(
-    "--index-dim", type=int, default=None, help="Number of indices per group."
-)
 def group_index_select_2d_bench(
     row_size: int,
     batch_size: int,
@@ -362,9 +345,6 @@ def group_index_select_2d_bench(
     num_groups: int,
     export_trace: bool,
     trace_url: str,
-    input_dims: Optional[str],
-    input_strides: Optional[str],
-    index_dim: Optional[int],
 ) -> None:
     def gen_inverse_index(curr_size: int, final_size: int) -> np.array:
         inverse_index = list(range(curr_size))
@@ -383,123 +363,30 @@ def group_index_select_2d_bench(
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
 
-    bench_kwargs: dict[str, int] = {"num_warmups": 10, "iters": 100}
-
-    def bench_ref_forward(
-        input: torch.Tensor, indices: torch.Tensor, bench_kwargs: dict[str, int]
-    ) -> Tuple[float, torch.Tensor]:
-
-        time_ref, output_ref = benchmark_torch_function(
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
-            torch.index_select,
-            (input, 0, indices),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
-            **bench_kwargs,
-        )
-        return time_ref, output_ref
-
-    def bench_ref_backward(output_ref: torch.Tensor, grad: torch.Tensor) -> float:
-        time_ref, _ = benchmark_torch_function(
-            functools.partial(output_ref.backward, retain_graph=True),
-            (grad,),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
-            **bench_kwargs,
-        )
-        return time_ref
-
-    input_group = []
+    offset_indices_group = []
     indices_group = []
-    num_bytes: int = 0
-    time_ref_fwd: float = 0
-    time_ref_bwd: float = 0
-    grad: torch.Tensor
-    if input_dims:
-        # Heterogeneous per-group shapes
-        parsed_dims: List[List[int]] = json.loads(input_dims)
-        if input_strides is not None:
-            parsed_strides: List[List[int]] = json.loads(input_strides)
-        else:
-            parsed_strides = [[dim[1], 1] for dim in parsed_dims]
-        if index_dim is None:
-            raise click.UsageError("--index-dim is required when using --input-dims")
+    for i in range(num_groups):
+        # pyre-fixme[16]: Module `cuda` has no attribute `IntTensor`.
+        indices = torch.cuda.IntTensor(gen_inverse_index(unique_batch_size, batch_size))
+        if sort_indices:
+            indices, _ = indices.sort()
+        indices_group.append(indices)
+        indices = torch.add(indices, batch_size * i)
+        offset_indices_group.append(indices)
 
-        for dim, stride in zip(parsed_dims, parsed_strides):
-            inp = torch.rand(
-                dim, dtype=dtype, device=torch.accelerator.current_accelerator()
-            ).as_strided(dim, stride)
-            inp.requires_grad = True
-            input_group.append(inp)
+    offset_indices = torch.concat(offset_indices_group)
 
-            index = torch.randint(
-                low=0,
-                high=dim[0],
-                size=(index_dim,),
-                dtype=torch.int,
-                device=torch.accelerator.current_accelerator(),
-            )
-            indices_group.append(index)
+    input = torch.rand(
+        num_groups * batch_size,
+        row_size,
+        dtype=dtype,
+        device=torch.accelerator.current_accelerator(),
+    )
+    input.requires_grad = True
 
-        num_bytes = sum(
-            2 * index_dim * dim[1] * input_group[0].element_size()
-            for dim in parsed_dims
-        )
+    num_bytes = 2 * batch_size * row_size * input.element_size() * num_groups
 
-        # Run reference benchmark
-        time_ref_group = []
-        output_ref_group = []
-        for inp, idx in zip(input_group, indices_group):
-            time_ref, output_ref = bench_ref_forward(inp, idx, bench_kwargs)
-            time_ref_group.append(time_ref)
-            output_ref_group.append(output_ref)
-        time_ref_fwd = sum(time_ref_group)
-        print(f"Pytorch forward time ({len(time_ref_group)}): {time_ref_group}")
-        time_ref_group = []
-        grad_group = []
-        for out in output_ref_group:
-            grad = torch.rand_like(out)
-            time_ref = bench_ref_backward(out, grad)
-            time_ref_group.append(time_ref)
-            grad_group.append(grad)
-        print(f"Pytorch backward time ({len(time_ref_group)}): {time_ref_group}")
-        time_ref_bwd = sum(time_ref_group)
-        grad = torch.cat(grad_group, dim=1)
-    else:
-        # Uniform shapes
-        offset_indices_group = []
-        indices_group = []
-        for i in range(num_groups):
-            # pyre-fixme[16]: Module `cuda` has no attribute `IntTensor`.
-            indices = torch.cuda.IntTensor(
-                gen_inverse_index(unique_batch_size, batch_size)
-            )
-            if sort_indices:
-                indices, _ = indices.sort()
-            indices_group.append(indices)
-            indices = torch.add(indices, batch_size * i)
-            offset_indices_group.append(indices)
-
-        offset_indices = torch.concat(offset_indices_group)
-
-        input = torch.rand(
-            num_groups * batch_size,
-            row_size,
-            dtype=dtype,
-            device=torch.accelerator.current_accelerator(),
-        )
-        input.requires_grad = True
-
-        num_bytes = 2 * batch_size * row_size * input.element_size() * num_groups
-        input_group = input.split(batch_size, 0)
-
-        # Run reference benchmark
-        time_ref_fwd, output_ref = bench_ref_forward(
-            input, offset_indices, bench_kwargs
-        )
-        grad = torch.rand_like(output_ref)
-        time_ref_bwd = bench_ref_backward(output_ref, grad)
+    bench_kwargs = {"num_warmups": 10, "iters": 100}
 
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
@@ -509,6 +396,17 @@ def group_index_select_2d_bench(
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
     # Benchmark forward
+    time_ref, output_ref = benchmark_torch_function(
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
+        torch.index_select,
+        (input, 0, offset_indices),
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
+        **bench_kwargs,
+    )
+
+    input_group = input.split(batch_size, 0)
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
         time, output_group = benchmark_torch_function(
             torch.ops.fbgemm.group_index_select_dim0,
@@ -518,14 +416,23 @@ def group_index_select_2d_bench(
             **bench_kwargs,
         )
     logging.info(
-        f"forward: PyTorch batch {time_ref_fwd:.5f} sec ({num_bytes / time_ref_fwd / 1e9:.5f} GB/s), "
+        f"forward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
         f"fbgemm group {time:5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
     )
 
     # Benchmark backward
+    grad = torch.rand_like(output_ref)
+    time_ref, _ = benchmark_torch_function(
+        functools.partial(output_ref.backward, retain_graph=True),
+        (grad,),
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
+        **bench_kwargs,
+    )
+
     # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
     #  typing.Tuple[Tensor, ...]]` but got `Tensor`.
-    cat_output = torch.cat(output_group, dim=1 if input_dims else 0)
+    cat_output = torch.cat(output_group)
     with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
         time, _ = benchmark_torch_function(
             functools.partial(cat_output.backward, retain_graph=True),
@@ -535,7 +442,7 @@ def group_index_select_2d_bench(
             **bench_kwargs,
         )
     logging.info(
-        f"backward: PyTorch batch {time_ref_bwd:.5f} sec ({num_bytes / time_ref_bwd / 1e9:.5f} GB/s), "
+        f"backward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
         f"fbgemm group {time:.5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
     )
 
@@ -1426,11 +1333,31 @@ def permute_1d_sparse_data_bench(
     def context_factory(on_trace_ready: Callable[[profile], None]):
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
+    # Wrap the operator to flush CPU L3 cache between iterations when tracing.
+    # This produces realistic cold-cache measurements consistent with the GPU path
+    # (which already flushes L2 via flush_gpu_cache_size_mb in benchmark_torch_function).
+    # The aten::zero_ ops appear as separate cpu_op events in the trace and are
+    # filtered out by kernel-pattern matching in the comparison scripts.
+    if export_trace and device == "cpu":
+        _cpu_cache: torch.Tensor = torch.empty(
+            256 * 1024 * 1024 // 4, dtype=torch.float, device="cpu"
+        )
+
+        # pyre-ignore[3, 2]
+        def _bench_fn(permute, lengths, indices, weights, none_arg):
+            _cpu_cache.zero_()
+            return torch.ops.fbgemm.permute_1D_sparse_data(
+                permute, lengths, indices, weights, none_arg
+            )
+
+    else:
+        _bench_fn = torch.ops.fbgemm.permute_1D_sparse_data
+
     # Benchmark the operation
     with context_factory(_kineto_trace_handler):
         time, (permuted_lengths, permuted_indices, permuted_weights) = (
             benchmark_torch_function(
-                torch.ops.fbgemm.permute_1D_sparse_data,
+                _bench_fn,
                 (permute, lengths, indices, weights, None),
                 num_warmups=100,
                 iters=1000,
@@ -1554,6 +1481,26 @@ def permute_2d_sparse_data_bench(
     random.shuffle(permute_list)
     permute = torch.tensor(permute_list, dtype=torch.int32, device=device)
 
+    # Wrap the operator to flush CPU L3 cache between iterations when tracing.
+    # This produces realistic cold-cache measurements consistent with the GPU path
+    # (which already flushes L2 via flush_gpu_cache_size_mb in benchmark_torch_function).
+    # The aten::zero_ ops appear as separate cpu_op events in the trace and are
+    # filtered out by kernel-pattern matching in the comparison scripts.
+    if export_trace and device == "cpu":
+        _cpu_cache: torch.Tensor = torch.empty(
+            256 * 1024 * 1024 // 4, dtype=torch.float, device="cpu"
+        )
+
+        # pyre-ignore[3, 2]
+        def _bench_fn_2d(permute, lengths, indices, weights, none_arg):
+            _cpu_cache.zero_()
+            return torch.ops.fbgemm.permute_2D_sparse_data(
+                permute, lengths, indices, weights, none_arg
+            )
+
+    else:
+        _bench_fn_2d = torch.ops.fbgemm.permute_2D_sparse_data
+
     # Benchmark the operation
     # Create a context factory for kineto tracing if export_trace is enabled
     if export_trace:
@@ -1572,7 +1519,7 @@ def permute_2d_sparse_data_bench(
         with context_factory():
             time, (permuted_lengths, permuted_indices, permuted_weights) = (
                 benchmark_torch_function(
-                    torch.ops.fbgemm.permute_2D_sparse_data,
+                    _bench_fn_2d,
                     (permute, lengths, indices, weights, None),
                     num_warmups=100,
                     iters=1000,
@@ -1582,7 +1529,7 @@ def permute_2d_sparse_data_bench(
     else:
         time, (permuted_lengths, permuted_indices, permuted_weights) = (
             benchmark_torch_function(
-                torch.ops.fbgemm.permute_2D_sparse_data,
+                _bench_fn_2d,
                 (permute, lengths, indices, weights, None),
                 num_warmups=100,
                 iters=1000,
