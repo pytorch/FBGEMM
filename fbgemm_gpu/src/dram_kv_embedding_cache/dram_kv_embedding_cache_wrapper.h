@@ -218,6 +218,16 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
         hashed_indices, unhashed_indices, count);
   }
 
+  std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) {
+    return impl_->fetch_sids_sync(
+        std::move(hashed_indices),
+        std::move(unhashed_indices),
+        std::move(count));
+  }
+
  private:
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;

@@ -225,6 +225,17 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       at::Tensor unhashed_indices,
       at::Tensor count) = 0;
 
+  /// Sync fetch SIDs for publish. Cache-first: reads SIDs from kv_store if
+  /// available, only calls remote (FeatureStore/OpenTab) for cache misses.
+  /// Default no-op for non-DRAM backends.
+  /// @return (vids_tensor, sids_tensor) both int64
+  virtual std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) {
+    return {at::empty({0}, at::kLong), at::empty({0}, at::kLong)};
+  }
+
   virtual void compact() = 0;
 
   /// Flush L2 cache into backend storage
