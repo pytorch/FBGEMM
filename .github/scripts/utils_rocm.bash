@@ -25,6 +25,7 @@ install_rocm_amdsmi_ubuntu () {
 
   echo "[INSTALL] Installing roctracer-dev and amd-smi-lib ..."
   (apt-get install -y --allow-unauthenticated \
+      libdw-dev \
       roctracer-dev \
       amd-smi-lib) || return 1
 
