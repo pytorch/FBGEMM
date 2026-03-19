@@ -289,8 +289,12 @@ struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
   }
 
   DEVICE_INLINE static void copy(const at::Half* src, at::Half* dst) {
-    dst[0] = src[0];
-    dst[1] = src[1];
+    // CRITICAL PERFORMANCE FIX: Use single 32-bit store instead of two scalar
+    // 16-bit copies. With UVM (managed memory), each scalar copy can trigger
+    // a separate page fault, causing significant slowdown.
+    //
+    // See: D95586869, internal doc "FBGEMM TBE UVM Regression on AMD MI300x"
+    *reinterpret_cast<half2*>(dst) = *reinterpret_cast<const half2*>(src);
   }
 
   // this <- this + a * b

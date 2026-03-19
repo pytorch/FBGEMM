@@ -390,10 +390,7 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
 
   DEVICE_INLINE static void copy(const at::Half* src, at::Half* dst) {
 #ifdef USE_ROCM
-    dst[0] = src[0];
-    dst[1] = src[1];
-    dst[2] = src[2];
-    dst[3] = src[3];
+    *reinterpret_cast<uint2*>(dst) = *reinterpret_cast<const uint2*>(src);
 #else
     Half4 out;
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
