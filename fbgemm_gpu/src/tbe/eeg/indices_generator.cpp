@@ -19,10 +19,10 @@
 // oneTBB 2021+ (interface version >=12000) removed the offending code.
 #if defined(__HIP_PLATFORM_AMD__) && __has_include(<tbb/tbb_stddef.h>)
 #include <tbb/tbb_stddef.h>
-#if TBB_INTERFACE_VERSION >= 12000
+#if TBB_INTERFACE_VERSION >= 12000    // if ROCm and tbb version newer
 #define FBGEMM_USE_PARALLEL_SORT 1
 #endif
-#else
+#else    // CUDA
 #define FBGEMM_USE_PARALLEL_SORT 1
 #endif
 
