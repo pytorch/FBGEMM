@@ -38,6 +38,8 @@ __global__ void index_select_scalar_cumsum_kernel(
 #ifdef USE_ROCM
   const int output_batch_size = indices.size(0);
   const int num_entries = num_batches * output_batch_size;
+  CUDA_KERNEL_ASSERT(
+      num_entries > 0 && "num_batches * output_batch_size should be > 0");
   const bool multi_block = gridDim.x > 1;
   const auto block_entries = blockIdx.x == gridDim.x - 1
       ? last_block_num_entries
@@ -117,6 +119,9 @@ __global__ void index_select_scalar_cumsum_kernel(
 
   // Load data
   acc_t local_data[1];
+  CUDA_KERNEL_ASSERT(
+      num_batches * output_batch_size > 0 &&
+      "num_batches * output_batch_size should be > 0");
   if (tid < num_batches * output_batch_size) {
     *local_data =
         input[bid * input_batch_size + indices[tid % output_batch_size]];
@@ -172,6 +177,10 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
   if (tid < num_outputs) {
     // Each thread searches index position
     int index_pos;
+    CUDA_KERNEL_ASSERT(
+        num_batches * output_batch_size > 0 &&
+        "num_batches * output_batch_size should be > 0");
+
     binary_search_range(
         &index_pos,
         &output_offsets[0],
@@ -217,6 +226,9 @@ __global__ void keyed_jagged_index_add_dim1_kernel(
   if (tid < num_inputs) {
     // Each thread searches index position
     int index_pos;
+    CUDA_KERNEL_ASSERT(
+        num_batches * input_batch_size > 0 &&
+        "num_batches * input_batch_size should be > 0");
     binary_search_range(
         &index_pos,
         &input_offsets[0],
@@ -260,14 +272,40 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const int num_batches = lengths.numel() / batch_size;
     const int num_output_lengths = num_batches * indices.numel();
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
-
+    TORCH_CHECK_VALUE(
+        num_output_lengths > 0,
+        "Expected num_output_lengths > 0, got ",
+        num_output_lengths,
+        ". Check if num_batches=",
+        num_batches,
+        " * indices.numel()=",
+        indices.numel(),
+        " causes overflow.");
     auto grid_size = cuda_calc_xblock_count(
         num_output_lengths, MAX_CUMSUM_ENTRIES_PER_BLOCK);
+    TORCH_CHECK_VALUE(
+        grid_size > 0,
+        "Expected grid_size > 0, got ",
+        grid_size,
+        ". num_output_lengths = ",
+        num_output_lengths,
+        ", MAX_CUMSUM_ENTRIES_PER_BLOCK = ",
+        MAX_CUMSUM_ENTRIES_PER_BLOCK);
+    TORCH_CHECK_VALUE(
+        indices.numel() <= std::numeric_limits<int32_t>::max(),
+        "Expected indices size <= int32 max, got ",
+        indices.numel(),
+        ". indices dtype is ",
+        indices.dtype());
+    TORCH_CHECK_VALUE(
+        lengths.numel() <= std::numeric_limits<int32_t>::max(),
+        "Expected lengths size <= int32 max, got ",
+        lengths.numel(),
+        ". lengths dtype is ",
+        lengths.dtype());
 
-    Tensor output_offsets =
-        at::empty({num_batches * indices.numel()}, offsets.options());
-    Tensor output_lengths =
-        at::empty({num_batches * indices.numel()}, lengths.options());
+    Tensor output_offsets = at::empty({num_output_lengths}, offsets.options());
+    Tensor output_lengths = at::empty({num_output_lengths}, lengths.options());
     Tensor block_flags, block_sums;
 
 #ifdef USE_ROCM
@@ -396,10 +434,23 @@ class KeyedJaggedIndexSelectDim1GPUOp
               });
         });
 #endif
-
     const int64_t num_outputs = (selected_lengths_sum.has_value())
         ? selected_lengths_sum.value().guard_int(__FILE__, __LINE__)
         : output_offsets[output_offsets.numel() - 1].item<int64_t>();
+    // If num_outputs is negative, it means either selected_lengths_sum is
+    // negative or output_offsets[output_offsets.numel() - 1] is negative.
+    TORCH_CHECK_VALUE(
+        num_outputs >= 0,
+        "Expected num_outputs >= 0, got ",
+        num_outputs,
+        ". selected_lengths_sum.has_value() = ",
+        selected_lengths_sum.has_value(),
+        ", output_offsets[",
+        output_offsets.numel() - 1,
+        "] = ",
+        output_offsets[output_offsets.numel() - 1].item<int64_t>(),
+        ". values dtype is ",
+        values.dtype());
     Tensor output = at::empty({num_outputs}, values.options());
     Tensor output_weights;
     if (weights.has_value()) {
@@ -465,8 +516,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
                                     weights.value())
                               });
                         } else {
-                          // has_weights = false, passing output and input as
-                          // dummy tensors for weights
+                          // has_weights = false, passing output and input
+                          // as dummy tensors for weights
                           LAUNCH_KERNEL(false, scalar_t, output, values)
                         }
                       });
