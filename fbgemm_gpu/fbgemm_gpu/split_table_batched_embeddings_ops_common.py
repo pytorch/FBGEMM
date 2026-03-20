@@ -276,6 +276,7 @@ class KVZCHParams(NamedTuple):
     optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
     # Enrichment config for embedding cache enrichment from external sources
     enrichment_policy: Optional[EnrichmentPolicy] = None
+    feature_score_collection_enabled: bool = False
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
