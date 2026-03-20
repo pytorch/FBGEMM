@@ -90,6 +90,7 @@ $(function(){ initResizable(false); });
 <div class="header">
   <div class="summary">
 <a href="#pub-methods">Public Member Functions</a> &#124;
+<a href="#pub-static-methods">Static Public Member Functions</a> &#124;
 <a href="classkv__mem_1_1_dram_k_v_embedding_cache-members.html">List of all members</a>  </div>
   <div class="headertitle"><div class="title">DramKVEmbeddingCache&lt; weight_type &gt; Class Template Reference</div></div>
 </div><!--header-->
@@ -116,6 +117,11 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:ab197c34bb53bdad19a2521898a341ffc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:acc859d874e8e1164db9af461f34d39ff" id="r_acc859d874e8e1164db9af461f34d39ff"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acc859d874e8e1164db9af461f34d39ff">set_kv_db_async_on_enrichment_executor</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
 <tr class="separator:acc859d874e8e1164db9af461f34d39ff"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a047abf23fb18225675fcb9846a39f2dd" id="r_a047abf23fb18225675fcb9846a39f2dd"><td class="memTemplParams" colspan="2">template&lt;typename FetchFn, typename PrepareFn&gt; </td></tr>
+<tr class="memitem:a047abf23fb18225675fcb9846a39f2dd"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a047abf23fb18225675fcb9846a39f2dd">dispatchEnrichmentAsync</a> (std::vector&lt; int64_t &gt; hashed_ids, std::vector&lt; int64_t &gt; unhashed_ids, const char *log_prefix, FetchFn fetchFn, PrepareFn prepareFn)</td></tr>
+<tr class="separator:a047abf23fb18225675fcb9846a39f2dd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa8c1bbe2a7ab1e8e1d54118019abca60" id="r_aa8c1bbe2a7ab1e8e1d54118019abca60"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa8c1bbe2a7ab1e8e1d54118019abca60">fetch_sids_sync</a> (at::Tensor hashed_indices, at::Tensor unhashed_indices, at::Tensor count) override</td></tr>
+<tr class="separator:aa8c1bbe2a7ab1e8e1d54118019abca60"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a31225c0d4a54952f46db295152b22065" id="r_a31225c0d4a54952f46db295152b22065"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31225c0d4a54952f46db295152b22065">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt)</td></tr>
 <tr class="separator:a31225c0d4a54952f46db295152b22065"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a089b321f90b6319a7c99cf01406cbd76" id="r_a089b321f90b6319a7c99cf01406cbd76"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a089b321f90b6319a7c99cf01406cbd76">maybe_evict</a> () override</td></tr>
@@ -133,6 +139,11 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:adac116554b543b7c4228c018a85882f5 inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft" align="right" valign="top">std::vector&lt; double &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
 <tr class="separator:a52afc11e0dda55903f95469edb66ab6c inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
+Static Public Member Functions</h2></td></tr>
+<tr class="memitem:a21d97149087ad4be6db4e31a99d2a727" id="r_a21d97149087ad4be6db4e31a99d2a727"><td class="memItemLeft" align="right" valign="top">static int64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a21d97149087ad4be6db4e31a99d2a727">decodeSIDFromWeights</a> (const weight_type *weights_ptr)</td></tr>
+<tr class="separator:a21d97149087ad4be6db4e31a99d2a727"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="ac9db2b8665f362eb6109cbff9a51b425" name="ac9db2b8665f362eb6109cbff9a51b425"></a>
@@ -281,6 +292,122 @@ template&lt;typename weight_type&gt; </div>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
+<a id="a21d97149087ad4be6db4e31a99d2a727" name="a21d97149087ad4be6db4e31a99d2a727"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a21d97149087ad4be6db4e31a99d2a727">&#9670;&#160;</a></span>decodeSIDFromWeights()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static int64_t decodeSIDFromWeights </td>
+          <td>(</td>
+          <td class="paramtype">const weight_type *</td>          <td class="paramname"><span class="paramname"><em>weights_ptr</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Decode int64 SID from cache weights. Reverse of prepareInt64PayloadTensors nibble encoding: 16 nibbles → uint64 → int64 nibble n = (exponent &lt;&lt; 1) | sign_bit, float = pow(2, exponent) * sign </p>
+
+</div>
+</div>
+<a id="a047abf23fb18225675fcb9846a39f2dd" name="a047abf23fb18225675fcb9846a39f2dd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a047abf23fb18225675fcb9846a39f2dd">&#9670;&#160;</a></span>dispatchEnrichmentAsync()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<div class="memtemplate">
+template&lt;typename FetchFn, typename PrepareFn&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void dispatchEnrichmentAsync </td>
+          <td>(</td>
+          <td class="paramtype">std::vector&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>hashed_ids</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::vector&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>unhashed_ids</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const char *</td>          <td class="paramname"><span class="paramname"><em>log_prefix</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">FetchFn</td>          <td class="paramname"><span class="paramname"><em>fetchFn</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">PrepareFn</td>          <td class="paramname"><span class="paramname"><em>prepareFn</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Helper: schedule a fetch+prepare+write coroutine on enrichment_executor_. Eliminates boilerplate duplication across enrichment type branches. FetchFn: (const vector&lt;int64_t&gt;&amp;) -&gt; Task&lt;PayloadMap&gt; PrepareFn: (const vector&lt;int64_t&gt;&amp;, const vector&lt;int64_t&gt;&amp;, const PayloadMap&amp;) -&gt; optional&lt;EnrichmentResult&gt; </p>
+
+</div>
+</div>
+<a id="aa8c1bbe2a7ab1e8e1d54118019abca60" name="aa8c1bbe2a7ab1e8e1d54118019abca60"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa8c1bbe2a7ab1e8e1d54118019abca60">&#9670;&#160;</a></span>fetch_sids_sync()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor &gt; fetch_sids_sync </td>
+          <td>(</td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>hashed_indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>unhashed_indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Sync fetch SIDs for publish (OneFlow). Cache-first: reads SIDs from kv_store if available, only calls remote (FeatureStore/OpenTab) for cache misses. No CAS/drop mechanism, blocks until complete. </p><dl class="section return"><dt>Returns</dt><dd>(vids_tensor, sids_tensor) both int64 </dd></dl>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a3e79091a317b3bcfe821d075ff442879">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
 <a id="a3ec3ec693cdf42996def471797fcbba9" name="a3ec3ec693cdf42996def471797fcbba9"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a3ec3ec693cdf42996def471797fcbba9">&#9670;&#160;</a></span>get_keys_in_range_impl()</h2>
 

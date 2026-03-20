@@ -13,7 +13,7 @@ var searchData=
   ['embeddingstatstrackerconfig_10',['EmbeddingStatsTrackerConfig',['../classfbgemm_1_1_embedding_stats_tracker_config.html',1,'fbgemm']]],
   ['emitextracthalfvector_11',['emitExtractHalfVector',['../namespacefbgemm.html#a9100cab8c6c3516de24bd98b652b6855',1,'fbgemm']]],
   ['emitloaddword_12',['emitLoadDWord',['../namespacefbgemm.html#aa56904bd84399e10104d286e0e10a2d7',1,'fbgemm']]],
-  ['enrichmentconfig_13',['EnrichmentConfig',['../structkv__mem_1_1_enrichment_config.html',1,'EnrichmentConfig'],['../structkv__mem_1_1_enrichment_config.html#aa817c47d245c86df9f7128fb9b3a14be',1,'kv_mem::EnrichmentConfig::EnrichmentConfig()']]],
+  ['enrichmentconfig_13',['EnrichmentConfig',['../structkv__mem_1_1_enrichment_config.html',1,'EnrichmentConfig'],['../structkv__mem_1_1_enrichment_config.html#ac3b413dc7c0575cf972164264ddba29e',1,'kv_mem::EnrichmentConfig::EnrichmentConfig()']]],
   ['enrichmentresult_14',['EnrichmentResult',['../structigr__enrichment_1_1_enrichment_result.html',1,'igr_enrichment']]],
   ['enumerate_5fall_5ffeature_5fflags_15',['ENUMERATE_ALL_FEATURE_FLAGS',['../group__fbgemm-gpu-config.html#gac42b789c9026f13d4c8bc000f5bd5edc',1,'feature_gates.h']]],
   ['equals_16',['equals',['../classfbgemm_1_1_pack_b_matrix.html#a5299773354edb62a96e39dc55ab5d770',1,'fbgemm::PackBMatrix']]],
