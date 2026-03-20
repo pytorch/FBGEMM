@@ -20,9 +20,9 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
+    from test_utils import gpu_unavailable, optests, running_in_oss
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, running_in_oss
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -192,6 +192,64 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
             rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_in_oss)
+    def test_keyed_jagged_index_select_dim1_num_output_lengths_overflow(
+        self,
+    ) -> None:
+        # num_output_lengths = num_batches * indices.numel() overflows int32
+        # INT32_MAX = 2,147,483,647
+        overflow_cases = [
+            # (num_batches, output_batch_size)
+            # 46341 * 46341 = 2,147,488,281 (just over INT32_MAX)
+            (46341, 46341),
+            # 100000 * 30000 = 3,000,000,000 (overflows int32)
+            (100000, 30000),
+            # 85000 * 85000 = 7,225,000,000 (overflows both int32 and uint32)
+            (85000, 85000),
+        ]
+        device = torch.accelerator.current_accelerator()
+        for num_batches, output_batch_size in overflow_cases:
+            with self.subTest(
+                num_batches=num_batches,
+                output_batch_size=output_batch_size,
+            ):
+                input_batch_size = 1
+
+                lengths = torch.zeros(
+                    num_batches * input_batch_size,
+                    dtype=torch.int,
+                    device=device,
+                )
+                offsets = torch.zeros(
+                    num_batches * input_batch_size + 1,
+                    dtype=torch.long,
+                    device=device,
+                )
+                indices = torch.zeros(
+                    output_batch_size,
+                    dtype=torch.int,
+                    device=device,
+                )
+                values = torch.empty(
+                    0,
+                    dtype=torch.float,
+                    device=device,
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "Expected num_output_lengths > 0",
+                ):
+                    torch.ops.fbgemm.keyed_jagged_index_select_dim1(
+                        values,
+                        lengths,
+                        offsets,
+                        indices,
+                        input_batch_size,
+                        None,
+                        None,
+                    )
 
 
 if __name__ == "__main__":
