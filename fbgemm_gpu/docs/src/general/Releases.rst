@@ -14,6 +14,9 @@ older than the one that the FBGEMM release corresponds to.
 | FBGEMM Release  | Corresponding    | Supported        | Supported      | Supported CUDA     | (Experimental) Supported  | (Experimental) Supported  |
 |                 | PyTorch Release  | Python Versions  | CUDA Versions  | Architectures      | ROCm Versions             | ROCm Architectures        |
 +=================+==================+==================+================+====================+===========================+===========================+
+| 1.6.0           | 2.11.x           | 3.10, 3.11, 3.12 | 12.6, 12.8,    | 7.5, 8.0, 9.0a,    | 7.0, 7.1                  | gfx908, gfx90a, gfx942,   |
+|                 |                  | 3.13, 3.14       | 12.9, 13.0     | 10.0a, 12.0a [1]   |                           | gfx950                    |
++-----------------+------------------+------------------+----------------+--------------------+---------------------------+---------------------------+
 | 1.5.0           | 2.10.x           | 3.10, 3.11, 3.12 | 12.6, 12.8,    | 7.5, 8.0, 9.0a,    | 7.0, 7.1                  | gfx908, gfx90a, gfx942,   |
 |                 |                  | 3.13, 3.14       | 12.9, 13.0     | 10.0a, 12.0a [1]   |                           | gfx950                    |
 +-----------------+------------------+------------------+----------------+--------------------+---------------------------+---------------------------+
@@ -62,11 +65,15 @@ For more information, please visit:
 FBGEMM Release Notes
 --------------------
 
+- `FBGEMM v1.6.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v1.6.0>`_
+- `FBGEMM v1.5.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v1.5.0>`_
+- `FBGEMM v1.4.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v1.4.0>`_
+- `FBGEMM v1.3.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v1.3.0>`_
 - `FBGEMM v1.2.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v1.2.0>`_
 - `FBGEMM v1.1.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v1.1.0>`_
 - `FBGEMM v1.0.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v1.0.0>`_
-- `FBGEMM v1.8.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.8.0>`_
-- `FBGEMM v1.7.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.7.0>`_
-- `FBGEMM v1.6.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.6.0>`_
-- `FBGEMM v1.5.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.5.0>`_
-- `FBGEMM v1.4.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.4.0>`_
+- `FBGEMM v0.8.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.8.0>`_
+- `FBGEMM v0.7.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.7.0>`_
+- `FBGEMM v0.6.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.6.0>`_
+- `FBGEMM v0.5.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.5.0>`_
+- `FBGEMM v0.4.0 Release Notes <https://github.com/pytorch/FBGEMM/releases/tag/v0.4.0>`_
