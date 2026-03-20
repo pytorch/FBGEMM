@@ -597,8 +597,10 @@ def reorder_batched_ad_indices_bench(
         )
 
     batch_offsets = (
-        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int().cuda()
-    ).to(device)
+        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int()
+    ).to(
+        device
+    )  # Fixed: removed unconditional .cuda() call
     num_ads_in_batch = batch_size * num_ads
     reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
         cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
@@ -671,6 +673,30 @@ def reorder_batched_ad_lengths_bench(
     export_trace: bool,
     trace_url: str,
 ) -> None:
+    # Input validation (backported from tritonbench implementation)
+    num_ads_in_batch = batch_size * num_ads
+    if num_ads_in_batch >= 2**31 - 1:
+        raise ValueError(
+            f"num_ads_in_batch = batch_size * num_ads = {batch_size} * {num_ads} "
+            f"= {num_ads_in_batch} exceeds int32 max ({2**31 - 1}). "
+            f"The kernel uses int32 indexing. Reduce batch_size or num_ads."
+        )
+    if broadcast_indices:
+        num_lengths = batch_size * table_size
+    else:
+        num_lengths = batch_size * table_size * num_ads
+    if num_lengths >= 2**31 - 1:
+        raise ValueError(
+            f"Number of length entries = {num_lengths} exceeds int32 max "
+            f"({2**31 - 1}). Reduce batch_size, table_size, or num_ads."
+        )
+    output_size = batch_size * table_size * num_ads
+    if output_size >= 2**31 - 1:
+        raise ValueError(
+            f"Output size = batch_size * table_size * num_ads = {output_size} "
+            f"exceeds int32 max ({2**31 - 1}). Reduce parameters."
+        )
+
     if broadcast_indices:
         cat_ad_lengths = (
             torch.cat(
@@ -696,8 +722,10 @@ def reorder_batched_ad_lengths_bench(
             .to(device)
         )
 
+    # Fixed: use .to(device) directly instead of .int().cuda().to(device)
+    # which unconditionally moved to CUDA before moving to the target device
     batch_offsets = (
-        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int().cuda()
+        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int()
     ).to(device)
     num_ads_in_batch = batch_size * num_ads
 
