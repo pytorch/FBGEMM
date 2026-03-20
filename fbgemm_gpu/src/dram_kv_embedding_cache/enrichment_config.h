@@ -22,6 +22,7 @@ enum class EnrichmentType : int64_t {
   IGR_LASER_EMBEDDING = 0,
   IGR_LASER_SID = 1,
   ONEFLOW_OPENTAB_SID = 2,
+  ONEFLOW_FEATURE_STORE_SID = 3,
 };
 
 /// Must match Python EnrichmentResponseFormat(IntEnum) in
@@ -60,7 +61,14 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
       std::string opentab_column_group_ids = "",
       std::string opentab_vec_payload_indexes = "",
       int64_t opentab_timeout_ms = 5000,
-      int64_t opentab_batch_size = 100)
+      int64_t opentab_batch_size = 100,
+      std::string fs_tier = "",
+      std::string fs_caller_id = "",
+      int64_t fs_timeout_ms = 5000,
+      int64_t fs_batch_size = 500,
+      int64_t fs_feature_group_id = 0,
+      std::string fs_feature_group_name = "",
+      std::string fs_feature_name = "")
       : enrichment_type_(static_cast<EnrichmentType>(enrichment_type)),
         provider_name_(std::move(provider_name)),
         client_id_(std::move(client_id)),
@@ -73,7 +81,14 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
         opentab_column_group_ids_(std::move(opentab_column_group_ids)),
         opentab_vec_payload_indexes_(std::move(opentab_vec_payload_indexes)),
         opentab_timeout_ms_(opentab_timeout_ms),
-        opentab_batch_size_(opentab_batch_size) {}
+        opentab_batch_size_(opentab_batch_size),
+        fs_tier_(std::move(fs_tier)),
+        fs_caller_id_(std::move(fs_caller_id)),
+        fs_timeout_ms_(fs_timeout_ms),
+        fs_batch_size_(fs_batch_size),
+        fs_feature_group_id_(fs_feature_group_id),
+        fs_feature_group_name_(std::move(fs_feature_group_name)),
+        fs_feature_name_(std::move(fs_feature_name)) {}
 
   EnrichmentType enrichment_type_;
   std::string provider_name_;
@@ -90,6 +105,16 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
   std::string opentab_vec_payload_indexes_;
   int64_t opentab_timeout_ms_;
   int64_t opentab_batch_size_;
+
+  // Feature Store configuration (used when enrichment_type_ ==
+  // ONEFLOW_FEATURE_STORE_SID)
+  std::string fs_tier_;
+  std::string fs_caller_id_;
+  int64_t fs_timeout_ms_;
+  int64_t fs_batch_size_;
+  int64_t fs_feature_group_id_;
+  std::string fs_feature_group_name_;
+  std::string fs_feature_name_;
 };
 
 } // namespace kv_mem
