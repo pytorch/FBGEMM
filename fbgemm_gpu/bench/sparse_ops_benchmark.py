@@ -768,8 +768,19 @@ def reorder_batched_sequence_embeddings_bench(
     assert itype == "int" or itype == "long", "Only int and long are supported"
     index_type = torch.int64 if itype == "long" else torch.int32
 
+    # The CUDA kernel uses PackedTensorAccessor32 for the 2D embedding tensor
+    # (B*T*A*L, D), so the total numel must fit in int32.
+    tensor_numel = batch_size * table_size * num_items * length * dim
+    assert tensor_numel < 2**31 - 1, (
+        f"B*T*A*L*D = {tensor_numel} exceeds int32 max ({2**31 - 1}). "
+        f"The CUDA kernel uses PackedTensorAccessor32, which requires "
+        f"tensor numel < 2^31. Reduce parameters (currently B={batch_size}, "
+        f"T={table_size}, A={num_items}, L={length}, D={dim})."
+    )
+
     cat_sequence_embeddings = torch.rand(
-        batch_size * table_size * num_items * length * dim,
+        batch_size * table_size * num_items * length,
+        dim,
         dtype=data_type,
     ).to(device)
     cat_sequence_embeddings_lengths = (
@@ -785,8 +796,8 @@ def reorder_batched_sequence_embeddings_bench(
     )
 
     batch_offsets = (
-        (torch.tensor([num_items * b for b in range(batch_size + 1)]).cuda())
-        .to(index_type)
+        torch.tensor([num_items * b for b in range(batch_size + 1)])
+        .to(index_type if device == "cpu" else torch.int32)
         .to(device)
     )
     num_items_in_batch = batch_size * num_items
@@ -827,7 +838,6 @@ def reorder_batched_sequence_embeddings_bench(
                 reordered_cat_sequence_embeddings_offsets,
                 batch_offsets,
                 num_items_in_batch,
-                batch_size * table_size * num_items * length,
             ),
             num_warmups=100,
             iters=1000,
@@ -837,6 +847,7 @@ def reorder_batched_sequence_embeddings_bench(
         * table_size
         * num_items
         * length
+        * dim
         * cat_sequence_embeddings.element_size()
     )
     logging.info(
