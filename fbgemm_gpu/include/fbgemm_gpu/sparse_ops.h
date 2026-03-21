@@ -1078,6 +1078,8 @@ void group_index_select_or_add_cuda(
     const int64_t* input_ptrs,
     const int64_t* output_ptrs,
     const int64_t* indices_ptrs,
+    const int64_t* sorted_indices_ptrs,
+    const int64_t* reverse_indices_ptrs,
     const int64_t* warp_offsets_group,
     const int32_t* num_cols_group,
     const c10::ScalarType& input_scalar_type,
@@ -1087,7 +1089,10 @@ void group_index_select_or_add_cuda(
     const int64_t total_num_warps,
     const int group_size,
     const bool use_index_select,
-    const bool use_var_cols);
+    const bool use_var_cols,
+    const bool use_contiguous_warps,
+    const bool use_cache,
+    const bool use_packed_rows);
 
 int get_group_index_select_cols_per_warp();
 

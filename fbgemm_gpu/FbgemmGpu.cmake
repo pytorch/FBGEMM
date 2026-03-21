@@ -110,6 +110,7 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/quantize_ops/quantize_msfp.cu
       src/quantize_ops/quantize_padded_fp8_rowwise.cu
       src/quantize_ops/quantize_mx.cu
+      src/sparse_ops/utils/rocm/sparse_group_utils.cu
       src/sparse_ops/sparse_async_batched_cumsum.cu
       src/sparse_ops/sparse_block_bucketize_features.cu
       src/sparse_ops/sparse_bucketize_features.cu

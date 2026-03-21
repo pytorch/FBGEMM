@@ -11,7 +11,14 @@
 #include <cstdint>
 #include <limits>
 
+#include <ATen/Dispatch.h>
+#include <ATen/ATen.h>
+
+#include <hip/hip_runtime.h>
+#include <rocprim/device/device_radix_sort.hpp>
+
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/function_types.h"
 
 namespace fbgemm_gpu::rocm {
 namespace {
@@ -67,6 +74,8 @@ __device__ __forceinline__ void warp_upper_bound(
   *found = result;
   *cached_boundary = cached_result;
 }
-
 } // namespace
+
+std::tuple<at::Tensor, at::Tensor> sort_indices_with_rocprim(const at::Tensor& indices);
+
 } // namespace fbgemm_gpu::rocm
