@@ -32,6 +32,7 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
+#include <ATen/AccumulateType.h>
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
 
 namespace fbgemm_gpu::rocm {
@@ -48,8 +49,9 @@ struct rowwise_adagrad_optimizer_t
     {
         if constexpr(segment_split == 0)
         {
-            cache_t * p_momentum = reinterpret_cast<cache_t*>(karg.p_momentum);
-            cache_t momentum = p_momentum[row_index]; // should be s_load
+            using momentum_t = at::acc_type<cache_t, true>;
+            momentum_t* p_momentum = reinterpret_cast<momentum_t*>(karg.p_momentum);
+            momentum_t momentum = p_momentum[row_index]; // should be s_load
             // compute per row square sum
             cache_t local_sum_squre = .0f;
             if constexpr(weight_decay_mode == 1)
@@ -72,11 +74,11 @@ struct rowwise_adagrad_optimizer_t
                 }
             }
 
-            cache_t avg_square =
-                wave_reduce<reduce_op_sum_t<cache_t>, cache_t, AMDGCN_WAVE_SIZE>(local_sum_squre) /
+            momentum_t avg_square =
+                static_cast<momentum_t>(wave_reduce<reduce_op_sum_t<cache_t>, cache_t, AMDGCN_WAVE_SIZE>(local_sum_squre)) /
                 embedding_dim;
 
-            cache_t momentum_new = momentum + avg_square;
+            momentum_t momentum_new = momentum + avg_square;
 
             cache_t multiplier = karg.learning_rate / (sqrtf(momentum_new) + karg.eps);
             cache_t correction;
@@ -164,7 +166,8 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     const int64_t emb_idx = linear_index - hash_size;
 
     p_emb_table += hash_size * emb_dim;
-    opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<cache_t*>(opt_karg.p_momentum) + hash_size);
+    using momentum_t = at::acc_type<cache_t, true>;
+    opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<momentum_t*>(opt_karg.p_momentum) + hash_size);
 
     const int32_t segment_length = segment_end - segment_start;
 
