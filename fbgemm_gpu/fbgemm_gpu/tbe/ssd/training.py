@@ -288,6 +288,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.current_device: torch.device = torch.cuda.current_device()
 
         self.enable_raw_embedding_streaming = enable_raw_embedding_streaming
+        self._enable_ssd_raw_embedding_streaming = (
+            self.enable_raw_embedding_streaming and not self._embedding_cache_mode
+        )
         # initialize the raw embedding streaming related variables
         self.res_params: RESParams = res_params or RESParams()
         if self.enable_raw_embedding_streaming:
@@ -1618,7 +1621,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if not do_evict:
                 return
 
-            if self.enable_raw_embedding_streaming:
+            if self._enable_ssd_raw_embedding_streaming:
                 self.raw_embedding_stream(
                     rows=inserted_rows,
                     indices_cpu=post_bwd_evicted_indices_cpu,
@@ -1935,7 +1938,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 count=actions_count_gpu,
             )
             has_raw_embedding_streaming = False
-            if self.enable_raw_embedding_streaming:
+            if self._enable_ssd_raw_embedding_streaming:
                 # when pipelining is enabled
                 # prefetch in iter i happens before the backward sparse in iter i - 1
                 # so embeddings for iter i - 1's changed ids are not updated.
@@ -2151,7 +2154,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Ensure that D2H is done
             current_stream.wait_event(self.ssd_event_get_inputs_cpy)
 
-            if self.enable_raw_embedding_streaming and has_raw_embedding_streaming:
+            if self._enable_ssd_raw_embedding_streaming and has_raw_embedding_streaming:
                 current_stream.wait_event(self.ssd_event_sp_streamed)
                 with record_function(
                     "## ssd_compute_updated_rows {} {} ##".format(
