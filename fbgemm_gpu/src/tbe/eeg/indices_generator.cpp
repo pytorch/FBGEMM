@@ -11,7 +11,24 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+
+// Determine whether std::execution::par is safe to use.
+// The GCC 11 pstl backend pulls in TBB via <execution>. Legacy TBB (<=2020,
+// interface version <12000) has a bug in task.h where kind_type(bound+1)
+// produces an out-of-range enum value that ROCm clang rejects in C++20.
+// oneTBB 2021+ (interface version >=12000) removed the offending code.
+#if defined(__HIP_PLATFORM_AMD__) && __has_include(<tbb/tbb_stddef.h>)
+#include <tbb/tbb_stddef.h>
+#if TBB_INTERFACE_VERSION >= 12000    // if ROCm and tbb version newer
+#define FBGEMM_USE_PARALLEL_SORT 1
+#endif
+#else    // CUDA
+#define FBGEMM_USE_PARALLEL_SORT 1
+#endif
+
+#ifdef FBGEMM_USE_PARALLEL_SORT
 #include <execution>
+#endif
 
 namespace fbgemm_gpu::tbe {
 
@@ -128,11 +145,18 @@ torch::Tensor IndicesGenerator::generate() {
 
   // Now sort the indices by their tags. Use parallel sort for some extra speed
   // (vector is very large).
+#ifdef FBGEMM_USE_PARALLEL_SORT
   std::sort(
       std::execution::par,
       std::begin(indicesWithTags),
       std::end(indicesWithTags),
       [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
+#else
+  std::sort(
+      std::begin(indicesWithTags),
+      std::end(indicesWithTags),
+      [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
+#endif
 
   auto t = convertVectorToTensor(indicesWithTags);
 
