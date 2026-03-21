@@ -153,7 +153,8 @@ class FbgemmGpuBuild:
         if self.nova_flag() is None:
             # If running outside of Nova workflow context, append the channel
             # and variant to the package name as needed
-            if self.args.package_channel != "release":
+            if self.args.package_channel not in ["release", "test"]:
+                # Append the package channel to the package name
                 pkg_name += f"_{self.args.package_channel}"
 
             if self.variant() != "cuda":
