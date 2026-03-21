@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import math
+import re
 
 
 def fmt(val: float, precision: int = 2) -> str:
@@ -94,3 +95,27 @@ def print_table(
     if footer_lines:
         for line in footer_lines:
             print(line)
+
+
+def shorten_kernel_name(full_name: str) -> str:
+    """Extract a readable short name from a full C++ kernel name.
+
+    Strips ``void `` prefix, template arguments (``<...>``), function
+    arguments (``(...)``), ``[clone .kd]`` suffixes, namespace qualifiers
+    (``::``), and common TBE prefixes (``split_embedding_codegen_``,
+    ``split_embedding_``).
+    """
+    name = full_name.strip()
+    if name.startswith("void "):
+        name = name[5:]
+    name = re.sub(r"<[^>]*>", "", name)
+    name = re.sub(r"\(.*\)", "", name)
+    name = re.sub(r"\s*\[clone\s+\.\w+\]", "", name)
+    name = name.strip()
+    if "::" in name:
+        name = name.rsplit("::", 1)[-1]
+    for prefix in ("split_embedding_codegen_", "split_embedding_"):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+            break
+    return name or full_name
