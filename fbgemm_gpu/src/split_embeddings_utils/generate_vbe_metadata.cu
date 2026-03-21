@@ -203,6 +203,9 @@ generate_vbe_metadata(
       "generate_vbe_metadata: Invalid grid_size.z ",
       grid_size.z);
 
+#ifdef FBGEMM_GPU_MEMCHECK
+  const auto func_name = "generate_vbe_metadata_foreach_sample_kernel";
+#endif
   // Over allocate total number of threads to avoid using binary search
   FBGEMM_LAUNCH_KERNEL(
       generate_vbe_metadata_foreach_sample_kernel,
@@ -219,8 +222,7 @@ generate_vbe_metadata(
       D,
       nobag,
       info_B_num_bits,
-      MAKE_PTA_WITH_NAME(
-          func_name, predefined_vbe_output_offsets, int64_t, 2, 32));
+      PTA_B(predefined_vbe_output_offsets, int64_t, 2, 32));
 
   return {row_output_offsets, b_t_map};
 }

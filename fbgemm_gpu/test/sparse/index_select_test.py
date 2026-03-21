@@ -239,6 +239,40 @@ class IndexSelectTest(unittest.TestCase):
             {"rtol": 1e-02, "atol": 1e-02} if dtype == torch.half else {},
         )
 
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    def test_group_index_select_dim0_mixed_input_dtype(self) -> None:
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # CUDA specifically required: testing GPU-only FBGEMM sparse op validation
+        device = torch.device("cuda")
+        input0 = torch.rand((10,) + (8,), dtype=torch.float, device=device)
+        input1 = torch.rand((10,) + (8,), dtype=torch.half, device=device)
+        indices0 = torch.randint(10, (5,), device=device)
+        indices1 = torch.randint(10, (5,), device=device)
+        with self.assertRaisesRegex(
+            ValueError,
+            "All inputs in .* groups need to have the same dtype",
+        ):
+            torch.ops.fbgemm.group_index_select_dim0(
+                [input0, input1], [indices0, indices1]
+            )
+
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    def test_group_index_select_dim0_mixed_indices_dtype(self) -> None:
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # CUDA specifically required: testing GPU-only FBGEMM sparse op validation
+        device = torch.device("cuda")
+        input0 = torch.rand((10,) + (8,), dtype=torch.float, device=device)
+        input1 = torch.rand((10,) + (8,), dtype=torch.float, device=device)
+        indices0 = torch.randint(10, (5,), dtype=torch.long, device=device)
+        indices1 = torch.randint(10, (5,), dtype=torch.int, device=device)
+        with self.assertRaisesRegex(
+            ValueError,
+            "All indices in .* groups need to have the same dtype",
+        ):
+            torch.ops.fbgemm.group_index_select_dim0(
+                [input0, input1], [indices0, indices1]
+            )
+
     @given(
         num_inputs=st.integers(0, 100),
         max_input_rows=st.integers(2, 32),

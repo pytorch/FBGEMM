@@ -33,8 +33,10 @@
 #include "enrichment_config.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "feature_evict.h"
+#include "feature_store_enrichment.h"
 #include "fixed_block_pool.h"
 #include "igr_enrichment.h"
+#include "oneflow_enrichment.h"
 
 namespace kv_mem {
 
@@ -166,6 +168,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               kv_mem::EnrichmentType::IGR_LASER_SID) {
         laser_client_ =
             igr_enrichment::initializeLaserClient(*enrichment_config_.value());
+      }
+
+      // Initialize OpenTab reader if type is ONEFLOW_OPENTAB_SID
+      if (enrichment_config_.value()->enrichment_type_ ==
+          kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
+        open_tab_reader_ = oneflow_enrichment::initializeOpenTabReader(
+            *enrichment_config_.value());
       }
     }
     initialize_initializers(
@@ -798,6 +807,190 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             });
   }
 
+  /// Helper: schedule a fetch+prepare+write coroutine on enrichment_executor_.
+  /// Eliminates boilerplate duplication across enrichment type branches.
+  /// FetchFn: (const vector<int64_t>&) -> Task<PayloadMap>
+  /// PrepareFn: (const vector<int64_t>&, const vector<int64_t>&,
+  ///             const PayloadMap&) -> optional<EnrichmentResult>
+  template <typename FetchFn, typename PrepareFn>
+  void dispatchEnrichmentAsync(
+      std::vector<int64_t> hashed_ids,
+      std::vector<int64_t> unhashed_ids,
+      const char* log_prefix,
+      FetchFn fetchFn,
+      PrepareFn prepareFn) {
+    folly::coro::co_invoke(
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-capturing-lambda-coroutines)
+        [this,
+         hashed_ids = std::move(hashed_ids),
+         unhashed_ids = std::move(unhashed_ids),
+         log_prefix,
+         fetchFn = std::move(fetchFn),
+         prepareFn =
+             std::move(prepareFn)]() mutable -> folly::coro::Task<void> {
+          auto start_time = facebook::WallClockUtil::NowInUsecFast();
+          auto payloads = co_await fetchFn(unhashed_ids);
+          auto latency_ms =
+              (facebook::WallClockUtil::NowInUsecFast() - start_time) / 1000;
+          XLOG(INFO) << "[EmbeddingCacheEnrich] " << log_prefix
+                     << payloads.size() << "/" << unhashed_ids.size()
+                     << ", latency_ms: " << latency_ms;
+          if (!payloads.empty()) {
+            auto result = prepareFn(hashed_ids, unhashed_ids, payloads);
+            if (result.has_value()) {
+              set_kv_db_async_on_enrichment_executor(
+                  result->indices, result->weights, result->count);
+            }
+          }
+          pending_laser_requests_.fetch_sub(1);
+          laser_write_in_progress_.store(false);
+        })
+        // NOLINTNEXTLINE(readability-redundant-smartptr-get)
+        .scheduleOn(enrichment_executor_.get())
+        .start();
+  }
+
+  /// Decode int64 SID from cache weights.
+  /// Reverse of prepareInt64PayloadTensors nibble encoding:
+  /// 16 nibbles → uint64 → int64
+  /// nibble n = (exponent << 1) | sign_bit, float = pow(2, exponent) * sign
+  static int64_t decodeSIDFromWeights(const weight_type* weights_ptr) {
+    uint64_t uval = 0;
+    for (int i = 0; i < 16; ++i) {
+      float fval = static_cast<float>(weights_ptr[i]);
+      int exp = std::ilogb(std::abs(fval));
+      uint8_t nibble = static_cast<uint8_t>((exp << 1) | (fval < 0.0f ? 1 : 0));
+      uval |= (static_cast<uint64_t>(nibble & 0xF) << (i * 4));
+    }
+    return static_cast<int64_t>(uval);
+  }
+
+  /// Sync fetch SIDs for publish (OneFlow).
+  /// Cache-first: reads SIDs from kv_store if available,
+  /// only calls remote (FeatureStore/OpenTab) for cache misses.
+  /// No CAS/drop mechanism, blocks until complete.
+  /// @return (vids_tensor, sids_tensor) both int64
+  std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) override {
+    if (!enrichment_config_.has_value()) {
+      return {
+          torch::empty({0}, torch::kInt64), torch::empty({0}, torch::kInt64)};
+    }
+
+    const int64_t num_ids = count.item<int64_t>();
+    if (num_ids == 0) {
+      return {
+          torch::empty({0}, torch::kInt64), torch::empty({0}, torch::kInt64)};
+    }
+
+    CHECK(hashed_indices.is_contiguous());
+    CHECK(unhashed_indices.is_contiguous());
+    CHECK_EQ(hashed_indices.size(0), unhashed_indices.size(0));
+
+    const auto* hashed_ptr = hashed_indices.data_ptr<int64_t>();
+    const auto* unhashed_ptr = unhashed_indices.data_ptr<int64_t>();
+
+    // ─── Step 1: Shard scan ───
+    // Cache hit + weights non-zero → decode SID from weights
+    // Cache miss or zero-weight → collect for remote fetch
+    std::vector<int64_t> result_vids, result_sids;
+    std::vector<int64_t> need_fetch_unhashed;
+
+    auto shardid_to_indexes = shard_input(hashed_indices, count);
+    for (auto iter = shardid_to_indexes.begin();
+         iter != shardid_to_indexes.end();
+         iter++) {
+      const auto shard_id = iter->first;
+      const auto& indexes = iter->second;
+      if (indexes.empty()) {
+        continue;
+      }
+      auto rlmap = kv_store_.by(shard_id).rlock();
+      for (const auto& id_index : indexes) {
+        auto hashed_id = hashed_ptr[id_index];
+        auto unhashed_id = unhashed_ptr[id_index];
+        auto it = rlmap->find(hashed_id);
+        if (it != rlmap->end()) {
+          weight_type* block = it->second;
+          if (!FixedBlockPool::is_weights_all_zero(block, block_size_)) {
+            // Cache hit — decode SID
+            auto* data_ptr = FixedBlockPool::data_ptr<weight_type>(block);
+            int64_t sid = decodeSIDFromWeights(data_ptr);
+            if (sid != 0 && sid != -1) {
+              result_vids.push_back(unhashed_id);
+              result_sids.push_back(sid);
+              continue;
+            }
+          }
+        }
+        // Cache miss or zero-weight or invalid SID → need remote fetch
+        need_fetch_unhashed.push_back(unhashed_id);
+      }
+    }
+
+    XLOG(INFO) << "[fetch_sids_sync] cache hits: " << result_vids.size()
+               << ", need fetch: " << need_fetch_unhashed.size();
+
+    // ─── Step 2: Remote fetch for misses ───
+    if (!need_fetch_unhashed.empty()) {
+      const auto enrichment_type = enrichment_config_.value()->enrichment_type_;
+      folly::F14FastMap<int64_t, int64_t> payloads;
+
+      if (enrichment_type == kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
+        payloads = folly::coro::blockingWait(
+            oneflow_enrichment::fetchFromOpenTab(
+                open_tab_reader_,
+                *enrichment_config_.value(),
+                need_fetch_unhashed)
+                .scheduleOn(enrichment_executor_.get()));
+      } else if (
+          enrichment_type ==
+          kv_mem::EnrichmentType::ONEFLOW_FEATURE_STORE_SID) {
+        payloads = folly::coro::blockingWait(
+            feature_store_enrichment::fetchSIDFromFeatureStore(
+                *enrichment_config_.value(), need_fetch_unhashed)
+                .scheduleOn(enrichment_executor_.get()));
+      } else {
+        XLOG(WARNING) << "[fetch_sids_sync] unsupported enrichment_type: "
+                      << static_cast<int64_t>(enrichment_type);
+      }
+
+      XLOG(INFO) << "[fetch_sids_sync] remote fetched: " << payloads.size()
+                 << "/" << need_fetch_unhashed.size();
+
+      for (const auto& [vid, sid] : payloads) {
+        if (sid != 0 && sid != -1) {
+          result_vids.push_back(vid);
+          result_sids.push_back(sid);
+        }
+      }
+    }
+
+    // ─── Step 3: Convert to tensors ───
+    if (result_vids.empty()) {
+      return {
+          torch::empty({0}, torch::kInt64), torch::empty({0}, torch::kInt64)};
+    }
+
+    auto vids_tensor = torch::from_blob(
+                           result_vids.data(),
+                           {static_cast<int64_t>(result_vids.size())},
+                           torch::kInt64)
+                           .clone();
+    auto sids_tensor = torch::from_blob(
+                           result_sids.data(),
+                           {static_cast<int64_t>(result_sids.size())},
+                           torch::kInt64)
+                           .clone();
+
+    XLOG(INFO) << "[fetch_sids_sync] returning " << result_vids.size()
+               << " VID->SID pairs";
+
+    return {vids_tensor, sids_tensor};
+  }
+
   void set_embedding_cache_enrich_query_id_async(
       at::Tensor hashed_indices,
       at::Tensor unhashed_indices,
@@ -973,87 +1166,78 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
                   if (enrichment_type ==
                       kv_mem::EnrichmentType::IGR_LASER_EMBEDDING) {
-                    folly::coro::co_invoke(
-                        [this,
-                         hashed_ids = std::move(all_zero_weight_hashed_ids),
-                         unhashed_ids =
-                             std::move(all_zero_weight_unhashed_ids)]() mutable
-                            -> folly::coro::Task<void> {
-                          auto start_time =
-                              facebook::WallClockUtil::NowInUsecFast();
-                          auto embeddings =
-                              co_await igr_enrichment::fetchEmbeddingsFromLaser(
-                                  laser_client_,
-                                  *enrichment_config_.value(),
-                                  unhashed_ids);
-                          auto laser_latency_ms =
-                              (facebook::WallClockUtil::NowInUsecFast() -
-                               start_time) /
-                              1000;
-                          XLOG(INFO)
-                              << "[EmbeddingCacheEnrich] laser_hit: "
-                              << embeddings.size() << "/" << unhashed_ids.size()
-                              << ", latency_ms: " << laser_latency_ms;
-                          if (!embeddings.empty()) {
-                            auto result =
-                                igr_enrichment::prepareCacheWriteTensors<
-                                    weight_type>(
-                                    hashed_ids,
-                                    unhashed_ids,
-                                    embeddings,
-                                    max_D_);
-                            if (result.has_value()) {
-                              set_kv_db_async_on_enrichment_executor(
-                                  result->indices,
-                                  result->weights,
-                                  result->count);
-                            }
-                          }
-                          pending_laser_requests_.fetch_sub(1);
-                          laser_write_in_progress_.store(false);
-                        })
-                        .scheduleOn(enrichment_executor_.get())
-                        .start();
+                    dispatchEnrichmentAsync(
+                        std::move(all_zero_weight_hashed_ids),
+                        std::move(all_zero_weight_unhashed_ids),
+                        "laser_hit: ",
+                        [this](const std::vector<int64_t>& ids) {
+                          return igr_enrichment::fetchEmbeddingsFromLaser(
+                              laser_client_, *enrichment_config_.value(), ids);
+                        },
+                        [this](
+                            const std::vector<int64_t>& h,
+                            const std::vector<int64_t>& u,
+                            const auto& data) {
+                          return igr_enrichment::prepareCacheWriteTensors<
+                              weight_type>(h, u, data, max_D_);
+                        });
                   } else if (
                       enrichment_type ==
                       kv_mem::EnrichmentType::IGR_LASER_SID) {
-                    folly::coro::co_invoke(
-                        [this,
-                         hashed_ids = std::move(all_zero_weight_hashed_ids),
-                         unhashed_ids =
-                             std::move(all_zero_weight_unhashed_ids)]() mutable
-                            -> folly::coro::Task<void> {
-                          auto start_time =
-                              facebook::WallClockUtil::NowInUsecFast();
-                          auto sid_map =
-                              co_await igr_enrichment::fetchSIDsFromLaser(
-                                  laser_client_,
-                                  *enrichment_config_.value(),
-                                  unhashed_ids);
-                          auto laser_latency_ms =
-                              (facebook::WallClockUtil::NowInUsecFast() -
-                               start_time) /
-                              1000;
-                          XLOG(INFO)
-                              << "[EmbeddingCacheEnrich] sid_hit: "
-                              << sid_map.size() << "/" << unhashed_ids.size()
-                              << ", latency_ms: " << laser_latency_ms;
-                          if (!sid_map.empty()) {
-                            auto result =
-                                igr_enrichment::prepareSIDCacheWriteTensors(
-                                    hashed_ids, unhashed_ids, sid_map, max_D_);
-                            if (result.has_value()) {
-                              set_kv_db_async_on_enrichment_executor(
-                                  result->indices,
-                                  result->weights,
-                                  result->count);
-                            }
-                          }
-                          pending_laser_requests_.fetch_sub(1);
-                          laser_write_in_progress_.store(false);
-                        })
-                        .scheduleOn(enrichment_executor_.get())
-                        .start();
+                    dispatchEnrichmentAsync(
+                        std::move(all_zero_weight_hashed_ids),
+                        std::move(all_zero_weight_unhashed_ids),
+                        "sid_hit: ",
+                        [this](const std::vector<int64_t>& ids) {
+                          return igr_enrichment::fetchSIDsFromLaser(
+                              laser_client_, *enrichment_config_.value(), ids);
+                        },
+                        [this](
+                            const std::vector<int64_t>& h,
+                            const std::vector<int64_t>& u,
+                            const auto& data) {
+                          return igr_enrichment::prepareSIDCacheWriteTensors(
+                              h, u, data, max_D_);
+                        });
+                  } else if (
+                      enrichment_type ==
+                      kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
+                    dispatchEnrichmentAsync(
+                        std::move(all_zero_weight_hashed_ids),
+                        std::move(all_zero_weight_unhashed_ids),
+                        "opentab_hit: ",
+                        [this](const std::vector<int64_t>& ids) {
+                          return oneflow_enrichment::fetchFromOpenTab(
+                              open_tab_reader_,
+                              *enrichment_config_.value(),
+                              ids);
+                        },
+                        [this](
+                            const std::vector<int64_t>& h,
+                            const std::vector<int64_t>& u,
+                            const auto& data) {
+                          return oneflow_enrichment::prepareInt64PayloadTensors<
+                              weight_type>(h, u, data, max_D_);
+                        });
+                  } else if (
+                      enrichment_type ==
+                      kv_mem::EnrichmentType::ONEFLOW_FEATURE_STORE_SID) {
+                    dispatchEnrichmentAsync(
+                        std::move(all_zero_weight_hashed_ids),
+                        std::move(all_zero_weight_unhashed_ids),
+                        "feature_store_hit: ",
+                        [this](const std::vector<int64_t>& ids) {
+                          return feature_store_enrichment::
+                              fetchSIDFromFeatureStore(
+                                  *enrichment_config_.value(), ids);
+                        },
+                        [this](
+                            const std::vector<int64_t>& h,
+                            const std::vector<int64_t>& u,
+                            const auto& data) {
+                          return oneflow_enrichment::prepareInt64PayloadTensors<
+                              weight_type>(h, u, data, max_D_);
+                        });
                   } else {
                     XLOG(WARN)
                         << "[EmbeddingCacheEnrich] unknown enrichment_type: "
@@ -2234,6 +2418,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   // Pre-initialized LaserClient for IGR enrichment (reused across fetches)
   std::shared_ptr<facebook::laser::LaserClient> laser_client_;
+
+  // OpenTab/Maple reader for ONEFLOW_OPENTAB_SID enrichment (type-erased)
+  oneflow_enrichment::ReaderPtr open_tab_reader_;
 }; // class DramKVEmbeddingCache
 
 } // namespace kv_mem

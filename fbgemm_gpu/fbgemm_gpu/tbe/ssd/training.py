@@ -783,6 +783,20 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.client_id,
                     ep.enrichment_dim,
                     ep.response_format.value,
+                    ep.opentab_tier_name,
+                    ep.opentab_payload_ids,
+                    ep.opentab_payload_types,
+                    ep.opentab_column_group_ids,
+                    ep.opentab_vec_payload_indexes,
+                    ep.opentab_timeout_ms,
+                    ep.opentab_batch_size,
+                    ep.fs_tier,
+                    ep.fs_caller_id,
+                    ep.fs_timeout_ms,
+                    ep.fs_batch_size,
+                    ep.fs_feature_group_id,
+                    ep.fs_feature_group_name,
+                    ep.fs_feature_name,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -5088,3 +5102,28 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                                 dtype=torch.long,
                             ),
                         )
+
+    def fetch_sids_sync(
+        self,
+        hashed_ids: torch.Tensor,
+        unhashed_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Sync fetch SIDs for given VIDs. For publish use only.
+        Cache-first: reads SIDs from kv_store if available,
+        only calls remote (FeatureStore/OpenTab) for cache misses.
+        Blocks until fetch completes — do NOT call during training.
+
+        Args:
+            hashed_ids: int64 tensor of hashed/linearized cache indices
+            unhashed_ids: int64 tensor of unhashed VIDs (object IDs)
+            Must be same length and correspond 1:1.
+
+        Returns:
+            (vids_with_sids, sids): both int64 tensors of shape [M]
+            where M <= len(unhashed_ids) (only VIDs that got SIDs)
+        """
+        hashed_cpu = hashed_ids.cpu().contiguous()
+        unhashed_cpu = unhashed_ids.cpu().contiguous()
+        count = torch.tensor([hashed_cpu.shape[0]], device="cpu", dtype=torch.long)
+        return self.ssd_db.fetch_sids_sync(hashed_cpu, unhashed_cpu, count)
