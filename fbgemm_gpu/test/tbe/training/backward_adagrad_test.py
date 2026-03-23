@@ -299,20 +299,29 @@ class BackwardAdagradTest(unittest.TestCase):
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
-        os.environ["FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"] = "0"
+        env_var = "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"
+        original_value = os.environ.get(env_var)
+        os.environ[env_var] = "0"
         logging.info(
-            "Testing ROCm backward kernel with FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL=0 (stock)"
+            f"Testing ROCm backward kernel with {env_var}=0 (stock)"
         )
-        self._test_backward_adagrad_rocm_kernel(
-            T=T,
-            D=D,
-            B=B,
-            log_E=log_E,
-            L=L,
-            weights_precision=weights_precision,
-            weighted=weighted,
-            weight_decay_mode=weight_decay_mode,
-        )
+        try:
+            self._test_backward_adagrad_rocm_kernel(
+                T=T,
+                D=D,
+                B=B,
+                log_E=log_E,
+                L=L,
+                weights_precision=weights_precision,
+                weighted=weighted,
+                weight_decay_mode=weight_decay_mode,
+            )
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop(env_var, None)
+            else:
+                os.environ[env_var] = original_value
 
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -344,20 +353,29 @@ class BackwardAdagradTest(unittest.TestCase):
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
-        os.environ["FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"] = "1"
+        env_var = "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"
+        original_value = os.environ.get(env_var)
+        os.environ[env_var] = "1"
         logging.info(
-            "Testing ROCm backward kernel with FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL=1 (optimized)"
+            f"Testing ROCm backward kernel with {env_var}=1 (optimized)"
         )
-        self._test_backward_adagrad_rocm_kernel(
-            T=T,
-            D=D,
-            B=B,
-            log_E=log_E,
-            L=L,
-            weights_precision=weights_precision,
-            weighted=weighted,
-            weight_decay_mode=weight_decay_mode,
-        )
+        try:
+            self._test_backward_adagrad_rocm_kernel(
+                T=T,
+                D=D,
+                B=B,
+                log_E=log_E,
+                L=L,
+                weights_precision=weights_precision,
+                weighted=weighted,
+                weight_decay_mode=weight_decay_mode,
+            )
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop(env_var, None)
+            else:
+                os.environ[env_var] = original_value
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(40))
