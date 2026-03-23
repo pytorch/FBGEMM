@@ -481,8 +481,22 @@ def asynchronous_complete_cumsum_2d_bench(
     assert dtype == "int" or dtype == "long", "Only int and long are supported"
     index_dtype = torch.int64 if dtype == "long" else torch.int32
 
-    x = torch.randint(low=0, high=100, size=(num_vecs, num_entries_per_vec)).type(
-        index_dtype
+    # Input validation — backported from tritonbench implementation.
+    # The kernel may use PackedTensorAccessor32 with int32 indexing.
+    numel = num_vecs * num_entries_per_vec
+    if numel >= 2**31:
+        raise ValueError(
+            f"Input numel = {num_vecs} * {num_entries_per_vec} = {numel} "
+            f"exceeds int32 max ({2**31 - 1}). Reduce num_vecs or num_entries_per_vec."
+        )
+
+    # Fix: use dtype= directly instead of .type() to avoid creating a
+    # default-dtype intermediate tensor.
+    x = torch.randint(
+        low=0,
+        high=100,
+        size=(num_vecs, num_entries_per_vec),
+        dtype=index_dtype,
     )
     x = x.cuda()
 
@@ -498,11 +512,16 @@ def asynchronous_complete_cumsum_2d_bench(
     )
 
     with context_factory(_kineto_trace_handler):
+        # Reduce iterations when tracing to keep trace files manageable.
+        # With 1000 iters, this kernel produces 10GB+ trace files that
+        # overwhelm JSON parsers.
+        trace_warmups = 10 if export_trace else 100
+        trace_iters = 100 if export_trace else 1000
         time, _ = benchmark_torch_function(
             torch.ops.fbgemm.asynchronous_complete_cumsum,
             (x,),
-            num_warmups=100,
-            iters=1000,
+            num_warmups=trace_warmups,
+            iters=trace_iters,
         )
 
     logging.info(
