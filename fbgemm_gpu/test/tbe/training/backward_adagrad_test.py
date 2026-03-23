@@ -236,6 +236,39 @@ class BackwardAdagradTest(unittest.TestCase):
             **kwargs,
         )
 
+    def _test_backward_adagrad_rocm_kernel(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        weight_decay_mode: WeightDecayMode,
+    ) -> None:
+        """Helper method for ROCm backward kernel tests."""
+        execute_backward_adagrad(
+            T=T,
+            D=D,
+            B=B,
+            log_E=log_E,
+            L=L,
+            D_gradcheck=1,
+            weights_precision=weights_precision,
+            stochastic_rounding=False,
+            weighted=weighted,
+            row_wise=True,
+            mixed=False,
+            mixed_B=False,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            pooling_mode=PoolingMode.SUM,
+            use_cpu=False,
+            output_dtype=weights_precision,
+            weight_decay_mode=weight_decay_mode,
+        )
+
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.sampled_from([16, 32, 40, 48, 64, 80]),
@@ -254,8 +287,8 @@ class BackwardAdagradTest(unittest.TestCase):
     )
     @settings(**common_settings)
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfNotRocm("Test evaluates ROCm backward kernels")
-    def test_backward_adagrad_rocm_optimized(
+    @skipIfNotRocm("Test evaluates ROCm stock backward kernel")
+    def test_backward_adagrad_rocm_stock_kernel(
         self,
         T: int,
         D: int,
@@ -266,31 +299,65 @@ class BackwardAdagradTest(unittest.TestCase):
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
-        for use_optimized_kernel in ["0", "1"]:
-            os.environ["FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"] = use_optimized_kernel
-            logging.info(
-                f"Testing ROCm backward kernel with FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL={use_optimized_kernel}"
-            )
-            execute_backward_adagrad(
-                T=T,
-                D=D,
-                B=B,
-                log_E=log_E,
-                L=L,
-                D_gradcheck=1,
-                weights_precision=weights_precision,
-                stochastic_rounding=False,
-                weighted=weighted,
-                row_wise=True,
-                mixed=False,
-                mixed_B=False,
-                use_cache=False,
-                cache_algorithm=CacheAlgorithm.LRU,
-                pooling_mode=PoolingMode.SUM,
-                use_cpu=False,
-                output_dtype=weights_precision,
-                weight_decay_mode=weight_decay_mode,
-            )
+        os.environ["FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"] = "0"
+        logging.info(
+            "Testing ROCm backward kernel with FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL=0 (stock)"
+        )
+        self._test_backward_adagrad_rocm_kernel(
+            T=T,
+            D=D,
+            B=B,
+            log_E=log_E,
+            L=L,
+            weights_precision=weights_precision,
+            weighted=weighted,
+            weight_decay_mode=weight_decay_mode,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.sampled_from([16, 32, 40, 48, 64, 80]),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=2, max_value=20),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        weight_decay_mode=st.sampled_from(
+            [
+                WeightDecayMode.NONE,
+                WeightDecayMode.L2,
+                WeightDecayMode.DECOUPLE,
+            ]
+        ),
+    )
+    @settings(**common_settings)
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("Test evaluates ROCm optimized backward kernel")
+    def test_backward_adagrad_rocm_optimized_kernel(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        weight_decay_mode: WeightDecayMode,
+    ) -> None:
+        os.environ["FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"] = "1"
+        logging.info(
+            "Testing ROCm backward kernel with FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL=1 (optimized)"
+        )
+        self._test_backward_adagrad_rocm_kernel(
+            T=T,
+            D=D,
+            B=B,
+            log_E=log_E,
+            L=L,
+            weights_precision=weights_precision,
+            weighted=weighted,
+            weight_decay_mode=weight_decay_mode,
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(40))
