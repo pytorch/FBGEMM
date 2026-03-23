@@ -287,8 +287,8 @@ class BackwardAdagradTest(unittest.TestCase):
     )
     @settings(**common_settings)
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfNotRocm("Test evaluates ROCm stock backward kernel")
-    def test_backward_adagrad_rocm_stock_kernel(
+    @skipIfNotRocm("Test evaluates fallback kernel on ROCm")
+    def test_backward_adagrad_rocm_fallback_kernel(
         self,
         T: int,
         D: int,
