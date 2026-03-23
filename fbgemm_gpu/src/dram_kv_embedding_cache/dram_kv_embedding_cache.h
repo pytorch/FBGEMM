@@ -153,7 +153,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         elem_size_(row_storage_bitwidth / 8),
         backend_return_whole_row_(backend_return_whole_row),
         feature_evict_config_(std::move(feature_evict_config)),
-        is_training_(is_training) {
+        is_training_(is_training),
+        enable_raw_embedding_streaming_(enable_raw_embedding_streaming) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(std::max<size_t>(
         num_threads, facebook::Proc::getCpuInfo().numCpuCores));
     // Dedicated executor for enrichment (low priority, won't affect
@@ -839,7 +840,23 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             auto result = prepareFn(hashed_ids, unhashed_ids, payloads);
             if (result.has_value()) {
               set_kv_db_async_on_enrichment_executor(
-                  result->indices, result->weights, result->count);
+                  result->indices, result->weights, result->count)
+                  .via(enrichment_executor_.get())
+                  .thenValue([this, result](const std::vector<folly::Unit>&) {
+                    // Stream enriched embeddings to TrainingPsProcess for
+                    // delta publishing.
+                    if (enable_raw_embedding_streaming_) {
+                      raw_embedding_streamer_->stream(
+                          result->indices,
+                          result->weights,
+                          std::nullopt, /*identities*/
+                          std::nullopt, /*runtime_meta*/
+                          result->count,
+                          false, /*require_tensor_copy - tensors already on
+                                    CPU*/
+                          false /*blocking_tensor_copy*/);
+                    }
+                  });
             }
           }
           pending_laser_requests_.fetch_sub(1);
@@ -2398,6 +2415,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> read_num_counts_{0};
 
   bool disable_random_init_;
+
+  // Whether raw embedding streaming (RES) is enabled for this cache
+  bool enable_raw_embedding_streaming_ = false;
 
   // Enrichment configuration (passed from Python, replaces hardcoded laser
   // config)
