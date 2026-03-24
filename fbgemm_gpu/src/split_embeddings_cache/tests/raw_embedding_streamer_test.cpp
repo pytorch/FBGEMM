@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h" // @manual=//deeplearning/fbgemm/fbgemm_gpu/src/split_embeddings_cache:raw_embedding_streamer
 #ifdef FBGEMM_FBCODE
-#include <folly/experimental/coro/GmockHelpers.h>
+#include <folly/coro/GmockHelpers.h>
 #include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
 #include "servicerouter/client/cpp2/mocks/MockSRClientFactory.h"
 #include "thrift/lib/cpp2/util/ScopedServerInterfaceThread.h"
