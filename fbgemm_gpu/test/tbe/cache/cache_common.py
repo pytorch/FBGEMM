@@ -65,6 +65,7 @@ class TestingStatsReporter(TBEStatsReporter):
         embedding_id: str = "",
         tbe_id: str = "",
         time_unit: str = "ms",
+        enable_tb_metrics: bool = False,
     ) -> None:
         self.reported_data.setdefault(event_name, [])
         self.reported_data[event_name].append(
@@ -78,6 +79,7 @@ class TestingStatsReporter(TBEStatsReporter):
         data_bytes: int,
         embedding_id: str = "",
         tbe_id: str = "",
+        enable_tb_metrics: bool = False,
     ) -> None:
         self.reported_data.setdefault(event_name, [])
         self.reported_data[event_name].append(

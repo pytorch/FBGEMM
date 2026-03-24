@@ -16,18 +16,14 @@ from itertools import accumulate
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import CacheAlgorithm
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
-from fbgemm_gpu.tbe.utils import to_device
+from fbgemm_gpu.tbe.utils import generate_requests, TBERequest, to_device
 from hypothesis import given, settings, Verbosity
 from torch import Tensor
 
-from ..common import MAX_EXAMPLES, open_source
-
-if open_source:
-    # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
-else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
+from ..common import MAX_EXAMPLES  # noqa E402
+from .cache_common import generate_cache_tbes, gpu_unavailable, optests
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -141,6 +137,95 @@ class LXUCacheTest(unittest.TestCase):
             lxu_cache_locking_counter, lxu_cache_locations
         )
         self.assertTrue(torch.equal(lxu_cache_locking_counter, counter_ref))
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.integers(min_value=2, max_value=32),
+        B=st.integers(min_value=1, max_value=32),
+        log_E=st.integers(min_value=3, max_value=4),
+        L=st.integers(min_value=1, max_value=10),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_lxu_cache_locking_counter_increment(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+    ) -> None:
+        """
+        Test that lxu_cache_locking_counter is correctly incremented during
+        cache prefetch (lru_cache_populate with lock_cache_line=True) and
+        correctly decremented back to zero after forward+backward.
+        """
+        cc, _, min_Es, _ = generate_cache_tbes(
+            T,
+            D,
+            log_E,
+            mixed=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            prefetch_pipeline=True,
+            use_int_weight=True,
+        )
+
+        requests = generate_requests(2, B, T, L, min_Es, reuse=0.1)
+        # Cast to long to match TBE expectations
+        for i, req in enumerate(requests):
+            indices, offsets, weights, Bs_feature_rank = req.unpack_4()
+            requests[i] = TBERequest(
+                indices.long(), offsets.long(), weights, Bs_feature_rank
+            )
+
+        # Verify counter starts at zero
+        counter = cc.lxu_cache_locking_counter
+        assert isinstance(counter, Tensor)
+        self.assertTrue(
+            torch.all(counter == 0),
+            "Counter should be zero initially",
+        )
+
+        # Prefetch first batch (calls lru_cache_populate with lock_cache_line=True)
+        indices_0, offsets_0, _, _ = requests[0].unpack_4()
+        cc.prefetch(indices_0, offsets_0)
+
+        # After prefetch, some counters should be incremented (> 0)
+        counter = cc.lxu_cache_locking_counter
+        assert isinstance(counter, Tensor)
+        self.assertTrue(
+            torch.any(counter > 0),
+            "After prefetch with lock_cache_line=True, "
+            "some counters should be incremented",
+        )
+
+        # All counter values should be non-negative
+        self.assertTrue(
+            torch.all(counter >= 0),
+            "All counter values should be non-negative after increment",
+        )
+
+        # Prefetch second batch (this also decrements counters for batch 0)
+        indices_1, offsets_1, _, _ = requests[1].unpack_4()
+        cc.prefetch(indices_1, offsets_1)
+
+        # Run forward + backward for both batches
+        output_0 = cc(indices_0, offsets_0)
+        output_0.backward(torch.randn_like(output_0))
+
+        output_1 = cc(indices_1, offsets_1)
+        output_1.backward(torch.randn_like(output_1))
+
+        # Flush to finalize
+        cc.flush()
+
+        # After full cycle, counter should be back to zero
+        counter = cc.lxu_cache_locking_counter
+        assert isinstance(counter, Tensor)
+        self.assertTrue(
+            torch.all(counter == 0),
+            "Counter should be zero after full prefetch-forward-backward cycle",
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
