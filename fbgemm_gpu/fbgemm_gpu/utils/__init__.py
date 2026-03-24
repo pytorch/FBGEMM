@@ -7,5 +7,6 @@
 
 # pyre-unsafe
 
+from .context import updated_env  # noqa F401
 from .filestore import FileStore  # noqa F401
 from .torch_library import TorchLibraryFragment  # noqa F401
