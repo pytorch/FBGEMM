@@ -222,16 +222,16 @@ PyTorch PIP is the preferred channel for installing FBGEMM_GPU:
   pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cpu/
 
   # CUDA Nightly
-  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu126/
-  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cu126/
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128/
+  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cu128/
 
   # CUDA Release
-  pip install torch --index-url https://download.pytorch.org/whl/cu126/
-  pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cu126/
+  pip install torch --index-url https://download.pytorch.org/whl/cu128/
+  pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cu128/
 
   # ROCm Nightly
-  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
-  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm7.1/
+  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/rocm7.1/
 
   # Test the installation
   python -c "import torch; import fbgemm_gpu"
