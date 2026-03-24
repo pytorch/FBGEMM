@@ -40,7 +40,7 @@ jobs:
             { "arch": "x86", "instance": "linux.24xlarge" },
           ],
           "python-version": [ "3.14" ],
-          "cuda-version": [ "12.8.1" ],
+          "cuda-version": [ "13.0.2" ],
           "compiler": [ "gcc" ],
         }
       repo-ref: ${{ github.ref }}
@@ -57,7 +57,7 @@ jobs:
             { "arch": "x86", "instance": "linux.g5.4xlarge.nvidia.gpu" },
           ],
           "python-version": [ "3.14" ],
-          "cuda-version": [ "12.8.1" ],
+          "cuda-version": [ "13.0.2" ],
           "compiler": [ "gcc" ],
         }
       repo-ref: ${{ github.ref }}
