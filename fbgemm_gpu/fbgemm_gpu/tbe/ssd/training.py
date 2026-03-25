@@ -2916,6 +2916,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             should_flush=should_flush,
         )
 
+        # If sorted_ids is None, create empty tensors per table so that
+        # _fetch_offloaded_optimizer_states can still handle the
+        # local_weight_counts > 0 case (filling with zeros).
+        if sorted_ids is None:
+            sorted_ids = [
+                torch.empty(0, 1, device=torch.device("cpu"), dtype=torch.int64)
+                for _ in dims_
+            ]
+
         # pyre-ignore[53]
         def _fetch_offloaded_optimizer_states(
             t: int,
