@@ -21,11 +21,9 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, skipIfRocm
+    from test_utils import gpu_available
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, skipIfRocm
-
-ROCM_FAILURE_MESSAGE = "Test is causing HSA_STATUS_ERROR_MEMORY_APERTURE_VIOLATION"
+    from fbgemm_gpu.test.test_utils import gpu_available
 
 
 def unbucketize_indices_value(
@@ -74,7 +72,6 @@ class BlockBucketizeTest(unittest.TestCase):
                     self.assertAlmostEqual(left, right)
         return
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -273,7 +270,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
                 torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -470,7 +466,6 @@ class BlockBucketizeTest(unittest.TestCase):
             msg=f"{new_indices.cpu()=} != {new_indices_ref=}",
         )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -606,7 +601,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 msg=f"{unbucketize_permute=}",
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -730,7 +724,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 msg=f"{unbucketize_permute=}",
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -842,7 +835,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 msg=f"{unbucketize_permute=}",
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -953,7 +945,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 msg=f"{unbucketize_permute=}",
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -1121,7 +1112,6 @@ class BlockBucketizeTest(unittest.TestCase):
                         new_pos_ref, new_pos_gpu.cpu(), new_lengths_ref
                     )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
     )
@@ -1201,7 +1191,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 bucket_mapping,
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
     )
@@ -1385,7 +1374,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 atol=0,
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         my_size=st.integers(min_value=1, max_value=16),
@@ -1410,7 +1398,6 @@ class BlockBucketizeTest(unittest.TestCase):
             lengths, indices, block_sizes, my_size, index_type
         )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         num_sequences=st.integers(min_value=1, max_value=16),
@@ -1433,7 +1420,6 @@ class BlockBucketizeTest(unittest.TestCase):
             lengths, indices, block_sizes, my_size, index_type
         )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         my_size=st.integers(min_value=33, max_value=64),
@@ -1458,7 +1444,6 @@ class BlockBucketizeTest(unittest.TestCase):
             lengths, indices, block_sizes, my_size, index_type
         )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         my_size=st.integers(min_value=1, max_value=32),
@@ -1480,7 +1465,6 @@ class BlockBucketizeTest(unittest.TestCase):
             lengths, indices, block_sizes, my_size, index_type
         )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @unittest.skipIf(not gpu_available, "No GPU available")
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
@@ -1590,7 +1574,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 f"my_size={my_size}, lengths={lengths}",
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -1683,7 +1666,6 @@ class BlockBucketizeTest(unittest.TestCase):
                     new_indices_ref, new_indices_gpu.cpu(), new_lengths_ref
                 )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -1851,7 +1833,6 @@ class BlockBucketizeTest(unittest.TestCase):
                         is_int=False,
                     )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @unittest.skipIf(not gpu_available, "Skip is GPU is not available.")
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
@@ -1961,7 +1942,6 @@ class BlockBucketizeTest(unittest.TestCase):
                     new_pos_cpu, new_pos_gpu.cpu(), new_lengths_cpu
                 )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
