@@ -25,6 +25,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
     WeightDecayMode,
 )
+from fbgemm_gpu.utils import updated_env
 from hypothesis import given, settings
 
 from ..common import create_tbe_from_config, load_tbe_configs_from_file  # noqa E402
@@ -299,11 +300,12 @@ class BackwardAdagradTest(unittest.TestCase):
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
-        env_var = "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"
-        original_value = os.environ.get(env_var)
-        os.environ[env_var] = "0"
-        logging.info(f"Testing ROCm backward kernel with {env_var}=0 (stock)")
-        try:
+        with updated_env(
+            {"FBGEMM_NO_JK": "1", "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL": "0"}
+        ):
+            logging.info(
+                "Testing ROCm backward kernel with FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL=0 (stock)"
+            )
             self._test_backward_adagrad_rocm_kernel(
                 T=T,
                 D=D,
@@ -314,12 +316,6 @@ class BackwardAdagradTest(unittest.TestCase):
                 weighted=weighted,
                 weight_decay_mode=weight_decay_mode,
             )
-        finally:
-            # Restore original value
-            if original_value is None:
-                os.environ.pop(env_var, None)
-            else:
-                os.environ[env_var] = original_value
 
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -351,11 +347,12 @@ class BackwardAdagradTest(unittest.TestCase):
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
-        env_var = "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL"
-        original_value = os.environ.get(env_var)
-        os.environ[env_var] = "1"
-        logging.info(f"Testing ROCm backward kernel with {env_var}=1 (optimized)")
-        try:
+        with updated_env(
+            {"FBGEMM_NO_JK": "1", "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL": "1"}
+        ):
+            logging.info(
+                "Testing ROCm backward kernel with FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL=1 (optimized)"
+            )
             self._test_backward_adagrad_rocm_kernel(
                 T=T,
                 D=D,
@@ -366,12 +363,163 @@ class BackwardAdagradTest(unittest.TestCase):
                 weighted=weighted,
                 weight_decay_mode=weight_decay_mode,
             )
-        finally:
-            # Restore original value
-            if original_value is None:
-                os.environ.pop(env_var, None)
-            else:
-                os.environ[env_var] = original_value
+
+    @given(
+        T=st.integers(min_value=2, max_value=4),
+        D=st.sampled_from([64, 128, 160, 192, 256, 320]),
+        B=st.integers(min_value=2, max_value=32),
+        log_E=st.integers(min_value=2, max_value=4),
+        L=st.integers(min_value=2, max_value=16),
+    )
+    @settings(**common_settings)
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("Regression test for HIP backward kernel FP16 momentum bug")
+    def test_backward_adagrad_rocm_hip_fp16_momentum_regression(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+    ) -> None:
+        """
+        Regression test for D97502307: validates that the HIP TBE backward
+        kernel correctly types momentum as acc_type<cache_t, true> rather
+        than cache_t.  When cache_t=half (FP16), the bug causes:
+          1. momentum reads/writes as 16-bit instead of 32-bit -> NaN/Inf
+          2. wrong pointer stride for tables beyond the first -> corruption
+
+        This test exercises: HIP backward kernel + FP16 cache + rowwise
+        AdaGrad + multiple tables, with 4-phase manual validation of
+        momentum and weight correctness.
+        """
+        E = int(10**log_E)
+        Es = [E] * T
+
+        lr = 0.5
+        eps = 0.1
+        weight_decay_mode = WeightDecayMode.NONE
+
+        with updated_env(
+            {
+                "FBGEMM_NO_JK": "1",
+                "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL": "1",
+            }
+        ):
+            cc = SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)
+                    for _ in range(T)
+                ],
+                weights_precision=SparseType.FP16,
+                output_dtype=SparseType.FP16,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                learning_rate=lr,
+                eps=eps,
+                weight_decay=0.0,
+                weight_decay_mode=weight_decay_mode,
+                stochastic_rounding=False,
+            )
+            cc = cc.cuda()
+
+            initial_weights = [w.float().clone() for w in cc.split_embedding_weights()]
+
+            indices_list = []
+            offsets_list = [
+                torch.tensor(
+                    [0],
+                    dtype=torch.long,
+                    device=torch.accelerator.current_accelerator(),
+                )
+            ]
+            total = 0
+            for t in range(T):
+                for _ in range(B):
+                    pool_size = L
+                    idx = torch.randint(
+                        0,
+                        Es[t],
+                        (pool_size,),
+                        device=torch.accelerator.current_accelerator(),
+                    )
+                    indices_list.append(idx)
+                    total += pool_size
+                    offsets_list.append(
+                        torch.tensor(
+                            [total],
+                            dtype=torch.long,
+                            device=torch.accelerator.current_accelerator(),
+                        )
+                    )
+
+            indices = torch.cat(indices_list)
+            offsets = torch.cat(offsets_list)
+
+            output = cc(indices, offsets)
+            self.assertEqual(output.dtype, torch.float16)
+
+            grad_output = torch.ones_like(output)
+            output.backward(grad_output)
+
+            # Phase 1 & 2: Validate momentum for all tables
+            optimizer_states = cc.split_optimizer_states()
+            self.assertEqual(len(optimizer_states), T)
+
+            for t in range(T):
+                m1 = optimizer_states[t][0]
+
+                self.assertTrue(
+                    torch.all(torch.isfinite(m1)),
+                    f"Table {t}: momentum contains NaN or Inf — "
+                    f"likely reading half as float. "
+                    f"min={m1.min().item()}, max={m1.max().item()}",
+                )
+
+                self.assertTrue(
+                    torch.all(m1 >= 0),
+                    f"Table {t}: momentum contains negative values — "
+                    f"corrupted pointer arithmetic. "
+                    f"min={m1.min().item()}",
+                )
+
+            # Phase 3: Validate weight updates are finite and changed
+            updated_weights = [w.float().clone() for w in cc.split_embedding_weights()]
+            for t in range(T):
+                w_new = updated_weights[t]
+                self.assertTrue(
+                    torch.all(torch.isfinite(w_new)),
+                    f"Table {t}: updated weights contain NaN or Inf",
+                )
+
+                accessed_rows = indices_list[t * B : (t + 1) * B]
+                accessed_indices = torch.cat(accessed_rows).unique()
+                w_old_accessed = initial_weights[t][accessed_indices.cpu()]
+                w_new_accessed = w_new[accessed_indices.cpu()]
+                self.assertFalse(
+                    torch.allclose(w_old_accessed, w_new_accessed, atol=0, rtol=0),
+                    f"Table {t}: weights did not change after backward pass",
+                )
+
+            # Phase 4: Cross-table momentum consistency check
+            m1_means = []
+            for t in range(T):
+                m1 = optimizer_states[t][0]
+                accessed_rows = indices_list[t * B : (t + 1) * B]
+                accessed_indices = torch.cat(accessed_rows).unique()
+                m1_accessed = m1[accessed_indices.cpu()]
+                m1_means.append(m1_accessed.float().mean().item())
+
+            for t in range(1, T):
+                ratio = max(m1_means[0], m1_means[t]) / max(
+                    min(m1_means[0], m1_means[t]), 1e-10
+                )
+                self.assertLess(
+                    ratio,
+                    100.0,
+                    f"Table {t} momentum mean ({m1_means[t]:.6f}) is wildly "
+                    f"different from table 0 ({m1_means[0]:.6f}) — "
+                    f"likely pointer arithmetic bug (ratio={ratio:.1f})",
+                )
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(40))

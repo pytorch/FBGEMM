@@ -1,12 +1,13 @@
-#!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
+from setuptools import find_packages, setup
 
-from .context import updated_env  # noqa F401
-from .filestore import FileStore  # noqa F401
-from .torch_library import TorchLibraryFragment  # noqa F401
+setup(
+    name="ikbo",
+    version="0.1.0",
+    packages=find_packages(include=["ikbo"]),
+)
