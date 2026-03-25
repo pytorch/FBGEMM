@@ -326,6 +326,12 @@ def jagged_index_select_2d_bench(
 @click.option("--sort-indices", type=bool, default=True)
 @click.option("--num-groups", default=32)
 @click.option(
+    "--device",
+    type=str,
+    default="cuda",
+    help="Device to run on (cuda or cpu). Default is cuda.",
+)
+@click.option(
     "--export-trace",
     is_flag=True,
     default=False,
@@ -343,9 +349,17 @@ def group_index_select_2d_bench(
     input_precision: str,
     sort_indices: bool,
     num_groups: int,
+    device: str,
     export_trace: bool,
     trace_url: str,
 ) -> None:
+    # Input validation (backported from tritonbench implementation)
+    if unique_batch_size > batch_size:
+        raise ValueError(
+            f"unique_batch_size ({unique_batch_size}) must be <= batch_size "
+            f"({batch_size})"
+        )
+
     def gen_inverse_index(curr_size: int, final_size: int) -> np.array:
         inverse_index = list(range(curr_size))
         np_arr = np.array(inverse_index)
@@ -366,8 +380,12 @@ def group_index_select_2d_bench(
     offset_indices_group = []
     indices_group = []
     for i in range(num_groups):
-        # pyre-fixme[16]: Module `cuda` has no attribute `IntTensor`.
-        indices = torch.cuda.IntTensor(gen_inverse_index(unique_batch_size, batch_size))
+        # Fixed: use torch.tensor with explicit device instead of torch.cuda.IntTensor
+        indices = torch.tensor(
+            gen_inverse_index(unique_batch_size, batch_size),
+            dtype=torch.int32,
+            device=device,
+        )
         if sort_indices:
             indices, _ = indices.sort()
         indices_group.append(indices)
@@ -380,7 +398,7 @@ def group_index_select_2d_bench(
         num_groups * batch_size,
         row_size,
         dtype=dtype,
-        device=torch.accelerator.current_accelerator(),
+        device=device,
     )
     input.requires_grad = True
 
@@ -397,8 +415,6 @@ def group_index_select_2d_bench(
 
     # Benchmark forward
     time_ref, output_ref = benchmark_torch_function(
-        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
         torch.index_select,
         (input, 0, offset_indices),
         # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
@@ -417,7 +433,7 @@ def group_index_select_2d_bench(
         )
     logging.info(
         f"forward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
-        f"fbgemm group {time:5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
+        f"fbgemm group {time:.5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
     )
 
     # Benchmark backward
