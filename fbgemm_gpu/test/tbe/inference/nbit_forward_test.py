@@ -31,8 +31,11 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.utils import (
+    b_indices,
     dequantize_embs,
+    fake_quantize_embs,
     generate_requests,
+    get_table_batched_offsets_from_dense,
     quantize_embs,
     round_up,
 )
@@ -576,6 +579,192 @@ class NBitFowardTest(NBitFowardTestCommon):
             mixed_weights_ty,
             indices_dtype,
             output_dtype,
+        )
+
+    @given(
+        weights_ty=st.sampled_from(
+            [SparseType.INT8, SparseType.INT4, SparseType.FP16, SparseType.FP32]
+        ),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
+    )
+    @settings(deadline=None, max_examples=20)
+    def test_nbit_forward_cpu_with_table_sharing(
+        self,
+        weights_ty: SparseType,
+        indices_dtype: torch.dtype,
+    ) -> None:
+        """Test CPU forward with non-identity feature_table_map.
+
+        When feature_table_map reorders features vs physical tables,
+        weights_offsets become non-monotonic. This previously caused a
+        false positive bounds check error in the FBGEMM kernel because
+        num_rows was computed from the difference of non-monotonic offsets.
+
+        Also tests table sharing (duplicate entries in feature_table_map)
+        where multiple logical features map to the same physical table.
+        """
+        T_ = 3  # physical tables
+        Es = [100, 200, 300]  # rows per physical table
+        D = 32  # embedding dimension
+        B = 4  # batch size
+        L = 5  # bag length
+
+        # Reversed feature_table_map with duplicates (table sharing):
+        # 5 logical features -> 3 physical tables.
+        # Physical table 0 is shared by logical features 3 and 4.
+        feature_table_map = [2, 1, 0, 0, 2]
+        T = len(feature_table_map)  # number of logical features
+
+        D_alignment = max(
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate()),
+            1,
+        )
+        D = round_up(D, D_alignment)
+
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                ("", E, D, weights_ty, EmbeddingLocation.HOST) for E in Es
+            ],
+            feature_table_map=feature_table_map,
+            pooling_mode=PoolingMode.SUM,
+            device="cpu",
+            output_dtype=SparseType.FP16,
+            indices_dtype=indices_dtype,
+        )
+        cc.fill_random_weights()
+
+        # Create one reference nn.EmbeddingBag per physical table, then
+        # map logical features to the corresponding physical table's module.
+        # Features sharing a physical table must share the same reference
+        # weights, so we fill weights once per physical table.
+        bs_physical = [torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True) for E in Es]
+
+        for physical_t in range(T_):
+            weights, scale_shift = cc.split_embedding_weights()[physical_t]
+            fake_quantize_embs(
+                weights,
+                scale_shift,
+                bs_physical[physical_t].weight.detach(),
+                weights_ty,
+                use_cpu=True,
+            )
+
+        bs = [bs_physical[feature_table_map[t]] for t in range(T)]
+
+        # Create valid indices: logical feature t maps to physical table
+        # feature_table_map[t] with Es[feature_table_map[t]] rows.
+        # Include the max valid index (Es[physical_t] - 1) in the first
+        # position of each feature to verify that num_rows is computed
+        # correctly. If num_rows were too small (e.g. negative due to
+        # non-monotonic weights_offsets), these boundary indices would
+        # trigger the FBGEMM kernel bounds check error.
+        xs = [
+            torch.randint(low=0, high=Es[feature_table_map[t]], size=(B, L))
+            for t in range(T)
+        ]
+        for t in range(T):
+            xs[t][0, 0] = Es[feature_table_map[t]] - 1  # max valid index
+        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+        indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=True)
+        indices = indices.to(dtype=indices_dtype)
+        offsets = offsets.to(dtype=indices_dtype)
+
+        # Run TBE forward — should NOT raise false positive bounds check.
+        fc2 = cc(indices, offsets)
+
+        # Compute reference output.
+        fs = [b_indices(b, x, use_cpu=True, do_pooling=True) for (b, x) in zip(bs, xs)]
+        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+
+        torch.testing.assert_close(
+            fc2.float().cpu(),
+            f.float().cpu(),
+            atol=1.0e-2,
+            rtol=1.0e-2,
+        )
+
+    @given(
+        weights_ty=st.sampled_from(
+            [SparseType.INT8, SparseType.INT4, SparseType.FP16, SparseType.FP32]
+        ),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
+    )
+    @settings(deadline=None, max_examples=20)
+    def test_nbit_forward_cpu_with_no_table_sharing(
+        self,
+        weights_ty: SparseType,
+        indices_dtype: torch.dtype,
+    ) -> None:
+        """Test CPU forward with non-permuted feature_table_map (no table sharing).
+
+        Uses an identity-ordered feature_table_map without duplicates,
+        so weights_offsets remain monotonic. This is a baseline to verify
+        the physical offsets reconstruction does not regress the common case.
+        """
+        T_ = 3  # physical tables
+        Es = [100, 200, 300]  # rows per physical table
+        D = 32  # embedding dimension
+        B = 4  # batch size
+        L = 5  # bag length
+
+        # Non-permuted feature_table_map without duplicates:
+        # 3 logical features -> 3 physical tables, identity order.
+        feature_table_map = [0, 1, 2]
+        T = len(feature_table_map)
+
+        D_alignment = max(
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate()),
+            1,
+        )
+        D = round_up(D, D_alignment)
+
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                ("", E, D, weights_ty, EmbeddingLocation.HOST) for E in Es
+            ],
+            feature_table_map=feature_table_map,
+            pooling_mode=PoolingMode.SUM,
+            device="cpu",
+            output_dtype=SparseType.FP16,
+            indices_dtype=indices_dtype,
+        )
+        cc.fill_random_weights()
+
+        bs_physical = [torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True) for E in Es]
+
+        for physical_t in range(T_):
+            weights, scale_shift = cc.split_embedding_weights()[physical_t]
+            fake_quantize_embs(
+                weights,
+                scale_shift,
+                bs_physical[physical_t].weight.detach(),
+                weights_ty,
+                use_cpu=True,
+            )
+
+        bs = [bs_physical[feature_table_map[t]] for t in range(T)]
+
+        xs = [
+            torch.randint(low=0, high=Es[feature_table_map[t]], size=(B, L))
+            for t in range(T)
+        ]
+        for t in range(T):
+            xs[t][0, 0] = Es[feature_table_map[t]] - 1  # max valid index
+        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+        indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=True)
+        indices = indices.to(dtype=indices_dtype)
+        offsets = offsets.to(dtype=indices_dtype)
+
+        fc2 = cc(indices, offsets)
+
+        fs = [b_indices(b, x, use_cpu=True, do_pooling=True) for (b, x) in zip(bs, xs)]
+        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+
+        torch.testing.assert_close(
+            fc2.half().cpu(),
+            f.half().cpu(),
+            atol=1.0e-2,
+            rtol=1.0e-2,
         )
 
     @given(
