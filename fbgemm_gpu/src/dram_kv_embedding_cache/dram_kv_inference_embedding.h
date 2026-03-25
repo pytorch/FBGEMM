@@ -887,7 +887,7 @@ class DramKVInferenceEmbedding
   std::vector<int64_t> sub_table_hash_cumsum_;
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
-  int current_iter_ = 0;
+  std::atomic<int> current_iter_{0};
   bool disable_random_init_ = false;
 
   // perf stats
