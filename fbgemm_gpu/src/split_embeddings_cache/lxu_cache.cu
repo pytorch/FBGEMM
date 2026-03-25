@@ -34,47 +34,47 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
         lxu_cache_weights,
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  const int32_t B = lxu_cache_weights.size(0);
-  const auto b = blockIdx.x * blockDim.y + threadIdx.y;
-  if (b >= B) {
-    return;
-  }
-  const int32_t slot = b % kWarpSize;
-  const int32_t cache_set = b / kWarpSize;
-  const int64_t current_idx = lxu_cache_state[cache_set][slot];
-  if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
-    // evict from slot to backing storage
-    const int32_t t_current = cache_index_table_map[current_idx];
-    const int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
-    const int64_t weights_offset_current = weights_offsets[t_current];
-    const int32_t D_start_current = D_offsets[t_current];
-    const int32_t D_end_current = D_offsets[t_current + 1];
-    const int32_t D_current = D_end_current - D_start_current;
+  const int64_t B = lxu_cache_weights.size(0);
+  for (int64_t b = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       b < B;
+       b += static_cast<int64_t>(gridDim.x) * blockDim.y) {
+    const int32_t slot = static_cast<int32_t>(b % kWarpSize);
+    const int32_t cache_set = static_cast<int32_t>(b / kWarpSize);
+    const int64_t current_idx = lxu_cache_state[cache_set][slot];
+    if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
+      // evict from slot to backing storage
+      const int32_t t_current = cache_index_table_map[current_idx];
+      const int64_t idx_current =
+          current_idx - cache_hash_size_cumsum[t_current];
+      const int64_t weights_offset_current = weights_offsets[t_current];
+      const int32_t D_start_current = D_offsets[t_current];
+      const int32_t D_end_current = D_offsets[t_current + 1];
+      const int32_t D_current = D_end_current - D_start_current;
 
-    int32_t D_emb = D_current;
-    if constexpr (std::is_same_v<emb_t, uint8_t>) {
-      D_emb += kINT8QparamsBytes;
-    }
-
-    auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-        &weights[weights_offset_current + idx_current * D_emb + 0],
-        &lxu_cache_weights[b][0],
-        D_current,
-        stochastic_rounding,
-        &stochastic_rounding_philox_args,
-        blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
-            threadIdx.x);
-
-    float2 qparams;
-    if constexpr (std::is_same_v<emb_t, uint8_t>) {
-      qparams =
-          thrust_find_qparams<cache_t>(&lxu_cache_weights[b][0], D_current);
-      if (threadIdx.x == 0) {
-        weight_row.store_qparams(qparams);
+      int32_t D_emb = D_current;
+      if constexpr (std::is_same_v<emb_t, uint8_t>) {
+        D_emb += kINT8QparamsBytes;
       }
-    }
-    for (auto d = threadIdx.x * 4; d < D_current; d += blockDim.x * 4) {
-      weight_row.evict_cache(d, qparams);
+
+      auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
+          &weights[weights_offset_current + idx_current * D_emb + 0],
+          &lxu_cache_weights[b][0],
+          D_current,
+          stochastic_rounding,
+          &stochastic_rounding_philox_args,
+          static_cast<uint64_t>(b) * blockDim.x + threadIdx.x);
+
+      float2 qparams;
+      if constexpr (std::is_same_v<emb_t, uint8_t>) {
+        qparams =
+            thrust_find_qparams<cache_t>(&lxu_cache_weights[b][0], D_current);
+        if (threadIdx.x == 0) {
+          weight_row.store_qparams(qparams);
+        }
+      }
+      for (auto d = threadIdx.x * 4; d < D_current; d += blockDim.x * 4) {
+        weight_row.evict_cache(d, qparams);
+      }
     }
   }
 }
@@ -103,10 +103,22 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
   CUDA_DEVICE_GUARD(lxu_cache_weights);
 
   const int32_t T = D_offsets.numel() - 1;
-  const int32_t S = lxu_cache_weights.size(0);
+  TORCH_CHECK(T > 0, "lxu_cache_flush_cuda: D_offsets must contain at least 2 elements (got ", D_offsets.numel(), ")");
+  const int64_t S = lxu_cache_weights.size(0);
   const int32_t tx = std::min<int32_t>(total_D / 4 / T, kMaxThreads);
+  TORCH_CHECK(tx > 0, "lxu_cache_flush_cuda: total_D (", total_D, ") is too small relative to T (", T, "); need total_D >= 4");
   const dim3 threads(tx, kMaxThreads / tx);
-  const dim3 blocks(div_round_up(S, kMaxThreads / tx));
+  const uint64_t max_grid_x = static_cast<uint64_t>(
+      at::cuda::getCurrentDeviceProperties()->maxGridSize[0]);
+  const int64_t blocks_per_row = kMaxThreads / tx;
+  const uint64_t requested_blocks =
+      static_cast<uint64_t>((S + blocks_per_row - 1) / blocks_per_row);
+  const uint64_t capped_blocks = std::min<uint64_t>(
+      requested_blocks,
+      std::min<uint64_t>(
+          max_grid_x,
+          static_cast<uint64_t>(get_max_thread_blocks_for_cache_kernels_())));
+  const dim3 blocks(static_cast<uint32_t>(capped_blocks));
 
   DISPATCH_EMB_CACHE_TYPES(
       uvm_weights.scalar_type(),
