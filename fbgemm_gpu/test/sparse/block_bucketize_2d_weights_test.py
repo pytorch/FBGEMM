@@ -19,11 +19,9 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, skipIfRocm
+    from test_utils import gpu_available
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, skipIfRocm
-
-ROCM_FAILURE_MESSAGE = "Test is causing HSA_STATUS_ERROR_MEMORY_APERTURE_VIOLATION"
+    from fbgemm_gpu.test.test_utils import gpu_available
 
 
 class BlockBucketize2DWeightsTest(unittest.TestCase):
@@ -50,7 +48,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                     self.assertAlmostEqual(left, right)
         return
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
@@ -170,7 +167,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                 # but we can verify that all dimensions are preserved
                 self.assertEqual(new_weights_gpu.shape[1], weights_dim)
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
@@ -326,7 +322,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                         pos_1d_gpu, pos_2d_gpu, lengths_1d_gpu
                     )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
@@ -474,7 +469,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                 indices_seq_gpu.cpu(), indices_pooled_gpu.cpu(), lengths_seq_gpu.cpu()
             )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
@@ -586,7 +580,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                     indices_out, indices_out_gpu.cpu(), lengths_out
                 )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
@@ -692,7 +685,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                     indices_out, indices_out_gpu.cpu(), lengths_out
                 )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
@@ -794,7 +786,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                     indices_out, indices_out_gpu.cpu(), lengths_out
                 )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
@@ -904,7 +895,6 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                     indices_out, indices_out_gpu.cpu(), lengths_out
                 )
 
-    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
