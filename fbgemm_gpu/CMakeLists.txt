@@ -123,10 +123,10 @@ include(${CMAKEMODULES}/GpuCppLibrary.cmake)
 
 # Minimum compiler version requirements
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
     message(FATAL_ERROR
       "GCC version ${CMAKE_CXX_COMPILER_VERSION} is not supported. "
-      "FBGEMM_GPU requires GCC 11 or higher.")
+      "FBGEMM_GPU requires GCC 11.4 or higher.")
   endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)

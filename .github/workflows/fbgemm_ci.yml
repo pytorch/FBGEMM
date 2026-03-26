@@ -46,19 +46,10 @@ jobs:
         ]
         library-type: [ static, shared ]
         compiler: [
-          # NOTE: GCC 9 is still used when building FBGEMM as part of PyTorch
-          { name: gcc, version: 9.5.0 },
+          { name: gcc, version: 11.4.0 },
           { name: gcc, version: 14.1.0 },
           { name: clang, version: 16.0.6 }
         ]
-        exclude:
-          # ARM SVE support doesn't exist in GCC 9
-          - host-machine:
-              arch: arm
-              instance: linux.arm64.m7g.4xlarge
-            compiler:
-              name: gcc
-              version: 9.5.0
 
     steps:
     - name: Setup Build Container
@@ -171,7 +162,7 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.14
 
     - name: Install C/C++ Compilers
-      run: . $PRELUDE; GCC_VERSION=10.4.0 install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
