@@ -153,10 +153,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
   if (data_size < 0) {
     return false;
   }
-  if constexpr (isOutput8bit) {
-    assert(input_stride == output_stride);
-  }
-
   constexpr int64_t CACHE_LINE_SIZE = 64;
   constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
   const int64_t prefetch_stride =
@@ -183,6 +179,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
   }
 
   if (no_bag) {
+    const int64_t copy_width = std::min(output_stride, input_stride);
     for (int64_t m = 0; m < output_size; ++m) {
       const IndexType idx = indices[m];
 
@@ -192,7 +189,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 
       const uint8_t* input_row_base = input + input_stride * idx;
       if constexpr (isOutput8bit) {
-        memcpy(out, input_row_base, sizeof(uint8_t) * input_stride);
+        memcpy(out, input_row_base, sizeof(uint8_t) * copy_width);
       } else {
         float scale = NAN;
         float bias = NAN;
@@ -275,9 +272,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         do_prefetch(prefetch_addr + offset, 1);
       }
       if (idx < 0 || idx >= data_size) {
-        if (!scale_bias_last && idx == -1) {
-          // When scale_bias_last == false, assume this is for table batched
-          // embedding (TBE) that can get -1 for pruned rows.
+        // Skip pruned rows.
+        if (idx == -1 && !scale_bias_last) {
           weights_addr++;
           continue;
         }
@@ -451,6 +447,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     for (; current < end; ++current) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
+        // Skip pruned rows.
+        if (idx == -1 && !scale_bias_last) {
+          weights_addr++;
+          continue;
+        }
         return false;
       }
       int64_t prefetch_idx =
@@ -589,6 +590,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
         return false;
       }
       int64_t idx = compressed_indices_table[uncompressed_idx];
+      // Skip pruned rows.
       if (idx == -1) {
         weights_addr++;
         continue;
@@ -938,6 +940,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           return false;
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
+        // Skip pruned rows.
         if (idx == -1) {
           weights_addr++;
           continue;
@@ -1011,6 +1014,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           return false;
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
+        // Skip pruned rows.
         if (idx == -1) {
           weights_addr++;
           continue;
