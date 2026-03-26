@@ -112,10 +112,20 @@ inline bool torch_tensor_on_cpu_or_on_mtia_check(const at::Tensor& ten) {
   return ten.is_cpu() || ten.is_mtia();
 }
 
+inline bool torch_tensor_on_cuda_or_on_mtia_check(const at::Tensor& ten) {
+  return ten.is_cuda() || ten.is_mtia();
+}
+
 #define TENSOR_ON_CPU_OR_MTIA(x)                                      \
   TORCH_CHECK(                                                        \
       torch_tensor_on_cpu_or_on_mtia_check(x),                        \
       #x " must be a CPU or MTIA tensor; it is currently on device ", \
+      torch_tensor_device_name(x))
+
+#define TENSOR_ON_GPU_OR_MTIA(x)                                      \
+  TORCH_CHECK(                                                        \
+      torch_tensor_on_cuda_or_on_mtia_check(x),                       \
+      #x " must be a GPU or MTIA tensor; it is currently on device ", \
       torch_tensor_device_name(x))
 
 #define TENSOR_ON_CPU(x)                                      \
