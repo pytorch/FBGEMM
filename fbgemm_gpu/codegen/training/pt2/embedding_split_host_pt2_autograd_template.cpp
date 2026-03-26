@@ -382,11 +382,13 @@ enum SSDTensor {
     {%- endif %}
     ret.push_back(Variable()); // output_dtype
     {%- if not dense %}
-    if (weights_host.numel() > 0) {
+    if (weights_host.is_cpu() || weights_host.is_mtia()) {
       ret.push_back(Tensor()); // host_weights
     }
     else {
       ret.push_back(grad_weights_dev); // dev_weights
+    }
+    if (uvm_enabled) {
       ret.push_back(Variable()); // weights_uvm
       ret.push_back(Variable()); // weights_lxu_cache
     }
@@ -521,7 +523,9 @@ enum SSDTensor {
     {%- if name == "weights" %}
     Tensor {{ name }}_lxu_cache;
     {%- endif %}
-
+    // CPU weights contains 3 tensors: host, placements, offsets
+    // CUDA weights contains 5 tensors: dev, uvm, placements, offsets, lxu_cache
+    // MTIA weights can be either 3 or 5 tensors, depending whether UVM is enabled
     if ({{ name }}.size() == 3) {
       TENSOR_ON_CPU_OR_MTIA({{ name }}[0]);
       TENSORS_EMPTY_OR_ON_SAME_DEVICE({{ name }}[0], {{ name }}[1]);
@@ -531,14 +535,19 @@ enum SSDTensor {
       {{ name }}_offsets = {{ name }}[2];
     }
     else if ({{ name }}.size() == {{ 5 if name == "weights" else 4 }})  {
-      TENSOR_ON_CUDA_GPU({{ name }}[0]);
+      TENSOR_ON_GPU_OR_MTIA({{ name }}[0]);
       TENSORS_EMPTY_OR_ON_SAME_DEVICE({{ name }}[0], {{ name }}[1]);
       TENSORS_EMPTY_OR_ON_SAME_DEVICE({{ name }}[0], {{ name }}[2]);
       TENSORS_EMPTY_OR_ON_SAME_DEVICE({{ name }}[0], {{ name }}[3]);
       {%- if name == "weights" %}
       TENSORS_EMPTY_OR_ON_SAME_DEVICE({{ name }}[0], {{ name }}[4]);
       {%- endif %}
-      {{ name }}_dev = {{ name }}[0];
+      if ({{ name }}[0].is_mtia()) {
+        {{ name }}_host = {{ name }}[0];
+      }
+      else {
+        {{ name }}_dev = {{ name }}[0];
+      }
       {{ name }}_uvm = {{ name }}[1];
       {{ name }}_placements = {{ name }}[2];
       {{ name }}_offsets = {{ name }}[3];
@@ -562,10 +571,9 @@ enum SSDTensor {
     which needs to be determined at runtime.
 */
 {%- macro unpack_tensorlist_optional(name, arg_index) %}
-  at::TensorOptions options = weights_host.numel() > 0 ? weights_host.options() : weights_dev.options();
   {{ get_optional_optim_tensor(name, "host", arg_index * 5, "options") }}
   {{ get_optional_optim_tensor(name, "dev", arg_index * 5 + 1, "options") }}
-  options = weights_host.numel() > 0 ? weights_host.options() : weights_uvm.options();
+  // optional optimizer states will be on HOST/DEVICE and not UVM.
   {{ get_optional_optim_tensor(name, "uvm", arg_index * 5 + 2, "options") }}
   {{ get_optional_optim_tensor(name, "placements", arg_index * 5 + 3, "weights_placements.options()") }}
   {{ get_optional_optim_tensor(name, "offsets", arg_index * 5 + 4, "weights_offsets.options()") }}
@@ -670,6 +678,7 @@ class {{ autograd_func }} :
     {%- endif %}
     {{ args_pt2.unified_pt2.split_function_args | join(", ") }}) {
 
+    {%- if not dense %}
     // unpack Tensor lists
     {{ unpack_tensorlist("weights") }}
     {%- for arg_name in args_pt2.unified_pt2.split_saved_tensorlist %}
@@ -678,9 +687,12 @@ class {{ autograd_func }} :
     {%- if "optim_tensor" in args_pt2.unified_pt2.split_function_arg_names %}
     TORCH_CHECK(optim_tensor.size() % 5 == 0);
     {%- endif %}
+    // options is used by unpack_tensorlist_optional macro and uvm_cache_stats below
+    at::TensorOptions options = weights_host.defined() ? weights_host.options() : weights_dev.options();
     {%- for arg_name in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
     {{ unpack_tensorlist_optional(arg_name, loop.index0) }}
     {%- endfor %}
+    {% endif %} {# /* if not dense */ #}
 
     const auto T = weights_offsets.sym_numel();
 
@@ -738,8 +750,7 @@ class {{ autograd_func }} :
     {%- if not dense %}
     // NOTE: The `local_uvm_cache_stats` variable held by the nn.Module has dtype int32_t
     // TODO: Hook up with frontend code
-    at::TensorOptions uvm_options = weights_host.numel() > 0 ? weights_host.options() : weights_dev.options();
-    const auto uvm_cache_stats = GET_OPTIONAL_TENSOR_VALUE(aux_tensor[IDX_UVM_CACHE_STATS], at::empty({0}, uvm_options.dtype(at::kInt)));
+    const auto uvm_cache_stats = GET_OPTIONAL_TENSOR_VALUE(aux_tensor[IDX_UVM_CACHE_STATS], at::empty({0}, options.dtype(at::kInt)));
     TORCH_CHECK(aux_tensor[IDX_LXU_CACHE_LOCATIONS].has_value(), "lxu_cache_locations should have value.");
     const auto lxu_cache_locations = aux_tensor[IDX_LXU_CACHE_LOCATIONS].value();
     const auto is_experimental = aux_bool[IDX_IS_EXPERIMENTAL_TBE];
@@ -897,6 +908,10 @@ class {{ autograd_func }} :
     ctx->saved_data["has_vbe_output"] = vbe_output.has_value();
     {%- endif %} {# /* if not dense */ #}
     {%- endif %} {# /* if vbe */ #}
+    {%- if not dense %}
+    // Check if weights_uvm is packed
+    ctx->saved_data["uvm_enabled"] = (weights.size() == 5);
+    {%- endif %} {# /* if not dense */ #}
 
     {%- if not dense %}
     // unpack optim args
@@ -1033,18 +1048,20 @@ static torch::autograd::variable_list backward(
     {%- if not nobag %}
     auto output_dtype = ctx->saved_data["output_dtype"].toInt();
     {%- endif %}
-    {%- if not dense %}
+
     {%- if vbe %}
     auto max_B = ctx->saved_data["max_B"].toSymInt(); // for reshaping vbe cpu offsets and grad_output
     {%- if not dense %}
     const auto has_vbe_output = ctx->saved_data["has_vbe_output"].toBool(); // for whether to return grad_output
     {%- endif %} {# /* if not dense */ #}
-    {%- endif %}
+    {%- endif %} {# /* if vbe */ #}
+    {%- if not dense %}
+    const auto uvm_enabled = ctx->saved_data["uvm_enabled"].toBool(); // whether UVM tensors are packed
 
     {%- for (var, _ , ivalue_cast, type) in args_pt2.unified_pt2.split_saved_data %}
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
     {%- endfor %}
-    {%- endif %}
+    {%- endif %} {# /* if not dense */ #}
 
     const static bool is_annotate_trace_enabled = config::is_feature_enabled(
         config::FeatureGateName::TBE_ANNOTATE_KINETO_TRACE);
