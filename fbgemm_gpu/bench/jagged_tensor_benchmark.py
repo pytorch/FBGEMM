@@ -556,6 +556,8 @@ def masked_select_jagged_1d(
     type=str,
     default="keyed_jagged_index_select_dim1_{phase}_trace_{ospid}.json",
 )
+@click.option("--iters", type=int, default=1000)
+@click.option("--baseline/--skip-baseline", default=True)
 def keyed_jagged_index_select_dim1(
     num_batches: int,
     max_seq_length: int,
@@ -567,6 +569,8 @@ def keyed_jagged_index_select_dim1(
     use_selected_lengths_sum: bool,
     export_trace: bool,
     trace_url: str,
+    iters: int,
+    baseline: bool,
 ) -> None:
     jagged_tensor_types = {
         "float": torch.float,
@@ -586,6 +590,8 @@ def keyed_jagged_index_select_dim1(
     jagged_tensor_dtype = jagged_tensor_types[jagged_tensor_type]
     is_float = jagged_tensor_dtype in [torch.float, torch.half]
     weight_dtype = weight_types[weight_type]
+
+    torch.manual_seed(42)
 
     lengths = torch.randint(
         low=0,
@@ -657,7 +663,7 @@ def keyed_jagged_index_select_dim1(
                 weights,
                 selected_lengths_sum,
             ),
-            iters=1000,
+            iters=iters,
         )
         output = output[0]
 
@@ -698,13 +704,15 @@ def keyed_jagged_index_select_dim1(
             torch.concat(output_weights) if has_weights else torch.empty(0)
         )
 
-    time_ref, output_ref = benchmark_torch_function(
-        keyed_jagged_index_select_dim1_ref, (ref_inputs, has_weights)
-    )
-    output_ref = output_ref[0]
+    time_ref = None
+    if baseline:
+        time_ref, output_ref = benchmark_torch_function(
+            keyed_jagged_index_select_dim1_ref, (ref_inputs, has_weights), iters=iters
+        )
+        output_ref = output_ref[0]
 
     logging.info(
-        f"keyed_jagged_index_select_dim1 forward time: {time * 1e3} ms, ref {time_ref * 1e3}"
+        f"keyed_jagged_index_select_dim1 forward time: {time * 1e3} ms, ref {time_ref * 1e3 if time_ref is not None else 'N/A'}"
     )
 
     if not is_float:
@@ -714,14 +722,16 @@ def keyed_jagged_index_select_dim1(
 
     with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
         time, _ = benchmark_torch_function(
-            functools.partial(output.backward, retain_graph=True), (grad,), iters=1000
+            functools.partial(output.backward, retain_graph=True), (grad,), iters=iters
         )
-
-    time_ref, _ = benchmark_torch_function(
-        functools.partial(output_ref.backward, retain_graph=True), (grad,), iters=1000
-    )
+    if baseline:
+        time_ref, _ = benchmark_torch_function(
+            functools.partial(output_ref.backward, retain_graph=True),
+            (grad,),
+            iters=iters,
+        )
     logging.info(
-        f"keyed_jagged_index_select_dim1 backward time: {time * 1e3} ms, ref {time_ref * 1e3}"
+        f"keyed_jagged_index_select_dim1 backward time: {time * 1e3} ms, ref {time_ref * 1e3 if time_ref is not None else 'N/A'}"
     )
 
 
