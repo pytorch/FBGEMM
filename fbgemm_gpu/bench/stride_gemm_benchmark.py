@@ -36,6 +36,11 @@ def cli() -> None:
 @click.option("--n", default=100)
 @click.option("--k", default=256)
 @click.option("--num_warmups", default=2)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def stride_gemm(
     flush_gpu_cache_size_mb: int,
     iters: int,
@@ -44,7 +49,12 @@ def stride_gemm(
     n: int,
     k: int,
     num_warmups: int,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+
     A = torch.rand(m, batch_size, k).half().cuda()
     B = torch.rand(batch_size, k, n).half().cuda()
     bias = torch.rand(batch_size, n).half().cuda()
