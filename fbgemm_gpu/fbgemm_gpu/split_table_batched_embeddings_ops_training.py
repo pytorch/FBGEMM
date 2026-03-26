@@ -288,6 +288,7 @@ def apply_split_helper(
     dev_reshape: Optional[tuple[int, ...]] = None,
     uvm_tensors_log: Optional[list[str]] = None,
     uvm_host_mapped: bool = False,
+    make_persistent: bool = False,
 ) -> None:
     set_attr_fn(f"{prefix}_physical_placements", split.placements)
     set_attr_fn(f"{prefix}_physical_offsets", split.offsets)
@@ -320,29 +321,27 @@ def apply_split_helper(
     else:
         persistent_state_fn(f"{prefix}_dev", dev_buffer)
     if split.host_size > 0:
+        host_buffer = torch.zeros(
+            split.host_size,
+            device=current_device,
+            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
+            #  3rd param but got `Type[Type[torch._dtype]]`.
+            dtype=dtype,
+        )
         if dtype == torch.uint8:
+            persistent_state_fn(f"{prefix}_host", host_buffer)
+        # For fused TBE on MTIA, always set tensor in persistent states and not nn.Parameter
+        # This only applies to Split TBE and not QR TBE
+        elif make_persistent:
+            assert not make_dev_param, "MTIA does not support OptimizerType.NONE."
             persistent_state_fn(
                 f"{prefix}_host",
-                torch.zeros(
-                    split.host_size,
-                    device=current_device,
-                    # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
-                    #  3rd param but got `Type[Type[torch._dtype]]`.
-                    dtype=dtype,
-                ),
+                host_buffer,
             )
         else:
             set_attr_fn(
                 f"{prefix}_host",
-                nn.Parameter(
-                    torch.zeros(
-                        split.host_size,
-                        device=current_device,
-                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
-                        #  for 3rd param but got `Type[Type[torch._dtype]]`.
-                        dtype=dtype,
-                    )
-                ),
+                nn.Parameter(host_buffer),
             )
         if uvm_tensors_log is not None:
             uvm_tensors_log.append(f"{prefix}_host")
@@ -645,6 +644,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             information about shard position and pre-sharded table size. If not set,
             the table is not sharded.
             (preshard_table_height, preshard_table_dim, height_offset, dim_offset)
+
+        enable_raw_embedding_streaming (bool = False): Whether to enable raw
+            embedding streaming (RES) for streaming embedding table data.
+
+        res_params (Optional[RESParams] = None): Parameters for raw embedding
+            streaming. If not provided and `enable_raw_embedding_streaming` is
+            True, defaults to RESParams().
+
+        is_qr_tbe (bool = False): Whether this is a QRSplitTableBatchedEmbeddingBagsCodegen.
     """
 
     embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]]
@@ -719,6 +727,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         embedding_shard_info: Optional[list[tuple[int, int, int, int]]] = None,
         enable_raw_embedding_streaming: bool = False,
         res_params: Optional[RESParams] = None,
+        is_qr_tbe: bool = False,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
@@ -831,12 +840,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert all(
             cd == compute_devices[0] for cd in compute_devices
         ), "Heterogenous compute_devices are NOT supported!"
+        self.use_mtia: bool = compute_devices[0] == ComputeDevice.MTIA
         # Split TBE has different function schemas for CUDA and CPU.
         # For MTIA device type, it uses the CPU one.
-        self.use_cpu: bool = (
-            compute_devices[0] == ComputeDevice.CPU
-            or compute_devices[0] == ComputeDevice.MTIA
-        )
+        self.use_cpu: bool = compute_devices[0] == ComputeDevice.CPU or self.use_mtia
+
+        # Check if init is called from QRSplitTableBatchedEmbeddingBagsCodegen
+        self.is_qr_tbe: bool = is_qr_tbe
 
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
@@ -3622,6 +3632,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dev_reshape,
             self._uvm_tensors_log,
             uvm_host_mapped=uvm_host_mapped,
+            # Only force persistent for Split TBE on MTIA, see D97971757 for details.
+            make_persistent=(self.use_mtia and not self.is_qr_tbe),
         )
 
     def _apply_cache_state(
