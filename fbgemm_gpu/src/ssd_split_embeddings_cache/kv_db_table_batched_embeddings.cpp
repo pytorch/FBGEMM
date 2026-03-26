@@ -130,7 +130,25 @@ EmbeddingKVDB::EmbeddingKVDB(
         auto& count = filling_item_ptr->count;
         auto& rocksdb_wmode = filling_item_ptr->mode;
 
-        update_cache_and_storage(indices, weights, count, rocksdb_wmode);
+        try {
+          update_cache_and_storage(indices, weights, count, rocksdb_wmode);
+        } catch (const std::exception& e) {
+          bg_thread_error_count_++;
+          {
+            std::lock_guard<std::mutex> lock(bg_error_mutex_);
+            if (bg_thread_error_message_.empty()) {
+              bg_thread_error_message_ = e.what();
+            }
+          }
+          XLOG(ERR)
+              << "[SSD Offloading] Background worker thread caught exception: "
+              << e.what() << ". Queue item dequeued to prevent infinite retry.";
+        } catch (...) {
+          bg_thread_error_count_++;
+          XLOG(ERR)
+              << "[SSD Offloading] Background worker thread caught unknown "
+              << "non-std::exception. Queue item dequeued.";
+        }
 
         weights_to_fill_queue_.dequeue();
       }
@@ -417,6 +435,13 @@ void EmbeddingKVDB::set(
     auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
     auto new_item = tensor_copy(indices, weights, count, write_mode);
     weights_to_fill_queue_.enqueue(new_item);
+    auto cur_depth = static_cast<int64_t>(weights_to_fill_queue_.size());
+    if (cur_depth > 1000) {
+      XLOG_EVERY_MS(WARNING, 30000)
+          << "[SSD Offloading] Background write queue depth is " << cur_depth
+          << " (>1000). Background thread may be falling behind or dead. "
+          << "Risk of host DDR OOM.";
+    }
     set_tensor_copy_for_cache_update_ +=
         facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
   } else {
@@ -473,6 +498,14 @@ void EmbeddingKVDB::get(
         auto new_item = tensor_copy(
             indices, weights, count, kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ);
         weights_to_fill_queue_.enqueue(new_item);
+        auto cur_depth = static_cast<int64_t>(weights_to_fill_queue_.size());
+        if (cur_depth > 1000) {
+          XLOG_EVERY_MS(WARNING, 30000)
+              << "[SSD Offloading] Background write queue depth is "
+              << cur_depth
+              << " (>1000). Background thread may be falling behind or dead. "
+              << "Risk of host DDR OOM.";
+        }
         get_tensor_copy_for_cache_update_ +=
             facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
       } else {
