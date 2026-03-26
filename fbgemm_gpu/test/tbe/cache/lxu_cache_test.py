@@ -25,7 +25,6 @@ from torch import Tensor
 from ..common import MAX_EXAMPLES  # noqa E402
 from .cache_common import generate_cache_tbes, gpu_unavailable, optests
 
-
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
