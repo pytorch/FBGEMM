@@ -1610,9 +1610,6 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float = nullptr;
     if constexpr (std::is_same_v<InputType, float>) {
-      // NOTE: this reinterpret_cast is only to workaround c++
-      // type requirements -- it is not for fp16 case and `input_row` HAS to be
-      // float* type. Remove it and use constexpr when pytorch allows C++17.
       input_row_float = reinterpret_cast<const float*>(input_row);
     } else {
       input_row_float = input_row_float_for_fp16;
@@ -1839,9 +1836,6 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float = nullptr;
     if constexpr (std::is_same_v<InputType, float>) {
-      // NOTE: this reinterpret_cast is only to workaround c++
-      // type requirements -- it is not for fp16 case and `input_row` HAS to be
-      // float* type. Remove it and use constexpr when pytorch allows C++17.
       input_row_float = reinterpret_cast<const float*>(input_row);
     } else {
       input_row_float = input_row_float_for_fp16;
