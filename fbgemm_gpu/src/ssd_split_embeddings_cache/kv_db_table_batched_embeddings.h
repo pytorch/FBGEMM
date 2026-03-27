@@ -12,6 +12,8 @@
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <mkl.h>
 #endif
+#include <condition_variable>
+#include <mutex>
 #include <random>
 
 #include <ATen/ATen.h>
@@ -513,6 +515,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   bool enable_async_update_;
   std::unique_ptr<std::thread> cache_filling_thread_;
   std::atomic<bool> stop_{false};
+  // Condition variable for signaling between fill queue
+  // producer/consumer/waiter. Replaces the previous spin-wait polling pattern
+  // with proper CV notification.
+  std::mutex fill_queue_mtx_;
+  std::condition_variable fill_queue_cv_;
   // buffer queue that stores all the needed indices/weights/action_count to
   // fill up cache
   folly::USPSCQueue<QueueItem, true> weights_to_fill_queue_;
