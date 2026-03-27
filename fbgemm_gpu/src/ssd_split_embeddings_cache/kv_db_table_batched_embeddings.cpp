@@ -383,6 +383,16 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
   return ret;
 }
 
+double EmbeddingKVDB::get_l2_cache_hit_rate() const {
+  const auto total = num_lookups_.load(std::memory_order_relaxed);
+  if (total == 0) {
+    return 100.0;
+  }
+  const auto misses = num_cache_misses_.load(std::memory_order_relaxed);
+  return 100.0 * static_cast<double>(total - misses) /
+      static_cast<double>(total);
+}
+
 void EmbeddingKVDB::reset_l2_cache() {
   l2_cache_ = nullptr;
 }

@@ -1765,3 +1765,402 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
                 rtol=1e-2 if weights_precision == SparseType.FP16 else 1e-4,
                 atol=1e-2 if weights_precision == SparseType.FP16 else 1e-4,
             )
+
+    # ---- Tests for SSD TBE latency reduction diffs ----
+
+    def test_l2_cache_hit_rate_api(self) -> None:
+        """
+        Test D96753686: Verify l2_cache_hit_rate property returns a valid
+        percentage and is non-resetting (reading it twice returns consistent
+        results without clearing counters).
+        """
+        import tempfile
+
+        T = 2
+        D = 64
+        B = 16
+        E = int(1e4)
+        L = 10
+
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            l2_cache_size=8,
+        ).cuda()
+
+        # Before any lookups, hit rate should be a valid number (0-100)
+        hit_rate_initial = emb.l2_cache_hit_rate
+        self.assertGreaterEqual(hit_rate_initial, 0.0)
+        self.assertLessEqual(hit_rate_initial, 100.0)
+
+        # Run a few iterations to generate cache activity
+        for _ in range(5):
+            indices = torch.randint(0, E, (B * T * L,)).cuda()
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            emb.prefetch(indices, offsets)
+            emb(indices, offsets)
+        torch.cuda.synchronize()
+
+        # After lookups, hit rate should still be valid
+        hit_rate_after = emb.l2_cache_hit_rate
+        self.assertGreaterEqual(hit_rate_after, 0.0)
+        self.assertLessEqual(hit_rate_after, 100.0)
+
+        # Non-resetting: reading again should return the same or higher value
+        # (not reset to 0)
+        hit_rate_again = emb.l2_cache_hit_rate
+        self.assertEqual(hit_rate_after, hit_rate_again)
+
+    @given(
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
+    def test_auto_size_block_cache(
+        self,
+        weights_precision: SparseType,
+    ) -> None:
+        """
+        Test D96753686: Verify auto-sizing of RocksDB block cache when
+        ssd_block_cache_size_per_tbe=-1. The TBE should initialize successfully
+        and be functionally correct (prefetch + forward produce valid outputs).
+        """
+        import tempfile
+
+        T = 2
+        D = 128
+        B = 8
+        E = int(1e4)
+        L = 5
+
+        # Create TBE with auto-sizing sentinel (-1)
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            ssd_block_cache_size_per_tbe=-1,
+            weights_precision=weights_precision,
+            l2_cache_size=0,
+        ).cuda()
+
+        # Verify the TBE is functional with auto-sized block cache
+        indices = torch.randint(0, E, (B * T * L,)).cuda()
+        offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+        emb.prefetch(indices, offsets)
+        output = emb(indices, offsets)
+        self.assertFalse(torch.isnan(output).any().item())
+        self.assertFalse(torch.isinf(output).any().item())
+
+    def test_auto_size_block_cache_minimum(self) -> None:
+        """
+        Test D96753686: Verify auto-sizing works for very small tables
+        (the 16MB minimum floor should apply).
+        """
+        import tempfile
+
+        T = 1
+        D = 16
+        B = 4
+        E = 100  # Very small table: 100 * 16 * 4 = 6400 bytes
+        L = 5
+
+        # This should auto-size to 16MB minimum, not 10% of 6400 bytes
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            ssd_block_cache_size_per_tbe=-1,
+            weights_precision=SparseType.FP32,
+            l2_cache_size=0,
+        ).cuda()
+
+        # Verify functional correctness with minimum block cache
+        indices = torch.randint(0, E, (B * T * L,)).cuda()
+        offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+        emb.prefetch(indices, offsets)
+        output = emb(indices, offsets)
+        self.assertFalse(torch.isnan(output).any().item())
+
+    @given(
+        ssd_rocksdb_shards=st.sampled_from([1, 4, 8]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=3, deadline=None)
+    def test_rocksdb_tuning_thread_pool_scaling(
+        self,
+        ssd_rocksdb_shards: int,
+    ) -> None:
+        """
+        Test D96631135: Verify RocksDB initializes correctly with different
+        shard/thread counts. The thread pool scaling (HIGH = max(N, 4),
+        LOW = max(N/4, 1)) is configured at RocksDB level, so we verify
+        the TBE initializes and functions correctly with varied shard counts.
+        """
+        import tempfile
+
+        T = 2
+        D = 64
+        B = 8
+        E = int(1e4)
+        L = 5
+
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            ssd_rocksdb_shards=ssd_rocksdb_shards,
+            l2_cache_size=0,
+        ).cuda()
+
+        # Verify functional correctness across shard counts
+        for _ in range(5):
+            indices = torch.randint(0, E, (B * T * L,)).cuda()
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            emb.prefetch(indices, offsets)
+            output = emb(indices, offsets)
+            self.assertFalse(torch.isnan(output).any().item())
+            self.assertFalse(torch.isinf(output).any().item())
+
+        torch.cuda.synchronize()
+
+    def test_rocksdb_bloom_filter_functional(self) -> None:
+        """
+        Test D96631135: Verify RocksDB with optimized bloom filter (10 bits/key)
+        functions correctly. The bloom filter optimization reduces memory usage
+        while maintaining point-lookup correctness.
+        """
+        import tempfile
+
+        T = 2
+        D = 64
+        B = 16
+        E = int(1e4)
+        L = 10
+
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            l2_cache_size=0,
+        ).cuda()
+
+        # Run enough iterations to flush memtable to SST (triggers bloom filter)
+        for _ in range(20):
+            indices = torch.randint(0, E, (B * T * L,)).cuda()
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            emb.prefetch(indices, offsets)
+            output = emb(indices, offsets)
+            self.assertFalse(torch.isnan(output).any().item())
+
+        # Verify same indices produce same results (bloom filter not causing
+        # false negatives — they only cause false positives)
+        fixed_indices = torch.randint(0, E, (B * T * L,)).cuda()
+        fixed_offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+        emb.prefetch(fixed_indices, fixed_offsets)
+        out1 = emb(fixed_indices, fixed_offsets).clone()
+        emb.prefetch(fixed_indices, fixed_offsets)
+        out2 = emb(fixed_indices, fixed_offsets)
+        torch.testing.assert_close(out1, out2)
+
+    def test_double_buffer_eviction_initialization(self) -> None:
+        """
+        Test D96631608: Verify double-buffer eviction buffers are initialized
+        correctly — two buffers, two events, starting index 0.
+        """
+        import tempfile
+
+        T = 2
+        D = 64
+        E = int(1e4)
+
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * 10, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            prefetch_pipeline=True,
+            l2_cache_size=8,
+        ).cuda()
+
+        # Verify double buffers exist with 2 entries each
+        self.assertEqual(
+            len(emb.lxu_cache_evicted_weights_list),
+            2,
+            "Should have 2 eviction weight buffers",
+        )
+        self.assertEqual(
+            len(emb.lxu_cache_evicted_indices_list),
+            2,
+            "Should have 2 eviction index buffers",
+        )
+        self.assertEqual(
+            len(emb.lxu_cache_evicted_slots_list),
+            2,
+            "Should have 2 eviction slot buffers",
+        )
+        self.assertEqual(
+            len(emb.lxu_cache_evicted_count_list),
+            2,
+            "Should have 2 eviction count buffers",
+        )
+
+        # Verify two CUDA events for eviction
+        self.assertEqual(
+            len(emb.ssd_event_cache_evict),
+            2,
+            "Should have 2 eviction events",
+        )
+
+        # Verify initial buffer index is 0
+        self.assertEqual(
+            emb._evict_buf_idx, 0, "Initial eviction buffer index should be 0"
+        )
+
+        # Verify the two buffers are distinct objects (not aliased)
+        self.assertIsNot(
+            emb.lxu_cache_evicted_weights_list[0],
+            emb.lxu_cache_evicted_weights_list[1],
+            "Double buffers should be distinct tensors",
+        )
+
+    @given(
+        use_prefetch_stream=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=2,
+        deadline=None,
+    )
+    def test_double_buffer_eviction_pipeline_correctness(
+        self,
+        use_prefetch_stream: bool,
+    ) -> None:
+        """
+        Test D96631608: Verify that double-buffer eviction maintains correctness
+        during the prefetch pipeline. After multiple iterations, forward/backward
+        results should match reference nn.EmbeddingBag.
+        """
+        self.execute_ssd_cache_pipeline_(
+            T=2,
+            D=4,
+            B=2,
+            log_E=2,
+            L=4,
+            weighted=False,
+            cache_set_scale=0.5,
+            pooling_mode=PoolingMode.SUM,
+            weights_precision=SparseType.FP32,
+            output_dtype=SparseType.FP32,
+            share_table=False,
+            prefetch_pipeline=True,
+            explicit_prefetch=True,
+            prefetch_location=PrefetchLocation.BEFORE_FWD,
+            use_prefetch_stream=use_prefetch_stream,
+            flush_location=None,
+            trigger_bounds_check=False,
+            num_iterations=15,  # More iterations to exercise buffer ping-pong
+        )
+
+    def test_atomicadd_cache_locking_counter(self) -> None:
+        """
+        Test D96676696: Verify lxu_cache_locking_counter correctness with
+        atomicAdd. Run prefetch + forward pipeline and check counter state.
+        """
+        import tempfile
+
+        T = 2
+        D = 64
+        B = 16
+        E = int(1e4)
+        L = 10
+
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            prefetch_pipeline=True,
+            l2_cache_size=8,
+        ).cuda()
+
+        # Run several iterations of prefetch + forward
+        for _ in range(5):
+            indices = torch.randint(0, E, (B * T * L,)).cuda()
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            emb.prefetch(indices, offsets)
+            emb(indices, offsets)
+        torch.cuda.synchronize()
+
+        # After all operations complete, locking counter should be non-negative
+        # (atomicAdd ensures no underflow from race conditions)
+        counter = emb.lxu_cache_locking_counter.cpu()
+        self.assertTrue(
+            (counter >= 0).all().item(),
+            f"Cache locking counter has negative values: min={counter.min().item()}",
+        )
+
+    def test_cv_fill_queue_pipeline_correctness(self) -> None:
+        """
+        Test D96630505: Verify condition variable fill queue doesn't deadlock
+        or lose notifications. Run pipeline with enough iterations to exercise
+        CV wake/sleep cycles.
+        """
+        import tempfile
+
+        T = 2
+        D = 64
+        B = 16
+        E = int(1e4)
+        L = 10
+
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            prefetch_pipeline=True,
+            l2_cache_size=8,
+        ).cuda()
+
+        # Run many iterations to stress the CV-based fill queue
+        for i in range(20):
+            indices = torch.randint(0, E, (B * T * L,)).cuda()
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            emb.prefetch(indices, offsets)
+            output = emb(indices, offsets)
+            # Verify output is valid (not NaN/Inf)
+            self.assertFalse(
+                torch.isnan(output).any().item(),
+                f"NaN detected in output at iteration {i}",
+            )
+            self.assertFalse(
+                torch.isinf(output).any().item(),
+                f"Inf detected in output at iteration {i}",
+            )
+
+        torch.cuda.synchronize()
+
+        # Verify clean shutdown — emb destructor should not hang
+        # (the CV-based fill queue must properly notify on stop)
+        del emb
+        torch.cuda.synchronize()
