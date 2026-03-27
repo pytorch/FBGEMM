@@ -59,7 +59,10 @@ from fbgemm_gpu.tbe_input_multiplexer import (
     TBEInputMultiplexerConfig,
 )
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
-from fbgemm_gpu.utils.writeback_util import writeback_gradient
+from fbgemm_gpu.utils.writeback_util import (
+    compute_writeback_indices_dispatch,
+    writeback_gradient,
+)
 
 try:
     load_torch_module(
@@ -1474,8 +1477,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #     is_experimental = True
         #     self.log("TBE_V2 Knob is set to True; Using experimental TBE")
 
+        precompute_writeback = os.environ.get("FBGEMM_PRECOMPUTE_WRITEBACK", "0") == "1"
+
         self.is_experimental: bool = is_experimental
         self._writeback_first_feature_only: bool = writeback_first_feature_only
+        self._writeback_precomputed_index: Optional[Tensor] = None
+        self._precompute_writeback: bool = precompute_writeback
 
         # Get a debug function pointer
         self._debug_print_input_stats: Callable[..., None] = (
@@ -2220,15 +2227,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     # pyre-fixme[2]: For 1st argument expected not ANY
     def writeback_hook(self, module: Any, grad: tuple[Tensor]) -> tuple[Tensor]:
-        indices = self._indices
-        offsets = self._offsets
         return writeback_gradient(
             grad,
-            indices,
-            offsets,
+            self._indices,
+            self._offsets,
             self.feature_table_map,
             self._writeback_first_feature_only,
             self.is_nobag,
+            self._writeback_precomputed_index,
         )
 
     def forward(  # noqa: C901
@@ -2418,6 +2424,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Storing tensors for linear_cache_indices recomputation
             self._indices = indices
             self._offsets = offsets
+            # Precompute writeback dedup indices (training-only, not TorchScript-compatible).
+            if not torch.jit.is_scripting():
+                if self.use_writeback_bwd_prehook and self._precompute_writeback:
+                    self._writeback_precomputed_index = (
+                        compute_writeback_indices_dispatch(
+                            indices,
+                            offsets,
+                            self.feature_table_map,
+                            self._writeback_first_feature_only,
+                            self.is_nobag,
+                        )
+                    )
             self._vbe_B_offsets = vbe_metadata.B_offsets
             self._vbe_max_B = vbe_metadata.max_B
 

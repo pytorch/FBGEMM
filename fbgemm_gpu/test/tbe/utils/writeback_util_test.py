@@ -13,6 +13,10 @@ import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.tbe.utils import get_table_batched_offsets_from_dense
 from fbgemm_gpu.utils.writeback_util import (
+    compute_writeback_indices,
+    compute_writeback_indices_dispatch,
+    compute_writeback_indices_first_feature_only,
+    compute_writeback_indices_nobag,
     writeback_gradient,
     writeback_update_gradient_nobag,
 )
@@ -231,3 +235,69 @@ class WritebackUtilsTest(unittest.TestCase):
                 expected[i] = grad[0][i]
             # else: leave as zero (duplicate within the same table)
         self.assertTrue(torch.equal(result[0], expected))
+
+    # pyre-ignore[56]
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=16, max_value=20),
+    )
+    def test_precomputed_writeback_all_modes(
+        self,
+        T: int,
+        D: int,
+        B: int,
+    ) -> None:
+        """Property-based test: for all 3 writeback modes (bag, first_feature_only,
+        nobag), verify that:
+        1. compute_writeback_indices_dispatch routes to the correct compute fn
+        2. writeback_gradient with precomputed_indices matches without
+        """
+        L = 1
+        E = 100
+
+        xs = [torch.randint(low=0, high=E, size=(B, L)) for _ in range(T)]
+        x = torch.cat([xi.view(1, B, L) for xi in xs], dim=0)
+        indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=True)
+        grad = (torch.rand((indices.size(0), D)),)
+        feature_table_map = list(range(T))
+
+        configs = [
+            # (writeback_first_feature_only, nobag, expected_compute_fn)
+            (False, False, compute_writeback_indices),
+            (True, False, compute_writeback_indices_first_feature_only),
+            (False, True, compute_writeback_indices_nobag),
+        ]
+
+        for first_feature_only, nobag, compute_fn in configs:
+            with self.subTest(first_feature_only=first_feature_only, nobag=nobag):
+                # 1. Dispatch routes to the correct compute function
+                direct = compute_fn(indices, offsets, feature_table_map)
+                dispatched = compute_writeback_indices_dispatch(
+                    indices,
+                    offsets,
+                    feature_table_map,
+                    writeback_first_feature_only=first_feature_only,
+                    nobag=nobag,
+                )
+                self.assertTrue(torch.equal(direct, dispatched))
+
+                # 2. writeback_gradient with precomputed matches without
+                result_without = writeback_gradient(
+                    grad,
+                    indices,
+                    offsets,
+                    feature_table_map,
+                    writeback_first_feature_only=first_feature_only,
+                    nobag=nobag,
+                )
+                result_with = writeback_gradient(
+                    grad,
+                    indices,
+                    offsets,
+                    feature_table_map,
+                    writeback_first_feature_only=first_feature_only,
+                    nobag=nobag,
+                    precomputed_indices=dispatched,
+                )
+                self.assertTrue(torch.equal(result_without[0], result_with[0]))
