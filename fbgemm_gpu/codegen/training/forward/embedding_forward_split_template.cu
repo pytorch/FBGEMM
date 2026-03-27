@@ -815,6 +815,10 @@ batch_index_select_dim0_codegen_forward_cuda(
             #else
               const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
             #endif
+
+            const auto grid = min(
+              div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
+              utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
             
             const auto kernel_func =
               (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
@@ -824,7 +828,7 @@ batch_index_select_dim0_codegen_forward_cuda(
 
             FBGEMM_LAUNCH_KERNEL(
               kernel_func,
-              div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
+              grid,
               dim3(kWarpSize, num_warps_per_threadblock),
               0,
               at::cuda::getCurrentCUDAStream(),
