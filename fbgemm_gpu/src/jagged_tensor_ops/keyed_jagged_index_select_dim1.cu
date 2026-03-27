@@ -20,8 +20,8 @@ template <
     int MAX_ENTRIES_PER_BLOCK,
     int ENTRIES_PER_THREAD>
 __global__ void index_select_scalar_cumsum_kernel(
-    pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
-    pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
+    pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor64<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
     const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
@@ -37,14 +37,15 @@ __global__ void index_select_scalar_cumsum_kernel(
 // ROCm path
 #ifdef USE_ROCM
   const int output_batch_size = indices.size(0);
-  const int num_entries = num_batches * output_batch_size;
+  const int64_t num_entries =
+      static_cast<int64_t>(num_batches) * output_batch_size;
   const bool multi_block = gridDim.x > 1;
   const auto block_entries = blockIdx.x == gridDim.x - 1
       ? last_block_num_entries
       : MAX_ENTRIES_PER_BLOCK;
   const auto block_entry_start = blockIdx.x * MAX_ENTRIES_PER_BLOCK;
-  const int remaining_entries = num_entries - block_entry_start;
-  const int num_entries_per_block = remaining_entries > 0
+  const auto remaining_entries = num_entries - block_entry_start;
+  const auto num_entries_per_block = remaining_entries > 0
       ? (remaining_entries < block_entries ? remaining_entries : block_entries)
       : 0;
 
@@ -53,11 +54,11 @@ __global__ void index_select_scalar_cumsum_kernel(
 
 #pragma unroll
   for (int i = 0; i < ENTRIES_PER_THREAD; ++i) {
-    const int entry = base_entry + i;
+    const auto entry = base_entry + i;
     if (entry < num_entries) {
-      const int bid = entry / output_batch_size;
-      const int idx_in_batch = entry - bid * output_batch_size;
-      const int bid_base = bid * input_batch_size;
+      const auto bid = entry / output_batch_size;
+      const auto idx_in_batch = entry - bid * output_batch_size;
+      const auto bid_base = bid * input_batch_size;
       const index_t sel_idx = indices[idx_in_batch];
       local_data[i] = __builtin_nontemporal_load(&input[bid_base + sel_idx]);
       output[entry] = local_data[i];
@@ -74,7 +75,7 @@ __global__ void index_select_scalar_cumsum_kernel(
     if (base_entry < num_entries) {
 #pragma unroll
       for (int i = 0; i < ENTRIES_PER_THREAD; ++i) {
-        const int entry = base_entry + i;
+        const auto entry = base_entry + i;
         if (entry < num_entries) {
           output_cumsum[entry] = local_data[i];
         }
@@ -99,7 +100,7 @@ __global__ void index_select_scalar_cumsum_kernel(
   if (base_entry < num_entries) {
 #pragma unroll
     for (int i = 0; i < ENTRIES_PER_THREAD; ++i) {
-      const int entry = base_entry + i;
+      const auto entry = base_entry + i;
       if (entry < num_entries) {
         output_cumsum[entry] = local_data[i];
       }
@@ -117,7 +118,9 @@ __global__ void index_select_scalar_cumsum_kernel(
 
   // Load data
   acc_t local_data[1];
-  if (tid < num_batches * output_batch_size) {
+  // assertion to check overflow is done in host
+  int64_t num_entries = static_cast<int64_t>(num_batches) * output_batch_size;
+  if (tid < num_entries) {
     *local_data =
         input[bid * input_batch_size + indices[tid % output_batch_size]];
     output[tid] = *local_data;
@@ -138,7 +141,7 @@ __global__ void index_select_scalar_cumsum_kernel(
       1);
 
   // Store data
-  if (tid < num_batches * output_batch_size) {
+  if (tid < num_entries) {
     output_cumsum[tid] = *local_data;
   }
 #endif
@@ -149,7 +152,8 @@ template <
     typename index_t,
     typename offset_t,
     typename weight_t,
-    bool has_weights>
+    bool has_weights,
+    typename entry_t>
 __global__ void keyed_jagged_index_select_dim1_kernel(
     pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
     pta::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
@@ -161,7 +165,7 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
         input_offsets,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<offset_t, 1, at::RestrictPtrTraits>
         output_offsets,
     const int num_batches,
     const int input_batch_size) {
@@ -170,14 +174,15 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
   const int64_t num_outputs = output.size(0);
 
   if (tid < num_outputs) {
-    // Each thread searches index position
-    int index_pos;
+    entry_t index_pos;
+    const entry_t num_entries =
+        static_cast<entry_t>(num_batches) * output_batch_size;
 
     binary_search_range(
         &index_pos,
         &output_offsets[0],
         static_cast<offset_t>(tid),
-        num_batches * output_batch_size);
+        num_entries);
 
     const offset_t rel_index =
         tid - (index_pos == 0 ? 0 : output_offsets[index_pos - 1]);
@@ -199,15 +204,19 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
   }
 }
 
-template <typename scalar_t, typename index_t, typename offset_t>
+template <
+    typename scalar_t,
+    typename index_t,
+    typename offset_t,
+    typename entry_t>
 __global__ void keyed_jagged_index_add_dim1_kernel(
     pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
     const pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
-    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<offset_t, 1, at::RestrictPtrTraits>
         input_offsets,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<offset_t, 1, at::RestrictPtrTraits>
         output_offsets,
     const int num_batches,
     const int output_batch_size) {
@@ -216,13 +225,11 @@ __global__ void keyed_jagged_index_add_dim1_kernel(
   const int64_t num_inputs = input.size(0);
 
   if (tid < num_inputs) {
-    // Each thread searches index position
-    int index_pos;
+    entry_t index_pos;
+    const entry_t num_entries =
+        static_cast<entry_t>(num_batches) * input_batch_size;
     binary_search_range(
-        &index_pos,
-        &input_offsets[0],
-        static_cast<offset_t>(tid),
-        num_batches * input_batch_size);
+        &index_pos, &input_offsets[0], static_cast<offset_t>(tid), num_entries);
 
     const offset_t rel_index =
         tid - (index_pos == 0 ? 0 : input_offsets[index_pos - 1]);
@@ -259,7 +266,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
 
     const auto batch_size = _batch_size.guard_int(__FILE__, __LINE__);
     const int num_batches = lengths.numel() / batch_size;
-    const int num_output_lengths = num_batches * indices.numel();
+    const int64_t num_output_lengths =
+        static_cast<int64_t>(num_batches) * indices.numel();
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
     TORCH_CHECK_VALUE(
         num_output_lengths > 0,
@@ -347,8 +355,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
                             MAX_CUMSUM_ENTRIES_PER_BLOCK,
                             0,
                             at::cuda::getCurrentCUDAStream(),
-                            PTA_B(output_lengths, length_t, 1, 32),
-                            PTA_B(output_offsets, offset_t, 1, 32),
+                            PTA_B(output_lengths, length_t, 1, 64),
+                            PTA_B(output_offsets, offset_t, 1, 64),
                             PTA_B(lengths, length_t, 1, 32),
                             PTA_B(indices, index_t, 1, 32),
                             num_batches,
@@ -408,8 +416,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
                           MAX_CUMSUM_ENTRIES_PER_BLOCK,
                           0,
                           at::cuda::getCurrentCUDAStream(),
-                          PTA_B(output_lengths, length_t, 1, 32),
-                          PTA_B(output_offsets, offset_t, 1, 32),
+                          PTA_B(output_lengths, length_t, 1, 64),
+                          PTA_B(output_offsets, offset_t, 1, 64),
                           PTA_B(lengths, length_t, 1, 32),
                           PTA_B(indices, index_t, 1, 32),
                           num_batches,
@@ -452,50 +460,64 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const auto output_offsets_contig = output_offsets.expect_contiguous();
 
     if (grid_size != 0) {
+#define LAUNCH_KERNEL_WITH_ENTRY_T(                          \
+    WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS, ENTRY_T) \
+  {                                                          \
+    FBGEMM_LAUNCH_KERNEL(                                    \
+        (keyed_jagged_index_select_dim1_kernel<              \
+            value_t,                                         \
+            index_t,                                         \
+            offset_t,                                        \
+            WEIGHT_TYPE,                                     \
+            WEIGHTED,                                        \
+            ENTRY_T>),                                       \
+        grid_size,                                           \
+        kMaxThreads,                                         \
+        0,                                                   \
+        at::cuda::getCurrentCUDAStream(),                    \
+        PTA_B(output, value_t, 1, 64),                       \
+        PTA_B(OUTPUT_WEIGHTS, WEIGHT_TYPE, 1, 64),           \
+        PTA_B(values, value_t, 1, 64),                       \
+        PTA_B(WEIGHTS, WEIGHT_TYPE, 1, 64),                  \
+        PTA_B(offsets, offset_t, 1, 32),                     \
+        PTA_B(indices, index_t, 1, 32),                      \
+        PTA_B(*output_offsets_contig, offset_t, 1, 64),      \
+        num_batches,                                         \
+        batch_size);                                         \
+  }
+
 #define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS) \
   {                                                                   \
-    FBGEMM_LAUNCH_KERNEL(                                             \
-        (keyed_jagged_index_select_dim1_kernel<                       \
-            value_t,                                                  \
-            index_t,                                                  \
-            offset_t,                                                 \
-            WEIGHT_TYPE,                                              \
-            WEIGHTED>),                                               \
-        grid_size,                                                    \
-        kMaxThreads,                                                  \
-        0,                                                            \
-        at::cuda::getCurrentCUDAStream(),                             \
-        PTA_B(output, value_t, 1, 64),                                \
-        PTA_B(OUTPUT_WEIGHTS, WEIGHT_TYPE, 1, 64),                    \
-        PTA_B(values, value_t, 1, 64),                                \
-        PTA_B(WEIGHTS, WEIGHT_TYPE, 1, 64),                           \
-        PTA_B(offsets, offset_t, 1, 32),                              \
-        PTA_B(indices, index_t, 1, 32),                               \
-        PTA_B(*output_offsets_contig, offset_t, 1, 32),               \
-        num_batches,                                                  \
-        batch_size);                                                  \
+    if (num_output_lengths >                                          \
+        static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {  \
+      LAUNCH_KERNEL_WITH_ENTRY_T(                                     \
+          WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS, int64_t)    \
+    } else {                                                          \
+      LAUNCH_KERNEL_WITH_ENTRY_T(                                     \
+          WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS, int)        \
+    }                                                                 \
   }
 
       AT_DISPATCH_ALL_TYPES_AND2(
           at::ScalarType::Half,
           at::ScalarType::BFloat16,
           values.scalar_type(),
-          "keyed_jagged_index_select_dim1_warpper_1",
+          "keyed_jagged_index_select_dim1_wrapper_1",
           [&] {
             using value_t = scalar_t;
             AT_DISPATCH_INDEX_TYPES(
                 offsets.scalar_type(),
-                "keyed_jagged_index_select_dim1_warpper_2",
+                "keyed_jagged_index_select_dim1_wrapper_2",
                 [&] {
                   using offset_t = index_t;
                   AT_DISPATCH_INDEX_TYPES(
                       indices.scalar_type(),
-                      "keyed_jagged_index_select_dim1_warpper_3",
+                      "keyed_jagged_index_select_dim1_wrapper_3",
                       [&] {
                         if (weights.has_value()) {
                           FBGEMM_DISPATCH_FLOAT_AND_HALF(
                               weights.value().scalar_type(),
-                              "keyed_jagged_index_select_dim1_warpper_4",
+                              "keyed_jagged_index_select_dim1_wrapper_4",
                               [&] {
                                 using weight_t = scalar_t;
                                 LAUNCH_KERNEL(
@@ -515,6 +537,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     }
 
 #undef LAUNCH_KERNEL
+#undef LAUNCH_KERNEL_WITH_ENTRY_T
 
     int64_t saved_data[] = {
         num_outputs,
@@ -611,11 +634,47 @@ class KeyedJaggedIndexSelectDim1GPUOp
 
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
     auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);
-    // grad_offsetshas to be contiguous because it is passed to
+    // grad_offsets has to be contiguous because it is passed to
     // binary_search_range which takes raw pointers as arguments
     const auto grad_offsets_contig = grad_offsets.expect_contiguous();
 
     if (grid_size != 0) {
+      // Backward kernel uses num_batches * input_batch_size where
+      // input_batch_size = indices.numel() (forward's output_batch_size)
+      const int64_t num_input_lengths =
+          static_cast<int64_t>(num_batches) * indices.numel();
+      // Sanity check since we also compute this in the kernel
+      TORCH_CHECK_VALUE(
+          num_input_lengths > 0,
+          "Expected num_input_lengths > 0, got ",
+          num_input_lengths,
+          ". Check if num_batches=",
+          num_batches,
+          " * indices.numel()=",
+          indices.numel(),
+          " causes overflow.");
+      const bool use_int64_bwd = num_input_lengths >
+          static_cast<int64_t>(std::numeric_limits<int32_t>::max());
+
+#define LAUNCH_BWD_KERNEL(ENTRY_T)                  \
+  FBGEMM_LAUNCH_KERNEL(                             \
+      (keyed_jagged_index_add_dim1_kernel<          \
+          scalar_t,                                 \
+          index_t,                                  \
+          offset_t,                                 \
+          ENTRY_T>),                                \
+      grid_size,                                    \
+      kMaxThreads,                                  \
+      0,                                            \
+      at::cuda::getCurrentCUDAStream(),             \
+      PTA_B(grad_input, scalar_t, 1, 64),           \
+      PTA_B(grad, scalar_t, 1, 64),                 \
+      PTA_B(*grad_offsets_contig, offset_t, 1, 64), \
+      PTA_B(indices, index_t, 1, 32),               \
+      PTA_B(output_offsets, offset_t, 1, 64),       \
+      num_batches,                                  \
+      output_batch_size);
+
       AT_DISPATCH_ALL_TYPES_AND2(
           at::ScalarType::Half,
           at::ScalarType::BFloat16,
@@ -631,25 +690,15 @@ class KeyedJaggedIndexSelectDim1GPUOp
                       indices.scalar_type(),
                       "keyed_jagged_index_add_dim1_wrapper_3",
                       [&] {
-                        FBGEMM_LAUNCH_KERNEL(
-                            (keyed_jagged_index_add_dim1_kernel<
-                                scalar_t,
-                                index_t,
-                                offset_t>),
-                            grid_size,
-                            kMaxThreads,
-                            0,
-                            at::cuda::getCurrentCUDAStream(),
-                            PTA_B(grad_input, scalar_t, 1, 64),
-                            PTA_B(grad, scalar_t, 1, 64),
-                            PTA_B(*grad_offsets_contig, offset_t, 1, 32),
-                            PTA_B(indices, index_t, 1, 32),
-                            PTA_B(output_offsets, offset_t, 1, 32),
-                            num_batches,
-                            output_batch_size);
+                        if (use_int64_bwd) {
+                          LAUNCH_BWD_KERNEL(int64_t)
+                        } else {
+                          LAUNCH_BWD_KERNEL(int)
+                        }
                       });
                 });
           });
+#undef LAUNCH_BWD_KERNEL
     }
     return grad_input;
   }

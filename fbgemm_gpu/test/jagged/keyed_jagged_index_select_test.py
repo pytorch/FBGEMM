@@ -20,34 +20,19 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, running_in_oss
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests, running_in_oss
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, running_in_oss
+    from fbgemm_gpu.test.test_utils import (
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+        running_in_oss,
+    )
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class KeyedJaggedIndexSelectTest(unittest.TestCase):
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        max_seq_length=st.integers(5, 10),
-        input_batch_size=st.integers(1, 128),
-        output_batch_size=st.integers(1, 128),
-        num_batches=st.integers(1, 3),
-        index_dtype=st.sampled_from([torch.int, torch.long]),
-        jagged_tensor_dtype=st.sampled_from(
-            [
-                torch.float,
-                torch.half,
-                torch.int,
-                torch.long,
-            ]  # Disable torch.bfloat16 due to large error bound
-        ),
-        has_weights=st.booleans(),
-        check_non_contiguous=st.booleans(),
-        use_selected_lengths_sum=st.booleans(),
-    )
-    @settings(max_examples=20, deadline=None)
-    def test_keyed_jagged_index_select_dim1(
+    def _execute_keyed_jagged_index_select_dim1(
         self,
         max_seq_length: int,
         input_batch_size: int,
@@ -60,22 +45,23 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
         use_selected_lengths_sum: bool,
     ) -> None:
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
+        device = torch.accelerator.current_accelerator()
         lengths = torch.randint(
             low=0,
             high=max_seq_length,
             size=(input_batch_size * num_batches,),
             dtype=index_dtype,
-            device="cuda",
+            device=device,
         )
         offsets = torch.concat(
-            [torch.zeros(1, dtype=torch.long, device="cuda"), lengths.cumsum(0)]
+            [torch.zeros(1, dtype=torch.long, device=device), lengths.cumsum(0)]
         )
         indices = torch.randint(
             low=0,
             high=input_batch_size,
             size=(output_batch_size,),
             dtype=index_dtype,
-            device="cuda",
+            device=device,
         )
 
         # If check_non_contiguous=True, create a tensor that is twice as big
@@ -87,14 +73,14 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
             values = torch.rand(
                 values_numel,
                 dtype=jagged_tensor_dtype,
-                device="cuda",
+                device=device,
             )
         else:
             values = torch.randint(
                 2**16,
                 (values_numel,),
                 dtype=jagged_tensor_dtype,
-                device="cuda",
+                device=device,
             )
         values_ref = values.detach().clone()
 
@@ -106,7 +92,7 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
             weights = torch.rand(
                 int(offsets[-1].item()),
                 dtype=random.choice([torch.float, torch.half]),
-                device="cuda",
+                device=device,
             )
         else:
             weights = None
@@ -195,61 +181,167 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_in_oss)
-    def test_keyed_jagged_index_select_dim1_num_output_lengths_overflow(
+    @given(
+        max_seq_length=st.integers(5, 10),
+        input_batch_size=st.integers(1, 128),
+        output_batch_size=st.integers(1, 128),
+        num_batches=st.integers(1, 3),
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+                torch.int,
+                torch.long,
+            ]  # Disable torch.bfloat16 due to large error bound
+        ),
+        has_weights=st.booleans(),
+        check_non_contiguous=st.booleans(),
+        use_selected_lengths_sum=st.booleans(),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_keyed_jagged_index_select_dim1(
         self,
+        max_seq_length: int,
+        input_batch_size: int,
+        output_batch_size: int,
+        num_batches: int,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+        has_weights: bool,
+        check_non_contiguous: bool,
+        use_selected_lengths_sum: bool,
     ) -> None:
-        # num_output_lengths = num_batches * indices.numel() overflows int32
-        # INT32_MAX = 2,147,483,647
-        overflow_cases = [
-            # (num_batches, output_batch_size)
-            # 46341 * 46341 = 2,147,488,281 (just over INT32_MAX)
-            (46341, 46341),
-            # 100000 * 30000 = 3,000,000,000 (overflows int32)
-            (100000, 30000),
-            # 85000 * 85000 = 7,225,000,000 (overflows both int32 and uint32)
-            (85000, 85000),
-        ]
-        device = torch.accelerator.current_accelerator()
-        for num_batches, output_batch_size in overflow_cases:
-            with self.subTest(
-                num_batches=num_batches,
-                output_batch_size=output_batch_size,
-            ):
-                input_batch_size = 1
+        self._execute_keyed_jagged_index_select_dim1(
+            max_seq_length,
+            input_batch_size,
+            output_batch_size,
+            num_batches,
+            index_dtype,
+            jagged_tensor_dtype,
+            has_weights,
+            check_non_contiguous,
+            use_selected_lengths_sum,
+        )
 
-                lengths = torch.zeros(
-                    num_batches * input_batch_size,
-                    dtype=torch.int,
-                    device=device,
-                )
-                offsets = torch.zeros(
-                    num_batches * input_batch_size + 1,
-                    dtype=torch.long,
-                    device=device,
-                )
-                indices = torch.zeros(
-                    output_batch_size,
-                    dtype=torch.int,
-                    device=device,
-                )
-                values = torch.empty(
-                    0,
-                    dtype=torch.float,
-                    device=device,
-                )
-                with self.assertRaisesRegex(
-                    ValueError,
-                    "Expected num_output_lengths > 0",
-                ):
-                    torch.ops.fbgemm.keyed_jagged_index_select_dim1(
-                        values,
-                        lengths,
-                        offsets,
-                        indices,
-                        input_batch_size,
-                        None,
-                        None,
-                    )
+    @given(
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+                torch.int,
+                torch.long,
+            ]  # Disable torch.bfloat16 due to large error bound
+        ),
+        has_weights=st.booleans(),
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(40))
+    @settings(max_examples=20, deadline=None)
+    def test_keyed_jagged_index_select_dim1_int32_overflow(
+        self,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+        has_weights: bool,
+    ) -> None:
+        """Test keyed_jagged_index_select_dim1 with num_output_lengths > INT32_MAX.
+
+        Verifies that keyed_jagged_index_select_dim1's forward and backward kernels
+        compute correctly when num_output_lengths = num_batches * output_batch_size
+        overflows int32.
+        Uses num_batches=16,777,216 (2^24) and output_batch_size=128 (2^7)
+        so their product = 2^31 = INT32_MAX + 1.
+
+        A small output_batch_size (128) ensures backward has only 128
+        gpuAtomicAdd operations per value, matching the regular test and
+        avoiding non-deterministic floating-point accumulation errors.
+
+        Only the first batch has length=1 (rest are 0) with
+        input_batch_size=1 to minimize output memory. Each non-zero length
+        contributes output_batch_size elements to the output tensor, so
+        keeping only one non-zero length limits output to 128 elements
+        (~512 bytes for float32) while output_offsets and output_lengths
+        still have 2.1B entries each to exercise the int64 indexing paths.
+
+        Peak GPU memory (dominated by output_offsets and output_lengths):
+            index_dtype=int32: ~24 GB (output_offsets 16 GB + output_lengths 8 GB)
+            index_dtype=int64: ~32 GB (output_offsets 16 GB + output_lengths 16 GB)
+        This test requires a GPU with at least 40 GB memory.
+        """
+        num_batches = 16777216
+        output_batch_size = 128
+        input_batch_size = 1
+        device = torch.accelerator.current_accelerator()
+        is_float = jagged_tensor_dtype in [
+            torch.float,
+            torch.half,
+            torch.bfloat16,
+        ]
+
+        lengths = torch.zeros(num_batches, dtype=index_dtype, device=device)
+        lengths[0] = 1
+        offsets = torch.cat(
+            [torch.zeros(1, dtype=torch.long, device=device), lengths.cumsum(0)]
+        )
+        indices = torch.zeros(output_batch_size, dtype=index_dtype, device=device)
+
+        if is_float:
+            values = torch.rand(1, dtype=jagged_tensor_dtype, device=device)
+        else:
+            values = torch.randint(
+                2**16, (1,), dtype=jagged_tensor_dtype, device=device
+            )
+
+        if has_weights:
+            weights = torch.rand(1, dtype=torch.float, device=device)
+        else:
+            weights = None
+
+        if is_float:
+            values.requires_grad = True
+
+        result = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
+            values, lengths, offsets, indices, input_batch_size, weights, None
+        )
+
+        output = result[0]
+        output_lengths = result[1]
+
+        # Verify output_lengths: batch 0 has length=1 repeated output_batch_size
+        # times, all other batches have length=0. Use sum to avoid allocating
+        # a 2.1B bool tensor.
+        self.assertEqual(output_lengths.numel(), num_batches * output_batch_size)
+        self.assertEqual(output_lengths.sum().item(), output_batch_size)
+
+        # Verify output values: output_batch_size copies of values[0]
+        self.assertEqual(output.numel(), output_batch_size)
+        assert torch.all(output == values.detach()[0])
+
+        if has_weights:
+            output_weights = result[2]
+            # pyre-ignore[16]
+            assert torch.all(output_weights == weights[0])
+
+        # Free output_lengths before backward to reduce peak memory
+        del output_lengths, result
+        torch.cuda.empty_cache()
+
+        if not is_float:
+            return
+
+        # Backward: all output elements come from values[0],
+        # so grad_values[0] = sum(grad)
+        grad = torch.rand(output_batch_size, dtype=output.dtype, device=device)
+        output.backward(grad)
+
+        expected_grad = grad.sum().unsqueeze(0)
+        torch.testing.assert_close(
+            values.grad,
+            expected_grad,
+            rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
+            atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
+        )
 
 
 if __name__ == "__main__":
