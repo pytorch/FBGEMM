@@ -115,24 +115,34 @@ EmbeddingKVDB::EmbeddingKVDB(
   if (enable_async_update_) {
     cache_filling_thread_ = std::make_unique<std::thread>([=, this] {
       while (!stop_) {
-        auto filling_item_ptr = weights_to_fill_queue_.try_peek();
-        if (!filling_item_ptr) {
-          // TODO: make it tunable interval for background thread
-          // only sleep on empty queue
-          std::this_thread::sleep_for(std::chrono::milliseconds(10));
-          continue;
+        // Wait for work to arrive using condition variable instead of polling
+        {
+          std::unique_lock<std::mutex> lk(fill_queue_mtx_);
+          fill_queue_cv_.wait(
+              lk, [this] { return !weights_to_fill_queue_.empty() || stop_; });
         }
-        if (stop_) {
-          return;
+
+        // Drain all available items
+        while (auto* filling_item_ptr = weights_to_fill_queue_.try_peek()) {
+          if (stop_) {
+            return;
+          }
+          auto& indices = filling_item_ptr->indices;
+          auto& weights = filling_item_ptr->weights;
+          auto& count = filling_item_ptr->count;
+          auto& rocksdb_wmode = filling_item_ptr->mode;
+
+          update_cache_and_storage(indices, weights, count, rocksdb_wmode);
+
+          weights_to_fill_queue_.dequeue();
         }
-        auto& indices = filling_item_ptr->indices;
-        auto& weights = filling_item_ptr->weights;
-        auto& count = filling_item_ptr->count;
-        auto& rocksdb_wmode = filling_item_ptr->mode;
-
-        update_cache_and_storage(indices, weights, count, rocksdb_wmode);
-
-        weights_to_fill_queue_.dequeue();
+        // Queue drained — notify waiters (e.g. wait_util_filling_work_done).
+        // Lock barrier prevents lost wakeups if a waiter is between its
+        // predicate check and entering the CV wait.
+        {
+          std::lock_guard<std::mutex> lk(fill_queue_mtx_);
+        }
+        fill_queue_cv_.notify_all();
       }
     });
   }
@@ -141,6 +151,13 @@ EmbeddingKVDB::EmbeddingKVDB(
 EmbeddingKVDB::~EmbeddingKVDB() {
   stop_ = true;
   if (enable_async_update_) {
+    // Lock barrier + notify to wake the background thread so it sees stop_.
+    // Without the lock barrier, the notify could arrive while the thread is
+    // between its predicate check and entering CV wait, causing a lost wakeup.
+    {
+      std::lock_guard<std::mutex> lk(fill_queue_mtx_);
+    }
+    fill_queue_cv_.notify_all();
     cache_filling_thread_->join();
   }
 }
@@ -417,6 +434,12 @@ void EmbeddingKVDB::set(
     auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
     auto new_item = tensor_copy(indices, weights, count, write_mode);
     weights_to_fill_queue_.enqueue(new_item);
+    // Lock barrier ensures the background thread's CV wait has completed
+    // its atomic unlock-and-block before we notify, preventing lost wakeups.
+    {
+      std::lock_guard<std::mutex> lk(fill_queue_mtx_);
+    }
+    fill_queue_cv_.notify_one();
     set_tensor_copy_for_cache_update_ +=
         facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
   } else {
@@ -473,6 +496,13 @@ void EmbeddingKVDB::get(
         auto new_item = tensor_copy(
             indices, weights, count, kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ);
         weights_to_fill_queue_.enqueue(new_item);
+        // Lock barrier ensures the background thread's CV wait has completed
+        // its atomic unlock-and-block before we notify, preventing lost
+        // wakeups.
+        {
+          std::lock_guard<std::mutex> lk(fill_queue_mtx_);
+        }
+        fill_queue_cv_.notify_one();
         get_tensor_copy_for_cache_update_ +=
             facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
       } else {
@@ -582,19 +612,9 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
 void EmbeddingKVDB::wait_util_filling_work_done() {
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   if (enable_async_update_) {
-    int total_wait_time_ms = 0;
-    while (!weights_to_fill_queue_.empty()) {
-      // need to wait until all the pending weight-filling actions to finish
-      // otherwise might get incorrect embeddings
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      total_wait_time_ms += 1;
-      if (total_wait_time_ms > 100) {
-        XLOG_EVERY_MS(ERR, 1000)
-            << "[TBE_ID" << unique_id_
-            << "]get_cache: waiting for L2 caching filling embeddings for "
-            << total_wait_time_ms << " ms, somethings is likely wrong";
-      }
-    }
+    std::unique_lock<std::mutex> lk(fill_queue_mtx_);
+    // Wait on CV instead of polling — wakes when background thread drains queue
+    fill_queue_cv_.wait(lk, [this] { return weights_to_fill_queue_.empty(); });
   }
   get_cache_lookup_wait_filling_thread_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - start_ts;
