@@ -10,24 +10,24 @@
 
 namespace fbgemm_gpu {
 
-template <typename scalar_t>
+template <typename scalar_t, typename found_t, typename index_t>
 __device__ __forceinline__ void binary_search_range(
-    int* found,
+    found_t* found,
     const scalar_t* arr,
     const scalar_t target,
-    const int num_entries) {
-  const int last_entry = num_entries - 1;
-  int start = 0, end = last_entry;
-  int found_ = -1;
+    const index_t num_entries) {
+  const index_t last_entry = num_entries - 1;
+  index_t start = 0, end = last_entry;
+  found_t found_ = -1;
   while (start <= end) {
-    int mid = start + (end - start) / 2;
+    index_t mid = start + (end - start) / 2;
     scalar_t mid_offset = arr[mid];
     if (target == mid_offset) {
       if (mid != last_entry && target != arr[last_entry]) {
         // Do linear scan in case of duplicate data (We assume that the
         // number of duplicates is small.  This can we very bad if the
         // number of duplicates is large)
-        for (int i = mid + 1; i < num_entries; i++) {
+        for (index_t i = mid + 1; i < num_entries; i++) {
           if (target != arr[i]) {
             found_ = i;
             break;
