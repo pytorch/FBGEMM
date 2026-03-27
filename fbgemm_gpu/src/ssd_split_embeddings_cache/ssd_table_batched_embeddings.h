@@ -255,7 +255,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     table_options.format_version = 5;
     table_options.read_amp_bytes_per_bit = 1;
 
-    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(16));
+    // 10 bits/key gives ~1% false positive rate, sufficient for point lookups.
+    // 16 bits/key wastes ~37% more memory for marginal gain (0.01% FPR).
+    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
     options.table_factory.reset(
         rocksdb::NewBlockBasedTableFactory(table_options));
     options.memtable_prefix_bloom_size_ratio = 0.05;
@@ -263,8 +265,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     options.max_background_jobs = num_threads;
     // maximum number of concurrent flush operations
     options.max_background_flushes = num_threads;
-    options.env->SetBackgroundThreads(4, rocksdb::Env::HIGH);
-    options.env->SetBackgroundThreads(1, rocksdb::Env::LOW);
+    // Scale background thread pools with num_threads (set from
+    // ssd_rocksdb_shards in Python). HIGH-priority handles flushes,
+    // LOW-priority handles compactions.
+    options.env->SetBackgroundThreads(
+        std::max<int64_t>(num_threads, 4), rocksdb::Env::HIGH);
+    options.env->SetBackgroundThreads(
+        std::max<int64_t>(num_threads / 4, 1), rocksdb::Env::LOW);
     options.max_open_files = -1;
 
     initialize_dbs(num_shards, path, options, use_passed_in_path);
@@ -1514,12 +1521,16 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
     table_options.format_version = 5;
     table_options.read_amp_bytes_per_bit = 1;
 
-    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(16));
+    // 10 bits/key gives ~1% false positive rate, sufficient for point lookups.
+    // 16 bits/key wastes ~37% more memory for marginal gain (0.01% FPR).
+    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
     options.table_factory.reset(
         rocksdb::NewBlockBasedTableFactory(table_options));
     options.max_background_jobs = num_threads;
-    options.env->SetBackgroundThreads(4, rocksdb::Env::HIGH);
-    options.env->SetBackgroundThreads(1, rocksdb::Env::LOW);
+    options.env->SetBackgroundThreads(
+        std::max<int64_t>(num_threads, 4), rocksdb::Env::HIGH);
+    options.env->SetBackgroundThreads(
+        std::max<int64_t>(num_threads / 4, 1), rocksdb::Env::LOW);
 
     options.max_open_files = -1;
 
