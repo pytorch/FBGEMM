@@ -514,6 +514,11 @@ def benchmark(  # noqa C901
 @click.option("--pooling_factor", default=25, type=int)
 @click.option("--sweep", is_flag=True, default=False)
 @click.option("--use_pitched", is_flag=True, default=False)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def cli(
     all_to_one_only: bool,
     sum_reduce_to_one_only: bool,
@@ -530,7 +535,13 @@ def cli(
     pooling_factor: int,
     sweep: bool,
     use_pitched: bool,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        np.random.seed(42)
+
     csv_header = (
         "mode, data_type, num_ads, embedding_dimension, ads_tables, num_gpus, dst_device, all_to_one_only, "
         "number of elements (Million), number of elements per GPU (Million), throughput (billion elements per sec), "

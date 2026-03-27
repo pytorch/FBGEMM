@@ -201,6 +201,11 @@ def bench_spectrum(
 @click.option("--enable-trace-profile", is_flag=True, default=False)
 @click.option("--trace-cuda-only", is_flag=True, default=False)
 @click.option("--power-input-size", default=0, help="power of the input size")
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def bench_mx4(
     flush_gpu_cache_size_mb: int,
     iters: int,
@@ -210,6 +215,7 @@ def bench_mx4(
     enable_trace_profile: bool,
     trace_cuda_only: bool,
     power_input_size: int,
+    manual_seed: bool,
 ) -> None:
     """
     This function benchmarks performance of MX4 and FP8 quant/dequantization ops.
@@ -234,6 +240,11 @@ def bench_mx4(
     Returns:
         None
     """
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     assert group_size > 0, "group_size needs to be > 0"
     assert group_size % 32 == 0, "group_size needs to be multiple of 32"
     assert torch.cuda.is_available(), "NO GPUs available"
@@ -376,13 +387,24 @@ def bench_mx4(
 @click.option("--num-columns", default=-1)
 @click.option("--num-rows", default=-1)
 @click.option("--warmup-runs", default=2)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def bench(
     flush_gpu_cache_size_mb: int,
     iters: int,
     num_columns: int,
     num_rows: int,
     warmup_runs: int,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     if num_columns == -1 or num_rows == -1:
         bench_spectrum(
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
@@ -407,6 +429,11 @@ def bench(
 @click.option("--min_dim", default=1)
 @click.option("--max_dim", default=128)
 @click.option("--warmup-runs", default=2)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=True,
+    help="Use manual seed for reproduction.",
+)
 def mixdim(
     flush_gpu_cache_size_mb: int,
     iters: int,
@@ -415,11 +442,16 @@ def mixdim(
     min_dim: int,
     max_dim: int,
     warmup_runs: int,
+    manual_seed: bool,
 ) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available.")
 
-    random.seed(0)
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(0)
+        random.seed(0)
+
     table_dims = [
         random.randint(min_dim, max_dim) * 8 for _ in range(num_tables)
     ]  # assume table dimensions are multiples of 8

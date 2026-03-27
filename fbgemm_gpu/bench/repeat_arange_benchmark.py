@@ -216,15 +216,25 @@ def cli() -> None:
     default=100,
     help="Number of iterations for timing",
 )
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def bench_repeat_arange(
     batch_sizes: str,
     max_lengths: str,
     device: str,
     iters: int,
+    manual_seed: bool,
 ) -> None:
     """
     Run repeat_arange benchmarks across different configurations.
     """
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+
     batch_size_list = [int(x) for x in batch_sizes.split(",")]
     max_length_list = [int(x) for x in max_lengths.split(",")]
 
@@ -251,10 +261,19 @@ def bench_repeat_arange(
     default="cuda",
     help="Device to run benchmark on (cpu or cuda)",
 )
-def bench_repeat_arange_quick(device: str) -> None:
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
+def bench_repeat_arange_quick(device: str, manual_seed: bool) -> None:
     """
     Quick benchmark with representative configurations.
     """
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+
     print("\n" + "=" * 70)
     print("REPEAT_ARANGE QUICK BENCHMARK")
     print("=" * 70 + "\n")
@@ -282,10 +301,19 @@ def bench_repeat_arange_quick(device: str) -> None:
     default="cuda",
     help="Device to run benchmark on (cpu or cuda)",
 )
-def bench_repeat_arange_scaling(device: str) -> None:
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
+def bench_repeat_arange_scaling(device: str, manual_seed: bool) -> None:
     """
     Benchmark scaling behavior with increasing batch sizes.
     """
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+
     print("\n" + "=" * 70)
     print("REPEAT_ARANGE SCALING BENCHMARK")
     print("=" * 70 + "\n")

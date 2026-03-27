@@ -379,12 +379,23 @@ def bench_dense_to_jagged_1d(jten: JaggedTensor) -> None:
 @click.option("--embedding-dim", type=int, default=128)
 @click.option("--max-len", type=int, default=128)
 @click.option("--elem-type", type=str, default="half")
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def device(
     batch_size: int,
     embedding_dim: int,
     max_len: int,
     elem_type: str,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     jtensor = JaggedTensor.rand_2d(batch_size, embedding_dim, max_len, elem_type)
 
     bench_jagged_2d_to_dense(jtensor)
@@ -406,13 +417,24 @@ def device(
 @click.option("--embedding-dim", type=int, default=16)
 @click.option("--max-len", type=int, default=10)
 @click.option("--elem-type", type=str, default="half")
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def batched_dense_vec_jagged_2d_mul(
     batch_size: int,
     h_dim: int,
     embedding_dim: int,
     max_len: int,
     elem_type: str,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
     total_lengths = lengths.sum().item()
     offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
@@ -448,11 +470,22 @@ def batched_dense_vec_jagged_2d_mul(
 @click.option("--batch-size", type=int, default=1024)
 @click.option("--max-len", type=int, default=10)
 @click.option("--dtype", type=str, default="float")
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def jagged_1d_to_truncated_values(
     batch_size: int,
     max_len: int,
     dtype: str,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
     total_lengths = lengths.sum().item()
     torch_dtype = torch.float16 if dtype in ["half", "float16"] else torch.float32
@@ -495,10 +528,21 @@ def jagged_1d_to_truncated_values(
 @cli.command()
 @click.option("--batch-size", type=int, default=1024)
 @click.option("--max-len", type=int, default=256)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def masked_select_jagged_1d(
     batch_size: int,
     max_len: int,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
     total_lengths = int(lengths.sum().item())
     dtype = torch.long
@@ -556,6 +600,13 @@ def masked_select_jagged_1d(
     type=str,
     default="keyed_jagged_index_select_dim1_{phase}_trace_{ospid}.json",
 )
+@click.option("--iters", type=int, default=1000)
+@click.option("--baseline/--skip-baseline", default=True)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def keyed_jagged_index_select_dim1(
     num_batches: int,
     max_seq_length: int,
@@ -567,7 +618,15 @@ def keyed_jagged_index_select_dim1(
     use_selected_lengths_sum: bool,
     export_trace: bool,
     trace_url: str,
+    iters: int,
+    baseline: bool,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     jagged_tensor_types = {
         "float": torch.float,
         "half": torch.half,
@@ -586,6 +645,8 @@ def keyed_jagged_index_select_dim1(
     jagged_tensor_dtype = jagged_tensor_types[jagged_tensor_type]
     is_float = jagged_tensor_dtype in [torch.float, torch.half]
     weight_dtype = weight_types[weight_type]
+
+    torch.manual_seed(42)
 
     lengths = torch.randint(
         low=0,
@@ -657,7 +718,7 @@ def keyed_jagged_index_select_dim1(
                 weights,
                 selected_lengths_sum,
             ),
-            iters=1000,
+            iters=iters,
         )
         output = output[0]
 
@@ -698,13 +759,15 @@ def keyed_jagged_index_select_dim1(
             torch.concat(output_weights) if has_weights else torch.empty(0)
         )
 
-    time_ref, output_ref = benchmark_torch_function(
-        keyed_jagged_index_select_dim1_ref, (ref_inputs, has_weights)
-    )
-    output_ref = output_ref[0]
+    time_ref = None
+    if baseline:
+        time_ref, output_ref = benchmark_torch_function(
+            keyed_jagged_index_select_dim1_ref, (ref_inputs, has_weights), iters=iters
+        )
+        output_ref = output_ref[0]
 
     logging.info(
-        f"keyed_jagged_index_select_dim1 forward time: {time * 1e3} ms, ref {time_ref * 1e3}"
+        f"keyed_jagged_index_select_dim1 forward time: {time * 1e3} ms, ref {time_ref * 1e3 if time_ref is not None else 'N/A'}"
     )
 
     if not is_float:
@@ -714,14 +777,16 @@ def keyed_jagged_index_select_dim1(
 
     with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
         time, _ = benchmark_torch_function(
-            functools.partial(output.backward, retain_graph=True), (grad,), iters=1000
+            functools.partial(output.backward, retain_graph=True), (grad,), iters=iters
         )
-
-    time_ref, _ = benchmark_torch_function(
-        functools.partial(output_ref.backward, retain_graph=True), (grad,), iters=1000
-    )
+    if baseline:
+        time_ref, _ = benchmark_torch_function(
+            functools.partial(output_ref.backward, retain_graph=True),
+            (grad,),
+            iters=iters,
+        )
     logging.info(
-        f"keyed_jagged_index_select_dim1 backward time: {time * 1e3} ms, ref {time_ref * 1e3}"
+        f"keyed_jagged_index_select_dim1 backward time: {time * 1e3} ms, ref {time_ref * 1e3 if time_ref is not None else 'N/A'}"
     )
 
 
@@ -730,12 +795,23 @@ def keyed_jagged_index_select_dim1(
 @click.option("--input-batch-size", type=int, default=1024)
 @click.option("--slice-length", type=int, default=10)
 @click.option("--jagged-tensor-type", type=str, default="float")
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def jagged_slice_cpu(
     max_seq_length: int,
     input_batch_size: int,
     slice_length: int,
     jagged_tensor_type: str,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     jagged_tensor_types = {
         "float": torch.float,
         "half": torch.half,
@@ -842,12 +918,23 @@ def jagged_slice_cpu(
 @click.option("--num-of-features", type=int, default=256)
 @click.option("--num-of-tensors", type=int, default=4)
 @click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cuda")
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def permute_pooled_embs_bench(
     num_of_features: int,
     num_of_tensors: int,
     batch_size: int,
     device: str,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     in_lengths = []
     out_lengths = []
     permute_list = []
@@ -943,14 +1030,25 @@ def permute_pooled_embs_bench(
 @click.option("--weight-dim", type=int, default=64)
 @click.option("--num-iterations", type=int, default=10)
 @click.option("--num-warmup", type=int, default=5)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def jagged_acc_weights_and_counts_bench(
     num_elements: int,
     num_unique_indices: int,
     weight_dim: int,
     num_iterations: int,
     num_warmup: int,
+    manual_seed: bool,
 ) -> None:
     """Performance comparison benchmark for jagged_acc_weights_and_counts."""
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        random.seed(42)
+
     logging.info("######## Jagged Accumulate Weights and Counts Performance ########")
 
     if not torch.cuda.is_available():
