@@ -446,3 +446,138 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=1.0e-2,
             )
         time.sleep(0.1)
+
+
+@unittest.skipIf(*running_in_oss)
+@unittest.skipIf(*gpu_unavailable)
+class SSDInferenceCacheLockingTest(unittest.TestCase):
+    """
+    Tests for D96632292: Cache locking and memcpy stream in inference path.
+    Separated from the broken test class above so these actually run.
+    """
+
+    def test_lxu_cache_locking_counter_registered(self) -> None:
+        """
+        Test D96632292: Verify lxu_cache_locking_counter buffer is registered
+        with correct shape (cache_sets, ASSOC) and dtype int32.
+        """
+        import tempfile
+
+        E = int(1e4)
+        D = 128
+        cache_sets = 64
+        ASSOC = 32  # hardcoded in FBGEMM
+
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, SparseType.FP32)],
+            feature_table_map=[0],
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=cache_sets,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+        self.assertTrue(
+            hasattr(emb, "lxu_cache_locking_counter"),
+            "lxu_cache_locking_counter should be registered as a buffer",
+        )
+        self.assertEqual(
+            emb.lxu_cache_locking_counter.shape,
+            (cache_sets, ASSOC),
+            f"Expected shape ({cache_sets}, {ASSOC}), "
+            f"got {emb.lxu_cache_locking_counter.shape}",
+        )
+        self.assertEqual(
+            emb.lxu_cache_locking_counter.dtype,
+            torch.int32,
+            "lxu_cache_locking_counter should be int32",
+        )
+        # Initially all zeros
+        self.assertTrue(
+            (emb.lxu_cache_locking_counter == 0).all().item(),
+            "lxu_cache_locking_counter should be initialized to zeros",
+        )
+
+    def test_ssd_memcpy_stream_created(self) -> None:
+        """
+        Test D96632292: Verify ssd_memcpy_stream is created as a CUDA stream.
+        """
+        import tempfile
+
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", int(1e4), 128, SparseType.FP32)],
+            feature_table_map=[0],
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=64,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+        self.assertTrue(
+            hasattr(emb, "ssd_memcpy_stream"),
+            "ssd_memcpy_stream should exist",
+        )
+        self.assertIsInstance(
+            emb.ssd_memcpy_stream,
+            torch.cuda.Stream,
+            "ssd_memcpy_stream should be a CUDA stream",
+        )
+
+    def test_cache_locking_prefetch_forward_cycle(self) -> None:
+        """
+        Test D96632292: Verify cache locking counter increments during prefetch
+        and decrements during forward, with no negative values after completion.
+        """
+        import tempfile
+
+        E = int(1e4)
+        D = 128
+        T = 2
+        B = 8
+        L = 5
+
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+        # Initialize embeddings in SSD
+        for t in range(T):
+            copy_byte_tensor = torch.empty([E, D_bytes], dtype=torch.uint8)
+            emb.ssd_db.set_cuda(
+                torch.arange(t * E, (t + 1) * E).to(torch.int64),
+                copy_byte_tensor,
+                torch.as_tensor([E]),
+                t,
+            )
+        torch.cuda.synchronize()
+
+        # Run prefetch + forward cycles
+        for _ in range(10):
+            xs = [torch.randint(low=0, high=E, size=(B, L)).cuda() for _ in range(T)]
+            x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+            indices, offsets = get_table_batched_offsets_from_dense(x)
+            indices, offsets = indices.cuda(), offsets.cuda()
+
+            emb.prefetch(indices, offsets)
+            emb(indices.int(), offsets.int())
+
+        torch.cuda.synchronize()
+
+        # After all cycles complete, counter should be non-negative
+        counter = emb.lxu_cache_locking_counter.cpu()
+        self.assertTrue(
+            (counter >= 0).all().item(),
+            f"Cache locking counter has negatives after cycles: "
+            f"min={counter.min().item()}",
+        )

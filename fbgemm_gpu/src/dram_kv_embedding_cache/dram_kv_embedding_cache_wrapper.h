@@ -150,6 +150,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->wait_util_filling_work_done();
   }
 
+  double get_l2_cache_hit_rate() {
+    return impl_->get_l2_cache_hit_rate();
+  }
+
   at::Tensor get_keys_in_range(int64_t start, int64_t end) {
     return impl_->get_keys_in_range_impl(start, end, std::nullopt);
   }
