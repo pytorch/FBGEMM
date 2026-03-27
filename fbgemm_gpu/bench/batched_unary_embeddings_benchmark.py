@@ -92,8 +92,18 @@ class MyModule(torch.nn.Module):
 @click.option("--num-tables", default=2)
 @click.option("--num-tasks", default=3)
 @click.option("--repeats", default=100)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 # pyre-fixme[2]: Parameter must be annotated.
-def cli(batch_size, num_tables, num_tasks, repeats) -> None:
+def cli(batch_size, num_tables, num_tasks, repeats, manual_seed) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        np.random.seed(42)
+
     device = torch.device("cuda", 0)
     torch.cuda.set_device(device)
     hash_sizes = list(np.random.choice(range(50, 250), size=(num_tables)))

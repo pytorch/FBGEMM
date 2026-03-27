@@ -13,7 +13,7 @@ import math
 import os
 import random
 from contextlib import nullcontext
-from typing import Callable
+from typing import Callable, Optional
 
 import click
 import fbgemm_gpu
@@ -342,6 +342,27 @@ def jagged_index_select_2d_bench(
     type=str,
     default="group_index_select_2d_{phase}_trace_{ospid}.json",
 )
+@click.option(
+    "--input-dims",
+    type=str,
+    default=None,
+    help="JSON list of [num_rows, row_size] per group, e.g. '[[27330,96],[4914,96]]'. "
+    "When provided, --row-size, --batch-size, --unique-batch-size, and --num-groups are ignored.",
+)
+@click.option(
+    "--input-strides",
+    type=str,
+    default=None,
+    help="JSON list of [stride0, stride1] per group. Defaults to contiguous strides if not provided.",
+)
+@click.option(
+    "--index-dim", type=int, default=None, help="Number of indices per group."
+)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=True,
+    help="Use manual seed for reproduction.",
+)
 def group_index_select_2d_bench(
     row_size: int,
     batch_size: int,
@@ -352,6 +373,10 @@ def group_index_select_2d_bench(
     device: str,
     export_trace: bool,
     trace_url: str,
+    input_dims: Optional[str],
+    input_strides: Optional[str],
+    index_dim: Optional[int],
+    manual_seed: bool,
 ) -> None:
     # Input validation (backported from tritonbench implementation)
     if unique_batch_size > batch_size:
@@ -359,6 +384,11 @@ def group_index_select_2d_bench(
             f"unique_batch_size ({unique_batch_size}) must be <= batch_size "
             f"({batch_size})"
         )
+
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+        np.random.seed(42)
 
     def gen_inverse_index(curr_size: int, final_size: int) -> np.array:
         inverse_index = list(range(curr_size))

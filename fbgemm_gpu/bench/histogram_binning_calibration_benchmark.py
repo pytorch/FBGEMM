@@ -49,10 +49,20 @@ def benchmark_hbc_function(
 @click.command()
 @click.option("--iters", default=100)
 @click.option("--warmup-runs", default=2)
+@click.option(
+    "--manual-seed/--skip-manual-seed",
+    default=False,
+    help="Use manual seed for reproduction.",
+)
 def cli(
     iters: int,
     warmup_runs: int,
+    manual_seed: bool,
 ) -> None:
+    # set manual seed for reproducibility
+    if manual_seed:
+        torch.manual_seed(42)
+
     data_types = [torch.half, torch.float]
 
     total_time = {
