@@ -78,11 +78,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ps_client_thread_num: Optional[int] = None,
         ps_max_local_index_length: Optional[int] = None,
         tbe_unique_id: int = -1,  # unique id for this embedding, if not set, will derive based on current rank and tbe index id
+        enable_cache_locking: bool = False,  # opt-in: lock cache lines during forward to prevent eviction races
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(SSDIntNBitTableBatchedEmbeddingBags, self).__init__()
 
         assert cache_assoc == 32, "Only 32-way cache is supported now"
 
+        self.enable_cache_locking = enable_cache_locking
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
         self.pooling_mode = pooling_mode
         self.embedding_specs = embedding_specs
@@ -409,7 +411,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.timestep_counter.get(),
             1,  # for now assume prefetch_dist == 1
             self.lru_state,
-            lock_cache_line=True,
+            lock_cache_line=self.enable_cache_locking,
             lxu_cache_locking_counter=self.lxu_cache_locking_counter,
         )
         current_stream = torch.cuda.current_stream()
@@ -507,10 +509,11 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         # Decrement cache locking counter — signals that these cache lines
         # are no longer pinned by this forward() call, allowing future
         # prefetch() calls to evict them if needed.
-        torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
-            self.lxu_cache_locking_counter,
-            lxu_cache_locations,
-        )
+        if self.enable_cache_locking:
+            torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
+                self.lxu_cache_locking_counter,
+                lxu_cache_locations,
+            )
 
         self.timestep_prefetch_size.decrement()
 
