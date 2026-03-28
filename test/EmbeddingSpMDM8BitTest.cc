@@ -46,12 +46,12 @@ static vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 
-class Fused8BitRowwiseEmbeddingLookupTest
-    : public testing::TestWithParam<tuple<
-          int,
-          EmbeddingSpMDMWeightChoice,
-          EmbeddingSpMDMCornerCase,
-          EmbeddingSpMDMOutputDtypeChoice>> {};
+class Fused8BitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
+                                                int,
+                                                EmbeddingSpMDMWeightChoice,
+                                                EmbeddingSpMDMCornerCase,
+                                                EmbeddingSpMDMOutputDtypeChoice,
+                                                EmbeddingSpMDMKernelChoice>> {};
 }; // namespace
 
 INSTANTIATE_TEST_SUITE_P(
@@ -68,7 +68,8 @@ INSTANTIATE_TEST_SUITE_P(
             EMPTY_INDICES,
             OUT_OF_BOUND_INDICES,
             UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
-        ::testing::Values(FLOAT, FLOAT16, BFLOAT16)));
+        ::testing::Values(FLOAT, FLOAT16, BFLOAT16),
+        ::testing::Values(DISPATCH_DEFAULT, DISPATCH_AUTOVEC)));
 
 TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
@@ -83,7 +84,9 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
-  auto [prefetch, weight_choice, corner_case, out_type] = GetParam();
+  auto [prefetch, weight_choice, corner_case, out_type, kernel_choice] =
+      GetParam();
+  ScopedKernelOverride kernel_override(kernel_choice);
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 
@@ -335,7 +338,9 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
-  auto [prefetch, weight_choice, corner_case, out_type] = GetParam();
+  auto [prefetch, weight_choice, corner_case, out_type, kernel_choice] =
+      GetParam();
+  ScopedKernelOverride kernel_override(kernel_choice);
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 
