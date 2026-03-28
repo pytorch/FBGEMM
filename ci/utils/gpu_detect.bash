@@ -247,3 +247,121 @@ resolve_gpu() {
         echo "Detected GPU: ${GPU_VENDOR}/${GPU_MODEL}"
     fi
 }
+
+################################################################################
+# GPU Availability Functions
+################################################################################
+
+# Detect the total number of GPUs on the system.
+#
+# Uses GPU_VENDOR if set, otherwise calls detect_gpu_vendor to determine
+# which GPU management tool to query.
+#
+# Returns:
+#   The number of GPUs (printed to stdout)
+#
+# Usage:
+#   num_gpus=$(detect_gpu_count)
+#
+detect_gpu_count() {
+    local vendor="${GPU_VENDOR:-$(detect_gpu_vendor)}"
+
+    if [[ "${vendor}" == "nvidia" ]]; then
+        nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | wc -l
+    elif [[ "${vendor}" == "amd" ]]; then
+        rocm-smi --showid 2>/dev/null | grep -oP "GPU\[\K[0-9]+" | sort -u | wc -l
+    else
+        echo 1
+    fi
+}
+
+# Check if a specific GPU is busy (has running processes or high utilization).
+#
+# For NVIDIA GPUs, checks if any compute processes are running on the GPU.
+# For AMD GPUs, checks if GPU utilization exceeds a threshold (default 5%).
+#
+# Uses GPU_VENDOR if set, otherwise calls detect_gpu_vendor to determine
+# which GPU management tool to query.
+#
+# Arguments:
+#   $1 - GPU device index (e.g., 0, 1, 2)
+#   $2 (optional) - Utilization threshold for AMD GPUs (default: 5)
+#
+# Returns:
+#   0 if the GPU is busy
+#   1 if the GPU is free
+#
+# Usage:
+#   if gpu_is_busy 0; then
+#       echo "GPU 0 is busy"
+#   else
+#       echo "GPU 0 is free"
+#   fi
+#
+gpu_is_busy() {
+    local gpu_id="$1"
+    local util_threshold="${2:-5}"
+    local vendor="${GPU_VENDOR:-$(detect_gpu_vendor)}"
+
+    if [[ "${vendor}" == "nvidia" ]]; then
+        local procs
+        procs=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader -i "${gpu_id}" 2>/dev/null | grep -v "^$" || true)
+        if [[ -n "${procs}" ]]; then
+            return 0
+        fi
+    elif [[ "${vendor}" == "amd" ]]; then
+        local util
+        util=$(rocm-smi -d "${gpu_id}" --showuse 2>/dev/null | grep "GPU use" | awk '{print $NF}' | tr -d '%' || echo "0")
+        if [[ "${util}" -gt "${util_threshold}" ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Discover which GPUs are available (not busy) on the system.
+#
+# Probes each GPU and populates two global arrays:
+#   AVAILABLE_GPUS  - indices of free GPUs
+#   EXCLUDED_GPUS   - indices of busy GPUs
+#
+# Requires GPU_VENDOR to be set (call resolve_gpu first).
+#
+# Arguments:
+#   $1 (optional) - Utilization threshold for AMD GPUs (default: 5)
+#
+# Usage:
+#   resolve_gpu
+#   discover_available_gpus
+#   echo "Available: ${AVAILABLE_GPUS[*]}"
+#   echo "Excluded:  ${EXCLUDED_GPUS[*]}"
+#
+discover_available_gpus() {
+    local util_threshold="${1:-5}"
+    local vendor="${GPU_VENDOR:-$(detect_gpu_vendor)}"
+    local num_gpus
+    num_gpus=$(detect_gpu_count)
+
+    AVAILABLE_GPUS=()
+    EXCLUDED_GPUS=()
+
+    for ((i = 0; i < num_gpus; i++)); do
+        if gpu_is_busy "$i" "${util_threshold}"; then
+            EXCLUDED_GPUS+=("$i")
+            if [[ "${vendor}" == "nvidia" ]]; then
+                local procs
+                procs=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader -i "$i" 2>/dev/null || true)
+                echo "GPU $i: EXCLUDED (processes: ${procs})"
+            else
+                echo "GPU $i: EXCLUDED (busy)"
+            fi
+        else
+            AVAILABLE_GPUS+=("$i")
+        fi
+    done
+
+    if [[ ${#AVAILABLE_GPUS[@]} -eq 0 ]]; then
+        echo "WARNING: All GPUs are busy. Falling back to GPU 0."
+        AVAILABLE_GPUS=(0)
+    fi
+}

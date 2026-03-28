@@ -213,6 +213,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->wait_util_filling_work_done();
   }
 
+  double get_l2_cache_hit_rate() {
+    return impl_->get_l2_cache_hit_rate();
+  }
+
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> create_snapshot() {
     auto handle = impl_->create_snapshot();
     return c10::make_intrusive<EmbeddingSnapshotHandleWrapper>(handle, impl_);

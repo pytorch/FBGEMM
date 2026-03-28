@@ -12,6 +12,8 @@
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <mkl.h>
 #endif
+#include <condition_variable>
+#include <mutex>
 #include <random>
 
 #include <ATen/ATen.h>
@@ -351,6 +353,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // finished, it could also be called in unitest to sync
   void wait_util_filling_work_done();
 
+  // Returns the L2 cache hit rate as a percentage (0-100).
+  // Reads counters without resetting them, unlike get_l2cache_perf().
+  double get_l2_cache_hit_rate() const;
+
   virtual at::Tensor get_keys_in_range_impl(
       int64_t /* start */,
       int64_t /* end */,
@@ -513,6 +519,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   bool enable_async_update_;
   std::unique_ptr<std::thread> cache_filling_thread_;
   std::atomic<bool> stop_{false};
+  // Condition variable for signaling between fill queue
+  // producer/consumer/waiter. Replaces the previous spin-wait polling pattern
+  // with proper CV notification.
+  std::mutex fill_queue_mtx_;
+  std::condition_variable fill_queue_cv_;
   // buffer queue that stores all the needed indices/weights/action_count to
   // fill up cache
   folly::USPSCQueue<QueueItem, true> weights_to_fill_queue_;

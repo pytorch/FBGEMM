@@ -1,3 +1,9 @@
+# Portions Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
 # Source: https://github.com/triton-lang/kernels/blob/8821ef322394ee2d3c58a859780ee1e2e10b5c79/kernels/matmul_perf_model.py
 
 # This file is taken from the upstream triton-lang/kernels repo.

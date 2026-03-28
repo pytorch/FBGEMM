@@ -1015,6 +1015,9 @@ static auto embedding_rocks_db_wrapper =
             "get_rocksdb_io_duration",
             &EmbeddingRocksDBWrapper::get_rocksdb_io_duration)
         .def("get_l2cache_perf", &EmbeddingRocksDBWrapper::get_l2cache_perf)
+        .def(
+            "get_l2_cache_hit_rate",
+            &EmbeddingRocksDBWrapper::get_l2_cache_hit_rate)
         .def("set", &EmbeddingRocksDBWrapper::set)
         .def("set_kv_to_storage", &EmbeddingRocksDBWrapper::set_kv_to_storage)
         .def(
@@ -1190,6 +1193,9 @@ static auto dram_kv_embedding_cache_wrapper =
         .def(
             "wait_util_filling_work_done",
             &DramKVEmbeddingCacheWrapper::wait_util_filling_work_done)
+        .def(
+            "get_l2_cache_hit_rate",
+            &DramKVEmbeddingCacheWrapper::get_l2_cache_hit_rate)
         .def(
             "wait_until_eviction_done",
             &DramKVEmbeddingCacheWrapper::wait_until_eviction_done)
