@@ -220,6 +220,18 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         self.register_buffer(
             "lru_state", torch.zeros(cache_sets, ASSOC, dtype=torch.int64)
         )
+        # Cache locking counter: prevents eviction of cache lines that are
+        # currently being read by forward(). Without this, a concurrent
+        # prefetch() can evict a cache line that forward() is still using.
+        self.register_buffer(
+            "lxu_cache_locking_counter",
+            torch.zeros(
+                cache_sets,
+                ASSOC,
+                device=self.current_device,
+                dtype=torch.int32,
+            ),
+        )
 
         assert ssd_cache_location in (
             EmbeddingLocation.MANAGED,
@@ -308,8 +320,12 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         # pyre-fixme[20]: Argument `self` expected.
         low_priority, high_priority = torch.cuda.Stream.priority_range()
         self.ssd_stream = torch.cuda.Stream(priority=low_priority)
+        # Dedicated stream for D2H memory copies (overlaps with compute)
+        self.ssd_memcpy_stream = torch.cuda.Stream(priority=low_priority)
         self.ssd_set_start = torch.cuda.Event()
         self.ssd_set_end = torch.cuda.Event()
+        # Event for D2H copy completion
+        self.ssd_event_memcpy = torch.cuda.Event()
 
         # pyre-fixme[4]: Attribute must be annotated.
         # pyre-ignore[16]
@@ -393,11 +409,24 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.timestep_counter.get(),
             1,  # for now assume prefetch_dist == 1
             self.lru_state,
+            lock_cache_line=True,
+            lxu_cache_locking_counter=self.lxu_cache_locking_counter,
         )
+        current_stream = torch.cuda.current_stream()
+        # D2H copies on dedicated memcpy stream (overlaps with compute on
+        # default stream)
         actions_count_cpu = torch.empty(
             actions_count_gpu.shape, pin_memory=True, dtype=actions_count_gpu.dtype
         )
-        actions_count_cpu.copy_(actions_count_gpu, non_blocking=True)
+        inserted_indices_cpu = torch.empty(
+            inserted_indices.shape, pin_memory=True, dtype=inserted_indices.dtype
+        )
+        with torch.cuda.stream(self.ssd_memcpy_stream):
+            self.ssd_memcpy_stream.wait_stream(current_stream)
+            actions_count_cpu.copy_(actions_count_gpu, non_blocking=True)
+            inserted_indices_cpu.copy_(inserted_indices, non_blocking=True)
+            self.ssd_memcpy_stream.record_event(self.ssd_event_memcpy)
+
         assigned_cache_slots = assigned_cache_slots.long()
         evicted_rows = self.lxu_cache_weights[
             assigned_cache_slots.clamp_(min=0).long(), :
@@ -408,14 +437,10 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             pin_memory=True,
         )
 
-        current_stream = torch.cuda.current_stream()
-
         # Ensure the previous iterations l3_db.set(..) has completed.
         current_stream.wait_event(self.ssd_set_end)
-        inserted_indices_cpu = torch.empty(
-            inserted_indices.shape, pin_memory=True, dtype=inserted_indices.dtype
-        )
-        inserted_indices_cpu.copy_(inserted_indices, non_blocking=True)
+        # Wait for D2H copies to complete before get_cuda
+        current_stream.wait_event(self.ssd_event_memcpy)
         self.ssd_db.get_cuda(
             inserted_indices_cpu,
             inserted_rows,
@@ -477,6 +502,14 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             linear_cache_indices,
             self.lxu_cache_state,
             self.total_hash_size,
+        )
+
+        # Decrement cache locking counter — signals that these cache lines
+        # are no longer pinned by this forward() call, allowing future
+        # prefetch() calls to evict them if needed.
+        torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
+            self.lxu_cache_locking_counter,
+            lxu_cache_locations,
         )
 
         self.timestep_prefetch_size.decrement()
