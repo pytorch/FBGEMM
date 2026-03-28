@@ -549,6 +549,7 @@ class SSDInferenceCacheLockingTest(unittest.TestCase):
             ssd_uniform_init_lower=-0.1,
             ssd_uniform_init_upper=0.1,
             pooling_mode=PoolingMode.SUM,
+            enable_cache_locking=True,
         ).cuda()
 
         # Initialize embeddings in SSD
@@ -580,4 +581,67 @@ class SSDInferenceCacheLockingTest(unittest.TestCase):
             (counter >= 0).all().item(),
             f"Cache locking counter has negatives after cycles: "
             f"min={counter.min().item()}",
+        )
+
+    def test_cache_locking_disabled_by_default(self) -> None:
+        """
+        Test that with enable_cache_locking=False (default), the locking
+        counter stays at zero and prefetch/forward still work correctly.
+        """
+        import tempfile
+
+        E = int(1e4)
+        D = 128
+        T = 2
+        B = 8
+        L = 5
+
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        # Default: enable_cache_locking=False
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+        self.assertFalse(
+            emb.enable_cache_locking,
+            "Cache locking should be disabled by default",
+        )
+
+        # Initialize embeddings in SSD
+        for t in range(T):
+            copy_byte_tensor = torch.empty([E, D_bytes], dtype=torch.uint8)
+            emb.ssd_db.set_cuda(
+                torch.arange(t * E, (t + 1) * E).to(torch.int64),
+                copy_byte_tensor,
+                torch.as_tensor([E]),
+                t,
+            )
+        torch.cuda.synchronize()
+
+        # Run prefetch + forward cycles — should work without locking
+        for _ in range(5):
+            xs = [torch.randint(low=0, high=E, size=(B, L)).cuda() for _ in range(T)]
+            x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+            indices, offsets = get_table_batched_offsets_from_dense(x)
+            indices, offsets = indices.cuda(), offsets.cuda()
+
+            emb.prefetch(indices, offsets)
+            emb(indices.int(), offsets.int())
+
+        torch.cuda.synchronize()
+
+        # Counter should remain all zeros since locking is disabled
+        counter = emb.lxu_cache_locking_counter.cpu()
+        self.assertTrue(
+            (counter == 0).all().item(),
+            f"Cache locking counter should be all zeros when disabled, "
+            f"but max={counter.max().item()}",
         )
