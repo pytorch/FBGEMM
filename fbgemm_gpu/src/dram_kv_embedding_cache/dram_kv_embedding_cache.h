@@ -30,13 +30,13 @@
 #include "../ssd_split_embeddings_cache/initializer.h"
 #include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
 #include "SynchronizedShardedMap.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/feature_store_enrichment.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/igr_enrichment.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/oneflow_enrichment.h"
 #include "enrichment_config.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "feature_evict.h"
-#include "feature_store_enrichment.h"
 #include "fixed_block_pool.h"
-#include "igr_enrichment.h"
-#include "oneflow_enrichment.h"
 
 namespace kv_mem {
 
