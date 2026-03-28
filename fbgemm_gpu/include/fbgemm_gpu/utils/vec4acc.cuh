@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/float.cuh"
 
 namespace fbgemm_gpu {
 
@@ -69,6 +70,12 @@ struct Vec4AccT {
     *dst = *reinterpret_cast<float2*>(vals_h);
   }
 
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void store_(const float4* src, bfloat16_4* dst) {
+    *dst = to_bfloat16_4(*src);
+  }
+#endif
+
   DEVICE_INLINE void store(float4* ptr) {
     this->store_(reinterpret_cast<float4*>(acc), ptr);
   }
@@ -77,6 +84,13 @@ struct Vec4AccT {
   DEVICE_INLINE void store(float2* ptr) {
     this->store_(reinterpret_cast<const float4*>(acc), ptr);
   }
+
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  // Store to bfloat16
+  DEVICE_INLINE void store(bfloat16_4* ptr) {
+    this->store_(reinterpret_cast<const float4*>(acc), ptr);
+  }
+#endif
 
   DEVICE_INLINE void store(uint8_t* ptr) {
     CUDA_KERNEL_ASSERT(false);
@@ -188,6 +202,12 @@ struct Vec4StepT<STEP, float> : Vec4AccT {
     this->store_(&loaded_vals[idx], ptr);
   }
 
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
+    this->store_(reinterpret_cast<const float4*>(&loaded_vals[idx]), ptr);
+  }
+#endif
+
   DEVICE_INLINE void index_store(uint32_t idx, uint8_t* ptr) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -212,6 +232,19 @@ struct Vec4StepT<STEP, float> : Vec4AccT {
     vals_f[3] = __fmul_rn(vals[3], weight);
     this->store_(reinterpret_cast<float4*>(vals_f), ptr);
   }
+
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
+    const float* vals = reinterpret_cast<const float*>(&loaded_vals[idx]);
+    float4 vals_f = make_float4(
+        __fmul_rn(vals[0], weight),
+        __fmul_rn(vals[1], weight),
+        __fmul_rn(vals[2], weight),
+        __fmul_rn(vals[3], weight));
+    this->store_(&vals_f, ptr);
+  }
+#endif
 
   DEVICE_INLINE void
   index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
@@ -297,6 +330,16 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
     *ptr = *reinterpret_cast<float2*>(&loaded_vals[idx]);
   }
 
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
+    const half2* vals_h = reinterpret_cast<const half2*>(&loaded_vals[idx]);
+    float2 vals_f[2];
+    vals_f[0] = __half22float2(vals_h[0]);
+    vals_f[1] = __half22float2(vals_h[1]);
+    this->store_(reinterpret_cast<const float4*>(vals_f), ptr);
+  }
+#endif
+
   DEVICE_INLINE void index_store(uint32_t idx, uint8_t* ptr) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -321,6 +364,19 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
     vals_f[3] = __fmul_rn(vals[3], weight);
     this->store_(reinterpret_cast<float4*>(vals_f), ptr);
   }
+
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
+    const half* vals = reinterpret_cast<const half*>(&loaded_vals[idx]);
+    float4 vals_f = make_float4(
+        __fmul_rn(__half2float(vals[0]), weight),
+        __fmul_rn(__half2float(vals[1]), weight),
+        __fmul_rn(__half2float(vals[2]), weight),
+        __fmul_rn(__half2float(vals[3]), weight));
+    this->store_(&vals_f, ptr);
+  }
+#endif
 
   DEVICE_INLINE void
   index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
@@ -383,6 +439,17 @@ struct Vec4StepT<STEP, uint8_t> : Vec4AccT {
   index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
     CUDA_KERNEL_ASSERT(false);
   }
+
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+#endif
 };
 
 template <uint32_t STEP>
@@ -447,6 +514,17 @@ struct Vec4StepT<STEP, c10::Float8_e4m3fn> : Vec4AccT {
       const float weight) {
     CUDA_KERNEL_ASSERT(false);
   }
+
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+#endif
 };
 
 template <uint32_t STEP>
@@ -511,6 +589,17 @@ struct Vec4StepT<STEP, c10::Float8_e4m3fnuz> : Vec4AccT {
       const float weight) {
     CUDA_KERNEL_ASSERT(false);
   }
+
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+#endif
 };
 
 } // namespace fbgemm_gpu
