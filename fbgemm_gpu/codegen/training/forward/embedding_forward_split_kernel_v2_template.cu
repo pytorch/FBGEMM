@@ -82,10 +82,22 @@ struct Vec4Type<at::Half> {
   using type = float2;
 };
 
+// Use bfloat16_4 instead of float2 to distinguish BF16 from FP16 at the
+// store call site: both would otherwise resolve to float2 and incorrectly
+// use __float22half2_rn (FP16) instead of __float2bfloat16_rn (BF16).
+// bfloat16_4 is only available on ROCm or CUDA >= 11 / SM80+; fall back
+// to float2 (broken but unchanged) on legacy platforms.
+#if USE_ROCM_OR_CUDA_SM80_PLUS
+template <>
+struct Vec4Type<at::BFloat16> {
+  using type = bfloat16_4;
+};
+#else
 template <>
 struct Vec4Type<at::BFloat16> {
   using type = float2;
 };
+#endif
 
 template <>
 struct Vec4Type<uint8_t> {
