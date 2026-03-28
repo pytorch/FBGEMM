@@ -646,6 +646,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.tbe_unique_id = tbe_unique_id
         self.l2_cache_size = l2_cache_size
         logging.info(f"tbe_unique_id: {tbe_unique_id}")
+
+        # Auto-size RocksDB block cache: -1 means 10% of total embedding table size
+        if ssd_block_cache_size_per_tbe == -1:
+            element_size = weights_precision.bit_rate() // 8
+            total_embedding_bytes = sum(
+                r * d * element_size for r, d in embedding_specs
+            )
+            ssd_block_cache_size_per_tbe = max(
+                total_embedding_bytes // 10,
+                16 * 1024 * 1024,  # minimum 16MB
+            )
+            logging.info(
+                f"Auto-sized RocksDB block cache to "
+                f"{ssd_block_cache_size_per_tbe / 1024 / 1024:.0f}MB "
+                f"(10% of {total_embedding_bytes / 1024 / 1024 / 1024:.2f}GB total embedding table)"
+            )
+
         self.enable_free_mem_trigger_eviction: bool = False
         if self.backend_type == BackendType.SSD:
             logging.info(
@@ -1245,6 +1262,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
 
         self._ssd_db = value
+
+    @property
+    def l2_cache_hit_rate(self) -> float:
+        """Returns the L2 cache hit rate as a percentage (0-100).
+
+        Reads counters without resetting them, unlike the stats reported
+        through get_l2cache_perf(). Useful for ad-hoc monitoring.
+        """
+        return self.ssd_db.get_l2_cache_hit_rate()
 
     def _lazy_initialize_ssd_tbe(self) -> None:
         """
@@ -4117,6 +4143,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             event_name=self.l2_cache_free_mem_stats_name,
             data_bytes=l2_cache_free_bytes,
         )
+
+        # Report computed hit rate
+        if num_lookups > 0:
+            hit_rate = 100.0 * (num_lookups - num_cache_misses) / num_lookups
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="l2_cache.hit_rate_pct",
+                data_bytes=hit_rate,
+            )
 
         stats_reporter.report_duration(
             iteration_step=self.step,

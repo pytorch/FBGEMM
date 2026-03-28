@@ -353,6 +353,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // finished, it could also be called in unitest to sync
   void wait_util_filling_work_done();
 
+  // Returns the L2 cache hit rate as a percentage (0-100).
+  // Reads counters without resetting them, unlike get_l2cache_perf().
+  double get_l2_cache_hit_rate() const;
+
   virtual at::Tensor get_keys_in_range_impl(
       int64_t /* start */,
       int64_t /* end */,
