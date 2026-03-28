@@ -8,9 +8,8 @@
 
 #pragma once
 
-#include <math.h>
-
 #include <cassert>
+#include <cmath>
 #include <climits>
 #include <cstdint>
 #include <cstdlib>
@@ -18,23 +17,21 @@
 
 #include "./Types.h" // @manual
 
-#ifndef __is_identifier
-#define __is_identifier(x) 1
+// Use native __fp16 only on aarch64 where the compiler emits hardware FCVT
+// instructions.  On x86_64, clang recognises __fp16/_Float16 as keywords but
+// conversions go through software builtins (__extendhfsf2 / __truncsfhf2) that
+// may not be linked, so we stick with the portable software path there.
+#if defined(__aarch64__) && defined(__clang__)
+#define HAS_NATIVE_FP16_TYPE
 #endif
 
-#define __has_keyword(__x) !(__is_identifier(__x))
-
-// TODO: we're disabling native fp16 on Windows to workaround test failures
-// due to "undefined symbol __gnu_h2f_ieee" error. We should follup on this
-// later.
-#if __has_keyword(__fp16) && !defined(_WIN32)
-#define HAS_NATIVE_FP16_TYPE
-using native_fp16_t = __fp16;
-#elif __has_keyword(_Float16) && !defined(_WIN32)
-#define HAS_NATIVE_FP16_TYPE
-using native_fp16_t = _Float16;
-#else
-using native_fp16_t = void;
+// On x86_64 with F16C support, use hardware VCVTPH2PS / VCVTPS2PH
+// instructions for scalar fp16<->fp32 conversion.
+// - GCC/Clang: __F16C__ is defined by -mf16c or -march=haswell+
+// - MSVC: never defines __F16C__, but /arch:AVX2 implies F16C hardware
+#if defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__))
+#define HAS_F16C
+#include <immintrin.h>
 #endif
 
 namespace fbgemm {
@@ -286,24 +283,31 @@ inline float cpu_half2float_ref(const float16 h) {
   return ret;
 }
 
-// Same as the previous function, but use the built-in fp16 to fp32
-// conversion provided by the compiler
 inline float cpu_half2float(const float16 h) {
-#if defined(HAS_NATIVE_FP16_TYPE) && !defined(MISSING_GNU_F2H_IEEE)
+#ifdef HAS_NATIVE_FP16_TYPE
   __fp16 h_fp16 = NAN;
   std::memcpy(&h_fp16, &h, sizeof(__fp16));
   return h_fp16;
+#elif defined(HAS_F16C)
+  // Use F16C VCVTPH2PS instruction
+  __m128i v = _mm_cvtsi32_si128(static_cast<int>(h));
+  return _mm_cvtss_f32(_mm_cvtph_ps(v));
 #else
   return cpu_half2float_ref(h);
 #endif
 }
 
 inline float16 cpu_float2half(const float f) {
-#if defined(HAS_NATIVE_FP16_TYPE) && !defined(MISSING_GNU_F2H_IEEE)
+#ifdef HAS_NATIVE_FP16_TYPE
   __fp16 h = f;
   float16 res = 0;
   std::memcpy(&res, &h, sizeof(__fp16));
   return res;
+#elif defined(HAS_F16C)
+  // Use F16C VCVTPS2PH instruction
+  __m128 v = _mm_set_ss(f);
+  return static_cast<float16>(
+      _mm_extract_epi16(_mm_cvtps_ph(v, _MM_FROUND_TO_NEAREST_INT), 0));
 #else
   return cpu_float2half_rn(f);
 #endif
