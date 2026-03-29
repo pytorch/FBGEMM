@@ -189,7 +189,10 @@ permute_2D_sparse_data_cuda(
     const Tensor& lengths,
     const Tensor& indices,
     const std::optional<Tensor>& weights,
-    const std::optional<int64_t>& permuted_lengths_sum) {
+    const std::optional<int64_t>& permuted_lengths_sum,
+    const std::optional<Tensor>& permuted_lengths_out,
+    const std::optional<Tensor>& permuted_indices_out,
+    const std::optional<Tensor>& permuted_weights_out) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
   TORCH_CHECK(lengths.dim() == 2);
 
@@ -218,7 +221,9 @@ permute_2D_sparse_data_cuda(
   Tensor permuted_indices;
   Tensor permuted_weights;
 
-  permuted_lengths = at::empty({T, B}, lengths.options());
+  permuted_lengths = permuted_lengths_out.has_value()
+      ? permuted_lengths_out.value()
+      : at::empty({T, B}, lengths.options());
 
   constexpr int32_t threads_1 = 256;
   const auto blocks_1 = cuda_calc_block_count(B * T, threads_1);
@@ -251,7 +256,9 @@ permute_2D_sparse_data_cuda(
   constexpr int32_t BT_blocks = 32;
   dim3 threads_2(32, BT_blocks);
   const auto blocks_2 = cuda_calc_block_count(B * T, BT_blocks);
-  permuted_indices = at::empty(permuted_indices_size, indices.options());
+  permuted_indices = permuted_indices_out.has_value()
+      ? permuted_indices_out.value()
+      : at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_2D_data_kernel_1", [&] {
@@ -265,12 +272,16 @@ permute_2D_sparse_data_cuda(
                 int32_t weights_columns = 1;
                 if (weights_value.dense_dim() > 1) {
                   weights_columns = weights_value.size(1);
-                  permuted_weights = at::empty(
-                      {permuted_indices_size, weights_columns},
-                      weights_value.options());
+                  permuted_weights = permuted_weights_out.has_value()
+                      ? permuted_weights_out.value()
+                      : at::empty(
+                            {permuted_indices_size, weights_columns},
+                            weights_value.options());
                 } else {
-                  permuted_weights =
-                      at::empty(permuted_indices_size, weights_value.options());
+                  permuted_weights = permuted_weights_out.has_value()
+                      ? permuted_weights_out.value()
+                      : at::empty(
+                            permuted_indices_size, weights_value.options());
                 }
                 FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
                     weights_value.scalar_type(),
@@ -520,7 +531,10 @@ permute_2D_sparse_data_input1D_cuda(
           lengths.view({-1, stride}),
           indices,
           weights,
-          permuted_lengths_sum);
+          permuted_lengths_sum,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt);
   return {permuted_lengths.view(-1), permuted_indices, permuted_weights};
 }
 
