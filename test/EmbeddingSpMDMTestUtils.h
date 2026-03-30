@@ -11,7 +11,41 @@
 #include <cstdint>
 #include <vector>
 
+#include "fbgemm/Utils.h"
+
 namespace fbgemm {
+
+enum EmbeddingSpMDMKernelChoice {
+  // Use the default dispatch (asmjit on x86, autovec on ARM)
+  DISPATCH_DEFAULT,
+  // Force the autovec implementation
+  DISPATCH_AUTOVEC,
+};
+
+// RAII guard to temporarily override kernel dispatch settings.
+// Forces the dispatch to use autovec when choice == DISPATCH_AUTOVEC,
+// and restores the original settings on destruction.
+class ScopedKernelOverride {
+ public:
+  explicit ScopedKernelOverride(EmbeddingSpMDMKernelChoice choice)
+      : prev_autovec_forced_(is_autovec_forced()),
+        prev_asmjit_disabled_(is_asmjit_disabled()) {
+    if (choice == DISPATCH_AUTOVEC) {
+      set_autovec_forced(true);
+      set_asmjit_disabled(true);
+    }
+  }
+  ~ScopedKernelOverride() {
+    set_autovec_forced(prev_autovec_forced_);
+    set_asmjit_disabled(prev_asmjit_disabled_);
+  }
+  ScopedKernelOverride(const ScopedKernelOverride&) = delete;
+  ScopedKernelOverride& operator=(const ScopedKernelOverride&) = delete;
+
+ private:
+  bool prev_autovec_forced_;
+  bool prev_asmjit_disabled_;
+};
 
 enum EmbeddingSpMDMCornerCase {
   NONE,

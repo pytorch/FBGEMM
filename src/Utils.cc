@@ -793,40 +793,54 @@ bool is_radix_sort_accelerated_with_openmp() {
 #endif
 }
 
-bool is_autovec_disabled() {
-  static bool res;
-  static bool called_once = false;
-  if (called_once) {
-    return res;
-  }
-  called_once = true;
-  char* env_val = std::getenv("FBGEMM_NO_AUTOVEC");
-  res = (env_val != nullptr);
+namespace {
+bool& autovec_disabled_val() {
+  static bool res = [] {
+    char* env_val = std::getenv("FBGEMM_NO_AUTOVEC");
+    return env_val != nullptr;
+  }();
   return res;
+}
+
+bool& autovec_forced_val() {
+  static bool res = [] {
+    char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
+    return env_val != nullptr;
+  }();
+  return res;
+}
+
+bool& asmjit_disabled_val() {
+  static bool res = [] {
+    char* env_val = std::getenv("FBGEMM_NO_ASMJIT");
+    return env_val != nullptr;
+  }();
+  return res;
+}
+} // namespace
+
+bool is_autovec_disabled() {
+  return autovec_disabled_val();
 }
 
 bool is_autovec_forced() {
-  static bool res;
-  static bool called_once = false;
-  if (called_once) {
-    return res;
-  }
-  called_once = true;
-  char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
-  res = (env_val != nullptr);
-  return res;
+  return autovec_forced_val();
 }
 
 bool is_asmjit_disabled() {
-  static bool res;
-  static bool called_once = false;
-  if (called_once) {
-    return res;
-  }
-  called_once = true;
-  char* env_val = std::getenv("FBGEMM_NO_ASMJIT");
-  res = (env_val != nullptr);
-  return res;
+  return asmjit_disabled_val();
+}
+
+void set_autovec_disabled(bool val) {
+  autovec_disabled_val() = val;
+}
+
+void set_autovec_forced(bool val) {
+  autovec_forced_val() = val;
+}
+
+void set_asmjit_disabled(bool val) {
+  asmjit_disabled_val() = val;
 }
 
 bool is_stats_enabled() {
