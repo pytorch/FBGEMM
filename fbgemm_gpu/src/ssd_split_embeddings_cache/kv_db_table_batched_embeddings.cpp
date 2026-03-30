@@ -626,8 +626,11 @@ void EmbeddingKVDB::wait_util_filling_work_done() {
     // Wait on CV instead of polling — wakes when background thread drains queue
     fill_queue_cv_.wait(lk, [this] { return weights_to_fill_queue_.empty(); });
   }
-  get_cache_lookup_wait_filling_thread_duration_ +=
-      facebook::WallClockUtil::NowInUsecFast() - start_ts;
+  auto wait_dur = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+  get_cache_lookup_wait_filling_thread_duration_ += wait_dur;
+  XLOG_EVERY_MS(INFO, 60000)
+      << "[TBE_ID" << unique_id_ << "]L2 cache fill wait time: " << wait_dur
+      << " us";
 }
 
 folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>>
