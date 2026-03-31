@@ -51,11 +51,14 @@ class EmbeddingSpMDMTest : public testing::TestWithParam<tuple<
                                EmbeddingSpMDMWeightChoice,
                                EmbeddingSpMDMCornerCase,
                                EmbeddingSpMDMInputDtypeChoice,
-                               EmbeddingSpMDMOutputDtypeChoice>> {};
+                               EmbeddingSpMDMOutputDtypeChoice,
+                               EmbeddingSpMDMKernelChoice>> {};
 
-class rowwiseSparseEmbeddingSpMDMTest
-    : public testing::TestWithParam<
-          tuple<int, EmbeddingSpMDMWeightChoice, EmbeddingSpMDMCornerCase>> {};
+class rowwiseSparseEmbeddingSpMDMTest : public testing::TestWithParam<tuple<
+                                            int,
+                                            EmbeddingSpMDMWeightChoice,
+                                            EmbeddingSpMDMCornerCase,
+                                            EmbeddingSpMDMKernelChoice>> {};
 
 class IndexRemapTest
     : public testing::TestWithParam<tuple<int, int, int, bool, bool>> {};
@@ -78,7 +81,8 @@ INSTANTIATE_TEST_SUITE_P(
             OUT_OF_BOUND_INDICES,
             UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
         ::testing::Values(FLOAT, FLOAT16, BFLOAT16),
-        ::testing::Values(FLOAT, FLOAT16, BFLOAT16)));
+        ::testing::Values(FLOAT, FLOAT16, BFLOAT16),
+        ::testing::Values(DISPATCH_DEFAULT, DISPATCH_AUTOVEC)));
 
 INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
@@ -93,7 +97,8 @@ INSTANTIATE_TEST_SUITE_P(
             NONE,
             EMPTY_INDICES,
             OUT_OF_BOUND_INDICES,
-            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
+            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
+        ::testing::Values(DISPATCH_DEFAULT, DISPATCH_AUTOVEC)));
 
 INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
@@ -118,7 +123,10 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool use_output_input_stride = bool_dist(generator);
   bool test_thread_local = bool_dist(generator);
-  auto [prefetch, weight_choice, corner_case, in_type, out_type] = GetParam();
+  auto
+      [prefetch, weight_choice, corner_case, in_type, out_type, kernel_choice] =
+          GetParam();
+  ScopedKernelOverride kernel_override(kernel_choice);
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
   bool isFp16 = in_type == FLOAT16;
@@ -443,7 +451,9 @@ TEST_P(EmbeddingSpMDMTest, noBagUint8Test) {
   bool isIndex64b = bool_dist(generator);
   bool isOffset64b = bool_dist(generator);
   bool use_offsets = bool_dist(generator);
-  auto [prefetch, weight_choice, corner_case, _tmp1, _tmp2] = GetParam();
+  auto [prefetch, weight_choice, corner_case, _tmp1, _tmp2, kernel_choice] =
+      GetParam();
+  ScopedKernelOverride kernel_override(kernel_choice);
 
   // Fix the input and output types to be uint8_t
   const auto in_type = QINT8, out_type = QINT8;
@@ -662,7 +672,8 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
   bool normalize_by_lengths = bool_dist(generator);
   bool use_offsets = bool_dist(generator);
   bool is_output_float = bool_dist(generator);
-  auto [prefetch, weight_choice, corner_case] = GetParam();
+  auto [prefetch, weight_choice, corner_case, kernel_choice] = GetParam();
+  ScopedKernelOverride kernel_override(kernel_choice);
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 

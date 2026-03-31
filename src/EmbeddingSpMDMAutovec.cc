@@ -153,10 +153,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
   if (data_size < 0) {
     return false;
   }
-  if constexpr (isOutput8bit) {
-    assert(input_stride == output_stride);
-  }
-
   constexpr int64_t CACHE_LINE_SIZE = 64;
   constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
   const int64_t prefetch_stride =
@@ -183,6 +179,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
   }
 
   if (no_bag) {
+    const int64_t copy_width = std::min(output_stride, input_stride);
     for (int64_t m = 0; m < output_size; ++m) {
       const IndexType idx = indices[m];
 
@@ -192,7 +189,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 
       const uint8_t* input_row_base = input + input_stride * idx;
       if constexpr (isOutput8bit) {
-        memcpy(out, input_row_base, sizeof(uint8_t) * input_stride);
+        memcpy(out, input_row_base, sizeof(uint8_t) * copy_width);
       } else {
         float scale = NAN;
         float bias = NAN;
@@ -275,10 +272,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         do_prefetch(prefetch_addr + offset, 1);
       }
       if (idx < 0 || idx >= data_size) {
-        if (!scale_bias_last && idx == -1) {
-          // When scale_bias_last == false, assume this is for table batched
-          // embedding (TBE) that can get -1 for pruned rows.
-          weights_addr++;
+        // Skip pruned rows.
+        if (idx == -1 && !scale_bias_last) {
+          if (weights_addr != nullptr) {
+            weights_addr++;
+          }
           continue;
         }
         return false;
@@ -451,6 +449,13 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     for (; current < end; ++current) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
+        // Skip pruned rows.
+        if (idx == -1 && !scale_bias_last) {
+          if (weights_addr != nullptr) {
+            weights_addr++;
+          }
+          continue;
+        }
         return false;
       }
       int64_t prefetch_idx =
@@ -589,8 +594,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
         return false;
       }
       int64_t idx = compressed_indices_table[uncompressed_idx];
+      // Skip pruned rows.
       if (idx == -1) {
-        weights_addr++;
+        if (weights_addr != nullptr) {
+          weights_addr++;
+        }
         continue;
       }
 
@@ -621,12 +629,18 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
           buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
         }
 #endif
-        for (; j < block_size; j += 2) {
+        for (; j < block_size - (block_size % 2); j += 2) {
           uint8_t tmp = *input_row++;
           float quantized1 = float(tmp & 0xf);
           float quantized2 = float(tmp >> 4);
           buf[j] = std::fma(scale, quantized1, buf[j] + bias);
           buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
+        }
+        for (; j < block_size; ++j) {
+          uint8_t quantized = input_row_base[j / num_elem_per_byte] >>
+              ((j % num_elem_per_byte) * bit_rate);
+          quantized &= (1 << bit_rate) - 1;
+          buf[j] = std::fma(scale, float(quantized), buf[j] + bias);
         }
       } else if (bit_rate == 2) {
         int64_t j = 0;
@@ -644,7 +658,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
           buf[j + 3] = std::fma(scale, quantized4, buf[j + 3] + bias);
         }
 #endif
-        for (; j < block_size; j += 4) {
+        for (; j < block_size - (block_size % 4); j += 4) {
           uint8_t tmp = *input_row++;
           float quantized1 = float(tmp & 0x3);
           float quantized2 = float((tmp & 0xC) >> 2);
@@ -654,6 +668,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
           buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
           buf[j + 2] = std::fma(scale, quantized3, buf[j + 2] + bias);
           buf[j + 3] = std::fma(scale, quantized4, buf[j + 3] + bias);
+        }
+        for (; j < block_size; ++j) {
+          uint8_t quantized = input_row_base[j / num_elem_per_byte] >>
+              ((j % num_elem_per_byte) * bit_rate);
+          quantized &= (1 << bit_rate) - 1;
+          buf[j] = std::fma(scale, float(quantized), buf[j] + bias);
         }
       }
     }
@@ -938,8 +958,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           return false;
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
+        // Skip pruned rows.
         if (idx == -1) {
-          weights_addr++;
+          if (weights_addr != nullptr) {
+            weights_addr++;
+          }
           continue;
         }
         // if (idx < 0 || idx >= compressed_data_size) {
@@ -1011,8 +1034,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           return false;
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
+        // Skip pruned rows.
         if (idx == -1) {
-          weights_addr++;
+          if (weights_addr != nullptr) {
+            weights_addr++;
+          }
           continue;
         }
 
