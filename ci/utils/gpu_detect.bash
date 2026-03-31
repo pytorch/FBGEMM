@@ -88,7 +88,7 @@ detect_nvidia_gpu_model() {
     model=$(echo "$raw_name" | xargs | sed 's/^NVIDIA //')
 
     # Check if there's a custom mapping for this model
-    if [[ -n "${GPU_MODEL_MAP[$model]}" ]]; then
+    if [[ -n "${GPU_MODEL_MAP[$model]+x}" ]]; then
         echo "${GPU_MODEL_MAP[$model]}"
         return
     fi
@@ -100,7 +100,7 @@ detect_nvidia_gpu_model() {
     fi
 
     # Check if there's a custom mapping for the base model
-    if [[ -n "${GPU_MODEL_MAP[$base_model]}" ]]; then
+    if [[ -n "${GPU_MODEL_MAP[$base_model]+x}" ]]; then
         echo "${GPU_MODEL_MAP[$base_model]}"
         return
     fi
@@ -172,7 +172,7 @@ detect_amd_gpu_model() {
     gfx_version="${gfx_version,,}"
 
     # Look up the GFX version in the map
-    if [[ -n "${AMD_GFX_MODEL_MAP[$gfx_version]}" ]]; then
+    if [[ -n "${AMD_GFX_MODEL_MAP[$gfx_version]+x}" ]]; then
         echo "${AMD_GFX_MODEL_MAP[$gfx_version]}"
         return 0
     fi
