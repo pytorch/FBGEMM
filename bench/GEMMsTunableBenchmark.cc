@@ -27,6 +27,54 @@
 using namespace std;
 using namespace fbgemm;
 
+template <typename accT = std::int32_t>
+static bool isValidBlockingFactor(const BlockingFactors* const param) {
+  constexpr bool is_32bit = std::is_same_v<accT, int32_t>;
+  constexpr bool is_16bit = std::is_same_v<accT, int16_t>;
+  static const auto iset = fbgemmInstructionSet();
+
+  if constexpr (is_32bit) {
+    if (param->ROW_INTERLEAVE != 4)
+      return false;
+    if (isZmm(iset)) {
+      if (param->NR_MIN != 16 || param->NR % param->NR_MIN)
+        return false;
+    } else if (isYmm(iset)) {
+      if (param->NR_MIN != 8 || param->NR % param->NR_MIN)
+        return false;
+    }
+  } else if constexpr (is_16bit) {
+    if (param->ROW_INTERLEAVE != 2)
+      return false;
+    if (isZmm(iset)) {
+      if (param->NR_MIN != 32 || param->NR % param->NR_MIN)
+        return false;
+    } else if (isYmm(iset)) {
+      if (param->NR_MIN != 16 || param->NR % param->NR_MIN)
+        return false;
+    }
+  }
+
+  if (param->MCB % param->MR)
+    return false;
+  if (param->NCB % param->NR)
+    return false;
+  if (isZmm(iset)) {
+    if constexpr (is_32bit) {
+      if (param->MR * (param->NR / param->NR_MIN) > 28)
+        return false;
+    } else if constexpr (is_16bit) {
+      if ((param->MR * (param->NR / param->NR_MIN) +
+           (param->NR / param->NR_MIN)) > 28)
+        return false;
+    }
+  } else if (isYmm(iset)) {
+    if (param->MR * (param->NR / param->NR_MIN) > 12)
+      return false;
+  }
+  return true;
+}
+
 static void performance_test(
     const BlockingFactors* tuning_params,
     set<vector<int>>& incorrect_configs,
