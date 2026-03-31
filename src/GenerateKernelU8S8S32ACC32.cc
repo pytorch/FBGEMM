@@ -46,7 +46,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
 
   for (int j = 0; j < colRegs; ++j) {
     // load B
-    emitLoadDWord<instSet, VecRegT>(
+    emitLoadDWord<instSet>(
         a, BReg, x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
     // load A, broadcast and fmas
     for (int i = 0; i < rowRegs; ++i) {
@@ -220,7 +220,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
 
     VecRegT oneReg(numRegs - 3);
 
-    gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
+    gen16BitVectorOne<instSet>(a, oneReg);
     a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
     // a->xor_(C_Offset.r32(), C_Offset.r32());
 

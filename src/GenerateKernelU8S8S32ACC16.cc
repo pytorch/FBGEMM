@@ -78,7 +78,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
     a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(i * sizeof(int32_t)));
     for (int j = 0; j < colRegs; ++j) {
       for (int idx = 0; idx < 2; ++idx) {
-        emitExtractHalfVector<instSet, VecT>(
+        emitExtractHalfVector<instSet>(
             a, extractDestHalf, VecT(i * colRegs + j), idx);
         a->vpmovsxwd(extractDestFull, extractDestHalf);
         x86::Mem destAddr =
