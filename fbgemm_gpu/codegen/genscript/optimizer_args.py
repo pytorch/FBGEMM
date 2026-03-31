@@ -674,7 +674,7 @@ class PT2ArgsSet:
                     split_variables.append(
                         f"ret.push_back(Variable()); // {s.name}_offsets"
                     )
-                    split_variables.append("if (" + name + "_host.numel() == 0) {")
+                    split_variables.append("if (" + name + "_host.sym_numel() == 0) {")
                     split_variables.append(
                         f"ret.push_back(Variable()); // {s.name}_uvm"
                     )
