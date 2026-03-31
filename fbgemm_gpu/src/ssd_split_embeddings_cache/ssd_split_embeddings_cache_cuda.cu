@@ -31,6 +31,12 @@ int get_masked_index_default_pipeline_sms(int device) {
   cudaDeviceProp prop;
   cudaGetDeviceProperties(&prop, device);
 
+#ifdef USE_ROCM
+  // AMD GPUs: CU count varies by SKU. Use a conservative ratio.
+  // MI300X has 304 CUs, MI350 has ~320 CUs.
+  constexpr int ALL_TO_PREFETCH_CU_RATIO = 8;
+  return div_round_up(prop.multiProcessorCount, ALL_TO_PREFETCH_CU_RATIO);
+#else
   // The default number of SMs for use_pipeline=true is set based on an
   // empirical study
   if (prop.major == 8) {
@@ -42,6 +48,7 @@ int get_masked_index_default_pipeline_sms(int device) {
   }
   constexpr int ALL_TO_PREFETCH_SM_RATIO = 8;
   return div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO);
+#endif
 }
 
 template <typename scalar_t>
