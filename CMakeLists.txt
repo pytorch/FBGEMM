@@ -121,16 +121,6 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   endif()
 endif()
 
-################################################################################
-# GNU F2H_IEEE Support
-################################################################################
-
-# Check if compiler supports __gnu_f2h_ieee
-include(${CMAKE_CURRENT_LIST_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
-
-if(NOT HAVE_GNU_F2H_IEEE)
-  add_definitions(-DMISSING_GNU_F2H_IEEE)
-endif()
 
 ################################################################################
 # Setup OpenMP Flags
