@@ -19,7 +19,7 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
-from torch.profiler import profile
+from torch.profiler import profile, schedule
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -109,6 +109,12 @@ def device(
 @click.option("--unique-batch-size", default=1024)
 @click.option("--input-precision", type=str, default="fp32")
 @click.option(
+    "--device",
+    type=click.Choice(["cpu", "cuda"]),
+    default="cuda",
+    help="Device to run benchmark on.",
+)
+@click.option(
     "--export-trace",
     is_flag=True,
     default=False,
@@ -124,6 +130,7 @@ def batch_reuse_index_select_device(
     batch_size: int,
     unique_batch_size: int,
     input_precision: str,
+    device: str,
     export_trace: bool,
     trace_url: str,
 ) -> None:
@@ -146,14 +153,19 @@ def batch_reuse_index_select_device(
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
 
-    # pyre-fixme[16]: Module `cuda` has no attribute `IntTensor`.
-    indices = torch.cuda.IntTensor(gen_inverse_index(unique_batch_size, batch_size))
+    # Fixed: use device-aware tensor creation instead of torch.cuda.IntTensor
+    # (see tritonbench batch_reuse_index_select operator for the corrected version)
+    indices = torch.tensor(
+        gen_inverse_index(unique_batch_size, batch_size),
+        dtype=torch.int32,
+        device=device,
+    )
 
     input = torch.rand(
         unique_batch_size,
         row_size,
         dtype=dtype,
-        device=torch.accelerator.current_accelerator(),
+        device=device,
     )
     input.requires_grad = True
     num_bytes = 2 * batch_size * row_size * input.element_size()
@@ -161,26 +173,62 @@ def batch_reuse_index_select_device(
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
 
-    # pyre-ignore[3]
-    def context_factory(on_trace_ready: Callable[[profile], None]):
-        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+    def _export_kineto_trace(
+        fn: Callable[[], None],
+        phase: str,
+        num_warmup: int = 2,
+        num_active: int = 1,
+    ) -> None:
+        """Run a separate profiling pass with proper schedule-based tracing.
 
-    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
-        time, output = benchmark_torch_function(
-            torch.ops.fbgemm.index_select_dim0, (input, indices, 0, unique_batch_size)
-        )
+        The bare ``profile(on_trace_ready=...)`` pattern fails because Kineto's
+        default 5-second GPU warmup period expires after the fast benchmark
+        finishes, resulting in 0 GPU records.  Using ``schedule()`` with
+        explicit ``prof.step()`` calls avoids this entirely.
+        """
+        if not export_trace:
+            return
+        total_iters = num_warmup + num_active
+        is_cuda = device != "cpu"
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if is_cuda:
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=num_warmup, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: _kineto_trace_handler(p, phase),
+        ) as prof:
+            for _ in range(total_iters):
+                fn()
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                prof.step()
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.index_select_dim0, (input, indices, 0, unique_batch_size)
+    )
+    _export_kineto_trace(
+        lambda: torch.ops.fbgemm.index_select_dim0(
+            input, indices, 0, unique_batch_size
+        ),
+        "fwd",
+    )
     logging.info(
         f"index_select_dim0 forward: {dtype}, {num_bytes} bytes read/write, {time * 1e3} ms, {num_bytes / time / 1e9} GB/s"
     )
 
-    grad = torch.rand_like(
-        output, dtype=dtype, device=torch.accelerator.current_accelerator()
-    )
+    grad = torch.rand_like(output, dtype=dtype, device=device)
     num_bytes = (input.numel() + output.numel()) * input.element_size()
-    with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
-        time, _ = benchmark_torch_function(
-            functools.partial(output.backward, retain_graph=True), (grad,)
-        )
+    time, _ = benchmark_torch_function(
+        functools.partial(output.backward, retain_graph=True), (grad,)
+    )
+    _export_kineto_trace(
+        lambda: output.backward(grad, retain_graph=True),
+        "bwd",
+    )
     logging.info(
         f"index_select_dim0 backward: {dtype}, {num_bytes} bytes read/write, {time * 1e3} ms, {num_bytes / time / 1e9} GB/s"
     )
