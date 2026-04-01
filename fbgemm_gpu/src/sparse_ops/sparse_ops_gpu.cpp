@@ -562,13 +562,16 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   outputs.reserve(group_size * 2 + 1);
 
   // 1) Add group_size Variable()'s for indices
-  // c10::irange cannot be used in here as it
-  // triggers a build error of i being an unused variable.
   // Add empty tensor with zero size here to make __torch_dispatch__ work for
   // the backward op. Those empty tensors will be replaced with
   // torch::autograd::Variable() outside of the op call.
-  for (auto i = 0; i < group_size; i++) {
-    outputs.push_back(at::empty({0}, at::TensorOptions().dtype(at::kLong)));
+  // Reuse a single placeholder tensor to avoid N separate allocations.
+  {
+    const auto placeholder =
+        at::empty({0}, at::TensorOptions().dtype(at::kLong));
+    for (auto i = 0; i < group_size; i++) {
+      outputs.push_back(placeholder);
+    }
   }
 
   // Allocate Tensor for ptrs of grad output and input, and indices
@@ -634,10 +637,8 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
 
   // Reshape grad inputs and obtain their pointers
   for (int i = 0; i < group_size; i++) {
-    const auto grad_input_shape = std::vector<int64_t>(
-        output_shape_group.begin() + i * output_dim,
-        output_shape_group.begin() + (i + 1) * output_dim);
-    output_group[i] = output_group[i].reshape(grad_input_shape);
+    output_group[i] = output_group[i].reshape(c10::IntArrayRef(
+        output_shape_group.data() + i * output_dim, output_dim));
     TORCH_CHECK(
         output_group[i].is_contiguous(),
         "Tensor output_group ",
@@ -654,13 +655,43 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
 
   // Calculate indices_ptrs
   std::vector<c10::MaybeOwned<at::Tensor>> index_contigs;
-  std::vector<at::Tensor> sorted_indices_contigs;
-  std::vector<at::Tensor> reverse_indices_contigs;
   index_contigs.reserve(group_size);
+#ifdef USE_ROCM
+  // Pre-allocate sort scratch and output buffers once for all groups.
+  // All groups share the same index dtype and size (enforced by forward checks).
+  at::Tensor sort_temp_storage;
+  at::Tensor sort_original_positions;
+  at::Tensor all_sorted_indices;
+  at::Tensor all_reverse_indices;
+  int64_t sort_num_items = static_cast<int64_t>(indices_group[0].numel());
+  const bool use_segmented_sort =
+        static_cast<size_t>(sort_num_items) <= rocm::k_sort_merge_threshold;
   if (use_sorted_indices) {
-    sorted_indices_contigs.reserve(group_size);
-    reverse_indices_contigs.reserve(group_size);
+    const auto stream = at::cuda::getCurrentCUDAStream();
+    const size_t temp_bytes = use_segmented_sort
+        ? rocm::get_segmented_sort_temp_storage_bytes(
+              static_cast<size_t>(sort_num_items), group_size,
+              first_indices.scalar_type(), stream)
+        : rocm::get_sort_temp_storage_bytes(
+              static_cast<size_t>(sort_num_items),
+              first_indices.scalar_type(), stream);
+    sort_temp_storage = at::empty(
+        {static_cast<int64_t>(temp_bytes)},
+        first_indices.options().dtype(at::kByte));
+    // original_positions is always 0..N-1 and read-only, shared across groups.
+    sort_original_positions = at::arange(
+        sort_num_items, first_indices.options().dtype(at::kLong));
+    // Single contiguous allocation for all groups' sort outputs.
+    // record_stream called twice total instead of 2*group_size.
+    all_sorted_indices = at::empty(
+        {group_size * sort_num_items}, first_indices.options());
+    all_reverse_indices = at::empty(
+        {group_size * sort_num_items},
+        first_indices.options().dtype(at::kLong));
+    all_sorted_indices.record_stream(stream);
+    all_reverse_indices.record_stream(stream);
   }
+#endif
   for (const auto i : c10::irange(group_size)) {
     const auto& indices = indices_group[i];
     index_contigs.push_back(indices.expect_contiguous());
@@ -668,22 +699,60 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         reinterpret_cast<int64_t>(index_contigs[i]->const_data_ptr());
     sorted_indices_ptrs[i] = 0;
     reverse_indices_ptrs[i] = 0;
-#ifdef USE_ROCM
-    if (use_sorted_indices) {
-      auto [sorted_tensor, reverse_tensor] =
-        rocm::sort_indices_with_rocprim(*index_contigs[i]);
-      const auto stream = at::cuda::getCurrentCUDAStream();
-      sorted_tensor.record_stream(stream);
-      reverse_tensor.record_stream(stream);
-      sorted_indices_contigs.push_back(std::move(sorted_tensor));
-      reverse_indices_contigs.push_back(std::move(reverse_tensor));
-      sorted_indices_ptrs[i] = reinterpret_cast<int64_t>(
-          sorted_indices_contigs.back().data_ptr());
-      reverse_indices_ptrs[i] = reinterpret_cast<int64_t>(
-          reverse_indices_contigs.back().data_ptr());
-    }
-#endif
   }
+#ifdef USE_ROCM
+  if (use_sorted_indices) {
+    // Fill sorted/reverse ptr tables via direct pointer arithmetic.
+    const int64_t idx_elem_bytes = first_indices.element_size();
+    auto* sorted_base = static_cast<char*>(all_sorted_indices.data_ptr());
+    auto* reverse_base = static_cast<char*>(all_reverse_indices.data_ptr());
+    for (int64_t i = 0; i < group_size; ++i) {
+      sorted_indices_ptrs[i] =
+          reinterpret_cast<int64_t>(sorted_base + i * sort_num_items * idx_elem_bytes);
+      reverse_indices_ptrs[i] =
+          reinterpret_cast<int64_t>(reverse_base + i * sort_num_items * sizeof(int64_t));
+    }
+
+    const auto stream = at::cuda::getCurrentCUDAStream();
+    if (use_segmented_sort) {
+      std::vector<at::Tensor> index_tensors;
+      index_tensors.reserve(group_size);
+      for (const auto& ic : index_contigs) {
+        index_tensors.push_back(*ic);
+      }
+      const auto all_keys_in = at::cat(index_tensors, 0);
+      const auto all_values_in =
+          sort_original_positions.unsqueeze(0)
+              .expand({group_size, sort_num_items})
+              .contiguous()
+              .view({-1});
+      const auto segment_offsets =
+          at::arange(group_size + 1, first_indices.options().dtype(at::kLong)) *
+          sort_num_items;
+      rocm::sort_indices_segmented_rocprim(
+          all_keys_in,
+          all_sorted_indices,
+          all_values_in,
+          all_reverse_indices,
+          segment_offsets,
+          static_cast<size_t>(sort_num_items),
+          group_size,
+          sort_temp_storage,
+          stream);
+    } else {
+      rocm::sort_indices_batch_rocprim(
+          indices_ptrs,
+          all_sorted_indices.data_ptr(),
+          all_reverse_indices.data_ptr<int64_t>(),
+          sort_original_positions.data_ptr<int64_t>(),
+          static_cast<size_t>(sort_num_items),
+          group_size,
+          sort_temp_storage,
+          first_indices.scalar_type(),
+          stream);
+    }
+  }
+#endif
 
   // Transfer grad output pointers to GPU
   args_tensor = args_tensor.to(first_indices.device(), /*non_blocking=*/true);
