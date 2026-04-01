@@ -59,6 +59,12 @@ def cli() -> None:
     type=str,
     default="device_trace_{ospid}.json",
 )
+@click.option(
+    "--device",
+    type=click.Choice(["cpu", "cuda"]),
+    default="cuda",
+    help="Device to run the benchmark on. Default is cuda.",
+)
 def device(
     world_size: int,
     num_tables: int,
@@ -66,20 +72,30 @@ def device(
     max_len: int,
     export_trace: bool,
     trace_url: str,
+    device: str,
 ) -> None:
-    lengths = torch.randint(min_len, max_len, size=(num_tables * world_size,))
+    if device == "cuda" and not torch.cuda.is_available():
+        raise click.UsageError("CUDA requested but not available.")
+
+    num_segments = num_tables * world_size
+    lengths = torch.randint(min_len, max_len, size=(num_segments,))
     offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-    permute = list(range(num_tables * world_size))
+    permute = list(range(num_segments))
     random.shuffle(permute)
     permute_tensor = torch.tensor(permute)
     permuted_length = torch.index_select(lengths, 0, permute_tensor)
     permuted_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(permuted_length)
     jagged_size = offsets[-1]
 
-    if torch.cuda.is_available():
-        permute_tensor = permute_tensor.cuda()
-        offsets = offsets.cuda()
-        permuted_offsets = permuted_offsets.cuda()
+    if int(jagged_size.item()) > 2**31 - 1:
+        raise ValueError(
+            f"jagged_size ({int(jagged_size.item())}) exceeds int32 max. "
+            f"Reduce world_size, num_tables, or length range."
+        )
+
+    permute_tensor = permute_tensor.to(device)
+    offsets = offsets.to(device)
+    permuted_offsets = permuted_offsets.to(device)
 
     def _kineto_trace_handler(p: profile) -> None:
         p.export_chrome_trace(trace_url.format(ospid=os.getpid()))
