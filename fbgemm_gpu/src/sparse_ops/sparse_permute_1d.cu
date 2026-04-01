@@ -81,7 +81,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_vec(
     const offsets_t* __restrict__ input_offsets,
     const offsets_t* __restrict__ output_offsets,
     indices_t* __restrict__ permuted_indices,
-    weights_t* __restrict__ permuted_weights) {
+    weights_t* __restrict__ permuted_weights,
+    int32_t weights_columns) {
   // Select vector types based on element size (vec4 for 4× bandwidth)
   using indices_vec4_t =
       typename std::conditional<sizeof(indices_t) == 8, long4, float4>::type;
@@ -104,12 +105,19 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_vec(
     // Compute pointers
     indices_t* __restrict__ indices_dst_ptr = permuted_indices + output_start;
     const indices_t* __restrict__ indices_src_ptr = indices + input_start;
-    weights_t* __restrict__ weights_dst_ptr =
-        has_weight ? permuted_weights + output_start : nullptr;
+    weights_t* __restrict__ weights_dst_ptr = has_weight
+        ? permuted_weights + output_start * weights_columns
+        : nullptr;
     const weights_t* __restrict__ weights_src_ptr =
-        has_weight ? weights + input_start : nullptr;
+        has_weight ? weights + input_start * weights_columns : nullptr;
 
-    // Check alignment once per segment
+    // Total weight elements to copy for this segment (accounts for 2D weights)
+    const int32_t total_weight_elements = segment_length * weights_columns;
+
+    // Check alignment once per segment.
+    // For 2D weights, the weight pointer stride includes weights_columns, so
+    // vec4 alignment is valid only when weights_columns is divisible by 4 or
+    // equals 1 (1D case), ensuring row boundaries stay aligned.
     const bool indices_vec4_aligned =
         (sizeof(indices_t) == 4 || sizeof(indices_t) == 8) &&
         (reinterpret_cast<uintptr_t>(indices_dst_ptr) &
@@ -118,13 +126,15 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_vec(
          (alignof(indices_vec4_t) - 1)) == 0;
 
     const bool weights_vec4_aligned = !has_weight ||
-        ((reinterpret_cast<uintptr_t>(weights_dst_ptr) &
+        ((weights_columns == 1 || weights_columns % 4 == 0) &&
+         (reinterpret_cast<uintptr_t>(weights_dst_ptr) &
           (alignof(weights_vec4_t) - 1)) == 0 &&
          (reinterpret_cast<uintptr_t>(weights_src_ptr) &
           (alignof(weights_vec4_t) - 1)) == 0);
 
     if (indices_vec4_aligned && weights_vec4_aligned) {
-      // Vectorized path - process both indices and weights together
+      // Vectorized path - process indices and weights separately since they may
+      // have different element counts (weights has weights_columns factor)
       const int32_t vec4_count = segment_length / 4;
       const int32_t remainder = segment_length & 3; // segment_length % 4
 
@@ -133,20 +143,31 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_vec(
           reinterpret_cast<const indices_vec4_t*>(indices_src_ptr);
 
       if (has_weight) {
+        const int32_t vec4_weight_count = total_weight_elements / 4;
+        const int32_t weight_remainder = total_weight_elements & 3;
         auto weights_dst = reinterpret_cast<weights_vec4_t*>(weights_dst_ptr);
         auto weights_src =
             reinterpret_cast<const weights_vec4_t*>(weights_src_ptr);
 
-// copy both indices and weights
+// copy indices
 #pragma unroll
         for (auto i = threadIdx.x; i < vec4_count; i += blockDim.x) {
           indices_dst[i] = indices_src[i];
-          weights_dst[i] = weights_src[i];
         }
-        // Handle remainder elements (0-3 elements)
+        // Handle remainder indices (0-3 elements)
         if (threadIdx.x < remainder) {
           const auto offset = vec4_count * 4 + threadIdx.x;
           indices_dst_ptr[offset] = indices_src_ptr[offset];
+        }
+
+// copy weights (segment_length * weights_columns total elements)
+#pragma unroll
+        for (auto i = threadIdx.x; i < vec4_weight_count; i += blockDim.x) {
+          weights_dst[i] = weights_src[i];
+        }
+        // Handle remainder weight elements (0-3 elements)
+        if (threadIdx.x < weight_remainder) {
+          const auto offset = vec4_weight_count * 4 + threadIdx.x;
           weights_dst_ptr[offset] = weights_src_ptr[offset];
         }
       } else {
@@ -166,7 +187,9 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_vec(
       // Scalar fallback path
       for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
         indices_dst_ptr[i] = indices_src_ptr[i];
-        if (has_weight) {
+      }
+      if (has_weight) {
+        for (auto i = threadIdx.x; i < total_weight_elements; i += blockDim.x) {
           weights_dst_ptr[i] = weights_src_ptr[i];
         }
       }
@@ -285,7 +308,8 @@ permute_1D_sparse_data_cuda(
                           input_offsets.data_ptr<offsets_t>(),
                           output_offsets.data_ptr<offsets_t>(),
                           permuted_indices.data_ptr<indices_t>(),
-                          permuted_weights.data_ptr<weights_t>());
+                          permuted_weights.data_ptr<weights_t>(),
+                          weights_columns);
                     }); // for each weights_t
               } else {
                 FBGEMM_LAUNCH_KERNEL(
@@ -306,7 +330,8 @@ permute_1D_sparse_data_cuda(
                     input_offsets.data_ptr<offsets_t>(),
                     output_offsets.data_ptr<offsets_t>(),
                     permuted_indices.data_ptr<indices_t>(),
-                    nullptr);
+                    nullptr,
+                    1);
               }
             }); // for each indices_t
       }); // for each offsets_t
