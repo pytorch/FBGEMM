@@ -11,9 +11,6 @@
 #include <limits>
 
 #include "fbgemm/Utils.h"
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 
 namespace {
 template <typename T, unsigned N>
@@ -64,17 +61,10 @@ TEST(cpuKernelTest, radix_sort_parallel_test_neg_vals) {
 }
 
 TEST(cpuKernelTest, raidx_sort_heap_overflow) {
-#ifdef _OPENMP
-  const auto orig_threads = omp_get_num_threads();
-  omp_set_num_threads(1);
-#endif
   constexpr auto max = std::numeric_limits<int>::max();
   test_template<int, 8>(
       {-1, max, max, -1, max, -1, -1, -1},
       {1, 2, 3, 4, 5, 6, 7, 8},
       {-1, -1, -1, -1, -1, max, max, max},
       {1, 4, 6, 7, 8, 2, 3, 5});
-#ifdef _OPENMP
-  omp_set_num_threads(orig_threads);
-#endif
 }
