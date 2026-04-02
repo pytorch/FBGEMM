@@ -493,6 +493,147 @@ class PermuteIndicesTest(unittest.TestCase):
                 )
 
     @given(
+        num_segments=st.integers(min_value=20, max_value=100),
+        max_segment_length=st.integers(min_value=10, max_value=200),
+        index_dtype=st.sampled_from([torch.int32, torch.int64, torch.float32]),
+        weights_columns=st.sampled_from([2, 3, 4, 7, 8]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=50, deadline=None)
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_1D_sparse_data_vec_2d_weights(
+        self,
+        num_segments: int,
+        max_segment_length: int,
+        index_dtype: torch.dtype,
+        weights_columns: int,
+    ) -> None:
+        """
+        Test vectorized permute_1D_sparse_data kernel with 2D weights.
+
+        Validates that the vec kernel correctly handles 2D weights tensors of shape
+        [total_indices, W] for various W:
+        - W=2, 3, 7: odd widths fall back to scalar path (weights_columns % 4 != 0)
+        - W=4, 8:    divisible-by-4 widths use the vec4 path
+
+        Uses a Python reference implementation to avoid dependence on the CPU kernel,
+        which may flatten 2D weights differently.
+        """
+
+        def permute_1d_ref(
+            permute: torch.Tensor,
+            lengths: torch.Tensor,
+            indices: torch.Tensor,
+            weights: torch.Tensor,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            """Python reference: permute segments in 1D sparse data with 2D weights."""
+            offsets = torch.cat(
+                [torch.zeros(1, dtype=torch.int64), lengths.long().cumsum(0)]
+            )
+            permuted_lengths = lengths[permute.long()]
+            out_offsets = torch.cat(
+                [torch.zeros(1, dtype=torch.int64), permuted_lengths.long().cumsum(0)]
+            )
+            total = int(permuted_lengths.sum().item())
+            permuted_indices = torch.empty(total, dtype=indices.dtype)
+            permuted_weights = torch.empty(total, weights_columns, dtype=weights.dtype)
+            for i, p in enumerate(permute.tolist()):
+                src = int(offsets[p].item())
+                length = int(lengths[p].item())
+                dst = int(out_offsets[i].item())
+                permuted_indices[dst : dst + length] = indices[src : src + length]
+                permuted_weights[dst : dst + length] = weights[src : src + length]
+            return permuted_lengths, permuted_indices, permuted_weights
+
+        lengths = torch.randint(
+            low=max_segment_length // 2,
+            high=max_segment_length,
+            size=(num_segments,),
+            dtype=torch.int32,
+        )
+        total_indices = int(lengths.sum().item())
+
+        if index_dtype == torch.float32:
+            indices = torch.rand(total_indices, dtype=index_dtype)
+        else:
+            indices = torch.randint(
+                low=0,
+                high=2**31 - 1,
+                size=(total_indices,),
+                dtype=index_dtype,
+            )
+
+        # 2D weights: shape [total_indices, weights_columns]
+        weights = torch.rand(total_indices, weights_columns, dtype=torch.float32)
+
+        permute_list = list(range(num_segments))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        # Python reference
+        ref_lengths, ref_indices, ref_weights = permute_1d_ref(
+            permute, lengths, indices, weights
+        )
+
+        # GPU vectorized kernel
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_1D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights.cuda(),
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), ref_lengths)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), ref_indices)
+        torch.testing.assert_close(permuted_weights_gpu.cpu(), ref_weights)
+
+        # Verify output shape is [permuted_total, weights_columns]
+        self.assertEqual(permuted_weights_gpu.dim(), 2)
+        self.assertEqual(permuted_weights_gpu.size(1), weights_columns)
+
+        # Edge cases: specific segment lengths at vec4 boundaries for 2D weights
+        # The effective element count per segment is segment_length * weights_columns,
+        # so boundary behavior differs from the 1D case.
+        for seg_len in [1, 3, 4, 5, 8, 16]:
+            lengths_edge = torch.tensor([seg_len], dtype=torch.int32)
+            if index_dtype == torch.float32:
+                indices_edge = torch.rand(seg_len, dtype=index_dtype)
+            else:
+                indices_edge = torch.randint(
+                    0, 2**31 - 1, size=(seg_len,), dtype=index_dtype
+                )
+            weights_edge = torch.rand(seg_len, weights_columns, dtype=torch.float32)
+            permute_edge = torch.IntTensor([0])
+
+            ref_lengths_edge, ref_indices_edge, ref_weights_edge = permute_1d_ref(
+                permute_edge, lengths_edge, indices_edge, weights_edge
+            )
+            (
+                permuted_lengths_gpu_edge,
+                permuted_indices_gpu_edge,
+                permuted_weights_gpu_edge,
+            ) = torch.ops.fbgemm.permute_1D_sparse_data(
+                permute_edge.cuda(),
+                lengths_edge.cuda(),
+                indices_edge.cuda(),
+                weights_edge.cuda(),
+                None,
+            )
+            torch.testing.assert_close(
+                permuted_lengths_gpu_edge.cpu(), ref_lengths_edge
+            )
+            torch.testing.assert_close(
+                permuted_indices_gpu_edge.cpu(), ref_indices_edge
+            )
+            torch.testing.assert_close(
+                permuted_weights_gpu_edge.cpu(), ref_weights_edge
+            )
+
+    @given(
         long_index=st.booleans(),
         has_weight=st.booleans(),
     )
