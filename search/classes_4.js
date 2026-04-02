@@ -5,7 +5,6 @@ var searchData=
   ['embeddingstatstracker_2',['EmbeddingStatsTracker',['../classfbgemm_1_1_embedding_stats_tracker.html',1,'fbgemm']]],
   ['embeddingstatstrackerconfig_3',['EmbeddingStatsTrackerConfig',['../classfbgemm_1_1_embedding_stats_tracker_config.html',1,'fbgemm']]],
   ['enrichmentconfig_4',['EnrichmentConfig',['../structkv__mem_1_1_enrichment_config.html',1,'kv_mem']]],
-  ['enrichmentresult_5',['EnrichmentResult',['../structigr__enrichment_1_1_enrichment_result.html',1,'igr_enrichment']]],
-  ['executekernel_6',['ExecuteKernel',['../classfbgemm_1_1_execute_kernel.html',1,'fbgemm']]],
-  ['executekernel_3c_20packingamatrix_2c_20packbmatrix_3c_20int8_5ft_2c_20typename_20packingamatrix_3a_3aacctype_20_3e_2c_20ct_2c_20processoutputtype_20_3e_7',['ExecuteKernel&lt; packingAMatrix, PackBMatrix&lt; int8_t, typename packingAMatrix::accType &gt;, cT, processOutputType &gt;',['../classfbgemm_1_1_execute_kernel_3_01packing_a_matrix_00_01_pack_b_matrix_3_01int8__t_00_01typenam9894617fba2431fcc8042b1a22b96270.html',1,'fbgemm']]]
+  ['executekernel_5',['ExecuteKernel',['../classfbgemm_1_1_execute_kernel.html',1,'fbgemm']]],
+  ['executekernel_3c_20packingamatrix_2c_20packbmatrix_3c_20int8_5ft_2c_20typename_20packingamatrix_3a_3aacctype_20_3e_2c_20ct_2c_20processoutputtype_20_3e_6',['ExecuteKernel&lt; packingAMatrix, PackBMatrix&lt; int8_t, typename packingAMatrix::accType &gt;, cT, processOutputType &gt;',['../classfbgemm_1_1_execute_kernel_3_01packing_a_matrix_00_01_pack_b_matrix_3_01int8__t_00_01typenam9894617fba2431fcc8042b1a22b96270.html',1,'fbgemm']]]
 ];
