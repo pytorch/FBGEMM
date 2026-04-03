@@ -336,24 +336,24 @@ Functions</h2></td></tr>
 <tr class="separator:ae6d6321b283eaa5a8ddaaa96ea22c62f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4bd183ba7e59151ac6bff236729d4a41" id="r_a4bd183ba7e59151ac6bff236729d4a41"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4bd183ba7e59151ac6bff236729d4a41">is_autovec_disabled</a> ()</td></tr>
 <tr class="separator:a4bd183ba7e59151ac6bff236729d4a41"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aa06c4dd5673e6b3df1dfe3617fdc919d" id="r_aa06c4dd5673e6b3df1dfe3617fdc919d"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </td></tr>
-<tr class="memitem:aa06c4dd5673e6b3df1dfe3617fdc919d"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa06c4dd5673e6b3df1dfe3617fdc919d">gen16BitVectorOne</a> (x86::Emitter *a, T dest)</td></tr>
-<tr class="separator:aa06c4dd5673e6b3df1dfe3617fdc919d"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aa56904bd84399e10104d286e0e10a2d7" id="r_aa56904bd84399e10104d286e0e10a2d7"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </td></tr>
-<tr class="memitem:aa56904bd84399e10104d286e0e10a2d7"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa56904bd84399e10104d286e0e10a2d7">emitLoadDWord</a> (x86::Emitter *a, T dest, const x86::Mem &amp;ptr)</td></tr>
-<tr class="separator:aa56904bd84399e10104d286e0e10a2d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9100cab8c6c3516de24bd98b652b6855" id="r_a9100cab8c6c3516de24bd98b652b6855"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt; = 0&gt; </td></tr>
-<tr class="memitem:a9100cab8c6c3516de24bd98b652b6855"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a9100cab8c6c3516de24bd98b652b6855">emitExtractHalfVector</a> (x86::Emitter *a, const <a class="el" href="classfbgemm_1_1_ymm.html">Ymm</a> &amp;half, const <a class="el" href="classfbgemm_1_1_zmm.html">Zmm</a> &amp;vec, int idx)</td></tr>
-<tr class="separator:a9100cab8c6c3516de24bd98b652b6855"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3c476c8ddbed58f3f6b4395dd55ed2a3" id="r_a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memTemplParams" colspan="2">template&lt;typename T, std::enable_if_t&lt; std::is_same_v&lt; T, <a class="el" href="classfbgemm_1_1_ymm.html">Ymm</a> &gt;, int &gt; = 0&gt; </td></tr>
-<tr class="memitem:a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a3c476c8ddbed58f3f6b4395dd55ed2a3">gen8BitVectorOne</a> (x86::Emitter *a, T dest)</td></tr>
-<tr class="separator:a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a2a15434be774f5beeb39e4fe225d6fb9" id="r_a2a15434be774f5beeb39e4fe225d6fb9"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </td></tr>
-<tr class="memitem:a2a15434be774f5beeb39e4fe225d6fb9"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a2a15434be774f5beeb39e4fe225d6fb9">genU8I8S32FMA</a> (x86::Emitter *a, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t aReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t bReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t cReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t oneReg16Bit, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t tmpReg)</td></tr>
-<tr class="separator:a2a15434be774f5beeb39e4fe225d6fb9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aa9ddfdb1cd3e41712844257212fcb050" id="r_aa9ddfdb1cd3e41712844257212fcb050"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </td></tr>
-<tr class="memitem:aa9ddfdb1cd3e41712844257212fcb050"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa9ddfdb1cd3e41712844257212fcb050">genU8Sum4</a> (x86::Emitter *a, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t src, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t dest, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t oneReg16Bit, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t tmpReg)</td></tr>
-<tr class="separator:aa9ddfdb1cd3e41712844257212fcb050"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a78c46cbaae329e1ea47e8f64d007e57c" id="r_a78c46cbaae329e1ea47e8f64d007e57c"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T&gt; </td></tr>
+<tr class="memitem:a78c46cbaae329e1ea47e8f64d007e57c"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a78c46cbaae329e1ea47e8f64d007e57c">gen16BitVectorOne</a> (x86::Emitter *a, T dest)</td></tr>
+<tr class="separator:a78c46cbaae329e1ea47e8f64d007e57c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8fc7c09b12c7af0d68ecc42f36b95f2c" id="r_a8fc7c09b12c7af0d68ecc42f36b95f2c"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T&gt; </td></tr>
+<tr class="memitem:a8fc7c09b12c7af0d68ecc42f36b95f2c"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a8fc7c09b12c7af0d68ecc42f36b95f2c">emitLoadDWord</a> (x86::Emitter *a, T dest, const x86::Mem &amp;ptr)</td></tr>
+<tr class="separator:a8fc7c09b12c7af0d68ecc42f36b95f2c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4c25a363a50f7ddc8ebb3e23346701bf" id="r_a4c25a363a50f7ddc8ebb3e23346701bf"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </td></tr>
+<tr class="memitem:a4c25a363a50f7ddc8ebb3e23346701bf"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a4c25a363a50f7ddc8ebb3e23346701bf">emitExtractHalfVector</a> (x86::Emitter *a, const <a class="el" href="classfbgemm_1_1_ymm.html">Ymm</a> &amp;half, const <a class="el" href="classfbgemm_1_1_zmm.html">Zmm</a> &amp;vec, int idx)</td></tr>
+<tr class="separator:a4c25a363a50f7ddc8ebb3e23346701bf"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a79cb7489150887600ce7e12d7bd1b19f" id="r_a79cb7489150887600ce7e12d7bd1b19f"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
+<tr class="memitem:a79cb7489150887600ce7e12d7bd1b19f"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a79cb7489150887600ce7e12d7bd1b19f">gen8BitVectorOne</a> (x86::Emitter *a, T dest)</td></tr>
+<tr class="separator:a79cb7489150887600ce7e12d7bd1b19f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae54d7e08c147b8bbbbf3f0b7d5564c14" id="r_ae54d7e08c147b8bbbbf3f0b7d5564c14"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET&gt; </td></tr>
+<tr class="memitem:ae54d7e08c147b8bbbbf3f0b7d5564c14"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ae54d7e08c147b8bbbbf3f0b7d5564c14">genU8I8S32FMA</a> (x86::Emitter *a, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t aReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t bReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t cReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t oneReg16Bit, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t tmpReg)</td></tr>
+<tr class="separator:ae54d7e08c147b8bbbbf3f0b7d5564c14"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae7f7e7f8b95394a9fe00e154899b0140" id="r_ae7f7e7f8b95394a9fe00e154899b0140"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET&gt; </td></tr>
+<tr class="memitem:ae7f7e7f8b95394a9fe00e154899b0140"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ae7f7e7f8b95394a9fe00e154899b0140">genU8Sum4</a> (x86::Emitter *a, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t src, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t dest, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t oneReg16Bit, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t tmpReg)</td></tr>
+<tr class="separator:ae7f7e7f8b95394a9fe00e154899b0140"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3535bf91ff758b3bd13929bf9f211c90" id="r_a3535bf91ff758b3bd13929bf9f211c90"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:a3535bf91ff758b3bd13929bf9f211c90"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a3535bf91ff758b3bd13929bf9f211c90">genU8Sum8</a> (x86::Emitter *a, T src, T dest, T tmpReg)</td></tr>
 <tr class="separator:a3535bf91ff758b3bd13929bf9f211c90"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -381,6 +381,9 @@ Functions</h2></td></tr>
 Variables</h2></td></tr>
 <tr class="memitem:a445d75e731f0af7f60e375c34d3dbdb5" id="r_a445d75e731f0af7f60e375c34d3dbdb5"><td class="memItemLeft" align="right" valign="top">constexpr int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a445d75e731f0af7f60e375c34d3dbdb5">kRowwiseMinMaxNumCols</a> = 2</td></tr>
 <tr class="separator:a445d75e731f0af7f60e375c34d3dbdb5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac8927f5397ed2fa5a80490dad45daeb2" id="r_ac8927f5397ed2fa5a80490dad45daeb2"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </td></tr>
+<tr class="memitem:ac8927f5397ed2fa5a80490dad45daeb2"><td class="memTemplItemLeft" align="right" valign="top">constexpr bool&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ac8927f5397ed2fa5a80490dad45daeb2">is_avx512_any_v</a></td></tr>
+<tr class="separator:ac8927f5397ed2fa5a80490dad45daeb2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Top level include file for FBGEMM. </p>
@@ -826,13 +829,13 @@ template&lt;QuantizationGranularity Q_GRAN, typename BIAS_TYPE = std::int32_t&gt
 
 </div>
 </div>
-<a id="a9100cab8c6c3516de24bd98b652b6855" name="a9100cab8c6c3516de24bd98b652b6855"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9100cab8c6c3516de24bd98b652b6855">&#9670;&#160;</a></span>emitExtractHalfVector()</h2>
+<a id="a4c25a363a50f7ddc8ebb3e23346701bf" name="a4c25a363a50f7ddc8ebb3e23346701bf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4c25a363a50f7ddc8ebb3e23346701bf">&#9670;&#160;</a></span>emitExtractHalfVector()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt; = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void emitExtractHalfVector </td>
@@ -857,7 +860,7 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
       </table>
 </div><div class="memdoc">
 
-<p>Emit partial extract from Wide regiter to Half Register, eg. <a class="el" href="classfbgemm_1_1_zmm.html" title="512-bit ZMM register (AVX512+).">Zmm</a> -&gt; <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> or <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> -&gt; <a class="el" href="classfbgemm_1_1_xmm.html" title="128-bit XMM register (SSE+).">Xmm</a>. </p>
+<p>Emit partial extract from Wide register to Half Register, eg. <a class="el" href="classfbgemm_1_1_zmm.html" title="512-bit ZMM register (AVX512+).">Zmm</a> -&gt; <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> or <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> -&gt; <a class="el" href="classfbgemm_1_1_xmm.html" title="128-bit XMM register (SSE+).">Xmm</a>. </p>
 <dl class="tparams"><dt>Template Parameters</dt><dd>
   <table class="tparams">
     <tr><td class="paramname">instSet</td><td>instruction set to be used</td></tr>
@@ -868,20 +871,20 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
   <table class="params">
     <tr><td class="paramname">half</td><td>Destination (half) vector register </td></tr>
     <tr><td class="paramname">vec</td><td>Source (full) vector register </td></tr>
-    <tr><td class="paramname">idx</td><td>Index of of the half vector 0 or 1 </td></tr>
+    <tr><td class="paramname">idx</td><td>Index of the half vector 0 or 1 </td></tr>
   </table>
   </dd>
 </dl>
 
 </div>
 </div>
-<a id="aa56904bd84399e10104d286e0e10a2d7" name="aa56904bd84399e10104d286e0e10a2d7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa56904bd84399e10104d286e0e10a2d7">&#9670;&#160;</a></span>emitLoadDWord()</h2>
+<a id="a8fc7c09b12c7af0d68ecc42f36b95f2c" name="a8fc7c09b12c7af0d68ecc42f36b95f2c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8fc7c09b12c7af0d68ecc42f36b95f2c">&#9670;&#160;</a></span>emitLoadDWord()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void emitLoadDWord </td>
@@ -901,7 +904,7 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
       </table>
 </div><div class="memdoc">
 
-<p>Emit instruction do load 32-bit integer. AVX512 has different instrunction to load registers with index &gt;= 16. </p>
+<p>Emit instruction to load 32-bit integer. AVX512 has different instruction to load registers with index &gt;= 16. </p>
 <dl class="tparams"><dt>Template Parameters</dt><dd>
   <table class="tparams">
     <tr><td class="paramname">T</td><td>Register type of destination, e.g., <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> or <a class="el" href="classfbgemm_1_1_zmm.html" title="512-bit ZMM register (AVX512+).">Zmm</a></td></tr>
@@ -1815,13 +1818,13 @@ template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </div
 
 </div>
 </div>
-<a id="aa06c4dd5673e6b3df1dfe3617fdc919d" name="aa06c4dd5673e6b3df1dfe3617fdc919d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa06c4dd5673e6b3df1dfe3617fdc919d">&#9670;&#160;</a></span>gen16BitVectorOne()</h2>
+<a id="a78c46cbaae329e1ea47e8f64d007e57c" name="a78c46cbaae329e1ea47e8f64d007e57c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a78c46cbaae329e1ea47e8f64d007e57c">&#9670;&#160;</a></span>gen16BitVectorOne()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void gen16BitVectorOne </td>
@@ -1852,13 +1855,13 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
 
 </div>
 </div>
-<a id="a3c476c8ddbed58f3f6b4395dd55ed2a3" name="a3c476c8ddbed58f3f6b4395dd55ed2a3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3c476c8ddbed58f3f6b4395dd55ed2a3">&#9670;&#160;</a></span>gen8BitVectorOne()</h2>
+<a id="a79cb7489150887600ce7e12d7bd1b19f" name="a79cb7489150887600ce7e12d7bd1b19f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a79cb7489150887600ce7e12d7bd1b19f">&#9670;&#160;</a></span>gen8BitVectorOne()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename T, std::enable_if_t&lt; std::is_same_v&lt; T, <a class="el" href="classfbgemm_1_1_ymm.html">Ymm</a> &gt;, int &gt; = 0&gt; </div>
+template&lt;typename T&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void gen8BitVectorOne </td>
@@ -2407,13 +2410,13 @@ template&lt;typename IndexType, typename OffsetType = std::int32_t, typename Dat
 
 </div>
 </div>
-<a id="a2a15434be774f5beeb39e4fe225d6fb9" name="a2a15434be774f5beeb39e4fe225d6fb9"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a2a15434be774f5beeb39e4fe225d6fb9">&#9670;&#160;</a></span>genU8I8S32FMA()</h2>
+<a id="ae54d7e08c147b8bbbbf3f0b7d5564c14" name="ae54d7e08c147b8bbbbf3f0b7d5564c14"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae54d7e08c147b8bbbbf3f0b7d5564c14">&#9670;&#160;</a></span>genU8I8S32FMA()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void genU8I8S32FMA </td>
@@ -2449,12 +2452,6 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
 </div><div class="memdoc">
 
 <p>Generates instruction sequence to compute s32 += U8 * I8. </p>
-<dl class="tparams"><dt>Template Parameters</dt><dd>
-  <table class="tparams">
-    <tr><td class="paramname">T</td><td>Register type of destination, e.g., <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> or <a class="el" href="classfbgemm_1_1_zmm.html" title="512-bit ZMM register (AVX512+).">Zmm</a></td></tr>
-  </table>
-  </dd>
-</dl>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">cReg</td><td>contains result </td></tr>
@@ -2464,13 +2461,13 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
 
 </div>
 </div>
-<a id="aa9ddfdb1cd3e41712844257212fcb050" name="aa9ddfdb1cd3e41712844257212fcb050"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa9ddfdb1cd3e41712844257212fcb050">&#9670;&#160;</a></span>genU8Sum4()</h2>
+<a id="ae7f7e7f8b95394a9fe00e154899b0140" name="ae7f7e7f8b95394a9fe00e154899b0140"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae7f7e7f8b95394a9fe00e154899b0140">&#9670;&#160;</a></span>genU8Sum4()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void genU8Sum4 </td>
@@ -2501,12 +2498,6 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
 </div><div class="memdoc">
 
 <p>Add 4 consecutive numbers of type uint8 and emit their sum as 32-bit numbers. i.e., dest[0:31] contains src[0:7] + src[8:15] + src[16:23] + src[24:31]. </p>
-<dl class="tparams"><dt>Template Parameters</dt><dd>
-  <table class="tparams">
-    <tr><td class="paramname">T</td><td>Register type of destination, e.g., <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> or <a class="el" href="classfbgemm_1_1_zmm.html" title="512-bit ZMM register (AVX512+).">Zmm</a></td></tr>
-  </table>
-  </dd>
-</dl>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">dest</td><td>contains result </td></tr>
@@ -2551,12 +2542,6 @@ template&lt;typename T&gt; </div>
 <p>and</p>
 <p>dest[64:79] contains src[64:71] + src[71:79] + src[80:87] + src[88:95] src[96:103] + src[104:111] + src[112:119] + src[120:127]</p>
 <p>so on</p>
-<dl class="tparams"><dt>Template Parameters</dt><dd>
-  <table class="tparams">
-    <tr><td class="paramname">T</td><td>Register type of destination, e.g., <a class="el" href="classfbgemm_1_1_ymm.html" title="256-bit YMM register (AVX+).">Ymm</a> or <a class="el" href="classfbgemm_1_1_zmm.html" title="512-bit ZMM register (AVX512+).">Zmm</a></td></tr>
-  </table>
-  </dd>
-</dl>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">dest</td><td>contains result </td></tr>
@@ -3365,6 +3350,34 @@ template&lt;typename T&gt; </div>
 </div>
 </div>
 <h2 class="groupheader">Variable Documentation</h2>
+<a id="ac8927f5397ed2fa5a80490dad45daeb2" name="ac8927f5397ed2fa5a80490dad45daeb2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac8927f5397ed2fa5a80490dad45daeb2">&#9670;&#160;</a></span>is_avx512_any_v</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool is_avx512_any_v</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">= instSet == inst_set_t::avx512 ||</div>
+<div class="line">    instSet == inst_set_t::avx512_ymm || instSet == inst_set_t::avx512_vnni ||</div>
+<div class="line">    instSet == inst_set_t::avx512_vnni_ymm</div>
+</div><!-- fragment --><p>True for any AVX512 variant (avx512, avx512_ymm, avx512_vnni, avx512_vnni_ymm). </p>
+
+</div>
+</div>
 <a id="a445d75e731f0af7f60e375c34d3dbdb5" name="a445d75e731f0af7f60e375c34d3dbdb5"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a445d75e731f0af7f60e375c34d3dbdb5">&#9670;&#160;</a></span>kRowwiseMinMaxNumCols</h2>
 

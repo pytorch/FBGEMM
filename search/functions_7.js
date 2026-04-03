@@ -1,7 +1,7 @@
 var searchData=
 [
-  ['gen16bitvectorone_0',['gen16BitVectorOne',['../namespacefbgemm.html#aa06c4dd5673e6b3df1dfe3617fdc919d',1,'fbgemm']]],
-  ['gen8bitvectorone_1',['gen8BitVectorOne',['../namespacefbgemm.html#a3c476c8ddbed58f3f6b4395dd55ed2a3',1,'fbgemm']]],
+  ['gen16bitvectorone_0',['gen16BitVectorOne',['../namespacefbgemm.html#a78c46cbaae329e1ea47e8f64d007e57c',1,'fbgemm']]],
+  ['gen8bitvectorone_1',['gen8BitVectorOne',['../namespacefbgemm.html#a79cb7489150887600ce7e12d7bd1b19f',1,'fbgemm']]],
   ['gencomputeblock_2',['genComputeBlock',['../classfbgemm_1_1_code_gen_base.html#ad484ccc8d38f033d49aea9d8da754774',1,'fbgemm::CodeGenBase::genComputeBlock(x86::Emitter *a, const x86::Gp &amp;buffer_A, const x86::Gp &amp;buffer_B, const x86::Gp &amp;B_pf, int rowRegs, int colRegs, int lda)'],['../classfbgemm_1_1_code_gen_base.html#a2a5393d4a60577b9818ea176675ee1b8',1,'fbgemm::CodeGenBase::genComputeBlock(x86::Emitter *a, const x86::Gp &amp;buffer_A, const x86::Gp &amp;buffer_B, const x86::Gp &amp;B_pf, int rowRegs, int colRegs, int lda)'],['../classfbgemm_1_1_code_gen_base.html#a065b08dc97e3621e2ea88e77ca57883b',1,'fbgemm::CodeGenBase::genComputeBlock(x86::Emitter *a, const x86::Gp &amp;buffer_A, const x86::Gp &amp;buffer_B, const x86::Gp &amp;, int rowRegs, int colRegs, int lda)'],['../classfbgemm_1_1_code_gen_base.html#ae77c932081bd645537c86f30ea9527ba',1,'fbgemm::CodeGenBase::genComputeBlock(x86::Emitter *a, const x86::Gp &amp;buffer_A, const x86::Gp &amp;buffer_B, const x86::Gp &amp;, int rowRegs, int colRegs, int lda)'],['../classfbgemm_1_1_code_gen_base.html#a2a5393d4a60577b9818ea176675ee1b8',1,'fbgemm::CodeGenBase::genComputeBlock(x86::Emitter *a, const x86::Gp &amp;buffer_A, const x86::Gp &amp;buffer_B, const x86::Gp &amp;B_pf, int rowRegs, int colRegs, int lda)'],['../classfbgemm_1_1_code_gen_base.html#ae77c932081bd645537c86f30ea9527ba',1,'fbgemm::CodeGenBase::genComputeBlock(x86::Emitter *a, const x86::Gp &amp;buffer_A, const x86::Gp &amp;buffer_B, const x86::Gp &amp;, int rowRegs, int colRegs, int lda)']]],
   ['generateembeddingspmdm_3',['GenerateEmbeddingSpMDM',['../namespacefbgemm.html#a77602a69076f938d21d336a0df00f9c4',1,'fbgemm']]],
   ['generateembeddingspmdmfp8withstrides_4',['GenerateEmbeddingSpMDMFP8WithStrides',['../namespacefbgemm.html#a57534e5ede9766d50e536437b499894d',1,'fbgemm']]],
@@ -12,8 +12,8 @@ var searchData=
   ['generateembeddingspmdmwithstrides_9',['GenerateEmbeddingSpMDMWithStrides',['../namespacefbgemm.html#a243ed0e4df7bb7b6c08a930ee71a996b',1,'fbgemm']]],
   ['generaterowwisesparseadagradfused_10',['GenerateRowWiseSparseAdaGradFused',['../namespacefbgemm.html#a90ceef30c1643dd1a87b1a0753b52e87',1,'fbgemm']]],
   ['generic_5fhistogram_5fbinning_5fcalibration_5fby_5ffeature_5fcpu_11',['generic_histogram_binning_calibration_by_feature_cpu',['../group__sparse-data-cpu.html#gaef2a0a8c27e3b8b2d72be5c95ba7539e',1,'fbgemm_gpu']]],
-  ['genu8i8s32fma_12',['genU8I8S32FMA',['../namespacefbgemm.html#a2a15434be774f5beeb39e4fe225d6fb9',1,'fbgemm']]],
-  ['genu8sum4_13',['genU8Sum4',['../namespacefbgemm.html#aa9ddfdb1cd3e41712844257212fcb050',1,'fbgemm']]],
+  ['genu8i8s32fma_12',['genU8I8S32FMA',['../namespacefbgemm.html#ae54d7e08c147b8bbbbf3f0b7d5564c14',1,'fbgemm']]],
+  ['genu8sum4_13',['genU8Sum4',['../namespacefbgemm.html#ae7f7e7f8b95394a9fe00e154899b0140',1,'fbgemm']]],
   ['genu8sum8_14',['genU8Sum8',['../namespacefbgemm.html#a3535bf91ff758b3bd13929bf9f211c90',1,'fbgemm']]],
   ['get_15',['get',['../classl2__cache_1_1_cache_lib_cache.html#a0367ff113cdb04618fd43f27ce53baa0',1,'l2_cache::CacheLibCache::get()'],['../classkv__db_1_1_embedding_k_v_d_b.html#abd9970c497076f72cba47c2ac6a2c712',1,'kv_db::EmbeddingKVDB::get()']]],
   ['get_5fbucket_5fsorted_5findices_5fand_5fbucket_5ftensor_16',['get_bucket_sorted_indices_and_bucket_tensor',['../group__embedding-ssd.html#gab0454abe665989e744169d08e3cc3629',1,'kv_db_utils']]],
