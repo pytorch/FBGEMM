@@ -25,9 +25,9 @@ get_kernel_via_heuristic(int arch, int M, int N, int K) {
   // Use shape heuristics to dispatch to optimized kernel configuration.
   // Initial enablement includes only one schedule.
   if (M <= 16) {
-    return f8f8bf16_groupwise_128_16_128_1_1_1_9_t;
+    return f8f8bf16_groupwise_128_16_128_1_1_1_9_t_t_0;
   } else {
-    return f8f8bf16_groupwise_128_128_128_1_2_1_9_f;
+    return f8f8bf16_groupwise_128_128_128_1_2_1_9_f_f_8;
   }
 }
 
