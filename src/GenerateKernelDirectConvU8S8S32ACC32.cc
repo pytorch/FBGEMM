@@ -100,7 +100,7 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
   for (int j = 0; j < colRegs; ++j) {
     // load B
-    emitLoadDWord<instSet, VecRegT>(
+    emitLoadDWord<instSet>(
         a, BReg, x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
     // load A, broadcast and fmas
     for (int i = 0; i < rowRegs; ++i) {
@@ -268,7 +268,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
 
     VecRegT oneReg(numRegs - 3);
 
-    gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
+    gen16BitVectorOne<instSet>(a, oneReg);
     a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
     // a->xor_(C_Offset.r32(), C_Offset.r32());
 
@@ -509,8 +509,7 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       // load B, broadcast and fmas
-      emitLoadDWord<instSet, VecRegT>(
-          a, BReg, x86::dword_ptr(buffer_B, C_offset, 3, 0));
+      emitLoadDWord<instSet>(a, BReg, x86::dword_ptr(buffer_B, C_offset, 3, 0));
       a->vpmaddubsw(res1, AReg, BReg);
       a->vpmaddwd(res1, oneReg, res1);
       a->vpaddd(VecRegT(i * colRegs + j), res1, VecRegT(i * colRegs + j));
@@ -681,7 +680,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
     VecRegT oneReg(numRegs - 3);
 
-    gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
+    gen16BitVectorOne<instSet>(a, oneReg);
     a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
 
     int colRegs = maxNRegs;
