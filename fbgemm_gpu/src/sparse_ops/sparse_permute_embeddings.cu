@@ -75,7 +75,10 @@ DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
           lengths,
           embeddings,
           weights_dummy,
-          permuted_lengths_sum_dummy);
+          permuted_lengths_sum_dummy,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt);
 
   return {permuted_lengths, permuted_embeddings};
 }
