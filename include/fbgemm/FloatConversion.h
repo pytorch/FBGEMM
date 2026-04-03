@@ -81,7 +81,7 @@ enum class RoundingMode {
 
 // Generic IEEE754 truncation algorithm.
 template <typename Src, typename Tgt, RoundingMode RoundingMode>
-[[gnu::always_inline]] inline typename Tgt::value_type ieee754_trunc(
+inline typename Tgt::value_type ieee754_trunc(
     typename Src::value_type value) {
   static_assert(Src::exponent_bits >= Tgt::exponent_bits);
   static_assert(Src::mantissa_bits > Tgt::mantissa_bits);
