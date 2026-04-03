@@ -295,6 +295,8 @@ def _fbgemm_grouped_gemm(
     c_ptr,
     scatter_add_indices,
     m_sizes,
+    bias_ptr,
+    token_weights_ptr,
     # problem sizes
     G: tl.constexpr,
     M_BUCKET,
@@ -305,6 +307,8 @@ def _fbgemm_grouped_gemm(
     USE_TMA_LOAD: tl.constexpr,
     USE_TMA_STORE: tl.constexpr,
     USE_FAST_ACCUM: tl.constexpr,
+    HAS_BIAS: tl.constexpr,
+    HAS_TOKEN_WEIGHTS: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
@@ -407,6 +411,21 @@ def _fbgemm_grouped_gemm(
                         a_ptrs += BLOCK_SIZE_K
                         b_ptrs += BLOCK_SIZE_K
 
+                if HAS_BIAS:
+                    offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                    bias_ptrs = bias_ptr + g.to(tl.int64) * N + offs_bn
+                    bias = tl.load(bias_ptrs, mask=(offs_bn < n_size), other=0.0)
+                    # Broadcast bias across tokens: [1, N] -> [M, N]
+                    accumulator = accumulator + bias[None, :]
+
+                if HAS_TOKEN_WEIGHTS:
+                    offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                    # Load per-token weights: token_weights[M_start_offset + offs_am]
+                    tw_ptrs = token_weights_ptr + M_start_offset + offs_am
+                    tw = tl.load(tw_ptrs, mask=(offs_am < m_size), other=1.0)
+                    # Broadcast weights across output dims: [M, 1] * [M, N]
+                    accumulator = accumulator * tw[:, None]
+
                 if USE_TMA_STORE:
                     m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
                     n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
@@ -460,6 +479,8 @@ def _fbgemm_grouped_gemm_ws(
     c_ptr,
     scatter_add_indices,
     m_sizes,
+    bias_ptr,
+    token_weights_ptr,
     # problem sizes
     G: tl.constexpr,
     M_BUCKET: tl.constexpr,
@@ -469,6 +490,8 @@ def _fbgemm_grouped_gemm_ws(
     FUSE_SCATTER_ADD: tl.constexpr,
     USE_TMA_LOAD: tl.constexpr,
     USE_FAST_ACCUM: tl.constexpr,
+    HAS_BIAS: tl.constexpr,
+    HAS_TOKEN_WEIGHTS: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
@@ -546,6 +569,19 @@ def _fbgemm_grouped_gemm_ws(
                             accumulator = tl.dot(a, b.T, accumulator)
                         else:
                             accumulator += tl.dot(a, b.T)
+
+                    if HAS_BIAS:
+                        offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                        bias_ptrs = bias_ptr + g.to(tl.int64) * N + offs_bn
+                        bias = tl.load(bias_ptrs)
+                        # Broadcast bias across tokens: [1, N] -> [M, N]
+                        accumulator = accumulator + bias[None, :]
+
+                    if HAS_TOKEN_WEIGHTS:
+                        offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                        tw_ptrs = token_weights_ptr + M_start_offset + offs_am
+                        tw = tl.load(tw_ptrs, mask=(offs_am < m_size), other=1.0)
+                        accumulator = accumulator * tw[:, None]
 
                     if USE_TMA_STORE:
                         m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
@@ -943,6 +979,8 @@ def _grouped_gemm(
     m_sizes: torch.Tensor,
     x_scale: Optional[torch.Tensor],
     w_scale: Optional[torch.Tensor],
+    bias: Optional[torch.Tensor],
+    token_weights: Optional[torch.Tensor],
     use_fast_accum: bool,
     use_warp_specialization: bool,
     output_tensor: Optional[torch.Tensor],
@@ -1008,6 +1046,32 @@ def _grouped_gemm(
         assert (
             output_tensor is None
         ), f"Fused scatter add has large rounding error when K or N is not a multiple of 8: {K=}, {N=}."
+
+    HAS_BIAS = bias is not None
+    if HAS_BIAS:
+        assert bias is not None  # for type checker
+        assert bias.is_contiguous(), "Bias must be contiguous"
+        assert len(bias.shape) == 2, f"Bias must be 2D, got shape {bias.shape}"
+        assert bias.shape[0] == G, f"Bias dim 0 must match G={G}, got {bias.shape[0]}"
+        assert bias.shape[1] == N, f"Bias dim 1 must match N={N}, got {bias.shape[1]}"
+        assert (
+            bias.dtype == x.dtype or bias.dtype == torch.bfloat16
+        ), f"Bias dtype {bias.dtype} must be compatible with input dtype {x.dtype}"
+        if bias.dtype != x.dtype:
+            bias = bias.to(x.dtype)
+
+    HAS_TOKEN_WEIGHTS = token_weights is not None
+    if HAS_TOKEN_WEIGHTS:
+        assert token_weights is not None  # for type checker
+        assert token_weights.is_contiguous(), "token_weights must be contiguous"
+        assert (
+            len(token_weights.shape) == 1
+        ), f"token_weights must be 1D, got shape {token_weights.shape}"
+        assert (
+            token_weights.shape[0] == M
+        ), f"token_weights dim 0 must match M={M}, got {token_weights.shape[0]}"
+        if token_weights.dtype != x.dtype:
+            token_weights = token_weights.to(x.dtype)
 
     if output_tensor is None:
         FUSE_SCATTER_ADD = False
@@ -1124,6 +1188,8 @@ def _grouped_gemm(
             y,
             scatter_add_indices,
             m_sizes,
+            bias if HAS_BIAS else None,
+            token_weights if HAS_TOKEN_WEIGHTS else None,
             G,
             M_BUCKET,
             N,
@@ -1133,9 +1199,9 @@ def _grouped_gemm(
             USE_TMA_LOAD,
         )
         if use_warp_specialization:
-            args += (use_fast_accum,)
+            args += (use_fast_accum, HAS_BIAS, HAS_TOKEN_WEIGHTS)
         else:
-            args += (USE_TMA_STORE, use_fast_accum)
+            args += (USE_TMA_STORE, use_fast_accum, HAS_BIAS, HAS_TOKEN_WEIGHTS)
         fn[grid](*args)
 
     return y
@@ -1157,6 +1223,8 @@ def grouped_gemm(
         m_sizes=m_sizes,
         x_scale=None,
         w_scale=None,
+        bias=None,
+        token_weights=None,
         use_fast_accum=use_fast_accum,
         use_warp_specialization=_use_warp_specialization,
         output_tensor=_output_tensor,
@@ -1182,6 +1250,55 @@ def grouped_gemm_fp8_rowwise(
         m_sizes=m_sizes,
         x_scale=x_scale,
         w_scale=w_scale,
+        bias=None,
+        token_weights=None,
+        use_fast_accum=use_fast_accum,
+        use_warp_specialization=_use_warp_specialization,
+        output_tensor=_output_tensor,
+        scatter_add_indices=_scatter_add_indices,
+    )
+
+
+def grouped_gemm_bias_scale(
+    x: torch.Tensor,
+    w: torch.Tensor,
+    m_sizes: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    token_weights: Optional[torch.Tensor] = None,
+    use_fast_accum: bool = True,
+    *,
+    _use_warp_specialization: bool = True,
+    _output_tensor: Optional[torch.Tensor] = None,
+    _scatter_add_indices: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Grouped GEMM with optional bias addition and per-token weight scaling.
+
+    Performs: output = (x @ w.T + bias) * token_weights
+    where operations are grouped by experts.
+
+    Args:
+        x: Input tensor [M, K] where M is total tokens across all experts
+        w: Weight tensor [G * N, K] where G is number of experts
+        m_sizes: Tensor [G] indicating number of tokens per expert
+        bias: Optional bias tensor [G, N], one bias vector per expert
+        token_weights: Optional per-token scaling weights [M] (e.g., router weights)
+        use_fast_accum: Enable fast accumulation for better performance
+        _use_warp_specialization: Internal flag for warp specialization
+        _output_tensor: Optional pre-allocated output tensor for scatter-add
+        _scatter_add_indices: Optional indices for scatter-add operation
+
+    Returns:
+        Output tensor [M, N]
+    """
+    return _grouped_gemm(
+        x=x,
+        w=w,
+        m_sizes=m_sizes,
+        x_scale=None,
+        w_scale=None,
+        bias=bias,
+        token_weights=token_weights,
         use_fast_accum=use_fast_accum,
         use_warp_specialization=_use_warp_specialization,
         output_tensor=_output_tensor,
