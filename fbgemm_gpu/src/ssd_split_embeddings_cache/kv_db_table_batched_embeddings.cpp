@@ -16,6 +16,15 @@
 
 namespace kv_db {
 
+// Queue depth threshold for warning logs. When the background write queue
+// exceeds this depth, a rate-limited warning is emitted to indicate the
+// consumer thread may be falling behind or dead.
+// 1000 is chosen as a conservative threshold: typical queue depth during
+// healthy operation is <10. At 1000 items, each holding a tensor copy of
+// indices + weights, host DDR consumption from the queue alone approaches
+// several GB, signaling a clear anomaly worth alerting on.
+constexpr int64_t kQueueDepthWarningThreshold = 1000;
+
 namespace {
 
 /// Read a scalar value from a tensor that is maybe a UVM tensor
@@ -132,8 +141,39 @@ EmbeddingKVDB::EmbeddingKVDB(
           auto& count = filling_item_ptr->count;
           auto& rocksdb_wmode = filling_item_ptr->mode;
 
-          update_cache_and_storage(indices, weights, count, rocksdb_wmode);
+          try {
+            update_cache_and_storage(indices, weights, count, rocksdb_wmode);
+          } catch (const std::exception& e) {
+            bg_thread_error_count_++;
+            {
+              // Store only the first error message for diagnostics.
+              // Subsequent errors are still logged via XLOG(ERR) below,
+              // but only the root cause (first failure) is surfaced via
+              // get_bg_thread_error_message() to avoid masking it.
+              std::lock_guard<std::mutex> lock(bg_error_mutex_);
+              if (bg_thread_error_message_.empty()) {
+                bg_thread_error_message_ = e.what();
+              }
+            }
+            XLOG(ERR)
+                << "[SSD Offloading] Background worker thread caught exception: "
+                << e.what()
+                << ". Queue item dequeued to prevent infinite retry.";
+          } catch (...) {
+            bg_thread_error_count_++;
+            {
+              std::lock_guard<std::mutex> lock(bg_error_mutex_);
+              if (bg_thread_error_message_.empty()) {
+                bg_thread_error_message_ = "unknown non-std::exception";
+              }
+            }
+            XLOG(ERR)
+                << "[SSD Offloading] Background worker thread caught unknown "
+                << "non-std::exception. Queue item dequeued.";
+          }
 
+          // Dequeue even on failure to prevent infinite retry and host OOM.
+          // The write is lost — bg_thread_error_count_ tracks these events.
           weights_to_fill_queue_.dequeue();
         }
         // Queue drained — notify waiters (e.g. wait_util_filling_work_done).
@@ -444,6 +484,14 @@ void EmbeddingKVDB::set(
     auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
     auto new_item = tensor_copy(indices, weights, count, write_mode);
     weights_to_fill_queue_.enqueue(new_item);
+    auto cur_depth = static_cast<int64_t>(weights_to_fill_queue_.size());
+    if (cur_depth > kQueueDepthWarningThreshold) {
+      XLOG_EVERY_MS(WARNING, 30000)
+          << "[SSD Offloading] Background write queue depth is " << cur_depth
+          << " (>" << kQueueDepthWarningThreshold
+          << "). Background thread may be falling behind or dead. "
+          << "Risk of host DDR OOM.";
+    }
     // Lock barrier ensures the background thread's CV wait has completed
     // its atomic unlock-and-block before we notify, preventing lost wakeups.
     {
@@ -506,6 +554,14 @@ void EmbeddingKVDB::get(
         auto new_item = tensor_copy(
             indices, weights, count, kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ);
         weights_to_fill_queue_.enqueue(new_item);
+        auto cur_depth = static_cast<int64_t>(weights_to_fill_queue_.size());
+        if (cur_depth > kQueueDepthWarningThreshold) {
+          XLOG_EVERY_MS(WARNING, 30000)
+              << "[SSD Offloading] Background write queue depth is "
+              << cur_depth << " (>" << kQueueDepthWarningThreshold
+              << "). Background thread may be falling behind or dead. "
+              << "Risk of host DDR OOM.";
+        }
         // Lock barrier ensures the background thread's CV wait has completed
         // its atomic unlock-and-block before we notify, preventing lost
         // wakeups.

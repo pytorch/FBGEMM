@@ -207,6 +207,14 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->is_evicting();
   }
 
+  int64_t get_bg_thread_error_count() const {
+    return impl_->get_bg_thread_error_count();
+  }
+
+  std::string get_bg_thread_error_message() const {
+    return impl_->get_bg_thread_error_message();
+  }
+
   void set_feature_score_metadata_cuda(
       at::Tensor indices,
       at::Tensor count,

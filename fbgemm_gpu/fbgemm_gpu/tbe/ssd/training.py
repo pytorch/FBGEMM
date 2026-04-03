@@ -359,6 +359,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         self.bulk_init_chunk_size = bulk_init_chunk_size
         self.lazy_init_thread: threading.Thread | None = None
+        self._lazy_init_error: Optional[Exception] = None
+        self.ssd_storage_directory = ssd_storage_directory
 
         # Buffers for bounds check
         self.register_buffer(
@@ -1244,6 +1246,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.lazy_init_thread.join()
             self.lazy_init_thread = None
             logging.info("lazy ssd tbe initialization completed, weights are ready")
+        if self._lazy_init_error is not None:
+            raise RuntimeError(
+                f"[SSD Offloading] SSD database initialization failed: "
+                f"{self._lazy_init_error}"
+            ) from self._lazy_init_error
 
         return self._ssd_db
 
@@ -1260,6 +1267,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             logging.info(
                 "lazy ssd tbe initialization completed, ssd_db will now get overridden"
             )
+        if self._lazy_init_error is not None:
+            raise RuntimeError(
+                f"[SSD Offloading] SSD database initialization failed: "
+                f"{self._lazy_init_error}"
+            ) from self._lazy_init_error
 
         self._ssd_db = value
 
@@ -1296,42 +1308,59 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         be effectively overwritten. This function should only be called once at
         initailization time.
         """
-        self._ssd_db.toggle_compaction(False)
-        row_offset = 0
-        row_count = floor(
-            self.bulk_init_chunk_size
-            / (self.cache_row_dim * self.weights_precision.as_dtype().itemsize)
-        )
-        total_dim0 = 0
-        for dim0, _ in self.embedding_specs:
-            total_dim0 += dim0
-
-        start_ts = time.time()
-        # TODO: do we have case for non-kvzch ssd with bulk init enabled + optimizer offloading? probably not?
-        #       if we have such cases, we should only init the emb dim not the optimizer dim
-        chunk_tensor = torch.empty(
-            row_count,
-            self.cache_row_dim,
-            dtype=self.weights_precision.as_dtype(),
-            device=torch.accelerator.current_accelerator(),
-        )
-        cpu_tensor = torch.empty_like(chunk_tensor, device="cpu")
-        for row_offset in range(0, total_dim0, row_count):
-            actual_dim0 = min(total_dim0 - row_offset, row_count)
-            chunk_tensor.uniform_(
-                self.ssd_uniform_init_lower, self.ssd_uniform_init_upper
+        try:
+            self._ssd_db.toggle_compaction(False)
+            row_offset = 0
+            row_count = floor(
+                self.bulk_init_chunk_size
+                / (self.cache_row_dim * self.weights_precision.as_dtype().itemsize)
             )
-            cpu_tensor.copy_(chunk_tensor, non_blocking=False)
-            rand_val = cpu_tensor[:actual_dim0, :]
-            # This code is intentionally not calling through the getter property
-            # to avoid the lazy initialization thread from joining with itself.
-            self._ssd_db.set_range_to_storage(rand_val, row_offset, actual_dim0)
-        end_ts = time.time()
-        elapsed = int((end_ts - start_ts) * 1e6)
-        logging.info(
-            f"TBE bulk initialization took {elapsed:_} us, bulk_init_chunk_size={self.bulk_init_chunk_size}, each batch of {row_count} rows, total rows of {total_dim0}"
-        )
-        self._ssd_db.toggle_compaction(True)
+            total_dim0 = 0
+            for dim0, _ in self.embedding_specs:
+                total_dim0 += dim0
+
+            start_ts = time.time()
+            # TODO: do we have case for non-kvzch ssd with bulk init enabled + optimizer offloading? probably not?
+            #       if we have such cases, we should only init the emb dim not the optimizer dim
+            chunk_tensor = torch.empty(
+                row_count,
+                self.cache_row_dim,
+                dtype=self.weights_precision.as_dtype(),
+                device=torch.accelerator.current_accelerator(),
+            )
+            cpu_tensor = torch.empty_like(chunk_tensor, device="cpu")
+            for row_offset in range(0, total_dim0, row_count):
+                actual_dim0 = min(total_dim0 - row_offset, row_count)
+                chunk_tensor.uniform_(
+                    self.ssd_uniform_init_lower, self.ssd_uniform_init_upper
+                )
+                cpu_tensor.copy_(chunk_tensor, non_blocking=False)
+                rand_val = cpu_tensor[:actual_dim0, :]
+                # This code is intentionally not calling through the getter property
+                # to avoid the lazy initialization thread from joining with itself.
+                self._ssd_db.set_range_to_storage(rand_val, row_offset, actual_dim0)
+            end_ts = time.time()
+            elapsed = int((end_ts - start_ts) * 1e6)
+            logging.info(
+                f"TBE bulk initialization took {elapsed:_} us, bulk_init_chunk_size={self.bulk_init_chunk_size}, each batch of {row_count} rows, total rows of {total_dim0}"
+            )
+        except Exception as e:
+            self._lazy_init_error = e
+            logging.error(
+                "[SSD Offloading] CRITICAL: Background initialization thread "
+                "(_insert_all_kv) crashed: %s. SSD database may have "
+                "incomplete/corrupt data.",
+                e,
+            )
+        finally:
+            try:
+                self._ssd_db.toggle_compaction(True)
+            except Exception as e:
+                logging.error(
+                    "[SSD Offloading] CRITICAL: Failed to re-enable compaction after "
+                    "initialization: %s. RocksDB may be in degraded mode.",
+                    e,
+                )
 
     @torch.jit.ignore
     def _report_duration(
@@ -1357,25 +1386,35 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             event_name (str): The name of the event
             time_unit (str): The unit of the duration(us or ms)
         """
-        recorded_itr, stream_cnt, report_val = self.prefetch_duration_us
-        duration = dur_ms
-        if time_unit == "us":
-            duration = dur_ms * 1000
-        if it_step == recorded_itr:
-            report_val = max(report_val, duration)
-            stream_cnt -= 1
-        else:
-            # reset
-            recorded_itr = it_step
-            report_val = duration
-            stream_cnt = self.prefetch_parallel_stream_cnt
-        self.prefetch_duration_us = (recorded_itr, stream_cnt, report_val)
+        try:
+            recorded_itr, stream_cnt, report_val = self.prefetch_duration_us
+            duration = dur_ms
+            if time_unit == "us":
+                duration = dur_ms * 1000
+            if it_step == recorded_itr:
+                report_val = max(report_val, duration)
+                stream_cnt -= 1
+            else:
+                # reset
+                recorded_itr = it_step
+                report_val = duration
+                stream_cnt = self.prefetch_parallel_stream_cnt
 
-        if stream_cnt == 1:
-            # this is the last stream, handling ods report
-            # pyre-ignore
-            self.stats_reporter.report_duration(
-                it_step, event_name, report_val, time_unit=time_unit
+            if stream_cnt == 1:
+                # this is the last stream, handling ods report
+                # pyre-ignore
+                self.stats_reporter.report_duration(
+                    it_step, event_name, report_val, time_unit=time_unit
+                )
+            # Update state AFTER report succeeds. On exception, stream_cnt
+            # is not decremented in saved state, so the next call retries
+            # the report instead of silently losing the metric.
+            self.prefetch_duration_us = (recorded_itr, stream_cnt, report_val)
+        except Exception as e:
+            logging.warning(
+                "[SSD Offloading] Failed to report duration '%s': %s",
+                event_name,
+                e,
             )
 
     def record_function_via_dummy_profile_factory(
@@ -3846,29 +3885,46 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"SSD TBE has been flushed at {self.last_flush_step=} already for tbe:{self.tbe_unique_id}"
             )
             return
+        rank = dist.get_rank() if dist.is_initialized() else 0
         logging.info(
-            f"SSD TBE flush at {self.step=}, it is an expensive call please be cautious"
+            "[SSD Offloading] [Rank %d] Starting SSD flush for checkpoint at step %d",
+            rank,
+            self.step,
         )
-        active_slots_mask = self.lxu_cache_state != -1
+        try:
+            active_slots_mask = self.lxu_cache_state != -1
 
-        active_weights_gpu = self.lxu_cache_weights[active_slots_mask.view(-1)].view(
-            -1, self.cache_row_dim
-        )
-        active_ids_gpu = self.lxu_cache_state.view(-1)[active_slots_mask.view(-1)]
+            active_weights_gpu = self.lxu_cache_weights[
+                active_slots_mask.view(-1)
+            ].view(-1, self.cache_row_dim)
+            active_ids_gpu = self.lxu_cache_state.view(-1)[active_slots_mask.view(-1)]
 
-        active_weights_cpu = active_weights_gpu.cpu()
-        active_ids_cpu = active_ids_gpu.cpu()
+            active_weights_cpu = active_weights_gpu.cpu()
+            active_ids_cpu = active_ids_gpu.cpu()
 
-        torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
+            torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
 
-        torch.cuda.synchronize()
-        self.ssd_db.set(
-            active_ids_cpu,
-            active_weights_cpu,
-            torch.tensor([active_ids_cpu.numel()]),
-        )
-        self.ssd_db.flush()
-        self.last_flush_step = self.step
+            torch.cuda.synchronize()
+            self.ssd_db.set(
+                active_ids_cpu,
+                active_weights_cpu,
+                torch.tensor([active_ids_cpu.numel()]),
+            )
+            self.ssd_db.flush()
+            self.last_flush_step = self.step
+            logging.info(
+                "[SSD Offloading] [Rank %d] SSD flush completed at step %d",
+                rank,
+                self.step,
+            )
+        except Exception as e:
+            logging.error(
+                "[SSD Offloading] [Rank %d] SSD flush FAILED: %s. "
+                "Checkpoint may be incomplete.",
+                rank,
+                e,
+            )
+            raise
 
     def create_rocksdb_hard_link_snapshot(self) -> None:
         """
@@ -3941,6 +3997,61 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self.kv_zch_params and self.kv_zch_params.eviction_policy:
                 self._report_eviction_stats()
 
+        # Disk space check (SSD only)
+        if self.backend_type == BackendType.SSD:
+            self._check_disk_space()
+
+    @torch.jit.ignore
+    def _check_disk_space(self) -> None:
+        """
+        Check disk usage on all SSD paths and log graduated warnings
+        at 90% and 95% thresholds.
+
+        Performance: os.statvfs is a single syscall (~1us per path). This method
+        is called at report_interval cadence (typically every 100-1000 steps),
+        not per training step, so overhead is negligible even with multiple paths.
+        """
+        # Handles edge cases: trailing commas ("path1,"), double commas
+        # ("path1,,path2"), whitespace (" path1 , path2 ") — all produce
+        # a clean list with only non-empty, stripped paths.
+        ssd_paths = [
+            p.strip() for p in self.ssd_storage_directory.split(",") if p.strip()
+        ]
+        for ssd_path in ssd_paths:
+            try:
+                ssd_stat = os.statvfs(ssd_path)
+                total_bytes = ssd_stat.f_blocks * ssd_stat.f_frsize
+                avail_bytes = ssd_stat.f_bavail * ssd_stat.f_frsize
+                if total_bytes > 0:
+                    usage_pct = (1.0 - avail_bytes / total_bytes) * 100
+                    rank = dist.get_rank() if dist.is_initialized() else 0
+                    if usage_pct > 95:
+                        logging.error(
+                            "[SSD Offloading] [Rank %d] CRITICAL: SSD disk usage at %.1f%% "
+                            "(%d bytes available of %d total) at path '%s'. "
+                            "RocksDB will crash on next write when disk is full.",
+                            rank,
+                            usage_pct,
+                            avail_bytes,
+                            total_bytes,
+                            ssd_path,
+                        )
+                    elif usage_pct > 90:
+                        logging.warning(
+                            "[SSD Offloading] [Rank %d] SSD disk usage at %.1f%% "
+                            "(%d bytes available) at path '%s'.",
+                            rank,
+                            usage_pct,
+                            avail_bytes,
+                            ssd_path,
+                        )
+            except Exception as e:
+                logging.warning(
+                    "[SSD Offloading] Failed to check disk space on path '%s': %s",
+                    ssd_path,
+                    e,
+                )
+
     @torch.jit.ignore
     def _report_ssd_l1_cache_stats(self) -> None:
         """
@@ -3951,38 +4062,45 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if passed_steps == 0:
             return
 
-        # ssd hbm cache stats
+        try:
+            # ssd hbm cache stats
 
-        ssd_cache_stats = self.ssd_cache_stats.tolist()
-        if len(self.last_reported_ssd_stats) == 0:
-            self.last_reported_ssd_stats = [0.0] * len(ssd_cache_stats)
-        ssd_cache_stats_delta: list[float] = [0.0] * len(ssd_cache_stats)
-        for i in range(len(ssd_cache_stats)):
-            ssd_cache_stats_delta[i] = (
-                ssd_cache_stats[i] - self.last_reported_ssd_stats[i]
-            )
-        self.last_reported_step = self.step
-        self.last_reported_ssd_stats = ssd_cache_stats
-        element_size = self.lxu_cache_weights.element_size()
+            ssd_cache_stats = self.ssd_cache_stats.tolist()
+            if len(self.last_reported_ssd_stats) == 0:
+                self.last_reported_ssd_stats = [0.0] * len(ssd_cache_stats)
+            ssd_cache_stats_delta: list[float] = [0.0] * len(ssd_cache_stats)
+            for i in range(len(ssd_cache_stats)):
+                ssd_cache_stats_delta[i] = (
+                    ssd_cache_stats[i] - self.last_reported_ssd_stats[i]
+                )
+            element_size = self.lxu_cache_weights.element_size()
 
-        for stat_index in UVMCacheStatsIndex:
-            # pyre-ignore
-            self.stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name=f"ssd_tbe.prefetch.cache_stats_by_data_size.{stat_index.name.lower()}",
-                data_bytes=int(
-                    ssd_cache_stats_delta[stat_index.value]
-                    * element_size
-                    * self.cache_row_dim
-                    / passed_steps
-                ),
-            )
+            for stat_index in UVMCacheStatsIndex:
+                # pyre-ignore
+                self.stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=f"ssd_tbe.prefetch.cache_stats_by_data_size.{stat_index.name.lower()}",
+                    data_bytes=int(
+                        ssd_cache_stats_delta[stat_index.value]
+                        * element_size
+                        * self.cache_row_dim
+                        / passed_steps
+                    ),
+                )
 
-            self.stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name=f"ssd_tbe.prefetch.cache_stats.{stat_index.name.lower()}",
-                data_bytes=int(ssd_cache_stats_delta[stat_index.value] / passed_steps),
-            )
+                self.stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=f"ssd_tbe.prefetch.cache_stats.{stat_index.name.lower()}",
+                    data_bytes=int(
+                        ssd_cache_stats_delta[stat_index.value] / passed_steps
+                    ),
+                )
+            # Update state AFTER all reports succeed to avoid lost/double-counted
+            # metrics on partial failure
+            self.last_reported_step = self.step
+            self.last_reported_ssd_stats = ssd_cache_stats
+        except Exception as e:
+            logging.warning("[SSD Offloading] Failed to report L1 cache stats: %s", e)
 
     @torch.jit.ignore
     def _report_ssd_io_stats(self) -> None:
@@ -3990,55 +4108,58 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         EmbeddingRocksDB will hold stats for total read/write duration in fwd/bwd
         this function fetch the stats from EmbeddingRocksDB and report it with stats_reporter
         """
-        ssd_io_duration = self.ssd_db.get_rocksdb_io_duration(
-            self.step, self.stats_reporter.report_interval  # pyre-ignore
-        )
+        try:
+            ssd_io_duration = self.ssd_db.get_rocksdb_io_duration(
+                self.step, self.stats_reporter.report_interval  # pyre-ignore
+            )
 
-        if len(ssd_io_duration) != 5:
-            logging.error("ssd io duration should have 5 elements")
-            return
+            if len(ssd_io_duration) != 5:
+                logging.error("ssd io duration should have 5 elements")
+                return
 
-        ssd_read_dur_us = ssd_io_duration[0]
-        fwd_rocksdb_read_dur = ssd_io_duration[1]
-        fwd_l1_eviction_dur = ssd_io_duration[2]
-        bwd_l1_cnflct_miss_write_back_dur = ssd_io_duration[3]
-        flush_write_dur = ssd_io_duration[4]
+            ssd_read_dur_us = ssd_io_duration[0]
+            fwd_rocksdb_read_dur = ssd_io_duration[1]
+            fwd_l1_eviction_dur = ssd_io_duration[2]
+            bwd_l1_cnflct_miss_write_back_dur = ssd_io_duration[3]
+            flush_write_dur = ssd_io_duration[4]
 
-        # pyre-ignore [16]
-        self.stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="ssd.io_duration.read_us",
-            duration_ms=ssd_read_dur_us,
-            time_unit="us",
-        )
+            # pyre-ignore [16]
+            self.stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="ssd.io_duration.read_us",
+                duration_ms=ssd_read_dur_us,
+                time_unit="us",
+            )
 
-        self.stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="ssd.io_duration.write.fwd_rocksdb_read_us",
-            duration_ms=fwd_rocksdb_read_dur,
-            time_unit="us",
-        )
+            self.stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="ssd.io_duration.write.fwd_rocksdb_read_us",
+                duration_ms=fwd_rocksdb_read_dur,
+                time_unit="us",
+            )
 
-        self.stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="ssd.io_duration.write.fwd_l1_eviction_us",
-            duration_ms=fwd_l1_eviction_dur,
-            time_unit="us",
-        )
+            self.stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="ssd.io_duration.write.fwd_l1_eviction_us",
+                duration_ms=fwd_l1_eviction_dur,
+                time_unit="us",
+            )
 
-        self.stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="ssd.io_duration.write.bwd_l1_cnflct_miss_write_back_us",
-            duration_ms=bwd_l1_cnflct_miss_write_back_dur,
-            time_unit="us",
-        )
+            self.stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="ssd.io_duration.write.bwd_l1_cnflct_miss_write_back_us",
+                duration_ms=bwd_l1_cnflct_miss_write_back_dur,
+                time_unit="us",
+            )
 
-        self.stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="ssd.io_duration.write.flush_write_us",
-            duration_ms=flush_write_dur,
-            time_unit="us",
-        )
+            self.stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="ssd.io_duration.write.flush_write_us",
+                duration_ms=flush_write_dur,
+                time_unit="us",
+            )
+        except Exception as e:
+            logging.warning("[SSD Offloading] Failed to report SSD IO stats: %s", e)
 
     @torch.jit.ignore
     def _report_ssd_mem_usage(
@@ -4048,36 +4169,39 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         rocskdb has internal stats for dram mem usage, here we call EmbeddingRocksDB to
         extract those stats out and report it with stats_reporter
         """
-        mem_usage_list = self.ssd_db.get_mem_usage()
-        block_cache_usage = mem_usage_list[0]
-        estimate_table_reader_usage = mem_usage_list[1]
-        memtable_usage = mem_usage_list[2]
-        block_cache_pinned_usage = mem_usage_list[3]
+        try:
+            mem_usage_list = self.ssd_db.get_mem_usage()
+            block_cache_usage = mem_usage_list[0]
+            estimate_table_reader_usage = mem_usage_list[1]
+            memtable_usage = mem_usage_list[2]
+            block_cache_pinned_usage = mem_usage_list[3]
 
-        # pyre-ignore [16]
-        self.stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="ssd.mem_usage.block_cache",
-            data_bytes=block_cache_usage,
-        )
+            # pyre-ignore [16]
+            self.stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="ssd.mem_usage.block_cache",
+                data_bytes=block_cache_usage,
+            )
 
-        self.stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="ssd.mem_usage.estimate_table_reader",
-            data_bytes=estimate_table_reader_usage,
-        )
+            self.stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="ssd.mem_usage.estimate_table_reader",
+                data_bytes=estimate_table_reader_usage,
+            )
 
-        self.stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="ssd.mem_usage.memtable",
-            data_bytes=memtable_usage,
-        )
+            self.stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="ssd.mem_usage.memtable",
+                data_bytes=memtable_usage,
+            )
 
-        self.stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="ssd.mem_usage.block_cache_pinned",
-            data_bytes=block_cache_pinned_usage,
-        )
+            self.stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="ssd.mem_usage.block_cache_pinned",
+                data_bytes=block_cache_pinned_usage,
+            )
+        except Exception as e:
+            logging.warning("[SSD Offloading] Failed to report SSD mem usage: %s", e)
 
     @torch.jit.ignore
     def _report_l2_cache_perf_stats(self) -> None:
@@ -4092,128 +4216,133 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if not stats_reporter.should_report(self.step):
             return
 
-        l2_cache_perf_stats = self.ssd_db.get_l2cache_perf(
-            self.step, stats_reporter.report_interval  # pyre-ignore
-        )
-
-        if len(l2_cache_perf_stats) != 15:
-            logging.error("l2 perf stats should have 15 elements")
-            return
-
-        num_cache_misses = l2_cache_perf_stats[0]
-        num_lookups = l2_cache_perf_stats[1]
-        get_total_duration = l2_cache_perf_stats[2]
-        get_cache_lookup_total_duration = l2_cache_perf_stats[3]
-        get_cache_lookup_wait_filling_thread_duration = l2_cache_perf_stats[4]
-        get_weights_fillup_total_duration = l2_cache_perf_stats[5]
-        get_cache_memcpy_duration = l2_cache_perf_stats[6]
-        total_cache_update_duration = l2_cache_perf_stats[7]
-        get_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[8]
-        set_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[9]
-        num_l2_evictions = l2_cache_perf_stats[10]
-
-        l2_cache_free_bytes = l2_cache_perf_stats[11]
-        l2_cache_capacity = l2_cache_perf_stats[12]
-
-        set_cache_lock_wait_duration = l2_cache_perf_stats[13]
-        get_cache_lock_wait_duration = l2_cache_perf_stats[14]
-
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.l2_num_cache_misses_stats_name,
-            data_bytes=num_cache_misses,
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.l2_num_cache_lookups_stats_name,
-            data_bytes=num_lookups,
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.l2_num_cache_evictions_stats_name,
-            data_bytes=num_l2_evictions,
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.l2_cache_capacity_stats_name,
-            data_bytes=l2_cache_capacity,
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.l2_cache_free_mem_stats_name,
-            data_bytes=l2_cache_free_bytes,
-        )
-
-        # Report computed hit rate
-        if num_lookups > 0:
-            hit_rate = 100.0 * (num_lookups - num_cache_misses) / num_lookups
-            stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name="l2_cache.hit_rate_pct",
-                data_bytes=hit_rate,
+        try:
+            l2_cache_perf_stats = self.ssd_db.get_l2cache_perf(
+                self.step, stats_reporter.report_interval  # pyre-ignore
             )
 
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.get.total_duration_us",
-            duration_ms=get_total_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.get.cache_lookup_duration_us",
-            duration_ms=get_cache_lookup_total_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.get.cache_lookup_wait_filling_thread_duration_us",
-            duration_ms=get_cache_lookup_wait_filling_thread_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.get.weights_fillup_duration_us",
-            duration_ms=get_weights_fillup_total_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.get.cache_memcpy_duration_us",
-            duration_ms=get_cache_memcpy_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.total.cache_update_duration_us",
-            duration_ms=total_cache_update_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.get.tensor_copy_for_cache_update_duration_us",
-            duration_ms=get_tensor_copy_for_cache_update_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.set.tensor_copy_for_cache_update_duration_us",
-            duration_ms=set_tensor_copy_for_cache_update_duration,
-            time_unit="us",
-        )
+            if len(l2_cache_perf_stats) != 15:
+                logging.error("l2 perf stats should have 15 elements")
+                return
 
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.get.cache_lock_wait_duration_us",
-            duration_ms=get_cache_lock_wait_duration,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="l2_cache.perf.set.cache_lock_wait_duration_us",
-            duration_ms=set_cache_lock_wait_duration,
-            time_unit="us",
-        )
+            num_cache_misses = l2_cache_perf_stats[0]
+            num_lookups = l2_cache_perf_stats[1]
+            get_total_duration = l2_cache_perf_stats[2]
+            get_cache_lookup_total_duration = l2_cache_perf_stats[3]
+            get_cache_lookup_wait_filling_thread_duration = l2_cache_perf_stats[4]
+            get_weights_fillup_total_duration = l2_cache_perf_stats[5]
+            get_cache_memcpy_duration = l2_cache_perf_stats[6]
+            total_cache_update_duration = l2_cache_perf_stats[7]
+            get_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[8]
+            set_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[9]
+            num_l2_evictions = l2_cache_perf_stats[10]
+
+            l2_cache_free_bytes = l2_cache_perf_stats[11]
+            l2_cache_capacity = l2_cache_perf_stats[12]
+
+            # Report computed hit rate
+            if num_lookups > 0:
+                hit_rate = 100.0 * (num_lookups - num_cache_misses) / num_lookups
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name="l2_cache.hit_rate_pct",
+                    data_bytes=hit_rate,
+                )
+
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.get.total_duration_us",
+                duration_ms=get_total_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.get.cache_lookup_duration_us",
+                duration_ms=get_cache_lookup_total_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.get.cache_lookup_wait_filling_thread_duration_us",
+                duration_ms=get_cache_lookup_wait_filling_thread_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.get.weights_fillup_duration_us",
+                duration_ms=get_weights_fillup_total_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.get.cache_memcpy_duration_us",
+                duration_ms=get_cache_memcpy_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.total.cache_update_duration_us",
+                duration_ms=total_cache_update_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.get.tensor_copy_for_cache_update_duration_us",
+                duration_ms=get_tensor_copy_for_cache_update_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.set.tensor_copy_for_cache_update_duration_us",
+                duration_ms=set_tensor_copy_for_cache_update_duration,
+                time_unit="us",
+            )
+
+            set_cache_lock_wait_duration = l2_cache_perf_stats[13]
+            get_cache_lock_wait_duration = l2_cache_perf_stats[14]
+
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.l2_num_cache_misses_stats_name,
+                data_bytes=num_cache_misses,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.l2_num_cache_lookups_stats_name,
+                data_bytes=num_lookups,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.l2_num_cache_evictions_stats_name,
+                data_bytes=num_l2_evictions,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.l2_cache_capacity_stats_name,
+                data_bytes=l2_cache_capacity,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.l2_cache_free_mem_stats_name,
+                data_bytes=l2_cache_free_bytes,
+            )
+
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.get.cache_lock_wait_duration_us",
+                duration_ms=get_cache_lock_wait_duration,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="l2_cache.perf.set.cache_lock_wait_duration_us",
+                duration_ms=set_cache_lock_wait_duration,
+                time_unit="us",
+            )
+        except Exception as e:
+            logging.warning(
+                "[SSD Offloading] Failed to report L2 cache perf stats: %s", e
+            )
 
     @torch.jit.ignore
     def _report_eviction_stats(self) -> None:
@@ -4228,84 +4357,91 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if self.kv_zch_params.eviction_policy.eviction_trigger_mode == 0:
             return
 
-        T = len(set(self.feature_table_map))
-        evicted_counts = torch.zeros(T, dtype=torch.int64)
-        processed_counts = torch.zeros(T, dtype=torch.int64)
-        eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
-        full_duration_ms = torch.tensor(0, dtype=torch.int64)
-        exec_duration_ms = torch.tensor(0, dtype=torch.int64)
-        self.ssd_db.get_feature_evict_metric(
-            evicted_counts,
-            processed_counts,
-            eviction_threshold_with_dry_run,
-            full_duration_ms,
-            exec_duration_ms,
-        )
+        try:
+            T = len(set(self.feature_table_map))
+            evicted_counts = torch.zeros(T, dtype=torch.int64)
+            processed_counts = torch.zeros(T, dtype=torch.int64)
+            eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
+            full_duration_ms = torch.tensor(0, dtype=torch.int64)
+            exec_duration_ms = torch.tensor(0, dtype=torch.int64)
+            self.ssd_db.get_feature_evict_metric(
+                evicted_counts,
+                processed_counts,
+                eviction_threshold_with_dry_run,
+                full_duration_ms,
+                exec_duration_ms,
+            )
 
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.eviction_sum_evicted_counts_stats_name,
-            data_bytes=int(evicted_counts.sum().item()),
-            enable_tb_metrics=True,
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.eviction_sum_processed_counts_stats_name,
-            data_bytes=int(processed_counts.sum().item()),
-            enable_tb_metrics=True,
-        )
-        if processed_counts.sum().item() != 0:
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
-                event_name=self.eviction_evict_rate_stats_name,
-                data_bytes=int(
-                    evicted_counts.sum().item() * 100 / processed_counts.sum().item()
-                ),
-                enable_tb_metrics=True,
-            )
-        for t in self.feature_table_map:
-            stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name=f"eviction.feature_table.{t}.evicted_counts",
-                data_bytes=int(evicted_counts[t].item()),
+                event_name=self.eviction_sum_evicted_counts_stats_name,
+                data_bytes=int(evicted_counts.sum().item()),
                 enable_tb_metrics=True,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
-                event_name=f"eviction.feature_table.{t}.processed_counts",
-                data_bytes=int(processed_counts[t].item()),
+                event_name=self.eviction_sum_processed_counts_stats_name,
+                data_bytes=int(processed_counts.sum().item()),
                 enable_tb_metrics=True,
             )
-            if processed_counts[t].item() != 0:
+            if processed_counts.sum().item() != 0:
                 stats_reporter.report_data_amount(
                     iteration_step=self.step,
-                    event_name=f"eviction.feature_table.{t}.evict_rate",
+                    event_name=self.eviction_evict_rate_stats_name,
                     data_bytes=int(
-                        evicted_counts[t].item() * 100 / processed_counts[t].item()
+                        evicted_counts.sum().item()
+                        * 100
+                        / processed_counts.sum().item()
                     ),
                     enable_tb_metrics=True,
                 )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="eviction.feature_table.full_duration_ms",
-            duration_ms=full_duration_ms.item(),
-            time_unit="ms",
-            enable_tb_metrics=True,
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="eviction.feature_table.exec_duration_ms",
-            duration_ms=exec_duration_ms.item(),
-            time_unit="ms",
-            enable_tb_metrics=True,
-        )
-        if full_duration_ms.item() != 0:
-            stats_reporter.report_data_amount(
+            for t in self.feature_table_map:
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=f"eviction.feature_table.{t}.evicted_counts",
+                    data_bytes=int(evicted_counts[t].item()),
+                    enable_tb_metrics=True,
+                )
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=f"eviction.feature_table.{t}.processed_counts",
+                    data_bytes=int(processed_counts[t].item()),
+                    enable_tb_metrics=True,
+                )
+                if processed_counts[t].item() != 0:
+                    stats_reporter.report_data_amount(
+                        iteration_step=self.step,
+                        event_name=f"eviction.feature_table.{t}.evict_rate",
+                        data_bytes=int(
+                            evicted_counts[t].item() * 100 / processed_counts[t].item()
+                        ),
+                        enable_tb_metrics=True,
+                    )
+            stats_reporter.report_duration(
                 iteration_step=self.step,
-                event_name="eviction.feature_table.exec_div_full_duration_rate",
-                data_bytes=int(exec_duration_ms.item() * 100 / full_duration_ms.item()),
+                event_name="eviction.feature_table.full_duration_ms",
+                duration_ms=full_duration_ms.item(),
+                time_unit="ms",
                 enable_tb_metrics=True,
             )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="eviction.feature_table.exec_duration_ms",
+                duration_ms=exec_duration_ms.item(),
+                time_unit="ms",
+                enable_tb_metrics=True,
+            )
+            if full_duration_ms.item() != 0:
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name="eviction.feature_table.exec_div_full_duration_rate",
+                    data_bytes=int(
+                        exec_duration_ms.item() * 100 / full_duration_ms.item()
+                    ),
+                    enable_tb_metrics=True,
+                )
+        except Exception as e:
+            logging.warning("[SSD Offloading] Failed to report eviction stats: %s", e)
 
     @torch.jit.ignore
     def _report_dram_kv_perf_stats(self) -> None:
@@ -4320,302 +4456,307 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if not stats_reporter.should_report(self.step):
             return
 
-        dram_kv_perf_stats = self.ssd_db.get_dram_kv_perf(
-            self.step, stats_reporter.report_interval  # pyre-ignore
-        )
+        try:
+            dram_kv_perf_stats = self.ssd_db.get_dram_kv_perf(
+                self.step, stats_reporter.report_interval  # pyre-ignore
+            )
 
-        if len(dram_kv_perf_stats) != 36:
-            logging.error("dram cache perf stats should have 36 elements")
-            return
+            if len(dram_kv_perf_stats) != 36:
+                logging.error("dram cache perf stats should have 36 elements")
+                return
 
-        dram_read_duration = dram_kv_perf_stats[0]
-        dram_read_sharding_duration = dram_kv_perf_stats[1]
-        dram_read_cache_hit_copy_duration = dram_kv_perf_stats[2]
-        dram_read_fill_row_storage_duration = dram_kv_perf_stats[3]
-        dram_read_lookup_cache_duration = dram_kv_perf_stats[4]
-        dram_read_acquire_lock_duration = dram_kv_perf_stats[5]
-        dram_read_missing_load = dram_kv_perf_stats[6]
-        dram_write_sharing_duration = dram_kv_perf_stats[7]
+            dram_read_duration = dram_kv_perf_stats[0]
+            dram_read_sharding_duration = dram_kv_perf_stats[1]
+            dram_read_cache_hit_copy_duration = dram_kv_perf_stats[2]
+            dram_read_fill_row_storage_duration = dram_kv_perf_stats[3]
+            dram_read_lookup_cache_duration = dram_kv_perf_stats[4]
+            dram_read_acquire_lock_duration = dram_kv_perf_stats[5]
+            dram_read_missing_load = dram_kv_perf_stats[6]
+            dram_write_sharing_duration = dram_kv_perf_stats[7]
 
-        dram_fwd_l1_eviction_write_duration = dram_kv_perf_stats[8]
-        dram_fwd_l1_eviction_write_allocate_duration = dram_kv_perf_stats[9]
-        dram_fwd_l1_eviction_write_cache_copy_duration = dram_kv_perf_stats[10]
-        dram_fwd_l1_eviction_write_lookup_cache_duration = dram_kv_perf_stats[11]
-        dram_fwd_l1_eviction_write_acquire_lock_duration = dram_kv_perf_stats[12]
-        dram_fwd_l1_eviction_write_missing_load = dram_kv_perf_stats[13]
+            dram_fwd_l1_eviction_write_duration = dram_kv_perf_stats[8]
+            dram_fwd_l1_eviction_write_allocate_duration = dram_kv_perf_stats[9]
+            dram_fwd_l1_eviction_write_cache_copy_duration = dram_kv_perf_stats[10]
+            dram_fwd_l1_eviction_write_lookup_cache_duration = dram_kv_perf_stats[11]
+            dram_fwd_l1_eviction_write_acquire_lock_duration = dram_kv_perf_stats[12]
+            dram_fwd_l1_eviction_write_missing_load = dram_kv_perf_stats[13]
 
-        dram_bwd_l1_cnflct_miss_write_duration = dram_kv_perf_stats[14]
-        dram_bwd_l1_cnflct_miss_write_allocate_duration = dram_kv_perf_stats[15]
-        dram_bwd_l1_cnflct_miss_write_cache_copy_duration = dram_kv_perf_stats[16]
-        dram_bwd_l1_cnflct_miss_write_lookup_cache_duration = dram_kv_perf_stats[17]
-        dram_bwd_l1_cnflct_miss_write_acquire_lock_duration = dram_kv_perf_stats[18]
-        dram_bwd_l1_cnflct_miss_write_missing_load = dram_kv_perf_stats[19]
+            dram_bwd_l1_cnflct_miss_write_duration = dram_kv_perf_stats[14]
+            dram_bwd_l1_cnflct_miss_write_allocate_duration = dram_kv_perf_stats[15]
+            dram_bwd_l1_cnflct_miss_write_cache_copy_duration = dram_kv_perf_stats[16]
+            dram_bwd_l1_cnflct_miss_write_lookup_cache_duration = dram_kv_perf_stats[17]
+            dram_bwd_l1_cnflct_miss_write_acquire_lock_duration = dram_kv_perf_stats[18]
+            dram_bwd_l1_cnflct_miss_write_missing_load = dram_kv_perf_stats[19]
 
-        dram_kv_allocated_bytes = dram_kv_perf_stats[20]
-        dram_kv_actual_used_chunk_bytes = dram_kv_perf_stats[21]
-        dram_kv_num_rows = dram_kv_perf_stats[22]
-        dram_kv_read_counts = dram_kv_perf_stats[23]
-        dram_metadata_write_sharding_total_duration = dram_kv_perf_stats[24]
-        dram_metadata_write_total_duration = dram_kv_perf_stats[25]
-        dram_metadata_write_allocate_avg_duration = dram_kv_perf_stats[26]
-        dram_metadata_write_lookup_cache_avg_duration = dram_kv_perf_stats[27]
-        dram_metadata_write_acquire_lock_avg_duration = dram_kv_perf_stats[28]
-        dram_metadata_write_cache_miss_avg_count = dram_kv_perf_stats[29]
+            dram_kv_allocated_bytes = dram_kv_perf_stats[20]
+            dram_kv_actual_used_chunk_bytes = dram_kv_perf_stats[21]
+            dram_kv_num_rows = dram_kv_perf_stats[22]
+            dram_kv_read_counts = dram_kv_perf_stats[23]
+            dram_metadata_write_sharding_total_duration = dram_kv_perf_stats[24]
+            dram_metadata_write_total_duration = dram_kv_perf_stats[25]
+            dram_metadata_write_allocate_avg_duration = dram_kv_perf_stats[26]
+            dram_metadata_write_lookup_cache_avg_duration = dram_kv_perf_stats[27]
+            dram_metadata_write_acquire_lock_avg_duration = dram_kv_perf_stats[28]
+            dram_metadata_write_cache_miss_avg_count = dram_kv_perf_stats[29]
 
-        dram_read_metadata_total_duration = dram_kv_perf_stats[30]
-        dram_read_metadata_sharding_total_duration = dram_kv_perf_stats[31]
-        dram_read_metadata_cache_hit_copy_avg_duration = dram_kv_perf_stats[32]
-        dram_read_metadata_lookup_cache_total_avg_duration = dram_kv_perf_stats[33]
-        dram_read_metadata_acquire_lock_avg_duration = dram_kv_perf_stats[34]
-        dram_read_read_metadata_load_size = dram_kv_perf_stats[35]
+            dram_read_metadata_total_duration = dram_kv_perf_stats[30]
+            dram_read_metadata_sharding_total_duration = dram_kv_perf_stats[31]
+            dram_read_metadata_cache_hit_copy_avg_duration = dram_kv_perf_stats[32]
+            dram_read_metadata_lookup_cache_total_avg_duration = dram_kv_perf_stats[33]
+            dram_read_metadata_acquire_lock_avg_duration = dram_kv_perf_stats[34]
+            dram_read_read_metadata_load_size = dram_kv_perf_stats[35]
 
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_read_duration_us",
-            duration_ms=dram_read_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_read_sharding_duration_us",
-            duration_ms=dram_read_sharding_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_read_cache_hit_copy_duration_us",
-            duration_ms=dram_read_cache_hit_copy_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_read_fill_row_storage_duration_us",
-            duration_ms=dram_read_fill_row_storage_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_read_lookup_cache_duration_us",
-            duration_ms=dram_read_lookup_cache_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_read_acquire_lock_duration_us",
-            duration_ms=dram_read_acquire_lock_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_read_missing_load",
-            enable_tb_metrics=True,
-            data_bytes=dram_read_missing_load,
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_write_sharing_duration_us",
-            duration_ms=dram_write_sharing_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_read_duration_us",
+                duration_ms=dram_read_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_read_sharding_duration_us",
+                duration_ms=dram_read_sharding_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_read_cache_hit_copy_duration_us",
+                duration_ms=dram_read_cache_hit_copy_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_read_fill_row_storage_duration_us",
+                duration_ms=dram_read_fill_row_storage_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_read_lookup_cache_duration_us",
+                duration_ms=dram_read_lookup_cache_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_read_acquire_lock_duration_us",
+                duration_ms=dram_read_acquire_lock_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_read_missing_load",
+                enable_tb_metrics=True,
+                data_bytes=dram_read_missing_load,
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_write_sharing_duration_us",
+                duration_ms=dram_write_sharing_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
 
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_duration_us",
-            duration_ms=dram_fwd_l1_eviction_write_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_allocate_duration_us",
-            duration_ms=dram_fwd_l1_eviction_write_allocate_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_cache_copy_duration_us",
-            duration_ms=dram_fwd_l1_eviction_write_cache_copy_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_lookup_cache_duration_us",
-            duration_ms=dram_fwd_l1_eviction_write_lookup_cache_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_acquire_lock_duration_us",
-            duration_ms=dram_fwd_l1_eviction_write_acquire_lock_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_missing_load",
-            data_bytes=dram_fwd_l1_eviction_write_missing_load,
-            enable_tb_metrics=True,
-        )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_duration_us",
+                duration_ms=dram_fwd_l1_eviction_write_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_allocate_duration_us",
+                duration_ms=dram_fwd_l1_eviction_write_allocate_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_cache_copy_duration_us",
+                duration_ms=dram_fwd_l1_eviction_write_cache_copy_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_lookup_cache_duration_us",
+                duration_ms=dram_fwd_l1_eviction_write_lookup_cache_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_acquire_lock_duration_us",
+                duration_ms=dram_fwd_l1_eviction_write_acquire_lock_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_missing_load",
+                data_bytes=dram_fwd_l1_eviction_write_missing_load,
+                enable_tb_metrics=True,
+            )
 
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_duration_us",
-            duration_ms=dram_bwd_l1_cnflct_miss_write_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_allocate_duration_us",
-            duration_ms=dram_bwd_l1_cnflct_miss_write_allocate_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_cache_copy_duration_us",
-            duration_ms=dram_bwd_l1_cnflct_miss_write_cache_copy_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_lookup_cache_duration_us",
-            duration_ms=dram_bwd_l1_cnflct_miss_write_lookup_cache_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_acquire_lock_duration_us",
-            duration_ms=dram_bwd_l1_cnflct_miss_write_acquire_lock_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_missing_load",
-            data_bytes=dram_bwd_l1_cnflct_miss_write_missing_load,
-            enable_tb_metrics=True,
-        )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_duration_us",
+                duration_ms=dram_bwd_l1_cnflct_miss_write_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_allocate_duration_us",
+                duration_ms=dram_bwd_l1_cnflct_miss_write_allocate_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_cache_copy_duration_us",
+                duration_ms=dram_bwd_l1_cnflct_miss_write_cache_copy_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_lookup_cache_duration_us",
+                duration_ms=dram_bwd_l1_cnflct_miss_write_lookup_cache_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_acquire_lock_duration_us",
+                duration_ms=dram_bwd_l1_cnflct_miss_write_acquire_lock_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_missing_load",
+                data_bytes=dram_bwd_l1_cnflct_miss_write_missing_load,
+                enable_tb_metrics=True,
+            )
 
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_kv_read_counts",
-            data_bytes=dram_kv_read_counts,
-            enable_tb_metrics=True,
-        )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_kv_read_counts",
+                data_bytes=dram_kv_read_counts,
+                enable_tb_metrics=True,
+            )
 
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.dram_kv_allocated_bytes_stats_name,
-            data_bytes=dram_kv_allocated_bytes,
-            enable_tb_metrics=True,
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.dram_kv_actual_used_chunk_bytes_stats_name,
-            data_bytes=dram_kv_actual_used_chunk_bytes,
-            enable_tb_metrics=True,
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name=self.dram_kv_mem_num_rows_stats_name,
-            data_bytes=dram_kv_num_rows,
-            enable_tb_metrics=True,
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_eviction_score_write_sharding_total_duration_us",
-            duration_ms=dram_metadata_write_sharding_total_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_eviction_score_write_total_duration_us",
-            duration_ms=dram_metadata_write_total_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_eviction_score_write_allocate_avg_duration_us",
-            duration_ms=dram_metadata_write_allocate_avg_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_eviction_score_write_lookup_cache_avg_duration_us",
-            duration_ms=dram_metadata_write_lookup_cache_avg_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_eviction_score_write_acquire_lock_avg_duration_us",
-            duration_ms=dram_metadata_write_acquire_lock_avg_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_eviction_score_write_cache_miss_avg_count",
-            data_bytes=dram_metadata_write_cache_miss_avg_count,
-            enable_tb_metrics=True,
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_eviction_score_read_total_duration_us",
-            duration_ms=dram_read_metadata_total_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_eviction_score_read_sharding_total_duration_us",
-            duration_ms=dram_read_metadata_sharding_total_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_eviction_score_read_cache_hit_copy_avg_duration_us",
-            duration_ms=dram_read_metadata_cache_hit_copy_avg_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_eviction_score_read_lookup_cache_total_avg_duration_us",
-            duration_ms=dram_read_metadata_lookup_cache_total_avg_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_duration(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_eviction_score_read_acquire_lock_avg_duration_us",
-            duration_ms=dram_read_metadata_acquire_lock_avg_duration,
-            enable_tb_metrics=True,
-            time_unit="us",
-        )
-        stats_reporter.report_data_amount(
-            iteration_step=self.step,
-            event_name="dram_kv.perf.get.dram_eviction_score_read_load_size",
-            data_bytes=dram_read_read_metadata_load_size,
-            enable_tb_metrics=True,
-        )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.dram_kv_allocated_bytes_stats_name,
+                data_bytes=dram_kv_allocated_bytes,
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.dram_kv_actual_used_chunk_bytes_stats_name,
+                data_bytes=dram_kv_actual_used_chunk_bytes,
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.dram_kv_mem_num_rows_stats_name,
+                data_bytes=dram_kv_num_rows,
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_eviction_score_write_sharding_total_duration_us",
+                duration_ms=dram_metadata_write_sharding_total_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_eviction_score_write_total_duration_us",
+                duration_ms=dram_metadata_write_total_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_eviction_score_write_allocate_avg_duration_us",
+                duration_ms=dram_metadata_write_allocate_avg_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_eviction_score_write_lookup_cache_avg_duration_us",
+                duration_ms=dram_metadata_write_lookup_cache_avg_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_eviction_score_write_acquire_lock_avg_duration_us",
+                duration_ms=dram_metadata_write_acquire_lock_avg_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.set.dram_eviction_score_write_cache_miss_avg_count",
+                data_bytes=dram_metadata_write_cache_miss_avg_count,
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_eviction_score_read_total_duration_us",
+                duration_ms=dram_read_metadata_total_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_eviction_score_read_sharding_total_duration_us",
+                duration_ms=dram_read_metadata_sharding_total_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_eviction_score_read_cache_hit_copy_avg_duration_us",
+                duration_ms=dram_read_metadata_cache_hit_copy_avg_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_eviction_score_read_lookup_cache_total_avg_duration_us",
+                duration_ms=dram_read_metadata_lookup_cache_total_avg_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_duration(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_eviction_score_read_acquire_lock_avg_duration_us",
+                duration_ms=dram_read_metadata_acquire_lock_avg_duration,
+                enable_tb_metrics=True,
+                time_unit="us",
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="dram_kv.perf.get.dram_eviction_score_read_load_size",
+                data_bytes=dram_read_read_metadata_load_size,
+                enable_tb_metrics=True,
+            )
+        except Exception as e:
+            logging.warning(
+                "[SSD Offloading] Failed to report DRAM KV perf stats: %s", e
+            )
 
     def _recording_to_timer(
         self, timer: Optional[AsyncSeriesTimer], **kwargs: Any

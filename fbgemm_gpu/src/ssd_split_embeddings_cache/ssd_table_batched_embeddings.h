@@ -464,6 +464,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         db = db_ptr.release();
 #endif
       }
+      if (!s.ok()) {
+        XLOG(ERR)
+            << "[SSD Offloading] RocksDB Open FAILED for shard path '"
+            << shard_path << "': " << s.ToString()
+            << ". Possible causes: disk full, wrong permissions, corrupted DB, "
+            << "incompatible options.";
+      }
       CHECK(s.ok()) << s.ToString();
       dbs_.emplace_back(db);
     }
@@ -597,6 +604,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                                         D * sizeof(value_t)));
                               }
                               auto s = dbs_[shard]->Write(wo_, &batch);
+                              if (!s.ok()) {
+                                XLOG(ERR)
+                                    << "[SSD Offloading] RocksDB WriteBatch FAILED on shard "
+                                    << shard << ": " << s.ToString()
+                                    << ". Process will crash (CHECK). "
+                                    << "Possible causes: disk full, I/O error, hardware failure.";
+                              }
                               CHECK(s.ok())
                                   << "Failed to write batch to db, error: "
                                   << s.ToString();
@@ -966,14 +980,23 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
   void compact() override {
     for (auto& db : dbs_) {
-      db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+      auto s =
+          db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+      if (!s.ok()) {
+        XLOG_EVERY_MS(ERR, 60000)
+            << "[SSD Offloading] CompactRange failed: " << s.ToString();
+      }
     }
   }
 
   void flush() {
     kv_db::EmbeddingKVDB::flush();
     for (auto& db : dbs_) {
-      db->Flush(rocksdb::FlushOptions());
+      auto s = db->Flush(rocksdb::FlushOptions());
+      if (!s.ok()) {
+        XLOG_EVERY_MS(ERR, 60000)
+            << "[SSD Offloading] Flush failed: " << s.ToString();
+      }
     }
   }
 
@@ -1006,7 +1029,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         rocksdb::FlushOptions fo;
         fo.wait = false;
         fo.allow_write_stall = false;
-        dbs_[i]->Flush(fo);
+        auto s = dbs_[i]->Flush(fo);
+        if (!s.ok()) {
+          XLOG_EVERY_MS(ERR, 60000)
+              << "[SSD Offloading] Staggered flush failed on shard " << i
+              << ": " << s.ToString();
+        }
         if (i == dbs_.size() - 1) {
           done_staggered_flushes_ = true;
           int64_t period_per_shard = compaction_period_ / dbs_.size();
@@ -1027,8 +1055,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         dbs_[i]->GetColumnFamilyMetaData(&meta);
         int32_t num_level0 = meta.levels[0].files.size();
         if (num_level0 >= l0_files_per_compact_) {
-          dbs_[i]->CompactRange(
+          auto compact_status = dbs_[i]->CompactRange(
               rocksdb::CompactRangeOptions(), nullptr, nullptr);
+          if (!compact_status.ok()) {
+            XLOG_EVERY_MS(ERR, 60000)
+                << "[SSD Offloading] Manual compaction failed on shard " << i
+                << ": " << compact_status.ToString();
+          }
         }
         shard_flush_compaction_deadlines_[i] += compaction_period_;
       }
