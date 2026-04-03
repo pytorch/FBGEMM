@@ -129,12 +129,8 @@ function(cpp_library)
             list(APPEND lib_cc_flags
                 -Wmaybe-uninitialized
                 -Wno-error=unused-but-set-parameter
-                -Wno-error=unused-but-set-variable)
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
-                list(APPEND lib_cc_flags
-                    -Wno-deprecated-enum-enum-conversion)
-            endif()
+                -Wno-error=unused-but-set-variable
+                -Wno-deprecated-enum-enum-conversion)
         endif()
     endif()
 

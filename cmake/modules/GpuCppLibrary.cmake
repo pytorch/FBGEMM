@@ -331,17 +331,8 @@ function(gpu_cpp_library)
                 -Wmaybe-uninitialized
                 -Wno-error=unused-but-set-parameter
                 -Wno-error=unused-but-set-variable
-                -Wno-error=array-bounds)
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
-                list(APPEND lib_cc_flags
-                    -Wno-deprecated-enum-enum-conversion)
-            endif()
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.5)
-                list(APPEND lib_cc_flags
-                    -Wno-unused-command-line-argument)
-            endif()
+                -Wno-error=array-bounds
+                -Wno-deprecated-enum-enum-conversion)
         endif()
     endif()
 

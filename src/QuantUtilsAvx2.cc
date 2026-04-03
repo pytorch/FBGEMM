@@ -1610,10 +1610,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float = nullptr;
     if constexpr (std::is_same_v<InputType, float>) {
-      // NOTE: this reinterpret_cast is only to workaround c++
-      // type requirements -- it is not for fp16 case and `input_row` HAS to be
-      // float* type. Remove it and use constexpr when pytorch allows C++17.
-      input_row_float = reinterpret_cast<const float*>(input_row);
+      input_row_float = input_row;
     } else {
       input_row_float = input_row_float_for_fp16;
     }
@@ -1624,7 +1621,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
           rowwise_min_max + row * kRowwiseMinMaxNumCols;
 
       if constexpr (std::is_same_v<InputType, float>) {
-        min_max_row_float = reinterpret_cast<const float*>(min_max_row);
+        min_max_row_float = min_max_row;
       } else {
         min_max_row_float_for_fp16[0] = halfToFloat(min_max_row[0]);
         min_max_row_float_for_fp16[1] = halfToFloat(min_max_row[1]);
@@ -1839,10 +1836,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float = nullptr;
     if constexpr (std::is_same_v<InputType, float>) {
-      // NOTE: this reinterpret_cast is only to workaround c++
-      // type requirements -- it is not for fp16 case and `input_row` HAS to be
-      // float* type. Remove it and use constexpr when pytorch allows C++17.
-      input_row_float = reinterpret_cast<const float*>(input_row);
+      input_row_float = input_row;
     } else {
       input_row_float = input_row_float_for_fp16;
     }
@@ -1853,7 +1847,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
           rowwise_min_max + row * kRowwiseMinMaxNumCols;
 
       if constexpr (std::is_same_v<InputType, float>) {
-        min_max_row_float = reinterpret_cast<const float*>(min_max_row);
+        min_max_row_float = min_max_row;
       } else {
         min_max_row_float_for_fp16[0] = halfToFloat(min_max_row[0]);
         min_max_row_float_for_fp16[1] = halfToFloat(min_max_row[1]);
