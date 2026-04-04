@@ -271,6 +271,12 @@ def batch_reuse_index_select_device(
     type=str,
     default="jagged_index_select_2d_{phase}_trace_{ospid}.json",
 )
+@click.option(
+    "--device",
+    type=click.Choice(["cpu", "cuda"]),
+    default="cuda",
+    help="Device to run the benchmark on. Default is cuda.",
+)
 def jagged_index_select_2d_bench(
     max_seq_length: int,
     batch_size: int,
@@ -281,7 +287,16 @@ def jagged_index_select_2d_bench(
     jagged_tensor_dtype: str,
     export_trace: bool,
     trace_url: str,
+    device: str,
 ) -> None:
+    if device == "cuda" and not torch.cuda.is_available():
+        raise click.UsageError("CUDA requested but not available.")
+
+    if num_zero_padding > batch_size:
+        raise ValueError(
+            f"num_zero_padding ({num_zero_padding}) must be <= batch_size ({batch_size})"
+        )
+
     def jagged_index_select_2d_ref(
         values: torch.Tensor, lengths: torch.Tensor, inverse_lookup: torch.Tensor
     ) -> torch.Tensor:
@@ -295,11 +310,7 @@ def jagged_index_select_2d_bench(
 
         to_be_merged_tensors = []
         for row in index_ranges:
-            to_be_merged_tensors.append(
-                torch.arange(
-                    row[0], row[1], device=torch.accelerator.current_accelerator()
-                )
-            )
+            to_be_merged_tensors.append(torch.arange(row[0], row[1], device=device))
         all_indices = torch.cat(to_be_merged_tensors, dim=0)
         new_embeddings = torch.index_select(values, 0, all_indices)
         return new_embeddings
@@ -312,22 +323,32 @@ def jagged_index_select_2d_bench(
         high=max_seq_length,
         size=(num_jagged_tensor_rows,),
         dtype=index_t,
-        device=torch.accelerator.current_accelerator(),
+        device=device,
     )
+
+    jagged_size = int(lengths.sum().item())
+    values_numel = jagged_size * num_cols
+    if values_numel > 2**31 - 1:
+        raise ValueError(
+            f"values numel ({values_numel}) exceeds int32 max. "
+            f"The CUDA kernel uses 32-bit indexing. "
+            f"Reduce num_jagged_tensor_rows, max_seq_length, or num_cols."
+        )
+
     indices, _ = torch.sort(
         torch.randint(
             low=0,
             high=num_jagged_tensor_rows,
             size=(batch_size,),
             dtype=index_t,
-            device=torch.accelerator.current_accelerator(),
+            device=device,
         )
     )
     values = torch.rand(
-        int(lengths.sum().item()),
+        jagged_size,
         num_cols,
         dtype=scalar_t,
-        device=torch.accelerator.current_accelerator(),
+        device=device,
     )
     values.requires_grad = True
 
@@ -336,23 +357,62 @@ def jagged_index_select_2d_bench(
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
 
-    # pyre-ignore[3]
-    def context_factory(on_trace_ready: Callable[[profile], None]):
-        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+    def _export_kineto_trace(
+        fn: Callable[[], None],
+        phase: str,
+        num_warmup: int = 2,
+        num_active: int = 1,
+    ) -> None:
+        """Run a separate profiling pass with proper schedule-based tracing."""
+        if not export_trace:
+            return
+        total_iters = num_warmup + num_active
+        is_cuda = device != "cpu"
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if is_cuda:
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=num_warmup, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: _kineto_trace_handler(p, phase),
+        ) as prof:
+            for _ in range(total_iters):
+                fn()
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                prof.step()
 
-    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
-        time, (output, _) = benchmark_torch_function(
-            torch.ops.fbgemm.jagged_index_select,
-            (values, lengths, indices),
-            num_warmups=10,
-            iters=100,
-        )
-    time_ref, output_ref = benchmark_torch_function(
-        jagged_index_select_2d_ref,
+    time, (output, _) = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_index_select,
         (values, lengths, indices),
         num_warmups=10,
         iters=100,
+        device=device,
     )
+    _export_kineto_trace(
+        lambda: torch.ops.fbgemm.jagged_index_select(values, lengths, indices),
+        "fwd",
+        num_warmup=10,
+        num_active=5,
+    )
+
+    # Skip the reference implementation when tracing — it has an O(batch_size)
+    # Python for-loop that creates thousands of tensors per call, making it
+    # extremely slow for large configs.  We only need fbgemm kernel timings.
+    time_ref = None
+    output_ref = None
+    if not export_trace:
+        time_ref, output_ref = benchmark_torch_function(
+            jagged_index_select_2d_ref,
+            (values, lengths, indices),
+            num_warmups=10,
+            iters=100,
+            device=device,
+        )
+
     logging.info(
         f"jagged_index_select_2d_bench "
         f"(max_seq_length={max_seq_length}, "
@@ -363,23 +423,35 @@ def jagged_index_select_2d_bench(
         f"index_dtype={index_dtype}, "
         f"jagged_tensor_dtype={jagged_tensor_dtype})"
     )
-    logging.info(f"forward: fbgemm {time * 1e3:.3f} ms, ref {time_ref * 1e3:.3f} ms")
+    ref_str = f", ref {time_ref * 1e3:.3f} ms" if time_ref is not None else ""
+    logging.info(f"forward: fbgemm {time * 1e3:.3f} ms{ref_str}")
 
     grad = torch.rand_like(output)
-    with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
-        time, _ = benchmark_torch_function(
-            functools.partial(output.backward, retain_graph=True),
-            (grad,),
-            num_warmups=10,
-            iters=100,
-        )
-    time_ref, _ = benchmark_torch_function(
-        functools.partial(output_ref.backward, retain_graph=True),
+    time, _ = benchmark_torch_function(
+        functools.partial(output.backward, retain_graph=True),
         (grad,),
         num_warmups=10,
         iters=100,
+        device=device,
     )
-    logging.info(f"backward: fbgemm {time * 1e3:.3f} ms, ref {time_ref * 1e3:.3f} ms")
+    _export_kineto_trace(
+        lambda: output.backward(grad, retain_graph=True),
+        "bwd",
+        num_warmup=10,
+        num_active=5,
+    )
+
+    time_ref = None
+    if not export_trace and output_ref is not None:
+        time_ref, _ = benchmark_torch_function(
+            functools.partial(output_ref.backward, retain_graph=True),
+            (grad,),
+            num_warmups=10,
+            iters=100,
+            device=device,
+        )
+    ref_str = f", ref {time_ref * 1e3:.3f} ms" if time_ref is not None else ""
+    logging.info(f"backward: fbgemm {time * 1e3:.3f} ms{ref_str}")
 
 
 @cli.command()

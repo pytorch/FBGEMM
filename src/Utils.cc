@@ -169,36 +169,25 @@ bool fbgemmEnvAvx512_256Enabled() {
   return val == "true" || val == "1";
 }
 
-// This is require for build by older compilers GCC 5.4 and C++11
-struct inst_set_t_hash {
-  std::size_t operator()(inst_set_t t) const {
-    return static_cast<std::size_t>(t);
-  }
-};
-
-std::unordered_map<
-    inst_set_t,
-    std::unordered_set<inst_set_t, inst_set_t_hash>,
-    inst_set_t_hash>
-    isaSupportMap = {
-        {inst_set_t::anyarch, {inst_set_t::anyarch}},
-        {inst_set_t::avx2, {inst_set_t::avx2, inst_set_t::anyarch}},
-        {inst_set_t::avx512,
-         {inst_set_t::avx512, inst_set_t::avx512_ymm, inst_set_t::avx2}},
-        {inst_set_t::avx512_ymm,
-         {inst_set_t::avx512, inst_set_t::avx512_ymm, inst_set_t::avx2}},
-        {inst_set_t::avx512_vnni,
-         {inst_set_t::avx512_vnni,
-          inst_set_t::avx512_vnni_ymm,
-          inst_set_t::avx512,
-          inst_set_t::avx512_ymm,
-          inst_set_t::avx2}},
-        {inst_set_t::avx512_vnni_ymm,
-         {inst_set_t::avx512_vnni,
-          inst_set_t::avx512_vnni_ymm,
-          inst_set_t::avx512,
-          inst_set_t::avx512_ymm,
-          inst_set_t::avx2}},
+std::unordered_map<inst_set_t, std::unordered_set<inst_set_t>> isaSupportMap = {
+    {inst_set_t::anyarch, {inst_set_t::anyarch}},
+    {inst_set_t::avx2, {inst_set_t::avx2, inst_set_t::anyarch}},
+    {inst_set_t::avx512,
+     {inst_set_t::avx512, inst_set_t::avx512_ymm, inst_set_t::avx2}},
+    {inst_set_t::avx512_ymm,
+     {inst_set_t::avx512, inst_set_t::avx512_ymm, inst_set_t::avx2}},
+    {inst_set_t::avx512_vnni,
+     {inst_set_t::avx512_vnni,
+      inst_set_t::avx512_vnni_ymm,
+      inst_set_t::avx512,
+      inst_set_t::avx512_ymm,
+      inst_set_t::avx2}},
+    {inst_set_t::avx512_vnni_ymm,
+     {inst_set_t::avx512_vnni,
+      inst_set_t::avx512_vnni_ymm,
+      inst_set_t::avx512,
+      inst_set_t::avx512_ymm,
+      inst_set_t::avx2}},
 };
 
 } // namespace
