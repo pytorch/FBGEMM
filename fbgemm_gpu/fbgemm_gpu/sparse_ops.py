@@ -569,6 +569,43 @@ def block_bucketize_sparse_features_meta(
     )
 
 
+def block_bucketize_sparse_features_inference_meta(
+    lengths: torch.Tensor,
+    indices: torch.Tensor,
+    bucketize_pos: bool,
+    sequence: bool,
+    block_sizes: torch.Tensor,
+    my_size: int,
+    weights: Optional[torch.Tensor] = None,
+    batch_size_per_feature: Optional[torch.Tensor] = None,
+    max_B: int = -1,
+    block_bucketize_pos: Optional[torch.Tensor] = None,
+    return_bucket_mapping: bool = False,
+    keep_orig_idx: bool = False,
+    total_num_blocks: Optional[torch.Tensor] = None,
+    keep_orig_idx_per_feature: Optional[torch.Tensor] = None,
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    Optional[torch.Tensor],
+    Optional[torch.Tensor],
+    Optional[torch.Tensor],
+    Optional[torch.Tensor],
+]:
+    # Output: lengths, indices, weights, pos?, unbucketize_permute?, bucket_mapping?
+    num_buckets = my_size
+    num_features = lengths.size(0)
+    num_values = indices.size(0)
+    return (
+        lengths.new_empty([num_buckets * num_features]),
+        indices.new_empty([num_values]),
+        weights.new_empty(weights.shape) if weights is not None else None,
+        indices.new_empty([num_values]) if bucketize_pos else None,
+        indices.new_empty([num_values]),
+        indices.new_empty([num_values]) if return_bucket_mapping else None,
+    )
+
+
 def block_bucketize_sparse_features_2d_weights_meta(
     lengths: torch.Tensor,
     indices: torch.Tensor,
@@ -1364,6 +1401,10 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::block_bucketize_sparse_features",
             block_bucketize_sparse_features_meta,
+        )
+        impl_abstract(
+            "fbgemm::block_bucketize_sparse_features_inference",
+            block_bucketize_sparse_features_inference_meta,
         )
         impl_abstract(
             "fbgemm::block_bucketize_sparse_features_2d_weights",
