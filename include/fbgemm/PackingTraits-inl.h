@@ -78,18 +78,18 @@ struct PackingTraits<
       8}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{512}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -129,18 +129,18 @@ struct PackingTraits<
       64}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -164,14 +164,14 @@ struct PackingTraits<float, float, inst_set_t::avx2> {
       64}; ///< Cache block for N dimension (multiple of NR)
   static constexpr int KCB{256}; ///< Cache block for K dimension
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -224,18 +224,18 @@ struct PackingTraits<
       32}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -273,18 +273,18 @@ struct PackingTraits<
       32}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -324,18 +324,18 @@ struct PackingTraits<
       128}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -375,18 +375,18 @@ struct PackingTraits<
       64}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -438,18 +438,18 @@ struct PackingTraits<
       48}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{512}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
@@ -492,18 +492,18 @@ struct PackingTraits<
       48}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{512}; ///< Cache block for K dimension.
 
-  static std::tuple<int, int, int> getCacheBlockParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  static constexpr std::tuple<int, int, int> getCacheBlockParams() {
+    return std::tuple{MCB, KCB, MR};
   }
-  static std::tuple<int, int, int, int> getKernelParams() {
-    return std::tuple<int, int, int, int>(
-        int(MCB), int(NCB), int(NR_MIN), int(NR));
+  static constexpr std::tuple<int, int, int, int> getKernelParams() {
+    return std::tuple{
+        MCB, NCB, NR_MIN, NR};
   }
-  static std::tuple<int, int, int> getMatrixPackAParams() {
-    return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackAParams() {
+    return std::tuple{MCB, KCB, ROW_INTERLEAVE};
   }
-  static std::tuple<int, int, int> getMatrixPackBParams() {
-    return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  static constexpr std::tuple<int, int, int> getMatrixPackBParams() {
+    return std::tuple{KCB, NCB, ROW_INTERLEAVE};
   }
 };
 
