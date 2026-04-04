@@ -17,7 +17,9 @@
 
 namespace fbgemm {
 
-using partition_array_t = std::array<std::array<std::array<int, 2>, 2>, 121>;
+constexpr int PARTITION_SIZE = 121;
+using partition_array_t =
+    std::array<std::array<std::array<int, 2>, 2>, PARTITION_SIZE>;
 extern partition_array_t partition_avx2;
 extern partition_array_t partition_avx512;
 extern partition_array_t partition_sve128;
@@ -71,8 +73,11 @@ struct GemmParams<float> {
 
 template <typename T>
 using funcptr_t = void (*)(GemmParams<T>*);
+
+constexpr int MAX_KERNEL_NROWS = 14;
+
 template <typename T>
-using kernel_array_t = std::array<funcptr_t<T>, 15>;
+using kernel_array_t = std::array<funcptr_t<T>, MAX_KERNEL_NROWS + 1>;
 template <typename T>
 using isa_descriptor = std::tuple<kernel_array_t<T>, partition_array_t>;
 
@@ -126,12 +131,14 @@ void cblas_gemm_compute(
   assert(transa == matrix_op_t::NoTranspose);
 
   // private scratchpad storage
-  static thread_local std::unique_ptr<std::array<float, 256 * 1024>> scratchpad(
-      new std::array<float, 256 * 1024>());
+  static constexpr size_t SCRATCHPAD_SIZE = 256 * 1024;
+  static thread_local std::unique_ptr<std::array<float, SCRATCHPAD_SIZE>>
+      scratchpad(new std::array<float, SCRATCHPAD_SIZE>());
 
   // constants
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
-  const int mb_max = 120;
+  constexpr int mb_max = 120;
+  static_assert(mb_max < PARTITION_SIZE);
 
   const auto iset = fbgemmInstructionSet();
   const auto& [kernels, partition] = getIsaHandlers<T>(iset);
@@ -154,7 +161,6 @@ void cblas_gemm_compute(
   int i_begin = 0, i_end = m;
   for (auto m0 = i_begin; m0 < i_end; m0 += mb_max) {
     int mb = std::min(mb_max, i_end - m0);
-    assert(mb < static_cast<int64_t>(partition.size()));
     for (auto k_ind = 0; k_ind < k; k_ind += Bp.blockRowSize()) {
       // set up proper accumulation to avoid "Nan" problem
       // accumulate of beta != 0.0
@@ -255,10 +261,9 @@ void cblas_gemm_compute(
               // small temporary buffer: the size should be larger than the
               // required kernel_nrow x kernel_ncols elements computed in the
               // registers.
-              std::array<float, 14 * 32> c_tmp{0.f};
-              assert(
-                  static_cast<int64_t>(c_tmp.size()) >=
-                  kernel_nrows * Bp.blockColSize());
+              static constexpr size_t C_TMP_SIZE =
+                  MAX_KERNEL_NROWS * 32;
+              std::array<float, C_TMP_SIZE> c_tmp{0.f};
 
               gp.B = &(Bp(k_ind, last_blk_col));
               gp.C = c_tmp.data();
@@ -275,7 +280,7 @@ void cblas_gemm_compute(
                 for (int j = last_blk_col; j < n; j++) {
                   assert(
                       i * Bp.blockColSize() + (j - last_blk_col) <
-                      static_cast<int64_t>(c_tmp.size()));
+                      static_cast<int64_t>(C_TMP_SIZE));
                   if (beta_ == 0.f) {
                     C[(m2 + i) * ldc + j] =
                         c_tmp[i * Bp.blockColSize() + (j - last_blk_col)];
