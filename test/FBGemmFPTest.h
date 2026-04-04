@@ -9,6 +9,7 @@
 #pragma once
 #include <gtest/gtest.h>
 #include <random>
+#include <type_traits>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -50,10 +51,9 @@ class FBGemmFPTest : public testing::TestWithParam<
   void TestRun() {
     auto shapes = GenShapes();
     float alpha = 1.f, beta = 0.f;
-    matrix_op_t atrans, btrans;
-    std::tie(atrans, btrans) = GetParam();
+    auto [atrans, btrans] = GetParam();
 
-    for (auto s : shapes) {
+    for (const auto& s : shapes) {
       int m = s[0];
       int n = s[1];
       int k = s[2];
@@ -65,7 +65,7 @@ class FBGemmFPTest : public testing::TestWithParam<
       if (btrans == matrix_op_t::Transpose) {
         std::cerr << " B_transposed";
       }
-      std::cerr << std::endl;
+      std::cerr << '\n';
 
       // initialize with small numbers
       aligned_vector<int> Aint(m * k);
@@ -123,10 +123,9 @@ class FBGemmFPTest : public testing::TestWithParam<
   void UnpackTestRun() {
     auto shapes = GenShapes();
     float alpha = 1.f, beta = 0.f;
-    matrix_op_t atrans{}, btrans{};
-    std::tie(atrans, btrans) = GetParam();
+    auto [atrans, btrans] = GetParam();
 
-    for (auto s : shapes) {
+    for (const auto& s : shapes) {
       int m = s[0];
       int n = s[1];
       int k = s[2];
@@ -138,7 +137,7 @@ class FBGemmFPTest : public testing::TestWithParam<
       if (btrans == matrix_op_t::Transpose) {
         std::cerr << " B_transposed";
       }
-      std::cerr << std::endl;
+      std::cerr << '\n';
 
       // initialize with small numbers
       aligned_vector<int> Aint(m * k);
@@ -180,10 +179,13 @@ class FBGemmFPTest : public testing::TestWithParam<
       memcpy(tmp.data(), Bp.pmat(), Bp.matSize() * sizeof(T));
       for (int i = 0; i < k; ++i) {
         for (int j = 0; j < n; ++j) {
-          EXPECT_EQ(
-              sizeof(T) == sizeof(float16) ? cpu_half2float(tmp[i * n + j])
-                                           : tmp[i * n + j],
-              B[i * n + j]);
+          float val;
+          if constexpr (std::is_same_v<T, float16>) {
+            val = cpu_half2float(tmp[i * n + j]);
+          } else {
+            val = tmp[i * n + j];
+          }
+          EXPECT_EQ(val, B[i * n + j]);
         }
       }
 
