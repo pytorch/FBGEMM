@@ -11,32 +11,14 @@
 #include <array>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 
 namespace fbgemm {
 
-template <int N, int... Vals>
-constexpr std::enable_if_t<N == sizeof...(Vals), std::array<int, N>>
-array_of_ones() {
-  return std::array<int, N>{{Vals...}};
-}
-
-template <int N, int... Vals>
-constexpr std::enable_if_t<N != sizeof...(Vals), std::array<int, N>>
-array_of_ones() {
-  return array_of_ones<N, Vals..., 1>();
-}
-
-template <int N, int... Vals>
-constexpr std::enable_if_t<N == sizeof...(Vals), std::array<int, N>>
-array_of_zeroes() {
-  return std::array<int, N>{{Vals...}};
-}
-
-template <int N, int... Vals>
-constexpr std::enable_if_t<N != sizeof...(Vals), std::array<int, N>>
-array_of_zeroes() {
-  return array_of_zeroes<N, Vals..., 0>();
+template <int N>
+constexpr std::array<int, N> array_of_ones() {
+  std::array<int, N> a{};
+  a.fill(1);
+  return a;
 }
 
 /**
@@ -78,7 +60,7 @@ struct conv_param_t {
       std::array<int, SPATIAL_DIM> strd,
       std::array<int, SPATIAL_DIM * 2> pd,
       std::array<int, SPATIAL_DIM> dilations = array_of_ones<SPATIAL_DIM>(),
-      std::array<int, SPATIAL_DIM> otpt_pd = array_of_zeroes<SPATIAL_DIM>(),
+      std::array<int, SPATIAL_DIM> otpt_pd = {},
       bool transposed = false)
       : MB(mb),
         IC(ic),
