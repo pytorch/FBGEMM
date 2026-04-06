@@ -29,7 +29,7 @@ else:
     )
 
 if gpu_available:
-    import fbgemm_gpu.uvm
+    import fbgemm_gpu.tbe.cache.uvm  # noqa: F401
 
 MAX_EXAMPLES = 40
 
