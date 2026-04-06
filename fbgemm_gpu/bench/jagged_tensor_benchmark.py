@@ -19,7 +19,7 @@ from typing import Callable
 import click
 import fbgemm_gpu
 import torch
-from torch.profiler import profile
+from torch.profiler import profile, schedule
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -78,10 +78,17 @@ class JaggedTensor:
 
     @staticmethod
     def rand_2d(
-        batch_size: int, embedding_dim: int, max_len: int, elem_type: str
+        batch_size: int,
+        embedding_dim: int,
+        max_len: int,
+        elem_type: str,
+        device: str = "cuda",
     ) -> JaggedTensor:
         """
         Generate a random JaggedTensor with 2D values.
+
+        Args:
+            device: Device to place tensors on ("cuda" or "cpu").
         """
         # Each row in the batch has different length
         lengths = torch.randint(max_len, size=(batch_size,))
@@ -100,7 +107,7 @@ class JaggedTensor:
         # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
         values_2d = torch.rand(total_lengths, embedding_dim, dtype=dtype)
 
-        if torch.cuda.is_available():
+        if device == "cuda" and torch.cuda.is_available():
             values_2d = values_2d.cuda()
             offsets = offsets.cuda()
 
@@ -342,11 +349,12 @@ def bench_jagged_1d_to_dense(jten: JaggedTensor) -> None:
 def bench_dense_to_jagged_1d(jten: JaggedTensor) -> None:
     logging.info("######## Dense to Jagged (1D) ########")
 
+    # NOTE: This always uses float32 regardless of --elem-type, because
+    # torch.rand() defaults to float32.  The tritonbench port
+    # (dense_to_jagged_1d) fixes this by properly supporting --elem-type.
     # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
     #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
-    jten.values = torch.rand(jten.total_lengths)
-    if torch.cuda.is_available():
-        jten.values = jten.values.cuda()
+    jten.values = torch.rand(jten.total_lengths, device=jten.offsets.device)
     dense_values = jten.to_dense()
 
     dense_1d = torch.unsqueeze(dense_values, -1)
@@ -384,31 +392,153 @@ def bench_dense_to_jagged_1d(jten: JaggedTensor) -> None:
     default=False,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--device",
+    type=click.Choice(["cpu", "cuda"]),
+    default="cuda",
+    help="Device to run the benchmark on. Default is cuda.",
+)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="dense_to_jagged_device_trace_{ospid}.json",
+)
+@click.option(
+    "--only",
+    type=str,
+    default=None,
+    help="Comma-separated list of sub-benchmark names to run (e.g. "
+    "'bench_dense_to_jagged_1d'). Default: run all.",
+)
 def device(
     batch_size: int,
     embedding_dim: int,
     max_len: int,
     elem_type: str,
     manual_seed: bool,
+    device: str,
+    export_trace: bool,
+    trace_url: str,
+    only: str,
 ) -> None:
+    if device == "cuda" and not torch.cuda.is_available():
+        raise click.UsageError("CUDA requested but not available.")
+
     # set manual seed for reproducibility
     if manual_seed:
         torch.manual_seed(42)
         random.seed(42)
 
-    jtensor = JaggedTensor.rand_2d(batch_size, embedding_dim, max_len, elem_type)
+    jtensor = JaggedTensor.rand_2d(
+        batch_size, embedding_dim, max_len, elem_type, device=device
+    )
 
-    bench_jagged_2d_to_dense(jtensor)
+    def _kineto_trace_handler(p: profile) -> None:
+        p.export_chrome_trace(trace_url.format(ospid=os.getpid()))
 
-    bench_dense_to_jagged_2d(jtensor)
+    def _export_kineto_trace(
+        fn: Callable[[], None],
+        bench_name: str,
+        num_warmup: int = 10,
+        num_active: int = 5,
+    ) -> None:
+        if not export_trace:
+            return
+        total_iters = num_warmup + num_active
+        is_cuda = device != "cpu"
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if is_cuda:
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=num_warmup, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=_kineto_trace_handler,
+        ) as prof:
+            for _ in range(total_iters):
+                fn()
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                prof.step()
 
-    bench_jagged_dense_elementwise_op_jagged_output(jtensor)
+    all_benchmarks = {
+        "bench_jagged_2d_to_dense": bench_jagged_2d_to_dense,
+        "bench_dense_to_jagged_2d": bench_dense_to_jagged_2d,
+        "bench_jagged_dense_elementwise_op_jagged_output": bench_jagged_dense_elementwise_op_jagged_output,
+        "bench_jagged_dense_dense_elementwise_add_jagged_output": bench_jagged_dense_dense_elementwise_add_jagged_output,
+        "bench_jagged_1d_to_dense": bench_jagged_1d_to_dense,
+        "bench_dense_to_jagged_1d": bench_dense_to_jagged_1d,
+    }
 
-    bench_jagged_dense_dense_elementwise_add_jagged_output(jtensor)
+    # Map bench name -> trace callable for schedule-based trace capture
+    trace_callables: dict[str, Callable[[], None]] = {}
 
-    bench_jagged_1d_to_dense(jtensor)
+    if only:
+        selected = [name.strip() for name in only.split(",")]
+        for name in selected:
+            if name not in all_benchmarks:
+                raise click.UsageError(
+                    f"Unknown benchmark '{name}'. "
+                    f"Available: {', '.join(all_benchmarks.keys())}"
+                )
+        benchmarks_to_run = {k: v for k, v in all_benchmarks.items() if k in selected}
+    else:
+        benchmarks_to_run = all_benchmarks
 
-    bench_dense_to_jagged_1d(jtensor)
+    # Phase 1: Timing — run bench_*() outside any profiling context
+    for fn in benchmarks_to_run.values():
+        fn(jtensor)
+
+    # Phase 2: Trace capture — build trace callables and run schedule-based profiling
+    if export_trace:
+        # Prepare inputs for each benchmark's trace callable
+        dense_2d = jtensor.to_dense()
+        jtensor_1d_values = torch.rand(
+            # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+            #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+            jtensor.total_lengths,
+            device=jtensor.offsets.device,
+        )
+        dense_1d_raw = torch.ops.fbgemm.jagged_1d_to_dense(
+            jtensor_1d_values, jtensor.offsets, jtensor.max_len, padding_value=0
+        )
+        dense_1d = torch.unsqueeze(dense_1d_raw, -1)
+
+        trace_callables = {
+            "bench_jagged_2d_to_dense": lambda: torch.ops.fbgemm.jagged_2d_to_dense(
+                jtensor.values, jtensor.offsets, jtensor.max_len
+            ),
+            "bench_dense_to_jagged_2d": lambda: torch.ops.fbgemm.dense_to_jagged(
+                dense_2d, [jtensor.offsets], jtensor.total_lengths
+            ),
+            "bench_jagged_dense_elementwise_op_jagged_output": lambda: torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
+                jtensor.values, [jtensor.offsets], dense_2d
+            ),
+            "bench_jagged_dense_dense_elementwise_add_jagged_output": lambda: torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                jtensor.values, [jtensor.offsets], dense_2d, dense_2d
+            ),
+            "bench_jagged_1d_to_dense": lambda: torch.ops.fbgemm.jagged_1d_to_dense(
+                jtensor_1d_values,
+                jtensor.offsets,
+                jtensor.max_len,
+                padding_value=0,
+            ),
+            "bench_dense_to_jagged_1d": lambda: torch.ops.fbgemm.dense_to_jagged(
+                dense_1d, [jtensor.offsets], jtensor.total_lengths
+            ),
+        }
+
+        for name in benchmarks_to_run:
+            if name in trace_callables:
+                _export_kineto_trace(trace_callables[name], name)
 
 
 @cli.command()
@@ -653,34 +783,43 @@ def keyed_jagged_index_select_dim1(
         high=max_seq_length,
         size=(input_batch_size * num_batches,),
         dtype=torch.long,
-        device="cuda",
+        device=torch.accelerator.current_accelerator(),
     )
     # Imitate KeyedJaggedTensor offsets
     offsets = torch.concat(
-        [torch.zeros(1, dtype=torch.long, device="cuda"), lengths.cumsum(0)]
+        [
+            torch.zeros(
+                1, dtype=torch.long, device=torch.accelerator.current_accelerator()
+            ),
+            lengths.cumsum(0),
+        ]
     )
     indices = torch.randint(
         low=0,
         high=1,
         size=(output_batch_size,),
         dtype=torch.long,
-        device="cuda",
+        device=torch.accelerator.current_accelerator(),
     )
     if is_float:
         values = torch.rand(
             int(offsets[-1].item()),
             dtype=jagged_tensor_dtype,
-            device="cuda",
+            device=torch.accelerator.current_accelerator(),
         )
     else:
         values = torch.randint(
             2**16,
             (int(offsets[-1].item()),),
             dtype=jagged_tensor_dtype,
-            device="cuda",
+            device=torch.accelerator.current_accelerator(),
         )
     weights = (
-        torch.rand(int(offsets[-1].item()), dtype=weight_dtype, device="cuda")
+        torch.rand(
+            int(offsets[-1].item()),
+            dtype=weight_dtype,
+            device=torch.accelerator.current_accelerator(),
+        )
         if has_weights
         else None
     )
