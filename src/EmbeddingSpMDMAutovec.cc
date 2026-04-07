@@ -9,6 +9,7 @@
 #ifdef __linux__
 
 #define FBGEMM_EXPORTS
+#include <bit>
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingStatsTracker.h"
 #include "./RefImplementations.h" // @manual
@@ -1093,10 +1094,10 @@ void Float8ToFloat_ref_batch(
     val_out = (inp & 0x7F) << (24 - (8 - exponent_bits));
 
     multiplier = (127 + (127 - exponent_bias)) << 23; // 2^(127-bias)
-    float val_out_f = *reinterpret_cast<float*>(&val_out) *
-        *reinterpret_cast<float*>(&multiplier); // val_out * multiplier
-    val_out = *reinterpret_cast<uint32_t*>(&val_out_f) | sign;
-    output[i] = *reinterpret_cast<float*>(&val_out);
+    float val_out_f = std::bit_cast<float>(val_out) *
+        std::bit_cast<float>(multiplier); // val_out * multiplier
+    val_out = std::bit_cast<uint32_t>(val_out_f) | sign;
+    output[i] = std::bit_cast<float>(val_out);
   }
 }
 } // namespace

@@ -8,12 +8,12 @@
 
 #pragma once
 
+#include <bit>
 #include <cassert>
 #include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
 
 #include "./Types.h" // @manual
 
@@ -210,8 +210,7 @@ template <typename Src, typename Tgt, RoundingMode RoundingMode>
 } // namespace detail
 
 inline float16 cpu_float2half_rn(float f) {
-  uint32_t f_u32 = 0;
-  std::memcpy(&f_u32, &f, sizeof(f_u32));
+  uint32_t f_u32 = std::bit_cast<uint32_t>(f);
   return detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
       /*Tgt=*/detail::IEEE754Half,
@@ -219,8 +218,7 @@ inline float16 cpu_float2half_rn(float f) {
 }
 
 inline float16 cpu_float2half_rz(float f) {
-  uint32_t f_u32 = 0;
-  std::memcpy(&f_u32, &f, sizeof(f_u32));
+  uint32_t f_u32 = std::bit_cast<uint32_t>(f);
   return detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
       /*Tgt=*/detail::IEEE754Half,
@@ -278,9 +276,7 @@ inline float cpu_half2float_ref(const float16 h) {
   const uint32_t i = (sign_bit << f32_num_non_sign_bits) |
       (exponent << f32_num_mantissa_bits) | mantissa;
 
-  float ret = NAN;
-  std::memcpy(&ret, &i, sizeof(float));
-  return ret;
+  return std::bit_cast<float>(i);
 }
 
 inline float cpu_half2float(const float16 h) {
@@ -314,16 +310,12 @@ inline float16 cpu_float2half(const float f) {
 }
 
 inline float cpu_bf162float(bfloat16 src) {
-  float ret = NAN;
-  uint32_t val_fp32 =
-      static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(&src)[0]) << 16;
-  std::memcpy(&ret, &val_fp32, sizeof(float));
-  return ret;
+  uint32_t val_fp32 = static_cast<uint32_t>(src) << 16;
+  return std::bit_cast<float>(val_fp32);
 }
 
 inline bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp = 0;
-  std::memcpy(&temp, &src, sizeof(uint32_t));
+  uint32_t temp = std::bit_cast<uint32_t>(src);
   return (temp + (1u << 15)) >> 16;
 }
 
