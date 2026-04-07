@@ -12,7 +12,7 @@ from typing import cast
 
 import fbgemm_gpu
 import torch
-from fbgemm_gpu.runtime_monitor import (
+from fbgemm_gpu.tbe.monitoring import (
     AsyncSeriesTimer,
     StdLogStatsReporter,
     StdLogStatsReporterConfig,
@@ -49,9 +49,17 @@ class RuntimeMonitorTest(unittest.TestCase):
         self.assertEqual([t[0] for t in timer.outputs], context_list)
 
     def expensive_work(self, iterations: int) -> torch.Tensor:
-        t = torch.rand((2000, 2000), dtype=torch.float32, device="cuda")
+        t = torch.rand(
+            (2000, 2000),
+            dtype=torch.float32,
+            device=torch.accelerator.current_accelerator(),
+        )
         for _ in range(iterations):
-            t2 = torch.rand((2000, 2000), dtype=torch.float32, device="cuda")
+            t2 = torch.rand(
+                (2000, 2000),
+                dtype=torch.float32,
+                device=torch.accelerator.current_accelerator(),
+            )
             t = torch.matmul(t, t2)
         return t
 
