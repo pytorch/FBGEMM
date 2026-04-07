@@ -161,10 +161,7 @@ void process_uvm_cache_stats(
 
           // Fill all the elements of the vector uvm_cache_stats_counters as 0
           // to zero out the cumulated counters.
-          std::fill(
-              uvm_cache_stats_counters.begin(),
-              uvm_cache_stats_counters.end(),
-              0);
+          std::ranges::fill(uvm_cache_stats_counters, 0);
         }
       }
     }
@@ -294,7 +291,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_float8_D ? *max_float8_D : 0,
         max_float16_D,
         max_float32_D};
-    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
+    int64_t max_D = *std::ranges::max_element(max_D_list);
     // TODO: extend to support Long indices/offests types T161999845
     return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
         dev_weights,
