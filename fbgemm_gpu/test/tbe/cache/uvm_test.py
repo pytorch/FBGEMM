@@ -30,8 +30,12 @@ else:
     )
 
 if gpu_available:
-    # pyre-ignore[21]
-    from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
+    # pyre-ignore[16, 21]
+    from fbgemm_gpu.tbe.cache.uvm import (
+        cudaMemAdvise,
+        cudaMemoryAdvise,
+        cudaMemPrefetchAsync,
+    )
 
 
 MAX_EXAMPLES = 40

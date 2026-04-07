@@ -118,6 +118,56 @@ struct TensorAccessorBuilder {
   //////////////////////////////////////////////////////////////////////////////
 
   void validate_tensor(const std::string_view& context) const {
+    // Check that the tensor is defined (i.e. not a default-constructed handle
+    // pointing to UndefinedTensorImpl).  This must come first because no other
+    // validation is meaningful on an undefined tensor.
+    TORCH_CHECK(
+        tensor.defined(),
+        context,
+        ": Tensor '",
+        name,
+        "' is undefined (null).");
+
+    // Check that the tensor's storage data is actually allocated.  This
+    // catches lazily-allocated tensors, e.g. TBE weights loaded from
+    // checkpoints in eval-only contexts (Feature Importance / Captum) where
+    // the normal initialization path that materializes storage is bypassed.
+    //
+    // NOTE: has_storage() and storage_initialized() check different things:
+    //
+    //   has_storage()
+    //     Checks whether a StorageImpl *object* exists (pointer is non-null).
+    //     A tensor can have a Storage object while its underlying data pointer
+    //     is still null — this is the exact state that causes the
+    //     "data is not allocated yet" crash.
+    //
+    //   storage_initialized()  (TensorImpl only, NOT forwarded to Tensor)
+    //     Checks whether the storage's data pointer is allocated:
+    //       storage_.data() != nullptr || numel_ == 0
+    //     Returns true trivially for zero-element tensors, hence the
+    //     numel() > 0 guard below.
+    //
+    // The has_storage() guard is required because storage_initialized()
+    // internally does TORCH_CHECK(has_storage()) and would throw a confusing
+    // "cannot call storage_initialized on tensor that does not have storage"
+    // error on tensors that legitimately lack storage (e.g. OpaqueTensorImpl).
+    //
+    // We access storage_initialized() through unsafeGetTensorImpl() because
+    // the method is not forwarded to TensorBase / at::Tensor.
+    if (tensor.has_storage() && tensor.numel() > 0) {
+      TORCH_CHECK(
+          tensor.unsafeGetTensorImpl()->storage_initialized(),
+          context,
+          ": Tensor '",
+          name,
+          "' has ",
+          tensor.numel(),
+          " elements, but its storage data is not allocated yet. "
+          "This typically indicates that the tensor was constructed with a "
+          "shape but its memory was never materialized (e.g., lazy allocation "
+          "after checkpoint loading in eval-only contexts).");
+    }
+
     // Check numel is not out of bounds
     if constexpr (std::is_same_v<index_t, int32_t>) {
       TORCH_CHECK(

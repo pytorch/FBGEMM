@@ -144,8 +144,8 @@ Tensor uvm_to_device_d(const Tensor& self, const at::Device& device);
 /// @ingroup cumem-utils
 ///
 /// Call `cudaMemAdvise()` on a UVM tensor's storage. The `cudaMemoryAdvise`
-/// enum is available on the Python side in the `fbgemm_gpu.uvm` namespace; see
-/// the documentation over there for valid values.
+/// enum is available on the Python side in the `fbgemm_gpu.tbe.cache.uvm`
+/// namespace; see the documentation over there for valid values.
 ///
 /// @param self The input tensor
 /// @param cuda_memory_advise The `cudaMemoryAdvise` enum value, as integer
