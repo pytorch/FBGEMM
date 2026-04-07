@@ -319,9 +319,8 @@ def bench_jagged_1d_to_dense(jten: JaggedTensor) -> None:
 
     # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
     #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
-    jten.values = torch.rand(jten.total_lengths)
-    if torch.cuda.is_available():
-        jten.values = jten.values.cuda()
+    # Place values on the same device as offsets to respect the --device flag
+    jten.values = torch.rand(jten.total_lengths, device=jten.offsets.device)
 
     time, output = benchmark_torch_function(
         jten.to_dense,
@@ -336,7 +335,8 @@ def bench_jagged_1d_to_dense(jten: JaggedTensor) -> None:
     nten = jten.as_nested()
     time, output = benchmark_torch_function(
         torch.nested.to_padded_tensor,
-        (nten, 0.0, (jten.batch_size, jten.embedding_dim)),
+        # For 1D jagged tensors, dense output shape is (batch_size, max_len)
+        (nten, 0.0, (jten.batch_size, jten.max_len)),
         iters=1000,
     )
 
