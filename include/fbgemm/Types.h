@@ -15,11 +15,11 @@ namespace fbgemm {
 using float16 = std::uint16_t;
 using bfloat16 = std::uint16_t;
 
-constexpr inline int64_t round_up(int64_t val, int64_t unit) {
+constexpr int64_t round_up(int64_t val, int64_t unit) {
   return (val + unit - 1) / unit * unit;
 }
 
-constexpr inline int64_t div_up(int64_t val, int64_t unit) {
+constexpr int64_t div_up(int64_t val, int64_t unit) {
   return (val + unit - 1) / unit;
 }
 

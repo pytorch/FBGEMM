@@ -78,7 +78,7 @@ struct Vec2T {};
 
 template <>
 struct Vec2T<float> : public Vec2BaseT<float> {
-  DEVICE_INLINE Vec2T() {}
+  DEVICE_INLINE Vec2T() = default;
 
   DEVICE_INLINE Vec2T(const float* p) {
     load(p);
@@ -213,7 +213,7 @@ struct Vec2T<float> : public Vec2BaseT<float> {
 
 template <>
 struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
-  DEVICE_INLINE Vec2T() {}
+  DEVICE_INLINE Vec2T() = default;
 
   DEVICE_INLINE Vec2T(const at::Half* p) {
     load(p);
@@ -345,7 +345,7 @@ struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
 
 template <>
 struct Vec2T<at::BFloat16> : public Vec2BaseT<at::BFloat16> {
-  DEVICE_INLINE Vec2T() {}
+  DEVICE_INLINE Vec2T() = default;
 
   DEVICE_INLINE Vec2T(const at::BFloat16* p) {
     load(p);
