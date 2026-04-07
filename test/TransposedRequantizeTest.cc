@@ -101,9 +101,8 @@ TEST_P(RequantizeTest, reqTest) {
     }
   } else {
     auto areEqual = [](int a, int b) { return a == b; };
-    if (std::all_of(
-            weight_zero_point.begin(),
-            weight_zero_point.end(),
+    if (std::ranges::all_of(
+            weight_zero_point,
             std::bind(areEqual, std::placeholders::_1, 0))) {
       use_col_offsets = false;
     }

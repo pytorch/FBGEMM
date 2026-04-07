@@ -55,9 +55,8 @@ TEST_P(FloatRequantizeTest, floatBiasTest) {
   float out_scale = 2.0f;
 
   aligned_vector<float> C_multiplier(cols);
-  transform(
-      act_times_w_scale.begin(),
-      act_times_w_scale.end(),
+  std::ranges::transform(
+      act_times_w_scale,
       C_multiplier.begin(),
       [&out_scale](float i) { return i / out_scale; });
 
@@ -77,16 +76,14 @@ TEST_P(FloatRequantizeTest, floatBiasTest) {
   // floating point bias
   aligned_vector<float> bias_f(cols);
   if (q_gran == QuantizationGranularity::TENSOR) {
-    transform(
-        bias_q.begin(),
-        bias_q.end(),
+    std::ranges::transform(
+        bias_q,
         bias_f.begin(),
         [&act_times_w_scale](float i) { return i * act_times_w_scale[0]; });
   } else if (q_gran == QuantizationGranularity::OUT_CHANNEL) {
-    transform(
-        act_times_w_scale.begin(),
-        act_times_w_scale.end(),
-        bias_q.begin(),
+    std::ranges::transform(
+        act_times_w_scale,
+        bias_q,
         bias_f.begin(),
         multiplies<float>());
 
