@@ -18,6 +18,7 @@
 #include "bench/AlignedVec.h" // @manual
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmPackMatrixB.h"
+#include "fbgemm/Utils.h"
 #include "src/RefImplementations.h" // @manual
 
 #ifdef USE_IACA
@@ -51,8 +52,7 @@ class FBGemmFPTest : public testing::TestWithParam<
   void TestRun() {
     auto shapes = GenShapes();
     float alpha = 1.f, beta = 0.f;
-    matrix_op_t atrans, btrans;
-    std::tie(atrans, btrans) = GetParam();
+    auto [atrans, btrans] = GetParam();
 
     for (const auto& s : shapes) {
       int m = s[0];
@@ -121,11 +121,16 @@ class FBGemmFPTest : public testing::TestWithParam<
     }
   }
 
+  void TestRunWithIsa(inst_set_t isa) {
+    fbgemmForceIsa(isa);
+    TestRun();
+    fbgemmForceIsa(inst_set_t::anyarch);
+  }
+
   void UnpackTestRun() {
     auto shapes = GenShapes();
     float alpha = 1.f, beta = 0.f;
-    matrix_op_t atrans, btrans;
-    std::tie(atrans, btrans) = GetParam();
+    auto [atrans, btrans] = GetParam();
 
     for (const auto& s : shapes) {
       int m = s[0];
