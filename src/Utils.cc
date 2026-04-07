@@ -145,7 +145,7 @@ inst_set_t fbgemmEnvGetIsa() {
 #endif
 
   std::string val(env);
-  std::transform(val.begin(), val.end(), val.begin(), ::toupper);
+  std::ranges::transform(val, val.begin(), ::toupper);
   auto it = isaMap.find(val);
   return it == isaMap.end() ? inst_set_t::anyarch : it->second;
 }
@@ -165,7 +165,7 @@ bool fbgemmEnvAvx512_256Enabled() {
 #endif
 
   std::string val(env);
-  std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+  std::ranges::transform(val, val.begin(), ::tolower);
   return val == "true" || val == "1";
 }
 

@@ -578,9 +578,9 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     }
 
     float minimum_element =
-        *std::min_element(input_row_float.begin(), input_row_float.end());
+        *std::ranges::min_element(input_row_float);
     float maximum_element =
-        *std::max_element(input_row_float.begin(), input_row_float.end());
+        *std::ranges::max_element(input_row_float);
     // Truncate since bias will be represented by fp16. Keep higher precision
     // max untouched.
     float16 minimum_element_fp16 = cpu_float2half_rn(minimum_element);
@@ -714,9 +714,9 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
     }
 
     float minimum_element =
-        *std::min_element(input_row_float.begin(), input_row_float.end());
+        *std::ranges::min_element(input_row_float);
     float maximum_element =
-        *std::max_element(input_row_float.begin(), input_row_float.end());
+        *std::ranges::max_element(input_row_float);
     float range = maximum_element - minimum_element;
 
     output_row_scale_bias[0] = range / 255.0f;
