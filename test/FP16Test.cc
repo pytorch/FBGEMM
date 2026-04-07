@@ -17,14 +17,12 @@ INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmFP16Test,
     ::testing::Values(
-      std::pair<fbgemm::matrix_op_t, fbgemm::matrix_op_t>(
-          fbgemm::matrix_op_t::NoTranspose, fbgemm::matrix_op_t::NoTranspose),
-      std::pair<fbgemm::matrix_op_t, fbgemm::matrix_op_t>(
-          fbgemm::matrix_op_t::NoTranspose, fbgemm::matrix_op_t::Transpose)/*,
-      pair<matrix_op_t, matrix_op_t>(
-          matrix_op_t::Transpose, matrix_op_t::NoTranspose),
-      pair<matrix_op_t, matrix_op_t>(
-          matrix_op_t::Transpose, matrix_op_t::Transpose)*/));
+        std::pair{
+            fbgemm::matrix_op_t::NoTranspose,
+            fbgemm::matrix_op_t::NoTranspose},
+        std::pair{
+            fbgemm::matrix_op_t::NoTranspose,
+            fbgemm::matrix_op_t::Transpose}));
 
 TEST_P(FBGemmFP16Test, Test) {
   TestRun();
