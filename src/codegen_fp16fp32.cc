@@ -191,7 +191,7 @@ int main(int argc, const char* argv[]) {
   const string label_dump_C = "dump_C%=";
 
   for (const auto& [data_type, type_name] : types_to_gen) {
-    if (enabledDataType.count(type_name) == 0) {
+    if (!enabledDataType.contains(type_name)) {
       continue;
     }
     for (const auto& s : isa) {
@@ -263,7 +263,7 @@ int main(int argc, const char* argv[]) {
         fheader[k] = "void NOINLINE " + funcname[k] + fargs;
         srcfile << fheader[k] << " {\n";
 
-        unsigned last_free_vecreg = 0;
+        int last_free_vecreg = 0;
         // produce register block of C
         vector<vector<string>> vCtile(ukernel_shape[k][0]);
         for (size_t r = 0; r < ukernel_shape[k][0]; r++)
