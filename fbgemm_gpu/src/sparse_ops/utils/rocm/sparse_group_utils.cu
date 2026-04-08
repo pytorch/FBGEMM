@@ -15,8 +15,7 @@ DLL_PUBLIC size_t get_sort_temp_storage_bytes(
     const c10::ScalarType scalar_type,
     const at::cuda::CUDAStream& stream) {
     size_t temp_storage_bytes = 0;
-    AT_DISPATCH_INTEGRAL_TYPES(scalar_type, "get_sort_temp_storage_bytes", [&] {
-        using index_t = scalar_t;
+    AT_DISPATCH_INDEX_TYPES(scalar_type, "get_sort_temp_storage_bytes", [&] {
         AT_CUDA_CHECK(rocprim::radix_sort_pairs<sort_config>(
             nullptr,
             temp_storage_bytes,
@@ -40,8 +39,7 @@ DLL_PUBLIC size_t get_segmented_sort_temp_storage_bytes(
     const at::cuda::CUDAStream& stream) {
     size_t temp_storage_bytes = 0;
     const size_t total_items = num_items_per_segment * static_cast<size_t>(num_groups);
-    AT_DISPATCH_INTEGRAL_TYPES(scalar_type, "get_segmented_sort_temp_storage_bytes", [&] {
-        using index_t = scalar_t;
+    AT_DISPATCH_INDEX_TYPES(scalar_type, "get_segmented_sort_temp_storage_bytes", [&] {
         // segmented_radix_sort_pairs requires segmented_radix_sort_config, not
         // radix_sort_config — use default config (radix sort, no merge fallback).
         AT_CUDA_CHECK(rocprim::segmented_radix_sort_pairs(
@@ -83,8 +81,7 @@ DLL_PUBLIC void sort_indices_segmented_rocprim(
     const auto* begin_offsets = segment_offsets.const_data_ptr<int64_t>();
     const auto* end_offsets = begin_offsets + 1;
 
-    AT_DISPATCH_INTEGRAL_TYPES(all_keys_in.scalar_type(), "sort_indices_segmented_rocprim", [&] {
-        using index_t = scalar_t;
+    AT_DISPATCH_INDEX_TYPES(all_keys_in.scalar_type(), "sort_indices_segmented_rocprim", [&] {
         // segmented_radix_sort_pairs requires segmented_radix_sort_config —
         // radix_sort_config is not accepted here, so default config is used.
         // Only call this path when num_items_per_segment >= k_sort_merge_threshold
@@ -122,8 +119,7 @@ DLL_PUBLIC void sort_indices_batch_rocprim(
     }
     size_t temp_storage_bytes = static_cast<size_t>(temp_storage.numel());
     void* temp_ptr = temp_storage.data_ptr();
-    AT_DISPATCH_INTEGRAL_TYPES(scalar_type, "sort_indices_batch_rocprim", [&] {
-        using index_t = scalar_t;
+    AT_DISPATCH_INDEX_TYPES(scalar_type, "sort_indices_batch_rocprim", [&] {
         auto* keys_out = static_cast<index_t*>(keys_out_base);
         for (int64_t i = 0; i < num_groups; ++i) {
             AT_CUDA_CHECK(rocprim::radix_sort_pairs<sort_config>(
