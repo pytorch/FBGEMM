@@ -19,6 +19,7 @@
 #include <cstring> //for memcpy
 #include <limits> //for numeric_limits
 #include "./MaskAvx2.h" // @manual
+#include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
 
@@ -1640,10 +1641,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       minimum_element = min_max_row_float[0];
       maximum_element = min_max_row_float[1];
 
-      for (int col = 0; col < input_columns; ++col) {
-        if constexpr (std::is_same_v<InputType, float16>) {
-          input_row_float_for_fp16[col] = halfToFloat(input_row[col]);
-        }
+      if constexpr (std::is_same_v<InputType, float16>) {
+        Float16ToFloat_avx2(input_row, input_row_float_for_fp16, input_columns);
       }
     } else {
       __m256 min_v = _mm256_set1_ps(minimum_element);
@@ -1865,10 +1864,8 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
       minimum_element = min_max_row_float[0];
       maximum_element = min_max_row_float[1];
 
-      for (int col = 0; col < input_columns; ++col) {
-        if constexpr (std::is_same_v<InputType, float16>) {
-          input_row_float_for_fp16[col] = halfToFloat(input_row[col]);
-        }
+      if constexpr (std::is_same_v<InputType, float16>) {
+        Float16ToFloat_avx2(input_row, input_row_float_for_fp16, input_columns);
       }
     } else {
       __m256 min_v = _mm256_set1_ps(minimum_element);
