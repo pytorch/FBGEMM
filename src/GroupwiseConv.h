@@ -25,25 +25,25 @@
 
 #define GCONV_INST_AVX2_HEADER          \
   template <inst_set_t ISET = INST_SET> \
-  std::enable_if_t<ISET == inst_set_t::avx2, void>
+    requires(ISET == inst_set_t::avx2)  \
+  void
 
-#define GCONV_INST_AVX512_AND_VNNI_HEADER                            \
-  template <inst_set_t ISET = INST_SET>                              \
-  std::enable_if_t<                                                  \
-      ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
-      void>
+#define GCONV_INST_AVX512_AND_VNNI_HEADER                                   \
+  template <inst_set_t ISET = INST_SET>                                     \
+    requires(ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni) \
+  void
 
 #define GCONV_INST_DEF_AVX2_HEADER                \
   template <int SPATIAL_DIM, inst_set_t INST_SET> \
   template <inst_set_t ISET>                      \
-  std::enable_if_t<ISET == inst_set_t::avx2, void>
+    requires(ISET == inst_set_t::avx2)            \
+  void
 
-#define GCONV_INST_DEF_AVX512_AND_VNNI_HEADER                        \
-  template <int SPATIAL_DIM, inst_set_t INST_SET>                    \
-  template <inst_set_t ISET>                                         \
-  std::enable_if_t<                                                  \
-      ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
-      void>
+#define GCONV_INST_DEF_AVX512_AND_VNNI_HEADER                               \
+  template <int SPATIAL_DIM, inst_set_t INST_SET>                           \
+  template <inst_set_t ISET>                                                \
+    requires(ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni) \
+  void
 
 namespace fbgemm {
 

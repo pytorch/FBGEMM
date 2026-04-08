@@ -45,17 +45,12 @@ namespace fbgemm {
 /**
  * @brief Templatized struct for packing parameters for A and B matrices.
  *
- * @tparam T input type
+ * @tparam T input type (constrained by Int8Type concept for 8-bit
+ * specializations)
  * @tparam accT the type used for accumulation
  * @tparam instSet anyarch/avx2/avx512
- * @tparam int8Type an auxiliary template parameter to specialize for 8-bit
- *                  input types.
  */
-template <
-    typename T,
-    typename accT,
-    inst_set_t instSet,
-    typename int8Type = void>
+template <typename T, typename accT, inst_set_t instSet>
 struct PackingTraits;
 
 // type specialized implementation in an include file
