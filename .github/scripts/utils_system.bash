@@ -173,26 +173,19 @@ print_gpu_info () {
   (lspci -v | grep -e 'Display controller: Advanced') || true
 
   if [[ "${ENFORCE_ROCM_DEVICE}" ]]; then
-    # Ensure that rocm-smi is available and returns GPU entries
-    if ! rocm-smi; then
+    # Ensure that amd-smi is available and returns GPU entries
+    if ! amd-smi; then
       echo "[CHECK] ROCm drivers and ROCm device(s) are required for this workflow, but does not appear to be installed or available!"
       return 1
     fi
 
   else
-    if which rocm-smi; then
-      echo "[CHECK] rocm-smi found; printing info ..."
+    if which amd-smi; then
+      echo "[CHECK] amd-smi found; printing info ..."
       # If the program is installed on a machine without GPUs, invoking it will return error
-      (print_exec rocm-smi --showproductname) || true
+      (print_exec amd-smi --showproductname) || true
     else
-      echo "[CHECK] rocm-smi not found"
-    fi
-
-    if which rocminfo; then
-      echo "[CHECK] rocminfo found; printing info ..."
-      (print_exec rocminfo) || true
-    else
-      echo "[CHECK] rocminfo not found"
+      echo "[CHECK] amd-smi not found"
     fi
   fi
 }

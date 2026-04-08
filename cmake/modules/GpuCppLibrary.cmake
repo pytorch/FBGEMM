@@ -257,8 +257,6 @@ function(gpu_cpp_library)
         # Append ROCM includes
         target_include_directories(${lib_name} PUBLIC
             ${FBGEMM_HIP_INCLUDE}
-            ${ROCRAND_INCLUDE}
-            ${ROCM_SMI_INCLUDE}
             ${args_INCLUDE_DIRS})
 
     else()
