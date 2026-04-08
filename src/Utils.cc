@@ -11,6 +11,7 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/Utils.h"
 #include <cpuinfo.h>
+#include <bit>
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
@@ -518,24 +519,6 @@ thread_type_t fbgemmGetThreadPartition(
 
 namespace {
 
-// implementation taken from pytorch/c10/util/llvmMathExtras.h
-template <typename T>
-size_t count_leading_zeros(T val) {
-  if (!val)
-    return std::numeric_limits<T>::digits;
-
-  // Use bisection method
-  size_t zero_bits = 0;
-  for (auto shift = std::numeric_limits<T>::digits >> 1; shift; shift >>= 1) {
-    const auto tmp = val >> shift;
-    if (tmp)
-      val = tmp;
-    else
-      zero_bits |= shift;
-  }
-  return zero_bits;
-}
-
 // histogram size per thread
 constexpr int RDX_HIST_SIZE = 256;
 
@@ -705,9 +688,8 @@ std::pair<K*, V*> radix_sort_parallel(
   // up to a sign bit
   int num_bits = sizeof(K) * 8;
   if (!maybe_with_neg_vals)
-    // __builtin_clz is not portable, std::countl_zero is available in C++20
     num_bits -=
-        count_leading_zeros(static_cast<std::make_unsigned_t<K>>(max_value));
+        std::countl_zero(static_cast<std::make_unsigned_t<K>>(max_value));
 
   const unsigned int num_passes = (num_bits + 7) / 8;
 
