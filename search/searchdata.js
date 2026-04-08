@@ -7,7 +7,8 @@ var indexSectionsWithContent =
   4: "_abcdefghijklmnopqrstuwxz",
   5: "abgikmnor",
   6: "dfimor",
-  7: "13acdefgijlmopqstu"
+  7: "13acdefgijlmopqstu",
+  8: "i"
 };
 
 var indexSectionNames =
@@ -19,7 +20,8 @@ var indexSectionNames =
   4: "functions",
   5: "variables",
   6: "enums",
-  7: "groups"
+  7: "groups",
+  8: "concepts"
 };
 
 var indexSectionLabels =
@@ -31,6 +33,7 @@ var indexSectionLabels =
   4: "Functions",
   5: "Variables",
   6: "Enumerations",
-  7: "Modules"
+  7: "Modules",
+  8: "Concepts"
 };
 
