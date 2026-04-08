@@ -295,10 +295,9 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
     const bool found =
         (::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
 #ifdef USE_ROCM
-    // FIXME: __ballot_sync with mask isn't supported by HIP yet.
-    // See https://fburl.com/fvy7j0lq for the similar context.
-    // assert false here with https://fburl.com/pfm7enw2
-    assert(false);
+    // HIP does not support __ballot_sync with mask; use __ballot instead.
+    // AMD wavefronts execute in lockstep, so no explicit sync is needed.
+    // __ballot returns uint64_t on ROCm (64-wide wavefront).
     const auto bitmap = __ballot(found);
     if (bitmap) {
       const auto way = __ffsll(bitmap) - 1;

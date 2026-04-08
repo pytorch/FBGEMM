@@ -12,4 +12,5 @@ from .common import ASSOC  # noqa: F401
 
 # Load the inference and training ops
 from .inference import SSDIntNBitTableBatchedEmbeddingBags  # noqa: F401
+from .inference_serving import TurboSSDInferenceModule  # noqa: F401
 from .training import SSDTableBatchedEmbeddingBags  # noqa: F401

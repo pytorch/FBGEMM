@@ -99,6 +99,11 @@ struct BitonicSort {
     warpBitonicMergeLE16<K, V, 4, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 8, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 16, Dir, Comp, false>(k[0], v[0]);
+#ifdef USE_ROCM
+    // AMD wavefronts are 64-wide, so we need a 6th merge stage (L=32)
+    // to fully sort all 64 elements. L=32 <= kWarpSize/2 = 32. ✓
+    warpBitonicMergeLE16<K, V, 32, Dir, Comp, false>(k[0], v[0]);
+#endif
   }
 };
 
