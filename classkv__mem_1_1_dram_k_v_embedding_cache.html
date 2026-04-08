@@ -316,7 +316,7 @@ template&lt;typename weight_type&gt; </div>
   </tr>
 </table>
 </div><div class="memdoc">
-<p>Decode int64 SID from cache weights. Reverse of prepareInt64PayloadTensors nibble encoding: 16 nibbles → uint64 → int64 nibble n = (exponent &lt;&lt; 1) | sign_bit, float = pow(2, exponent) * sign </p>
+<p>Decode int64 SID from cache weights. Reverse of prepareInt64PayloadTensors dibit encoding: 32 dibits -&gt; uint64 -&gt; int64 dibit d encodes as float: {0: 0.5, 1: 1.0, 2: 1.5, 3: 2.0} Decode: dibit = round(fval * 2 - 1) </p>
 
 </div>
 </div>
