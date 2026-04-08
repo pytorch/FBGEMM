@@ -79,7 +79,7 @@ class TBEInputPrepareReference(torch.nn.Module):
         )
         combined_offsets = torch.zeros(
             combined_offsets_size,
-            dtype=torch.int32,
+            dtype=torch.int64,
             device=offsets_list[0].device,
         )
         if batch_size is None:
