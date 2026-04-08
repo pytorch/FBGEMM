@@ -279,12 +279,12 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
   auto combined_offsets = at::empty(
       {total_offsets},
       at::TensorOptions()
-          .dtype(c10::kInt)
+          .dtype(c10::kLong)
           .device(offsets_list[0].device())
           .pinned_memory(pin_memory));
 
-  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
-  int32_t offset = 0;
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int64_t>();
+  int64_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -299,13 +299,13 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
                j < size;
                j++) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_data_ptr[j]);
+                offset + static_cast<int64_t>(offsets_data_ptr[j]);
           }
 
           if (to_trim_padding) {
-            offset += static_cast<int32_t>(offsets_list[i][-1].item().toInt());
+            offset += static_cast<int64_t>(offsets_list[i][-1].item().toInt());
           } else {
-            offset += static_cast<int32_t>(indices_list[i].numel());
+            offset += indices_list[i].numel();
           }
           combined_offsets_data_ptr[offsets_acc_idx++] = offset;
         });
@@ -473,12 +473,12 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
   auto combined_offsets = at::empty(
       {total_offsets},
       at::TensorOptions()
-          .dtype(c10::kInt)
+          .dtype(c10::kLong)
           .device(offsets_list[0].device())
           .pinned_memory(pin_memory));
 
-  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
-  int32_t offset = 0;
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int64_t>();
+  int64_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -491,9 +491,9 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
               offsets_list[i].numel() - (include_last_offsets_acc[i] ? 1 : 0);
           for (const auto j : c10::irange(1, offsets_size)) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_data_ptr[j]);
+                offset + static_cast<int64_t>(offsets_data_ptr[j]);
           }
-          offset += static_cast<int32_t>(indices_list[i].numel());
+          offset += indices_list[i].numel();
           for (int64_t j = offsets_size; j <= batch_size; j++) {
             combined_offsets_data_ptr[offsets_acc_idx++] = offset;
           }
