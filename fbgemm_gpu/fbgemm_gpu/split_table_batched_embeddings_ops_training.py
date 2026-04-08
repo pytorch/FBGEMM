@@ -4556,7 +4556,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         try:
             if self._feature_is_enabled(FeatureGateName.TBE_REPORT_INPUT_PARAMS):
-                from fbgemm_gpu.tbe.stats import TBEBenchmarkParamsReporter
+                from fbgemm_gpu.tbe.monitoring.bench_params_reporter import (
+                    TBEBenchmarkParamsReporter,
+                )
 
                 reporter = TBEBenchmarkParamsReporter.create()
                 return reporter.report_stats

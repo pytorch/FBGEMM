@@ -311,3 +311,16 @@ install(FILES ${gen_py_files_training}
 
 install(FILES ${gen_py_files_defused_optim}
   DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
+
+# Install the TBE Python subpackages that are not auto-discovered by
+# setuptools.find_packages() in certain scikit-build configurations.
+# This ensures tbe/monitoring/ (and other tbe/ subpackages) are included
+# in the OSS wheel.
+install(FILES
+  fbgemm_gpu/tbe/__init__.py
+  DESTINATION fbgemm_gpu/tbe)
+
+install(DIRECTORY
+  fbgemm_gpu/tbe/monitoring
+  DESTINATION fbgemm_gpu/tbe
+  FILES_MATCHING PATTERN "*.py")
