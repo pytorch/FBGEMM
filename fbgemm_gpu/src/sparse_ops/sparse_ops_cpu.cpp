@@ -730,7 +730,10 @@ permute_2D_sparse_data_input1D_cpu(
           lengths.view({-1, stride}),
           indices,
           weights,
-          permuted_lengths_sum);
+          permuted_lengths_sum,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt);
   return {permuted_lengths.view(-1), permuted_indices, permuted_weights};
 }
 
@@ -739,7 +742,10 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
     const Tensor& lengths,
     const Tensor& indices,
     const std::optional<Tensor>& weights,
-    const std::optional<int64_t>& permuted_lengths_sum) {
+    const std::optional<int64_t>& permuted_lengths_sum,
+    const std::optional<Tensor>& permuted_lengths_out,
+    const std::optional<Tensor>& permuted_indices_out,
+    const std::optional<Tensor>& permuted_weights_out) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
@@ -760,7 +766,9 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
   Tensor permuted_indices;
   std::optional<Tensor> permuted_weights;
 
-  permuted_lengths = at::empty({T, B}, lengths.options());
+  permuted_lengths = permuted_lengths_out.has_value()
+      ? permuted_lengths_out.value()
+      : at::empty({T, B}, lengths.options());
 
   const auto lengths_size = lengths.numel();
   auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
@@ -789,7 +797,9 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
     permuted_indices_size =
         output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
   }
-  permuted_indices = at::empty(permuted_indices_size, indices.options());
+  permuted_indices = permuted_indices_out.has_value()
+      ? permuted_indices_out.value()
+      : at::empty(permuted_indices_size, indices.options());
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_2D_indices_weights_kernel_1", [&] {
         using offsets_t = index_t;
@@ -805,8 +815,11 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
                     if (weights.has_value()) {
                       const auto weights_value_contig =
                           weights.value().expect_contiguous();
-                      permuted_weights = at::empty(
-                          permuted_indices_size, weights.value().options());
+                      permuted_weights = permuted_weights_out.has_value()
+                          ? permuted_weights_out.value()
+                          : at::empty(
+                                permuted_indices_size,
+                                weights.value().options());
                       _permute_2D_indices_weights_kernel_cpu<
                           true,
                           index_t,
@@ -3214,7 +3227,10 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
           lengths,
           embeddings,
           weights_dummy,
-          permuted_lengths_sum_dummy);
+          permuted_lengths_sum_dummy,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt);
 
   return {permuted_lengths, permuted_embeddings};
 }
@@ -3793,9 +3809,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
 #endif
   m.def(
-      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None, Tensor? permuted_lengths_out=None, Tensor? permuted_indices_out=None, Tensor? permuted_weights_out=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
-      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None, Tensor? permuted_lengths_out=None, Tensor? permuted_indices_out=None, Tensor? permuted_weights_out=None) -> (Tensor, Tensor, Tensor?)",
       {PT2_COMPLIANT_TAG});
   m.def(
       "permute_2D_sparse_data_input1D(Tensor permute, Tensor lengths, Tensor values, SymInt stride, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");

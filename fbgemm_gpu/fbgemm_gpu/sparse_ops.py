@@ -140,6 +140,9 @@ def permute_2D_sparse_data_meta(
     values: Tensor,
     weights: Optional[Tensor] = None,
     permuted_lengths_sum: Optional[int] = None,
+    permuted_lengths_out: Optional[Tensor] = None,
+    permuted_indices_out: Optional[Tensor] = None,
+    permuted_weights_out: Optional[Tensor] = None,
 ) -> tuple[Tensor, Tensor, Optional[Tensor]]:
     torch._check(
         lengths.dim() == 2, lambda: f"expected lengths.dim() == 2, got {lengths.dim()}"
@@ -147,7 +150,11 @@ def permute_2D_sparse_data_meta(
     T = permute.numel()
     B = lengths.size(1)
     indices = values
-    permuted_lengths = lengths.new_empty([T, B])
+    permuted_lengths = (
+        permuted_lengths_out
+        if permuted_lengths_out is not None
+        else lengths.new_empty([T, B])
+    )
     permuted_indices_size = 0
     if permuted_lengths_sum is not None:
         permuted_indices_size = permuted_lengths_sum
@@ -155,11 +162,19 @@ def permute_2D_sparse_data_meta(
         ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
     # pyre-fixme
-    permuted_indices = indices.new_empty(permuted_indices_size)
+    permuted_indices = (
+        permuted_indices_out
+        if permuted_indices_out is not None
+        else indices.new_empty(permuted_indices_size)
+    )
     permuted_weights = None
     if weights is not None:
         # pyre-fixme
-        permuted_weights = weights.new_empty(permuted_indices_size)
+        permuted_weights = (
+            permuted_weights_out
+            if permuted_weights_out is not None
+            else weights.new_empty(permuted_indices_size)
+        )
     return permuted_lengths, permuted_indices, permuted_weights
 
 
