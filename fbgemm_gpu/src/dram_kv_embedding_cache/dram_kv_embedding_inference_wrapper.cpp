@@ -119,12 +119,8 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings(
         static_cast<std::uint32_t>(inplace_update_ts_opt.value());
   }
 
-  if (FLAGS_kv_embedding_async_get_set) {
-    folly::coro::blockingWait(kv_backend_->inference_set_kv_db_async(
-        indices, weights, count, inplacee_update_ts));
-  } else {
-    kv_backend_->set_kv_db_sync(indices, weights, count, inplacee_update_ts);
-  }
+  folly::coro::blockingWait(kv_backend_->inference_set_kv_db_async(
+      indices, weights, count, inplacee_update_ts));
 }
 
 at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
@@ -137,12 +133,8 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
       },
       at::kByte);
 
-  if (FLAGS_kv_embedding_async_get_set) {
-    folly::coro::blockingWait(
-        kv_backend_->get_kv_db_async(indices, weights, count));
-  } else {
-    kv_backend_->get_kv_db_sync(indices, weights, count);
-  }
+  folly::coro::blockingWait(
+      kv_backend_->get_kv_db_async(indices, weights, count));
   return weights;
 }
 
