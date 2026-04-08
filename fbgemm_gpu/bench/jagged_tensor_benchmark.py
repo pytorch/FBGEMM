@@ -445,13 +445,22 @@ def device(
     def _export_kineto_trace(
         fn: Callable[[], None],
         bench_name: str,
-        num_warmup: int = 10,
+        num_warmup: int = 100,
         num_active: int = 5,
     ) -> None:
         if not export_trace:
             return
-        total_iters = num_warmup + num_active
         is_cuda = device != "cpu"
+
+        # Warmup outside profiler context to avoid CUPTI hook overhead.
+        # Even during the profiler's "wait" phase, CUPTI callbacks remain
+        # registered and add measurable overhead to memory-bound kernels
+        # (e.g. float32 generic path).
+        for _ in range(num_warmup):
+            fn()
+            if is_cuda:
+                torch.cuda.synchronize(device)
+
         # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
@@ -459,11 +468,11 @@ def device(
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         with profile(
             activities=activities,
-            schedule=schedule(wait=0, warmup=num_warmup, active=num_active, repeat=1),
+            schedule=schedule(wait=0, warmup=0, active=num_active, repeat=1),
             record_shapes=True,
             on_trace_ready=_kineto_trace_handler,
         ) as prof:
-            for _ in range(total_iters):
+            for _ in range(num_active):
                 fn()
                 if is_cuda:
                     torch.cuda.synchronize(device)
