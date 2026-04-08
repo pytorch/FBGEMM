@@ -365,7 +365,7 @@ __noinline__ __device__ void process_all_indices_small_Ls(
             reinterpret_cast<uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
             reinterpret_cast<uintptr_t>(&weights[indices[l] * load_D]);
         }
-        if constexpr (!std::is_same<emb_t, cache_t>::value) {
+        if constexpr (!std::is_same_v<emb_t, cache_t>) {
           cache_look_up_bits = ballot_sync(cache_idx != kCacheLocationMissing);
         }
       }
@@ -592,7 +592,7 @@ __noinline__ __device__ void process_all_indices_large_Ls(
             reinterpret_cast<uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
             reinterpret_cast<uintptr_t>(&weights[indices[l] * load_D]);
         }
-        if constexpr (!std::is_same<emb_t, cache_t>::value) {
+        if constexpr (!std::is_same_v<emb_t, cache_t>) {
           cache_look_up_bits = ballot_sync(cache_idx != kCacheLocationMissing);
           // Shift cache_look_up_bits based on group_id
           cache_look_up_bits >>= static_cast<uint32_t>(threadIdx.x / LOAD_GROUP_SIZE);
@@ -903,7 +903,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
       output_vec_t, \
       look_up_bits_t, \
       USE_CACHE, \
-      USE_CACHE && !std::is_same<emb_t, cache_t>::value, \
+      USE_CACHE && !std::is_same_v<emb_t, cache_t>, \
       NUM_PARAMS * NUM_WARPS, \
       STEP, \
       STEP_MASK, \

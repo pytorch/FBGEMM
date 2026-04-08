@@ -101,10 +101,10 @@ void split_embedding_forward_cpu_kernel(
 
       bool success = true;
       if (use_fbgemm) {
-        using fbgemm_weight_t = typename std::conditional<
+        using fbgemm_weight_t = std::conditional_t<
             std::is_same_v<weights_t, at::Half>,
             fbgemm::float16,
-            weights_t>::type;
+            weights_t>;
         auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<
             fbgemm_weight_t,
             /*IndexType=*/index_t,
@@ -220,10 +220,10 @@ Tensor split_embedding_codegen_forward_cpu(
 
         FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
             weights.scalar_type(), "split_embedding_cpu_forward_2", [&] {
-              using ind_weights_t = std::conditional<
+              using ind_weights_t = std::conditional_t<
                   std::is_same_v<scalar_t, double>,
                   double,
-                  float>::type;
+                  float>;
 
               AT_DISPATCH_INDEX_TYPES(
                   offsets.scalar_type(), "split_embedding_cpu_forward_3", [&] {
@@ -427,7 +427,7 @@ void csr2csc_template_(
       csr_offsets[table_to_feature_offset[0] * B];
 
   using pair_t = std::pair<int, scalar_t>;
-  using value_t = typename std::conditional<IS_VALUE_PAIR, pair_t, int>::type;
+  using value_t = std::conditional_t<IS_VALUE_PAIR, pair_t, int>;
 
   csc.column_segment_ids = fbgemm::makeAlignedUniquePtr<int>(64, nnz);
   auto tmpBufKeys = fbgemm::makeAlignedUniquePtr<int>(64, NS);
