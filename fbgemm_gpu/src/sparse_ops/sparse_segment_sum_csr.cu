@@ -17,18 +17,18 @@ namespace fbgemm_gpu {
 template <typename values_t, typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
     int num_segments,
-    int batch_size,
+    int64_t batch_size,
     const index_t* csr_seg_data,
     const values_t* values_data,
     values_t* output_data) {
   typedef FBGEMM_GPU_CUB_NS_PREFIX cub::BlockReduce<values_t, 256> BlockReduce;
 
   __shared__ typename BlockReduce::TempStorage temp_storage;
-  index_t seg_start = csr_seg_data[blockIdx.x] * batch_size;
-  index_t seg_end = csr_seg_data[blockIdx.x + 1] * batch_size;
+  int64_t seg_start = (int64_t)csr_seg_data[blockIdx.x] * batch_size;
+  int64_t seg_end = (int64_t)csr_seg_data[blockIdx.x + 1] * batch_size;
   values_t sum = 0;
 
-  for (index_t i = seg_start; i < seg_end; i += blockDim.x) {
+  for (int64_t i = seg_start; i < seg_end; i += blockDim.x) {
     values_t thread_data;
     if (threadIdx.x < seg_end - i) {
       thread_data = values_data[i + threadIdx.x];
