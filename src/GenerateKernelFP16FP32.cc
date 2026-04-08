@@ -295,7 +295,7 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
   funcptr_t<T> fn = nullptr;
   {
     std::lock_guard<std::mutex> lock(rtMutex_);
-    Error err = runtime().add(&fn, &code);
+    asmjit::Error err = runtime().add(&fn, &code);
     if (err) {
       return nullptr;
     }
