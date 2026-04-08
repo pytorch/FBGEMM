@@ -52,12 +52,8 @@
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx2
  */
-template <typename T>
-struct PackingTraits<
-    T,
-    std::int32_t,
-    inst_set_t::avx2,
-    std::enable_if_t<is_8bit<T>::value>> {
+template <Int8Type T>
+struct PackingTraits<T, std::int32_t, inst_set_t::avx2> {
   static constexpr int MR{12}; ///< Register block for M dimension.
   static constexpr int NR_MIN{8}; ///< Minimum register block for N dimension.
                                   ///< 8 because 8*ROW_INTERLEAVE int8 elements
@@ -99,12 +95,8 @@ struct PackingTraits<
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx2.
  */
-template <typename T>
-struct PackingTraits<
-    T,
-    std::int16_t,
-    inst_set_t::avx2,
-    std::enable_if_t<is_8bit<T>::value>> {
+template <Int8Type T>
+struct PackingTraits<T, std::int16_t, inst_set_t::avx2> {
   static constexpr int MR{3}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -193,12 +185,8 @@ struct PackingTraits<float16, float, inst_set_t::avx2> {
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx512.
  */
-template <typename T>
-struct PackingTraits<
-    T,
-    std::int32_t,
-    inst_set_t::avx512,
-    std::enable_if_t<is_8bit<T>::value>> {
+template <Int8Type T>
+struct PackingTraits<T, std::int32_t, inst_set_t::avx512> {
   static constexpr int MR{14}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -243,12 +231,8 @@ struct PackingTraits<
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx512_ymm.
  */
-template <typename T>
-struct PackingTraits<
-    T,
-    std::int32_t,
-    inst_set_t::avx512_ymm,
-    std::enable_if_t<is_8bit<T>::value>> {
+template <Int8Type T>
+struct PackingTraits<T, std::int32_t, inst_set_t::avx512_ymm> {
   static constexpr int MR{7}; ///< Register block for M dimension.
   static constexpr int NR_MIN{16}; ///< Minimum register block for N dimension.
                                    ///< 8 because 8*ROW_INTERLEAVE int8 elements
@@ -291,12 +275,8 @@ struct PackingTraits<
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx512.
  */
-template <typename T>
-struct PackingTraits<
-    T,
-    std::int16_t,
-    inst_set_t::avx512,
-    std::enable_if_t<is_8bit<T>::value>> {
+template <Int8Type T>
+struct PackingTraits<T, std::int16_t, inst_set_t::avx512> {
   static constexpr int MR{6}; ///< Register block for M dimension
   static constexpr int NR_MIN{
       32}; ///< Minimum register block for N dimension;
@@ -341,12 +321,8 @@ struct PackingTraits<
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx512_ymm.
  */
-template <typename T>
-struct PackingTraits<
-    T,
-    std::int16_t,
-    inst_set_t::avx512_ymm,
-    std::enable_if_t<is_8bit<T>::value>> {
+template <Int8Type T>
+struct PackingTraits<T, std::int16_t, inst_set_t::avx512_ymm> {
   static constexpr int MR{6}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -393,6 +369,10 @@ struct is_16or32bit {
       std::is_same_v<T, int16_t> || std::is_same_v<T, int32_t>;
 };
 
+/// @brief Concept for 16-bit or 32-bit integer types.
+template <typename T>
+concept Int16or32Type = is_16or32bit<T>::value;
+
 /**
  * @brief Packing parameter specialization for accumulation into 32-bit/16-bit
  * integers.
@@ -403,12 +383,8 @@ struct is_16or32bit {
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx512_vnni.
  */
-template <typename T, typename accT>
-struct PackingTraits<
-    T,
-    accT,
-    inst_set_t::avx512_vnni,
-    std::enable_if_t<is_8bit<T>::value && is_16or32bit<accT>::value>> {
+template <Int8Type T, Int16or32Type accT>
+struct PackingTraits<T, accT, inst_set_t::avx512_vnni> {
   static constexpr int MR{8}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -456,12 +432,8 @@ struct PackingTraits<
  * This is picked when T is of int8 type (signed or unsigned) and instruction
  * set is avx512_vnni_ymm.
  */
-template <typename T, typename accT>
-struct PackingTraits<
-    T,
-    accT,
-    inst_set_t::avx512_vnni_ymm,
-    std::enable_if_t<is_8bit<T>::value && is_16or32bit<accT>::value>> {
+template <Int8Type T, Int16or32Type accT>
+struct PackingTraits<T, accT, inst_set_t::avx512_vnni_ymm> {
   static constexpr int MR{4}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.

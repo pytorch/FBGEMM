@@ -24,11 +24,6 @@ import weakref
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-from fbgemm_gpu.runtime_monitor import (
-    AsyncSeriesTimer,
-    TBEStatsReporter,
-    TBEStatsReporterConfig,
-)
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BackendType,
@@ -53,6 +48,11 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     check_allocated_vbe_output,
     generate_vbe_metadata,
     is_torchdynamo_compiling,
+)
+from fbgemm_gpu.tbe.monitoring import (
+    AsyncSeriesTimer,
+    TBEStatsReporter,
+    TBEStatsReporterConfig,
 )
 from torch import distributed as dist, nn, Tensor  # usort:skip
 import sys

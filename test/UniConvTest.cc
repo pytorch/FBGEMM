@@ -739,10 +739,9 @@ static void runRequantizeTest(
           }
         }
       } else { // OUT_CHANNEL
-        transform(
-            act_times_w_scale.begin(),
-            act_times_w_scale.end(),
-            bias_int32.begin(),
+        std::ranges::transform(
+            act_times_w_scale,
+            bias_int32,
             bias_fp32.begin(),
             multiplies<float>());
       }

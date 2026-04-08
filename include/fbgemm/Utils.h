@@ -42,6 +42,10 @@ struct is_8bit {
       std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>;
 };
 
+/// @brief Concept for 8-bit integer types (int8_t or uint8_t).
+template <typename T>
+concept Int8Type = is_8bit<T>::value;
+
 /**
  * @brief Typed enum to specify matrix operations.
  */

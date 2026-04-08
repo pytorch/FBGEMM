@@ -27,11 +27,6 @@ from torch.autograd.profiler import record_function  # usort:skip
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
-from fbgemm_gpu.runtime_monitor import (
-    AsyncSeriesTimer,
-    TBEStatsReporter,
-    TBEStatsReporterConfig,
-)
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -52,11 +47,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
     is_torchdynamo_compiling,
 )
-from fbgemm_gpu.tbe_input_multiplexer import (
+from fbgemm_gpu.tbe.monitoring import (
+    AsyncSeriesTimer,
     TBEInfo,
     TBEInputInfo,
     TBEInputMultiplexer,
     TBEInputMultiplexerConfig,
+    TBEStatsReporter,
+    TBEStatsReporterConfig,
 )
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 from fbgemm_gpu.utils.writeback_util import writeback_gradient
@@ -4558,7 +4556,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         try:
             if self._feature_is_enabled(FeatureGateName.TBE_REPORT_INPUT_PARAMS):
-                from fbgemm_gpu.tbe.stats import TBEBenchmarkParamsReporter
+                from fbgemm_gpu.tbe.monitoring.bench_params_reporter import (
+                    TBEBenchmarkParamsReporter,
+                )
 
                 reporter = TBEBenchmarkParamsReporter.create()
                 return reporter.report_stats

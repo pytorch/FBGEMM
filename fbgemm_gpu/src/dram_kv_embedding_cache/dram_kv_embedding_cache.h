@@ -868,16 +868,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
   /// Decode int64 SID from cache weights.
-  /// Reverse of prepareInt64PayloadTensors nibble encoding:
-  /// 16 nibbles → uint64 → int64
-  /// nibble n = (exponent << 1) | sign_bit, float = pow(2, exponent) * sign
+  /// Reverse of prepareInt64PayloadTensors dibit encoding:
+  /// 32 dibits -> uint64 -> int64
+  /// dibit d encodes as float: {0: 0.5, 1: 1.0, 2: 1.5, 3: 2.0}
+  /// Decode: dibit = round(fval * 2 - 1)
   static int64_t decodeSIDFromWeights(const weight_type* weights_ptr) {
     uint64_t uval = 0;
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 32; ++i) {
       float fval = static_cast<float>(weights_ptr[i]);
-      int exp = std::ilogb(std::abs(fval));
-      uint8_t nibble = static_cast<uint8_t>((exp << 1) | (fval < 0.0f ? 1 : 0));
-      uval |= (static_cast<uint64_t>(nibble & 0xF) << (i * 4));
+      uint8_t dibit =
+          static_cast<uint8_t>(std::lround(fval * 2.0f - 1.0f)) & 0x3;
+      uval |= (static_cast<uint64_t>(dibit) << (i * 2));
     }
     return static_cast<int64_t>(uval);
   }

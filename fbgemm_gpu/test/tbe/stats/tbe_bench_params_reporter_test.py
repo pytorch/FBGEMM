@@ -32,7 +32,7 @@ from fbgemm_gpu.tbe.bench.tbe_data_config_bench_helper import (
     generate_embedding_dims,
     generate_requests,
 )
-from fbgemm_gpu.tbe.stats import TBEBenchmarkParamsReporter
+from fbgemm_gpu.tbe.monitoring.bench_params_reporter import TBEBenchmarkParamsReporter
 from fbgemm_gpu.tbe.utils import get_device
 from hypothesis import given, settings
 
