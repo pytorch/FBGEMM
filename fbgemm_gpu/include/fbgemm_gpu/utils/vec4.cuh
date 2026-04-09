@@ -60,7 +60,7 @@ using Vec4TAcc = Vec4T<at::acc_type<T, true>>;
 
 template <>
 struct Vec4T<float> : public Vec4BaseT<float> {
-  DEVICE_INLINE Vec4T() {}
+  DEVICE_INLINE Vec4T() = default;
 
   DEVICE_INLINE Vec4T(const float* p) {
     load(p);
@@ -272,7 +272,7 @@ struct Vec4T<float> : public Vec4BaseT<float> {
 
 template <>
 struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
-  DEVICE_INLINE Vec4T() {}
+  DEVICE_INLINE Vec4T() = default;
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
     load(p);
@@ -471,7 +471,7 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
 
 template <>
 struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
-  DEVICE_INLINE Vec4T() {}
+  DEVICE_INLINE Vec4T() = default;
 
   DEVICE_INLINE Vec4T(const at::BFloat16* p) {
     load(p);

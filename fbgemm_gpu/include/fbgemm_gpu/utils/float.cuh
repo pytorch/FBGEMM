@@ -77,28 +77,28 @@ struct Half4 {
 };
 
 struct __align__(32) float8 {
-  __host__ __device__ float8() {}
+  __host__ __device__ float8() = default;
   float4 vals[2];
 };
 
 // float_16 refers to the struct with 16 fp32 elements.
 struct __align__(64) float_16 {
-  __host__ __device__ float_16() {}
+  __host__ __device__ float_16() = default;
   float8 vals[2];
 };
 
 struct __align__(8) half4 {
-  __host__ __device__ half4() {}
+  __host__ __device__ half4() = default;
   half2 vals[2];
 };
 
 struct __align__(16) half8 {
-  __host__ __device__ half8() {}
+  __host__ __device__ half8() = default;
   half2 vals[4];
 };
 
 struct __align__(32) half16 {
-  __host__ __device__ half16() {}
+  __host__ __device__ half16() = default;
   half2 vals[8];
 };
 
@@ -123,17 +123,17 @@ struct __align__(4) __nv_bfloat162 {
        (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 
 struct __align__(8) bfloat16_4 {
-  __host__ __device__ bfloat16_4() {}
+  __host__ __device__ bfloat16_4() = default;
   __nv_bfloat162 vals[2];
 };
 
 struct __align__(16) bfloat16_8 {
-  __host__ __device__ bfloat16_8() {}
+  __host__ __device__ bfloat16_8() = default;
   __nv_bfloat162 vals[4];
 };
 
 struct __align__(32) bfloat16_16 {
-  __host__ __device__ bfloat16_16() {}
+  __host__ __device__ bfloat16_16() = default;
   __nv_bfloat162 vals[8];
 };
 
