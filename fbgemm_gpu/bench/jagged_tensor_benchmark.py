@@ -510,6 +510,7 @@ def device(
     if export_trace:
         # Prepare inputs for each benchmark's trace callable
         dense_2d = jtensor.to_dense()
+        dense_2d_squared = dense_2d * dense_2d
         jtensor_1d_values = torch.rand(
             # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
             #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
@@ -532,7 +533,7 @@ def device(
                 jtensor.values, [jtensor.offsets], dense_2d
             ),
             "bench_jagged_dense_dense_elementwise_add_jagged_output": lambda: torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
-                jtensor.values, [jtensor.offsets], dense_2d, dense_2d
+                jtensor.values, [jtensor.offsets], dense_2d, dense_2d_squared
             ),
             "bench_jagged_1d_to_dense": lambda: torch.ops.fbgemm.jagged_1d_to_dense(
                 jtensor_1d_values,
