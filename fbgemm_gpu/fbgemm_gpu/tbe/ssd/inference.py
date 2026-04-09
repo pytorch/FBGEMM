@@ -113,12 +113,14 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
 
     AMD/ROCm support status:
-        - streaming_update() and load_snapshot(): fully supported (standard
-          PyTorch tensor ops, no device-specific kernels)
-        - prefetch() and forward(): NVIDIA-only. The C++ kernels
-          (ssd_cache_populate_actions, masked_index_put, etc.) have not been
-          ported to HIP. On ROCm, the warp size is 64 but cache associativity
-          (ASSOC) is hardcoded to 32, causing memory access issues.
+        This operator supports AMD GPUs (ROCm/HIP). Key adaptations:
+        - Cache associativity (ASSOC) is set to 64 to match AMD's 64-wide
+          wavefronts (vs. 32 for NVIDIA warps). Python-side tensor shapes
+          and C++ kernel indexing are kept in sync via common.ASSOC.
+        - BitonicSort includes a 6th merge stage (L=32) for 64-element sorts.
+        - lxu_cache_lookup uses HIP-native __ballot() instead of
+          __ballot_sync().
+        - SM-count tuning uses CU-count-based heuristic for AMD GPUs.
     """
 
     embedding_specs: list[tuple[str, int, int, SparseType]]
@@ -135,7 +137,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         row_alignment: Optional[int] = None,
         fp8_exponent_bits: Optional[int] = None,
         fp8_exponent_bias: Optional[int] = None,
-        cache_assoc: int = 32,
+        cache_assoc: int = ASSOC,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cache_sets: int = 0,
         ssd_storage_directory: str = "/tmp",
@@ -161,7 +163,10 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(SSDIntNBitTableBatchedEmbeddingBags, self).__init__()
 
-        assert cache_assoc == 32, "Only 32-way cache is supported now"
+        assert cache_assoc == ASSOC, (
+            f"cache_assoc must match platform ASSOC={ASSOC} "
+            f"(CUDA=32, ROCm=64), got {cache_assoc}"
+        )
 
         self.enable_cache_locking = enable_cache_locking
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
@@ -466,10 +471,10 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.fp8_exponent_bias = -1
 
         if IS_ROCM:
-            logging.warning(
-                "SSD TBE inference running on ROCm: streaming_update() and "
-                "load_snapshot() are supported, but prefetch()/forward() "
-                "require NVIDIA CUDA kernels that are not yet ported to HIP."
+            logging.info(
+                "SSD TBE inference running on ROCm with ASSOC=%d "
+                "(matching AMD 64-wide wavefronts).",
+                ASSOC,
             )
 
         # Read-write lock for concurrent inference + streaming updates.

@@ -10,6 +10,7 @@
 import random
 import time
 import unittest
+from unittest.mock import patch
 
 import hypothesis.strategies as st
 import numpy as np
@@ -1629,3 +1630,502 @@ class TurboSSDInferenceModuleTest(unittest.TestCase):
             atol=1e-2,
             rtol=1e-2,
         )
+
+
+@unittest.skipIf(*running_in_oss)
+@unittest.skipIf(*gpu_unavailable)
+class SSDInferenceAMDSupportTest(unittest.TestCase):
+    """
+    Tests for AMD/ROCm support in SSD TBE inference.
+
+    These tests verify:
+    - ASSOC constant matches the platform warp/wavefront width
+    - Tensor shapes use the platform-appropriate ASSOC
+    - Cache invalidation works correctly with any ASSOC value
+    - Forward pass is correct regardless of ASSOC
+    - The full prefetch+forward pipeline works end-to-end
+    """
+
+    IS_ROCM: bool = hasattr(torch.version, "hip") and torch.version.hip is not None
+
+    def _create_emb(
+        self,
+        E: int = 10000,
+        D: int = 128,
+        T: int = 1,
+        cache_sets: int = 64,
+        weights_ty: SparseType = SparseType.FP32,
+    ) -> "SSDIntNBitTableBatchedEmbeddingBags":
+        import tempfile
+
+        return SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=cache_sets,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+    def _init_table(
+        self,
+        emb: "SSDIntNBitTableBatchedEmbeddingBags",
+        E: int,
+        D_bytes: int,
+        T: int = 1,
+    ) -> torch.Tensor:
+        """Initialize all tables with random data and return the weight tensor."""
+        weights = torch.randint(0, 255, (T * E, D_bytes), dtype=torch.uint8)
+        for t in range(T):
+            emb.ssd_db.set_cuda(
+                torch.arange(t * E, (t + 1) * E, dtype=torch.int64),
+                weights[t * E : (t + 1) * E],
+                torch.tensor([E]),
+                t,
+            )
+        torch.cuda.synchronize()
+        return weights
+
+    # ─── ASSOC constant tests ────────────────────────────────────────────
+
+    def test_assoc_value_matches_platform(self) -> None:
+        """ASSOC should be 64 on ROCm, 32 on CUDA."""
+        if self.IS_ROCM:
+            self.assertEqual(ASSOC, 64, "ASSOC must be 64 on ROCm (64-wide wavefronts)")
+        else:
+            self.assertEqual(ASSOC, 32, "ASSOC must be 32 on CUDA (32-wide warps)")
+
+    def test_assoc_is_power_of_two(self) -> None:
+        """ASSOC must be a power of 2 for set-associative cache indexing."""
+        self.assertTrue(
+            ASSOC > 0 and (ASSOC & (ASSOC - 1)) == 0,
+            f"ASSOC={ASSOC} is not a power of 2",
+        )
+
+    # ─── Tensor shape tests ──────────────────────────────────────────────
+
+    def test_lxu_cache_state_shape(self) -> None:
+        """lxu_cache_state must have ASSOC columns."""
+        cache_sets = 128
+        emb = self._create_emb(cache_sets=cache_sets)
+        self.assertEqual(
+            emb.lxu_cache_state.shape,
+            (cache_sets, ASSOC),
+            f"lxu_cache_state shape mismatch: expected ({cache_sets}, {ASSOC})",
+        )
+
+    def test_lru_state_shape(self) -> None:
+        """lru_state must have ASSOC columns."""
+        cache_sets = 64
+        emb = self._create_emb(cache_sets=cache_sets)
+        self.assertEqual(emb.lru_state.shape, (cache_sets, ASSOC))
+
+    def test_lxu_cache_locking_counter_shape(self) -> None:
+        """lxu_cache_locking_counter must have ASSOC columns."""
+        cache_sets = 64
+        emb = self._create_emb(cache_sets=cache_sets)
+        self.assertEqual(emb.lxu_cache_locking_counter.shape, (cache_sets, ASSOC))
+
+    def test_lxu_cache_weights_shape(self) -> None:
+        """lxu_cache_weights rows = cache_sets * ASSOC."""
+        cache_sets = 32
+        D = 128
+        weights_ty = SparseType.FP32
+        emb = self._create_emb(cache_sets=cache_sets, D=D, weights_ty=weights_ty)
+        expected_rows = cache_sets * ASSOC
+        self.assertEqual(
+            emb.lxu_cache_weights.shape[0],
+            expected_rows,
+            f"lxu_cache_weights should have {expected_rows} rows, got {emb.lxu_cache_weights.shape[0]}",
+        )
+
+    def test_cache_state_initialized_to_minus_one(self) -> None:
+        """All cache state entries should be -1 (empty) on init."""
+        emb = self._create_emb(cache_sets=64)
+        self.assertTrue(
+            (emb.lxu_cache_state == -1).all(),
+            "lxu_cache_state should be all -1 on initialization",
+        )
+
+    # ─── Cache invalidation with platform ASSOC ──────────────────────────
+
+    def test_invalidate_cache_with_assoc(self) -> None:
+        """
+        Cache invalidation must work correctly with the platform's ASSOC value.
+        Manually populate a cache entry, then invalidate it.
+        """
+        E = 1000
+        D = 128
+        cache_sets = 64
+        emb = self._create_emb(E=E, D=D, cache_sets=cache_sets)
+
+        # Manually place index 42 in cache set (42 % 64 = 42), slot 0
+        target_set = 42 % cache_sets
+        emb.lxu_cache_state[target_set, 0] = 42
+
+        # Invalidate index 42
+        emb._invalidate_cache(torch.tensor([42], dtype=torch.int64))
+
+        # Should be cleared
+        self.assertEqual(
+            emb.lxu_cache_state[target_set, 0].item(),
+            -1,
+            "Cache entry should be invalidated",
+        )
+
+    def test_invalidate_cache_last_slot(self) -> None:
+        """Cache invalidation must work in the last ASSOC slot (slot ASSOC-1)."""
+        E = 1000
+        D = 128
+        cache_sets = 64
+        emb = self._create_emb(E=E, D=D, cache_sets=cache_sets)
+
+        # Place index 7 in the LAST slot of its cache set
+        target_set = 7 % cache_sets
+        last_slot = ASSOC - 1
+        emb.lxu_cache_state[target_set, last_slot] = 7
+
+        emb._invalidate_cache(torch.tensor([7], dtype=torch.int64))
+
+        self.assertEqual(
+            emb.lxu_cache_state[target_set, last_slot].item(),
+            -1,
+            f"Cache entry in last slot (slot {last_slot}) should be invalidated",
+        )
+
+    def test_invalidate_cache_all_slots_populated(self) -> None:
+        """
+        When all ASSOC slots in a cache set are populated, invalidation
+        should only clear the matching entry.
+        """
+        E = 10000
+        D = 128
+        cache_sets = 128
+        emb = self._create_emb(E=E, D=D, cache_sets=cache_sets)
+
+        # Fill all ASSOC slots in set 0 with distinct indices that all
+        # map to set 0 (i.e., index % cache_sets == 0).
+        target_set = 0
+        indices_in_set = [i * cache_sets for i in range(ASSOC)]
+        for slot, idx in enumerate(indices_in_set):
+            emb.lxu_cache_state[target_set, slot] = idx
+
+        # Invalidate only the index in the middle slot
+        mid_slot = ASSOC // 2
+        mid_idx = indices_in_set[mid_slot]
+        emb._invalidate_cache(torch.tensor([mid_idx], dtype=torch.int64))
+
+        # Middle slot should be -1, others unchanged
+        self.assertEqual(emb.lxu_cache_state[target_set, mid_slot].item(), -1)
+        for slot in range(ASSOC):
+            if slot != mid_slot:
+                self.assertEqual(
+                    emb.lxu_cache_state[target_set, slot].item(),
+                    indices_in_set[slot],
+                    f"Slot {slot} should not be invalidated",
+                )
+
+    def test_invalidate_cache_flat_index_correctness(self) -> None:
+        """
+        The flat index computation (cache_set * ASSOC + slot) must be correct
+        for the platform's ASSOC value.
+        """
+        E = 10000
+        D = 64
+        cache_sets = 16
+        emb = self._create_emb(E=E, D=D, cache_sets=cache_sets)
+
+        # Place entries in various (set, slot) positions
+        test_cases = [
+            (0, 0),
+            (0, ASSOC - 1),
+            (cache_sets - 1, 0),
+            (cache_sets - 1, ASSOC - 1),
+            (cache_sets // 2, ASSOC // 2),
+        ]
+        for cache_set, slot in test_cases:
+            idx = cache_set  # index % cache_sets == cache_set
+            emb.lxu_cache_state[cache_set, slot] = idx
+
+        # Invalidate all of them
+        all_indices = torch.tensor(
+            [cache_set for cache_set, _ in test_cases], dtype=torch.int64
+        )
+        emb._invalidate_cache(all_indices)
+
+        for cache_set, slot in test_cases:
+            self.assertEqual(
+                emb.lxu_cache_state[cache_set, slot].item(),
+                -1,
+                f"Entry at set={cache_set}, slot={slot} should be invalidated",
+            )
+
+    # ─── Forward correctness with platform ASSOC ─────────────────────────
+
+    def test_forward_correctness_with_assoc(self) -> None:
+        """
+        Full prefetch+forward pipeline must produce correct results
+        regardless of ASSOC value.
+        """
+        import tempfile
+
+        E = 500
+        D = 64
+        B = 4
+        T = 1
+        L = 5
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)],
+            feature_table_map=[0],
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+        # Initialize with known data via set_cuda.
+        ref = torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
+        torch.manual_seed(42)
+
+        weights, ss = emb.split_embedding_weights()[0]
+        fake_quantize_embs(
+            weights,
+            ss,
+            ref.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        copy_bytes = torch.empty([E, D_bytes], dtype=torch.uint8)
+        copy_bytes[:, : unpadded_row_size_in_bytes(D, weights_ty)] = weights
+        emb.ssd_db.set_cuda(
+            torch.arange(E, dtype=torch.int64),
+            copy_bytes,
+            torch.tensor([E]),
+            0,
+        )
+        torch.cuda.synchronize()
+
+        # Forward
+        xs = torch.randint(0, E, (B, L)).cuda()
+        x = xs.view(1, B, L)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+
+        emb.prefetch(indices, offsets)
+        result = emb(indices.int(), offsets.int())
+        expected = b_indices(ref, xs)
+        torch.testing.assert_close(
+            result.float(),
+            expected.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+
+    def test_streaming_update_then_verify_with_assoc(self) -> None:
+        """
+        streaming_update() correctness with platform ASSOC:
+        manually populate cache state, then streaming_update,
+        verify cache invalidation and RocksDB write.
+        """
+        E = 1000
+        D = 128
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+        cache_sets = 128
+
+        emb = self._create_emb(
+            E=E,
+            D=D,
+            cache_sets=cache_sets,
+            weights_ty=weights_ty,
+        )
+        self._init_table(emb, E, D_bytes)
+
+        # Manually populate cache state entries (simulating what prefetch does).
+        for idx in [0, 1, 2, 3, 4]:
+            cache_set = idx % cache_sets
+            emb.lxu_cache_state[cache_set, 0] = idx
+
+        # streaming_update indices 0,1,2 with new data.
+        update_indices = torch.tensor([0, 1, 2], dtype=torch.int64)
+        new_weights = torch.randint(0, 255, (3, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(update_indices, new_weights)
+
+        # Verify cache was invalidated for updated indices.
+        for idx in [0, 1, 2]:
+            cache_set = idx % cache_sets
+            self.assertEqual(
+                emb.lxu_cache_state[cache_set, 0].item(),
+                -1,
+                f"Index {idx} should be invalidated after streaming_update",
+            )
+
+        # Verify non-updated indices 3,4 are still in cache.
+        for idx in [3, 4]:
+            cache_set = idx % cache_sets
+            self.assertEqual(
+                emb.lxu_cache_state[cache_set, 0].item(),
+                idx,
+                f"Index {idx} should still be in cache (not updated)",
+            )
+
+        # Verify RocksDB has the new data.
+        output = torch.empty(3, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(update_indices.cpu(), output, torch.tensor([3]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(output, new_weights)
+
+    # ─── Multi-table with platform ASSOC ─────────────────────────────────
+
+    def test_multi_table_tensor_shapes(self) -> None:
+        """Multi-table setup should share the same cache with ASSOC slots."""
+        T = 3
+        cache_sets = 32
+        emb = self._create_emb(T=T, cache_sets=cache_sets)
+
+        # Cache state is shared across all tables
+        self.assertEqual(emb.lxu_cache_state.shape, (cache_sets, ASSOC))
+        self.assertEqual(emb.lxu_cache_weights.shape[0], cache_sets * ASSOC)
+
+    # ─── Simulated ASSOC=64 tests (run on NVIDIA to test the logic) ──────
+
+    def test_invalidate_cache_simulated_assoc64(self) -> None:
+        """
+        Simulate ASSOC=64 on NVIDIA hardware by patching the common.ASSOC
+        and creating a module with the wider cache. This verifies the
+        _invalidate_cache logic works for 64-wide cache sets.
+        """
+        import tempfile
+
+        E = 1000
+        D = 64
+        cache_sets = 16
+        sim_assoc = 64
+
+        # Create with simulated ASSOC=64
+        with patch("fbgemm_gpu.tbe.ssd.common.ASSOC", sim_assoc), patch(
+            "fbgemm_gpu.tbe.ssd.inference.ASSOC", sim_assoc
+        ):
+            emb = SSDIntNBitTableBatchedEmbeddingBags(
+                embedding_specs=[("", E, D, SparseType.FP32)],
+                feature_table_map=[0],
+                ssd_storage_directory=tempfile.mkdtemp(),
+                cache_sets=cache_sets,
+                cache_assoc=sim_assoc,
+                pooling_mode=PoolingMode.SUM,
+            ).cuda()
+
+        # Verify shapes
+        self.assertEqual(emb.lxu_cache_state.shape, (cache_sets, sim_assoc))
+        self.assertEqual(emb.lxu_cache_weights.shape[0], cache_sets * sim_assoc)
+
+        # Place an entry in slot 63 (only valid with ASSOC=64)
+        target_set = 5
+        emb.lxu_cache_state[target_set, 63] = 5
+
+        with patch("fbgemm_gpu.tbe.ssd.inference.ASSOC", sim_assoc):
+            emb._invalidate_cache(torch.tensor([5], dtype=torch.int64))
+
+        self.assertEqual(
+            emb.lxu_cache_state[target_set, 63].item(),
+            -1,
+            "Slot 63 should be invalidated with ASSOC=64",
+        )
+
+    def test_invalidate_cache_simulated_assoc64_boundary(self) -> None:
+        """
+        With ASSOC=64, verify flat index computation at boundary:
+        (last_set, last_slot) should produce correct flat_idx.
+        """
+        import tempfile
+
+        E = 10000
+        D = 64
+        cache_sets = 8
+        sim_assoc = 64
+
+        with patch("fbgemm_gpu.tbe.ssd.common.ASSOC", sim_assoc), patch(
+            "fbgemm_gpu.tbe.ssd.inference.ASSOC", sim_assoc
+        ):
+            emb = SSDIntNBitTableBatchedEmbeddingBags(
+                embedding_specs=[("", E, D, SparseType.FP32)],
+                feature_table_map=[0],
+                ssd_storage_directory=tempfile.mkdtemp(),
+                cache_sets=cache_sets,
+                cache_assoc=sim_assoc,
+                pooling_mode=PoolingMode.SUM,
+            ).cuda()
+
+        # Place entry at (set=7, slot=63) — the very last position
+        last_set = cache_sets - 1
+        last_slot = sim_assoc - 1
+        idx = last_set  # maps to set = 7 % 8 = 7
+        emb.lxu_cache_state[last_set, last_slot] = idx
+
+        expected_flat_idx = last_set * sim_assoc + last_slot  # 7*64+63 = 511
+        # Verify the flat view
+        self.assertEqual(
+            emb.lxu_cache_state.view(-1)[expected_flat_idx].item(),
+            idx,
+        )
+
+        with patch("fbgemm_gpu.tbe.ssd.inference.ASSOC", sim_assoc):
+            emb._invalidate_cache(torch.tensor([idx], dtype=torch.int64))
+
+        self.assertEqual(
+            emb.lxu_cache_state.view(-1)[expected_flat_idx].item(),
+            -1,
+            f"Flat index {expected_flat_idx} should be invalidated",
+        )
+
+    def test_invalidate_cache_simulated_assoc64_multi_match(self) -> None:
+        """
+        With ASSOC=64, test that invalidation of a batch of indices
+        correctly handles multiple matches across different cache sets.
+        """
+        import tempfile
+
+        E = 10000
+        D = 64
+        cache_sets = 16
+        sim_assoc = 64
+
+        with patch("fbgemm_gpu.tbe.ssd.common.ASSOC", sim_assoc), patch(
+            "fbgemm_gpu.tbe.ssd.inference.ASSOC", sim_assoc
+        ):
+            emb = SSDIntNBitTableBatchedEmbeddingBags(
+                embedding_specs=[("", E, D, SparseType.FP32)],
+                feature_table_map=[0],
+                ssd_storage_directory=tempfile.mkdtemp(),
+                cache_sets=cache_sets,
+                cache_assoc=sim_assoc,
+                pooling_mode=PoolingMode.SUM,
+            ).cuda()
+
+        # Populate 3 entries in different sets, using various slots
+        entries = [
+            (0, 0, 0),  # set=0, slot=0, idx=0
+            (5, 32, 5),  # set=5, slot=32, idx=5
+            (15, 63, 15),  # set=15, slot=63, idx=15
+        ]
+        for target_set, slot, idx in entries:
+            emb.lxu_cache_state[target_set, slot] = idx
+
+        indices_to_invalidate = torch.tensor(
+            [e[2] for e in entries],
+            dtype=torch.int64,
+        )
+        with patch("fbgemm_gpu.tbe.ssd.inference.ASSOC", sim_assoc):
+            emb._invalidate_cache(indices_to_invalidate)
+
+        for target_set, slot, idx in entries:
+            self.assertEqual(
+                emb.lxu_cache_state[target_set, slot].item(),
+                -1,
+                f"Entry idx={idx} at set={target_set}, slot={slot} should be invalidated",
+            )

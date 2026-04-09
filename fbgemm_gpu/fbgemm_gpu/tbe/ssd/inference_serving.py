@@ -32,6 +32,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 )
 from torch import nn, Tensor
 
+from .common import ASSOC
 from .inference import SSDIntNBitTableBatchedEmbeddingBags
 
 
@@ -126,7 +127,7 @@ class TurboSSDInferenceModule(nn.Module):
         module = cls(tbe)
 
         total_rows = sum(r for _, r, _, _ in specs)
-        cache_capacity = cache_sets * 32  # ASSOC = 32
+        cache_capacity = cache_sets * ASSOC
         logging.info(
             f"TurboSSD inference module: {len(specs)} tables, "
             f"{total_rows:,} total rows, "
@@ -145,13 +146,12 @@ class TurboSSDInferenceModule(nn.Module):
         """
         Compute the number of cache sets for the target hit rate.
 
-        For a set-associative cache with ASSOC=32 ways, we need enough sets
+        For a set-associative cache with ASSOC ways, we need enough sets
         so that the total number of cache slots >= target fraction of the
         working set.
 
         If an HBM budget is specified, the cache is capped to fit within it.
         """
-        ASSOC = 32
 
         total_rows = sum(rows for _, rows, _, _ in specs)
         target_cached_rows = int(total_rows * cache_hit_rate)
@@ -180,7 +180,6 @@ class TurboSSDInferenceModule(nn.Module):
         Returns the projected HBM cache size. Useful for capacity planning
         on H100 (96 GB) and MI350X (288 GB).
         """
-        ASSOC = 32
         total_rows = sum(rows for _, rows, _, _ in specs)
         target_rows = int(total_rows * cache_hit_rate)
         cache_sets = max((target_rows + ASSOC - 1) // ASSOC, 1)
