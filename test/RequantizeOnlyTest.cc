@@ -55,10 +55,11 @@ TEST_P(FloatRequantizeTest, floatBiasTest) {
   float out_scale = 2.0f;
 
   aligned_vector<float> C_multiplier(cols);
-  std::ranges::transform(
-      act_times_w_scale, C_multiplier.begin(), [&out_scale](float i) {
-        return i / out_scale;
-      });
+  transform(
+      act_times_w_scale.begin(),
+      act_times_w_scale.end(),
+      C_multiplier.begin(),
+      [&out_scale](float i) { return i / out_scale; });
 
   aligned_vector<int32_t> Bint8_zero_point(cols);
   randFill<int32_t>(Bint8_zero_point, -8, 8);
@@ -76,13 +77,18 @@ TEST_P(FloatRequantizeTest, floatBiasTest) {
   // floating point bias
   aligned_vector<float> bias_f(cols);
   if (q_gran == QuantizationGranularity::TENSOR) {
-    std::ranges::transform(
-        bias_q, bias_f.begin(), [&act_times_w_scale](float i) {
-          return i * act_times_w_scale[0];
-        });
+    transform(
+        bias_q.begin(),
+        bias_q.end(),
+        bias_f.begin(),
+        [&act_times_w_scale](float i) { return i * act_times_w_scale[0]; });
   } else if (q_gran == QuantizationGranularity::OUT_CHANNEL) {
-    std::ranges::transform(
-        act_times_w_scale, bias_q, bias_f.begin(), multiplies<float>());
+    transform(
+        act_times_w_scale.begin(),
+        act_times_w_scale.end(),
+        bias_q.begin(),
+        bias_f.begin(),
+        multiplies<>());
 
   } else {
     FAIL();

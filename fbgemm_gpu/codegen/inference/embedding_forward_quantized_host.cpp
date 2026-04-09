@@ -20,7 +20,6 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 
 #include <algorithm>
-#include <span>
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -123,9 +122,10 @@ void process_uvm_cache_stats(
       {
         // Add cache stats values into the culmulated variables.
         std::lock_guard<std::mutex> guard(cache_mutex);
-        std::ranges::transform(
-            uvm_cache_stats_counters,
-            std::span(uvm_cache_stats_ptr + 1, uvm_cache_stats_counters.size()),
+        std::transform(
+            uvm_cache_stats_counters.begin(),
+            uvm_cache_stats_counters.end(),
+            uvm_cache_stats_ptr + 1,
             uvm_cache_stats_counters.begin(),
             std::plus<int>());
 
@@ -161,7 +161,10 @@ void process_uvm_cache_stats(
 
           // Fill all the elements of the vector uvm_cache_stats_counters as 0
           // to zero out the cumulated counters.
-          std::ranges::fill(uvm_cache_stats_counters, 0);
+          std::fill(
+              uvm_cache_stats_counters.begin(),
+              uvm_cache_stats_counters.end(),
+              0);
         }
       }
     }
@@ -291,7 +294,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_float8_D ? *max_float8_D : 0,
         max_float16_D,
         max_float32_D};
-    int64_t max_D = *std::ranges::max_element(max_D_list);
+    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
     // TODO: extend to support Long indices/offests types T161999845
     return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
         dev_weights,

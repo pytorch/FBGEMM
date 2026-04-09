@@ -99,7 +99,8 @@ TEST(TransposeTest, TransposeTest) {
     // float test
     vector<float> a(m * ld_src);
     vector<float> b(n * ld_dst);
-    std::ranges::generate(a, [&dist, &generator] { return dist(generator); });
+    generate(
+        a.begin(), a.end(), [&dist, &generator] { return dist(generator); });
 
     transpose_simd(m, n, a.data(), ld_src, b.data(), ld_dst);
 
@@ -108,8 +109,9 @@ TEST(TransposeTest, TransposeTest) {
     // i8 test
     vector<uint8_t> a_i8(m * ld_src);
     vector<uint8_t> b_i8(n * ld_dst);
-    std::ranges::generate(
-        a_i8, [&dist, &generator] { return dist(generator); });
+    generate(a_i8.begin(), a_i8.end(), [&dist, &generator] {
+      return dist(generator);
+    });
 
     transpose_simd(m, n, a_i8.data(), ld_src, b_i8.data(), ld_dst);
     EXPECT_TRUE(compare_tranpose_results(a_i8, b_i8, m, n, ld_src, ld_dst));
@@ -117,8 +119,9 @@ TEST(TransposeTest, TransposeTest) {
     // i16 test
     vector<uint16_t> a_i16(m * ld_src);
     vector<uint16_t> b_i16(n * ld_dst);
-    std::ranges::generate(
-        a_i16, [&dist, &generator] { return dist(generator); });
+    generate(a_i16.begin(), a_i16.end(), [&dist, &generator] {
+      return dist(generator);
+    });
 
     transpose_simd(m, n, a_i16.data(), ld_src, b_i16.data(), ld_dst);
     EXPECT_TRUE(compare_tranpose_results(a_i16, b_i16, m, n, ld_src, ld_dst));
