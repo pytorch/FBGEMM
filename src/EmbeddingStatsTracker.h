@@ -128,15 +128,7 @@ class EmbeddingStatsTracker {
           input_data_type(input_dt),
           output_data_type(output_dt) {}
 
-    // Equality operator for hash map
-    // Used by the unordered_map to determine if two AccessPatternEntry objects
-    // represent the same entry
-    bool operator==(const AccessPatternEntry& other) const {
-      return rows == other.rows && dims == other.dims &&
-          batch_size == other.batch_size && bag_size == other.bag_size &&
-          input_data_type == other.input_data_type &&
-          output_data_type == other.output_data_type;
-    }
+    bool operator==(const AccessPatternEntry&) const = default;
 
     // Generate a string representation for debugging and logging purposes
     std::string toString() const {

@@ -67,14 +67,8 @@ auto fbgemmCheckMsg(const char* defaultMsg, const Args&... args) {
 // unceremoniously quit the process (unlike assert()).
 ////////////////////////////////////////////////////////////////////////////////
 
-#if defined(__GNUC__) || defined(__ICL) || defined(__clang__)
-#define FBGEMM_UNLIKELY(expr) (__builtin_expect(static_cast<bool>(expr), 0))
-#else
-#define FBGEMM_UNLIKELY(expr) (expr)
-#endif
-
 #define FBGEMM_CHECK(cond, ...)                                 \
-  if (FBGEMM_UNLIKELY(!(cond))) {                               \
+  if (!(cond)) [[unlikely]] {                                   \
     throw ::fbgemm::Error(                                      \
         ::fbgemm::detail::fbgemmCheckMsg(                       \
             "Expected " #cond " to be true, but got false.  "   \
