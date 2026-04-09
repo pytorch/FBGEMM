@@ -24,6 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     unpadded_row_size_in_bytes,
 )
 from fbgemm_gpu.tbe.ssd import SSDIntNBitTableBatchedEmbeddingBags
+from fbgemm_gpu.tbe.ssd.common import ASSOC
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     fake_quantize_embs,
@@ -1345,3 +1346,286 @@ class SSDInferenceStreamingTest(unittest.TestCase):
                 torch.tensor([0, 1], dtype=torch.int64),
                 torch.empty(3, emb.max_D_cache, dtype=torch.uint8),
             )
+
+
+@unittest.skipIf(*running_in_oss)
+@unittest.skipIf(*gpu_unavailable)
+class TurboSSDInferenceModuleTest(unittest.TestCase):
+    """
+    Tests for the TurboSSDInferenceModule wrapper (HSTU integration).
+    """
+
+    def test_from_embedding_specs_creates_module(self) -> None:
+        """Factory method creates a valid module."""
+        import tempfile
+
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        module = TurboSSDInferenceModule.from_embedding_specs(
+            specs=[("table_0", 1000, 128, SparseType.FP32)],
+            ssd_directory=tempfile.mkdtemp(),
+            cache_hit_rate=0.50,
+        )
+        self.assertIsNotNone(module.tbe)
+        self.assertEqual(len(module.embedding_specs), 1)
+        self.assertEqual(module.embedding_specs[0][1], 1000)
+
+    def test_from_embedding_specs_multi_table(self) -> None:
+        """Factory with multiple tables (HSTU-style: post_id + user_id)."""
+        import tempfile
+
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        specs = [
+            ("post_id", 5000, 128, SparseType.INT8),
+            ("user_id", 2000, 64, SparseType.FP16),
+        ]
+        module = TurboSSDInferenceModule.from_embedding_specs(
+            specs=specs,
+            ssd_directory=tempfile.mkdtemp(),
+            cache_hit_rate=0.80,
+        )
+        self.assertEqual(len(module.embedding_specs), 2)
+
+    def test_forward_correctness(self) -> None:
+        """Wrapper forward matches raw TBE output."""
+        import tempfile
+
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        E = 500
+        D = 64
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        module = TurboSSDInferenceModule.from_embedding_specs(
+            specs=[("t0", E, D, weights_ty)],
+            ssd_directory=tempfile.mkdtemp(),
+            cache_hit_rate=0.50,
+        )
+
+        # Initialize with known data.
+        ref = torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
+        torch.manual_seed(42)
+
+        weights, scale_shift = module.tbe.split_embedding_weights()[0]
+        fake_quantize_embs(
+            weights,
+            scale_shift,
+            ref.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        copy_bytes = torch.empty([E, D_bytes], dtype=torch.uint8)
+        copy_bytes[:, : unpadded_row_size_in_bytes(D, weights_ty)] = weights
+        module.tbe.ssd_db.set_cuda(
+            torch.arange(E, dtype=torch.int64),
+            copy_bytes,
+            torch.tensor([E]),
+            0,
+        )
+        torch.cuda.synchronize()
+
+        B, L = 4, 3
+        xs = torch.randint(0, E, (B, L)).cuda()
+        x = xs.view(1, B, L)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+
+        result = module(indices, offsets)
+        expected = b_indices(ref, xs)
+        torch.testing.assert_close(
+            result.float(),
+            expected.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+
+    def test_streaming_update_through_wrapper(self) -> None:
+        """streaming_update via wrapper writes to SSD."""
+        import tempfile
+
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        E = 200
+        D = 64
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        module = TurboSSDInferenceModule.from_embedding_specs(
+            specs=[("t0", E, D, weights_ty)],
+            ssd_directory=tempfile.mkdtemp(),
+            cache_hit_rate=0.50,
+        )
+
+        # Initialize.
+        init_w = torch.randint(0, 255, (E, D_bytes), dtype=torch.uint8)
+        module.tbe.ssd_db.set_cuda(
+            torch.arange(E, dtype=torch.int64),
+            init_w,
+            torch.tensor([E]),
+            0,
+        )
+        torch.cuda.synchronize()
+
+        # Update via wrapper.
+        idx = torch.tensor([0, 10, 199], dtype=torch.int64)
+        new_w = torch.randint(0, 255, (3, D_bytes), dtype=torch.uint8)
+        module.streaming_update(idx, new_w)
+
+        out = torch.empty(3, D_bytes, dtype=torch.uint8)
+        module.tbe.ssd_db.get_cuda(idx, out, torch.tensor([3]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    def test_load_snapshot_through_wrapper(self) -> None:
+        """load_snapshot via wrapper clears cache and swaps DB."""
+        import tempfile
+
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        module = TurboSSDInferenceModule.from_embedding_specs(
+            specs=[("t0", 200, 64, SparseType.FP32)],
+            ssd_directory=tempfile.mkdtemp(),
+            cache_hit_rate=0.50,
+        )
+
+        new_dir = tempfile.mkdtemp()
+        module.load_snapshot(new_dir)
+
+        cache_state = module.tbe.lxu_cache_state.cpu()
+        self.assertTrue((cache_state == -1).all().item())
+
+    def test_estimate_hbm_gb(self) -> None:
+        """HBM estimation returns reasonable values."""
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        # HSTU-style: 1.6B rows, INT8, 128-dim
+        specs = [("post_id", 1_600_000_000, 128, SparseType.INT8)]
+
+        hbm_90 = TurboSSDInferenceModule.estimate_hbm_gb(specs, 0.90)
+        hbm_50 = TurboSSDInferenceModule.estimate_hbm_gb(specs, 0.50)
+
+        # 90% hit should need more HBM than 50%.
+        self.assertGreater(hbm_90, hbm_50)
+        # Sanity: 90% of 1.6B rows at ~132 bytes each = ~190 GB.
+        self.assertGreater(hbm_90, 100)  # should be > 100 GB
+        self.assertLess(hbm_90, 300)  # should be < 300 GB
+
+    def test_estimate_hbm_gb_multi_table(self) -> None:
+        """HBM estimation with multiple tables."""
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        specs = [
+            ("post_id", 1_000_000, 128, SparseType.INT8),
+            ("user_id", 500_000, 64, SparseType.FP16),
+        ]
+        hbm = TurboSSDInferenceModule.estimate_hbm_gb(specs, 0.90)
+        self.assertGreater(hbm, 0)
+
+    def test_hbm_budget_cap(self) -> None:
+        """Cache sets are capped by HBM budget."""
+        import tempfile
+
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        specs = [("t0", 1_000_000, 128, SparseType.FP32)]
+
+        # With 0.1 GB budget, cache should be much smaller than 90% hit rate.
+        module = TurboSSDInferenceModule.from_embedding_specs(
+            specs=specs,
+            ssd_directory=tempfile.mkdtemp(),
+            hbm_budget_gb=0.1,
+            cache_hit_rate=0.90,
+        )
+        cache_slots = module.tbe.lxu_cache_state.shape[0] * ASSOC
+        # 0.1 GB = ~107 million bytes. With ~512 bytes/row, ~209K rows max.
+        self.assertLess(cache_slots, 1_000_000)
+
+    def test_full_hstu_flow(self) -> None:
+        """
+        End-to-end HSTU-style flow: create module, load snapshot,
+        populate via streaming_update, run forward, apply delta update,
+        verify forward reflects the update.
+        """
+        import tempfile
+
+        from fbgemm_gpu.tbe.ssd import TurboSSDInferenceModule
+
+        E = 500
+        D = 64
+        B = 4
+        L = 5
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        module = TurboSSDInferenceModule.from_embedding_specs(
+            specs=[("post_id", E, D, weights_ty)],
+            ssd_directory=tempfile.mkdtemp(),
+            cache_hit_rate=0.50,
+        )
+
+        # Phase 1: Initial snapshot load.
+        ref = torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
+        torch.manual_seed(42)
+
+        weights, ss = module.tbe.split_embedding_weights()[0]
+        fake_quantize_embs(
+            weights,
+            ss,
+            ref.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        copy_bytes = torch.empty([E, D_bytes], dtype=torch.uint8)
+        copy_bytes[:, : unpadded_row_size_in_bytes(D, weights_ty)] = weights
+        for start in range(0, E, 100):
+            end = min(start + 100, E)
+            module.streaming_update(
+                torch.arange(start, end, dtype=torch.int64),
+                copy_bytes[start:end],
+            )
+
+        # Phase 2: Forward with initial data.
+        xs = torch.randint(0, E, (B, L)).cuda()
+        x = xs.view(1, B, L)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+        result1 = module(indices, offsets)
+        expected1 = b_indices(ref, xs)
+        torch.testing.assert_close(
+            result1.float(),
+            expected1.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+
+        # Phase 3: Delta update (simulate 45-min publish cycle).
+        delta_indices = torch.tensor([0, 1, 2], dtype=torch.int64)
+        ref.weight.data[delta_indices] = torch.randn(3, D).cuda()
+
+        weights_after, ss_after = module.tbe.split_embedding_weights()[0]
+        fake_quantize_embs(
+            weights_after,
+            ss_after,
+            ref.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        delta_copy = torch.empty([E, D_bytes], dtype=torch.uint8)
+        delta_copy[:, : unpadded_row_size_in_bytes(D, weights_ty)] = weights_after
+        module.streaming_update(delta_indices, delta_copy[delta_indices])
+
+        # Phase 4: Forward reflects delta update.
+        xs2 = torch.tensor([[0, 1, 2, 3, 4]], dtype=torch.long).cuda()
+        x2 = xs2.view(1, 1, 5)
+        indices2, offsets2 = get_table_batched_offsets_from_dense(x2)
+        indices2, offsets2 = indices2.cuda(), offsets2.cuda()
+        result2 = module(indices2, offsets2)
+        expected2 = b_indices(ref, xs2.view(1, 5))
+        torch.testing.assert_close(
+            result2.float(),
+            expected2.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
