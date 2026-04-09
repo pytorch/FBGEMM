@@ -24,7 +24,7 @@ inline int memCopy<outT, inT, nextOPType>::f(
   // only copy if destination is not the same as source
   if (out + block.row_start * ld_out + block.col_start != inp) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      memcpy(
+      std::memcpy(
           out + block.col_start + i * ld_out,
           inp + (i - block.row_start) * ld_in,
           block.col_size * sizeof(inT));
