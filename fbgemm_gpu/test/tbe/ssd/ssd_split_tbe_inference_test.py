@@ -645,3 +645,703 @@ class SSDInferenceCacheLockingTest(unittest.TestCase):
             f"Cache locking counter should be all zeros when disabled, "
             f"but max={counter.max().item()}",
         )
+
+
+@unittest.skipIf(*running_in_oss)
+@unittest.skipIf(*gpu_unavailable)
+class SSDInferenceStreamingTest(unittest.TestCase):
+    """
+    Tests for streaming_update() and load_snapshot() in SSD TBE inference.
+    """
+
+    def _create_emb(
+        self,
+        E: int = 10000,
+        D: int = 128,
+        T: int = 1,
+        cache_sets: int = 64,
+        weights_ty: SparseType = SparseType.FP32,
+    ) -> "SSDIntNBitTableBatchedEmbeddingBags":
+        import tempfile
+
+        return SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=cache_sets,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+    def _init_table(
+        self,
+        emb: "SSDIntNBitTableBatchedEmbeddingBags",
+        E: int,
+        D_bytes: int,
+        T: int = 1,
+    ) -> torch.Tensor:
+        """Initialize all tables with random data and return the weight tensor."""
+        weights = torch.randint(0, 255, (T * E, D_bytes), dtype=torch.uint8)
+        for t in range(T):
+            emb.ssd_db.set_cuda(
+                torch.arange(t * E, (t + 1) * E, dtype=torch.int64),
+                weights[t * E : (t + 1) * E],
+                torch.tensor([E]),
+                t,
+            )
+        torch.cuda.synchronize()
+        return weights
+
+    # ─── Basic streaming_update tests ───────────────────────────────────
+
+    def test_streaming_update_writes_to_ssd(self) -> None:
+        """Verify streaming_update() writes to RocksDB."""
+        E = 1000
+        D = 128
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=128, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        update_indices = torch.tensor([0, 10, 100, 999], dtype=torch.int64)
+        N = update_indices.shape[0]
+        new_weights = torch.randint(0, 255, (N, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(update_indices, new_weights)
+
+        output = torch.empty(N, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(update_indices.cpu(), output, torch.tensor([N]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(output, new_weights)
+
+    def test_streaming_update_invalidates_cache(self) -> None:
+        """Verify streaming_update() invalidates HBM cache entries."""
+        E = 1000
+        D = 128
+        T = 1
+        B = 4
+        L = 5
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(
+            E=E,
+            D=D,
+            T=T,
+            cache_sets=max(T * B * L, 1),
+            weights_ty=weights_ty,
+        )
+        self._init_table(emb, E, D_bytes)
+
+        # Prefetch to populate cache.
+        xs = torch.randint(low=0, high=E, size=(B, L)).cuda()
+        x = xs.view(1, B, L)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+        emb.prefetch(indices, offsets)
+
+        # Find which indices are cached.
+        linear_indices = torch.ops.fbgemm.linearize_cache_indices(
+            emb.hash_size_cumsum, indices, offsets
+        )
+        cache_state = emb.lxu_cache_state.cpu()
+        cached_indices = set(cache_state[cache_state >= 0].tolist())
+        requested_indices = set(linear_indices.cpu().tolist())
+        cached_from_request = cached_indices & requested_indices
+        self.assertGreater(len(cached_from_request), 0)
+
+        # streaming_update those cached indices.
+        update_list = sorted(cached_from_request)[:4]
+        update_indices = torch.tensor(update_list, dtype=torch.int64)
+        N = update_indices.shape[0]
+        new_weights = torch.randint(0, 255, (N, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(update_indices, new_weights)
+
+        # Verify invalidation.
+        cache_state_after = emb.lxu_cache_state.cpu()
+        for idx in update_list:
+            cache_set = idx % cache_state_after.shape[0]
+            slots = cache_state_after[cache_set]
+            self.assertFalse(
+                (slots == idx).any().item(),
+                f"Index {idx} should have been invalidated from cache",
+            )
+
+    def test_streaming_update_empty(self) -> None:
+        """Empty update is a no-op."""
+        emb = self._create_emb()
+        emb.streaming_update(
+            torch.tensor([], dtype=torch.int64),
+            torch.empty(0, emb.max_D_cache, dtype=torch.uint8),
+        )
+
+    # ─── Edge cases and corner cases ────────────────────────────────────
+
+    def test_streaming_update_single_row(self) -> None:
+        """Update a single row."""
+        E = 100
+        D = 64
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        idx = torch.tensor([42], dtype=torch.int64)
+        new_w = torch.randint(0, 255, (1, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(idx, new_w)
+
+        out = torch.empty(1, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(idx, out, torch.tensor([1]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    def test_streaming_update_first_and_last_index(self) -> None:
+        """Update the first (0) and last (E-1) indices."""
+        E = 500
+        D = 128
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        indices = torch.tensor([0, E - 1], dtype=torch.int64)
+        new_w = torch.randint(0, 255, (2, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(indices, new_w)
+
+        out = torch.empty(2, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(indices, out, torch.tensor([2]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    def test_streaming_update_duplicate_indices(self) -> None:
+        """
+        Duplicate indices: last write wins for RocksDB, both cache entries
+        should be invalidated.
+        """
+        E = 1000
+        D = 128
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=64, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        # Same index appears twice with different values.
+        indices = torch.tensor([42, 42], dtype=torch.int64)
+        w1 = torch.randint(0, 255, (1, D_bytes), dtype=torch.uint8)
+        w2 = torch.randint(0, 255, (1, D_bytes), dtype=torch.uint8)
+        both = torch.cat([w1, w2], dim=0)
+        emb.streaming_update(indices, both)
+
+        # Read back — should get w2 (last write).
+        out = torch.empty(1, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(
+            torch.tensor([42], dtype=torch.int64), out, torch.tensor([1])
+        )
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, w2)
+
+    def test_streaming_update_large_batch(self) -> None:
+        """Update 1000 rows at once."""
+        E = 5000
+        D = 128
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=128, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        N = 1000
+        indices = torch.randperm(E)[:N].to(torch.int64)
+        new_w = torch.randint(0, 255, (N, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(indices, new_w)
+
+        out = torch.empty(N, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(indices, out, torch.tensor([N]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    def test_streaming_update_preserves_non_updated_rows(self) -> None:
+        """Rows not included in the update remain unchanged."""
+        E = 200
+        D = 64
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+        original = self._init_table(emb, E, D_bytes)
+
+        # Update only index 0.
+        emb.streaming_update(
+            torch.tensor([0], dtype=torch.int64),
+            torch.randint(0, 255, (1, D_bytes), dtype=torch.uint8),
+        )
+
+        # Check that index 1 still has original data.
+        out = torch.empty(1, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(
+            torch.tensor([1], dtype=torch.int64), out, torch.tensor([1])
+        )
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, original[1:2])
+
+    def test_streaming_update_sequential_updates(self) -> None:
+        """Multiple sequential updates to the same index; last one wins."""
+        E = 100
+        D = 64
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        idx = torch.tensor([5], dtype=torch.int64)
+        final_w = None
+        for _ in range(10):
+            final_w = torch.randint(0, 255, (1, D_bytes), dtype=torch.uint8)
+            emb.streaming_update(idx, final_w)
+
+        out = torch.empty(1, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(idx, out, torch.tensor([1]))
+        torch.cuda.synchronize()
+        assert final_w is not None
+        torch.testing.assert_close(out, final_w)
+
+    def test_streaming_update_preserves_non_updated_cache(self) -> None:
+        """
+        Updating index A should NOT invalidate unrelated index B in the cache,
+        even if they map to the same cache set.
+        """
+        E = 1000
+        D = 128
+        T = 1
+        B = 8
+        L = 10
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+        cache_sets = max(T * B * L, 1)
+
+        emb = self._create_emb(
+            E=E,
+            D=D,
+            T=T,
+            cache_sets=cache_sets,
+            weights_ty=weights_ty,
+        )
+        self._init_table(emb, E, D_bytes)
+
+        # Prefetch to populate cache.
+        xs = torch.randint(low=0, high=E, size=(B, L)).cuda()
+        x = xs.view(1, B, L)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+        emb.prefetch(indices, offsets)
+
+        cache_state_before = emb.lxu_cache_state.cpu()
+        all_cached = set(cache_state_before[cache_state_before >= 0].tolist())
+
+        if len(all_cached) < 2:
+            return  # Not enough cached entries to test.
+
+        # Pick one index to update, count the rest.
+        update_idx = sorted(all_cached)[0]
+        remaining = all_cached - {update_idx}
+
+        emb.streaming_update(
+            torch.tensor([update_idx], dtype=torch.int64),
+            torch.randint(0, 255, (1, D_bytes), dtype=torch.uint8),
+        )
+
+        # Verify all non-updated cached indices are still in the cache.
+        cache_state_after = emb.lxu_cache_state.cpu()
+        still_cached = set(cache_state_after[cache_state_after >= 0].tolist())
+        for idx in remaining:
+            self.assertIn(
+                idx,
+                still_cached,
+                f"Non-updated index {idx} should still be in cache",
+            )
+
+    # ─── Different sparse types ─────────────────────────────────────────
+
+    def test_streaming_update_int8(self) -> None:
+        """streaming_update with INT8 embeddings."""
+        E = 500
+        D = 128
+        weights_ty = SparseType.INT8
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        indices = torch.tensor([0, 50, 499], dtype=torch.int64)
+        new_w = torch.randint(0, 255, (3, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(indices, new_w)
+
+        out = torch.empty(3, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(indices, out, torch.tensor([3]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    def test_streaming_update_int4(self) -> None:
+        """streaming_update with INT4 embeddings."""
+        E = 500
+        D = 128
+        weights_ty = SparseType.INT4
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        indices = torch.tensor([0, 250, 499], dtype=torch.int64)
+        new_w = torch.randint(0, 255, (3, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(indices, new_w)
+
+        out = torch.empty(3, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(indices, out, torch.tensor([3]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    def test_streaming_update_fp16(self) -> None:
+        """streaming_update with FP16 embeddings."""
+        E = 500
+        D = 128
+        weights_ty = SparseType.FP16
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+        self._init_table(emb, E, D_bytes)
+
+        indices = torch.tensor([0, 100, 499], dtype=torch.int64)
+        new_w = torch.randint(0, 255, (3, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(indices, new_w)
+
+        out = torch.empty(3, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(indices, out, torch.tensor([3]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    # ─── End-to-end forward correctness after streaming_update ──────────
+
+    def test_streaming_update_forward_correctness(self) -> None:
+        """
+        End-to-end: update some rows via streaming_update, then verify
+        that prefetch + forward produces correct output using the updated
+        weights.
+        """
+        import tempfile
+
+        E = 1000
+        D = 128
+        T = 1
+        B = 4
+        L = 5
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)],
+            feature_table_map=[0],
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+        # Create reference FP32 EmbeddingBag.
+        ref = torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
+        torch.manual_seed(42)
+
+        # Write quantized weights to SSD TBE.
+        weights, scale_shift = emb.split_embedding_weights()[0]
+        fake_quantize_embs(
+            weights,
+            scale_shift,
+            ref.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        copy_byte_tensor = torch.empty([E, D_bytes], dtype=torch.uint8)
+        copy_byte_tensor[:, : unpadded_row_size_in_bytes(D, weights_ty)] = weights
+        emb.ssd_db.set_cuda(
+            torch.arange(E, dtype=torch.int64),
+            copy_byte_tensor,
+            torch.tensor([E]),
+            0,
+        )
+        torch.cuda.synchronize()
+
+        # Update some rows in the reference, then streaming_update TBE.
+        update_indices = torch.tensor([0, 1, 2, 3, 4], dtype=torch.int64)
+        new_ref_weights = torch.randn(5, D).cuda()
+        ref.weight.data[update_indices] = new_ref_weights
+
+        # Re-quantize updated rows.
+        updated_weights, updated_ss = emb.split_embedding_weights()[0]
+        fake_quantize_embs(
+            updated_weights,
+            updated_ss,
+            ref.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        updated_copy = torch.empty([E, D_bytes], dtype=torch.uint8)
+        updated_copy[:, : unpadded_row_size_in_bytes(D, weights_ty)] = updated_weights
+        # Only streaming_update the changed rows.
+        emb.streaming_update(update_indices, updated_copy[update_indices])
+
+        # Now query indices that include updated rows.
+        xs = torch.tensor([[0, 1, 2, 3, 4]], dtype=torch.long).cuda()  # [1, B=1, L=5]
+        x = xs.view(1, 1, 5)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+        emb.prefetch(indices, offsets)
+        result = emb(indices.int(), offsets.int())
+
+        expected = b_indices(ref, xs.view(1, 5))
+        torch.testing.assert_close(
+            result.float(),
+            expected.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+
+    # ─── Multi-table tests ──────────────────────────────────────────────
+
+    def test_streaming_update_multi_table(self) -> None:
+        """streaming_update on a multi-table TBE with linear index offsets."""
+        import tempfile
+
+        E = 500
+        D = 64
+        T = 3
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=64,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+        self._init_table(emb, E, D_bytes, T=T)
+
+        # Update row 0 of table 2 (linear index = 2*E + 0 = 1000).
+        linear_idx = 2 * E
+        idx = torch.tensor([linear_idx], dtype=torch.int64)
+        new_w = torch.randint(0, 255, (1, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(idx, new_w)
+
+        out = torch.empty(1, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(idx, out, torch.tensor([1]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(out, new_w)
+
+    # ─── load_snapshot tests ────────────────────────────────────────────
+
+    def test_load_snapshot(self) -> None:
+        """load_snapshot() swaps RocksDB and clears HBM cache."""
+        import tempfile
+
+        E = 1000
+        D = 128
+        T = 1
+        B = 4
+        L = 5
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(
+            E=E,
+            D=D,
+            T=T,
+            cache_sets=max(T * B * L, 1),
+            weights_ty=weights_ty,
+        )
+        initial_weights = self._init_table(emb, E, D_bytes)
+
+        # Prefetch to populate cache.
+        xs = torch.randint(low=0, high=E, size=(B, L)).cuda()
+        x = xs.view(1, B, L)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+        emb.prefetch(indices, offsets)
+
+        cache_state_before = emb.lxu_cache_state.cpu()
+        self.assertTrue((cache_state_before >= 0).any().item())
+
+        # Load new snapshot.
+        new_snapshot_dir = tempfile.mkdtemp()
+        emb.load_snapshot(new_snapshot_dir)
+
+        # Cache fully invalidated.
+        cache_state_after = emb.lxu_cache_state.cpu()
+        self.assertTrue((cache_state_after == -1).all().item())
+
+        # Old data gone.
+        check_indices = torch.tensor([0, 10, 100, 999], dtype=torch.int64)
+        N = check_indices.shape[0]
+        output = torch.empty(N, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(check_indices, output, torch.tensor([N]))
+        torch.cuda.synchronize()
+        old_data = initial_weights[check_indices]
+        self.assertFalse(torch.equal(output, old_data))
+
+        # Writes to new DB work.
+        new_weights = torch.randint(0, 255, (N, D_bytes), dtype=torch.uint8)
+        emb.streaming_update(check_indices, new_weights)
+        output2 = torch.empty(N, D_bytes, dtype=torch.uint8)
+        emb.ssd_db.get_cuda(check_indices, output2, torch.tensor([N]))
+        torch.cuda.synchronize()
+        torch.testing.assert_close(output2, new_weights)
+
+    def test_load_snapshot_then_forward(self) -> None:
+        """
+        After load_snapshot + streaming_update, prefetch + forward returns
+        correct results from the new data.
+        """
+        import tempfile
+
+        E = 500
+        D = 64
+        T = 1
+        B = 2
+        L = 3
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, weights_ty)],
+            feature_table_map=[0],
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
+
+        # Initial data + forward.
+        ref = torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
+        torch.manual_seed(99)
+
+        weights, scale_shift = emb.split_embedding_weights()[0]
+        fake_quantize_embs(
+            weights,
+            scale_shift,
+            ref.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        copy_bytes = torch.empty([E, D_bytes], dtype=torch.uint8)
+        copy_bytes[:, : unpadded_row_size_in_bytes(D, weights_ty)] = weights
+        emb.ssd_db.set_cuda(
+            torch.arange(E, dtype=torch.int64),
+            copy_bytes,
+            torch.tensor([E]),
+            0,
+        )
+        torch.cuda.synchronize()
+
+        # Swap to new snapshot.
+        new_dir = tempfile.mkdtemp()
+        emb.load_snapshot(new_dir)
+
+        # Write new reference data.
+        ref2 = torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
+        torch.manual_seed(123)
+        ref2.weight.data = torch.randn_like(ref2.weight.data)
+
+        weights2, ss2 = emb.split_embedding_weights()[0]
+        fake_quantize_embs(
+            weights2,
+            ss2,
+            ref2.weight.detach(),
+            weights_ty,
+            use_cpu=False,
+        )
+        copy_bytes2 = torch.empty([E, D_bytes], dtype=torch.uint8)
+        copy_bytes2[:, : unpadded_row_size_in_bytes(D, weights_ty)] = weights2
+        # Populate new snapshot via streaming_update in batches.
+        batch_size = 100
+        for start in range(0, E, batch_size):
+            end = min(start + batch_size, E)
+            idx = torch.arange(start, end, dtype=torch.int64)
+            emb.streaming_update(idx, copy_bytes2[start:end])
+
+        # Forward and verify against new reference.
+        xs = torch.randint(0, E, (B, L)).cuda()
+        x = xs.view(1, B, L)
+        indices, offsets = get_table_batched_offsets_from_dense(x)
+        indices, offsets = indices.cuda(), offsets.cuda()
+        emb.prefetch(indices, offsets)
+        result = emb(indices.int(), offsets.int())
+
+        expected = b_indices(ref2, xs)
+        torch.testing.assert_close(
+            result.float(),
+            expected.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+
+    def test_load_snapshot_multiple_swaps(self) -> None:
+        """Multiple sequential load_snapshot calls work correctly."""
+        import tempfile
+
+        E = 200
+        D = 64
+        weights_ty = SparseType.FP32
+        D_bytes = rounded_row_size_in_bytes(D, weights_ty, 16)
+
+        emb = self._create_emb(E=E, D=D, cache_sets=32, weights_ty=weights_ty)
+
+        for i in range(3):
+            snap_dir = tempfile.mkdtemp()
+            emb.load_snapshot(snap_dir)
+
+            # Write data specific to this snapshot.
+            marker = torch.full((1, D_bytes), fill_value=i + 1, dtype=torch.uint8)
+            emb.streaming_update(torch.tensor([0], dtype=torch.int64), marker)
+
+            out = torch.empty(1, D_bytes, dtype=torch.uint8)
+            emb.ssd_db.get_cuda(
+                torch.tensor([0], dtype=torch.int64), out, torch.tensor([1])
+            )
+            torch.cuda.synchronize()
+            torch.testing.assert_close(out, marker)
+
+    # ─── Assertion / validation tests ───────────────────────────────────
+
+    def test_streaming_update_asserts_1d_indices(self) -> None:
+        """streaming_update rejects 2D indices."""
+        emb = self._create_emb(E=100, D=64)
+        with self.assertRaises(AssertionError):
+            emb.streaming_update(
+                torch.zeros(2, 2, dtype=torch.int64),
+                torch.empty(4, emb.max_D_cache, dtype=torch.uint8),
+            )
+
+    def test_streaming_update_asserts_2d_weights(self) -> None:
+        """streaming_update rejects 1D weights."""
+        emb = self._create_emb(E=100, D=64)
+        with self.assertRaises(AssertionError):
+            emb.streaming_update(
+                torch.tensor([0], dtype=torch.int64),
+                torch.empty(emb.max_D_cache, dtype=torch.uint8),
+            )
+
+    def test_streaming_update_asserts_shape_mismatch(self) -> None:
+        """streaming_update rejects mismatched indices/weights counts."""
+        emb = self._create_emb(E=100, D=64)
+        with self.assertRaises(AssertionError):
+            emb.streaming_update(
+                torch.tensor([0, 1], dtype=torch.int64),
+                torch.empty(3, emb.max_D_cache, dtype=torch.uint8),
+            )
