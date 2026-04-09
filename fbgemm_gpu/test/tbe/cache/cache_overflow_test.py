@@ -39,8 +39,8 @@ class CacheOverflowTest(unittest.TestCase):
         cache_sets = 10**6
 
         current_device = torch.device(torch.cuda.current_device())
-        total_memory = torch.cuda.get_device_properties(current_device).total_memory
-        free_memory = total_memory - torch.cuda.memory_reserved(current_device)
+        free_memory, _ = torch.cuda.mem_get_info(current_device)
+        free_memory = int(free_memory * 0.8)
 
         # Weight and cache precisions are fixed to FP16
         element_size = 2
