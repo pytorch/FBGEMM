@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <cstring>
 
 #include "bench/AlignedVec.h" // @manual
 #include "bench/BenchUtils.h" // @manual
