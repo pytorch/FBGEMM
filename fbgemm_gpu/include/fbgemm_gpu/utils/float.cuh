@@ -9,13 +9,10 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#if !(                                                  \
-    defined(USE_ROCM) ||                                \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
-#include <cuda_bf16.h>
-#elif (defined(USE_ROCM))
+#if defined(USE_ROCM)
 #include <hip/hip_bfloat16.h>
+#else
+#include <cuda_bf16.h>
 #endif
 #include <cuda_fp16.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
@@ -119,8 +116,7 @@ struct __align__(4) __nv_bfloat162 {
 #endif
 
 #if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+    !((defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800)))
 
 struct __align__(8) bfloat16_4 {
   __host__ __device__ bfloat16_4() {}
@@ -254,8 +250,7 @@ static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
 #endif
 
 #if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+    !((defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800)))
 
 DEVICE_INLINE __nv_bfloat16 to_bfloat16(float v) {
   return __float2bfloat16(v);
