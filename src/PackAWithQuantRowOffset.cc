@@ -19,6 +19,7 @@
 #endif // __aarch64__
 #include "./OptimizedKernelsAvx2.h" // @manual
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/UtilsAvx2.h"
 #include "fbgemm/QuantUtils.h"
 
 namespace fbgemm {
@@ -147,10 +148,12 @@ void PackAWithQuantRowOffset<T, accT>::pack(
       (block.col_start % (this->numCols() / this->numGroups())) != 0;
   int32_t* row_offset_buf = getRowOffsetBuffer();
 
+  aligned_unique_ptr<float> smat_transposed_owner;
   float* smat_transposed = nullptr;
   if (tr) {
-    smat_transposed = static_cast<float*>(fbgemmAlignedAlloc(
-        64, block.row_size * block.col_size * sizeof(float)));
+    smat_transposed_owner =
+        makeAlignedUniquePtr<float>(64, block.row_size * block.col_size);
+    smat_transposed = smat_transposed_owner.get();
     transpose_simd(
         block.col_size,
         block.row_size,
@@ -196,9 +199,6 @@ void PackAWithQuantRowOffset<T, accT>::pack(
     for (int j = block.col_start + block.col_size; j < block_p.col_size; ++j) {
       out[i * BaseType::blockColSize() + j] = 0;
     }
-  }
-  if (smat_transposed) {
-    fbgemmAlignedFree(smat_transposed);
   }
 }
 

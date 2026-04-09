@@ -10,6 +10,7 @@
 
 #define FBGEMM_EXPORTS
 #include "fbgemm/Utils.h"
+#include "fbgemm/UtilsAvx2.h"
 #include <cpuinfo.h>
 #include <bit>
 #include <cassert>
@@ -675,10 +676,12 @@ std::pair<K*, V*> radix_sort_parallel(
 #ifdef _MSC_VER
   const size_t array_size = static_cast<size_t>(RDX_HIST_SIZE) * maxthreads;
   // fixes MSVC error C2131
-  auto* const histogram = static_cast<int64_t*>(
-      fbgemm::fbgemmAlignedAlloc(64, array_size * sizeof(int64_t)));
-  auto* const histogram_ps = static_cast<int64_t*>(
-      fbgemm::fbgemmAlignedAlloc(64, array_size * sizeof(int64_t)));
+  auto histogram_owner =
+      fbgemm::makeAlignedUniquePtr<int64_t>(64, array_size);
+  auto* const histogram = histogram_owner.get();
+  auto histogram_ps_owner =
+      fbgemm::makeAlignedUniquePtr<int64_t>(64, array_size);
+  auto* const histogram_ps = histogram_ps_owner.get();
 
 #else
   alignas(64) int64_t histogram[RDX_HIST_SIZE * maxthreads];
@@ -719,10 +722,6 @@ std::pair<K*, V*> radix_sort_parallel(
       }
     }
   }
-#ifdef _MSC_VER
-  fbgemm::fbgemmAlignedFree(histogram);
-  fbgemm::fbgemmAlignedFree(histogram_ps);
-#endif
   return (
       num_passes % 2 == 0 ? std::pair{inp_key_buf, inp_value_buf}
                           : std::pair{tmp_key_buf, tmp_value_buf});
