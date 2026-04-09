@@ -1084,9 +1084,10 @@ static torch::autograd::variable_list backward(
     const bool supported_grad_type =
       (grad_type == at::kFloat) || (grad_type == at::kHalf);
     const bool same_precision = (weights_type == grad_type);
+    const static bool supported_platform = rocm::is_supported_cdna();
     {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
     if (use_hip_kernel && total_L / total_B > 1 && !mixed_D && !cached && supported_weights_type &&
-      supported_grad_type && same_precision && rocm::is_supported_cdna() &&
+      supported_grad_type && same_precision && supported_platform &&
       (max_D == {{ kDimSize }})) {
       max_segment_length_per_warp = 16384;
     }
