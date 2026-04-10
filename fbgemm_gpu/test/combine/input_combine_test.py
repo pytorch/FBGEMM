@@ -317,7 +317,7 @@ class InputCombineTest(unittest.TestCase):
 
         ref_outputs = ref_mod(indices_list, offsets_list, per_sample_weights)
         # indices
-        self.assertTrue(ref_outputs[0].allclose(outputs[0]))
+        self.assertTrue(ref_outputs[0].to(outputs[0].dtype).allclose(outputs[0]))
         # per sample weights
         self.assertTrue(ref_outputs[2].allclose(outputs[2]))
 
@@ -352,7 +352,7 @@ class InputCombineTest(unittest.TestCase):
             indices_list, offsets_list, per_sample_weights, batch_size
         )
         # indices
-        self.assertTrue(ref_outputs[0].allclose(outputs[0]))
+        self.assertTrue(ref_outputs[0].to(outputs[0].dtype).allclose(outputs[0]))
         # per sample weights
         self.assertTrue(ref_outputs[2].allclose(outputs[2]))
 
