@@ -17,10 +17,10 @@
 #include <cuda_fp16.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 
-#if CUDART_VERSION >= 12000
-#include <cuda_fp8.h>
-#elif defined(USE_ROCM)
+#ifdef USE_ROCM
 #include <hip/hip_fp8.h>
+#else
+#include <cuda_fp8.h>
 #endif
 
 #if defined(USE_ROCM)

@@ -85,32 +85,22 @@ template <>
 DEVICE_INLINE Vec2T<float> dequantize_load(
     const at::Float8_e4m3fnuz* value,
     const float2 /* currently unused */) {
-#if defined(USE_ROCM) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec2T<float> out;
   const __nv_fp8x2_e4m3* fp8_ptr =
       reinterpret_cast<const __nv_fp8x2_e4m3*>(value);
   out.acc = static_cast<float2>(fp8_ptr[0]);
   return out;
-#else
-  CUDA_KERNEL_ASSERT(false);
-#endif
 }
 
 template <>
 DEVICE_INLINE Vec2T<at::Half> dequantize_load(
     const at::Float8_e4m3fnuz* value,
     const float2 /* currently unused */) {
-#if defined(USE_ROCM) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec2T<at::Half> out;
   const __nv_fp8x2_e4m3* fp8_ptr =
       reinterpret_cast<const __nv_fp8x2_e4m3*>(value);
   out.acc = static_cast<float2>(fp8_ptr[0]);
   return out;
-#else
-  CUDA_KERNEL_ASSERT(false);
-#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////

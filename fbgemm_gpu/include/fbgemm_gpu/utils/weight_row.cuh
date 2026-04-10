@@ -9,7 +9,6 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
@@ -69,64 +68,44 @@ template <>
 DEVICE_INLINE Vec4T<float> dequantize_load(
     const at::Float8_e4m3fn* value,
     const float2 /* currently unused */) {
-#if defined(USE_ROCM) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<float> out;
   const __nv_fp8x4_e4m3* fp8_ptr =
       reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
   out.acc = static_cast<float4>(fp8_ptr[0]);
   return out;
-#else
-  CUDA_KERNEL_ASSERT(false);
-#endif
 }
 
 template <>
 DEVICE_INLINE Vec4T<float> dequantize_load(
     const at::Float8_e4m3fnuz* value,
     const float2 /* currently unused */) {
-#if defined(USE_ROCM) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<float> out;
   const __nv_fp8x4_e4m3* fp8_ptr =
       reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
   out.acc = static_cast<float4>(fp8_ptr[0]);
   return out;
-#else
-  CUDA_KERNEL_ASSERT(false);
-#endif
 }
 
 template <>
 DEVICE_INLINE Vec4T<at::Half> dequantize_load(
     const at::Float8_e4m3fn* value,
     const float2 /* currently unused */) {
-#if defined(USE_ROCM) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<at::Half> out;
   const __nv_fp8x4_e4m3* fp8_ptr =
       reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
   out.acc = static_cast<float4>(fp8_ptr[0]);
   return out;
-#else
-  CUDA_KERNEL_ASSERT(false);
-#endif
 }
 
 template <>
 DEVICE_INLINE Vec4T<at::Half> dequantize_load(
     const at::Float8_e4m3fnuz* value,
     const float2 /* currently unused */) {
-#if defined(USE_ROCM) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<at::Half> out;
   const __nv_fp8x4_e4m3* fp8_ptr =
       reinterpret_cast<const __nv_fp8x4_e4m3*>(value);
   out.acc = static_cast<float4>(fp8_ptr[0]);
   return out;
-#else
-  CUDA_KERNEL_ASSERT(false);
-#endif
 }
 
 template <>
