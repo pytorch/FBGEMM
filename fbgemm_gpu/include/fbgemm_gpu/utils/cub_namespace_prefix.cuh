@@ -8,15 +8,8 @@
 
 #ifdef FBGEMM_CUB_USE_NAMESPACE
 
-#undef CUB_NS_PREFIX
-#undef CUB_NS_POSTFIX
-
-// CUB_NS_QUALIFIER must be defined alongside CUB_NS_PREFIX/POSTFIX
-// (see https://github.com/NVIDIA/cub/pull/350)
-#undef CUB_NS_QUALIFIER
-
-#define CUB_NS_PREFIX namespace fbgemm_gpu {
-#define CUB_NS_POSTFIX } // namespace fbgemm_gpu
-#define CUB_NS_QUALIFIER ::fbgemm_gpu::cub
+// Use CUB_WRAPPED_NAMESPACE (CUB >= 1.14, CUDA >= 11.6) to wrap CUB in the
+// fbgemm_gpu namespace, avoiding symbol collisions with other CUB users.
+#define CUB_WRAPPED_NAMESPACE fbgemm_gpu
 
 #endif

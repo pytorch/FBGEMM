@@ -10,9 +10,7 @@
 
 #ifdef FBGEMM_CUB_USE_NAMESPACE
 
-#undef CUB_NS_PREFIX
-#undef CUB_NS_POSTFIX
-#undef CUB_NS_QUALIFIER
+#undef CUB_WRAPPED_NAMESPACE
 
 #define FBGEMM_GPU_CUB_NS_PREFIX fbgemm_gpu::
 

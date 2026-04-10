@@ -57,7 +57,10 @@ from fbgemm_gpu.tbe.monitoring import (
     TBEStatsReporterConfig,
 )
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
-from fbgemm_gpu.utils.writeback_util import writeback_gradient
+from fbgemm_gpu.utils.writeback_util import (
+    compute_writeback_indices_dispatch,
+    writeback_gradient,
+)
 
 try:
     load_torch_module(
@@ -158,6 +161,7 @@ class UserEnabledConfigDefinition:
     use_rowwise_bias_correction: bool = False
     use_writeback_bwd_prehook: bool = False
     writeback_first_feature_only: bool = False
+    precompute_writeback: bool = False
 
 
 @dataclass(frozen=True)
@@ -1182,9 +1186,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             extra_optimizer_config.use_writeback_bwd_prehook
         )
 
-        writeback_first_feature_only: bool = (
-            extra_optimizer_config.writeback_first_feature_only
-        )
         self.log(f"self.extra_optimizer_config is {extra_optimizer_config}")
         if self.use_rowwise_bias_correction and not self.optimizer == OptimType.ADAM:
             raise AssertionError(
@@ -1473,7 +1474,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #     self.log("TBE_V2 Knob is set to True; Using experimental TBE")
 
         self.is_experimental: bool = is_experimental
-        self._writeback_first_feature_only: bool = writeback_first_feature_only
+        self._writeback_first_feature_only: bool = (
+            extra_optimizer_config.writeback_first_feature_only
+        )
+        self._writeback_precomputed_index: Optional[Tensor] = None
+        self._precompute_writeback: bool = extra_optimizer_config.precompute_writeback
 
         # Get a debug function pointer
         self._debug_print_input_stats: Callable[..., None] = (
@@ -2218,15 +2223,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     # pyre-fixme[2]: For 1st argument expected not ANY
     def writeback_hook(self, module: Any, grad: tuple[Tensor]) -> tuple[Tensor]:
-        indices = self._indices
-        offsets = self._offsets
         return writeback_gradient(
             grad,
-            indices,
-            offsets,
+            self._indices,
+            self._offsets,
             self.feature_table_map,
             self._writeback_first_feature_only,
             self.is_nobag,
+            self._writeback_precomputed_index,
         )
 
     def forward(  # noqa: C901
@@ -2416,6 +2420,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Storing tensors for linear_cache_indices recomputation
             self._indices = indices
             self._offsets = offsets
+            # Precompute writeback dedup indices (training-only, not TorchScript-compatible).
+            if (
+                not torch.jit.is_scripting()
+                and self.use_writeback_bwd_prehook
+                and self._precompute_writeback
+            ):
+                self._writeback_precomputed_index = compute_writeback_indices_dispatch(
+                    indices,
+                    offsets,
+                    self.feature_table_map,
+                    self._writeback_first_feature_only,
+                    self.is_nobag,
+                )
             self._vbe_B_offsets = vbe_metadata.B_offsets
             self._vbe_max_B = vbe_metadata.max_B
 
