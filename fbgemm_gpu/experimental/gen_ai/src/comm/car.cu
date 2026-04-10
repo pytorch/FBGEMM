@@ -17,10 +17,7 @@
 #include "c10/core/ScalarType.h"
 #include "c10/util/BFloat16.h"
 
-#if !(                                                  \
-    defined(USE_ROCM) ||                                \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if !(defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800)))
 #include <cuda_bf16.h>
 #elif (defined(USE_ROCM))
 #include <hip/hip_bfloat16.h>
