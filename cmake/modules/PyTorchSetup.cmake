@@ -10,6 +10,29 @@
 
 find_package(Torch REQUIRED)
 
+# Strip any -std=c++NN flags injected by PyTorch's find_package(Torch).
+string(REGEX REPLACE "-std=c\\+\\+[0-9]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
+foreach(_torch_target torch torch_cpu torch_cuda torch_hip)
+  if(TARGET ${_torch_target})
+    get_target_property(_torch_opts ${_torch_target} INTERFACE_COMPILE_OPTIONS)
+    if(_torch_opts)
+      # Remove standalone -std=c++NN list entries
+      list(FILTER _torch_opts EXCLUDE REGEX "^-std=c\\+\\+[0-9]+$")
+      # Also strip -std=c++NN embedded inside a compound string entry
+      set(_torch_opts_cleaned "")
+      foreach(_opt IN LISTS _torch_opts)
+        string(REGEX REPLACE "-std=c\\+\\+[0-9]+" "" _opt "${_opt}")
+        string(STRIP "${_opt}" _opt)
+        if(_opt)
+          list(APPEND _torch_opts_cleaned "${_opt}")
+        endif()
+      endforeach()
+      set_target_properties(${_torch_target} PROPERTIES INTERFACE_COMPILE_OPTIONS "${_torch_opts_cleaned}")
+    endif()
+  endif()
+endforeach()
+
 # Filter out specific flags that may have been inherited from PyTorch's
 # CMAKE_CXX_FLAGS: - -Wno-duplicate-decl-specifier: C-only flag in GCC, valid
 # for C++ in clang - -Wno-unused-command-line-argument: clang-specific,
