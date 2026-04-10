@@ -1058,7 +1058,13 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::create_rocksdb_hard_link_snapshot)
         .def(
             "get_active_checkpoint_uuid",
-            &EmbeddingRocksDBWrapper::get_active_checkpoint_uuid);
+            &EmbeddingRocksDBWrapper::get_active_checkpoint_uuid)
+        .def(
+            "get_bg_thread_error_count",
+            &EmbeddingRocksDBWrapper::get_bg_thread_error_count)
+        .def(
+            "get_bg_thread_error_message",
+            &EmbeddingRocksDBWrapper::get_bg_thread_error_message);
 
 auto enrichment_config =
     torch::class_<kv_mem::EnrichmentConfig>("fbgemm", "EnrichmentConfig")
@@ -1246,9 +1252,13 @@ static auto dram_kv_embedding_cache_wrapper =
         .def(
             "get_feature_evict_metric",
             &DramKVEmbeddingCacheWrapper::get_feature_evict_metric)
+        .def("get_dram_kv_perf", &DramKVEmbeddingCacheWrapper::get_dram_kv_perf)
         .def(
-            "get_dram_kv_perf",
-            &DramKVEmbeddingCacheWrapper::get_dram_kv_perf);
+            "get_bg_thread_error_count",
+            &DramKVEmbeddingCacheWrapper::get_bg_thread_error_count)
+        .def(
+            "get_bg_thread_error_message",
+            &DramKVEmbeddingCacheWrapper::get_bg_thread_error_message);
 static auto embedding_rocks_db_read_only_wrapper =
     torch::class_<ReadOnlyEmbeddingKVDB>("fbgemm", "ReadOnlyEmbeddingKVDB")
         .def(

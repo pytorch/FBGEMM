@@ -324,6 +324,17 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
+  /// Get background thread error count. Non-zero means writes were dropped.
+  int64_t get_bg_thread_error_count() const {
+    return bg_thread_error_count_.load(std::memory_order_relaxed);
+  }
+
+  /// Get first background thread error message (empty if no errors).
+  std::string get_bg_thread_error_message() const {
+    std::lock_guard<std::mutex> lock(bg_error_mutex_);
+    return bg_thread_error_message_;
+  }
+
   virtual void trigger_feature_evict();
 
   virtual bool is_evicting();
@@ -560,6 +571,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   // -- commone path
   std::atomic<int64_t> total_cache_update_duration_{0};
+
+  // -- background thread error tracking
+  std::atomic<int64_t> bg_thread_error_count_{0};
+  mutable std::mutex bg_error_mutex_;
+  std::string bg_thread_error_message_;
 
  protected:
   std::unique_ptr<fbgemm_gpu::RawEmbeddingStreamer> raw_embedding_streamer_;
