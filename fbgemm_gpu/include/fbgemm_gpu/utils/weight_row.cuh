@@ -69,7 +69,7 @@ template <>
 DEVICE_INLINE Vec4T<float> dequantize_load(
     const at::Float8_e4m3fn* value,
     const float2 /* currently unused */) {
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+#if defined(USE_ROCM) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<float> out;
   const __nv_fp8x4_e4m3* fp8_ptr =
@@ -85,7 +85,7 @@ template <>
 DEVICE_INLINE Vec4T<float> dequantize_load(
     const at::Float8_e4m3fnuz* value,
     const float2 /* currently unused */) {
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+#if defined(USE_ROCM) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<float> out;
   const __nv_fp8x4_e4m3* fp8_ptr =
@@ -101,7 +101,7 @@ template <>
 DEVICE_INLINE Vec4T<at::Half> dequantize_load(
     const at::Float8_e4m3fn* value,
     const float2 /* currently unused */) {
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+#if defined(USE_ROCM) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<at::Half> out;
   const __nv_fp8x4_e4m3* fp8_ptr =
@@ -117,7 +117,7 @@ template <>
 DEVICE_INLINE Vec4T<at::Half> dequantize_load(
     const at::Float8_e4m3fnuz* value,
     const float2 /* currently unused */) {
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+#if defined(USE_ROCM) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   Vec4T<at::Half> out;
   const __nv_fp8x4_e4m3* fp8_ptr =

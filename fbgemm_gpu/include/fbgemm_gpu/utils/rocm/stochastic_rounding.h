@@ -141,7 +141,7 @@ DEVICE_INLINE void nearest_rounding_vector(
     at::Float8_e4m3fnuz* output,
     const Vec2T<at::Half>& value,
     const float2 /* Not used yet */) {
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+#if defined(USE_ROCM) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   __nv_fp8x2_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x2_e4m3*>(output);
   fp8_ptr[0] = static_cast<__nv_fp8x2_e4m3>(value.acc);
@@ -157,7 +157,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
     StochasticRoundingRNGState& /* state */,
     const float2 /* qparams */) {
 // TODO, make this actually stochastic later.
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+#if defined(USE_ROCM) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   __nv_fp8x2_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x2_e4m3*>(output);
   fp8_ptr[0] = static_cast<__nv_fp8x2_e4m3>(value.acc);
@@ -173,7 +173,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
     StochasticRoundingRNGState& /* state */,
     const float2 /* qparams */) {
 // TODO, make this stochastic later.
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+#if defined(USE_ROCM) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
   __nv_fp8x2_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x2_e4m3*>(output);
   fp8_ptr[0] = static_cast<__nv_fp8x2_e4m3>(value.acc);

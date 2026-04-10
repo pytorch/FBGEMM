@@ -19,11 +19,11 @@
 
 #if CUDART_VERSION >= 12000
 #include <cuda_fp8.h>
-#elif (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+#elif defined(USE_ROCM)
 #include <hip/hip_fp8.h>
 #endif
 
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+#if defined(USE_ROCM)
 #if HIP_FP8_TYPE_OCP
 using __nv_fp8_e4m3 = __hip_fp8_e4m3;
 using __nv_fp8x2_e4m3 = __hip_fp8x2_e4m3;
@@ -33,7 +33,7 @@ using __nv_fp8_e4m3 = __hip_fp8_e4m3_fnuz;
 using __nv_fp8x2_e4m3 = __hip_fp8x2_e4m3_fnuz;
 using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3_fnuz;
 #endif // HIP_FP8_TYPE_OCP
-#endif // (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+#endif // defined(USE_ROCM)
 
 namespace fbgemm_gpu {
 
