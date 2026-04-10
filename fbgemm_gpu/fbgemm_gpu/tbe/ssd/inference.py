@@ -12,8 +12,10 @@ import itertools
 import logging
 import os
 import tempfile
+import threading
+from contextlib import contextmanager
 from math import log2
-from typing import Optional
+from typing import Generator, Optional
 
 import torch  # usort:skip
 
@@ -35,11 +37,90 @@ from torch.autograd.profiler import record_function
 
 from .common import ASSOC
 
+IS_ROCM: bool = hasattr(torch.version, "hip") and torch.version.hip is not None
+
+
+class _RWLock:
+    """
+    Lightweight read-write lock for concurrent inference + rare updates.
+
+    Multiple readers (prefetch/forward) can proceed concurrently.
+    A writer (streaming_update/load_snapshot) gets exclusive access,
+    blocking new readers and waiting for in-flight readers to finish.
+
+    Writer-priority: once any writer is waiting, new readers block until
+    all waiting writers have completed. Uses a counter (not a bool) so
+    that multiple queued writers don't starve each other.
+    """
+
+    def __init__(self) -> None:
+        self._cond: threading.Condition = threading.Condition(threading.Lock())
+        self._readers: int = 0
+        self._writers_waiting: int = 0
+        self._writer_active: bool = False
+
+    def acquire_read(self) -> None:
+        with self._cond:
+            while self._writer_active or self._writers_waiting > 0:
+                self._cond.wait()
+            self._readers += 1
+
+    def release_read(self) -> None:
+        with self._cond:
+            self._readers -= 1
+            if self._readers == 0:
+                self._cond.notify_all()
+
+    def acquire_write(self) -> None:
+        with self._cond:
+            self._writers_waiting += 1
+            while self._readers > 0 or self._writer_active:
+                self._cond.wait()
+            self._writers_waiting -= 1
+            self._writer_active = True
+
+    def release_write(self) -> None:
+        with self._cond:
+            self._writer_active = False
+            self._cond.notify_all()
+
+    @contextmanager
+    def read_lock(self) -> Generator[None, None, None]:
+        self.acquire_read()
+        try:
+            yield
+        finally:
+            self.release_read()
+
+    @contextmanager
+    def write_lock(
+        self, cuda_device: Optional[torch.device] = None
+    ) -> Generator[None, None, None]:
+        self.acquire_write()
+        try:
+            if cuda_device is not None:
+                torch.cuda.synchronize(cuda_device)
+            yield
+            if cuda_device is not None:
+                torch.cuda.synchronize(cuda_device)
+        finally:
+            self.release_write()
+
 
 class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     """
     SSD Table-batched version of nn.EmbeddingBag(sparse=False)
     Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
+
+    AMD/ROCm support status:
+        This operator supports AMD GPUs (ROCm/HIP). Key adaptations:
+        - Cache associativity (ASSOC) is set to 64 to match AMD's 64-wide
+          wavefronts (vs. 32 for NVIDIA warps). Python-side tensor shapes
+          and C++ kernel indexing are kept in sync via common.ASSOC.
+        - BitonicSort includes a 6th merge stage (L=32) for 64-element sorts.
+        - lxu_cache_lookup uses HIP-native __ballot() instead of
+          __ballot_sync().
+        - SM-count tuning uses CU-count-based heuristic for AMD GPUs.
     """
 
     embedding_specs: list[tuple[str, int, int, SparseType]]
@@ -56,7 +137,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         row_alignment: Optional[int] = None,
         fp8_exponent_bits: Optional[int] = None,
         fp8_exponent_bias: Optional[int] = None,
-        cache_assoc: int = 32,
+        cache_assoc: int = ASSOC,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cache_sets: int = 0,
         ssd_storage_directory: str = "/tmp",
@@ -82,7 +163,10 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(SSDIntNBitTableBatchedEmbeddingBags, self).__init__()
 
-        assert cache_assoc == 32, "Only 32-way cache is supported now"
+        assert cache_assoc == ASSOC, (
+            f"cache_assoc must match platform ASSOC={ASSOC} "
+            f"(CUDA=32, ROCm=64), got {cache_assoc}"
+        )
 
         self.enable_cache_locking = enable_cache_locking
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
@@ -269,6 +353,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ssd_directory = tempfile.mkdtemp(
             prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
         )
+        self.use_ps_backend: bool = bool(ps_hosts)
         if not ps_hosts:
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
@@ -385,8 +470,24 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.fp8_exponent_bits = -1
             self.fp8_exponent_bias = -1
 
+        if IS_ROCM:
+            logging.info(
+                "SSD TBE inference running on ROCm with ASSOC=%d "
+                "(matching AMD 64-wide wavefronts).",
+                ASSOC,
+            )
+
+        # Read-write lock for concurrent inference + streaming updates.
+        # prefetch/forward take shared read locks; streaming_update/load_snapshot
+        # take exclusive write locks with CUDA synchronization.
+        self._rw_lock: _RWLock = _RWLock()
+
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> Tensor:
+        with self._rw_lock.read_lock():
+            return self._prefetch_impl(indices, offsets)
+
+    def _prefetch_impl(self, indices: Tensor, offsets: Tensor) -> Tensor:
         indices, offsets = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.hash_size_cumsum,
@@ -491,9 +592,18 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
     ) -> Tensor:
+        with self._rw_lock.read_lock():
+            return self._forward_impl(indices, offsets, per_sample_weights)
+
+    def _forward_impl(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+    ) -> Tensor:
         if self.timestep_prefetch_size.get() <= 0:
             with record_function("## prefetch ##"):
-                linear_cache_indices = self.prefetch(indices, offsets)
+                linear_cache_indices = self._prefetch_impl(indices, offsets)
         else:
             linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
                 self.hash_size_cumsum,
@@ -620,3 +730,130 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         torch.cuda.synchronize(self.current_device)
         return splits
+
+    @torch.jit.export
+    def streaming_update(
+        self,
+        indices: Tensor,
+        weights: Tensor,
+    ) -> None:
+        """
+        Apply streaming embedding updates during inference.
+
+        Writes new embedding values to RocksDB for the given indices and
+        invalidates corresponding HBM cache entries so that the next
+        prefetch() reloads the fresh values.
+
+        Thread-safe: acquires an exclusive write lock and synchronizes
+        all CUDA streams before and after modifying shared state.
+
+        Args:
+            indices: 1D int64 tensor of linear embedding indices to update.
+            weights: 2D uint8 tensor of shape [len(indices), max_D_cache]
+                     containing the new embedding bytes (including scale/bias).
+        """
+        assert indices.dim() == 1, "indices must be 1D"
+        assert weights.dim() == 2, "weights must be 2D"
+        assert indices.shape[0] == weights.shape[0], (
+            f"indices and weights must have the same number of rows, "
+            f"got {indices.shape[0]} and {weights.shape[0]}"
+        )
+        if indices.shape[0] == 0:
+            return
+
+        with self._rw_lock.write_lock(self.current_device):
+            # 1. Write updated embeddings to RocksDB.
+            count = torch.tensor([indices.shape[0]], dtype=torch.int64)
+            self.ssd_db.set(indices.cpu(), weights.cpu(), count)
+
+            # 2. Invalidate HBM cache entries for updated indices.
+            self._invalidate_cache(indices)
+
+    def _invalidate_cache(self, indices: Tensor) -> None:
+        """Invalidate HBM cache entries for the given linear indices."""
+        indices = indices.to(self.current_device)
+        max_cache_sets = self.lxu_cache_state.shape[0]
+        cache_set_ids = indices % max_cache_sets  # [N]
+
+        # Gather the ASSOC slots for each relevant cache set: [N, ASSOC]
+        relevant_states = self.lxu_cache_state[cache_set_ids]
+
+        # Find which slots hold the updated indices: [N, ASSOC] bool
+        matches = relevant_states == indices.unsqueeze(1)
+
+        if matches.any():
+            # Get (row_in_batch, slot) pairs for all matches
+            n_idx, slot_idx = matches.nonzero(as_tuple=True)
+            # Convert to flat indices into lxu_cache_state
+            flat_idx = cache_set_ids[n_idx] * ASSOC + slot_idx
+            self.lxu_cache_state.view(-1)[flat_idx] = -1
+
+    @torch.jit.export
+    def load_snapshot(
+        self,
+        ssd_storage_directory: str,
+        ssd_shards: int = 1,
+        ssd_memtable_flush_period: int = -1,
+        ssd_memtable_flush_offset: int = -1,
+        ssd_l0_files_per_compact: int = 4,
+        ssd_rate_limit_mbps: int = 0,
+        ssd_size_ratio: int = 10,
+        ssd_compaction_trigger: int = 8,
+        ssd_write_buffer_size: int = 2 * 1024 * 1024 * 1024,
+        ssd_max_write_buffer_num: int = 16,
+        ssd_uniform_init_lower: float = -0.01,
+        ssd_uniform_init_upper: float = 0.01,
+    ) -> None:
+        """
+        Swap to a new RocksDB snapshot without downtime.
+
+        Opens a new EmbeddingRocksDB at the given directory and replaces
+        the current ssd_db. Invalidates the entire HBM cache so that
+        subsequent prefetch() calls reload from the new snapshot.
+
+        Args:
+            ssd_storage_directory: Path to the new RocksDB snapshot.
+            Other args: RocksDB configuration (same as constructor).
+
+        Raises:
+            RuntimeError: If the instance uses a parameter server backend
+                (ps_hosts was provided at construction time).
+        """
+        if self.use_ps_backend:
+            raise RuntimeError(
+                "load_snapshot() is only supported with the local RocksDB backend. "
+                "This instance was initialized with ps_hosts (parameter server)."
+            )
+
+        with self._rw_lock.write_lock(self.current_device):
+            # 1. Flush any pending writes to the old DB.
+            self.ssd_db.flush()
+
+            # 2. Open a new RocksDB instance at the new snapshot path.
+            # pyre-ignore[16]
+            self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_storage_directory,
+                ssd_shards,
+                ssd_shards,
+                ssd_memtable_flush_period,
+                ssd_memtable_flush_offset,
+                ssd_l0_files_per_compact,
+                self.max_D_cache,
+                ssd_rate_limit_mbps,
+                ssd_size_ratio,
+                ssd_compaction_trigger,
+                ssd_write_buffer_size,
+                ssd_max_write_buffer_num,
+                ssd_uniform_init_lower,
+                ssd_uniform_init_upper,
+                8,  # row_storage_bitwidth
+                0,  # ssd_block_cache_size
+            )
+
+            # 3. Invalidate entire HBM cache — all entries are from old snapshot.
+            self.lxu_cache_state.fill_(-1)
+
+            logging.info(
+                f"Loaded new snapshot from {ssd_storage_directory}, "
+                f"HBM cache fully invalidated"
+            )

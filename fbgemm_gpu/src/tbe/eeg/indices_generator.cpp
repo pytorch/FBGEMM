@@ -152,9 +152,10 @@ torch::Tensor IndicesGenerator::generate() {
       std::end(indicesWithTags),
       [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
 #else
-  std::ranges::sort(indicesWithTags, [](const auto& lhs, const auto& rhs) {
-    return lhs.second < rhs.second;
-  });
+  std::sort(
+      std::begin(indicesWithTags),
+      std::end(indicesWithTags),
+      [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
 #endif
 
   auto t = convertVectorToTensor(indicesWithTags);

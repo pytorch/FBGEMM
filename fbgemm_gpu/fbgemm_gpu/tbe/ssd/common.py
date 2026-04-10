@@ -20,7 +20,11 @@ try:
 except Exception:
     pass
 
-ASSOC = 32
+# Match cache associativity to hardware warp/wavefront width:
+# NVIDIA warp = 32 lanes, AMD wavefront = 64 lanes.
+# C++ kernels use kWarpSize for cache set indexing, so Python-side
+# tensor shapes must agree.
+ASSOC: int = 32 if torch.version.hip is None else 64
 
 
 def pad4(value: int) -> int:

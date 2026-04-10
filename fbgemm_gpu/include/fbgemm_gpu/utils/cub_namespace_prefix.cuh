@@ -8,31 +8,8 @@
 
 #ifdef FBGEMM_CUB_USE_NAMESPACE
 
-#undef CUB_NS_PREFIX
-#undef CUB_NS_POSTFIX
-
-#include <cuda.h> // for CUDA_VERSION
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-#include <cub/version.cuh>
-#else
-#define CUB_VERSION 0
-#endif
-
-// PR https://github.com/NVIDIA/cub/pull/350 introduced breaking change.
-// When the CUB_NS_[PRE|POST]FIX macros are set,
-// CUB_NS_QUALIFIER must also be defined to the fully qualified CUB namespace
-#if CUB_VERSION >= 101301
-#undef CUB_NS_QUALIFIER
-#endif
-
-#define CUB_NS_PREFIX namespace fbgemm_gpu {
-#define CUB_NS_POSTFIX } // namespace fbgemm_gpu
-
-// PR https://github.com/NVIDIA/cub/pull/350 introduced breaking change.
-// When the CUB_NS_[PRE|POST]FIX macros are set,
-// CUB_NS_QUALIFIER must also be defined to the fully qualified CUB namespace
-#if CUB_VERSION >= 101301
-#define CUB_NS_QUALIFIER ::fbgemm_gpu::cub
-#endif
+// Use CUB_WRAPPED_NAMESPACE (CUB >= 1.14, CUDA >= 11.6) to wrap CUB in the
+// fbgemm_gpu namespace, avoiding symbol collisions with other CUB users.
+#define CUB_WRAPPED_NAMESPACE fbgemm_gpu
 
 #endif
