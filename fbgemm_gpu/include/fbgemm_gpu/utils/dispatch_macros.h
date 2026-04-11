@@ -136,9 +136,7 @@
     return __VA_ARGS__();                               \
   }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
 
 #define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
   [&] {                                                                      \

@@ -452,9 +452,7 @@ struct VecNT<1, PrimitiveType::FP> {
     *reinterpret_cast<__half*>(output_ptr) = val;
   }
 
-#if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) || !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 1) {
@@ -545,9 +543,7 @@ struct VecNT<2, PrimitiveType::FP> {
     }
   }
 
-#if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) || !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 2) {
@@ -683,9 +679,7 @@ struct VecNT<4, PrimitiveType::FP> {
     }
   }
 
-#if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) || !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 4) {
@@ -838,9 +832,7 @@ struct VecNT<4, PrimitiveType::INT> {
     }
   }
 
-#if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) || !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 4) {
@@ -1008,9 +1000,7 @@ struct VecNT<8, PrimitiveType::INT> {
     }
   }
 
-#if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) || !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 8) {
@@ -1195,9 +1185,7 @@ struct VecNT<16, PrimitiveType::INT> {
     }
   }
 
-#if defined(USE_ROCM) ||                                  \
-    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) || !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 16) {
