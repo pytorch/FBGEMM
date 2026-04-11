@@ -111,12 +111,10 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 pooled_ad_embeddings, uncat_size, batch_indices.device, dim
             )
 
-        # pyre-fixme[3]: Return type must be annotated.
-        # pyre-fixme[2]: Parameter must be annotated.
-        def ref(pooled_ad_embeddings, batch_indices):
+        def ref(pooled_ad_embeddings: list[torch.Tensor]) -> torch.Tensor:
             return torch.cat([p.cpu() for p in pooled_ad_embeddings], dim=dim)
 
-        output_ref = ref(pooled_ad_embeddings, batch_indices)
+        output_ref = ref(pooled_ad_embeddings)
         output_cpu = torch.ops.fbgemm.merge_pooled_embeddings(
             [pe.cpu() for pe in pooled_ad_embeddings],
             uncat_size,
