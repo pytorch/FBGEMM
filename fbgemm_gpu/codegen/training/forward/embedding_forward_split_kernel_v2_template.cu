@@ -749,6 +749,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     const uint32_t T,
     const bool mean_pooling,
     const uint32_t max_D_cache,
+    const uint32_t max_D,
     const FixedDivisor fd_num_warps_per_table,
     const index_t* __restrict__ const indices,
     {%- if weighted %}
@@ -815,12 +816,9 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     const auto is_small_L = total_L <= (static_cast<index_t>(B) * 8);
     const uint32_t num_warps_for_small_L = DIV_ROUND_UP(B, NUM_OFFSETS_PER_WARP);
 
-    // Early exit for small-L to avoid D_offsets reads
-    // if table_warp_id > B * max(num_warps_per_row) / NUM_OFFSETS_PER_WARP
-    // max(num_warps_per_row) = 8 (for D = 1024)
-    // NUM_OFFSETS_PER_WARP = 32
-    // Return if table_warp_id > ceil(B / 32) * 8
-    if (is_small_L && table_warp_id >= num_warps_for_small_L * 8) {
+    // Early exit for small-L to avoid D_offsets reads.
+    const uint32_t max_num_warps_per_row = DIV_ROUND_UP(max_D / VEC_WIDTH, kWarpSize);
+    if (is_small_L && table_warp_id >= num_warps_for_small_L * max_num_warps_per_row) {
       return;
     }
 
@@ -1039,6 +1037,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel
     const uint32_t T,
     const bool mean_pooling,
     const uint32_t max_D_cache,
+    const uint32_t max_D,
     const FixedDivisor fd_num_warps_per_table,
     const {{ index_type }}* __restrict__ const indices,
     {%- if weighted %}
