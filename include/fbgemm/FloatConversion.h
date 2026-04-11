@@ -314,4 +314,18 @@ inline bfloat16 cpu_float2bfloat16(float src) {
   return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
 }
 
+template <typename T>
+inline float to_float(T src) {
+  if constexpr (std::is_same_v<T, bfloat16>) return cpu_bf162float(src);
+  else if constexpr (std::is_same_v<T, float16>) return cpu_half2float(src);
+  else return static_cast<float>(src);
+}
+
+template <typename T>
+inline T from_float(float f) {
+  if constexpr (std::is_same_v<T, bfloat16>) return cpu_float2bfloat16(f);
+  else if constexpr (std::is_same_v<T, float16>) return cpu_float2half_rn(f);
+  else return static_cast<T>(f);
+}
+
 } // namespace fbgemm

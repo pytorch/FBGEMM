@@ -71,8 +71,7 @@ static int run_benchmark(
     int average_len,
     bool normalize_by_lengths,
     bool use_32_bit_indices = false,
-    bool prefetch = false,
-    bool is_bf16_out = false) {
+    bool prefetch = false) {
   // Create embedding table
   int num_elem_per_byte = 8 / bit_rate;
   int fused_embedding_dim =
@@ -184,7 +183,7 @@ static int run_benchmark(
         /*output_stride=*/-1,
         /*input_stride=*/-1,
         /*scale_bias_last=*/true,
-        /*is_bf16_out=*/is_bf16_out,
+
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
     auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
@@ -201,7 +200,6 @@ static int run_benchmark(
         /*output_stride=*/-1,
         /*input_stride=*/-1,
         /*scale_bias_last=*/true,
-        /*is_bf16_out=*/is_bf16_out,
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
 #endif
@@ -230,7 +228,7 @@ static int run_benchmark(
                   -1, // output_stride
                   -1, // input_stride
                   true, // scale_bias_last
-                  is_bf16_out);
+                  false);
             } else {
               success_ref = EmbeddingSpMDMNBit_ref(
                   bit_rate,
@@ -249,7 +247,7 @@ static int run_benchmark(
                   -1, // output_stride
                   -1, // input_stride
                   true, // scale_bias_last
-                  is_bf16_out);
+                  false);
             }
           },
           NUM_WARMUP,
@@ -379,14 +377,9 @@ static int run_benchmark(
             if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-              if (is_bf16_out) {
-                tmp1 = cpu_bf162float(output[i]);
-                tmp2 = cpu_bf162float(output_ref[i]);
-              } else {
-                tmp1 = cpu_half2float(output[i]);
-                tmp2 = cpu_half2float(output_ref[i]);
-              }
+            } else if constexpr (FbgemmHalfType<OutType>) {
+              tmp1 = to_float(output[i]);
+              tmp2 = to_float(output_ref[i]);
             } else {
               assert(false && "ERROR: unsupported output type");
               cout << "ERROR: unsupported output type" << '\n';
@@ -415,14 +408,9 @@ static int run_benchmark(
             if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output_autovec[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-              if (is_bf16_out) {
-                tmp1 = cpu_bf162float(output_autovec[i]);
-                tmp2 = cpu_bf162float(output_ref[i]);
-              } else {
-                tmp1 = cpu_half2float(output_autovec[i]);
-                tmp2 = cpu_half2float(output_ref[i]);
-              }
+            } else if constexpr (FbgemmHalfType<OutType>) {
+              tmp1 = to_float(output_autovec[i]);
+              tmp2 = to_float(output_ref[i]);
             } else {
               assert(false && "ERROR: unsupported output type");
               cout << "ERROR: unsupported output type" << '\n';
@@ -440,12 +428,10 @@ static int run_benchmark(
 
       if constexpr (std::is_same_v<OutType, float>) {
         cout << "out type fp32, ";
-      } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-        if (is_bf16_out) {
-          cout << "out type bf16, ";
-        } else {
-          cout << "out type fp16, ";
-        }
+      } else if constexpr (std::is_same_v<OutType, bfloat16>) {
+        cout << "out type bf16, ";
+      } else if constexpr (std::is_same_v<OutType, float16>) {
+        cout << "out type fp16, ";
       } else {
         assert(false && "ERROR: unsupported output type");
         cout << "ERROR: unsupported output type" << '\n';
@@ -532,9 +518,9 @@ int main() {
           false, // normalize_by_lengths
           false, // use_32_bit_indices
           false, // prefetch
-          false); // is_bf16_out
+);
 
-      run_benchmark<float16>(
+      run_benchmark<bfloat16>(
           bit_rate,
           batch_size,
           num_rows,
@@ -543,7 +529,7 @@ int main() {
           false, // normalize_by_lengths
           false, // use_32_bit_indices
           false, // prefetch
-          true); // is_bf16_out
+);
 #endif // OUT_TYPE_FLOAT16
 
       cout << "64 bit indices with prefetching, ";
@@ -567,9 +553,9 @@ int main() {
           false, // normalize_by_lengths
           false, // use_32_bit_indices
           true, // prefetch
-          false); // is_bf16_out
+);
 
-      run_benchmark<float16>(
+      run_benchmark<bfloat16>(
           bit_rate,
           batch_size,
           num_rows,
@@ -578,7 +564,7 @@ int main() {
           false, // normalize_by_lengths
           false, // use_32_bit_indices
           true, // prefetch
-          true); // is_bf16_out
+);
 #endif // OUT_TYPE_FLOAT16
 
       cout << "32 bit indices, ";
@@ -601,9 +587,9 @@ int main() {
           false, // normalize_by_lengths
           true, // use_32_bit_indices
           false, // prefetch
-          false); // is_bf16_out
+          );
 
-      run_benchmark<float16>(
+      run_benchmark<bfloat16>(
           bit_rate,
           batch_size,
           num_rows,
@@ -612,7 +598,7 @@ int main() {
           false, // normalize_by_lengths
           true, // use_32_bit_indices
           false, // prefetch
-          true); // is_bf16_out
+);
 #endif // OUT_TYPE_FLOAT16
 
       cout << "32 bit indices with prefetching, ";
@@ -636,9 +622,9 @@ int main() {
           false, // normalize_by_lengths
           true, // use_32_bit_indices
           true, // prefetch
-          false); // is_bf16_out
+          );
 
-      run_benchmark<float16>(
+      run_benchmark<bfloat16>(
           bit_rate,
           batch_size,
           num_rows,
@@ -647,7 +633,7 @@ int main() {
           false, // normalize_by_lengths
           true, // use_32_bit_indices
           true, // prefetch
-          true); // is_bf16_out
+);
 #endif // OUT_TYPE_FLOAT16
 
       // running with normalize by lengths

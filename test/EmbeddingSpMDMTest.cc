@@ -216,8 +216,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
       output_ref[i] = sentry_value;
       output[i] = sentry_value;
-      output_ref_fp16[i] = cpu_float2half_rn(sentry_value);
-      output_fp16[i] = cpu_float2half_rn(sentry_value);
+      output_ref_fp16[i] = from_float<float16>(sentry_value);
+      output_fp16[i] = from_float<float16>(sentry_value);
       FloatToBfloat16_ref(&sentry_value, &output_ref_bf16[i], 1);
       FloatToBfloat16_ref(&sentry_value, &output_bf16[i], 1);
     }
@@ -251,9 +251,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       output_stride,                                           \
       input_stride,                                            \
       true,                                                    \
-      false,                                                   \
-      is_output_bfloat16,                                      \
-      isBf16);                                                 \
+      false);                                                  \
                                                                \
   auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
       InType,                                                  \
@@ -270,9 +268,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       output_stride,                                           \
       input_stride,                                            \
       true,                                                    \
-      false,                                                   \
-      is_output_bfloat16,                                      \
-      isBf16);                                                 \
+      false);                                                  \
   success = kernel(                                            \
       batch_size,                                              \
       lengths_sum,                                             \
@@ -402,7 +398,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         Bfloat16ToFloat_ref(&output_bf16[offset], &v, 1);
         return v;
       } else
-        return cpu_half2float(output_fp16[offset]);
+        return to_float(output_fp16[offset]);
     };
 
     auto get_expected = [&](int offset) {
@@ -413,7 +409,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         Bfloat16ToFloat_ref(&output_ref_bf16[offset], &v, 1);
         return v;
       } else
-        return cpu_half2float(output_ref_fp16[offset]);
+        return to_float(output_ref_fp16[offset]);
     };
 
     if (success) {
@@ -557,9 +553,7 @@ TEST_P(EmbeddingSpMDMTest, noBagUint8Test) {
       output_stride,                               \
       input_stride,                                \
       true, /* scale_bias_last */                  \
-      true, /* no_bag */                           \
-      false, /* is_output_bfloat16 */              \
-      false /* isBf16 */);                         \
+      true /* no_bag */);                           \
                                                    \
   auto kernel = GenerateEmbeddingSpMDMWithStrides< \
       InType,                                      \
@@ -575,9 +569,7 @@ TEST_P(EmbeddingSpMDMTest, noBagUint8Test) {
       output_stride,                               \
       input_stride,                                \
       true, /* scale_bias_last */                  \
-      true, /* no_bag */                           \
-      false, /* is_bf16_out */                     \
-      false /* is_bf16_in */);                     \
+      true /* no_bag */);                           \
   success = kernel(                                \
       output_size,                                 \
       output_size,                                 \

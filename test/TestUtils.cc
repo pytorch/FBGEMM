@@ -145,8 +145,8 @@ template <>
     const float atol,
     const float rtol) {
   std::vector<float> b_float(b.size());
-  const auto transform = [](float16 input) { return cpu_half2float(input); };
-  std::ranges::transform(b, b_float.begin(), transform);
+  const auto transform = [](float16 input) { return to_float(input); };
+  std::transform(b.begin(), b.end(), b_float.begin(), transform);
   return floatCloseAll(a, b_float, atol, rtol);
 }
 
@@ -158,9 +158,9 @@ template <>
     const float rtol) {
   std::vector<float> a_float(a.size());
   std::vector<float> b_float(b.size());
-  const auto transform = [](float16 input) { return cpu_half2float(input); };
-  std::ranges::transform(a, a_float.begin(), transform);
-  std::ranges::transform(b, b_float.begin(), transform);
+  const auto transform = [](float16 input) { return to_float(input); };
+  std::transform(a.begin(), a.end(), a_float.begin(), transform);
+  std::transform(b.begin(), b.end(), b_float.begin(), transform);
   return floatCloseAll(a_float, b_float, atol, rtol);
 }
 } // namespace fbgemm
