@@ -26,8 +26,9 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     : OC_(OC), kernel_prod_(kernel_prod) {
   // The input is in OC T R S layout.
   // Transpose the input matrix to make packing faster.
-  int8_t* smat_transposed = static_cast<int8_t*>(
-      fbgemmAlignedAlloc(64, OC * kernel_prod * sizeof(int8_t)));
+  auto smat_transposed_owner =
+      makeAlignedUniquePtr<int8_t>(64, OC * kernel_prod);
+  int8_t* smat_transposed = smat_transposed_owner.get();
   for (int i = 0; i < kernel_prod; ++i) {
     for (int j = 0; j < OC; ++j) {
       smat_transposed[i * OC + j] = smat[i + j * kernel_prod];
@@ -93,12 +94,14 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
   // (28, 8), (28, 9), (28, 10), zero, ..., (31, 8), (31, 9), (31, 10), zero
 
   // Allocate buffers
-  auto b_v = static_cast<__m256i*>(
-      fbgemmAlignedAlloc(64, kernel_prod * sizeof(__m256i)));
-  auto b_interleaved_epi16 = static_cast<__m256i*>(
-      fbgemmAlignedAlloc(64, kernel_prod_aligned * sizeof(__m256i)));
-  auto b_interleaved_epi32 = static_cast<__m256i*>(
-      fbgemmAlignedAlloc(64, kernel_prod_aligned * sizeof(__m256i)));
+  auto b_v_owner = makeAlignedUniquePtr<__m256i>(64, kernel_prod);
+  auto b_v = b_v_owner.get();
+  auto b_interleaved_epi16_owner =
+      makeAlignedUniquePtr<__m256i>(64, kernel_prod_aligned);
+  auto b_interleaved_epi16 = b_interleaved_epi16_owner.get();
+  auto b_interleaved_epi32_owner =
+      makeAlignedUniquePtr<__m256i>(64, kernel_prod_aligned);
+  auto b_interleaved_epi32 = b_interleaved_epi32_owner.get();
   for (int k1 = 0; k1 < OC; k1 += 32) {
     int remainder = OC - k1;
     if (remainder < 32) {
@@ -154,10 +157,6 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
           b_interleaved_epi32[i]);
     }
   }
-  fbgemmAlignedFree(b_v);
-  fbgemmAlignedFree(b_interleaved_epi16);
-  fbgemmAlignedFree(b_interleaved_epi32);
-  fbgemmAlignedFree(smat_transposed);
 }
 
 int PackedDepthWiseConvMatrix::addr(int r, int c) {
