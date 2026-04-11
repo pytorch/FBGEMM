@@ -78,8 +78,8 @@ void CompressedSparseColumn::SpMDM(
     // If NNZ/K is small, it's not worth doing transpose so we just use this
     // scalar loop.
 #ifdef _MSC_VER
-    int32_t* C_temp = static_cast<int32_t*>(
-        fbgemmAlignedAlloc(64, block.row_size * sizeof(int32_t)));
+    auto C_temp_owner = makeAlignedUniquePtr<int32_t>(64, block.row_size);
+    int32_t* C_temp = C_temp_owner.get();
 #else
     int32_t C_temp[block.row_size];
 #endif
@@ -141,9 +141,6 @@ void CompressedSparseColumn::SpMDM(
         }
       } // for each column of B
     }
-#ifdef _MSC_VER
-    fbgemmAlignedFree(C_temp);
-#endif
     return;
   }
 
@@ -165,10 +162,10 @@ void CompressedSparseColumn::SpMDM(
 // dynamically allocated memory for MSVC even though dynamically allocated
 // memory works for all compilers.
 #ifdef _MSC_VER
-  uint8_t* A_buffer =
-      static_cast<uint8_t*>(fbgemmAlignedAlloc(64, K * 32 * sizeof(uint8_t)));
-  int32_t* C_buffer =
-      static_cast<int32_t*>(fbgemmAlignedAlloc(64, N * 32 * sizeof(int32_t)));
+  auto A_buffer_owner = makeAlignedUniquePtr<uint8_t>(64, K * 32);
+  auto C_buffer_owner = makeAlignedUniquePtr<int32_t>(64, N * 32);
+  uint8_t* A_buffer = A_buffer_owner.get();
+  int32_t* C_buffer = C_buffer_owner.get();
 #else
   alignas(64) uint8_t A_buffer[K * 32];
   alignas(64) int32_t C_buffer[N * 32];
@@ -180,8 +177,8 @@ void CompressedSparseColumn::SpMDM(
     // Transpose 32 x K submatrix of A
     if (i_end - i1 < 32) {
 #ifdef _MSC_VER
-      uint8_t* A_temp_buffer = static_cast<uint8_t*>(
-          fbgemmAlignedAlloc(64, K * 32 * sizeof(uint8_t)));
+      auto A_temp_buffer_owner = makeAlignedUniquePtr<uint8_t>(64, K * 32);
+      uint8_t* A_temp_buffer = A_temp_buffer_owner.get();
 #else
       alignas(64) uint8_t A_temp_buffer[K * 32];
 #endif
@@ -200,9 +197,6 @@ void CompressedSparseColumn::SpMDM(
       for (int i2 = (i_end - i1) / 8 * 8; i2 < 32; i2 += 8) {
         transpose_8rows(K, A_temp_buffer + i2 * K, K, A_buffer + i2, 32);
       }
-#ifdef _MSC_VER
-      fbgemmAlignedFree(A_temp_buffer);
-#endif
     } else {
       for (int i2 = 0; i2 < 32; i2 += 8) {
         transpose_8rows(K, A + (i1 + i2) * lda, lda, A_buffer + i2, 32);
@@ -279,10 +273,6 @@ void CompressedSparseColumn::SpMDM(
           .count();
   spmdm_run_time += (dt);
   t_start = std::chrono::high_resolution_clock::now();
-#endif
-#ifdef _MSC_VER
-  fbgemmAlignedFree(A_buffer);
-  fbgemmAlignedFree(C_buffer);
 #endif
 
 #endif // __aarch64__

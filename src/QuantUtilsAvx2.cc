@@ -22,6 +22,7 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
+#include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
 
@@ -1599,12 +1600,14 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       (input_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE +
       2 * sizeof(std::uint16_t);
 
+  aligned_unique_ptr<float> input_row_float_for_fp16_owner;
   float* input_row_float_for_fp16 = nullptr;
   float min_max_row_float_for_fp16[kRowwiseMinMaxNumCols];
   const auto is_valid_rowwise_min_max = (rowwise_min_max != nullptr);
   if constexpr (std::is_same_v<InputType, float16>) {
-    input_row_float_for_fp16 = static_cast<float*>(
-        fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
+    input_row_float_for_fp16_owner =
+        makeAlignedUniquePtr<float>(64, input_columns);
+    input_row_float_for_fp16 = input_row_float_for_fp16_owner.get();
   }
 
   for (size_t row = 0; row < input_rows; ++row) {
@@ -1794,10 +1797,6 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       }
     }
   } // for each row
-
-  if constexpr (std::is_same_v<InputType, float16>) {
-    fbgemmAlignedFree(input_row_float_for_fp16);
-  }
 }
 
 template <typename InputType>
@@ -1824,12 +1823,14 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
 
   const int64_t output_columns = input_columns + 2 * sizeof(float);
+  aligned_unique_ptr<float> input_row_float_for_fp16_owner;
   float* input_row_float_for_fp16 = nullptr;
   float min_max_row_float_for_fp16[kRowwiseMinMaxNumCols];
   const auto is_valid_rowwise_min_max = (rowwise_min_max != nullptr);
   if constexpr (std::is_same_v<InputType, float16>) {
-    input_row_float_for_fp16 = static_cast<float*>(
-        fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
+    input_row_float_for_fp16_owner =
+        makeAlignedUniquePtr<float>(64, input_columns);
+    input_row_float_for_fp16 = input_row_float_for_fp16_owner.get();
   }
   for (size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
@@ -1957,9 +1958,6 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
           std::lrintf((input_row_float[col] - minimum_element) * inverse_scale);
     }
   } // for each row
-  if constexpr (std::is_same_v<InputType, float16>) {
-    fbgemmAlignedFree(input_row_float_for_fp16);
-  }
 }
 
 template <typename OutputType, int BIT_RATE>

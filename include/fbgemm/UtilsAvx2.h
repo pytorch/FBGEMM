@@ -11,6 +11,7 @@
 // flags.
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace fbgemm {
@@ -88,5 +89,23 @@ fbgemmAlignedAlloc(size_t align, size_t size, bool raiseException = false);
  * @brief Free memory allocated by fbgemmAlignedAlloc
  */
 FBGEMM_API void fbgemmAlignedFree(void* p);
+
+/**
+ * @brief RAII wrapper for aligned allocations.
+ */
+struct AlignedFreeDeleter {
+  void operator()(void* p) const {
+    fbgemmAlignedFree(p);
+  }
+};
+
+template <typename T>
+using aligned_unique_ptr = std::unique_ptr<T[], AlignedFreeDeleter>;
+
+template <typename T>
+aligned_unique_ptr<T> makeAlignedUniquePtr(size_t align, size_t count) {
+  return aligned_unique_ptr<T>(
+      static_cast<T*>(fbgemmAlignedAlloc(align, count * sizeof(T))));
+}
 
 } // namespace fbgemm

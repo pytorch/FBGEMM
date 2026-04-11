@@ -257,10 +257,12 @@ void fbgemmDirectConv(
       fn = codeObj.getOrCreateDirectConvTrans<inst_set_t::avx2>(
           true, conv_p.stride[1], conv_p.K[1]);
 
-      int32_t* inSum = static_cast<int32_t*>(fbgemmAlignedAlloc(
-          64, conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * sizeof(int32_t)));
-      int32_t* rowSum = static_cast<int32_t*>(fbgemmAlignedAlloc(
-          64, conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * sizeof(int32_t)));
+      auto inSum_owner = makeAlignedUniquePtr<int32_t>(
+          64, conv_p.IN_DIM[0] * conv_p.IN_DIM[1]);
+      int32_t* inSum = inSum_owner.get();
+      auto rowSum_owner = makeAlignedUniquePtr<int32_t>(
+          64, conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1]);
+      int32_t* rowSum = rowSum_owner.get();
 
       directConvRowSum(conv_p, Aint8, inSum, rowSum);
       int kernel_dim = conv_p.K[0] * conv_p.K[1];
@@ -450,8 +452,6 @@ void fbgemmDirectConv(
           }
         }
       }
-      fbgemmAlignedFree(inSum);
-      fbgemmAlignedFree(rowSum);
     } // transposed conv
     else { // non-transposed conv
       assert(false && "non-transposed direct conv not integrated yet.");

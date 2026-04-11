@@ -167,8 +167,9 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  int32_t* row_offsets = static_cast<int32_t*>(
-      fbgemmAlignedAlloc(64, (IC + 31) / 32 * 32 * sizeof(int32_t)));
+  auto row_offsets_owner =
+      makeAlignedUniquePtr<int32_t>(64, (IC + 31) / 32 * 32);
+  int32_t* row_offsets = row_offsets_owner.get();
 
   int64_t n_begin = 0, n_end = 0, t_begin = 0, t_end = 0, h_begin = 0,
           h_end = 0;
@@ -779,7 +780,6 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
       } // h
     } // t
   } // for each n
-  fbgemmAlignedFree(row_offsets);
 }
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
@@ -802,8 +802,9 @@ static void depthwise_3d_same_pad_(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
-  int32_t* C_int32_temp = static_cast<int32_t*>(
-      fbgemmAlignedAlloc(64, (conv_p.OC + 31) / 32 * 32 * sizeof(int32_t)));
+  auto C_int32_temp_owner =
+      makeAlignedUniquePtr<int32_t>(64, (conv_p.OC + 31) / 32 * 32);
+  int32_t* C_int32_temp = C_int32_temp_owner.get();
   if (A_zero_point == 0 || col_offsets == nullptr) {
     if (Q_GRAN == QuantizationGranularity::TENSOR && B_zero_point[0] == 0) {
       depthwise_3d_same_pad_<
@@ -893,7 +894,6 @@ static void depthwise_3d_same_pad_(
           num_threads);
     }
   }
-  fbgemmAlignedFree(C_int32_temp);
 }
 
 // Dispatch HAS_BIAS
