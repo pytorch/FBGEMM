@@ -782,28 +782,48 @@ def jagged_1d_to_truncated_values(
     default=False,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--device",
+    type=click.Choice(["cpu"]),
+    default="cpu",
+    help="Device to run the benchmark on. CPU-only (no CUDA kernel exists).",
+)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="masked_select_jagged_1d_trace_{ospid}.json",
+)
 def masked_select_jagged_1d(
     batch_size: int,
     max_len: int,
     manual_seed: bool,
+    device: str,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     # set manual seed for reproducibility
     if manual_seed:
         torch.manual_seed(42)
         random.seed(42)
 
-    lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
+    lengths = torch.randint(2 * max_len, size=(batch_size,), device=device)
     total_lengths = int(lengths.sum().item())
     dtype = torch.long
-    values = torch.randint(2**16, (total_lengths,), dtype=dtype)
-    mask = torch.randint(2, (total_lengths,)) > 0
+    values = torch.randint(2**16, (total_lengths,), dtype=dtype, device=device)
+    mask = torch.randint(2, (total_lengths,), device=device) > 0
 
     def ref(
         values: torch.Tensor, lengths: torch.Tensor, mask: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         masked_values_ref = values[mask]
         cum_count = torch.cumsum(mask, 0)
-        cum_count = torch.cat((cum_count, torch.tensor([0])))
+        cum_count = torch.cat((cum_count, torch.tensor([0], device=values.device)))
         cum_length = cum_count[torch.cumsum(lengths, 0) - 1]
         cum_length_shift_right = torch.roll(cum_length, 1)
         cum_length_shift_right[0] = 0
@@ -827,6 +847,34 @@ def masked_select_jagged_1d(
 
     logging.info(f"reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
     logging.info(f"masked_select_jagged_1d {time} sec {bytes / time / 1e9} GB/s")
+
+    if export_trace:
+
+        # pyre-fixme[53]: Captured variable `values` is not annotated.
+        # pyre-fixme[53]: Captured variable `lengths` is not annotated.
+        # pyre-fixme[53]: Captured variable `mask` is not annotated.
+        def fn() -> tuple[torch.Tensor, torch.Tensor]:
+            return torch.ops.fbgemm.masked_select_jagged_1d(values, lengths, mask)
+
+        num_warmup = 100
+        num_active = 1000
+
+        for _ in range(num_warmup):
+            fn()
+
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=0, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: p.export_chrome_trace(
+                trace_url.format(ospid=os.getpid())
+            ),
+        ) as prof:
+            for _ in range(num_active):
+                fn()
+                prof.step()
 
 
 @cli.command()
@@ -856,6 +904,12 @@ def masked_select_jagged_1d(
     default=False,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--device",
+    type=str,
+    default="cuda",
+    help="Device to run the benchmark on (default: cuda).",
+)
 def keyed_jagged_index_select_dim1(
     num_batches: int,
     max_seq_length: int,
@@ -870,6 +924,7 @@ def keyed_jagged_index_select_dim1(
     iters: int,
     baseline: bool,
     manual_seed: bool,
+    device: str,
 ) -> None:
     # set manual seed for reproducibility
     if manual_seed:
@@ -902,14 +957,12 @@ def keyed_jagged_index_select_dim1(
         high=max_seq_length,
         size=(input_batch_size * num_batches,),
         dtype=torch.long,
-        device=torch.accelerator.current_accelerator(),
+        device=device,
     )
     # Imitate KeyedJaggedTensor offsets
     offsets = torch.concat(
         [
-            torch.zeros(
-                1, dtype=torch.long, device=torch.accelerator.current_accelerator()
-            ),
+            torch.zeros(1, dtype=torch.long, device=device),
             lengths.cumsum(0),
         ]
     )
@@ -918,26 +971,26 @@ def keyed_jagged_index_select_dim1(
         high=1,
         size=(output_batch_size,),
         dtype=torch.long,
-        device=torch.accelerator.current_accelerator(),
+        device=device,
     )
     if is_float:
         values = torch.rand(
             int(offsets[-1].item()),
             dtype=jagged_tensor_dtype,
-            device=torch.accelerator.current_accelerator(),
+            device=device,
         )
     else:
         values = torch.randint(
             2**16,
             (int(offsets[-1].item()),),
             dtype=jagged_tensor_dtype,
-            device=torch.accelerator.current_accelerator(),
+            device=device,
         )
     weights = (
         torch.rand(
             int(offsets[-1].item()),
             dtype=weight_dtype,
-            device=torch.accelerator.current_accelerator(),
+            device=device,
         )
         if has_weights
         else None
