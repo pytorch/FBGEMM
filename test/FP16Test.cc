@@ -10,6 +10,7 @@
 
 #include "./FBGemmFPTest.h"
 #include "fbgemm/FbgemmFP16.h"
+#include "fbgemm/Utils.h"
 
 using FBGemmFP16Test = fbgemm::FBGemmFPTest<fbgemm::float16>;
 
@@ -30,4 +31,22 @@ TEST_P(FBGemmFP16Test, Test) {
 
 TEST_P(FBGemmFP16Test, Unpack) {
   UnpackTestRun();
+}
+
+TEST_P(FBGemmFP16Test, TestAvx2) {
+  TestRunWithIsa(fbgemm::inst_set_t::avx2);
+}
+
+TEST_P(FBGemmFP16Test, TestAvx512) {
+  if (!fbgemm::fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "AVX512 not supported on this CPU";
+  }
+  TestRunWithIsa(fbgemm::inst_set_t::avx512);
+}
+
+TEST_P(FBGemmFP16Test, TestAvx512_256) {
+  if (!fbgemm::fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "AVX512 not supported on this CPU";
+  }
+  TestRunWithIsa(fbgemm::inst_set_t::avx512_ymm);
 }

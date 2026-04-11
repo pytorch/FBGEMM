@@ -55,8 +55,10 @@ def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
         "src/FbgemmSparseDense.cc",
         "src/FbgemmI8Spmdm.cc",
         "src/FbgemmPackMatrixB.cc",
+        "src/fp32/FbgemmFP32.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
+        "src/GenerateKernelFP16FP32.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
         "src/GenerateKernelU8S8S32ACC16Avx512.cc",  # Acc16 AVX512 JIT code gen
         "src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc",
@@ -81,17 +83,7 @@ def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
         "src/TransposeUtils.cc",
     ] + (get_fbgemm_base_srcs() if with_base else [])
 
-    fp32sources = [
-        "src/fp32/FbgemmFP32.cc",
-    ]
-
-    if buck:
-        return select({
-            "DEFAULT": sources + fp32sources,
-            "ovr_config//compiler:cl": sources,
-        })
-
-    return sources + fp32sources if not msvc else sources
+    return sources
 
 def get_fbgemm_public_headers():
     return [
@@ -144,20 +136,8 @@ def get_fbgemm_avx2_srcs():
     ]
 
 def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
-    intrinsics_srcs = ["src/FbgemmFP16UKernelsIntrinsicAvx2.cc"]
-
-    #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-    asm_srcs = [
-        "src/fp32/FbgemmFP32UKernelsAvx2.cc",
-        "src/FbgemmFP16UKernelsAvx2.cc",
-    ]
-    if buck:
-        return select({
-            "DEFAULT": asm_srcs,
-            "ovr_config//compiler:cl": intrinsics_srcs,
-            "ovr_config//cpu:arm64": intrinsics_srcs,
-        })
-    return asm_srcs if not msvc else intrinsics_srcs
+    # FP16/FP32 kernels are now JIT-generated via asmjit in GenerateKernelFP16FP32.cc
+    return []
 
 def get_fbgemm_avx512_srcs():
     return [
@@ -173,23 +153,8 @@ def get_fbgemm_avx512_srcs():
     ]
 
 def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
-    intrinsics_srcs = [
-        "src/FbgemmFP16UKernelsIntrinsicAvx512.cc",
-        "src/FbgemmFP16UKernelsIntrinsicAvx512_256.cc",
-    ]
-    asm_srcs = [
-        "src/FbgemmFP16UKernelsAvx512.cc",
-        "src/FbgemmFP16UKernelsAvx512_256.cc",
-        "src/fp32/FbgemmFP32UKernelsAvx512.cc",
-        "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
-    ]
-    if buck:
-        return select({
-            "DEFAULT": asm_srcs,
-            "ovr_config//compiler:cl": intrinsics_srcs,
-            "ovr_config//cpu:arm64": intrinsics_srcs,
-        })
-    return asm_srcs if not msvc else intrinsics_srcs
+    # FP16/FP32 kernels are now JIT-generated via asmjit in GenerateKernelFP16FP32.cc
+    return []
 
 def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
     srcs = [
