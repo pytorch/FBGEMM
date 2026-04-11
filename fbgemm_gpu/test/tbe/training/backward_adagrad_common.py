@@ -7,7 +7,6 @@
 
 # pyre-strict
 
-import sys
 from typing import Any
 
 import hypothesis.strategies as st
@@ -285,8 +284,7 @@ def execute_backward_adagrad(  # noqa C901
         )
     )
     # TODO: make it compile for CPU and unweighted
-    # FIXME: remove once dynamo is supported by 3.12
-    if sys.version_info < (3, 12, 0) and compile and not use_cpu and weighted:
+    if compile and not use_cpu and weighted:
         cc = torch.compile(cc, fullgraph=True)
 
     # Copy weights from reference modules to TBE (ensures both have same weights)

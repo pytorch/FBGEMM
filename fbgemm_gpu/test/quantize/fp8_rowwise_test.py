@@ -8,7 +8,6 @@
 
 import logging
 import os
-import sys
 import unittest
 
 import hypothesis.strategies as st
@@ -97,7 +96,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
                 dynamic=True,
                 fullgraph=True,
             )
-            if test_compile and sys.version_info < (3, 12, 0)
+            if test_compile
             else torch.ops.fbgemm.FP8RowwiseQuantizedToFloat
         )
 
