@@ -20,12 +20,11 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, skipIfRocmLessThan
+    from test_utils import gpu_available, gpu_unavailable
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_unavailable,
-        skipIfRocmLessThan,
     )
 
 if gpu_available:
@@ -71,7 +70,6 @@ class CopyTest(unittest.TestCase):
         del uvm_t
         cpu_t.mul_(42)
 
-    @skipIfRocmLessThan(50700)
     @unittest.skipIf(
         not torch.cuda.is_available() or torch.cuda.device_count() < 2,
         "Skip unless two CUDA devices are detected",
