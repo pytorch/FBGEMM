@@ -39,7 +39,6 @@ from fbgemm_gpu.tbe.utils import get_table_batched_offsets_from_dense
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
 
-
 # ═══════════════════════════════════════════════════════════════════════
 #  Part 1: _RWLock Unit Tests (no GPU needed)
 # ═══════════════════════════════════════════════════════════════════════

@@ -64,12 +64,8 @@
 #define ALWAYS_INLINE inline
 #endif
 
-// Use the C++11 keyword "alignas" if you can
-#if defined(_MSC_VER) && _MSC_VER
-#define ALIGNAS(byte_alignment) __declspec(align(byte_alignment))
-#else
-#define ALIGNAS(byte_alignment) __attribute__((aligned(byte_alignment)))
-#endif
+// alignas is standard since C++11
+#define ALIGNAS(byte_alignment) alignas(byte_alignment)
 
 // Sanitizers annotations
 #if defined(__has_attribute)

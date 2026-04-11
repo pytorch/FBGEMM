@@ -89,7 +89,7 @@ class EmptyWeightsTest(unittest.TestCase):
         ref_outputs = ref_mod(arg0, arg1, arg2)
 
         # indices
-        self.assertTrue(ref_outputs[0].allclose(outputs[0]))
+        self.assertTrue(ref_outputs[0].to(outputs[0].dtype).allclose(outputs[0]))
         # per sample weights
         self.assertTrue(ref_outputs[2].allclose(outputs[2]))
 
@@ -107,7 +107,7 @@ class EmptyWeightsTest(unittest.TestCase):
         ref_outputs = ref_mod(arg0, arg1, arg2)
 
         # indices
-        self.assertTrue(ref_outputs[0].allclose(outputs[0]))
+        self.assertTrue(ref_outputs[0].to(outputs[0].dtype).allclose(outputs[0]))
         # per sample weights
         self.assertEqual(outputs[2].numel(), 0)
 
