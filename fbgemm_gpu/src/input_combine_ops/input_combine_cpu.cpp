@@ -39,48 +39,47 @@ void _cat_int_tensors_out(
     TORCH_CHECK(indices_terminating_idx.size() == tensor_list.size());
   }
   at::native::resize_(combined_tensors, {total_num});
-  AT_DISPATCH_INDEX_TYPES(
-      combined_tensors.scalar_type(), "tbe_cat_outputs_", [&] {
-        using output_t = index_t;
-        auto* combined_tensors_data_ptr =
-            combined_tensors.mutable_data_ptr<output_t>();
-        size_t idx = 0;
+  auto* combined_tensors_data_ptr =
+      combined_tensors.mutable_data_ptr<int32_t>();
+  size_t idx = 0;
 
-        std::vector<int64_t> paddings;
-        paddings.reserve(total_num);
+  // Let's keep the original paddings and later pad them in the end
+  std::vector<int64_t> paddings;
+  paddings.reserve(total_num);
 
-        for (size_t i = 0; i < tensor_list.size(); ++i) {
-          const auto& tensor = tensor_list[i];
-          AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
-            TORCH_INTERNAL_ASSERT_DEBUG_ONLY(tensor.is_contiguous());
-            auto* indices_data_ptr = tensor.const_data_ptr<index_t>();
-            auto numel = tensor.numel();
-            if (to_trim_padding) {
-              const auto terminating_idx = indices_terminating_idx.at(i);
-              numel = terminating_idx > 0 && terminating_idx < numel
-                  ? terminating_idx
-                  : numel;
-            }
-            size_t j = 0;
-            for (; j < numel; j++) {
-              combined_tensors_data_ptr[idx++] =
-                  static_cast<output_t>(indices_data_ptr[j]);
-            }
-            for (; j < tensor.numel(); j++) {
-              paddings.push_back(indices_data_ptr[j]);
-            }
-          });
-        }
+  for (size_t i = 0; i < tensor_list.size(); ++i) {
+    const auto& tensor = tensor_list[i];
+    AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
+      // Necessary to use data_ptr. Checked in caller, but let's
+      // be safe in case somebody changes that.
+      TORCH_INTERNAL_ASSERT_DEBUG_ONLY(tensor.is_contiguous());
+      auto* indices_data_ptr = tensor.const_data_ptr<index_t>();
+      auto numel = tensor.numel();
+      if (to_trim_padding) {
+        const auto terminating_idx = indices_terminating_idx.at(i);
+        numel = terminating_idx > 0 && terminating_idx < numel ? terminating_idx
+                                                               : numel;
+      }
+      size_t j = 0;
+      for (; j < numel; j++) {
+        combined_tensors_data_ptr[idx++] =
+            static_cast<int32_t>(indices_data_ptr[j]);
+      }
+      for (; j < tensor.numel(); j++) {
+        paddings.push_back(indices_data_ptr[j]);
+      }
+    });
+  }
 
-        int i = 0;
-        while (idx < total_num) {
-          if (i < paddings.size()) [[likely]] {
-            combined_tensors_data_ptr[idx++] = paddings[i++];
-          } else {
-            combined_tensors_data_ptr[idx++] = 0;
-          }
-        }
-      });
+  // Pad the original paddings in the end
+  int i = 0;
+  while (idx < total_num) {
+    if (i < paddings.size()) [[likely]] {
+      combined_tensors_data_ptr[idx++] = paddings[i++];
+    } else {
+      combined_tensors_data_ptr[idx++] = 0;
+    }
+  }
 }
 
 Tensor _cat_int_tensors(
@@ -89,12 +88,13 @@ Tensor _cat_int_tensors(
     bool use_pin_memory,
     bool to_trim_padding = false,
     const std::vector<int64_t>& indices_terminating_idx =
-        std::vector<int64_t>(),
-    at::ScalarType output_dtype = c10::kInt) {
+        std::vector<int64_t>()) {
+  // Using int type to maintain original behavior
+  // in https://fburl.com/code/h2lwews2
   auto combined_tensors = at::empty(
       {total_num},
       at::TensorOptions()
-          .dtype(output_dtype)
+          .dtype(c10::kInt)
           .device(tensor_list[0].device())
           .pinned_memory(use_pin_memory));
 
@@ -111,34 +111,32 @@ Tensor _cat_int_tensors_with_padding(
     const std::vector<Tensor>& tensor_list,
     int64_t total_num,
     bool use_pin_memory,
-    int64_t batch_size,
-    at::ScalarType output_dtype = c10::kInt) {
+    int64_t batch_size) {
   auto combined_tensors = at::zeros(
       {total_num},
       at::TensorOptions()
-          .dtype(output_dtype)
+          .dtype(c10::kInt)
           .device(tensor_list[0].device())
           .pinned_memory(use_pin_memory));
 
-  AT_DISPATCH_INDEX_TYPES(output_dtype, "tbe_cat_padded_outputs_", [&] {
-    using output_t = index_t;
-    auto* combined_tensors_data_ptr =
-        combined_tensors.mutable_data_ptr<output_t>();
+  auto* combined_tensors_data_ptr =
+      combined_tensors.mutable_data_ptr<int32_t>();
 
-    for (const auto i : c10::irange(tensor_list.size())) {
-      size_t idx = i * batch_size;
-      const auto& tensor = tensor_list[i];
-      AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
-        TORCH_INTERNAL_ASSERT_DEBUG_ONLY(tensor.is_contiguous());
-        auto indices_data_ptr = tensor.const_data_ptr<index_t>();
-        const auto numel = tensor.numel();
-        for (const auto j : c10::irange(numel)) {
-          combined_tensors_data_ptr[idx++] =
-              static_cast<output_t>(indices_data_ptr[j]);
-        }
-      });
-    }
-  });
+  for (const auto i : c10::irange(tensor_list.size())) {
+    size_t idx = i * batch_size;
+    const auto& tensor = tensor_list[i];
+    AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
+      // Necessary to use data_ptr. Checked in caller, but let's
+      // be safe in case somebody changes that.
+      TORCH_INTERNAL_ASSERT_DEBUG_ONLY(tensor.is_contiguous());
+      auto indices_data_ptr = tensor.const_data_ptr<index_t>();
+      const auto numel = tensor.numel();
+      for (const auto j : c10::irange(numel)) {
+        combined_tensors_data_ptr[idx++] =
+            static_cast<int32_t>(indices_data_ptr[j]);
+      }
+    });
+  }
   return combined_tensors;
 }
 
@@ -276,18 +274,17 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
       total_indices,
       pin_memory,
       to_trim_padding,
-      indices_terminating_idx,
-      /*output_dtype=*/c10::kLong);
+      indices_terminating_idx);
 
   auto combined_offsets = at::empty(
       {total_offsets},
       at::TensorOptions()
-          .dtype(c10::kLong)
+          .dtype(c10::kInt)
           .device(offsets_list[0].device())
           .pinned_memory(pin_memory));
 
-  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int64_t>();
-  int64_t offset = 0;
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
+  int32_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -302,13 +299,13 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
                j < size;
                j++) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int64_t>(offsets_data_ptr[j]);
+                offset + static_cast<int32_t>(offsets_data_ptr[j]);
           }
 
           if (to_trim_padding) {
-            offset += offsets_list[i][-1].item().toLong();
+            offset += static_cast<int32_t>(offsets_list[i][-1].item().toInt());
           } else {
-            offset += indices_list[i].numel();
+            offset += static_cast<int32_t>(indices_list[i].numel());
           }
           combined_offsets_data_ptr[offsets_acc_idx++] = offset;
         });
@@ -470,23 +467,18 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
     }
   }
 
-  auto combined_indices = _cat_int_tensors(
-      indices_list,
-      total_indices,
-      pin_memory,
-      /*to_trim_padding=*/false,
-      /*indices_terminating_idx=*/{},
-      /*output_dtype=*/c10::kLong);
+  auto combined_indices =
+      _cat_int_tensors(indices_list, total_indices, pin_memory);
 
   auto combined_offsets = at::empty(
       {total_offsets},
       at::TensorOptions()
-          .dtype(c10::kLong)
+          .dtype(c10::kInt)
           .device(offsets_list[0].device())
           .pinned_memory(pin_memory));
 
-  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int64_t>();
-  int64_t offset = 0;
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
+  int32_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -499,9 +491,9 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
               offsets_list[i].numel() - (include_last_offsets_acc[i] ? 1 : 0);
           for (const auto j : c10::irange(1, offsets_size)) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int64_t>(offsets_data_ptr[j]);
+                offset + static_cast<int32_t>(offsets_data_ptr[j]);
           }
-          offset += indices_list[i].numel();
+          offset += static_cast<int32_t>(indices_list[i].numel());
           for (int64_t j = offsets_size; j <= batch_size; j++) {
             combined_offsets_data_ptr[offsets_acc_idx++] = offset;
           }
