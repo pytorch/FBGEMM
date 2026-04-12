@@ -1111,12 +1111,32 @@ def keyed_jagged_index_select_dim1(
     default=False,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--device",
+    type=click.Choice(["cpu"]),
+    default="cpu",
+    help="Device to run the benchmark on. CPU-only (no CUDA kernel exists).",
+)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="jagged_slice_cpu_trace_{ospid}.json",
+)
 def jagged_slice_cpu(
     max_seq_length: int,
     input_batch_size: int,
     slice_length: int,
     jagged_tensor_type: str,
     manual_seed: bool,
+    device: str,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     # set manual seed for reproducibility
     if manual_seed:
@@ -1191,37 +1211,67 @@ def jagged_slice_cpu(
 
     logging.info(f"jagged_slice forward time: {time * 1e3} ms, ref {time_ref * 1e3} ms")
 
-    profiler = profile(
-        activities=[
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
-            torch.profiler.ProfilerActivity.CPU,
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
-            torch.profiler.ProfilerActivity.CUDA,
-        ],
-        schedule=torch.profiler.schedule(
-            wait=200,
-            warmup=100,
-            active=100,
-        ),
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True,
-        with_flops=True,
-    )
+    if export_trace:
 
-    profiler.start()
-    for _ in range(500):
-        torch.ops.fbgemm.jagged_slice(values, lengths, start, slice_length)
-        profiler.step()
-    profiler.stop()
+        # pyre-fixme[53]: Captured variable `values` is not annotated.
+        # pyre-fixme[53]: Captured variable `lengths` is not annotated.
+        # pyre-fixme[53]: Captured variable `start` is not annotated.
+        def fn() -> tuple[torch.Tensor, torch.Tensor]:
+            return torch.ops.fbgemm.jagged_slice(values, lengths, start, slice_length)
 
-    logging.info(
-        "\n"
-        + profiler.key_averages().table(sort_by="self_cuda_time_total", row_limit=10)
-    )
+        num_trace_warmup = 100
+        num_active = 5
 
-    flops = sum(e.flops for e in profiler.events())
-    logging.info(f"Total Compute: {flops / 1e9} gflops")
+        for _ in range(num_trace_warmup):
+            fn()
+
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=0, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: p.export_chrome_trace(
+                trace_url.format(ospid=os.getpid())
+            ),
+        ) as prof:
+            for _ in range(num_active):
+                fn()
+                prof.step()
+    else:
+        profiler = profile(
+            activities=[
+                # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+                torch.profiler.ProfilerActivity.CPU,
+                # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
+            schedule=torch.profiler.schedule(
+                wait=200,
+                warmup=100,
+                active=100,
+            ),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,
+            with_flops=True,
+        )
+
+        profiler.start()
+        for _ in range(500):
+            torch.ops.fbgemm.jagged_slice(values, lengths, start, slice_length)
+            profiler.step()
+        profiler.stop()
+
+        logging.info(
+            "\n"
+            + profiler.key_averages().table(
+                sort_by="self_cuda_time_total", row_limit=10
+            )
+        )
+
+        flops = sum(e.flops for e in profiler.events())
+        logging.info(f"Total Compute: {flops / 1e9} gflops")
 
 
 @cli.command()
@@ -1346,6 +1396,23 @@ def permute_pooled_embs_bench(
     default=False,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--device",
+    type=click.Choice(["cpu", "cuda"]),
+    default="cuda",
+    help="Device to run the benchmark on. Default is cuda.",
+)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="jagged_acc_weights_and_counts_trace_{ospid}.json",
+)
 def jagged_acc_weights_and_counts_bench(
     num_elements: int,
     num_unique_indices: int,
@@ -1353,6 +1420,9 @@ def jagged_acc_weights_and_counts_bench(
     num_iterations: int,
     num_warmup: int,
     manual_seed: bool,
+    device: str,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     """Performance comparison benchmark for jagged_acc_weights_and_counts."""
     # set manual seed for reproducibility
@@ -1362,11 +1432,10 @@ def jagged_acc_weights_and_counts_bench(
 
     logging.info("######## Jagged Accumulate Weights and Counts Performance ########")
 
-    if not torch.cuda.is_available():
-        logging.info("CUDA not available, skipping benchmark")
-        return
+    if device == "cuda" and not torch.cuda.is_available():
+        raise click.UsageError("CUDA requested but not available.")
 
-    device = torch.accelerator.current_accelerator()
+    is_cuda = device == "cuda"
 
     # 1D test
     weights_1d = torch.randn(num_elements, device=device)
@@ -1379,41 +1448,66 @@ def jagged_acc_weights_and_counts_bench(
         _ = torch.ops.fbgemm.jagged_acc_weights_and_counts(
             weights_1d, reverse_indices, num_unique_indices
         )
+    if is_cuda:
+        torch.cuda.synchronize()
 
-    torch.cuda.synchronize()
+    if is_cuda:
+        # Time our optimized version using CUDA events
+        start_events = [
+            torch.cuda.Event(enable_timing=True) for _ in range(num_iterations)
+        ]
+        end_events = [
+            torch.cuda.Event(enable_timing=True) for _ in range(num_iterations)
+        ]
 
-    # Time our optimized version
-    start_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iterations)]
-    end_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iterations)]
+        result_optimized = None
+        for i in range(num_iterations):
+            start_events[i].record()
+            result_optimized = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+                weights_1d, reverse_indices, num_unique_indices
+            )
+            end_events[i].record()
 
-    # Initialize result_optimized before the loop to ensure it's always defined
-    result_optimized = None
-    for i in range(num_iterations):
-        start_events[i].record()
-        result_optimized = torch.ops.fbgemm.jagged_acc_weights_and_counts(
-            weights_1d, reverse_indices, num_unique_indices
+        torch.cuda.synchronize()
+        optimized_times = [
+            start_events[i].elapsed_time(end_events[i]) for i in range(num_iterations)
+        ]
+
+        # Time reference version
+        for i in range(num_iterations):
+            start_events[i].record()
+            reference = torch.zeros((num_unique_indices, 2), device=device)
+            weights_float = weights_1d.float()
+            counts = torch.ones_like(weights_float)
+            reference[:, 0].scatter_add_(0, reverse_indices, weights_float)
+            reference[:, 1].scatter_add_(0, reverse_indices, counts)
+            end_events[i].record()
+
+        torch.cuda.synchronize()
+        reference_times = [
+            start_events[i].elapsed_time(end_events[i]) for i in range(num_iterations)
+        ]
+    else:
+        # CPU timing using benchmark_torch_function
+        time_optimized, result_optimized = benchmark_torch_function(
+            torch.ops.fbgemm.jagged_acc_weights_and_counts,
+            (weights_1d, reverse_indices, num_unique_indices),
+            iters=num_iterations,
         )
-        end_events[i].record()
+        optimized_times = [time_optimized * 1e3]  # convert to ms
 
-    torch.cuda.synchronize()
-    optimized_times = [
-        start_events[i].elapsed_time(end_events[i]) for i in range(num_iterations)
-    ]
+        # pyre-fixme[53]: Captured variable `weights_1d` is not annotated.
+        # pyre-fixme[53]: Captured variable `reverse_indices` is not annotated.
+        def _ref() -> torch.Tensor:
+            ref = torch.zeros((num_unique_indices, 2), device=device)
+            wf = weights_1d.float()
+            c = torch.ones_like(wf)
+            ref[:, 0].scatter_add_(0, reverse_indices, wf)
+            ref[:, 1].scatter_add_(0, reverse_indices, c)
+            return ref
 
-    # Time reference version
-    for i in range(num_iterations):
-        start_events[i].record()
-        reference = torch.zeros((num_unique_indices, 2), device=device)
-        weights_float = weights_1d.float()
-        counts = torch.ones_like(weights_float)
-        reference[:, 0].scatter_add_(0, reverse_indices, weights_float)
-        reference[:, 1].scatter_add_(0, reverse_indices, counts)
-        end_events[i].record()
-
-    torch.cuda.synchronize()
-    reference_times = [
-        start_events[i].elapsed_time(end_events[i]) for i in range(num_iterations)
-    ]
+        time_reference, _ = benchmark_torch_function(_ref, (), iters=num_iterations)
+        reference_times = [time_reference * 1e3]
 
     # Verify correctness
     reference_final = torch.zeros((num_unique_indices, 2), device=device)
@@ -1422,7 +1516,6 @@ def jagged_acc_weights_and_counts_bench(
     reference_final[:, 0].scatter_add_(0, reverse_indices, weights_float)
     reference_final[:, 1].scatter_add_(0, reverse_indices, counts)
 
-    # Ensure result_optimized is defined before using it
     if result_optimized is not None:
         torch.testing.assert_close(
             result_optimized, reference_final, rtol=1e-4, atol=1e-5
@@ -1436,6 +1529,42 @@ def jagged_acc_weights_and_counts_bench(
     logging.info(f"  Reference (scatter_add): {avg_reference:.3f} ms")
     logging.info(f"  Speedup: {avg_reference / avg_optimized:.2f}x")
     logging.info("")
+
+    if export_trace:
+
+        # pyre-fixme[53]: Captured variable `weights_1d` is not annotated.
+        # pyre-fixme[53]: Captured variable `reverse_indices` is not annotated.
+        def fn() -> torch.Tensor:
+            return torch.ops.fbgemm.jagged_acc_weights_and_counts(
+                weights_1d, reverse_indices, num_unique_indices
+            )
+
+        num_trace_warmup = 100
+        num_active = 5
+
+        for _ in range(num_trace_warmup):
+            fn()
+            if is_cuda:
+                torch.cuda.synchronize(device)
+
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if is_cuda:
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=0, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: p.export_chrome_trace(
+                trace_url.format(ospid=os.getpid())
+            ),
+        ) as prof:
+            for _ in range(num_active):
+                fn()
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                prof.step()
 
 
 if __name__ == "__main__":
