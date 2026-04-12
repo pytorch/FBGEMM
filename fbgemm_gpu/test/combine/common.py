@@ -49,7 +49,7 @@ class TBEInputPrepareReference(torch.nn.Module):
                 assert indices_list[i].numel() == per_sample_weights_list[i].numel()
         combined_indices = torch.empty(
             size,
-            dtype=torch.int64,
+            dtype=torch.int32,
             device=indices_list[0].device,
         )
         torch.cat(indices_list, out=combined_indices)
@@ -79,7 +79,7 @@ class TBEInputPrepareReference(torch.nn.Module):
         )
         combined_offsets = torch.zeros(
             combined_offsets_size,
-            dtype=torch.int64,
+            dtype=torch.int32,
             device=offsets_list[0].device,
         )
         if batch_size is None:
