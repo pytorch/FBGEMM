@@ -433,7 +433,8 @@ void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
     }
 
     for (; col < output_columns; ++col) {
-      float output_value = input_row[col] * scale + bias;
+      float output_value =
+          static_cast<float>(double(input_row[col]) * scale + double(bias));
       output_row[col] = cpu_float2bfloat16(output_value);
     }
   } // for each row

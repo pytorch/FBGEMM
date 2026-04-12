@@ -2186,7 +2186,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
         std::uint8_t quantized = input_row[col / NUM_ELEM_PER_BYTE];
         quantized >>= (col % NUM_ELEM_PER_BYTE) * BIT_RATE;
         quantized &= (1 << BIT_RATE) - 1;
-        float output_value = scale * quantized + bias;
+        float output_value =
+            static_cast<float>(double(scale) * quantized + double(bias));
         if constexpr (std::is_same_v<OutputType, float>) {
           output_row[col] = output_value;
         } else {
@@ -2253,7 +2254,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     }
 
     for (; col < output_columns; ++col) {
-      float output_value = input_row[col] * scale + bias;
+      float output_value =
+          static_cast<float>(double(input_row[col]) * scale + double(bias));
       if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else {
