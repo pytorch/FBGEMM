@@ -196,9 +196,9 @@ void ChooseRequantizationMultiplier(
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-#define FBGEMM_SPECIALIZED_QUANTIZE(T, LEGACY)                      \
+#define FBGEMM_SPECIALIZED_QUANTIZE(T)                              \
   template <>                                                       \
-  FBGEMM_API void Quantize<T, LEGACY>(                              \
+  FBGEMM_API void Quantize<T, false>(                               \
       const float* src,                                             \
       T* dst,                                                       \
       const int64_t len,                                            \
@@ -208,20 +208,17 @@ void ChooseRequantizationMultiplier(
     int64_t i_begin, i_end;                                         \
     fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
     for (int64_t i = i_begin; i < i_end; ++i) {                     \
-      dst[i] = Quantize<T, LEGACY>(src[i], qparams);                \
+      dst[i] = Quantize<T>(src[i], qparams);                        \
     }                                                               \
   }
 
-FBGEMM_SPECIALIZED_QUANTIZE(uint16_t, true)
-FBGEMM_SPECIALIZED_QUANTIZE(int16_t, true)
-FBGEMM_SPECIALIZED_QUANTIZE(int32_t, true)
-FBGEMM_SPECIALIZED_QUANTIZE(uint16_t, false)
-FBGEMM_SPECIALIZED_QUANTIZE(int16_t, false)
-FBGEMM_SPECIALIZED_QUANTIZE(int32_t, false)
+FBGEMM_SPECIALIZED_QUANTIZE(uint16_t)
+FBGEMM_SPECIALIZED_QUANTIZE(int16_t)
+FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
 
-#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T, LEGACY)                     \
+#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                             \
   template <>                                                           \
-  FBGEMM_API void Quantize<T, LEGACY>(                                  \
+  FBGEMM_API void Quantize<T, false>(                                   \
       const float* src,                                                 \
       T* dst,                                                           \
       int64_t len,                                                      \
@@ -234,25 +231,21 @@ FBGEMM_SPECIALIZED_QUANTIZE(int32_t, false)
     fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);     \
     if (avx2_support && fma_support && qparams.precision == 8) {        \
       /* fast path  */                                                  \
-      QuantizeAvx2<T, LEGACY>(                                          \
+      QuantizeAvx2<T>(                                                  \
           &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);      \
     } else {                                                            \
       for (int64_t i = i_begin; i < i_end; ++i) {                       \
-        dst[i] = Quantize<T, LEGACY>(src[i], qparams);                  \
+        dst[i] = Quantize<T>(src[i], qparams);                          \
       }                                                                 \
     }                                                                   \
   }
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t, true)
-FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, true)
-FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t, false)
-FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
+FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t)
+FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t)
 #else
-FBGEMM_SPECIALIZED_QUANTIZE(int8_t, true)
-FBGEMM_SPECIALIZED_QUANTIZE(uint8_t, true)
-FBGEMM_SPECIALIZED_QUANTIZE(int8_t, false)
-FBGEMM_SPECIALIZED_QUANTIZE(uint8_t, false)
+FBGEMM_SPECIALIZED_QUANTIZE(int8_t)
+FBGEMM_SPECIALIZED_QUANTIZE(uint8_t)
 #endif
 
 #undef FBGEMM_SPECIALIZED_QUANTIZE
