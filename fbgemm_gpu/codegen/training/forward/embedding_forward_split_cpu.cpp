@@ -414,12 +414,10 @@ void csr2csc_template_(
   if (nnz == 0) {
     return;
   }
-  csc.row_indices =
-      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
+  csc.row_indices = fbgemm::makeAlignedUniquePtr<int>(64, nnz);
   bool has_weights = csr_weights.data() != nullptr;
   if (IS_VALUE_PAIR) {
-    csc.weights = static_cast<float*>(
-        fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float)));
+    csc.weights = fbgemm::makeAlignedUniquePtr<float>(64, nnz);
   }
 
   [[maybe_unused]] int column_ptr_curr = 0;
@@ -431,16 +429,13 @@ void csr2csc_template_(
   using pair_t = std::pair<int, scalar_t>;
   using value_t = typename std::conditional<IS_VALUE_PAIR, pair_t, int>::type;
 
-  csc.column_segment_ids =
-      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
-  int* tmpBufKeys =
-      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
-  value_t* tmpBufValues = static_cast<value_t*>(
-      fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t)));
-  int* tmpBuf1Keys =
-      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
-  value_t* tmpBuf1Values = static_cast<value_t*>(
-      fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t)));
+  csc.column_segment_ids = fbgemm::makeAlignedUniquePtr<int>(64, nnz);
+  auto tmpBufKeys = fbgemm::makeAlignedUniquePtr<int>(64, NS);
+  fbgemm::aligned_unique_ptr<value_t> tmpBufValues(static_cast<value_t*>(
+      fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t))));
+  auto tmpBuf1Keys = fbgemm::makeAlignedUniquePtr<int>(64, NS);
+  fbgemm::aligned_unique_ptr<value_t> tmpBuf1Values(static_cast<value_t*>(
+      fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t))));
 
   const auto FBo = csr_offsets[table_to_feature_offset[0] * B];
   for (int feature = table_to_feature_offset[0];
@@ -461,11 +456,11 @@ void csr2csc_template_(
           : 1.0;
       for (const auto p : c10::irange(pool_begin, pool_end)) {
         tmpBufKeys[p - FBo] = csr_indices[p];
-        if (IS_VALUE_PAIR) {
-          reinterpret_cast<pair_t*>(tmpBufValues)[p - FBo] = std::pair{
+        if constexpr (IS_VALUE_PAIR) {
+          tmpBufValues[p - FBo] = std::pair{
               FBs + b, scale_factor * (has_weights ? csr_weights[p] : 1.0f)};
         } else {
-          reinterpret_cast<int*>(tmpBufValues)[p - FBo] = FBs + b;
+          tmpBufValues[p - FBo] = FBs + b;
         }
       }
     }
@@ -475,10 +470,10 @@ void csr2csc_template_(
   value_t* sorted_col_row_index_values;
   std::tie(sorted_col_row_index_keys, sorted_col_row_index_values) =
       fbgemm::radix_sort_parallel(
-          tmpBufKeys,
-          tmpBufValues,
-          tmpBuf1Keys,
-          tmpBuf1Values,
+          tmpBufKeys.get(),
+          tmpBufValues.get(),
+          tmpBuf1Keys.get(),
+          tmpBuf1Values.get(),
           NS,
           num_embeddings);
 
@@ -509,10 +504,8 @@ void csr2csc_template_(
     U = num_uniq[max_thds - 1][0];
   }
 
-  csc.column_segment_ptr =
-      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int)));
-  csc.column_segment_indices =
-      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
+  csc.column_segment_ptr = fbgemm::makeAlignedUniquePtr<int>(64, NS + 1);
+  csc.column_segment_indices = fbgemm::makeAlignedUniquePtr<int>(64, NS);
   csc.column_segment_ptr[0] = 0;
   const pair_t* sorted_col_row_index_values_pair =
       reinterpret_cast<const pair_t*>(sorted_col_row_index_values);
@@ -528,26 +521,32 @@ void csr2csc_template_(
   }
   csc.column_segment_indices[0] = sorted_col_row_index_keys[0];
 
+  int* col_seg_indices = csc.column_segment_indices.get();
+  int* col_seg_ptr = csc.column_segment_ptr.get();
+
 #pragma omp parallel
   {
     int tid = omp_get_thread_num();
     int* tstart =
-        (tid == 0 ? csc.column_segment_indices + 1
-                  : csc.column_segment_indices + num_uniq[tid - 1][0]);
+        (tid == 0 ? col_seg_indices + 1
+                  : col_seg_indices + num_uniq[tid - 1][0]);
 
     int* t_offs =
-        (tid == 0 ? csc.column_segment_ptr + 1
-                  : csc.column_segment_ptr + num_uniq[tid - 1][0]);
+        (tid == 0 ? col_seg_ptr + 1
+                  : col_seg_ptr + num_uniq[tid - 1][0]);
 
     if (!IS_VALUE_PAIR && !is_shared_table) {
       // For non shared table, no need for computing modulo.
       // As an optimization, pointer swap instead of copying.
 #pragma omp master
-      std::swap(
-          csc.row_indices,
-          *reinterpret_cast<int**>(
-              sorted_col_row_index_values == tmpBufValues ? &tmpBufValues
-                                                          : &tmpBuf1Values));
+      {
+        auto& buf = sorted_col_row_index_values == tmpBufValues.get()
+            ? tmpBufValues
+            : tmpBuf1Values;
+        int* tmp = csc.row_indices.release();
+        csc.row_indices.reset(reinterpret_cast<int*>(buf.release()));
+        buf.reset(reinterpret_cast<value_t*>(tmp));
+      }
     } else {
 #ifdef FBCODE_CAFFE2
       libdivide::divider<int> divisor(B);
@@ -582,7 +581,7 @@ void csr2csc_template_(
 
     if (at::get_num_threads() == 1 && tid == 0) {
       // Special handling of single thread case
-      U = t_offs - csc.column_segment_ptr;
+      U = t_offs - csc.column_segment_ptr.get();
     }
 
   } // omp parallel
@@ -590,11 +589,6 @@ void csr2csc_template_(
   csc.num_non_zero_columns = U;
   csc.column_segment_ptr[U] = NS;
   column_ptr_curr += NS;
-
-  fbgemm::fbgemmAlignedFree(tmpBufKeys);
-  fbgemm::fbgemmAlignedFree(tmpBufValues);
-  fbgemm::fbgemmAlignedFree(tmpBuf1Keys);
-  fbgemm::fbgemmAlignedFree(tmpBuf1Values);
 
   assert(column_ptr_curr == nnz);
 }

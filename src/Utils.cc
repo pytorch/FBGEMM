@@ -369,15 +369,16 @@ void* fbgemmAlignedAlloc(
     size_t size,
     bool raiseException /*=false*/) {
   void* aligned_mem = nullptr;
-  int ret = 0;
 #ifdef _MSC_VER
   aligned_mem = _aligned_malloc(size, align);
-  ret = 0;
 #else
-  ret = posix_memalign(&aligned_mem, align, size);
+  int ret = posix_memalign(&aligned_mem, align, size);
+  if (ret != 0) {
+    aligned_mem = nullptr;
+  }
 #endif
   // Throw std::bad_alloc in the case of memory allocation failure.
-  if (raiseException && (ret || aligned_mem == nullptr)) {
+  if (raiseException && aligned_mem == nullptr) {
     throw std::bad_alloc();
   }
   return aligned_mem;

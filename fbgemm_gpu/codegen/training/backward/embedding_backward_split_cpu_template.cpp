@@ -111,8 +111,11 @@ for (const auto t : c10::irange(num_tables)) {
     int feature_begin = table_to_feature_offset[t];
 
     int num_non_zero_columns = cscs[t].num_non_zero_columns;
-    int* col_segment_ptr = cscs[t].column_segment_ptr;
-    int* col_segment_indices = cscs[t].column_segment_indices;
+    int* col_segment_ptr = cscs[t].column_segment_ptr.get();
+    int* col_segment_indices = cscs[t].column_segment_indices.get();
+    int* col_segment_ids = cscs[t].column_segment_ids.get();
+    int* row_indices = cscs[t].row_indices.get();
+    float* ind_weights = cscs[t].weights.get();
 
     const auto D_begin = D_offsets_data[feature_begin];
     const auto D =
@@ -134,7 +137,7 @@ for (const auto t : c10::irange(num_tables)) {
           /*IndexType=*/int32_t,
           /*OffsetType=*/int32_t>(
           D,
-          cscs[t].weights != nullptr,
+          ind_weights != nullptr,
           /*normalize_by_lengths=*/false,
           /*prefetch=*/16,
           /*is_weight_positional=*/false,
@@ -156,11 +159,11 @@ for (const auto t : c10::irange(num_tables)) {
               B,
               reinterpret_cast<const fbgemm_weight_t*>(
                   grad_output_data + D_begin),
-              cscs[t].row_indices + *offsets_begin_ptr,
+              row_indices + *offsets_begin_ptr,
               offsets_begin_ptr,
-              cscs[t].weights == nullptr
+              ind_weights == nullptr
                   ? nullptr
-                  : cscs[t].weights + *offsets_begin_ptr,
+                  : ind_weights + *offsets_begin_ptr,
               reinterpret_cast<float*>(grad_blocked_buffer));
 
           if (!success) {
@@ -170,7 +173,7 @@ for (const auto t : c10::irange(num_tables)) {
               c,
               c_block_end,
               col_segment_ptr,
-              cscs[t].row_indices,
+              row_indices,
               hash_size,
               /*allow_minus_one=*/false);
           }
@@ -218,14 +221,14 @@ for (const auto t : c10::irange(num_tables)) {
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
           int D_offset = D_begin;
           if (is_shared_table) {
-            D_offset += cscs[t].column_segment_ids[r] * D;
+            D_offset += col_segment_ids[r] * D;
           }
-          int b = cscs[t].row_indices[r];
+          int b = row_indices[r];
 
           for (const auto d : c10::irange(D)) {
-            if (cscs[t].weights != nullptr) {
+            if (ind_weights != nullptr) {
               grad_buffer[d] += grad_output_data[b * grad_stride + D_offset + d] *
-                    cscs[t].weights[r];
+                    ind_weights[r];
             } else {
               grad_buffer[d] += grad_output_data[b * grad_stride + D_offset + d];
             }
