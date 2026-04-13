@@ -9,10 +9,8 @@
 
 
 import random
-import sys
 import unittest
 from math import sqrt
-from typing import Callable
 
 import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 import numpy as np
@@ -46,15 +44,6 @@ TOLERANCE_ABS = {
     torch.float16: 1e-2,
     torch.bfloat16: 1e-2,
 }
-
-
-# pyre-fixme[2]
-# pyre-fixme[24]
-def torch_compiled(model: Callable, **kwargs) -> Callable:
-    if sys.version_info < (3, 12, 0):
-        return torch.compile(model, **kwargs)
-    else:
-        return model
 
 
 class TableBatchedEmbeddingsTest(unittest.TestCase):
@@ -161,7 +150,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         if torch_compile:
-            unary_emb = torch_compiled(unary_emb, dynamic=True, fullgraph=True)
+            unary_emb = torch.compile(unary_emb, dynamic=True, fullgraph=True)
         output = unary_emb(offsets_tensor, indices_tensor)
         torch.testing.assert_close(
             output_ref,
@@ -183,7 +172,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         if torch_compile:
-            unary_emb = torch_compiled(unary_emb, dynamic=True, fullgraph=True)
+            unary_emb = torch.compile(unary_emb, dynamic=True, fullgraph=True)
         output = unary_emb(offsets_tensor.long(), indices_tensor.long())
         torch.testing.assert_close(
             output_ref,

@@ -9,9 +9,8 @@
 
 # pyre-ignore-all-errors[56]
 
-import sys
 import unittest
-from typing import Callable, Optional
+from typing import Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -42,24 +41,6 @@ def get_n_rand_num_summing_to_k(n: int, k: int) -> npt.NDArray:
     if n == 0:
         return np.array([])
     return np.random.multinomial(k, np.ones(n) / n, size=1)[0]
-
-
-# pyre-fixme[2]
-# pyre-fixme[24]
-def torch_compiled(model: Callable, **kwargs) -> Callable:
-    """A helper function to apply torch.compile if python < 3.12.
-
-    Args:
-        model: The model to be compiled.
-        kwargs: The arguments to be passed to torch.compile.
-
-    Returns:
-        The model.
-    """
-    if sys.version_info < (3, 12, 0):
-        return torch.compile(model, **kwargs)
-    else:
-        return model
 
 
 class PackedSegmentsTest(unittest.TestCase):
@@ -181,7 +162,7 @@ class PackedSegmentsTest(unittest.TestCase):
             pack_segments_fun = torch.ops.fbgemm.pack_segments
 
             if torch_compile:
-                pack_segments_fun = torch_compiled(pack_segments_fun, dynamic=True)
+                pack_segments_fun = torch.compile(pack_segments_fun, dynamic=True)
 
             packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),
@@ -192,9 +173,7 @@ class PackedSegmentsTest(unittest.TestCase):
             pack_segments_fun_v2 = torch.ops.fbgemm.pack_segments_v2
 
             if torch_compile:
-                pack_segments_fun_v2 = torch_compiled(
-                    pack_segments_fun_v2, dynamic=True
-                )
+                pack_segments_fun_v2 = torch.compile(pack_segments_fun_v2, dynamic=True)
 
             packed_cuda_v2, _ = pack_segments_fun_v2(
                 t_in=input_data.cuda(),
@@ -337,7 +316,7 @@ class PackedSegmentsTest(unittest.TestCase):
         if gpu_available:
             pack_segments_fun = torch.ops.fbgemm.pack_segments
             if torch_compile:
-                pack_segments_fun = torch_compiled(pack_segments_fun)
+                pack_segments_fun = torch.compile(pack_segments_fun)
 
             packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),
@@ -347,7 +326,7 @@ class PackedSegmentsTest(unittest.TestCase):
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
             pack_segments_fun = torch.ops.fbgemm.pack_segments_v2
             if torch_compile:
-                pack_segments_fun = torch_compiled(pack_segments_fun)
+                pack_segments_fun = torch.compile(pack_segments_fun)
 
             packed_cuda_v2, _ = pack_segments_fun(
                 t_in=input_data.cuda(),

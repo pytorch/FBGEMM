@@ -9,7 +9,6 @@
 # pyre-ignore-all-errors[56]
 
 import itertools
-import sys
 from typing import Callable
 
 import fbgemm_gpu
@@ -189,12 +188,3 @@ def to_padded_dense(
                 else values[cur_offset]
             )
     return dense.squeeze(-1) if values.ndim == 1 else dense
-
-
-# pyre-fixme[2]
-# pyre-fixme[24]
-def torch_compiled(model: Callable, **kwargs) -> Callable:
-    if sys.version_info < (3, 12, 0):
-        return torch.compile(model, **kwargs)
-    else:
-        return model
