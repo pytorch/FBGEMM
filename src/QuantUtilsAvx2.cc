@@ -36,7 +36,7 @@ void QuantizeAvx2(
     T* dst,
     int64_t len,
     const TensorQuantizationParams& qparams) {
-#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
+#if defined(__AVX2__)
   constexpr int VLEN = 8;
   constexpr int32_t min_val = std::numeric_limits<T>::min();
   constexpr int32_t max_val = std::numeric_limits<T>::max();
@@ -171,7 +171,7 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
   float inverse_scale [[maybe_unused]] = 1.f / qparams.scale;
   constexpr int32_t min_val [[maybe_unused]] = std::numeric_limits<T>::min();
   constexpr int32_t max_val [[maybe_unused]] = std::numeric_limits<T>::max();
-#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
+#if defined(__AVX2__)
 
   constexpr int VLEN = 8;
   // This is the largest int32 value less than int32_max
@@ -2186,7 +2186,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
         std::uint8_t quantized = input_row[col / NUM_ELEM_PER_BYTE];
         quantized >>= (col % NUM_ELEM_PER_BYTE) * BIT_RATE;
         quantized &= (1 << BIT_RATE) - 1;
-        float output_value = scale * quantized + bias;
+        float output_value =
+            static_cast<float>(double(scale) * quantized + double(bias));
         if constexpr (std::is_same_v<OutputType, float>) {
           output_row[col] = output_value;
         } else {
@@ -2236,11 +2237,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
           _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
-#ifdef __FMA__
       __m256 dequantzed_v = _mm256_fmadd_ps(in_v, scale_v, bias_v);
-#else
-      __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
-#endif
       if constexpr (std::is_same_v<OutputType, float>) {
         float* output_row_float = reinterpret_cast<float*>(output_row);
         _mm256_storeu_ps(output_row_float + col, dequantzed_v);
@@ -2253,7 +2250,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     }
 
     for (; col < output_columns; ++col) {
-      float output_value = input_row[col] * scale + bias;
+      float output_value =
+          static_cast<float>(double(input_row[col]) * scale + double(bias));
       if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else {

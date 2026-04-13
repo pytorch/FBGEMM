@@ -422,18 +422,15 @@ void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
           _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
-#ifdef __FMA__
       __m256 dequantzed_v = _mm256_fmadd_ps(in_v, scale_v, bias_v);
-#else
-      __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
-#endif
       _mm_storeu_si128(
           reinterpret_cast<__m128i*>(output_row + col),
           (__m128i)(_mm256_cvtneps_pbh(dequantzed_v)));
     }
 
     for (; col < output_columns; ++col) {
-      float output_value = input_row[col] * scale + bias;
+      float output_value =
+          static_cast<float>(double(input_row[col]) * scale + double(bias));
       output_row[col] = cpu_float2bfloat16(output_value);
     }
   } // for each row

@@ -478,11 +478,11 @@ TEST_P(FusedQuantizeDequantizeTest, fusedQuantizeDequantizeTest) {
 
   runFusedQuantizeDequantizeTests<uint8_t>(
       inp, scale, zero_point_uint8, dstfloat, dstfloat_ref);
-  EXPECT_TRUE(floatCloseAll(dstfloat, dstfloat_ref));
+  EXPECT_EQ(dstfloat, dstfloat_ref);
 
   runFusedQuantizeDequantizeTests<int8_t>(
       inp, scale, zero_point_int8, dstfloat, dstfloat_ref);
-  EXPECT_TRUE(floatCloseAll(dstfloat, dstfloat_ref));
+  EXPECT_EQ(dstfloat, dstfloat_ref);
 }
 
 // vector and scalar code should have the same behavior
@@ -714,7 +714,7 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
       bit_rate, outVecTest.data(), rows, out_cols, dequantOutRef.data());
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float>(
       bit_rate, outVecTest.data(), rows, out_cols, dequantOutTest.data());
-  EXPECT_TRUE(floatCloseAll(dequantOutRef, dequantOutTest, 1e-3));
+  EXPECT_EQ(dequantOutRef, dequantOutTest);
 
   generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
     return cpu_half2float(cpu_float2half_rn(disFP(gen)));
@@ -750,11 +750,7 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
       dequantOutRef, dequantOutHalfRef, 1e-3, pow(2, NumberOfFP16Matissa)));
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16>(
       bit_rate, outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
-  EXPECT_TRUE(floatCloseAll(
-      dequantOutHalfRef,
-      dequantOutHalfTest,
-      1e-3,
-      pow(2, NumberOfFP16Matissa)));
+  EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
 }
 
 // Scale and bias are of type float
@@ -792,7 +788,7 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
       outVecTest.data(), rows, out_cols, dequantOutRef.data());
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float>(
       outVecTest.data(), rows, out_cols, dequantOutTest.data());
-  EXPECT_TRUE(floatCloseAll(dequantOutRef, dequantOutTest, 1e-3));
+  EXPECT_EQ(dequantOutRef, dequantOutTest);
 
   generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
     return cpu_half2float(cpu_float2half_rn(disFP(gen)));
@@ -827,11 +823,7 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
       dequantOutRef, dequantOutHalfRef, 1e-3, pow(2, NumberOfFP16Matissa)));
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16>(
       outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
-  EXPECT_TRUE(floatCloseAll(
-      dequantOutHalfRef,
-      dequantOutHalfTest,
-      1e-3,
-      pow(2, NumberOfFP16Matissa)));
+  EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
 }
 
 TEST_P(

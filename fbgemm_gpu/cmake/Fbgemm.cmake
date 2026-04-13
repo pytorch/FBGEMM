@@ -30,15 +30,27 @@ set(fbgemm_sources_avx512
   "${FBGEMM}/src/QuantUtilsAvx512.cc")
 
 if(CXX_AVX2_FOUND)
-  set_source_files_properties(${fbgemm_sources_avx2}
-    PROPERTIES COMPILE_OPTIONS
-    "${CXX_AVX2_FLAGS}")
+  if(MSVC)
+    set_source_files_properties(${fbgemm_sources_avx2}
+      PROPERTIES COMPILE_OPTIONS
+      "${CXX_AVX2_FLAGS}")
+  else()
+    set_source_files_properties(${fbgemm_sources_avx2}
+      PROPERTIES COMPILE_OPTIONS
+      "-mfma;${CXX_AVX2_FLAGS}")
+  endif()
 endif()
 
 if(CXX_AVX512_FOUND)
-  set_source_files_properties(${fbgemm_sources_avx512}
-    PROPERTIES COMPILE_OPTIONS
-    "${CXX_AVX512_FLAGS}")
+  if(MSVC)
+    set_source_files_properties(${fbgemm_sources_avx512}
+      PROPERTIES COMPILE_OPTIONS
+      "${CXX_AVX512_FLAGS}")
+  else()
+    set_source_files_properties(${fbgemm_sources_avx512}
+      PROPERTIES COMPILE_OPTIONS
+      "-mfma;${CXX_AVX512_FLAGS}")
+  endif()
 endif()
 
 set(fbgemm_sources ${fbgemm_sources_normal})
