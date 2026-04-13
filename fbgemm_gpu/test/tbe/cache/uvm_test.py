@@ -21,12 +21,11 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, skipIfRocmLessThan
+    from test_utils import gpu_available, gpu_unavailable
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_unavailable,
-        skipIfRocmLessThan,
     )
 
 if gpu_available:
@@ -74,7 +73,6 @@ class UvmTest(unittest.TestCase):
         # pyre-ignore[16]
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
 
-    @skipIfRocmLessThan(50700)
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
@@ -140,7 +138,6 @@ class UvmTest(unittest.TestCase):
 
         torch.cuda.synchronize(torch.device("cuda:0"))
 
-    @skipIfRocmLessThan(50700)
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
@@ -181,7 +178,6 @@ class UvmTest(unittest.TestCase):
             assert torch.ops.fbgemm.is_uvm_tensor(uvm_slice)
             assert torch.ops.fbgemm.uvm_storage(cpu_slice)
 
-    @skipIfRocmLessThan(50700)
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
