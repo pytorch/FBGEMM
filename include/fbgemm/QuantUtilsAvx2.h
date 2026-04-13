@@ -63,7 +63,7 @@ void FBGEMM_API FindMinMax(const float* m, float* min, float* max, int64_t len);
 // Utility functions
 ////////////////////////////////////////////////////////////////////////////////
 
-template <typename T = std::uint8_t, bool LEGACY = true>
+template <typename T = std::uint8_t>
 void QuantizeAvx2(
     const float* src,
     T* dst,

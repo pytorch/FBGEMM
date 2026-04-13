@@ -30,7 +30,7 @@ using namespace std;
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-template <typename T, bool LEGACY>
+template <typename T>
 void QuantizeAvx2(
     const float* src,
     T* dst,
@@ -60,17 +60,10 @@ void QuantizeAvx2(
   // clang-format on
   __m256i permute_mask_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
-  const auto zero_point_v_legacy = _mm256_set1_ps(qparams.zero_point);
-  const auto zero_point_v_non_legacy = _mm256_set1_epi32(qparams.zero_point);
+  const auto zero_point_v = _mm256_set1_epi32(qparams.zero_point);
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256 src_v = _mm256_loadu_ps(src + i);
-    __m256 transformed_v;
-    if constexpr (LEGACY) { // static if
-      transformed_v =
-          _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
-    } else {
-      transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
-    }
+    __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     // If the floating point value is greater than int32_max,
     // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
     // to avoid this.
@@ -78,9 +71,7 @@ void QuantizeAvx2(
         _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    if constexpr (!LEGACY) {
-      rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
-    }
+    rounded_v = _mm256_add_epi32(rounded_v, zero_point_v);
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
         _mm256_set1_epi32(max_val));
@@ -102,20 +93,12 @@ void QuantizeAvx2(
     // __m128i store_mask_v = _mm_load_si128(
     // reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
-    __m256 transformed_v;
-    if constexpr (LEGACY) {
-      transformed_v =
-          _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
-    } else {
-      transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
-    }
+    __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     transformed_v =
         _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    if constexpr (!LEGACY) {
-      rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
-    }
+    rounded_v = _mm256_add_epi32(rounded_v, zero_point_v);
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
         _mm256_set1_epi32(max_val));
@@ -149,16 +132,14 @@ uint32_t Xor128() {
 }
 
 // Instantiate QuantizeAvx2 for known datatypes
-#define SPECIALIZE_QUANTIZEAVX2(T, LEGACY) \
-  template void QuantizeAvx2<T, LEGACY>(   \
-      const float* src,                    \
-      T* dst,                              \
-      int64_t len,                         \
+#define SPECIALIZE_QUANTIZEAVX2(T) \
+  template void QuantizeAvx2<T>(   \
+      const float* src,            \
+      T* dst,                      \
+      int64_t len,                 \
       const TensorQuantizationParams& qparams);
-SPECIALIZE_QUANTIZEAVX2(uint8_t, true)
-SPECIALIZE_QUANTIZEAVX2(int8_t, true)
-SPECIALIZE_QUANTIZEAVX2(uint8_t, false)
-SPECIALIZE_QUANTIZEAVX2(int8_t, false)
+SPECIALIZE_QUANTIZEAVX2(uint8_t)
+SPECIALIZE_QUANTIZEAVX2(int8_t)
 #undef SPECIALIZE_QUANTIZEAVX2
 
 template <typename T>
