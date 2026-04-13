@@ -54,15 +54,6 @@ gpu_available: bool = not gpu_unavailable[0]
 
 is_nvidia_device: bool = gpu_available and torch.version.cuda is not None
 
-is_sm80_or_greater: bool = (
-    is_nvidia_device and torch.cuda.get_device_capability()[0] >= 8
-)
-
-running_on_sm70: tuple[bool, str] = (
-    not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
-    "Skip test if SM70, since the code is hardcoded to sm80+ support",
-)
-
 # Used for `@unittest.skipIf` for tests that pass in internal CI, but fail on the GitHub runners
 running_on_github: tuple[bool, str] = (
     os.getenv("GITHUB_ENV") is not None,
@@ -289,46 +280,6 @@ def skipIfNotRocm(
                 fn(*args, **kwargs)
             else:
                 raise unittest.SkipTest(reason)
-
-        return wrapper
-
-    return decorator
-
-
-# pyre-fixme[3]: Return annotation cannot be `Any`.
-def skipIfRocmLessThan(min_version: int) -> Any:
-    # pyre-fixme[3]: Return annotation cannot be `Any`.
-    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
-    def decorator(testfn: Callable) -> Any:
-        @wraps(testfn)
-        # pyre-fixme[3]: Return annotation cannot be `Any`.
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            ROCM_VERSION_FILEPATH = "/opt/rocm/.info/version"
-            if TEST_WITH_ROCM:
-                # Fail if ROCm version file is missing.
-                if not os.path.isfile(ROCM_VERSION_FILEPATH):
-                    raise AssertionError(
-                        f"ROCm version file {ROCM_VERSION_FILEPATH} is missing!"
-                    )
-
-                # Parse the version number from the file.
-                with open(ROCM_VERSION_FILEPATH, "r") as file:
-                    version = file.read().strip()
-                version = version.replace("-", "").split(".")
-                version = (
-                    int(version[0]) * 10000 + int(version[1]) * 100 + int(version[2])
-                )
-
-                # Fail if ROCm version is less than the minimum version.
-                if version < min_version:
-                    raise unittest.SkipTest(
-                        f"Skip the test since the ROCm version is less than {min_version}"
-                    )
-                else:
-                    testfn(*args, **kwargs)
-
-            else:
-                testfn(*args, **kwargs)
 
         return wrapper
 
