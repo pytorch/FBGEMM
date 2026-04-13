@@ -14,37 +14,13 @@
 #include "fbgemm_gpu/utils/float.cuh"
 #include "fbgemm_gpu/utils/types.h"
 
-#if defined(USE_ROCM)
-#include <hip/hip_bfloat16.h>
-#include <hip/hip_fp16.h>
-#else
-#include <cuda_bf16.h>
-#include <cuda_fp16.h>
-#endif
-
-#if CUDART_VERSION >= 12000
-#include <cuda_fp8.h>
-#elif (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-#include <hip/hip_fp8.h>
-#endif
-
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-#if HIP_FP8_TYPE_OCP
-using __nv_fp8_e4m3 = __hip_fp8_e4m3;
-#else // HIP_FP8_TYPE_OCP
-using __nv_fp8_e4m3 = __hip_fp8_e4m3_fnuz;
-#endif // HIP_FP8_TYPE_OCP
-#endif // (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-
 namespace fbgemm_gpu {
 
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
 #ifdef __HIP_PLATFORM_AMD__
-// #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
 constexpr int32_t kThreadsPerWarp = 64;
 constexpr int32_t kWarpsPerBlock = 16;
-// #endif
 #else
 constexpr int32_t kThreadsPerWarp = 32;
 constexpr int32_t kWarpsPerBlock = 32;
@@ -96,10 +72,7 @@ struct __align__(8) bfx4 {
 struct __align__(16) bfx8 {
   __nv_bfloat162 vals[4];
 };
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 DEVICE_INLINE bfx4 dequantize_packed_fp8(uint32_t vs, __half2 shift_scale_0);
-#endif
 DEVICE_INLINE bfx4 dequantize_packed_int4(uint16_t vs, __half2 shift_scale_0);
 DEVICE_INLINE bfx8 dequantize_packed_int4(
     uint32_t v,
@@ -409,8 +382,6 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
 
 enum class CacheLogicalDtype { BF16, FP8, INT4 };
 
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
-    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 DEVICE_INLINE bfx8 dequantize_packed_fp8_symmetric(
     uint64_t v, // Vq1 Vq0 Kq1 Kq0
     float scale_0, // k scale
@@ -484,6 +455,5 @@ DEVICE_INLINE bfx8 dequantize_packed_fp8(
   result.vals[3] = __floats2bfloat162_rn(r3.x, r3.y);
   return result;
 }
-#endif
 
 } // namespace fbgemm_gpu
