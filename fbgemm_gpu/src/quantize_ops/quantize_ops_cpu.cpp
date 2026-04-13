@@ -644,6 +644,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfWithRowwiseMinMax(Tensor input, int bit_rate, Tensor rowwise_min_max) -> Tensor");
   m.def(
+      "FloatOrHalfToFusedNBitRowwiseQuantizedSBBFloat16(Tensor input, int bit_rate) -> Tensor");
+  m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfFrontToFloatOrHalf(Tensor input, int bit_rate, int output_dtype) -> Tensor");
@@ -651,6 +653,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0, bool scale_bias_last=True) -> Tensor");
+  m.def(
+      "FusedNBitRowwiseQuantizedSBBFloat16ToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0, bool scale_bias_last=True) -> Tensor");
   m.def(
       "FloatToHFP8Quantized(Tensor input, int ebits, int exponent_bias, float max_pos) -> Tensor");
   m.def(
