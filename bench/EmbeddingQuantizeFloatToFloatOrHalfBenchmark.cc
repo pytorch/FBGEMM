@@ -42,13 +42,8 @@ static void performance_test() {
       aligned_vector<uint8_t> inpVec(rowSize * colSize);
       randFill<uint8_t>(inpVec, 0, 20);
 
-      int out_emb_cols = colSize;
-
-      if constexpr (is_same_v<T, float16>) {
-        out_emb_cols /= 2;
-      }
-      int outVecSize = rowSize * (out_emb_cols + 2 * sizeof(T));
-      aligned_vector<T> outVec(outVecSize);
+      int output_columns = colSize - 2 * sizeof(float);
+      aligned_vector<T> outVec(rowSize * output_columns);
 
       double duration = 0.0f;
 
@@ -69,10 +64,10 @@ static void performance_test() {
           });
 
       float elements_per_usec =
-          rowSize * colSize * kNumRepeats / (duration * 1e6);
+          rowSize * output_columns * kNumRepeats / (duration * 1e6);
 
       duration *= 1e9; // convert to ns
-      long bytes_read = rowSize * colSize * sizeof(float) * kNumRepeats;
+      size_t bytes_read = static_cast<size_t>(rowSize) * colSize * kNumRepeats;
       float gigabyes_per_sec = bytes_read / duration;
 
       cout << setw(6) << rowSize << ", " << setw(6) << colSize << ",";
