@@ -124,16 +124,17 @@ def extend_test_class(
 
     additional_decorators = {**(additional_decorators or {})}
 
-    generate_opcheck_tests(
-        klass,
-        ["fb", "fbgemm"],
-        failures_dict_path,
-        # pyre-ignore-errors[6]
-        additional_decorators,
-        [
-            "test_schema",
-            "test_autograd_registration",
-            "test_faketensor",
-            "test_aot_dispatch_dynamic",
-        ],
-    )
+    if not open_source:
+        generate_opcheck_tests(
+            klass,
+            ["fb", "fbgemm"],
+            failures_dict_path,
+            # pyre-ignore-errors[6]
+            additional_decorators,
+            [
+                "test_schema",
+                "test_autograd_registration",
+                "test_faketensor",
+                "test_aot_dispatch_dynamic",
+            ],
+        )

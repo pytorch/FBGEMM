@@ -127,6 +127,8 @@ class optests:
             additional_decorators = {}
 
         def decorator(test_class: unittest.TestCase) -> unittest.TestCase:
+            if hasattr(fbgemm_gpu, "open_source"):
+                return test_class
             import torch.testing._internal.optests as optests
             from torch._utils_internal import (  # @manual=//caffe2:utils_internal
                 get_file_path_2,
@@ -167,6 +169,8 @@ class optests:
 
     @staticmethod
     def is_inside_opcheck_mode() -> bool:
+        if hasattr(fbgemm_gpu, "open_source"):
+            return False
         import torch.testing._internal.optests as optests
 
         return optests.is_inside_opcheck_mode()
@@ -174,6 +178,8 @@ class optests:
     @staticmethod
     # pyre-ignore[3]
     def dontGenerateOpCheckTests(reason: str):
+        if hasattr(fbgemm_gpu, "open_source"):
+            return lambda fun: fun
         import torch.testing._internal.optests as optests
 
         return optests.dontGenerateOpCheckTests(reason)
