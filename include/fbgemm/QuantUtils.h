@@ -63,13 +63,14 @@ T2 clamp(T1 src, int precision, bool is_signed = false) {
 
 /// Quantize src using zero_point and scale, clamp to the specified precision,
 /// and convert it to type T
-template <typename T, bool LEGACY = true>
+template <typename T, bool LEGACY = false>
 T Quantize(
     float src,
     std::int32_t zero_point,
     float scale,
     int result_precision,
     bool result_is_signed = std::is_signed_v<T>) {
+  static_assert(!LEGACY, "Legacy quantize is removed");
   // Note: We want to multiply with src with inv_scale instead of
   // dividing src by scale. The same is done in vector code and
   // at other places.
@@ -86,26 +87,21 @@ T Quantize(
   // default rounding mode.
   // For example, nearbyint(1.4) is 1.0, nearbyint(1.5) is 2.0
   // and nearbyint(2.5) is 2.0
-  // Adding zero_point before or after rounding can make a difference
-  // in exactly halfway cases.
-  if constexpr (LEGACY) {
-    transformed_val = std::nearbyint(zero_point + transformed_val);
-  } else {
-    transformed_val = zero_point + std::nearbyint(transformed_val);
-  }
+  // Adding zero_point after rounding matches PyTorch behavior.
+  transformed_val = zero_point + std::nearbyint(transformed_val);
   // Please note the use of double. Unlike float, a double can represent
   // all int32 values exactly. Using a float results in a float value >
   // INT32_MAX conversion to int32 in clamp function and hence an UBSAN error.
   return clamp<double, T>(transformed_val, result_precision, result_is_signed);
 }
 
-template <typename T, bool LEGACY = true>
+template <typename T, bool LEGACY = false>
 T Quantize(float src, const TensorQuantizationParams& qparams) {
-  return Quantize<T, LEGACY>(
-      src, qparams.zero_point, qparams.scale, qparams.precision);
+  static_assert(!LEGACY, "Legacy quantize is removed");
+  return Quantize<T>(src, qparams.zero_point, qparams.scale, qparams.precision);
 }
 
-template <typename T, bool LEGACY = true>
+template <typename T, bool LEGACY = false>
 FBGEMM_API void Quantize(
     const float* src,
     T* dst,
@@ -174,8 +170,7 @@ template <typename T>
 float FusedQuantizeDequantize(
     float src,
     const TensorQuantizationParams& qparams) {
-  T q = Quantize<T, false>(
-      src, qparams.zero_point, qparams.scale, qparams.precision);
+  T q = Quantize<T>(src, qparams.zero_point, qparams.scale, qparams.precision);
   return Dequantize<T>(q, qparams);
 }
 

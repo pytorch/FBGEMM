@@ -30,13 +30,13 @@ using namespace std;
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-template <typename T, bool LEGACY>
+template <typename T>
 void QuantizeAvx2(
     const float* src,
     T* dst,
     int64_t len,
     const TensorQuantizationParams& qparams) {
-#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
+#if defined(__AVX2__)
   constexpr int VLEN = 8;
   constexpr int32_t min_val = std::numeric_limits<T>::min();
   constexpr int32_t max_val = std::numeric_limits<T>::max();
@@ -60,17 +60,10 @@ void QuantizeAvx2(
   // clang-format on
   __m256i permute_mask_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
-  const auto zero_point_v_legacy = _mm256_set1_ps(qparams.zero_point);
-  const auto zero_point_v_non_legacy = _mm256_set1_epi32(qparams.zero_point);
+  const auto zero_point_v = _mm256_set1_epi32(qparams.zero_point);
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256 src_v = _mm256_loadu_ps(src + i);
-    __m256 transformed_v;
-    if constexpr (LEGACY) { // static if
-      transformed_v =
-          _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
-    } else {
-      transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
-    }
+    __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     // If the floating point value is greater than int32_max,
     // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
     // to avoid this.
@@ -78,9 +71,7 @@ void QuantizeAvx2(
         _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    if constexpr (!LEGACY) {
-      rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
-    }
+    rounded_v = _mm256_add_epi32(rounded_v, zero_point_v);
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
         _mm256_set1_epi32(max_val));
@@ -102,20 +93,12 @@ void QuantizeAvx2(
     // __m128i store_mask_v = _mm_load_si128(
     // reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
-    __m256 transformed_v;
-    if constexpr (LEGACY) {
-      transformed_v =
-          _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
-    } else {
-      transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
-    }
+    __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     transformed_v =
         _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    if constexpr (!LEGACY) {
-      rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
-    }
+    rounded_v = _mm256_add_epi32(rounded_v, zero_point_v);
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
         _mm256_set1_epi32(max_val));
@@ -149,16 +132,14 @@ uint32_t Xor128() {
 }
 
 // Instantiate QuantizeAvx2 for known datatypes
-#define SPECIALIZE_QUANTIZEAVX2(T, LEGACY) \
-  template void QuantizeAvx2<T, LEGACY>(   \
-      const float* src,                    \
-      T* dst,                              \
-      int64_t len,                         \
+#define SPECIALIZE_QUANTIZEAVX2(T) \
+  template void QuantizeAvx2<T>(   \
+      const float* src,            \
+      T* dst,                      \
+      int64_t len,                 \
       const TensorQuantizationParams& qparams);
-SPECIALIZE_QUANTIZEAVX2(uint8_t, true)
-SPECIALIZE_QUANTIZEAVX2(int8_t, true)
-SPECIALIZE_QUANTIZEAVX2(uint8_t, false)
-SPECIALIZE_QUANTIZEAVX2(int8_t, false)
+SPECIALIZE_QUANTIZEAVX2(uint8_t)
+SPECIALIZE_QUANTIZEAVX2(int8_t)
 #undef SPECIALIZE_QUANTIZEAVX2
 
 template <typename T>
@@ -171,7 +152,7 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
   float inverse_scale [[maybe_unused]] = 1.f / qparams.scale;
   constexpr int32_t min_val [[maybe_unused]] = std::numeric_limits<T>::min();
   constexpr int32_t max_val [[maybe_unused]] = std::numeric_limits<T>::max();
-#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
+#if defined(__AVX2__)
 
   constexpr int VLEN = 8;
   // This is the largest int32 value less than int32_max
@@ -2186,7 +2167,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
         std::uint8_t quantized = input_row[col / NUM_ELEM_PER_BYTE];
         quantized >>= (col % NUM_ELEM_PER_BYTE) * BIT_RATE;
         quantized &= (1 << BIT_RATE) - 1;
-        float output_value = scale * quantized + bias;
+        float output_value =
+            static_cast<float>(double(scale) * quantized + double(bias));
         if constexpr (std::is_same_v<OutputType, float>) {
           output_row[col] = output_value;
         } else {
@@ -2236,11 +2218,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
           _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
-#ifdef __FMA__
       __m256 dequantzed_v = _mm256_fmadd_ps(in_v, scale_v, bias_v);
-#else
-      __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
-#endif
       if constexpr (std::is_same_v<OutputType, float>) {
         float* output_row_float = reinterpret_cast<float*>(output_row);
         _mm256_storeu_ps(output_row_float + col, dequantzed_v);
@@ -2253,7 +2231,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     }
 
     for (; col < output_columns; ++col) {
-      float output_value = input_row[col] * scale + bias;
+      float output_value =
+          static_cast<float>(double(input_row[col]) * scale + double(bias));
       if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else {
