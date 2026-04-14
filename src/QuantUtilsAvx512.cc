@@ -387,10 +387,10 @@ void requantizeOutputProcessingGConvAvx512(
 
 template <bool scale_bias_last, bool quant_padding_float_type>
 void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
-    const std::uint8_t* input,
-    size_t input_rows,
-    int input_columns,
-    bfloat16* output) {
+    [[maybe_unused]] const std::uint8_t* input,
+    [[maybe_unused]] size_t input_rows,
+    [[maybe_unused]] int input_columns,
+    [[maybe_unused]] bfloat16* output) {
 #if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && defined(FBGEMM_FBCODE)
   constexpr int VLEN = 8;
   using scale_bias_t =
