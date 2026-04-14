@@ -15,7 +15,7 @@ import torch
 import torch._dynamo
 from hypothesis import assume, given, settings, Verbosity
 
-from .common import additional_decorators, open_source, torch_compiled
+from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
@@ -237,7 +237,7 @@ class BatchedDenseVecJagged2DMulTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(values, 1)
         torch._dynamo.mark_dynamic(offsets, 0)
 
-        output = torch_compiled(
+        output = torch.compile(
             torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
             fullgraph=True,
             dynamic=True,

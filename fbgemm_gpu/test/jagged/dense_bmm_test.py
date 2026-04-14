@@ -15,7 +15,7 @@ import torch
 import torch._dynamo
 from hypothesis import assume, given, settings, Verbosity
 
-from .common import additional_decorators, open_source, torch_compiled
+from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
@@ -200,7 +200,7 @@ class DenseBmmTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(x_values, 1)
         torch._dynamo.mark_dynamic(lengths, 0)  # offsets = lengths + 1
 
-        output, _ = torch_compiled(
+        output, _ = torch.compile(
             torch.ops.fbgemm.jagged_dense_bmm, fullgraph=True, dynamic=True
         )(
             x_values,

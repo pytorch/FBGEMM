@@ -16,7 +16,7 @@ import torch
 import torch._dynamo
 from hypothesis import given, settings, Verbosity
 
-from .common import additional_decorators, open_source, torch_compiled, var_list_to_coo
+from .common import additional_decorators, open_source, var_list_to_coo
 
 if open_source:
     # pyre-ignore[21]
@@ -187,7 +187,7 @@ class Jagged2DToDenseTest(unittest.TestCase):
         values = ref_values.clone().to(dtype).detach().requires_grad_(True)
         offsets = offsets.to(device)
         ref_output_values = ref_output_values.to(device)
-        output_values = torch_compiled(
+        output_values = torch.compile(
             torch.ops.fbgemm.jagged_2d_to_dense, dynamic=True, fullgraph=True
         )(
             values=values,
