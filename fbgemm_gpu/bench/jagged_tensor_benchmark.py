@@ -1284,35 +1284,78 @@ def jagged_slice_cpu(
     default=False,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="permute_pooled_embs_trace_{ospid}.json",
+)
+@click.option(
+    "--trace-url-multi",
+    type=str,
+    default="permute_multi_embedding_trace_{ospid}.json",
+    help="Trace file URL for the permute_multi_embedding operation.",
+)
 def permute_pooled_embs_bench(
     num_of_features: int,
     num_of_tensors: int,
     batch_size: int,
     device: str,
     manual_seed: bool,
+    export_trace: bool,
+    trace_url: str,
+    trace_url_multi: str,
 ) -> None:
+    # --- Input validation (ported from tritonbench operator for parity) ---
+    # The CUDA kernel uses PackedTensorAccessor32 with int32 indexing.
+    # Worst-case feature dim is 2 << 10 = 2048.
+    _INT32_MAX = 2**31 - 1
+    total_features = num_of_features * num_of_tensors
+    max_feat_dim = 2 << 10  # 2048
+    max_total_dim = total_features * max_feat_dim
+    if batch_size * max_total_dim > _INT32_MAX:
+        raise ValueError(
+            f"Potential int32 overflow: worst-case values numel = "
+            f"batch_size * total_features * max_feat_dim = "
+            f"{batch_size} * {total_features} * {max_feat_dim} = "
+            f"{batch_size * total_features * max_feat_dim}, "
+            f"exceeds int32 max ({_INT32_MAX}). "
+            f"Reduce --batch-size ({batch_size}), --num-of-features "
+            f"({num_of_features}), or --num-of-tensors ({num_of_tensors})."
+        )
+    if total_features <= 0:
+        raise ValueError(
+            f"num_of_features * num_of_tensors must be > 0, got "
+            f"{num_of_features} * {num_of_tensors} = {total_features}."
+        )
+
     # set manual seed for reproducibility
     if manual_seed:
-        torch.manual_seed(42)
-        random.seed(42)
+        torch.manual_seed(1337)
+        random.seed(1337)
 
-    in_lengths = []
-    out_lengths = []
-    permute_list = []
+    in_lengths: list[list[int]] = []
+    out_lengths: list[list[int]] = []
+    permute_list: list[list[int]] = []
     i = 0
     for in_tensor in range(num_of_tensors):
-        lengths = []
+        lengths: list[int] = []
         for _ in range(num_of_features):
             lengths.append(2 << random.randint(3, 10))
             permute_list.append([in_tensor, i, sum(lengths[:-1]), 0, lengths[-1], 0])
             i += 1
         in_lengths.append(lengths)
-    offsets = [0]
+    offsets: list[int] = [0]
     for permute in permute_list:
         offsets.append(offsets[-1] + permute[4])
     random.shuffle(permute_list)
-    inv_offsets = [0]
-    permutes = []
+    inv_offsets: list[int] = [0]
+    permutes: list[int] = []
     for i, permute in enumerate(permute_list):
         permutes.append(permute[1])
         inv_offsets.append(inv_offsets[-1] + permute[4])
@@ -1321,42 +1364,44 @@ def permute_pooled_embs_bench(
             out_lengths.append([])
         permute[3] = sum(out_lengths[-1])
         out_lengths[-1].append(permute[4])
-    inv_permutes = [0] * len(permutes)
+    inv_permutes: list[int] = [0] * len(permutes)
     for i, p in enumerate(permutes):
         inv_permutes[p] = i
 
-    in_lengths = [sum(len) for len in in_lengths]
-    out_lengths = [sum(len) for len in out_lengths]
-    in_shape = torch.tensor(in_lengths, dtype=torch.int32, device=torch.device(device))
+    # Flatten per-tensor length lists to summed per-tensor dims.
+    in_lengths_flat: list[int] = [sum(lens) for lens in in_lengths]
+    out_lengths_flat: list[int] = [sum(lens) for lens in out_lengths]
+    in_shape = torch.tensor(
+        in_lengths_flat, dtype=torch.int32, device=torch.device(device)
+    )
     out_shape = torch.tensor(
-        out_lengths, dtype=torch.int32, device=torch.device(device)
+        out_lengths_flat, dtype=torch.int32, device=torch.device(device)
     )
     permutes_tensor = torch.tensor(
         permute_list, dtype=torch.int32, device=torch.device(device)
     )
 
     values = torch.rand((batch_size, offsets[-1]), device=torch.device(device))
-    offsets = torch.tensor(offsets, device=torch.device(device))
-    permutes = torch.tensor(permutes, device=torch.device(device))
-    inv_offsets = torch.tensor(inv_offsets, device=torch.device(device))
-    inv_permutes = torch.tensor(inv_permutes, device=torch.device(device))
+    offsets_t = torch.tensor(offsets, device=torch.device(device))
+    permutes_t = torch.tensor(permutes, device=torch.device(device))
+    inv_offsets_t = torch.tensor(inv_offsets, device=torch.device(device))
+    inv_permutes_t = torch.tensor(inv_permutes, device=torch.device(device))
 
     m_values = [
         torch.empty([batch_size, length], device=torch.device(device))
-        for length in in_lengths
+        for length in in_lengths_flat
     ]
-    for i, v in enumerate(torch.split(values, in_lengths, dim=1)):
+    for i, v in enumerate(torch.split(values, in_lengths_flat, dim=1)):
         m_values[i].copy_(v)
-    permute_list = [i for p in permute_list for i in p]
 
     time_ref, output_ref = benchmark_torch_function(
         torch.ops.fbgemm.permute_pooled_embs_auto_grad,
         (
             values,
-            offsets,
-            permutes,
-            inv_offsets,
-            inv_permutes,
+            offsets_t,
+            permutes_t,
+            inv_offsets_t,
+            inv_permutes_t,
         ),
         num_warmups=20,
         iters=100,
@@ -1369,20 +1414,98 @@ def permute_pooled_embs_bench(
             permutes_tensor,
             in_shape,
             out_shape,
-            out_lengths,
+            out_lengths_flat,
         ),
         num_warmups=20,
         iters=100,
     )
 
     logging.info(
-        f"size: {batch_size} x {offsets[-1]}; "
+        f"size: {batch_size} x {offsets_t[-1]}; "
         "permute_multi_embedding: %.3g ms; permute_pooled_embs: %.3g ms; delta: %.1f%%"
         % (time * 1e3, time_ref * 1e3, (time - time_ref) / time_ref * 100),
     )
 
-    for i, out in enumerate(output_ref.split(out_lengths, dim=1)):
+    for i, out in enumerate(output_ref.split(out_lengths_flat, dim=1)):
         assert torch.allclose(out, output[i])
+
+    if export_trace:
+        is_cuda = device == "cuda"
+
+        # pyre-fixme[53]: Captured variable `values` is not annotated.
+        # pyre-fixme[53]: Captured variable `offsets_t` is not annotated.
+        # pyre-fixme[53]: Captured variable `permutes_t` is not annotated.
+        # pyre-fixme[53]: Captured variable `inv_offsets_t` is not annotated.
+        # pyre-fixme[53]: Captured variable `inv_permutes_t` is not annotated.
+        def fn() -> torch.Tensor:
+            return torch.ops.fbgemm.permute_pooled_embs_auto_grad(
+                values,
+                offsets_t,
+                permutes_t,
+                inv_offsets_t,
+                inv_permutes_t,
+            )
+
+        num_trace_warmup = 100
+        num_active = 5
+
+        for _ in range(num_trace_warmup):
+            fn()
+            if is_cuda:
+                torch.cuda.synchronize(device)
+
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if is_cuda:
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=0, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: p.export_chrome_trace(
+                trace_url.format(ospid=os.getpid())
+            ),
+        ) as prof:
+            for _ in range(num_active):
+                fn()
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                prof.step()
+
+        # --- Trace permute_multi_embedding ---
+        # pyre-fixme[53]: Captured variable `m_values` is not annotated.
+        # pyre-fixme[53]: Captured variable `permutes_tensor` is not annotated.
+        # pyre-fixme[53]: Captured variable `in_shape` is not annotated.
+        # pyre-fixme[53]: Captured variable `out_shape` is not annotated.
+        # pyre-fixme[53]: Captured variable `out_lengths_flat` is not annotated.
+        def fn_multi() -> list:  # pyre-fixme[24]
+            return torch.ops.fbgemm.permute_multi_embedding(
+                m_values,
+                permutes_tensor,
+                in_shape,
+                out_shape,
+                out_lengths_flat,
+            )
+
+        for _ in range(num_trace_warmup):
+            fn_multi()
+            if is_cuda:
+                torch.cuda.synchronize(device)
+
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=0, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: p.export_chrome_trace(
+                trace_url_multi.format(ospid=os.getpid())
+            ),
+        ) as prof:
+            for _ in range(num_active):
+                fn_multi()
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                prof.step()
 
 
 @cli.command()
