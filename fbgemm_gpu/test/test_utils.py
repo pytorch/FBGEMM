@@ -103,14 +103,6 @@ def cpu_and_maybe_gpu() -> st.SearchStrategy[list[torch.device]]:
     )
 
 
-def has_optests() -> bool:
-    return (
-        torch.__version__ >= "2.2.*"
-        and hasattr(torch.library, "impl_abstract")
-        and not hasattr(fbgemm_gpu, "open_source")
-    )
-
-
 class optests:
     # Usage examples:
     #
@@ -135,8 +127,6 @@ class optests:
             additional_decorators = {}
 
         def decorator(test_class: unittest.TestCase) -> unittest.TestCase:
-            if not has_optests():
-                return test_class
             import torch.testing._internal.optests as optests
             from torch._utils_internal import (  # @manual=//caffe2:utils_internal
                 get_file_path_2,
@@ -177,9 +167,6 @@ class optests:
 
     @staticmethod
     def is_inside_opcheck_mode() -> bool:
-        if not has_optests():
-            return False
-
         import torch.testing._internal.optests as optests
 
         return optests.is_inside_opcheck_mode()
@@ -187,8 +174,6 @@ class optests:
     @staticmethod
     # pyre-ignore[3]
     def dontGenerateOpCheckTests(reason: str):
-        if not has_optests():
-            return lambda fun: fun
         import torch.testing._internal.optests as optests
 
         return optests.dontGenerateOpCheckTests(reason)
@@ -234,7 +219,9 @@ def use_cpu_strategy() -> st.SearchStrategy[bool]:
         st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         # fmt: off
-        else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True)
         # fmt: on
     )
 
@@ -284,14 +271,3 @@ def skipIfNotRocm(
         return wrapper
 
     return decorator
-
-
-def symint_vector_unsupported() -> tuple[bool, str]:
-    major, minor = torch.__version__.split(".")[0:2]
-    return (
-        int(major) < 2 or (int(major) == 2 and int(minor) < 1),
-        """
-        Dynamic shape support for this operator needs to be on PyTorch 2.1 or
-        newer with https://github.com/pytorch/pytorch/pull/101056
-        """,
-    )

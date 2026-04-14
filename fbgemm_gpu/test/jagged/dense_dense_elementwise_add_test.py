@@ -26,20 +26,13 @@ from .common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        gradcheck,
-        optests,
-        symint_vector_unsupported,
-    )
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, gradcheck, optests
 else:
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
         gpu_unavailable,
         gradcheck,
         optests,
-        symint_vector_unsupported,
     )
 
 
@@ -218,7 +211,6 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         assert output.size() == output_ref.size()
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
-    @unittest.skipIf(*symint_vector_unsupported())
     @given(
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(2, 4),

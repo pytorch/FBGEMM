@@ -22,13 +22,9 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, symint_vector_unsupported
+    from test_utils import gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
 
 
 def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: list[int]) -> list[int]:
@@ -48,9 +44,6 @@ def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: list[int]) -> list[int]:
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class UniqueIndicesTest(unittest.TestCase):
     def setUp(self) -> None:
-        if symint_vector_unsupported()[0]:
-            return
-
         assert hasattr(
             torch._dynamo.config, "assume_static_by_default"
         ), "Need to update the config as the dynamic/auto-dynamic setting has changed"
