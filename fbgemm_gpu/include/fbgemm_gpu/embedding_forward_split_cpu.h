@@ -44,22 +44,15 @@ struct HyperCompressedSparseColumn {
   // For a shared table, a column can have multiple segments, each for a
   // feature sharing the table. In this case, the segments will have the
   // same column_segment_indices but different column_segment_ids.
-  int* column_segment_ptr = nullptr;
-  int* column_segment_indices = nullptr; // length num_non_zero_columns
-  int* column_segment_ids = nullptr; // length num_non_zero_columns
-  int* row_indices = nullptr; // length column_ptr[num_non_zero_columns]
-  float* weights = nullptr; // length column_ptr[num_non_zero_columns]
-  ~HyperCompressedSparseColumn() {
-    if (column_segment_ptr) {
-      fbgemm::fbgemmAlignedFree(column_segment_ptr);
-      fbgemm::fbgemmAlignedFree(column_segment_indices);
-      fbgemm::fbgemmAlignedFree(column_segment_ids);
-      fbgemm::fbgemmAlignedFree(row_indices);
-    }
-    if (weights) {
-      fbgemm::fbgemmAlignedFree(weights);
-    }
-  }
+  fbgemm::aligned_unique_ptr<int> column_segment_ptr;
+  fbgemm::aligned_unique_ptr<int>
+      column_segment_indices; // length num_non_zero_columns
+  fbgemm::aligned_unique_ptr<int>
+      column_segment_ids; // length num_non_zero_columns
+  fbgemm::aligned_unique_ptr<int>
+      row_indices; // length column_ptr[num_non_zero_columns]
+  fbgemm::aligned_unique_ptr<float>
+      weights; // length column_ptr[num_non_zero_columns]
 };
 
 template <typename index_t, typename scalar_t>
