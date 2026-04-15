@@ -1464,8 +1464,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // iteration(excluding state_dict)
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     pause_ongoing_eviction(); // noop calls, no impact if called multiple times
-    std::vector<
-        folly::Future<std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>>
+    std::vector<folly::Future<
+        std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>>>
         futures;
     auto row_width = weights.size(1);
     auto copy_width = width_length.value_or(row_width);
@@ -1491,6 +1491,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                 int64_t local_read_lookup_cache_total_duration = 0;
                 int64_t local_read_aquire_lock_duration = 0;
                 int64_t local_read_missing_load = 0;
+                int64_t local_read_hit_load = 0;
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kvstore_set",
@@ -1505,7 +1506,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                      &local_read_fill_row_storage_total_duration,
                      &local_read_lookup_cache_total_duration,
                      &local_read_aquire_lock_duration,
-                     &local_read_missing_load] {
+                     &local_read_missing_load,
+                     &local_read_hit_load] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -1584,6 +1586,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           local_read_cache_hit_copy_total_duration +=
                               facebook::WallClockUtil::NowInUsecFast() -
                               before_cache_hit_copy_ts;
+                          local_read_hit_load++;
                         }
                       }
                     });
@@ -1592,7 +1595,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                     local_read_fill_row_storage_total_duration,
                     local_read_cache_hit_copy_total_duration,
                     local_read_aquire_lock_duration,
-                    local_read_missing_load};
+                    local_read_missing_load,
+                    local_read_hit_load};
               }));
     }
 
@@ -1604,6 +1608,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                            int64_t,
                            int64_t,
                            int64_t,
+                           int64_t,
                            int64_t>>& results) {
           resume_laser_write();
           int64_t read_lookup_cache_total_duration = 0;
@@ -1611,14 +1616,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           int64_t read_cache_hit_copy_total_duration = 0;
           int64_t read_acquire_lock_total_duration = 0;
           int64_t read_missing_load = 0;
+          int64_t read_hit_load = 0;
           for (
-              const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load] :
+              const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load, hit_load] :
               results) {
             read_lookup_cache_total_duration += lookup_cache_dur;
             read_fill_row_storage_total_duration += fill_row_storage_dur;
             read_cache_hit_copy_total_duration += cache_hit_copy_dur;
             read_acquire_lock_total_duration += acquire_lock_dur;
             read_missing_load += missing_load;
+            read_hit_load += hit_load;
           }
           auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
           read_total_duration_ += duration;
@@ -1631,6 +1638,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           read_acquire_lock_avg_duration_ +=
               read_acquire_lock_total_duration / num_shards_;
           read_missing_load_avg_ += read_missing_load / num_shards_;
+          read_hit_count_ += read_hit_load;
+          read_miss_count_ += read_missing_load;
           return std::vector<folly::Unit>(results.size());
         });
   };
@@ -2040,8 +2049,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<double> get_dram_kv_perf(
       const int64_t step,
       const int64_t interval) {
-    std::vector<double> ret(36, 0); // num metrics
+    std::vector<double> ret(38, 0); // num metrics
     if (step > 0 && step % interval == 0) {
+      const double d_interval = static_cast<double>(interval);
       int reset_val = 0;
 
       auto dram_read_total_duration = read_total_duration_.exchange(reset_val);
@@ -2113,49 +2123,56 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           bwd_l1_cnflct_miss_write_missing_load_avg_.exchange(reset_val);
 
       auto read_num_counts = read_num_counts_.exchange(reset_val);
+      auto read_hit_count = read_hit_count_.exchange(reset_val);
+      auto read_miss_count = read_miss_count_.exchange(reset_val);
 
-      ret[0] = dram_read_total_duration / interval;
-      ret[1] = dram_read_sharding_total_duration / interval;
-      ret[2] = dram_read_cache_hit_copy_duration / interval;
-      ret[3] = dram_read_fill_row_storage_duration / interval;
-      ret[4] = dram_read_lookup_cache_duration / interval;
-      ret[5] = dram_read_acquire_lock_duration / interval;
-      ret[6] = dram_read_missing_load / interval;
-      ret[7] = dram_write_sharding_total_duration / interval;
+      ret[0] = dram_read_total_duration / d_interval;
+      ret[1] = dram_read_sharding_total_duration / d_interval;
+      ret[2] = dram_read_cache_hit_copy_duration / d_interval;
+      ret[3] = dram_read_fill_row_storage_duration / d_interval;
+      ret[4] = dram_read_lookup_cache_duration / d_interval;
+      ret[5] = dram_read_acquire_lock_duration / d_interval;
+      ret[6] = dram_read_missing_load / d_interval;
+      ret[7] = dram_write_sharding_total_duration / d_interval;
 
-      ret[8] = dram_fwd_l1_eviction_write_total_duration / interval;
-      ret[9] = dram_fwd_l1_eviction_write_allocate_duration / interval;
-      ret[10] = dram_fwd_l1_eviction_write_cache_copy_duration / interval;
-      ret[11] = dram_fwd_l1_eviction_write_lookup_cache_duration / interval;
-      ret[12] = dram_fwd_l1_eviction_write_acquire_lock_duration_ / interval;
-      ret[13] = dram_fwd_l1_eviction_write_missing_load_ / interval;
+      ret[8] = dram_fwd_l1_eviction_write_total_duration / d_interval;
+      ret[9] = dram_fwd_l1_eviction_write_allocate_duration / d_interval;
+      ret[10] = dram_fwd_l1_eviction_write_cache_copy_duration / d_interval;
+      ret[11] = dram_fwd_l1_eviction_write_lookup_cache_duration / d_interval;
+      ret[12] = dram_fwd_l1_eviction_write_acquire_lock_duration_ / d_interval;
+      ret[13] = dram_fwd_l1_eviction_write_missing_load_ / d_interval;
 
-      ret[14] = dram_bwd_l1_cnflct_miss_write_total_duration / interval;
-      ret[15] = dram_bwd_l1_cnflct_miss_write_allocate_duration / interval;
-      ret[16] = dram_bwd_l1_cnflct_miss_write_cache_copy_duration / interval;
-      ret[17] = dram_bwd_l1_cnflct_miss_write_lookup_cache_duration / interval;
-      ret[18] = dram_bwd_l1_cnflct_miss_write_acquire_lock_duration_ / interval;
-      ret[19] = dram_bwd_l1_cnflct_miss_write_missing_load_ / interval;
+      ret[14] = dram_bwd_l1_cnflct_miss_write_total_duration / d_interval;
+      ret[15] = dram_bwd_l1_cnflct_miss_write_allocate_duration / d_interval;
+      ret[16] = dram_bwd_l1_cnflct_miss_write_cache_copy_duration / d_interval;
+      ret[17] =
+          dram_bwd_l1_cnflct_miss_write_lookup_cache_duration / d_interval;
+      ret[18] =
+          dram_bwd_l1_cnflct_miss_write_acquire_lock_duration_ / d_interval;
+      ret[19] = dram_bwd_l1_cnflct_miss_write_missing_load_ / d_interval;
 
       ret[20] = get_map_used_memsize_in_bytes();
       ret[21] = get_map_actual_used_chunk_in_bytes();
 
       ret[22] = get_num_rows();
-      ret[23] = read_num_counts / interval;
+      ret[23] = read_num_counts / d_interval;
 
-      ret[24] = metadata_write_sharding_total_duration / interval;
-      ret[25] = metadata_write_total_duration / interval;
-      ret[26] = metadata_write_allocate_avg_duration / interval;
-      ret[27] = metadata_write_lookup_cache_avg_duration / interval;
-      ret[28] = metadata_write_acquire_lock_avg_duration / interval;
-      ret[29] = metadata_write_cache_miss_avg_count / interval;
+      ret[24] = metadata_write_sharding_total_duration / d_interval;
+      ret[25] = metadata_write_total_duration / d_interval;
+      ret[26] = metadata_write_allocate_avg_duration / d_interval;
+      ret[27] = metadata_write_lookup_cache_avg_duration / d_interval;
+      ret[28] = metadata_write_acquire_lock_avg_duration / d_interval;
+      ret[29] = metadata_write_cache_miss_avg_count / d_interval;
 
-      ret[30] = read_metadata_total_duration / interval;
-      ret[31] = read_metadata_sharding_total_duration / interval;
-      ret[32] = read_metadata_cache_hit_copy_avg_duration / interval;
-      ret[33] = read_metadata_lookup_cache_total_avg_duration / interval;
-      ret[34] = read_metadata_acquire_lock_avg_duration / interval;
-      ret[35] = read_metadata_load_size / interval;
+      ret[30] = read_metadata_total_duration / d_interval;
+      ret[31] = read_metadata_sharding_total_duration / d_interval;
+      ret[32] = read_metadata_cache_hit_copy_avg_duration / d_interval;
+      ret[33] = read_metadata_lookup_cache_total_avg_duration / d_interval;
+      ret[34] = read_metadata_acquire_lock_avg_duration / d_interval;
+      ret[35] = read_metadata_load_size / d_interval;
+
+      ret[36] = read_hit_count;
+      ret[37] = read_miss_count;
     }
     return ret;
   }
@@ -2414,6 +2431,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> inplace_update_miss_cnt_{0};
 
   std::atomic<int64_t> read_num_counts_{0};
+
+  // DRAM KV cache hit/miss raw counters (not averaged per shard)
+  std::atomic<int64_t> read_hit_count_{0};
+  std::atomic<int64_t> read_miss_count_{0};
 
   bool disable_random_init_;
 
