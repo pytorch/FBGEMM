@@ -24,13 +24,9 @@ from .common import open_source
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, symint_vector_unsupported
+    from test_utils import gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
 
 
 @optests.generate_opcheck_tests()
@@ -64,8 +60,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
                 torch.bfloat16,
             ],
         ),
-        # if before PT 2.1, we don't support symint_vector, so turn it off
-        test_compile=st.booleans() if symint_vector_unsupported() else st.just(False),
+        test_compile=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=max_examples, deadline=None)
     def test_quantize_and_dequantize_op_fp8_rowwise(

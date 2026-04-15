@@ -18,19 +18,9 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
 
 
 def repeat_arange_ref(lengths: torch.Tensor) -> torch.Tensor:
@@ -208,7 +198,6 @@ class RepeatArangeTest(unittest.TestCase):
         self.assertEqual(result.numel(), 0)  # Placeholder size for meta tensors
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
-    @unittest.skipIf(*symint_vector_unsupported())
     @given(
         batch_size=st.integers(2, 20),
         max_length=st.integers(2, 30),

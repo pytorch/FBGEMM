@@ -20,19 +20,9 @@ from .common import additional_decorators, open_source, var_list_to_coo
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -144,7 +134,6 @@ class Jagged2DToDenseTest(unittest.TestCase):
             torch.testing.assert_close(expected_grad, values.grad)
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
-    @unittest.skipIf(*symint_vector_unsupported())
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=20,

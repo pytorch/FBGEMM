@@ -91,15 +91,7 @@ class JaggedDenseDenseAddJaggedOutputOp
       const Tensor& dense_0,
       const Tensor& dense_1) {
     ctx->save_for_backward(offsets);
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
-    // toSymIntVector support is from a recent PR
-    // https://github.com/pytorch/pytorch/pull/101056,
-    // so protect it under a version guard for compatibility
     ctx->saved_data["dense_shape"] = dense_0.sym_sizes();
-#else
-    ctx->saved_data["dense_shape"] = dense_0.sizes();
-#endif
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -120,12 +112,7 @@ class JaggedDenseDenseAddJaggedOutputOp
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
     auto dense_shape = ctx->saved_data["dense_shape"].toSymIntVector();
-#else
-    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-#endif
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -274,15 +261,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
     ctx->save_for_backward(offsets);
 
     // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
-    // toSymIntVector support is from a recent PR
-    // https://github.com/pytorch/pytorch/pull/101056,
-    // so protect it under a version guard for compatibility
     ctx->saved_data["dense_shape"] = dense.sym_sizes();
-#else
-    ctx->saved_data["dense_shape"] = dense.sizes();
-#endif
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -301,12 +280,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
     auto dense_shape = ctx->saved_data["dense_shape"].toSymIntVector();
-#else
-    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-#endif
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -323,12 +297,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
         std::vector<at::SymInt>(dense_shape.begin() + 1, dense_shape.end() - 1),
         /*padding_value=*/0);
 
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
     TORCH_CHECK(dense_values_grad.sym_sizes() == dense_shape);
-#else
-    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
-#endif
 
     return {
         dense_values_grad,
@@ -358,15 +327,7 @@ class JaggedDenseElementwiseAddJaggedOutOp
     }
 
     // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
-    // toSymIntVector support is from a recent PR
-    // https://github.com/pytorch/pytorch/pull/101056,
-    // so protect it under a version guard for compatibility
     ctx->saved_data["dense_shape"] = dense.sym_sizes();
-#else
-    ctx->saved_data["dense_shape"] = dense.sizes();
-#endif
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -390,12 +351,7 @@ class JaggedDenseElementwiseAddJaggedOutOp
     TORCH_CHECK(grad_outputs.size() == 1);
     const auto& grad_output_tensor = grad_outputs[0];
 
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
     auto dense_shape = ctx->saved_data["dense_shape"].toSymIntVector();
-#else
-    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-#endif
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -412,12 +368,7 @@ class JaggedDenseElementwiseAddJaggedOutOp
         std::vector<at::SymInt>(dense_shape.begin() + 1, dense_shape.end() - 1),
         /*padding_value=*/0);
 
-#if TORCH_VERSION_MAJOR > 2 || \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
     TORCH_CHECK(dense_values_grad.sym_sizes() == dense_shape);
-#else
-    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
-#endif
 
     return {
         grad_output_tensor,
