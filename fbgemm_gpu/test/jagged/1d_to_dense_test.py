@@ -16,13 +16,27 @@ import torch
 import torch._dynamo
 from hypothesis import given, settings, Verbosity
 
-from .common import additional_decorators, open_source, var_list_to_coo_1d
+from .common import (
+    additional_decorators,
+    open_source,
+    var_list_to_coo_1d,
+)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
+    from test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_unavailable,
+        optests,
+        symint_vector_unsupported,
+    )
 else:
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_unavailable,
+        optests,
+        symint_vector_unsupported,
+    )
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -124,6 +138,7 @@ class Jagged1DToDenseTest(unittest.TestCase):
             torch.testing.assert_close(ref_output, output)
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
+    @unittest.skipIf(*symint_vector_unsupported())
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=20,

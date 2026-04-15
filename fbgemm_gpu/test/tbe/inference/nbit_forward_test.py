@@ -11,7 +11,8 @@
 import os
 import random
 import unittest
-from typing import Any, Callable, Optional, Union
+from typing import Any
+from collections.abc import Callable
 
 import hypothesis.strategies as st
 import numpy as np
@@ -55,7 +56,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 # pyre-ignore
-additional_decorators: dict[str, list[Callable]] = {
+additional_decorators: dict[str, list[Callable[..., Any]]] = {
     "test_faketensor__test_nbit_forward_uvm_cache": [
         unittest.skip("CUDA Assert"),
     ],
@@ -143,10 +144,10 @@ class NBitFowardTest(NBitFowardTestCommon):
         weights_ty: SparseType,
         output_dtype: SparseType,
         weighted: bool,
-        ref_module: Union[
-            IntNBitTableBatchedEmbeddingBagsCodegen,
-            SplitTableBatchedEmbeddingBagsCodegen,
-        ],
+        ref_module: (
+            IntNBitTableBatchedEmbeddingBagsCodegen |
+            SplitTableBatchedEmbeddingBagsCodegen
+        ),
     ) -> None:
         D_alignment = max(weights_ty.align_size() for t in range(T))
         D_alignment = max(D_alignment, output_dtype.align_size())
@@ -529,7 +530,7 @@ class NBitFowardTest(NBitFowardTestCommon):
     )
     def test_nbit_forward_cpu(
         self,
-        nbit_weights_ty: Optional[SparseType],
+        nbit_weights_ty: SparseType | None,
         use_array_for_index_remapping: bool,
         do_pruning: bool,
         pooling_mode: PoolingMode,
@@ -821,7 +822,7 @@ class NBitFowardTest(NBitFowardTestCommon):
     )
     def test_nbit_forward_gpu_no_cache(
         self,
-        nbit_weights_ty: Optional[SparseType],
+        nbit_weights_ty: SparseType | None,
         use_array_for_index_remapping: bool,
         indices_dtype: torch.dtype,
         do_pruning: bool,
@@ -1072,7 +1073,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         quant_cc.fill_random_weights()
         raw_embedding_weights = quant_cc.split_embedding_weights()
         # we mimic 1.0 scale, 0.0 bias for better results comparison
-        embedding_weights: list[tuple[torch.Tensor, Optional[torch.Tensor]]] = [
+        embedding_weights: list[tuple[torch.Tensor, torch.Tensor | None]] = [
             (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
             for table_weight, _ in raw_embedding_weights
         ]

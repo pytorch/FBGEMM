@@ -7,7 +7,7 @@
 # pyre-strict
 
 import unittest
-from typing import cast, Set, Tuple
+from typing import cast
 
 import hypothesis.strategies as st
 import torch
@@ -225,7 +225,7 @@ class WritebackUtilsTest(unittest.TestCase):
         # only keep the gradient for the first occurrence of each (table, index)
         # pair. Duplicate occurrences get zeroed out.
         expected = torch.zeros_like(grad[0], device=grad[0].device)
-        seen: Set[Tuple[int, int]] = set()
+        seen: set[tuple[int, int]] = set()
         for i in range(indices.size(0)):
             # Determine which table this index belongs to based on position
             table_idx = i // B

@@ -10,7 +10,7 @@
 import math
 import unittest
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -38,7 +38,7 @@ def find_different_rows(
     atol: float = 1.0e-4,
     rtol: float = 1.0e-4,
     return_values: bool = False,
-) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Find the indices of rows that are different between two tensors.
 
@@ -251,15 +251,15 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         trigger_bounds_check: bool = False,
         mixed_B: bool = False,
         is_kv_tbes: bool = False,
-        bucket_offsets: Optional[list[tuple[int, int]]] = None,
-        bucket_sizes: Optional[list[int]] = None,
+        bucket_offsets: list[tuple[int, int]] | None = None,
+        bucket_sizes: list[int] | None = None,
     ) -> tuple[
         list[torch.Tensor],
         list[torch.Tensor],
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
-        Optional[list[list[int]]],
+        list[list[int]] | None,
     ]:
         """
         Generate indices and per sample weights
@@ -617,7 +617,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
             emb_ref.insert(table_to_replicate, emb_ref[table_to_replicate])
 
         cache_sets = max(int(max(T * B * L, 1) * cache_set_scale), 1)
-        res_params: Optional[RESParams] = None
+        res_params: RESParams | None = None
         if enable_raw_embedding_streaming:
             res_params = RESParams(
                 res_server_port=0,
@@ -693,10 +693,6 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.float() for emb in emb_ref]
 
-        # pyre-fixme[7]: Expected `Tuple[SSDTableBatchedEmbeddingBags,
-        #  List[EmbeddingBag]]` but got `Tuple[SSDTableBatchedEmbeddingBags,
-        #  Union[List[Union[Embedding, EmbeddingBag]], List[Embedding],
-        #  List[EmbeddingBag]]]`.
         return emb, emb_ref
 
     def concat_ref_tensors(
@@ -719,8 +715,8 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         rearrange tensors into VBE format and concat them into one tensor
 
         Parameters:
-            tensors (List[torch.Tensor]): List of tensors
-            batch_size_per_feature_per_rank (List[List[int]]): List of batch sizes per feature per rank
+            tensors (list[torch.Tensor]): List of tensors
+            batch_size_per_feature_per_rank (list[list[int]]): List of batch sizes per feature per rank
 
         Returns:
             concatenated tensor in VBE output format
@@ -750,9 +746,9 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         B: int,
         L: int,
         weighted: bool,
-        tolerance: Optional[float] = None,
+        tolerance: float | None = None,
         it: int = -1,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
     ) -> tuple[list[torch.Tensor], torch.Tensor]:
         """
         Execute the forward functions of SSDTableBatchedEmbeddingBags and
@@ -841,7 +837,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         B: int,
         D: int,
         pooling_mode: PoolingMode,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
     ) -> None:
         # Generate output gradient
         output_grad_list = [torch.randn_like(out) for out in output_ref_list]

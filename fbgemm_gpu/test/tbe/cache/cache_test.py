@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Any, cast, Optional
+from typing import Any, cast
 
 import hypothesis.strategies as st
 import numpy as np
@@ -56,7 +56,7 @@ class CacheTest(unittest.TestCase):
         B: int,
         D_offsets: list[int],
         mixed_B: bool,
-        Bs_feature_rank: Optional[list[list[int]]] = None,
+        Bs_feature_rank: list[list[int]] | None = None,
     ) -> tuple[int, ...]:
         """
         Compute output gradient shape
@@ -170,13 +170,13 @@ class CacheTest(unittest.TestCase):
         L: int,
         mixed: bool,
         prefetch_location: str,
-        prefetch_stream: Optional[torch.cuda.Stream],
+        prefetch_stream: torch.cuda.Stream | None,
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
         gather_uvm_cache_stats: bool,
         mixed_B: bool = False,
-        mpp_n_passes: Optional[int] = None,
-        mpp_min_size: Optional[int] = None,
+        mpp_n_passes: int | None = None,
+        mpp_min_size: int | None = None,
         trigger_bounds_check: bool = False,
     ) -> None:
         """
@@ -194,7 +194,7 @@ class CacheTest(unittest.TestCase):
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
         reporter = TestingStatsReporterConfig(interval=2)
 
-        mpp_conf: Optional[MultiPassPrefetchConfig] = None
+        mpp_conf: MultiPassPrefetchConfig | None = None
         if mpp_n_passes or mpp_min_size:
             mpp_conf = MultiPassPrefetchConfig()
             if mpp_n_passes:
@@ -277,7 +277,7 @@ class CacheTest(unittest.TestCase):
 
         def _prefetch(
             cc: SplitTableBatchedEmbeddingBagsCodegen,
-            batch: Optional[TBERequest],
+            batch: TBERequest | None,
         ) -> None:
             if not batch:
                 return
@@ -360,7 +360,7 @@ class CacheTest(unittest.TestCase):
             def assert_event_exist(
                 event_name: str,
                 steps: list[int],
-                expected_value: Optional[list[int]] = None,
+                expected_value: list[int] | None = None,
             ) -> None:
                 self.assertEqual(
                     len(stats_reporter.reported_data[event_name]), len(steps)
@@ -544,9 +544,9 @@ class CacheTest(unittest.TestCase):
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_get_prefetch_passes(
-        self, S: int, mpp_n_passes: Optional[int], mpp_min_size: Optional[int]
+        self, S: int, mpp_n_passes: int | None, mpp_min_size: int | None
     ) -> None:
-        mpp_conf: Optional[MultiPassPrefetchConfig] = None
+        mpp_conf: MultiPassPrefetchConfig | None = None
         if mpp_n_passes or mpp_min_size:
             mpp_conf = MultiPassPrefetchConfig()
             if mpp_n_passes:
@@ -654,7 +654,7 @@ class CacheTest(unittest.TestCase):
         compute_count: bool,
         compute_inverse_indices: bool,
     ) -> tuple[
-        torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]
+        torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None
     ]:
         """Python reference implementation for validating get_unique_indices operations.
 
@@ -683,8 +683,8 @@ class CacheTest(unittest.TestCase):
             A tuple containing:
             - unique_indices (Tensor): Tensor of size `linear_indices` that stores unique values in sorted order (i.e., unique values padded to input size)
             - unique_indices_length (Tensor): Tensor of size 1 containing number of unique values
-            - unique_indices_count (Optional[Tensor]): If compute_count=True, tensor of size `linear_indices` that contains an occurrence count for each unique value, else None.
-            - linear_index_positions_sorted (Optional[Tensor]): If compute_inverse_indices=True, tensor of size `linear_indices` that contains original positions such that linear_indices[linear_index_positions_sorted] produces sorted indices. Otherwise, None.
+            - unique_indices_count (Tensor | None): If compute_count=True, tensor of size `linear_indices` that contains an occurrence count for each unique value, else None.
+            - linear_index_positions_sorted (Tensor | None): If compute_inverse_indices=True, tensor of size `linear_indices` that contains original positions such that linear_indices[linear_index_positions_sorted] produces sorted indices. Otherwise, None.
         """
         N = linear_indices.numel()
 
@@ -830,10 +830,10 @@ class CacheTest(unittest.TestCase):
             unique2: torch.Tensor,
             compute_count: bool,
             compute_inverse_indices: bool,
-            count1: Optional[torch.Tensor] = None,
-            count2: Optional[torch.Tensor] = None,
-            positions1: Optional[torch.Tensor] = None,
-            positions2: Optional[torch.Tensor] = None,
+            count1: torch.Tensor | None = None,
+            count2: torch.Tensor | None = None,
+            positions1: torch.Tensor | None = None,
+            positions2: torch.Tensor | None = None,
         ):
             self.assertEqual(
                 length1,

@@ -8,7 +8,6 @@
 # pyre-strict
 
 import unittest
-from typing import Optional
 
 import hypothesis.strategies as st
 import torch
@@ -45,7 +44,7 @@ class QuantizedCommCodecTest(unittest.TestCase):
     )
     def test_quantized_comm_codec(
         self,
-        comm_precisions_loss_scale: tuple[SparseType, Optional[float]],
+        comm_precisions_loss_scale: tuple[SparseType, float | None],
         row_size: int,
         col_size: int,
         rand_seed: int,

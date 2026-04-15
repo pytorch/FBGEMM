@@ -10,7 +10,6 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -48,7 +47,7 @@ class PackedSegmentsTest(unittest.TestCase):
         self,
         lengths: torch.Tensor,
         tensor: torch.Tensor,
-        max_length: Optional[int] = None,
+        max_length: int | None = None,
     ) -> npt.NDArray:
         """
         This function is a reference implementation of pack_segments.
@@ -56,7 +55,7 @@ class PackedSegmentsTest(unittest.TestCase):
         Args:
             lengths (Tensor): The lengths of tensor.
             tensor (Tensor): The tensor to be packed.
-            max_length (Optional[int]): The maximum length of the packed tensor.
+            max_length (int | None): The maximum length of the packed tensor.
 
         Returns:
             The packed tensor.
@@ -399,7 +398,6 @@ class PackedSegmentsTest(unittest.TestCase):
             return_presence_mask=True,
         )
 
-        # pyre-fixme[6]: In call `tuple.__new__`, for 1st positional argument, expected `Iterable[int]` but got `Iterable[Union[bool, float, int]]`.
         assert presence_mask.size() == torch.Size([lengths.numel(), max_length])
 
     @unittest.skipIf(*gpu_unavailable)

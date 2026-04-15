@@ -12,7 +12,7 @@
 
 import tempfile
 import unittest
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -51,7 +51,7 @@ else:
     from fbgemm_gpu.test.test_utils import running_in_oss
 
 # Set up test strategy
-test_st: Dict[str, Any] = {
+test_st: dict[str, Any] = {
     "num_embeddings": st.integers(min_value=2, max_value=5),
     "num_ranks": st.integers(min_value=2, max_value=8),
     "T": st.integers(min_value=1, max_value=5),
@@ -67,22 +67,22 @@ test_st: Dict[str, Any] = {
 
 class EmbeddingBag:
     T: int
-    rows: List[int]
-    dims: List[int]
+    rows: list[int]
+    dims: list[int]
     is_ssd: bool
-    op: Union[SplitTableBatchedEmbeddingBagsCodegen, SSDTableBatchedEmbeddingBags]
+    op: SplitTableBatchedEmbeddingBagsCodegen | SSDTableBatchedEmbeddingBags
 
     def __init__(
         self,
-        embedding_specs: Union[
-            List[Tuple[int, int, EmbeddingLocation, ComputeDevice]],
-            List[Tuple[int, int]],
-        ],
+        embedding_specs: (
+            list[tuple[int, int, EmbeddingLocation, ComputeDevice]] |
+            list[tuple[int, int]]
+        ),
         optimizer: OptimType,
         output_dtype: SparseType,
         pooling_mode: PoolingMode,
         weights_precision: SparseType,
-        feature_table_map: Optional[List[int]],
+        feature_table_map: list[int] | None,
         is_ssd: bool = False,
     ):
         self.T = (
@@ -91,7 +91,7 @@ class EmbeddingBag:
             else len(feature_table_map)
         )
         self.is_ssd = is_ssd
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if is_ssd:
             emb_op = SSDTableBatchedEmbeddingBags
             kwargs["cache_sets"] = 1
@@ -133,9 +133,9 @@ class EmbeddingBag:
 
 
 def _merge_variable_batch_embeddings(
-    embeddings: List[torch.Tensor],
-    features: List[int],
-    splits: List[List[int]],
+    embeddings: list[torch.Tensor],
+    features: list[int],
+    splits: list[list[int]],
     num_ranks: int,
 ) -> torch.Tensor:
     assert (
@@ -162,7 +162,7 @@ def create_embedding(
     weights_precision: SparseType,
     output_dtype: SparseType,
     pooling_mode: PoolingMode,
-    feature_table_map: Optional[List[int]] = None,
+    feature_table_map: list[int] | None = None,
     use_cpu: bool = False,
     use_cache: bool = False,
     mixed_uvm: bool = False,
@@ -225,17 +225,17 @@ class MergeVBETest(unittest.TestCase):
 
     def get_vbe_splits_and_offsets(
         self,
-        embedding_list: List[EmbeddingBag],
-        Bs_feature_rank_list: List[List[List[int]]],
+        embedding_list: list[EmbeddingBag],
+        Bs_feature_rank_list: list[list[list[int]]],
         num_ranks: int,
-    ) -> Tuple[int, List[List[int]], List[List[List[int]]]]:
+    ) -> tuple[int, list[list[int]], list[list[list[int]]]]:
         """
         Calculate split size list, total VBE output size and offsets.
 
         Args:
-            embedding_list (List[EmbeddingBag]):
+            embedding_list (list[EmbeddingBag]):
                 List of TBEs/SSD TBEs
-            Bs_feature_rank_list (List[List[List[int]]]):
+            Bs_feature_rank_list (list[list[list[int]]]):
                 List of batch_size_per_feature_per_rank where Bs_feature_rank_list[i]
                 is batch_size_per_feature_per_rank of the ith embedding table
             num_ranks (int):
@@ -243,10 +243,10 @@ class MergeVBETest(unittest.TestCase):
         Return:
             total_output_size (int):
                 total VBE output size for all embeddings
-            splits_list (List[List[int]]):
+            splits_list (list[list[int]]):
                 list of split size where splits_list[i] contains output size for each
                 batch in embedding table i
-            vbe_output_offset_list List[List[int]]):
+            vbe_output_offset_list list[list[int]]):
                 list of vbe_output_offset where vbe_output_offset_list[i] contains
                 offsets for embedding table i. vbe_output_offset has a shape of
                 [num_ranks, num_features].
@@ -304,9 +304,9 @@ class MergeVBETest(unittest.TestCase):
         output_dtype: SparseType,
         pooling_mode: PoolingMode,
         use_cpu: bool = False,
-        features_list: Optional[list[int]] = None,
-        dims_list: Optional[list[int]] = None,
-        Bs_feature_rank_list: Optional[List[List[List[int]]]] = None,
+        features_list: list[int] | None = None,
+        dims_list: list[int] | None = None,
+        Bs_feature_rank_list: list[list[list[int]]] | None = None,
     ):
         """
         Execute merge VBE

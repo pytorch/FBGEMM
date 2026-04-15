@@ -11,7 +11,8 @@
 
 import random
 import unittest
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -40,7 +41,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 # pyre-ignore
-additional_decorators: dict[str, list[Callable]] = {
+additional_decorators: dict[str, list[Callable[..., Any]]] = {
     "test_faketensor__test_nbit_forward_cpu_seq_int4": {
         unittest.skip(
             "Operator outputs int4 tensors which do not support opcheck tests"
@@ -311,12 +312,12 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             # arbitrary. We compare sum along ways in each set, instead of expecting exact tensor match.
             cache_weights_ref = torch.reshape(
                 # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
+                #  `Tensor | Module`.
                 cc_ref.lxu_cache_weights,
                 [-1, associativity],
             )
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Union[Tensor, Module]`.
+            #  `Tensor | Module`.
             cache_weights = torch.reshape(cc.lxu_cache_weights, [-1, associativity])
             torch.testing.assert_close(
                 torch.sum(cache_weights_ref, 1),
@@ -325,20 +326,20 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             )
             torch.testing.assert_close(
                 # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
+                #  `Tensor | Module`.
                 torch.sum(cc.lxu_cache_state, 1),
                 # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
+                #  `Tensor | Module`.
                 torch.sum(cc_ref.lxu_cache_state, 1),
                 equal_nan=True,
             )
             # lxu_state can be different as time_stamp values can be different.
             # we check the entries with max value.
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Union[Tensor, Module]`.
+            #  `Tensor | Module`.
             max_timestamp_ref = torch.max(cc_ref.lxu_state)
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Union[Tensor, Module]`.
+            #  `Tensor | Module`.
             max_timestamp_uvm_caching = torch.max(cc.lxu_state)
             x = cc_ref.lxu_state == max_timestamp_ref
             y = cc.lxu_state == max_timestamp_uvm_caching

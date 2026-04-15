@@ -46,6 +46,8 @@ TOLERANCE_ABS = {
 }
 
 
+
+
 class TableBatchedEmbeddingsTest(unittest.TestCase):
     class RefEmb(torch.nn.Module):
         def __init__(self, num_tasks: int, hash_sizes: list[int]) -> None:
@@ -87,7 +89,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         batch_size: int,
         num_embeddings: int,
         # pyre-fixme[24]: Generic type `list` expects 1 type parameter, use
-        #  `typing.List[<element type>]` to avoid runtime subscripting errors.
+        #  `typing.list[<element type>]` to avoid runtime subscripting errors.
     ) -> tuple[list, list, list]:
         lengths = []
         offsets = []
