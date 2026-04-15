@@ -13,7 +13,8 @@
 
 import itertools
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any
+from collections.abc import Callable
 
 
 try:
@@ -34,8 +35,8 @@ class OptimizerArgsSetItem:
     # pyre-fixme[11]: Annotation `ArgType` is not defined as a type.
     ty: ArgType  # type
     name: str
-    default: Union[float, ArgType] = 0  # DEFAULT_ARG_VAL
-    ph_tys: Optional[List[ArgType]] = None  # placeholder types
+    default: float | ArgType = 0  # DEFAULT_ARG_VAL
+    ph_tys: list[ArgType] | None = None  # placeholder types
     is_optional: bool = False  # optional variable
 
 
@@ -48,7 +49,7 @@ OptimItem = OptimizerArgsSetItem
 ######################################################################
 # a dict of tensor name and annotation to mark whether the tensor is mutable.
 # this is use to annotate the tensor in the defintion schema.
-annotation_dict: Dict[str, str] = {
+annotation_dict: dict[str, str] = {
     "weights": "(a!)",
     "weights_host": "(a!)",
     "weights_dev": "(b!)",
@@ -302,7 +303,7 @@ def schema_optional_tensorlist_arg(name: str) -> str:
 def make_kernel_arg(
     ty: ArgType,
     name: str,
-    default: Union[int, float, None],
+    default: int | float | None,
     pass_by_ref: bool = False,
 ) -> str:
     return {
@@ -348,7 +349,7 @@ def make_kernel_arg_constructor(ty: ArgType, name: str) -> str:
     }[ty](name)
 
 
-def make_cpu_kernel_arg(ty: ArgType, name: str, default: Union[int, float]) -> str:
+def make_cpu_kernel_arg(ty: ArgType, name: str, default: int | float) -> str:
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg(x, gpu=False),
         ArgType.INT_TENSOR: lambda x: int_tensor_arg(x, gpu=False),
@@ -379,7 +380,7 @@ def make_cpu_kernel_arg_constructor(ty: ArgType, name: str) -> str:
 def make_function_arg(
     ty: ArgType,
     name: str,
-    default: Optional[Union[int, float]],
+    default: int | float | None,
     is_optional: bool = False,
 ) -> str:
     return {
@@ -442,7 +443,7 @@ def make_function_arg(
     }[ty](name)
 
 
-def make_function_schema_arg(ty: ArgType, name: str, default: Union[int, float]) -> str:
+def make_function_schema_arg(ty: ArgType, name: str, default: int | float) -> str:
     return {
         ArgType.TENSOR: tensor_arg_annotate,
         ArgType.INT_TENSOR: tensor_arg,
@@ -450,7 +451,7 @@ def make_function_schema_arg(ty: ArgType, name: str, default: Union[int, float])
         ArgType.PLACEHOLDER_TENSOR: tensor_arg,
         ArgType.INT: lambda x: int_arg(x, default=int(default)),
         ArgType.FLOAT: lambda x: float_arg(x, default=default),
-        # pyre-fixme[6]: For 2nd argument expected `int` but got `Union[float, int]`.
+        # pyre-fixme[6]: For 2nd argument expected `int` but got `float | int`.
         ArgType.SYM_INT: lambda x: schema_sym_int_arg(x, default=default),
         ArgType.BOOL: lambda x: schema_bool_arg(x, default=bool(default)),
     }[ty](name)
@@ -540,13 +541,13 @@ def make_ivalue_cast(ty: ArgType) -> str:
     }[ty]
 
 
-def reorder_args(split_arg_spec: List[OptimItem]) -> List[OptimItem]:
+def reorder_args(split_arg_spec: list[OptimItem]) -> list[OptimItem]:
     """
     Reorder such that tensor arguments come first. This is used in backend, wrapper and kernels where tensors are no longer optional.
     We need to pass tensor arguments before other types which have default arguments.
 
     Parameters:
-        split_arg_spec (List[OptimItem]): List of argument items
+        split_arg_spec (list[OptimItem]): List of argument items
 
     Return:
         reordered of split_arg_spec
@@ -569,20 +570,20 @@ def reorder_args(split_arg_spec: List[OptimItem]) -> List[OptimItem]:
 
 @dataclass
 class PT2ArgsSet:
-    split_function_args: List[str]
-    split_function_arg_names: List[str]
-    split_function_schemas: List[str]
-    split_saved_tensorlist: List[str]
-    split_saved_tensorlist_optional: List[str]
-    split_saved_data: List[dict[str, str]]
-    split_variables: List[str]
-    split_unpacked_arg_names: List[str]
-    split_args_dict: Dict[str, List[str]]
+    split_function_args: list[str]
+    split_function_arg_names: list[str]
+    split_function_schemas: list[str]
+    split_saved_tensorlist: list[str]
+    split_saved_tensorlist_optional: list[str]
+    split_saved_data: list[dict[str, str]]
+    split_variables: list[str]
+    split_unpacked_arg_names: list[str]
+    split_args_dict: dict[str, list[str]]
 
     @staticmethod
     # pyre-ignore[3]
     def create(
-        arg_spec: List[OptimItem],
+        arg_spec: list[OptimItem],
     ):
         """
         PT2ArgsSet.create() is a method that creates different formats given the optimization arguments
@@ -593,25 +594,25 @@ class PT2ArgsSet:
         e.g., instead of passing `momentum_host, `momentum_dev`, etc, we pass `momentum`
 
         Parameters:
-        arg_spec: List[OptimItem] - list of argument specs
+        arg_spec: list[OptimItem] - list of argument specs
 
         Returns:
             PT2ArgsSet object with the following attributes:
-            split_function_args: List[str] - List of function arguments used in unified lookup and autograd functions
+            split_function_args: list[str] - List of function arguments used in unified lookup and autograd functions
                                             Tensors will be packed and pass as TensorList. Auxillary arguments will be packed in dict.
                                             e.g., ['at::TensorList momentum1', 'at::Dict<std:string, int> optim_int'].
-            split_function_arg_names: List[str] - List of argument names used in unified lookup and autograd functions
+            split_function_arg_names: list[str] - List of argument names used in unified lookup and autograd functions
                                             e.g., ['momentum1', 'optim_int', 'optim_float'].
-            split_function_schemas: List[str] - List of arguments used in unified lookup and autograd functions in the schema format
+            split_function_schemas: list[str] - List of arguments used in unified lookup and autograd functions in the schema format
                                             e.g., ['Tensor[] momentum1', 'float eps', 'float weight_decay'].
-            split_saved_tensorlist: List[str] - List of tensor names that are packed into tensorlist and will be unpacked in
+            split_saved_tensorlist: list[str] - List of tensor names that are packed into tensorlist and will be unpacked in
                                             PT2 autograd function. e.g., ['momentum1'].
-            split_saved_tensorlist_optional: List[str] - List of tensor names that are packed into tensorlist but are optional
+            split_saved_tensorlist_optional: list[str] - List of tensor names that are packed into tensorlist but are optional
                                             and will be unpacked in PT2 autograd function e.g., ['row_counter'].
-            split_saved_data: List[dict[str, str]] - List of non-tensor arguments that are saved for backward
-            split_unpacked_arg_names: List[str] - List of argument names, unrolled from list
+            split_saved_data: list[dict[str, str]] - List of non-tensor arguments that are saved for backward
+            split_unpacked_arg_names: list[str] - List of argument names, unrolled from list
                                             e.g., ['momentum1', 'eps', 'weight_decay', 'iter'].
-            split_args_dict: Dict[str, List[str]] - Dict of optim arguments' types containing the argument names of that type.
+            split_args_dict: dict[str, list[str]] - Dict of optim arguments' types containing the argument names of that type.
                                             e.g., if an optimizer only has an int argument called iter, the dict will look like:
                                             {'optim_tensor': [], 'optim_int': ['iter'], 'optim_float': [], 'optim_bool': []}
         """
@@ -635,7 +636,7 @@ class PT2ArgsSet:
         }
         # list of symint args to be appended after optim_xxx args
         # since they have default values
-        symint_list: List[OptimItem] = []
+        symint_list: list[OptimItem] = []
 
         for s in arg_spec:
             if s.name == "learning_rate_tensor":
@@ -780,39 +781,39 @@ class PT2ArgsSet:
 
 @dataclass
 class OptimizerArgs:
-    split_kernel_args: List[str]
-    split_kernel_args_no_defaults: List[str]
-    split_kernel_arg_constructors: List[str]
-    split_cpu_kernel_args: List[str]
-    split_cpu_kernel_arg_constructors: List[str]
-    split_function_args: List[str]
-    split_function_args_no_defaults: List[str]
-    split_saved_tensors: List[str]
-    split_tensors: List[str]
-    split_tensor_types: Dict[str, str]
-    saved_data: List[Tuple[str, str]]
-    split_function_arg_names: List[str]
-    split_function_schemas: List[str]
-    split_variables: List[str]
-    split_ref_kernel_args: List[str]
-    placeholder_tensor_names: List[str]
+    split_kernel_args: list[str]
+    split_kernel_args_no_defaults: list[str]
+    split_kernel_arg_constructors: list[str]
+    split_cpu_kernel_args: list[str]
+    split_cpu_kernel_arg_constructors: list[str]
+    split_function_args: list[str]
+    split_function_args_no_defaults: list[str]
+    split_saved_tensors: list[str]
+    split_tensors: list[str]
+    split_tensor_types: dict[str, str]
+    saved_data: list[tuple[str, str]]
+    split_function_arg_names: list[str]
+    split_function_schemas: list[str]
+    split_variables: list[str]
+    split_ref_kernel_args: list[str]
+    placeholder_tensor_names: list[str]
     # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
-    placeholder_type_combos: Union[List[Dict[str, TensorType]], List[None]]
+    placeholder_type_combos: list[dict[str, TensorType]] | list[None]
     unified_pt2: PT2ArgsSet
-    split_kernel_arg_names: List[str]
-    split_function_args_autograd: List[str]
-    split_function_arg_names_autograd: List[str]
-    split_saved_tensors_optional: List[str]
-    split_function_args_v1: Optional[str] = None
-    split_function_schemas_v1: Optional[str] = None
+    split_kernel_arg_names: list[str]
+    split_function_args_autograd: list[str]
+    split_function_arg_names_autograd: list[str]
+    split_saved_tensors_optional: list[str]
+    split_function_args_v1: str | None = None
+    split_function_schemas_v1: str | None = None
 
     @staticmethod
     # pyre-ignore[3]
     def create(
-        split_arg_spec: List[OptimItem],
-        arg_spec: List[OptimItem],
+        split_arg_spec: list[OptimItem],
+        arg_spec: list[OptimItem],
         gpu: bool,
-        additional_spec: Optional[dict[str, Any]] = None,
+        additional_spec: dict[str, Any] | None = None,
     ):
         # Keep the argument order for forward/backward compatibility
         # Arg order: non-optional tensors, learning_rate_tensor, non-tensors, optional tensors
@@ -1014,10 +1015,10 @@ class OptimizerArgsSet:
 
     @staticmethod
     def create_optim_args(
-        arg_spec: List[OptimItem],
-        ext_fn: Callable[[OptimItem], List[OptimItem]],
+        arg_spec: list[OptimItem],
+        ext_fn: Callable[[OptimItem], list[OptimItem]],
         gpu: bool,
-        additional_spec: Optional[dict[str, Any]] = None,
+        additional_spec: dict[str, Any] | None = None,
     ) -> OptimizerArgs:
         split_arg_spec = []
         for s in arg_spec:
@@ -1035,7 +1036,7 @@ class OptimizerArgsSet:
         return OptimizerArgs.create(split_arg_spec, arg_spec, gpu, additional_spec)
 
     @staticmethod
-    def extend_for_cpu(spec: OptimItem) -> List[OptimItem]:
+    def extend_for_cpu(spec: OptimItem) -> list[OptimItem]:
         name = spec.name
         default = spec.default
         is_optional = spec.is_optional
@@ -1056,7 +1057,7 @@ class OptimizerArgsSet:
         ]
 
     @staticmethod
-    def extend_for_cuda(spec: OptimItem) -> List[OptimItem]:
+    def extend_for_cuda(spec: OptimItem) -> list[OptimItem]:
         name = spec.name
         default = spec.default
         ty = spec.ty
@@ -1081,7 +1082,7 @@ class OptimizerArgsSet:
         ]
 
     @staticmethod
-    def extend_for_any(spec: OptimItem) -> List[OptimItem]:
+    def extend_for_any(spec: OptimItem) -> list[OptimItem]:
         name = spec.name
         default = spec.default
         ty = spec.ty
@@ -1110,7 +1111,7 @@ class OptimizerArgsSet:
     @staticmethod
     # pyre-ignore[3]
     def create(
-        arg_spec: List[OptimItem], additional_spec: Optional[dict[str, Any]] = None
+        arg_spec: list[OptimItem], additional_spec: dict[str, Any] | None = None
     ):
         return OptimizerArgsSet(
             *(

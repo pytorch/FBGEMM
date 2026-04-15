@@ -10,7 +10,6 @@
 
 import itertools
 import sys
-from typing import List
 
 try:
     from .common import CodeTemplate
@@ -28,10 +27,10 @@ class ForwardSplitGenerator:
     def render_forward_templates(
         template_filepath: str,
         filename_format: str,
-        dense_options: List[bool],
-        nobag_options: List[bool],
-        vbe_options: List[bool],
-        ssd_options: List[bool],
+        dense_options: list[bool],
+        nobag_options: list[bool],
+        vbe_options: list[bool],
+        ssd_options: list[bool],
         is_gwd: bool = False,
     ) -> None:
         template = CodeTemplate.load(template_filepath)
