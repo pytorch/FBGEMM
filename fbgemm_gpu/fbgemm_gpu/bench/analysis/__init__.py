@@ -23,5 +23,6 @@ from fbgemm_gpu.bench.analysis.formatting import (  # noqa: F401
     print_table,
     shorten_kernel_name,
 )
+from fbgemm_gpu.bench.analysis.parsers import detect_phase  # noqa: F401
 from fbgemm_gpu.bench.analysis.trace import KinetoTrace  # noqa: F401
 from fbgemm_gpu.bench.analysis.types import KernelStats, StatsMap  # noqa: F401
