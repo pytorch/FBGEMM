@@ -117,6 +117,7 @@ cc_library(
         "-mavx512bw",
         "-mavx512dq",
         "-mavx512vl",
+        "-mavx512bf16",
     ],
     deps = [
         ":fbgemm_base",
@@ -136,6 +137,7 @@ cc_library(
         "-mavx512bw",
         "-mavx512dq",
         "-mavx512vl",
+        "-mavx512bf16",
         "-masm=intel",
     ],
     deps = [
