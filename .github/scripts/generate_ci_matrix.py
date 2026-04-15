@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 logging.basicConfig(level=logging.INFO)
 
@@ -69,7 +69,7 @@ class GitRepo:
             return False
 
     @classmethod
-    def files_changed(cls) -> List[str]:
+    def files_changed(cls) -> list[str]:
         """
         Lists the files that have changed on HEAD
         """
@@ -192,7 +192,7 @@ class BuildConfigScheme:
         return parser
 
     @classmethod
-    def from_args(cls) -> List["BuildConfigScheme"]:
+    def from_args(cls) -> list["BuildConfigScheme"]:
         """
         Construct a BuildConfigScheme from command-line arguments.
         Parses args if not provided.
@@ -226,8 +226,8 @@ class BuildConfigScheme:
         ]
 
     def _dict_cartesian_product(
-        self, table: Dict[str, List[Any]]
-    ) -> List[Dict[str, Any]]:
+        self, table: dict[str, list[Any]]
+    ) -> list[dict[str, Any]]:
         """
         Compute the Cartesian product of a dictionary of lists, e.g.:
 
@@ -273,7 +273,7 @@ class BuildConfigScheme:
 
         return self
 
-    def python_versions(self) -> List[str]:
+    def python_versions(self) -> list[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
             return ["3.14"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
@@ -285,7 +285,7 @@ class BuildConfigScheme:
             return ["3.14"]
         return ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
-    def compilers(self) -> List[str]:
+    def compilers(self) -> list[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
             return ["gcc"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
@@ -295,7 +295,7 @@ class BuildConfigScheme:
         else:
             return ["gcc", "clang"]
 
-    def cuda_versions(self) -> List[str]:
+    def cuda_versions(self) -> list[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
             return ["12.8.1"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
@@ -309,13 +309,13 @@ class BuildConfigScheme:
             # GenAI is unable to support 11.8.0 anymore as of https://github.com/pytorch/FBGEMM/pull/4138
             return ["12.6.3", "12.8.1", "12.9.1", "13.0.2"]
 
-    def rocm_versions(self) -> List[str]:
+    def rocm_versions(self) -> list[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
             return ["7.1"]
         else:
             return ["7.0", "7.1"]
 
-    def host_machines(self) -> List[Dict[str, str]]:
+    def host_machines(self) -> list[dict[str, str]]:
         # For the list of available instance types:
         # https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
 
@@ -356,9 +356,9 @@ class BuildConfigScheme:
         else:
             return []
 
-    def generate(self) -> List[Dict[str, Any]]:
+    def generate(self) -> list[dict[str, Any]]:
         # Build a table of dimensions to values for each dimension
-        table: Dict[str, List[Any]] = {
+        table: dict[str, list[Any]] = {
             "python-version": self.python_versions(),
             "host-machine": self.host_machines(),
             "build-target": [self.target],
