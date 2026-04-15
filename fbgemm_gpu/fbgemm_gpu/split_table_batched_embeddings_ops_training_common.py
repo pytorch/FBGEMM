@@ -9,25 +9,9 @@
 
 from typing import List, Optional
 
-import torch
-from torch import Tensor
-
-try:
-    try:
-        from torch.compiler import is_compiling
-
-        def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
-            # at least one test fails if we import is_compiling as a different name
-            return is_compiling()
-
-    except Exception:
-        # torch.compiler.is_compiling is not available in torch 1.10
-        from torch._dynamo import is_compiling as is_torchdynamo_compiling
-except Exception:
-
-    def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
-        return False
-
+import torch  # usort:skip
+from torch import Tensor  # usort:skip
+from torch.compiler import is_compiling as is_torchdynamo_compiling  # usort:skip
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers

@@ -19,19 +19,9 @@ from .common import additional_decorators, generate_jagged_tensor, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
+    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -220,7 +210,6 @@ class DenseToJaggedTest(unittest.TestCase):
         assert dense.size() == dense2.size()
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
-    @unittest.skipIf(*symint_vector_unsupported())
     @given(
         num_jagged_dim=st.integers(1, 5),
         # TODO: size = 0/1 will be incorrectly specialized

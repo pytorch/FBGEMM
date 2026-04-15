@@ -124,12 +124,7 @@ def extend_test_class(
 
     additional_decorators = {**(additional_decorators or {})}
 
-    # Only generate tests for PyTorch 2.2+
-    if (
-        torch.__version__ >= "2.2.*"
-        and hasattr(torch.library, "impl_abstract")
-        and not hasattr(fbgemm_gpu, "open_source")
-    ):
+    if not open_source:
         generate_opcheck_tests(
             klass,
             ["fb", "fbgemm"],

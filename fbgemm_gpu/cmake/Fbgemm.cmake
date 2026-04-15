@@ -8,6 +8,7 @@
 # FBGEMM (not FBGEMM_GPU) Sources
 ################################################################################
 
+# Embedding / quantization sources from FBGEMM (CPU)
 set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDM.cc"
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
@@ -16,54 +17,40 @@ set(fbgemm_sources_normal
   "${FBGEMM}/src/RowWiseSparseAdagradFused.cc"
   "${FBGEMM}/src/SparseAdagrad.cc"
   "${FBGEMM}/src/Utils.cc")
-
 if(NOT DISABLE_FBGEMM_AUTOVEC)
-  list(APPEND fbgemm_sources_normal "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc" "${FBGEMM}/src/EmbeddingStatsTracker.cc")
+  list(APPEND fbgemm_sources_normal
+    "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
+    "${FBGEMM}/src/EmbeddingStatsTracker.cc")
 endif()
 
 set(fbgemm_sources_avx2
   "${FBGEMM}/src/EmbeddingSpMDMAvx2.cc"
   "${FBGEMM}/src/QuantUtilsAvx2.cc")
-
 set(fbgemm_sources_avx512
   "${FBGEMM}/src/EmbeddingSpMDMAvx512.cc"
   "${FBGEMM}/src/QuantUtilsAvx512.cc")
 
-if(CXX_AVX2_FOUND)
-  if(MSVC)
-    set_source_files_properties(${fbgemm_sources_avx2}
-      PROPERTIES COMPILE_OPTIONS
-      "${CXX_AVX2_FLAGS}")
-  else()
-    set_source_files_properties(${fbgemm_sources_avx2}
-      PROPERTIES COMPILE_OPTIONS
-      "-mfma;${CXX_AVX2_FLAGS}")
-  endif()
-endif()
-
-if(CXX_AVX512_FOUND)
-  if(MSVC)
-    set_source_files_properties(${fbgemm_sources_avx512}
-      PROPERTIES COMPILE_OPTIONS
-      "${CXX_AVX512_FLAGS}")
-  else()
-    set_source_files_properties(${fbgemm_sources_avx512}
-      PROPERTIES COMPILE_OPTIONS
-      "-mfma;${CXX_AVX512_FLAGS}")
-  endif()
-endif()
-
+# Assemble combined source list based on available ISA support
 set(fbgemm_sources ${fbgemm_sources_normal})
 if(CXX_AVX2_FOUND)
-  set(fbgemm_sources
-    ${fbgemm_sources}
-    ${fbgemm_sources_avx2})
+  list(APPEND fbgemm_sources ${fbgemm_sources_avx2})
+  if(MSVC)
+    set_source_files_properties(${fbgemm_sources_avx2}
+      PROPERTIES COMPILE_OPTIONS "${CXX_AVX2_FLAGS}")
+  else()
+    set_source_files_properties(${fbgemm_sources_avx2}
+      PROPERTIES COMPILE_OPTIONS "-mfma;${CXX_AVX2_FLAGS}")
+  endif()
 endif()
 if(CXX_AVX512_FOUND)
-  set(fbgemm_sources
-    ${fbgemm_sources}
-    ${fbgemm_sources_avx2}
-    ${fbgemm_sources_avx512})
+  list(APPEND fbgemm_sources ${fbgemm_sources_avx512})
+  if(MSVC)
+    set_source_files_properties(${fbgemm_sources_avx512}
+      PROPERTIES COMPILE_OPTIONS "${CXX_AVX512_FLAGS}")
+  else()
+    set_source_files_properties(${fbgemm_sources_avx512}
+      PROPERTIES COMPILE_OPTIONS "-mfma;${CXX_AVX512_FLAGS}")
+  endif()
 endif()
 
 set_source_files_properties(${fbgemm_sources} PROPERTIES

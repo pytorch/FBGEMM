@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+include(${CMAKE_CURRENT_LIST_DIR}/CppLibrary.cmake)
+
 function(prepare_target_sources)
     # This function does the following:
     #
@@ -35,21 +37,14 @@ function(prepare_target_sources)
     ############################################################################
 
     # Add the CPU CXX sources
-    LIST_FILTER(
-        INPUT ${args_CPU_SRCS}
-        OUTPUT cpu_sources_cpp
-        REGEX "^.+\.cpp$"
-    )
-    set(${args_PREFIX}_sources_cpp ${cpu_sources_cpp})
+    set(${args_PREFIX}_sources_cpp ${args_CPU_SRCS})
+    list(FILTER ${args_PREFIX}_sources_cpp INCLUDE REGEX "^.+\.cpp$")
 
     # For GPU mode, add the CXX sources from GPU_SRCS
     if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
-        LIST_FILTER(
-            INPUT ${args_GPU_SRCS}
-            OUTPUT gpu_sources_cpp
-            REGEX "^.+\.cpp$"
-        )
-        list(APPEND ${args_PREFIX}_sources_cpp ${gpu_sources_cpp})
+        set(_gpu_sources_cpp ${args_GPU_SRCS})
+        list(FILTER _gpu_sources_cpp INCLUDE REGEX "^.+\.cpp$")
+        list(APPEND ${args_PREFIX}_sources_cpp ${_gpu_sources_cpp})
     endif()
 
     # Set source properties
@@ -60,7 +55,7 @@ function(prepare_target_sources)
     if(CXX_AVX2_FOUND)
         set_source_files_properties(${${args_PREFIX}_sources_cpp}
             PROPERTIES COMPILE_OPTIONS
-            "${AVX2_FLAGS}")
+            "${CXX_AVX2_FLAGS}")
     else()
         set_source_files_properties(${${args_PREFIX}_sources_cpp}
             PROPERTIES COMPILE_OPTIONS
@@ -76,11 +71,8 @@ function(prepare_target_sources)
 
     if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
         # Filter GPU_SRCS for CU sources - these may be HIPified later if building in ROCm mode
-        LIST_FILTER(
-            INPUT ${args_GPU_SRCS}
-            OUTPUT ${args_PREFIX}_sources_cu
-            REGEX "^.+\.cu$"
-        )
+        set(${args_PREFIX}_sources_cu ${args_GPU_SRCS})
+        list(FILTER ${args_PREFIX}_sources_cu INCLUDE REGEX "^.+\.cu$")
 
         # Append CUDA-specific sources, but ONLY when building in CUDA mode
         if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
@@ -126,11 +118,8 @@ function(prepare_target_sources)
 
     if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
         # Filter GPU_SRCS for HIP sources
-        LIST_FILTER(
-            INPUT ${args_GPU_SRCS}
-            OUTPUT ${args_PREFIX}_sources_hip
-            REGEX "^.+\.hip$"
-        )
+        set(${args_PREFIX}_sources_hip ${args_GPU_SRCS})
+        list(FILTER ${args_PREFIX}_sources_hip INCLUDE REGEX "^.+\.hip$")
 
         # Append HIP-specific sources, but ONLY when building in HIP mode
         list(APPEND ${args_PREFIX}_sources_hip ${args_HIP_SPECIFIC_SRCS})
@@ -281,59 +270,20 @@ function(gpu_cpp_library)
                 PUBLIC FBGEMM_STATIC)
         endif()
 
-        set(lib_cc_flags
-            ${args_MSVC_FLAGS}
-            /wd4244
-            /wd4267
-            /wd4305
-            /wd4309)
+        fbgemm_get_warning_flags(
+            MSVC_FLAGS_VAR _msvc_flags
+            CC_FLAGS_VAR   _cc_flags
+            EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
+            EXTRA_CC_FLAGS   ${args_CC_FLAGS})
+        set(lib_cc_flags ${_msvc_flags})
 
     else()
-        set(lib_cc_flags
-            ${args_CC_FLAGS}
-            -Wall
-            -Wextra
-            -Werror
-            -Wunknown-pragmas
-            -Wimplicit-fallthrough
-            -Wno-deprecated-enum-enum-conversion
-            -Wno-deprecated-declarations
-            -Wno-strict-aliasing
-            -Wunused-variable
-            -Wno-sign-compare
-            -Wno-vla
-            -Wno-error=unused-parameter
-            -Wno-error=unknown-pragmas
-            -Wno-error=attributes)
-
-        if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
-            list(APPEND lib_cc_flags
-                -Wno-unused-command-line-argument
-                -Wno-c99-extensions
-                -Wno-gnu-zero-variadic-macro-arguments
-                -Wno-deprecated-enum-enum-conversion)
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
-                list(APPEND lib_cc_flags
-                    -Wno-error=unused-but-set-parameter
-                    -Wno-error=unused-but-set-variable)
-            endif()
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-                list(APPEND lib_cc_flags
-                    -Wno-vla-cxx-extension
-                    -Wno-error=global-constructors
-                    -Wno-error=shadow)
-            endif()
-
-        elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
-            list(APPEND lib_cc_flags
-                -Wmaybe-uninitialized
-                -Wno-error=unused-but-set-parameter
-                -Wno-error=unused-but-set-variable
-                -Wno-error=array-bounds
-                -Wno-deprecated-enum-enum-conversion)
-        endif()
+        fbgemm_get_warning_flags(
+            MSVC_FLAGS_VAR _msvc_flags
+            CC_FLAGS_VAR   _cc_flags
+            EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
+            EXTRA_CC_FLAGS   ${args_CC_FLAGS})
+        set(lib_cc_flags ${_cc_flags})
     endif()
 
 

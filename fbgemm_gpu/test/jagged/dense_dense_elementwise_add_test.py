@@ -21,25 +21,17 @@ from .common import (
     generate_jagged_tensor,
     open_source,
     to_padded_dense,
-    torch_compiled,
 )
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        gradcheck,
-        optests,
-        symint_vector_unsupported,
-    )
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, gradcheck, optests
 else:
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
         gpu_unavailable,
         gradcheck,
         optests,
-        symint_vector_unsupported,
     )
 
 
@@ -218,7 +210,6 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         assert output.size() == output_ref.size()
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
-    @unittest.skipIf(*symint_vector_unsupported())
     @given(
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(2, 4),
@@ -275,7 +266,7 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         )
         output_ref = x_padded + y_0 + y_1
         x_values.to(device_type)
-        output, output_offsets = torch_compiled(
+        output, output_offsets = torch.compile(
             torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output,
             fullgraph=True,
             dynamic=True,

@@ -4,6 +4,68 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+include_guard(GLOBAL)
+
+# Shared compiler warning flags for both CPU and GPU builds
+function(fbgemm_get_warning_flags)
+  cmake_parse_arguments(ARG "" "MSVC_FLAGS_VAR;CC_FLAGS_VAR"
+    "EXTRA_MSVC_FLAGS;EXTRA_CC_FLAGS" ${ARGN})
+
+  # MSVC flags
+  set(_msvc
+    ${ARG_EXTRA_MSVC_FLAGS}
+    /wd4244
+    /wd4267
+    /wd4305
+    /wd4309)
+
+  # Common GCC/Clang flags
+  set(_cc
+    ${ARG_EXTRA_CC_FLAGS}
+    -Wall
+    -Wextra
+    -Werror
+    -Wno-deprecated-declarations
+    -Wno-deprecated-enum-enum-conversion
+    -Wno-strict-aliasing
+    -Wno-sign-compare
+    -Wno-vla
+    -Wno-error=unused-parameter
+    -Wno-error=unknown-pragmas
+    -Wno-error=attributes)
+
+  # Clang-specific
+  if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
+    list(APPEND _cc
+      -Wno-unused-command-line-argument
+      -Wno-c99-extensions
+      -Wno-gnu-zero-variadic-macro-arguments)
+
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
+      list(APPEND _cc
+        -Wno-error=unused-but-set-parameter
+        -Wno-error=unused-but-set-variable)
+    endif()
+
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+      list(APPEND _cc
+        -Wno-vla-cxx-extension
+        -Wno-error=global-constructors
+        -Wno-error=shadow)
+    endif()
+
+  # GNU-specific
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+    list(APPEND _cc
+      -Wno-error=unused-but-set-parameter
+      -Wno-error=unused-but-set-variable
+      -Wno-error=array-bounds)
+  endif()
+
+  set(${ARG_MSVC_FLAGS_VAR} ${_msvc} PARENT_SCOPE)
+  set(${ARG_CC_FLAGS_VAR}   ${_cc}   PARENT_SCOPE)
+endfunction()
+
 function(cpp_library)
     # NOTE: This function is meant for building targets in FBGEMM, not
     # FBGEMM_GPU or FBGEMM GenAI, which have much more complicated setups.
@@ -83,55 +145,20 @@ function(cpp_library)
                 PUBLIC FBGEMM_STATIC)
         endif()
 
-        set(lib_cc_flags
-            ${args_MSVC_FLAGS}
-            /wd4244
-            /wd4267
-            /wd4305
-            /wd4309)
+        fbgemm_get_warning_flags(
+            MSVC_FLAGS_VAR _msvc_flags
+            CC_FLAGS_VAR   _cc_flags
+            EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
+            EXTRA_CC_FLAGS   ${args_CC_FLAGS})
+        set(lib_cc_flags ${_msvc_flags})
 
     else()
-        set(lib_cc_flags
-            ${args_CC_FLAGS}
-            -Wno-deprecated-declarations
-            -Wall
-            -Wextra
-            -Werror
-            -Wunknown-pragmas
-            -Wimplicit-fallthrough
-            -Wno-strict-aliasing
-            -Wunused-variable
-            -Wno-sign-compare
-            -Wno-vla
-            -Wno-error=unused-parameter
-            -Wno-error=attributes)
-
-        if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
-            list(APPEND lib_cc_flags
-                -Wno-c99-extensions
-                -Wno-gnu-zero-variadic-macro-arguments
-                -Wno-deprecated-enum-enum-conversion)
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
-                list(APPEND lib_cc_flags
-                    -Wno-error=unused-but-set-parameter
-                    -Wno-error=unused-but-set-variable)
-            endif()
-
-            if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-                list(APPEND lib_cc_flags
-                    -Wno-vla-cxx-extension
-                    -Wno-error=global-constructors
-                    -Wno-error=shadow)
-            endif()
-
-        elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
-            list(APPEND lib_cc_flags
-                -Wmaybe-uninitialized
-                -Wno-error=unused-but-set-parameter
-                -Wno-error=unused-but-set-variable
-                -Wno-deprecated-enum-enum-conversion)
-        endif()
+        fbgemm_get_warning_flags(
+            MSVC_FLAGS_VAR _msvc_flags
+            CC_FLAGS_VAR   _cc_flags
+            EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
+            EXTRA_CC_FLAGS   ${args_CC_FLAGS})
+        set(lib_cc_flags ${_cc_flags})
     endif()
 
     target_compile_options(${lib_name} PRIVATE

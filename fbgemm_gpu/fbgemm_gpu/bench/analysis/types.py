@@ -62,6 +62,23 @@ class KernelStats:
     # Instance helpers
     # ------------------------------------------------------------------
 
+    def summary_tuple(self) -> tuple[int, float, float, float, float, float]:
+        """Return ``(count, mean_us, median_us, stdev_us, min_us, max_us)``.
+
+        Returns all-NaN tuple when there are no durations.
+        """
+        if not self.durations_us:
+            _nan = float("nan")
+            return 0, _nan, _nan, _nan, _nan, _nan
+        return (
+            self.count,
+            self.mean_us,
+            self.median_us,
+            self.stdev_us,
+            self.min_us,
+            self.max_us,
+        )
+
     def get(self, attr: str, default: float = nan) -> float:
         """Safe attribute access returning *default* when count == 0."""
         if self.count > 0:
@@ -82,6 +99,48 @@ class KernelStats:
         print(f"  Max:    {self.max_us:,.2f} us ({self.max_us / 1000:,.4f} ms)")
         print(f"  Stdev:  {self.stdev_us:,.2f} us ({self.stdev_us / 1000:,.4f} ms)")
         print()
+
+    # ------------------------------------------------------------------
+    # Factory classmethods
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_trace_file(
+        cls,
+        trace_file: str,
+        kernel_pattern: str,
+        *,
+        match_mode: str = "contains",
+        device_type: str | None = None,
+        name: str | None = None,
+    ) -> KernelStats:
+        """Load a trace file, extract matching durations, and return aggregated stats.
+
+        This replaces the common 5-line pattern::
+
+            trace = KinetoTrace.from_file(path)
+            bucketed = trace.extract_durations(pattern)
+            durations = [d for durs in bucketed.values() for d in durs]
+            stats = KernelStats(name=pattern, durations_us=durations)
+
+        Args:
+            trace_file: Path to a ``.json`` or ``.json.gz`` Chrome trace.
+            kernel_pattern: Pattern passed to
+                :meth:`KinetoTrace.extract_durations`.
+            match_mode: ``"contains"`` | ``"exact"`` | ``"startswith"`` |
+                ``"regex"``.
+            device_type: ``"cuda"``, ``"cpu"``, or ``None``.
+            name: Name for the returned :class:`KernelStats`.  Defaults to
+                *kernel_pattern*.
+        """
+        from fbgemm_gpu.bench.analysis.trace import KinetoTrace
+
+        trace = KinetoTrace.from_file(trace_file)
+        bucketed = trace.extract_durations(
+            kernel_pattern, match_mode=match_mode, device_type=device_type
+        )
+        durations = [d for durs in bucketed.values() for d in durs]
+        return cls(name=name or kernel_pattern, durations_us=durations)
 
     # ------------------------------------------------------------------
     # Collection-level classmethods
