@@ -23,10 +23,12 @@
 #include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
 #include "fbgemm/UtilsAvx2.h"
+#include "./Bf16ConvertAvx2.h" // @manual
 
 namespace fbgemm {
 
 using namespace std;
+
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
@@ -1949,7 +1951,8 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
   } // for each row
 }
 
-template <typename OutputType, int BIT_RATE>
+template <typename OutputType, int BIT_RATE, bool is_bf16>
+  requires(!is_bf16 || !std::is_same_v<OutputType, float>)
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     const std::uint8_t* input,
     size_t input_rows,
@@ -2083,6 +2086,14 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
           _mm256_storeu_ps(output_row_float + col + VLEN, vinq1);
           _mm256_storeu_ps(output_row_float + col + 2 * VLEN, vinq2);
           _mm256_storeu_ps(output_row_float + col + 3 * VLEN, vinq3);
+        } else if constexpr (is_bf16) {
+          __m256i packed01 = internal::cvt_fp32x16_bf16x16(vinq0, vinq1);
+          __m256i packed23 = internal::cvt_fp32x16_bf16x16(vinq2, vinq3);
+          _mm256_storeu_si256(
+              reinterpret_cast<__m256i*>(output_row + col), packed01);
+          _mm256_storeu_si256(
+              reinterpret_cast<__m256i*>(output_row + col + 2 * VLEN),
+              packed23);
         } else {
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col),
@@ -2147,6 +2158,25 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
               output_row_float + col + 2 * VLEN, vmask_store2, vinq2);
           _mm256_maskstore_ps(
               output_row_float + col + 3 * VLEN, vmask_store3, vinq3);
+        } else if constexpr (is_bf16) {
+          __m256i packed01 = internal::cvt_fp32x16_bf16x16(vinq0, vinq1);
+          __m256i packed23 = internal::cvt_fp32x16_bf16x16(vinq2, vinq3);
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col),
+              _mm256_castsi256_si128(vmask_store0),
+              _mm256_castsi256_si128(packed01));
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col + VLEN),
+              _mm256_castsi256_si128(vmask_store1),
+              _mm256_extracti128_si256(packed01, 1));
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col + 2 * VLEN),
+              _mm256_castsi256_si128(vmask_store2),
+              _mm256_castsi256_si128(packed23));
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col + 3 * VLEN),
+              _mm256_castsi256_si128(vmask_store3),
+              _mm256_extracti128_si256(packed23, 1));
         } else {
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col),
@@ -2179,6 +2209,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
             static_cast<float>(double(scale) * quantized + double(bias));
         if constexpr (std::is_same_v<OutputType, float>) {
           output_row[col] = output_value;
+        } else if constexpr (is_bf16) {
+          output_row[col] = cpu_float2bfloat16(output_value);
         } else {
           output_row[col] = cpu_float2half_rn(output_value);
         }
@@ -2190,7 +2222,9 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
 template <
     typename OutputType,
     bool scale_bias_last,
-    bool quant_padding_float_type>
+    bool quant_padding_float_type,
+    bool is_bf16>
+  requires(!is_bf16 || !std::is_same_v<OutputType, float>)
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
     size_t input_rows,
@@ -2230,6 +2264,10 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
       if constexpr (std::is_same_v<OutputType, float>) {
         float* output_row_float = reinterpret_cast<float*>(output_row);
         _mm256_storeu_ps(output_row_float + col, dequantzed_v);
+      } else if constexpr (is_bf16) {
+        _mm_storeu_si128(
+            reinterpret_cast<__m128i*>(output_row + col),
+            internal::cvt_fp32x8_bf16x8(dequantzed_v));
       } else {
         _mm_storeu_si128(
             reinterpret_cast<__m128i*>(output_row + col),
@@ -2243,6 +2281,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
           static_cast<float>(double(input_row[col]) * scale + double(bias));
       if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
+      } else if constexpr (is_bf16) {
+        output_row[col] = cpu_float2bfloat16(output_value);
       } else {
         output_row[col] = cpu_float2half_rn(output_value);
       }
@@ -2275,6 +2315,21 @@ INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 8)
 // clang-format on
 #undef INSTANTIATE_QuantizationAvx2FunctionsNBits
 
+#define INSTANTIATE_DequantNBitBf16Avx2(bit_rate)                          \
+  template void                                                             \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<float16, bit_rate, true>(\
+      const std::uint8_t* input,                                            \
+      size_t input_rows,                                                    \
+      int input_columns,                                                    \
+      float16* output);
+
+// clang-format off
+INSTANTIATE_DequantNBitBf16Avx2(2)
+INSTANTIATE_DequantNBitBf16Avx2(4)
+INSTANTIATE_DequantNBitBf16Avx2(8)
+// clang-format on
+#undef INSTANTIATE_DequantNBitBf16Avx2
+
 #define INSTANTIATE_QuantizationAvx2Functions8Bits(type)                 \
   template void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<type>( \
       const type* input,                                                 \
@@ -2289,26 +2344,31 @@ INSTANTIATE_QuantizationAvx2Functions8Bits(float16)
 // clang-format on
 #undef INSTANTIATE_QuantizationAvx2Functions8Bits
 
-#define INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2( \
-    type, scale_bias_last, quant_padding_float_type)                   \
+#define INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(  \
+    type, scale_bias_last, quant_padding_float_type, is_bf16_out)      \
   template void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<     \
       type,                                                            \
       scale_bias_last,                                                 \
-      quant_padding_float_type>(                                       \
+      quant_padding_float_type,                                        \
+      is_bf16_out>(                                                    \
       const std::uint8_t* input,                                       \
       size_t input_rows,                                               \
       int input_columns,                                               \
       type* output);
 
-    // clang-format off
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, true, true)
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, true, false)
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, false, true)
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, false, false)
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, true)
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, false)
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, true)
-INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, false)
+// clang-format off
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, true, true, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, true, false, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, false, true, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float, false, false, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, true, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, false, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, true, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, false, false)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, true, true)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, true, false, true)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, true, true)
+INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(float16, false, false, true)
 // clang-format on
 #undef INSTANTIATE_Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2
 
