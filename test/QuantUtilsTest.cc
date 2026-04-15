@@ -18,6 +18,7 @@
 #include "TestUtils.h"
 #include "fbgemm/FloatConversion.h"
 #include "fbgemm/QuantUtils.h"
+#include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
 
@@ -751,6 +752,15 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16>(
       bit_rate, outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
   EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
+
+  // bf16 dequant: ref uses double so it matches FMA precision exactly
+  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float16, true>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16, true>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Test.data());
+  EXPECT_EQ(dequantBf16Ref, dequantBf16Test);
+  EXPECT_NE(dequantBf16Ref, dequantOutHalfRef);
 }
 
 // Scale and bias are of type float
@@ -824,6 +834,26 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16>(
       outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
   EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
+
+  // bf16 dequant: ref uses double so it matches FMA precision exactly
+  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<float16, true>(
+      outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16, true>(
+      outVecRef.data(), rows, out_cols, dequantBf16Test.data());
+  EXPECT_EQ(dequantBf16Ref, dequantBf16Test);
+  EXPECT_NE(dequantBf16Ref, dequantOutHalfRef);
+
+  // AVX512-BF16 kernel must match ref
+  if (fbgemmHasAvx512Bf16Support()) {
+    vector<float16> dequantAvx512(rows * cols);
+    Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
+        outVecRef.data(),
+        rows,
+        out_cols,
+        reinterpret_cast<bfloat16*>(dequantAvx512.data()));
+    EXPECT_EQ(dequantBf16Ref, dequantAvx512);
+  }
 }
 
 TEST_P(
