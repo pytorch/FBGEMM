@@ -9,7 +9,6 @@
 
 # pyre-ignore-all-errors[6]
 
-from typing import Optional, Union
 
 import torch
 import triton  # @manual
@@ -535,12 +534,12 @@ def jagged_to_dense(
     jagged_offsets: list[torch.Tensor],
     jagged_max_lengths: list[int],
     padding_value: float = 0.0,  # padding value currently use 0.0 as default value
-    operation_function: Union[
-        str, None
-    ] = None,  # fusioned operation currently could be add or multiplication
-    operation_dense: Union[
-        torch.Tensor, None
-    ] = None,  # dense to make the add/mul with the output dense
+    operation_function: (
+        str | None
+    ) = None,  # fusioned operation currently could be add or multiplication
+    operation_dense: (
+        torch.Tensor | None
+    ) = None,  # dense to make the add/mul with the output dense
 ) -> torch.Tensor:
     outer_dense_size = len(jagged_offsets[0]) - 1
     inner_dense_size = jagged_values.size(-1)
@@ -721,8 +720,8 @@ def triton_dense_to_jagged(
 def dense_to_jagged(
     dense: torch.Tensor,
     jagged_offsets: list[torch.Tensor],
-    operation_function: Union[str, None] = None,
-    operation_jagged_values: Union[torch.Tensor, None] = None,
+    operation_function: str | None = None,
+    operation_jagged_values: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, list[torch.Tensor]]:
 
     thread_block_row_size = 32
@@ -800,7 +799,7 @@ def jagged_dense_elementwise_add_dense_output(
 
 # jagged_tensor + dense -> jagged_tensor
 def jagged_dense_elementwise_add_jagged_output(
-    jagged_values: Optional[Tensor], jagged_offsets: list[Tensor], dense: Tensor
+    jagged_values: Tensor | None, jagged_offsets: list[Tensor], dense: Tensor
 ) -> tuple[Tensor, list[Tensor]]:
 
     return dense_to_jagged(
@@ -813,7 +812,7 @@ def jagged_dense_elementwise_add_jagged_output(
 
 # jagged_tensor * dense -> jagged_tensor
 def jagged_dense_elementwise_mul_jagged_output(
-    jagged_values: Optional[Tensor], jagged_offsets: list[Tensor], dense: Tensor
+    jagged_values: Tensor | None, jagged_offsets: list[Tensor], dense: Tensor
 ) -> tuple[Tensor, list[Tensor]]:
 
     return dense_to_jagged(

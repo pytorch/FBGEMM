@@ -8,13 +8,12 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
-from typing import Optional
 
 import torch
 
 
 def load_torch_module(
-    unified_path: str, cuda_path: Optional[str] = None, hip_path: Optional[str] = None
+    unified_path: str, cuda_path: str | None = None, hip_path: str | None = None
 ) -> None:
     try:
         torch.ops.load_library(unified_path)

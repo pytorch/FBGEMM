@@ -7,7 +7,6 @@
 
 # pyre-unsafe
 import math
-from typing import Union
 
 import torch
 import triton  # @manual
@@ -367,7 +366,7 @@ def triton_quantize_mx4(
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
 ) -> torch.Tensor:
     """
@@ -378,7 +377,7 @@ def triton_quantize_mx4(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target mx4 format.
         mbits (int): Number of bits to use for mantissa in target mx4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 

@@ -9,7 +9,6 @@
 
 import logging
 from itertools import accumulate
-from typing import Optional
 
 import torch
 from torch import nn
@@ -36,9 +35,9 @@ class PermutePooledEmbeddingsSplit(nn.Module):
         self,
         embs_dims: list[int],
         permute: list[int],
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
     ) -> None:
-        super(PermutePooledEmbeddingsSplit, self).__init__()
+        super().__init__()
         logging.info("Using Permute Pooled Embeddings")
 
         self.register_buffer(
@@ -60,7 +59,7 @@ class PermutePooledEmbeddingsSplit(nn.Module):
         )
 
         #  `Union[BoundMethod[typing.Callable(torch.Tensor.tolist)[[Named(self,
-        #  torch.Tensor)], List[typing.Any]], torch.Tensor], nn.Module, torch.Tensor]`
+        #  torch.Tensor)], list[typing.Any]], torch.Tensor], nn.Module, torch.Tensor]`
         #  is not a function.
 
         inv_embs_dims = [embs_dims[i] for i in permute]

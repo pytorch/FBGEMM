@@ -50,7 +50,7 @@ class KinetoTrace:
             with gzip.open(filepath, "rt") as f:
                 data = json.load(f)
         else:
-            with open(filepath, "r") as f:
+            with open(filepath) as f:
                 data = json.load(f)
 
         if isinstance(data, dict):

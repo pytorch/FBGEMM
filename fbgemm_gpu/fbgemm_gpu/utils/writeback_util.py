@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional
 
 import torch
 
@@ -195,7 +194,7 @@ def writeback_update_gradient(
     offsets: torch.Tensor,
     grad: tuple[torch.Tensor],
     feature_table_map: list[int],
-    original_index: Optional[torch.Tensor] = None,
+    original_index: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Update gradient tensor by deduplicating indices across all features/tables.
@@ -208,7 +207,7 @@ def writeback_update_gradient(
         offsets (torch.Tensor): Offsets tensor for batched embeddings
         grad (tuple[torch.Tensor]): Gradient tensor to be updated
         feature_table_map (list[int]): Mapping from feature to table
-        original_index (Optional[torch.Tensor]): Precomputed indices. If None, computed here.
+        original_index (torch.Tensor | None): Precomputed indices. If None, computed here.
 
     Returns:
         torch.Tensor: Updated gradient tensor with duplicates masked out
@@ -224,7 +223,7 @@ def writeback_update_gradient_first_feature_only(
     offsets: torch.Tensor,
     grad: tuple[torch.Tensor],
     feature_table_map: list[int],
-    first_indices: Optional[torch.Tensor] = None,
+    first_indices: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Special case of writeback_update_gradient where gradient only needs to be updated for the first feature. Other features will be forward-only
@@ -236,7 +235,7 @@ def writeback_update_gradient_first_feature_only(
         offsets (torch.Tensor): Offsets tensor for batched embeddings
         grad (tuple[torch.Tensor]): Gradient tensor to be updated
         feature_table_map (list[int]): Mapping from feature to table
-        first_indices (Optional[torch.Tensor]): Precomputed indices. If None, computed here.
+        first_indices (torch.Tensor | None): Precomputed indices. If None, computed here.
 
     Returns:
         torch.Tensor: Updated gradient tensor with duplicates masked out
@@ -254,7 +253,7 @@ def writeback_update_gradient_nobag(
     offsets: torch.Tensor,
     grad: tuple[torch.Tensor],
     feature_table_map: list[int],
-    first_indices: Optional[torch.Tensor] = None,
+    first_indices: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Hook for using TBE no bag to update gradient tensor by deduplicating indices
@@ -266,7 +265,7 @@ def writeback_update_gradient_nobag(
         offsets (torch.Tensor): Offsets tensor for batched embeddings
         grad (tuple[torch.Tensor]): Gradient tensor to be updated
         feature_table_map (list[int]): Mapping from feature to table
-        first_indices (Optional[torch.Tensor]): Precomputed indices. If None, computed here.
+        first_indices (torch.Tensor | None): Precomputed indices. If None, computed here.
 
     Returns:
         torch.Tensor: Updated gradient tensor with duplicates masked out
@@ -289,7 +288,7 @@ def writeback_gradient(
     feature_table_map: list[int],
     writeback_first_feature_only: bool = False,
     nobag: bool = False,
-    precomputed_indices: Optional[torch.Tensor] = None,
+    precomputed_indices: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor]:
     """
     Compute deduplicated gradient for writeback operation.
@@ -301,7 +300,7 @@ def writeback_gradient(
         feature_table_map (list[int]): Mapping from feature to table
         writeback_first_feature_only (bool): If True, only first feature will apply gradient update, other features will be read-only
         nobag (bool): If True, we use TBE with sequence embeddings, otherwise we use TBE with pooled embeddings.
-        precomputed_indices (Optional[torch.Tensor]): Precomputed dedup indices from forward pass. If None, computed here.
+        precomputed_indices (torch.Tensor | None): Precomputed dedup indices from forward pass. If None, computed here.
 
     Returns:
         tuple[torch.Tensor]: Tuple containing the updated gradient tensor

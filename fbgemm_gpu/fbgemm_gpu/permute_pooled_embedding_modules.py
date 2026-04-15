@@ -8,7 +8,6 @@
 # pyre-strict
 
 from itertools import accumulate
-from typing import Optional
 
 import torch
 
@@ -81,14 +80,14 @@ class PermutePooledEmbeddings:
                  38., 39.]], device='cuda:0')
 
     Args:
-        embs_dims (List[int]): A list of embedding dimensions for all features.
+        embs_dims (list[int]): A list of embedding dimensions for all features.
             Length = the number of features
 
-        permute (List[int]): A list that describes how each feature is
+        permute (list[int]): A list that describes how each feature is
             permuted. `permute[i]` is to permute feature `permute[i]` to
             position `i`.
 
-        device (Optional[torch.device] = None): The device to run this module
+        device (torch.device | None = None): The device to run this module
             on
     """
 
@@ -96,7 +95,7 @@ class PermutePooledEmbeddings:
         self,
         embs_dims: list[int],
         permute: list[int],
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
     ) -> None:
         self._offset_dim_list: torch.Tensor = torch.tensor(
             [0] + list(accumulate(embs_dims)), device=device, dtype=torch.int64
