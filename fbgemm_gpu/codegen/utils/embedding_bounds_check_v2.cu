@@ -85,46 +85,78 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     auto indices_start = offsets[b_t];
     auto indices_end = offsets[b_t + 1];
 
-    if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      CUDA_KERNEL_ASSERT(
-          indices_start >= 0 && "indices_start must be non-negative");
-      CUDA_KERNEL_ASSERT(
-          indices_start <= indices_end &&
-          "indices_start must not exceed indices_end");
-      CUDA_KERNEL_ASSERT(
-          indices_end <= num_indices &&
-          "indices_end must not exceed num_indices");
-    } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-      if (indices_start < 0 || indices_start > indices_end ||
-          indices_end > num_indices) {
-        if (threadIdx.x == 0 && gpuAtomicIncrement(&warning[0]) == 0) {
-          printf(
-              "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
-              "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
-              " num_indices: %lld. Setting indices_start and indices_end within "
-              "the range.\n",
-              vbe ? "true" : "false",
-              b,
-              t,
-              static_cast<int64_t>(indices_start),
-              static_cast<int64_t>(indices_end),
-              static_cast<int64_t>(num_indices));
+    // Only lane 0 checks and corrects offsets. All 32 lanes in the warp share
+    // the same (b, t) pair, so having every lane write the same correction to
+    // offsets[b_t] / offsets[b_t+1] is redundant and constitutes a data race
+    // in the CUDA memory model (even though the values are identical).
+    if (threadIdx.x == 0) {
+      if (bounds_check_mode == BoundsCheckMode::FATAL) {
+        CUDA_KERNEL_ASSERT(
+            indices_start >= 0 && "indices_start must be non-negative");
+        CUDA_KERNEL_ASSERT(
+            indices_start <= indices_end &&
+            "indices_start must not exceed indices_end");
+        CUDA_KERNEL_ASSERT(
+            indices_end <= num_indices &&
+            "indices_end must not exceed num_indices");
+      } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+        if (indices_start < 0 || indices_start > indices_end ||
+            indices_end > num_indices) {
+          if (gpuAtomicIncrement(&warning[0]) == 0) {
+            printf(
+                "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
+                "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
+                " num_indices: %lld. Setting indices_start and indices_end within "
+                "the range.\n",
+                vbe ? "true" : "false",
+                b,
+                t,
+                static_cast<int64_t>(indices_start),
+                static_cast<int64_t>(indices_end),
+                static_cast<int64_t>(num_indices));
+          }
+          adjust_offset_kernel(
+              indices_start,
+              indices_end,
+              num_indices,
+              &offsets[b_t],
+              &offsets[b_t + 1]);
         }
-        adjust_offset_kernel(
-            indices_start,
-            indices_end,
-            num_indices,
-            &offsets[b_t],
-            &offsets[b_t + 1]);
+      } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+        if (indices_start < 0 || indices_start > indices_end ||
+            indices_end > num_indices) {
+          adjust_offset_kernel(
+              indices_start,
+              indices_end,
+              num_indices,
+              &offsets[b_t],
+              &offsets[b_t + 1]);
+        }
       }
-    } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-      adjust_offset_kernel(
-          indices_start,
-          indices_end,
-          num_indices,
-          &offsets[b_t],
-          &offsets[b_t + 1]);
     }
+    // Broadcast corrected indices_start/indices_end from lane 0 to all lanes.
+    indices_start = shfl_sync(indices_start, 0);
+    indices_end = shfl_sync(indices_end, 0);
+
+    // Assert post-broadcast invariants on every lane so that no thread enters
+    // the index loop with out-of-range offsets (guards against missed
+    // corrections and silent OOB memory accesses).
+    CUDA_KERNEL_ASSERT(
+        indices_start >= 0 &&
+        "indices_start must be non-negative after correction");
+    CUDA_KERNEL_ASSERT(
+        indices_start <= indices_end &&
+        "indices_start must not exceed indices_end after correction");
+    CUDA_KERNEL_ASSERT(
+        indices_end <= num_indices &&
+        "indices_end must not exceed num_indices after correction");
+    // Best-effort backward monotonicity check: indices_start should not be
+    // less than the previous segment's start.  This read of offsets[b_t - 1]
+    // may race with the previous warp's correction, but catches the common
+    // case of non-monotonic offsets that per-pair checks miss.
+    CUDA_KERNEL_ASSERT(
+        (b_t == 0 || indices_start >= offsets[b_t - 1]) &&
+        "offsets are not monotonically non-decreasing after correction");
 
     const auto L = indices_end - indices_start;
     for (index_t i = static_cast<index_t>(threadIdx.x); i < L;
