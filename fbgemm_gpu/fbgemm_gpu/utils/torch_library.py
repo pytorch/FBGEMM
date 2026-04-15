@@ -8,7 +8,8 @@
 # pyre-strict
 
 import re
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import torch
 
@@ -73,8 +74,9 @@ class TorchLibraryFragment:
                 f"PyTorch operator schema appears to be ill-defined: '''{schema}'''"
             )
 
-    # pyre-ignore[24]
-    def register_dispatch(self, op_name: str, dispatch_key: str, fn: Callable) -> None:
+    def register_dispatch(
+        self, op_name: str, dispatch_key: str, fn: Callable[..., Any]
+    ) -> None:
         """
         Registers a single dispatch for an operator with the given name and dispatch key.
 
@@ -111,8 +113,7 @@ class TorchLibraryFragment:
             else:
                 self.lib.impl(op_name, fn, dispatch_key)
 
-    # pyre-ignore[24]
-    def register(self, op_name: str, functors: dict[str, Callable]) -> None:
+    def register(self, op_name: str, functors: dict[str, Callable[..., Any]]) -> None:
         """
         Registers a set of dispatches for a defined operator.
 

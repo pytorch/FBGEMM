@@ -8,7 +8,6 @@
 # pyre-strict
 
 import logging
-from typing import Optional, Union
 
 import torch  # isort:skip
 
@@ -59,7 +58,7 @@ def fp32_to_mx4(
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Optional[Union[RoundingMode, int]] = RoundingMode.even,
+    rounding_mode: RoundingMode | int | None = RoundingMode.even,
     stochastic_casting: bool = False,
     use_triton: bool = True,
 ) -> torch.Tensor:
@@ -153,7 +152,7 @@ def mx4_to_float(
     use_triton: bool = True,
     ebits: int = 2,
     mbits: int = 1,
-    output_dtype: Optional[SparseType] = None,
+    output_dtype: SparseType | None = None,
 ) -> torch.Tensor:
     """Dequantize an MX4 tensor to FP32 or BF16 with triton or native cuda impl.
 
@@ -163,7 +162,7 @@ def mx4_to_float(
         use_triton (bool): If set, use triton quantization, otherwise cuda.
         ebits (int): Number of exponent bits in target mx4 format.
         mbits (int): Number of mantissa bits in target mx4 format.
-        output_dtype (Optional[SparseType]): Output dtype (FP32 or BF16).
+        output_dtype (SparseType | None): Output dtype (FP32 or BF16).
             Defaults to None (FP32) for backward compatibility.
 
     Return:
@@ -297,4 +296,4 @@ def measure_fp16_quant_error(input_tensor: torch.Tensor) -> None:
         subrange_ratio = torch.numel(fp16_tensor[rel_diff_1_idx]) / torch.numel(
             fp16_tensor
         )
-        logger.info("sub fp16 range ratio: {}".format(subrange_ratio))
+        logger.info(f"sub fp16 range ratio: {subrange_ratio}")

@@ -6,7 +6,6 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-unsafe
-from typing import Union
 
 import torch
 
@@ -61,7 +60,7 @@ def py_quantize_mx4(
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
 ) -> torch.Tensor:
     """
