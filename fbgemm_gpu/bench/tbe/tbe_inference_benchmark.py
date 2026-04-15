@@ -16,7 +16,8 @@ import random
 import statistics
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
+from collections.abc import Callable
 
 import click
 import numpy as np
@@ -144,11 +145,11 @@ def nbit_cpu(  # noqa C901
     row_wise: bool,
     weighted: bool,
     index_remapping: bool,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
     output_dtype: SparseType,
-    fp8_exponent_bits: Optional[int],
-    fp8_exponent_bias: Optional[int],
+    fp8_exponent_bits: int | None,
+    fp8_exponent_bias: int | None,
     pooling: str,
     copies: int,
     sweep: bool,
@@ -215,7 +216,7 @@ def nbit_cpu(  # noqa C901
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
         # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `Union[np.floating[typing.Any], int]`.
+        #  `np.floating[typing.Any] | int`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -326,7 +327,7 @@ def nbit_device(  # noqa C901
     weighted: bool,
     pooling: str,
     bounds_check_mode: int,
-    pruning_ratio: Optional[float],
+    pruning_ratio: float | None,
     pruning_hash_load_factor: float,
     use_array_for_index_remapping: bool,
     check_median: bool,
@@ -335,14 +336,14 @@ def nbit_device(  # noqa C901
     output_dtype: SparseType,
     report_aibench: bool,
     run_reference: bool,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
-    fp8_exponent_bits: Optional[int],
-    fp8_exponent_bias: Optional[int],
+    requests_data_file: str | None,
+    tables: str | None,
+    fp8_exponent_bits: int | None,
+    fp8_exponent_bias: int | None,
     export_trace: bool,
     trace_url: str,
     warmup_runs: int,
-    warmup_ms: Optional[int],
+    warmup_ms: int | None,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -430,7 +431,7 @@ def nbit_device(  # noqa C901
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
         # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `Union[np.floating[typing.Any], int]`.
+        #  `np.floating[typing.Any] | int`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -607,7 +608,7 @@ def nbit_device(  # noqa C901
                 L,
                 E,
                 # pyre-fixme[6]: For 6th argument expected `int` but got
-                #  `Union[floating[typing.Any], int]`.
+                #  `floating[typing.Any] | int`.
                 D,
                 pooling,
                 weighted,
@@ -700,7 +701,7 @@ def nbit_device_with_spec(  # noqa C901
     weighted: bool,
     pooling: str,
     bounds_check_mode: int,
-    pruning_ratio: Optional[float],
+    pruning_ratio: float | None,
     pruning_hash_load_factor: float,
     use_array_for_index_remapping: bool,
     check_median: bool,
@@ -708,13 +709,13 @@ def nbit_device_with_spec(  # noqa C901
     runs_of_iters: int,
     output_dtype: SparseType,
     report_aibench: bool,
-    fp8_exponent_bits: Optional[int],
-    fp8_exponent_bias: Optional[int],
+    fp8_exponent_bits: int | None,
+    fp8_exponent_bias: int | None,
     use_cpu: bool,
     export_trace: bool,
     trace_url: str,
     warmup_runs: int,
-    warmup_ms: Optional[int],
+    warmup_ms: int | None,
     cpu_copies: int,
 ) -> None:
     np.random.seed(42)
@@ -1063,8 +1064,8 @@ def nbit_uvm(
     cache_algorithm: str,
     cache_load_factor: float,
     enforce_hbm: bool,
-    fp8_exponent_bits: Optional[int],
-    fp8_exponent_bias: Optional[int],
+    fp8_exponent_bits: int | None,
+    fp8_exponent_bias: int | None,
     uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
@@ -1238,7 +1239,7 @@ def nbit_uvm(
         for rs_uvm, rs_gpu in zip(requests_uvm, requests_gpu):
             indices = torch.cat([rs_uvm.indices, rs_gpu.indices])
             lengths = [L_uvm] * (T_uvm * B) + [L] * (T_gpu * B)
-            offsets = torch.tensor(([0] + np.cumsum(lengths).tolist())).int().cuda()
+            offsets = torch.tensor([0] + np.cumsum(lengths).tolist()).int().cuda()
             per_sample_weights = None
             if weighted:
                 this_rs_uvm_weights = rs_uvm.per_sample_weights
@@ -1303,7 +1304,7 @@ def nbit_uvm(
                 offsets,
             ),
             # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
-            #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+            #  Tensor | None) -> None` but got `(indices: Any, offsets: Any,
             #  indices_weights: Any) -> Tensor`.
             lambda indices, offsets, indices_weights: emb_mixed.forward(
                 indices,
@@ -1372,8 +1373,8 @@ def nbit_uvm_compare_direct_mapped(
     cache_algorithm: str,
     cache_load_factor: float,
     enforce_hbm: bool,
-    fp8_exponent_bits: Optional[int],
-    fp8_exponent_bias: Optional[int],
+    fp8_exponent_bits: int | None,
+    fp8_exponent_bias: int | None,
     record_cache: bool,
     uvm_host_mapped: bool,
     dump_requests: int,
@@ -1602,8 +1603,8 @@ def nbit_cache(  # noqa C901
     record_cache_miss_counter: bool,
     record_tablewise_cache_miss: bool,
     gather_uvm_cache_stats: bool,
-    fp8_exponent_bits: Optional[int],
-    fp8_exponent_bias: Optional[int],
+    fp8_exponent_bits: int | None,
+    fp8_exponent_bias: int | None,
     uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
@@ -1687,7 +1688,7 @@ def nbit_cache(  # noqa C901
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
         # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `Union[np.floating[typing.Any], int]`.
+        #  `np.floating[typing.Any] | int`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -1734,7 +1735,7 @@ def nbit_cache(  # noqa C901
     for req in requests:
         indices, offsets = req.unpack_2()
         # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
-        #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
+        #  memory_format | None = ...) -> Tensor, Tensor, Module]` is not a
         #  function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices, offsets)
@@ -1802,7 +1803,7 @@ def nbit_cache(  # noqa C901
             offsets,
         ),
         # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
-        #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+        #  Tensor | None) -> None` but got `(indices: Any, offsets: Any,
         #  indices_weights: Any) -> Tensor`.
         lambda indices, offsets, indices_weights: emb.forward(
             indices,

@@ -14,7 +14,7 @@ import os
 import random
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Callable
+from collections.abc import Callable
 
 import click
 import fbgemm_gpu
@@ -104,7 +104,7 @@ class JaggedTensor:
             else torch.float32
         )
 
-        # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
+        # pyre-fixme[6]: For 1st param expected `int` but got `bool | float | int`.
         values_2d = torch.rand(total_lengths, embedding_dim, dtype=dtype)
 
         if device == "cuda" and torch.cuda.is_available():
@@ -317,8 +317,8 @@ def bench_jagged_dense_dense_elementwise_add_jagged_output(jten: JaggedTensor) -
 def bench_jagged_1d_to_dense(jten: JaggedTensor) -> None:
     logging.info("######## Jagged (1D) to Dense ########")
 
-    # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
-    #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+    # pyre-fixme[6]: For 1st param expected `Union[list[int], Size,
+    #  typing.tuple[int, ...]]` but got `bool | float | int`.
     # Place values on the same device as offsets to respect the --device flag
     jten.values = torch.rand(jten.total_lengths, device=jten.offsets.device)
 
@@ -352,8 +352,8 @@ def bench_dense_to_jagged_1d(jten: JaggedTensor) -> None:
     # NOTE: This always uses float32 regardless of --elem-type, because
     # torch.rand() defaults to float32.  The tritonbench port
     # (dense_to_jagged_1d) fixes this by properly supporting --elem-type.
-    # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
-    #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+    # pyre-fixme[6]: For 1st param expected `Union[list[int], Size,
+    #  typing.tuple[int, ...]]` but got `bool | float | int`.
     jten.values = torch.rand(jten.total_lengths, device=jten.offsets.device)
     dense_values = jten.to_dense()
 
@@ -512,8 +512,8 @@ def device(
         dense_2d = jtensor.to_dense()
         dense_2d_squared = dense_2d * dense_2d
         jtensor_1d_values = torch.rand(
-            # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
-            #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+            # pyre-fixme[6]: For 1st param expected `Union[list[int], Size,
+            #  typing.tuple[int, ...]]` but got `bool | float | int`.
             jtensor.total_lengths,
             device=jtensor.offsets.device,
         )
@@ -606,7 +606,7 @@ def batched_dense_vec_jagged_2d_mul(
         if elem_type == "half" or elem_type == "float16"
         else torch.float32
     )
-    # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
+    # pyre-fixme[6]: For 1st param expected `int` but got `bool | float | int`.
     values_2d = torch.rand(total_lengths, h_dim * embedding_dim, dtype=dtype)
     dense = torch.rand(batch_size * h_dim, max_len, dtype=dtype)
     if device == "cuda":
@@ -712,7 +712,7 @@ def jagged_1d_to_truncated_values(
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
     total_lengths = lengths.sum().item()
     torch_dtype = torch.float16 if dtype in ["half", "float16"] else torch.float32
-    # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
+    # pyre-fixme[6]: For 1st param expected `int` but got `bool | float | int`.
     values = torch.rand(total_lengths, dtype=torch_dtype)
 
     def ref(values: torch.Tensor, lengths: torch.Tensor, max_len: int) -> torch.Tensor:

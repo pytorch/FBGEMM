@@ -13,7 +13,7 @@ import math
 import os
 import random
 from contextlib import nullcontext
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import click
 import fbgemm_gpu
@@ -509,9 +509,9 @@ def group_index_select_2d_bench(
     device: str,
     export_trace: bool,
     trace_url: str,
-    input_dims: Optional[str],
-    input_strides: Optional[str],
-    index_dim: Optional[int],
+    input_dims: str | None,
+    input_strides: str | None,
+    index_dim: int | None,
     manual_seed: bool,
 ) -> None:
     # Input validation (backported from tritonbench implementation)
@@ -612,8 +612,8 @@ def group_index_select_2d_bench(
         **bench_kwargs,
     )
 
-    # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
-    #  typing.Tuple[Tensor, ...]]` but got `Tensor`.
+    # pyre-fixme[6]: For 1st argument expected `Union[list[Tensor],
+    #  typing.tuple[Tensor, ...]]` but got `Tensor`.
     cat_output = torch.cat(output_group)
     with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
         time, _ = benchmark_torch_function(

@@ -12,7 +12,8 @@ import os
 import tempfile
 import time
 from contextlib import nullcontext
-from typing import Any, Callable, Optional, Union
+from typing import Any
+from collections.abc import Callable
 
 import click
 import numpy as np
@@ -269,12 +270,12 @@ def ssd_training(  # noqa C901
     row_wise: bool,
     weighted: bool,
     pooling: str,
-    weighted_num_requires_grad: Optional[int],
+    weighted_num_requires_grad: int | None,
     flush_gpu_cache_size_mb: int,
     output_dtype: SparseType,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
-    ssd_prefix: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
+    ssd_prefix: str | None,
     block_cache_size_mb: int,
     export_trace: bool,
     trace_url: str,
@@ -423,9 +424,9 @@ def ssd_training(  # noqa C901
     bw_width = 8
 
     def gen_forward_func(
-        emb: Union[SplitTableBatchedEmbeddingBagsCodegen, SSDTableBatchedEmbeddingBags],
-        feature_requires_grad: Optional[torch.Tensor],
-    ) -> Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor]:
+        emb: SplitTableBatchedEmbeddingBagsCodegen | SSDTableBatchedEmbeddingBags,
+        feature_requires_grad: torch.Tensor | None,
+    ) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor]:
         return lambda indices, offsets, per_sample_weights: emb.forward(
             indices.long(),
             offsets.long(),
