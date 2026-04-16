@@ -81,11 +81,11 @@ Tensor repeat_arange_cuda(const Tensor& lengths) {
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "repeat_arange_get_size", ([&] {
         index_t last_offset;
-        cudaMemcpy(
+        C10_CUDA_CHECK(cudaMemcpy(
             &last_offset,
             offsets.data_ptr<index_t>() + batch_size,
             sizeof(index_t),
-            cudaMemcpyDeviceToHost);
+            cudaMemcpyDeviceToHost));
         output_size = static_cast<int64_t>(last_offset);
       }));
 
