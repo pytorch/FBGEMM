@@ -56,8 +56,8 @@ int32_t compute_num_groups_and_dynamic_smem_bytes(
   // V100: 96 KB; A100: 160 KB; H100: 228 KB.
   int max_shared_bytes = 0;
 #ifndef USE_ROCM
-  cudaDeviceGetAttribute(
-      &max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
+  C10_CUDA_CHECK(cudaDeviceGetAttribute(
+      &max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
 #else
   // MI100 has 64 KB local memory (shared memory) per workgroup
   max_shared_bytes = 64 << 10;
@@ -169,7 +169,7 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
       (total_elems / 2) + total_num_groups, input.options().dtype(at::kByte));
 
   int max_grid_size = 0;
-  cudaDeviceGetAttribute(&max_grid_size, cudaDevAttrMaxGridDimX, device_id);
+  C10_CUDA_CHECK(cudaDeviceGetAttribute(&max_grid_size, cudaDevAttrMaxGridDimX, device_id));
 
   TORCH_CHECK(
       gridDim_x > 0 && gridDim_x <= max_grid_size,
@@ -260,8 +260,8 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
   const dim3 blockDim(mx_group_size, num_groups_per_block);
 
   int max_grid_size = 0;
-  cudaDeviceGetAttribute(
-      &max_grid_size, cudaDevAttrMaxGridDimX, input.get_device());
+  C10_CUDA_CHECK(cudaDeviceGetAttribute(
+      &max_grid_size, cudaDevAttrMaxGridDimX, input.get_device()));
 
   TORCH_CHECK(
       gridDim_x > 0 && gridDim_x <= max_grid_size,

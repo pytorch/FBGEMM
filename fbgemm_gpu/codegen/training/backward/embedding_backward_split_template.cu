@@ -738,7 +738,7 @@ Tensor {{ embedding_cuda_op }}(
     // V100: 96 KB; A100: 160 KB; H100: 228 KB.
     int max_shared_bytes = 0;
 #ifndef USE_ROCM
-    cudaDeviceGetAttribute(&max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev_weights.get_device());
+    C10_CUDA_CHECK(cudaDeviceGetAttribute(&max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev_weights.get_device()));
 #else
     // MI100 has 64 KB local memory (shared memory) per workgroup
     max_shared_bytes = 64 << 10;
