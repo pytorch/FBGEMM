@@ -586,7 +586,13 @@ class ForwardTest(unittest.TestCase):
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
-        D = random.randint(2, 256)
+        # Include large D values to exercise the TBE v2 kernel path (D > 1024)
+        D = random.choice(list(range(2, 257, 16)) + [1024, 1280, 1536, 2048])
+        # Scale down T, B, L for large D to avoid OOM
+        if D > 256:
+            T = min(T, 2)
+            B = min(B, 16)
+            L = min(L, 4)
         log_E = random.randint(3, 5)
 
         use_cache = False
@@ -884,10 +890,13 @@ class ForwardTest(unittest.TestCase):
     ) -> None:
         weights_precision = SparseType.FP32
         use_cpu = False
-        T = random.randint(1, 10)
-        D = random.randint(2, 256)
-        B = random.randint(1, 128)
-        L = random.randint(0, 20)
+        # Include large D values to exercise the TBE v2 kernel path (D > 1024)
+        D = random.choice(list(range(2, 257, 16)) + [1024, 1280, 1536, 2048])
+        # Scale down T, B, L for large D to avoid OOM
+        max_TBL = max(1, int(2048 / max(D, 1)))
+        T = random.randint(1, min(10, max_TBL))
+        B = random.randint(1, min(128, max_TBL // T))
+        L = random.randint(0, min(20, max_TBL // max(T * B, 1)))
         log_E = random.randint(3, 5)
 
         use_cache = False

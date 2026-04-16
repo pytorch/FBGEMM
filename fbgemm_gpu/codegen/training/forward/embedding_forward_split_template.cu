@@ -116,6 +116,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     const uint32_t T,
     const bool mean_pooling,
     const uint32_t max_D_cache,
+    const uint32_t max_D,
     const FixedDivisor fd_num_warps_per_table,
     const index_t* __restrict__ const indices,
     {%- if weighted %}
@@ -836,6 +837,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               T,
               static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
               use_lxu_cache ? lxu_cache_weights.size(1) : 0,
+              static_cast<uint32_t>(max_D),
               FixedDivisor(num_warps_per_table),
               indices.data_ptr<index_t>(),
               {%- if weighted %}
