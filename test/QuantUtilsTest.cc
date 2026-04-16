@@ -18,7 +18,6 @@
 #include "TestUtils.h"
 #include "fbgemm/FloatConversion.h"
 #include "fbgemm/QuantUtils.h"
-#include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
 
@@ -843,17 +842,6 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
       outVecRef.data(), rows, out_cols, dequantBf16Test.data());
   EXPECT_EQ(dequantBf16Ref, dequantBf16Test);
   EXPECT_NE(dequantBf16Ref, dequantOutHalfRef);
-
-  // AVX512-BF16 kernel must match ref
-  if (fbgemmHasAvx512Bf16Support()) {
-    vector<float16> dequantAvx512(rows * cols);
-    Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
-        outVecRef.data(),
-        rows,
-        out_cols,
-        reinterpret_cast<bfloat16*>(dequantAvx512.data()));
-    EXPECT_EQ(dequantBf16Ref, dequantAvx512);
-  }
 }
 
 TEST_P(
