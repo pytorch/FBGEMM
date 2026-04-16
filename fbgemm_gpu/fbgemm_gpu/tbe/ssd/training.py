@@ -1134,6 +1134,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"dram_kv.mem.tbe_id{tbe_unique_id}.num_rows"
         )
 
+        self.dram_kv_hit_rate_stats_name: str = (
+            f"dram_kv.tbe_id{tbe_unique_id}.hit_rate_pct"
+        )
+        self.dram_kv_hit_count_stats_name: str = (
+            f"dram_kv.perf.get.tbe_id{tbe_unique_id}.dram_read_hit_count"
+        )
+        self.dram_kv_miss_count_stats_name: str = (
+            f"dram_kv.perf.get.tbe_id{tbe_unique_id}.dram_read_miss_count"
+        )
+        self.l1_hit_rate_stats_name: str = (
+            f"ssd_tbe.prefetch.tbe_id{tbe_unique_id}.l1_hit_rate_pct"
+        )
+
         self.eviction_sum_evicted_counts_stats_name: str = (
             f"eviction.tbe_id.{tbe_unique_id}.sum_evicted_counts"
         )
@@ -1179,6 +1192,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.eviction_sum_processed_counts_stats_name
             )
             self.stats_reporter.register_stats(self.eviction_evict_rate_stats_name)
+            self.stats_reporter.register_stats(self.dram_kv_hit_rate_stats_name)
+            self.stats_reporter.register_stats(self.dram_kv_hit_count_stats_name)
+            self.stats_reporter.register_stats(self.dram_kv_miss_count_stats_name)
+            self.stats_reporter.register_stats(self.l1_hit_rate_stats_name)
             for t in self.feature_table_map:
                 self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.evicted_counts"
@@ -3984,6 +4001,26 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 data_bytes=int(ssd_cache_stats_delta[stat_index.value] / passed_steps),
             )
 
+        # L1 cache hit rate
+        num_unique = ssd_cache_stats_delta[UVMCacheStatsIndex.num_unique_indices]
+        num_misses = ssd_cache_stats_delta[UVMCacheStatsIndex.num_unique_misses]
+        if num_unique > 0:
+            l1_hit_rate_pct = 100.0 * (num_unique - num_misses) / num_unique
+            # Per-TBE L1 hit rate
+            self.stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.l1_hit_rate_stats_name,
+                data_bytes=l1_hit_rate_pct,
+                enable_tb_metrics=True,
+            )
+            # Aggregate L1 hit rate (kept for backward compat)
+            self.stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="ssd_tbe.prefetch.l1_hit_rate_pct",
+                data_bytes=l1_hit_rate_pct,
+                enable_tb_metrics=True,
+            )
+
     @torch.jit.ignore
     def _report_ssd_io_stats(self) -> None:
         """
@@ -4324,8 +4361,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.step, stats_reporter.report_interval  # pyre-ignore
         )
 
-        if len(dram_kv_perf_stats) != 36:
-            logging.error("dram cache perf stats should have 36 elements")
+        if len(dram_kv_perf_stats) < 36:
+            logging.error(
+                "dram cache perf stats should have at least 36 elements, got %d",
+                len(dram_kv_perf_stats),
+            )
             return
 
         dram_read_duration = dram_kv_perf_stats[0]
@@ -4616,6 +4656,41 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             data_bytes=dram_read_read_metadata_load_size,
             enable_tb_metrics=True,
         )
+
+        # DRAM KV cache hit rate metrics (indices 36-37)
+        if len(dram_kv_perf_stats) >= 38:
+            dram_read_hit_count = dram_kv_perf_stats[36]
+            dram_read_miss_count = dram_kv_perf_stats[37]
+            dram_read_total = dram_read_hit_count + dram_read_miss_count
+            # Per-TBE hit/miss counts
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.dram_kv_hit_count_stats_name,
+                data_bytes=dram_read_hit_count,
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.dram_kv_miss_count_stats_name,
+                data_bytes=dram_read_miss_count,
+                enable_tb_metrics=True,
+            )
+            if dram_read_total > 0:
+                hit_rate_pct = 100.0 * dram_read_hit_count / dram_read_total
+                # Per-TBE hit rate
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=self.dram_kv_hit_rate_stats_name,
+                    data_bytes=hit_rate_pct,
+                    enable_tb_metrics=True,
+                )
+                # Aggregate hit rate (kept for backward compat)
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name="dram_kv.hit_rate_pct",
+                    data_bytes=hit_rate_pct,
+                    enable_tb_metrics=True,
+                )
 
     def _recording_to_timer(
         self, timer: Optional[AsyncSeriesTimer], **kwargs: Any
