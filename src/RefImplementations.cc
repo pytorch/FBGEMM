@@ -110,7 +110,7 @@ void Float16ToFloat_ref(const float16* src, float* dst, size_t size) {
 
 void FloatToBfloat16_ref(const float* src, bfloat16* dst, size_t size) {
   for (size_t i = 0; i < size; i++) {
-    // Add 2^15 and right shift 16 to do round-nearest
+    // IEEE 754 round-to-nearest-even
     dst[i] = cpu_float2bfloat16(src[i]);
   }
 }
