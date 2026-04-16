@@ -8,7 +8,8 @@
 # pyre-strict
 
 import enum
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 # Create enums in given namespace with information from query_op

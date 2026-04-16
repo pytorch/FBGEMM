@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-unsafe
-from typing import Union
 
 import torch
 
@@ -20,7 +19,7 @@ def quantize_mx(
     elem_mbits: int = 3,
     elem_max_norm: float = 6.0,
     mx_group_size: int = 32,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.even,
+    rounding_mode: RoundingMode | int = RoundingMode.even,
 ) -> torch.Tensor:
     """
     Registered quantize_mx ops for E2E comm.

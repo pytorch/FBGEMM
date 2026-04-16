@@ -7,6 +7,8 @@
 # pyre-strict
 
 import functools
+import os
+from contextlib import nullcontext
 from math import sqrt
 
 import click
@@ -14,6 +16,7 @@ import fbgemm_gpu
 import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 import numpy as np
 import torch
+from torch.profiler import profile
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -97,24 +100,50 @@ class MyModule(torch.nn.Module):
     default=False,
     help="Use manual seed for reproduction.",
 )
-# pyre-fixme[2]: Parameter must be annotated.
-def cli(batch_size, num_tables, num_tasks, repeats, manual_seed) -> None:
+@click.option(
+    "--device",
+    type=str,
+    default="cuda",
+    help="Device to run on (cuda or cpu). Default is cuda.",
+)
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="batched_unary_embeddings_{phase}_trace_{ospid}.json",
+)
+def cli(
+    batch_size: int,
+    num_tables: int,
+    num_tasks: int,
+    repeats: int,
+    manual_seed: bool,
+    device: str,
+    export_trace: bool,
+    trace_url: str,
+) -> None:
     # set manual seed for reproducibility
     if manual_seed:
         torch.manual_seed(42)
         np.random.seed(42)
 
-    device = torch.device("cuda", 0)
-    torch.cuda.set_device(device)
+    dev = torch.device(device, 0) if device == "cuda" else torch.device(device)
+    if dev.type == "cuda":
+        torch.cuda.set_device(dev)
     hash_sizes = list(np.random.choice(range(50, 250), size=(num_tables)))
     lengths = []
     offsets = []
     indices = []
     for h in hash_sizes:
         l, o, i = generate_unary_feature(batch_size, h)
-        lengths.append(torch.IntTensor(l).to(device))
-        offsets.append(torch.IntTensor(o).to(device))
-        indices.append(torch.IntTensor(i).to(device))
+        lengths.append(torch.tensor(l, dtype=torch.int64, device=dev))
+        offsets.append(torch.tensor(o, dtype=torch.int64, device=dev))
+        indices.append(torch.tensor(i, dtype=torch.int64, device=dev))
     lengths_tensor = torch.cat(lengths)
     indices_tensor = torch.cat(indices)
     offsets_tensor = torch.zeros(
@@ -127,17 +156,17 @@ def cli(batch_size, num_tables, num_tasks, repeats, manual_seed) -> None:
     )
 
     # forward
-    ref_emb = MyModule(num_tasks, hash_sizes).to(device)
+    ref_emb = MyModule(num_tasks, hash_sizes).to(dev)
     unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
-        num_tasks, hash_sizes
-    ).to(device)
+        num_tasks, hash_sizes, long_index=True
+    ).to(dev)
     for i, param in enumerate(unary_emb.split_embedding_weights()):
         param.detach().copy_(ref_emb.emb_modules[i].weight)
     output_ref = ref_emb(offsets, indices)
     output = unary_emb(offsets_tensor, indices_tensor)
     torch.testing.assert_close(output_ref, output)
     # backward
-    d_output = torch.randn([num_tasks, batch_size, len(hash_sizes)]).to(device) * 0.1
+    d_output = torch.randn([num_tasks, batch_size, len(hash_sizes)]).to(dev) * 0.1
     output_ref.backward(d_output)
     output.backward(d_output)
     d_weight_ref = []
@@ -147,6 +176,14 @@ def cli(batch_size, num_tables, num_tasks, repeats, manual_seed) -> None:
     d_weight = unary_emb.weight.grad
     # pyre-fixme[16]: Optional type has no attribute `squeeze`.
     torch.testing.assert_close(d_weight_ref, d_weight.squeeze())
+
+    # Kineto trace helpers
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
+
+    # pyre-ignore[3, 2]
+    def context_factory(on_trace_ready):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
     # A100 40MB L2 cache
     elapse, _ = benchmark_torch_function(ref_emb, (offsets, indices), iters=repeats)
@@ -169,12 +206,22 @@ def cli(batch_size, num_tables, num_tasks, repeats, manual_seed) -> None:
     print("PyTorch EmbeddingBag backward", elapse)
 
     output = unary_emb(offsets_tensor, indices_tensor)
-    elapse, _ = benchmark_torch_function(
-        functools.partial(output.backward, retain_graph=True),
-        (d_output,),
-        iters=repeats,
-    )
-    print("Batched Unary Emb backward", elapse)
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        elapse, _ = benchmark_torch_function(
+            unary_emb,
+            (offsets_tensor, indices_tensor),
+            iters=repeats,
+        )
+    print("Batched Unary Emb forward (traced)", elapse)
+
+    output = unary_emb(offsets_tensor, indices_tensor)
+    with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
+        elapse, _ = benchmark_torch_function(
+            functools.partial(output.backward, retain_graph=True),
+            (d_output,),
+            iters=repeats,
+        )
+    print("Batched Unary Emb backward (traced)", elapse)
 
 
 if __name__ == "__main__":

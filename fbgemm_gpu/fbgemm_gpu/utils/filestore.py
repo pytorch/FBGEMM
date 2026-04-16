@@ -13,7 +13,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Union
+from typing import BinaryIO
 
 import torch
 
@@ -41,7 +41,7 @@ class FileStore:
     def write(
         self,
         path: str,
-        raw_input: Union[BinaryIO, torch.Tensor, Path],
+        raw_input: BinaryIO | torch.Tensor | Path,
         ttls: int = 864000,
     ) -> "FileStore":
         """

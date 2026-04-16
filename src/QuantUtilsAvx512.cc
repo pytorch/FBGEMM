@@ -391,7 +391,7 @@ void Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512(
     [[maybe_unused]] size_t input_rows,
     [[maybe_unused]] int input_columns,
     [[maybe_unused]] bfloat16* output) {
-#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && defined(FBGEMM_FBCODE)
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   constexpr int VLEN = 8;
   using scale_bias_t =
       std::conditional_t<quant_padding_float_type, float, float16>;

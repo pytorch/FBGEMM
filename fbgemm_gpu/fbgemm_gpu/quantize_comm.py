@@ -13,7 +13,9 @@
 
 
 import logging
-from typing import Optional, TypeVar
+from typing import TypeVar
+
+_T = TypeVar("_T")
 
 import torch
 
@@ -49,12 +51,9 @@ MX_GROUP_SIZE_DEFAULT = 32
 
 
 def none_throws(
-    # pyre-fixme[31]: Expression `typing.Optional[typing.TypeVar("_T")]` is not a
-    #  valid type.
-    optional: Optional[TypeVar("_T")],
+    optional: _T | None,
     message: str = "Unexpected `None`",
-    # pyre-fixme[31]: Expression `typing.TypeVar("_T")` is not a valid type.
-) -> TypeVar("_T"):
+) -> _T:
     if optional is None:
         raise AssertionError(message)
     return optional
@@ -65,14 +64,14 @@ class QuantizationContext:
     row_dim: int = ROW_DIM_DEFAULT
     row_dim_quant: int = -1
     mx_group_size: int = MX_GROUP_SIZE_DEFAULT
-    rounding_mode: Optional[RoundingMode] = RoundingMode.even
-    padded_dim_sum_per_rank: Optional[list[int]] = None
+    rounding_mode: RoundingMode | None = RoundingMode.even
+    padded_dim_sum_per_rank: list[int] | None = None
 
 
 def _quantize_tensor(
     input_tensor: torch.Tensor,
     comm_precision: SparseType,
-    ctx: Optional[QuantizationContext] = None,
+    ctx: QuantizationContext | None = None,
     is_fwd: bool = True,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
@@ -92,7 +91,7 @@ def _quantize_tensor(
             )
             row_dim_quant = input_2d_quant.shape[1]
             input_quant_all2all = None
-            input_quant_all2all = input_2d_quant.view((-1))
+            input_quant_all2all = input_2d_quant.view(-1)
             ctx.row_dim_quant = row_dim_quant
             return input_quant_all2all
         else:
@@ -104,7 +103,7 @@ def _quantize_tensor(
         input_2d_quant = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(input_2d)
         row_dim_quant = input_2d_quant.shape[1]
         input_quant_all2all = None
-        input_quant_all2all = input_2d_quant.view((-1))
+        input_quant_all2all = input_2d_quant.view(-1)
         ctx.row_dim_quant = row_dim_quant
         return input_quant_all2all
     elif comm_precision == SparseType.MX4:
@@ -120,9 +119,9 @@ def _quantize_tensor(
 def _dequantize_tensor(
     quantized_tensor: torch.Tensor,
     comm_precision: SparseType,
-    ctx: Optional[QuantizationContext] = None,
+    ctx: QuantizationContext | None = None,
     is_fwd: bool = True,
-    output_dtype: Optional[SparseType] = None,
+    output_dtype: SparseType | None = None,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
         assert quantized_tensor.dtype == torch.float
@@ -168,11 +167,11 @@ class QuantizedCommCodec:
     def __init__(
         self,
         comm_precision: SparseType,
-        loss_scale: Optional[float] = None,
-        row_dim: Optional[int] = None,
+        loss_scale: float | None = None,
+        row_dim: int | None = None,
         is_fwd: bool = True,
-        rounding_mode: Optional[RoundingMode] = None,
-        output_dtype: Optional[SparseType] = None,
+        rounding_mode: RoundingMode | None = None,
+        output_dtype: SparseType | None = None,
     ) -> None:
         if loss_scale is not None:
             if comm_precision not in [SparseType.FP16, SparseType.BF16]:
@@ -189,8 +188,8 @@ class QuantizedCommCodec:
         self._loss_scale = loss_scale
         self._is_fwd = is_fwd
         self._row_dim: int = -1 if row_dim is None else row_dim
-        self._rounding_mode: Optional[RoundingMode] = rounding_mode
-        self._output_dtype: Optional[SparseType] = output_dtype
+        self._rounding_mode: RoundingMode | None = rounding_mode
+        self._output_dtype: SparseType | None = output_dtype
         if self._comm_precision == SparseType.MX4:
             self._row_dim = MX_GROUP_SIZE_DEFAULT if row_dim is None else row_dim
             self._rounding_mode = (
@@ -198,7 +197,7 @@ class QuantizedCommCodec:
             )
 
     def encode(
-        self, input_tensor: torch.Tensor, ctx: Optional[QuantizationContext] = None
+        self, input_tensor: torch.Tensor, ctx: QuantizationContext | None = None
     ) -> torch.Tensor:
         if self._loss_scale is not None:
             input_tensor = self._loss_scale * input_tensor
@@ -214,7 +213,7 @@ class QuantizedCommCodec:
         return output
 
     def decode(
-        self, input_tensor: torch.Tensor, ctx: Optional[QuantizationContext] = None
+        self, input_tensor: torch.Tensor, ctx: QuantizationContext | None = None
     ) -> torch.Tensor:
         if self._loss_scale is not None:
             input_tensor = input_tensor / self._loss_scale
@@ -231,7 +230,7 @@ class QuantizedCommCodec:
         return dequantized_tensor
 
     def calc_quantized_size(
-        self, input_len: int, ctx: Optional[QuantizationContext] = None
+        self, input_len: int, ctx: QuantizationContext | None = None
     ) -> int:
         # Use the same logic in _float_to_fused8bitrowwise_gpu_t()
         if self._comm_precision == SparseType.INT8 or (
@@ -267,7 +266,7 @@ class QuantizedCommCodec:
     def quantized_dtype(self) -> torch.dtype:
         return self._comm_precision.as_dtype()
 
-    def create_context(self) -> Optional[QuantizationContext]:
+    def create_context(self) -> QuantizationContext | None:
         # fp8 rowwise is activated when row_dim > 0
         if self._comm_precision == SparseType.FP8:
             return QuantizationContext(self._row_dim)
