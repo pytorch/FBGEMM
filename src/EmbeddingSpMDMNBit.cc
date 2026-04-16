@@ -356,7 +356,8 @@ GenEmbeddingSpMDMNBitLookup<
         Ymm mask_vreg; // mask for avx2
         Xmm mask2_vreg;
         Xmm mask_fp16_vreg;
-        vec_reg_t ones_vreg;
+        vec_reg_t bf16_bias_vreg; // 0x7FFF for bf16 ties-to-even rounding
+        vec_reg_t bf16_tmp_vreg;  // scratch for bf16 rounding
 
         // We need 2 vec registers for 1. scale 2. bias
         --unroll_factor;
@@ -366,10 +367,13 @@ GenEmbeddingSpMDMNBitLookup<
 
         if (is_bf16_out) {
           --unroll_factor;
-          ones_vreg = vec_reg_t(unroll_factor);
-          a->mov(scratchReg2_, 1 << 15);
-          a->vpinsrd(ones_vreg.xmm(), ones_vreg.xmm(), scratchReg2_, 0);
-          a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
+          bf16_bias_vreg = vec_reg_t(unroll_factor);
+          a->mov(scratchReg2_, 0x7FFF);
+          a->vpinsrd(bf16_bias_vreg.xmm(), bf16_bias_vreg.xmm(), scratchReg2_,
+                     0);
+          a->vpbroadcastd(bf16_bias_vreg, bf16_bias_vreg.xmm());
+          --unroll_factor;
+          bf16_tmp_vreg = vec_reg_t(unroll_factor);
         }
 
         --unroll_factor;
@@ -838,7 +842,12 @@ GenEmbeddingSpMDMNBitLookup<
               // 16-bit output
               if constexpr (instSet == inst_set_t::avx2) {
                 if (is_bf16_out) {
-                  a->vpaddd(out_vreg, out_vreg, ones_vreg);
+                  // Round to nearest, ties to even
+                  a->vpsrld(bf16_tmp_vreg, out_vreg, 16);
+                  a->vpslld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
+                  a->vpsrld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
+                  a->vpaddd(bf16_tmp_vreg, bf16_tmp_vreg, bf16_bias_vreg);
+                  a->vpaddd(out_vreg, out_vreg, bf16_tmp_vreg);
                   a->vpsrld(out_vreg, out_vreg, 16);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
@@ -869,8 +878,13 @@ GenEmbeddingSpMDMNBitLookup<
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (is_bf16_out) {
-                    // bf16
-                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
+                    // Round to nearest, ties to even
+                    a->k(x86::k(1)).vpsrld(bf16_tmp_vreg, out_vreg, 16);
+                    a->k(x86::k(1)).vpslld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
+                    a->k(x86::k(1)).vpsrld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
+                    a->k(x86::k(1)).vpaddd(bf16_tmp_vreg, bf16_tmp_vreg,
+                                           bf16_bias_vreg);
+                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, bf16_tmp_vreg);
                     a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   } else {
@@ -878,8 +892,12 @@ GenEmbeddingSpMDMNBitLookup<
                   }
                 } else {
                   if (is_bf16_out) {
-                    // bf16
-                    a->vpaddd(out_vreg, out_vreg, ones_vreg);
+                    // Round to nearest, ties to even
+                    a->vpsrld(bf16_tmp_vreg, out_vreg, 16);
+                    a->vpslld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
+                    a->vpsrld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
+                    a->vpaddd(bf16_tmp_vreg, bf16_tmp_vreg, bf16_bias_vreg);
+                    a->vpaddd(out_vreg, out_vreg, bf16_tmp_vreg);
                     a->vpsrld(out_vreg, out_vreg, 16);
                     a->vpmovdw(dst_addr, out_vreg);
                   } else {
