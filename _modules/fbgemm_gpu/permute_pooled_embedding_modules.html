@@ -461,7 +461,6 @@
 <span class="c1"># pyre-strict</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">accumulate</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -534,14 +533,14 @@
 <span class="sd">                 38., 39.]], device=&#39;cuda:0&#39;)</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        embs_dims (List[int]): A list of embedding dimensions for all features.</span>
+<span class="sd">        embs_dims (list[int]): A list of embedding dimensions for all features.</span>
 <span class="sd">            Length = the number of features</span>
 
-<span class="sd">        permute (List[int]): A list that describes how each feature is</span>
+<span class="sd">        permute (list[int]): A list that describes how each feature is</span>
 <span class="sd">            permuted. `permute[i]` is to permute feature `permute[i]` to</span>
 <span class="sd">            position `i`.</span>
 
-<span class="sd">        device (Optional[torch.device] = None): The device to run this module</span>
+<span class="sd">        device (torch.device | None = None): The device to run this module</span>
 <span class="sd">            on</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -549,7 +548,7 @@
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">embs_dims</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
         <span class="n">permute</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
-        <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_offset_dim_list</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
             <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">accumulate</span><span class="p">(</span><span class="n">embs_dims</span><span class="p">)),</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
