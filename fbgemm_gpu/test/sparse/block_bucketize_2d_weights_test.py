@@ -998,6 +998,22 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                     new_indices_ref, new_indices_gpu.cpu(), new_lengths_ref
                 )
 
+    def test_block_bucketize_sparse_features_2d_weights_total_num_blocks_not_divisible(
+        self,
+    ) -> None:
+        indices = torch.tensor([1, 2, 10, 4, 16, 6, 7, 18, 19, 10, 0], dtype=torch.int)
+        with self.assertRaisesRegex(RuntimeError, "must be a multiple of my_size"):
+            torch.ops.fbgemm.block_bucketize_sparse_features_2d_weights(
+                torch.tensor([0, 3, 2, 0, 1, 5], dtype=torch.int),
+                indices,
+                False,
+                False,
+                torch.tensor([2, 3, 4], dtype=torch.int),
+                3,
+                torch.rand(indices.numel(), 3),
+                total_num_blocks=torch.tensor([7, 6, 6], dtype=torch.int),
+            )
+
 
 extend_test_class(BlockBucketize2DWeightsTest)
 
