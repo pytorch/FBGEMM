@@ -18,6 +18,30 @@
 
 namespace fbgemm_gpu {
 
+// Validate that every element in total_num_blocks is divisible by my_size.
+inline void check_total_num_blocks_divisibility(
+    const at::Tensor& total_num_blocks,
+    int64_t my_size) {
+  const auto tnb = total_num_blocks.cpu();
+  AT_DISPATCH_INDEX_TYPES(
+      tnb.scalar_type(),
+      "block_bucketize_sparse_features_total_num_blocks_check",
+      [&] {
+        const auto* tnb_data = tnb.const_data_ptr<index_t>();
+        for (const auto t : c10::irange(tnb.numel())) {
+          TORCH_CHECK(
+              tnb_data[t] % my_size == 0,
+              "block_bucketize_sparse_features: total_num_blocks[",
+              t,
+              "] = ",
+              tnb_data[t],
+              " must be a multiple of my_size (",
+              my_size,
+              ")");
+        }
+      });
+}
+
 /// @defgroup sparse-data-cuda Sparse Data CUDA Operators
 /// The following are CUDA operators
 ///
