@@ -29,7 +29,7 @@ using namespace fbgemm_gpu;
 
 int get_masked_index_default_pipeline_sms(int device) {
   cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, device);
+  C10_CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
 
 #ifdef USE_ROCM
   // AMD GPUs: CU count varies by SKU. Use a conservative ratio.

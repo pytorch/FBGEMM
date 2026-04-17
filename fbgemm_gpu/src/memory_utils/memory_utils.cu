@@ -533,7 +533,7 @@ void copy_to_shared(const Tensor& t) {
 
 void initialize_nan_shared_mem(int64_t device_index) {
   cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, device_index);
+  C10_CUDA_CHECK(cudaGetDeviceProperties(&prop, device_index));
   int total_shared_mem = prop.sharedMemPerBlock;
   // Allocate tensor of NaNs that we will copy to gpu.
   at::Device device = at::Device(at::kCUDA, device_index);
