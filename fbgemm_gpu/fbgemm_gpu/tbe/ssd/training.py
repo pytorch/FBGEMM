@@ -1143,6 +1143,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.dram_kv_miss_count_stats_name: str = (
             f"dram_kv.perf.get.tbe_id{tbe_unique_id}.dram_read_miss_count"
         )
+        self.laser_query_count_stats_name: str = (
+            f"dram_kv.perf.get.tbe_id{tbe_unique_id}.laser_query_count"
+        )
+        self.laser_empty_count_stats_name: str = (
+            f"dram_kv.perf.get.tbe_id{tbe_unique_id}.laser_empty_count"
+        )
         self.l1_hit_rate_stats_name: str = (
             f"ssd_tbe.prefetch.tbe_id{tbe_unique_id}.l1_hit_rate_pct"
         )
@@ -1195,6 +1201,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.dram_kv_hit_rate_stats_name)
             self.stats_reporter.register_stats(self.dram_kv_hit_count_stats_name)
             self.stats_reporter.register_stats(self.dram_kv_miss_count_stats_name)
+            self.stats_reporter.register_stats(self.laser_query_count_stats_name)
+            self.stats_reporter.register_stats(self.laser_empty_count_stats_name)
             self.stats_reporter.register_stats(self.l1_hit_rate_stats_name)
             for t in self.feature_table_map:
                 self.stats_reporter.register_stats(
@@ -4691,6 +4699,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     data_bytes=hit_rate_pct,
                     enable_tb_metrics=True,
                 )
+
+        # Laser enrichment query metrics (indices 38-39)
+        if len(dram_kv_perf_stats) >= 40:
+            laser_query_count = dram_kv_perf_stats[38]
+            laser_empty_count = dram_kv_perf_stats[39]
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.laser_query_count_stats_name,
+                data_bytes=laser_query_count,
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.laser_empty_count_stats_name,
+                data_bytes=laser_empty_count,
+                enable_tb_metrics=True,
+            )
 
     def _recording_to_timer(
         self, timer: Optional[AsyncSeriesTimer], **kwargs: Any
