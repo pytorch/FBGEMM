@@ -99,7 +99,7 @@ __global__ inline void _get_padding_value_kernel(
   const int64_t row = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int row_ext = row_dim + 8;
   const auto threads = (ncols + row_ext - 1) / row_ext;
-  if (row > threads)
+  if (row >= threads)
     return;
   const std::uint8_t* const input_row = input + row * row_ext;
   int pad = *reinterpret_cast<const int*>(input_row + row_dim + 4);
@@ -281,11 +281,10 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
 
   constexpr int threads_per_block = 256;
   const auto num_blocks = cuda_calc_xblock_count(
-      (nrows == 1) ? (ncols + row_ext - 1) / row_ext + 1 : nrows,
+      (nrows == 1) ? (ncols + row_ext - 1) / row_ext : nrows,
       threads_per_block);
   Tensor offsets = at::empty(
-      (nrows == 1) ? num_blocks * threads_per_block + 1
-                   : 0, // 4 = sizeof(float)
+      (nrows == 1) ? (ncols + row_ext - 1) / row_ext + 1 : 0,
       input.options().dtype(at::kInt));
   int total_pad = 0;
   if (nrows == 1) {
