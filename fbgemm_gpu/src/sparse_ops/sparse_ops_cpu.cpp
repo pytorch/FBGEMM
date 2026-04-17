@@ -1163,7 +1163,9 @@ _block_bucketize_sparse_features_cpu(
     const bool return_bucket_mapping,
     const bool keep_orig_idx,
     const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
-  if (total_num_blocks.has_value()) {
+  if (total_num_blocks.has_value() &&
+      (!block_bucketize_pos.has_value() ||
+       block_bucketize_pos.value().empty())) {
     fbgemm_gpu::check_total_num_blocks_divisibility(
         total_num_blocks.value(), my_size);
   }
@@ -1624,7 +1626,9 @@ _block_bucketize_sparse_features_2d_weights_cpu(
     const bool return_bucket_mapping,
     const bool keep_orig_idx,
     const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
-  if (total_num_blocks.has_value()) {
+  if (total_num_blocks.has_value() &&
+      (!block_bucketize_pos.has_value() ||
+       block_bucketize_pos.value().empty())) {
     fbgemm_gpu::check_total_num_blocks_divisibility(
         total_num_blocks.value(), my_size);
   }
