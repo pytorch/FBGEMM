@@ -49,9 +49,13 @@ namespace fbgemm_gpu::rocm {
   static const std::unordered_set<std::string> supported_archs{
       "gfx942", "gfx90a", "gfx950"};
   int device_id = 0;
-  HIP_CHECK(hipGetDevice(&device_id));
+  if (hipGetDevice(&device_id) != hipSuccess) {
+    return false;
+  }
   hipDeviceProp_t dev_props;
-  HIP_CHECK(hipGetDeviceProperties(&dev_props, device_id));
+  if (hipGetDeviceProperties(&dev_props, device_id) != hipSuccess) {
+    return false;
+  }
   std::string gcn_arch = dev_props.gcnArchName;
   gcn_arch = gcn_arch.substr(0, gcn_arch.find(":"));
   return supported_archs.contains(gcn_arch);
