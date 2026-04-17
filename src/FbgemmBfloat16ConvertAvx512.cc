@@ -12,12 +12,13 @@
 #endif
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
 namespace {
 
-// Round to nearest, ties to even
+// Emulated ties-to-even; used when AVX-512-BF16 is not present.
 inline __m256i QuantizeBfloat16Avx512(const __m512& x0) {
   __m512i val = _mm512_castps_si512(x0);
   __m512i lsb =
@@ -27,10 +28,21 @@ inline __m256i QuantizeBfloat16Avx512(const __m512& x0) {
   return _mm512_cvtepi32_epi16(_mm512_srli_epi32(rnd, 16));
 }
 
+// Hardware vcvtneps2bf16; requires AVX-512-BF16.
+inline __m256i QuantizeBfloat16Avx512Bf16(const __m512& x0) {
+  return (__m256i)_mm512_cvtneps_pbh(x0);
+}
+
 inline void FloatToBfloat16KernelAvx512(const float* src, bfloat16* dst) {
   // One float m512i -> One bfloat16 m256i
   const __m512 src_reg0 = _mm512_loadu_ps(src);
   __m256i dst_reg0 = QuantizeBfloat16Avx512(src_reg0);
+  _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), dst_reg0);
+}
+
+inline void FloatToBfloat16KernelAvx512Bf16(const float* src, bfloat16* dst) {
+  const __m512 src_reg0 = _mm512_loadu_ps(src);
+  __m256i dst_reg0 = QuantizeBfloat16Avx512Bf16(src_reg0);
   _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), dst_reg0);
 }
 
@@ -46,9 +58,16 @@ inline void Bfloat16ToFloatKernelAvx512(const bfloat16* src, float* dst) {
 } // namespace
 
 void FloatToBfloat16_avx512(const float* src, bfloat16* dst, size_t size) {
+  static const bool has_bf16 = fbgemmHasAvx512Bf16Support();
   size_t i = 0;
-  for (i = 0; i + 16 <= size; i += 16) {
-    FloatToBfloat16KernelAvx512(src + i, dst + i);
+  if (has_bf16) {
+    for (; i + 16 <= size; i += 16) {
+      FloatToBfloat16KernelAvx512Bf16(src + i, dst + i);
+    }
+  } else {
+    for (; i + 16 <= size; i += 16) {
+      FloatToBfloat16KernelAvx512(src + i, dst + i);
+    }
   }
   FloatToBfloat16_avx2(src + i, dst + i, size - i);
 }
