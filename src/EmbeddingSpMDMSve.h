@@ -37,13 +37,18 @@
 namespace fbgemm {
 namespace internal {
 
-// Round-to-nearest, ties-to-even: float32 -> bf16 (as uint32 with value in
-// lower 16 bits). Replaces svrshrnb_n_u32 which uses round-half-up.
+// RNE fp32 -> bf16, returned as u32 with the bf16 value in the low 16 bits
+// so that svst1h_u32 narrow-stores it. On Armv8.6-A BF16 this collapses to
+// a single BFCVT; otherwise we use the integer round-to-even formula.
 static inline svuint32_t rne_fp32_to_bf16_sve(svbool_t pg, svfloat32_t val) {
-  svuint32_t bits = svreinterpret_u32_f32(val);
-  svuint32_t lsb = svand_n_u32_x(pg, svlsr_n_u32_x(pg, bits, 16), 1);
-  svuint32_t rounded = svadd_u32_x(pg, bits, svadd_n_u32_x(pg, lsb, 0x7FFF));
+#if defined(__ARM_FEATURE_BF16)
+  return svreinterpret_u32_bf16(svcvt_bf16_f32_x(pg, val));
+#else
+  const auto bits = svreinterpret_u32_f32(val);
+  const auto lsb = svand_n_u32_x(pg, svlsr_n_u32_x(pg, bits, 16), 1);
+  const auto rounded = svadd_u32_x(pg, bits, svadd_n_u32_x(pg, lsb, 0x7FFF));
   return svlsr_n_u32_x(pg, rounded, 16);
+#endif
 }
 
 static constexpr size_t LOCAL_STORAGE_SIZE = 512;
