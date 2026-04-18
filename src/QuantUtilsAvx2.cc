@@ -1626,7 +1626,11 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       maximum_element = min_max_row_float[1];
 
       if constexpr (std::is_same_v<InputType, float16>) {
+#if !defined(__aarch64__)
         Float16ToFloat_avx2(input_row, input_row_float_for_fp16, input_columns);
+#else
+        Float16ToFloat_ref(input_row, input_row_float_for_fp16, input_columns);
+#endif
       }
     } else {
       __m256 min_v = _mm256_set1_ps(minimum_element);
@@ -1847,7 +1851,11 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
       maximum_element = min_max_row_float[1];
 
       if constexpr (std::is_same_v<InputType, float16>) {
+#if !defined(__aarch64__)
         Float16ToFloat_avx2(input_row, input_row_float_for_fp16, input_columns);
+#else
+        Float16ToFloat_ref(input_row, input_row_float_for_fp16, input_columns);
+#endif
       }
     } else {
       __m256 min_v = _mm256_set1_ps(minimum_element);

@@ -118,11 +118,11 @@ FBGEMM_API void FloatToFloat16_simd(
 FBGEMM_API void
 Float16ToFloat_simd(const float16* src, float* dst, size_t size);
 
+#if !defined(__aarch64__)
 /**
  * @brief AVX2 implementation to convert fp32 numbers to fp16 numbers.
  *
  */
-#if !defined(__aarch64__)
 FBGEMM_API void FloatToFloat16_avx2(
     const float* src,
     float16* dst,
