@@ -583,7 +583,9 @@ _block_bucketize_sparse_features_2d_weights_cuda(
 
   CUDA_DEVICE_GUARD(lengths);
 
-  if (total_num_blocks.has_value()) {
+  if (total_num_blocks.has_value() &&
+      (!block_bucketize_pos.has_value() ||
+       block_bucketize_pos.value().empty())) {
     fbgemm_gpu::check_total_num_blocks_divisibility(
         total_num_blocks.value(), my_size);
   }
