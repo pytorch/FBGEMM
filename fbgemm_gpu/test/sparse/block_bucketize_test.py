@@ -2125,6 +2125,21 @@ class BlockBucketizeTest(unittest.TestCase):
                 total_num_blocks=torch.tensor([7, 6, 6], dtype=torch.int),
             )
 
+    def test_block_bucketize_sparse_features_inference_total_num_blocks_not_divisible(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, "must be a multiple of my_size"):
+            torch.ops.fbgemm.block_bucketize_sparse_features_inference(
+                torch.tensor([0, 3, 2, 0, 1, 5], dtype=torch.int),
+                torch.tensor([1, 2, 10, 4, 16, 6, 7, 18, 19, 10, 0], dtype=torch.int),
+                False,
+                False,
+                torch.tensor([2, 3, 4], dtype=torch.int),
+                3,
+                None,
+                total_num_blocks=torch.tensor([7, 6, 6], dtype=torch.int),
+            )
+
 
 extend_test_class(BlockBucketizeTest)
 
