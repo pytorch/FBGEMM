@@ -1544,8 +1544,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.enable_raw_embedding_streaming
         ), "Should not register res buffers when raw embedding streaming is not enabled"
         cache_size = self.lxu_cache_weights.size(0)
+        self.log(f"[RES] registering buffers: cache_size={cache_size}")
         if cache_size == 0:
-            self.log("Registering empty res buffers when there is no cache")
             self._register_empty_res_buffers()
             return
         self.register_buffer(
@@ -1596,6 +1596,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 (cache_size, 1),
                 is_host_mapped=self.uvm_host_mapped,
             ),
+            persistent=False,  # shape may change via lazy resize, exclude from checkpoints
         )
         self.register_buffer(
             "res_count",
@@ -1645,6 +1646,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "res_runtime_meta",
             torch.zeros(0, 1, device=self.current_device, dtype=torch.long),
+            persistent=False,  # shape may change via lazy resize, exclude from checkpoints
         )
         self.register_buffer(
             "res_count",
@@ -4404,10 +4406,38 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     : prefetched_info.hash_zch_identities.size(0)
                 ].copy_(prefetched_info.hash_zch_identities)
             if prefetched_info.hash_zch_runtime_meta is not None:
-                # pyre-ignore[29]: `Union[...]` is not a function.
-                self.res_runtime_meta[
-                    : prefetched_info.hash_zch_runtime_meta.size(0)
-                ].copy_(prefetched_info.hash_zch_runtime_meta)
+                runtime_meta = prefetched_info.hash_zch_runtime_meta
+                if runtime_meta.dim() != 2:
+                    self.log(
+                        f"[RES] unexpected runtime_meta rank: {runtime_meta.dim()}, expected 2, skipping"
+                    )
+                else:
+                    if (
+                        runtime_meta.shape[1] != self.res_runtime_meta.shape[1]
+                        or runtime_meta.dtype != self.res_runtime_meta.dtype
+                    ):
+                        self.log(
+                            f"[RES] lazy resize runtime_meta: {self.res_runtime_meta.shape} -> ({self.res_runtime_meta.shape[0]}, {runtime_meta.shape[1]}), dtype {self.res_runtime_meta.dtype} -> {runtime_meta.dtype}"
+                        )
+                        # Lazy resize: runtime_meta shape/dtype is not known until
+                        # the first data arrives from the MC module. Must use UVM
+                        # (new_unified_tensor) because the C++ RawEmbeddingStreamer
+                        # reads this buffer via raw CPU pointers in tensor_copy().
+                        self.register_buffer(
+                            "res_runtime_meta",
+                            torch.ops.fbgemm.new_unified_tensor(
+                                torch.zeros(
+                                    1,
+                                    device=self.current_device,
+                                    dtype=runtime_meta.dtype,
+                                ),
+                                (self.res_runtime_meta.shape[0], runtime_meta.shape[1]),
+                                is_host_mapped=self.uvm_host_mapped,
+                            ),
+                            persistent=False,  # shape may change via lazy resize, exclude from checkpoints
+                        )
+                    # pyre-ignore[29]: `Union[...]` is not a function.
+                    self.res_runtime_meta[: runtime_meta.size(0)].copy_(runtime_meta)
 
             self.res_copy_done.fill_(1)
 
