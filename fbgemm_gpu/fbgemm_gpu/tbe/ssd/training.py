@@ -1652,6 +1652,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         (`inserted_rows`) on the `ssd_eviction_stream`. This is a hook
         that is invoked right after TBE backward.
 
+        In enrichment mode, scratch pad eviction data is not populated
+        (skipped in _prefetch), so this hook returns early.
+
         Conflict missed indices are specified in
         `post_bwd_evicted_indices_cpu`. Indices that are not -1 and
         their positions < `actions_count_cpu` (i.e., rows
@@ -1665,6 +1668,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             None
         """
         with record_function("## ssd_evict_from_scratch_pad_pipeline ##"):
+            # In enrichment mode, scratch pad eviction data is not populated
+            # (_prefetch skips the append), so nothing to do here.
+            if self._enrichment_enabled:
+                return
+
             current_stream = torch.cuda.current_stream()
             current_stream.record_event(self.ssd_event_backward)
 
@@ -2421,7 +2429,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             # Store scratch pad info for post backward eviction only for training
             # for eval job, no backward pass, so no need to store this info
-            if self.training:
+            # Skip for enrichment mode: the backward hook only pops without
+            # evicting (embedding_cache_mode skips evict), and the .clear()
+            # in enrichment_query_id triggers expensive cudaFree on UVA tensors.
+            if self.training and not self._enrichment_enabled:
                 self.ssd_scratch_pad_eviction_data.append(
                     (
                         inserted_rows,
@@ -5227,13 +5238,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     mask[1:] = sorted_linear_indices[1:] != sorted_linear_indices[:-1]
                     dedup_linear_indices = sorted_linear_indices[mask]
                     dedup_weights = sorted_weights[mask]
-
-                    if len(self.ssd_scratch_pad_eviction_data) > 0:
-                        # IMPORTANT: Clear ALL accumulated scratch pad data, not just one!
-                        # _prefetch appends one element per forward, but enrichment_query_id
-                        # may not be called every forward. This prevents memory leak from
-                        # accumulated GPU tensors (inserted_rows is a UVA tensor).
-                        self.ssd_scratch_pad_eviction_data.clear()
 
                     # D2H copy on the same stream (already on enrichment_query_stream)
                     linear_cache_indices_cpu = self.to_pinned_cpu(dedup_linear_indices)
