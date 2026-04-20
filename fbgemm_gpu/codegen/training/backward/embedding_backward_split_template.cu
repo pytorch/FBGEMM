@@ -973,13 +973,13 @@ Tensor {{ embedding_cuda_op }}(
 
             {%- if not dense and optimizer != "none" %}
             at::PhiloxCudaState rng_engine_inputs;
-            if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
+            if constexpr (!std::is_same_v<emb_t, float>) { if (stochastic_rounding) {
                 auto gen = at::cuda::detail::getDefaultCUDAGenerator();
                 std::lock_guard<std::mutex> lock(gen.mutex());
                 rng_engine_inputs =
                     at::check_generator<at::CUDAGeneratorImpl>(gen)
                         ->philox_cuda_state(4);
-            }
+            } }
             {%- endif %}
 
             DISPATCH_OPTIMAL_KERNEL(max_D, [&] {
@@ -1041,7 +1041,7 @@ Tensor {{ embedding_cuda_op }}(
                 // A temp buffer to accumulate gradients with atomics.
                 auto temp_grad_accum = at::zeros(
                     {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
-                    aligned_grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
+                    aligned_grad_output.options().dtype(std::is_same_v<cache_t, double> ? at::kDouble : at::kFloat));
 
                 DISPATCH_PLACEHOLDER_TYPES(
                   {%- for ph_name in args.placeholder_tensor_names %}

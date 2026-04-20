@@ -169,7 +169,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
     constexpr int VEC_WIDTH = 4;
-    constexpr auto kIsInt8 = std::is_same<emb_t, uint8_t>::value;
+    constexpr auto kIsInt8 = std::is_same_v<emb_t, uint8_t>;
 
     struct SharedMemory<Vec4TAcc<cache_t>> smem;
     const int32_t grad_sum_stride = max_D / VEC_WIDTH;

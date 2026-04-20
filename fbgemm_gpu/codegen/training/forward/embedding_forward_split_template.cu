@@ -608,7 +608,7 @@ batch_index_select_dim0_codegen_forward_cuda(
 
         {%- if has_experimental %}
         const bool is_experimental_ = (
-            is_experimental && !(std::is_same<emb_t, uint8_t>() || std::is_same<output_t, uint8_t>())
+            is_experimental && !(std::is_same_v<emb_t, uint8_t> || std::is_same_v<output_t, uint8_t>)
         );
         // if max_D > {{ legacy_max_embedding_dim }}, use TBE v2
         if (!is_experimental_ && max_D <= {{ legacy_max_embedding_dim }}) {
