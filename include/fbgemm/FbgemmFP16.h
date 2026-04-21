@@ -13,6 +13,7 @@
 
 #include <cpuinfo.h>
 
+#include "fbgemm/FbgemmFPCommon.h"
 #include "./FbgemmPackMatrixB.h" // @manual
 #include "./FloatConversion.h" // @manual
 #include "./Types.h" // @manual
