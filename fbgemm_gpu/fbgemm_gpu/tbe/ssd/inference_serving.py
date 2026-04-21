@@ -22,7 +22,6 @@ Key differences from raw SSD TBE:
 """
 
 import logging
-from typing import Optional
 
 import torch  # usort:skip
 from fbgemm_gpu.split_embedding_configs import SparseType
@@ -194,7 +193,7 @@ class TurboSSDInferenceModule(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
+        per_sample_weights: Tensor | None = None,
     ) -> Tensor:
         """
         Single-call forward: automatically prefetches then looks up.

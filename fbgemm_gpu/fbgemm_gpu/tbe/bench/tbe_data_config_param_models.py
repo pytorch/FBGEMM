@@ -9,7 +9,7 @@
 
 import dataclasses
 import json
-from typing import Any, Optional
+from typing import Any
 
 import torch
 
@@ -34,13 +34,12 @@ class IndicesParams:
     # zipf_s is synonymous with alpha in the literature
     zipf_s: float
     # [Optional] dtype for indices tensor
-    index_dtype: Optional[torch.dtype] = None
+    index_dtype: torch.dtype | None = None
     # [Optional] dtype for offsets tensor
-    offset_dtype: Optional[torch.dtype] = None
+    offset_dtype: torch.dtype | None = None
 
     @classmethod
-    # pyre-ignore [3]
-    def from_dict(cls, data: dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]) -> "IndicesParams":
         if not isinstance(data["heavy_hitters"], torch.Tensor):
             data["heavy_hitters"] = torch.tensor(
                 data["heavy_hitters"], dtype=torch.float32
@@ -50,8 +49,7 @@ class IndicesParams:
         return cls(**data)
 
     @classmethod
-    # pyre-ignore [3]
-    def from_json(cls, data: str):
+    def from_json(cls, data: str) -> "IndicesParams":
         return cls.from_dict(json.loads(data))
 
     def dict(self) -> dict[str, Any]:
@@ -73,8 +71,7 @@ class IndicesParams:
             == (other.zipf_q, other.zipf_s, other.index_dtype, other.offset_dtype)
         ) and bool((self.heavy_hitters - other.heavy_hitters).abs().max() < 1e-6)
 
-    # pyre-ignore [3]
-    def validate(self):
+    def validate(self) -> "IndicesParams":
         assert self.zipf_q > 0, "zipf_q must be positive"
         assert self.zipf_s > 0, "zipf_s must be positive"
         assert self.index_dtype is None or self.index_dtype in [
@@ -93,22 +90,20 @@ class BatchParams:
     # Target batch size, i.e. number of batch lookups per table
     B: int
     # [Optional] Standard deviation of B (for variable batch size configuration)
-    sigma_B: Optional[int] = None
+    sigma_B: int | None = None
     # [Optional] Distribution of batch sizes (normal, uniform)
-    vbe_distribution: Optional[str] = "normal"
+    vbe_distribution: str | None = "normal"
     # Number of ranks for variable batch size generation
-    vbe_num_ranks: Optional[int] = None
+    vbe_num_ranks: int | None = None
     # List of target batch sizes, i.e. number of batch lookups per feature
-    Bs: Optional[list[int]] = None
+    Bs: list[int] | None = None
 
     @classmethod
-    # pyre-ignore [3]
-    def from_dict(cls, data: dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]) -> "BatchParams":
         return cls(**data)
 
     @classmethod
-    # pyre-ignore [3]
-    def from_json(cls, data: str):
+    def from_json(cls, data: str) -> "BatchParams":
         return cls.from_dict(json.loads(data))
 
     def dict(self) -> dict[str, Any]:
@@ -117,8 +112,7 @@ class BatchParams:
     def json(self, format: bool = False) -> str:
         return json.dumps(self.dict(), indent=(2 if format else -1), sort_keys=True)
 
-    # pyre-ignore [3]
-    def validate(self):
+    def validate(self) -> "BatchParams":
         if self.Bs is not None:
             assert all(b > 0 for b in self.Bs), "All elements in Bs must be positive"
         else:
@@ -139,20 +133,18 @@ class PoolingParams:
     # Target bag size, i.e. pooling factor, or number of indices per batch lookup
     L: int
     # [Optional] Standard deviation of L (for variable bag size configuration)
-    sigma_L: Optional[int] = None
+    sigma_L: int | None = None
     # [Optional] Distribution of embedding sequence lengths (normal, uniform)
-    length_distribution: Optional[str] = "normal"
+    length_distribution: str | None = "normal"
     # [Optional] List of target bag sizes, i.e. pooling factors per batch
-    Ls: Optional[list[float]] = None
+    Ls: list[float] | None = None
 
     @classmethod
-    # pyre-ignore [3]
-    def from_dict(cls, data: dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]) -> "PoolingParams":
         return cls(**data)
 
     @classmethod
-    # pyre-ignore [3]
-    def from_json(cls, data: str):
+    def from_json(cls, data: str) -> "PoolingParams":
         return cls.from_dict(json.loads(data))
 
     def dict(self) -> dict[str, Any]:
@@ -161,8 +153,7 @@ class PoolingParams:
     def json(self, format: bool = False) -> str:
         return json.dumps(self.dict(), indent=(2 if format else -1), sort_keys=True)
 
-    # pyre-ignore [3]
-    def validate(self):
+    def validate(self) -> "PoolingParams":
         assert self.L > 0, "L must be positive"
         assert not self.sigma_L or self.sigma_L > 0, "sigma_L must be positive"
         assert self.length_distribution is None or self.length_distribution in [

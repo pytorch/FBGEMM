@@ -10,7 +10,7 @@
 import dataclasses
 import json
 import logging
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 import torch
 
@@ -41,12 +41,12 @@ class TBEDataConfig:
     indices_params: IndicesParams
     pooling_params: PoolingParams
     use_cpu: bool = False
-    Es: Optional[list[int]] = None
-    Ds: Optional[list[int]] = None
-    max_indices: Optional[int] = None
-    embedding_specs: Optional[List[Tuple[int, int]]] = None
-    feature_table_map: Optional[List[int]] = None
-    indices_params_list: Optional[list[IndicesParams]] = None
+    Es: list[int] | None = None
+    Ds: list[int] | None = None
+    max_indices: int | None = None
+    embedding_specs: list[tuple[int, int]] | None = None
+    feature_table_map: list[int] | None = None
+    indices_params_list: list[IndicesParams] | None = None
     """
     Configuration for TBE (Table Batched Embedding) benchmark data collection and generation.
 
@@ -88,22 +88,22 @@ class TBEDataConfig:
             (4) `Ls` = per-feature bag sizes
         use_cpu (bool = False): If True, force generated tensors to be placed
             on CPU instead of the default compute device.
-        Es (Optional[List[int]] = None): Number of embeddings (rows) for each
+        Es (list[int] | None = None): Number of embeddings (rows) for each
             individual embedding feature. If provided, must have length equal
             to T. All elements must be positive.
-        Ds (Optional[List[int]] = None): Target embedding dimension (columns)
+        Ds (list[int] | None = None): Target embedding dimension (columns)
             for each individual feature. If provided, must have length equal
             to T. All elements must be positive.
-        max_indices (Optional[int] = None): Maximum number of indices for
+        max_indices (int | None = None): Maximum number of indices for
             bounds checking. If Es is provided as a list and max_indices is
             None, it is automatically computed as sum(Es) - 1.
-        embedding_specs (Optional[List[Tuple[int, int]]] = None): A list of
+        embedding_specs (list[tuple[int, int]] | None = None): A list of
             embedding specs consisting of a list of tuples of (num_rows, embedding_dim).
             See https://fburl.com/tbe_embedding_specs for details.
-        feature_table_map (Optional[List[int]] = None): An optional list that
+        feature_table_map (list[int] | None = None): An optional list that
             specifies feature-table mapping. feature_table_map[i] indicates the
             physical embedding table that feature i maps to.
-        indices_params_list (Optional[list[IndicesParams]] = None): Per-feature
+        indices_params_list (list[IndicesParams] | None = None): Per-feature
             index parameters. If provided, must have length equal to T.
     """
 
@@ -123,8 +123,7 @@ class TBEDataConfig:
         }
 
     @classmethod
-    # pyre-ignore [3]
-    def from_dict(cls, data: dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]) -> "TBEDataConfig":
         if data.get("indices_params_list") is not None:
             data["indices_params_list"] = [
                 IndicesParams.from_dict(el) for el in data["indices_params_list"]
@@ -136,8 +135,7 @@ class TBEDataConfig:
         return cls(**data)
 
     @classmethod
-    # pyre-ignore [3]
-    def from_json(cls, data: str):
+    def from_json(cls, data: str) -> "TBEDataConfig":
         raw = json.loads(data)
         allowed = {f.name for f in dataclasses.fields(cls)}
         existing_fields = {k: v for k, v in raw.items() if k in allowed}
@@ -166,8 +164,7 @@ class TBEDataConfig:
     def json(self, format: bool = False) -> str:
         return json.dumps(self.dict(), indent=(2 if format else -1), sort_keys=True)
 
-    # pyre-ignore [3]
-    def validate(self):
+    def validate(self) -> "TBEDataConfig":
         # NOTE: Add validation logic here
         assert self.T > 0, "T must be positive"
         assert self.E > 0, "E must be positive"
@@ -209,6 +206,6 @@ class TBEDataConfig:
     def variable_L(self) -> bool:
         return self.pooling_params.sigma_L is not None
 
-    def _new_weights(self, size: int) -> Optional[torch.Tensor]:
+    def _new_weights(self, size: int) -> torch.Tensor | None:
         # Per-sample weights will always be FP32
         return None if not self.weighted else torch.randn(size, device=get_device())

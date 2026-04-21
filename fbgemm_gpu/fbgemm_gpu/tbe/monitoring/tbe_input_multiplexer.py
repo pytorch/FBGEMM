@@ -9,7 +9,6 @@
 
 import abc
 from dataclasses import dataclass
-from typing import Optional
 
 from torch import Tensor
 
@@ -54,7 +53,7 @@ class TBEInputInfo:
 
     indices: Tensor
     offsets: Tensor
-    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None
+    batch_size_per_feature_per_rank: list[list[int]] | None = None
 
 
 class TBEInputMultiplexer(abc.ABC):
@@ -100,7 +99,7 @@ class TBEInputMultiplexerConfig:
     def create_tbe_input_multiplexer(
         self,
         tbe_info: TBEInfo,
-    ) -> Optional[TBEInputMultiplexer]:
+    ) -> TBEInputMultiplexer | None:
         assert (
             self.start_batch == -1
         ), "Cannot specify monitor_start_batch without an actual implementation."

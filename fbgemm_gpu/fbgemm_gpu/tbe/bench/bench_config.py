@@ -10,7 +10,7 @@
 import dataclasses
 import json
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import click
 
@@ -28,18 +28,16 @@ class TBEBenchmarkingConfig:
     # If set, trace will be exported to the path specified in trace_url
     export_trace: bool
     # The path for exporting the trace
-    trace_url: Optional[str]
+    trace_url: str | None
     # If set and export_trace is true, the benchmark will upload performance data from the trace to Scuba
     upload_perf_data: bool
 
     @classmethod
-    # pyre-ignore [3]
-    def from_dict(cls, data: dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]) -> "TBEBenchmarkingConfig":
         return cls(**data)
 
     @classmethod
-    # pyre-ignore [3]
-    def from_json(cls, data: str):
+    def from_json(cls, data: str) -> "TBEBenchmarkingConfig":
         return cls.from_dict(json.loads(data))
 
     def dict(self) -> dict[str, Any]:
@@ -48,8 +46,7 @@ class TBEBenchmarkingConfig:
     def json(self, format: bool = False) -> str:
         return json.dumps(self.dict(), indent=(2 if format else -1), sort_keys=True)
 
-    # pyre-ignore [3]
-    def validate(self):
+    def validate(self) -> "TBEBenchmarkingConfig":
         assert self.iterations > 0, "iterations must be positive"
         assert self.num_requests > 0, "num_requests must be positive"
         assert self.warmup_iterations >= 0, "warmup_iterations must be non-negative"

@@ -8,7 +8,6 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -31,22 +30,20 @@ class TBERequest:
 
     indices: torch.Tensor
     offsets: torch.Tensor
-    per_sample_weights: Optional[torch.Tensor] = None
-    Bs_per_feature_per_rank: Optional[list[list[int]]] = None
+    per_sample_weights: torch.Tensor | None = None
+    Bs_per_feature_per_rank: list[list[int]] | None = None
 
     def unpack_2(self) -> tuple[torch.Tensor, torch.Tensor]:
         return (self.indices, self.offsets)
 
     def unpack_3(
         self,
-    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         return (self.indices, self.offsets, self.per_sample_weights)
 
     def unpack_4(
         self,
-    ) -> tuple[
-        torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[list[list[int]]]
-    ]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, list[list[int]] | None]:
         return (
             self.indices,
             self.offsets,
@@ -63,12 +60,12 @@ def generate_requests_from_data_file(
     E: int,
     weighted: bool,
     device: torch.device,
-    requests_data_file: Optional[str] = None,
-    indices_file: Optional[str] = None,
-    offsets_file: Optional[str] = None,
-    tables: Optional[str] = None,
-    index_dtype: Optional[torch.dtype] = None,
-    offset_dtype: Optional[torch.dtype] = None,
+    requests_data_file: str | None = None,
+    indices_file: str | None = None,
+    offsets_file: str | None = None,
+    tables: str | None = None,
+    index_dtype: torch.dtype | None = None,
+    offset_dtype: torch.dtype | None = None,
 ) -> list[TBERequest]:
     """
     Generate TBE requests from the input data file. If `requests_data_file` is provided,
@@ -238,8 +235,8 @@ def generate_indices_uniform(
     E: int,
     use_variable_L: bool,
     L_offsets: torch.Tensor,
-    device: Optional[torch.device] = None,
-    Es: Optional[list[int]] = None,
+    device: torch.device | None = None,
+    Es: list[int] | None = None,
 ) -> torch.Tensor:
     """
     Generate indices for the TBE requests using the uniform distribution.
@@ -549,8 +546,8 @@ def generate_indices_zipf(
     use_variable_L: bool,
     L_offsets: torch.Tensor,
     deterministic_output: bool,
-    device: Optional[torch.device] = None,
-    Es: Optional[list[int]] = None,
+    device: torch.device | None = None,
+    Es: list[int] | None = None,
 ) -> torch.Tensor:
     """
     Generate indices for the TBE requests using the zipf distribution.
@@ -601,7 +598,7 @@ def update_indices_with_random_reuse(
     L: int,
     reuse: float,
     indices: torch.Tensor,
-    device: Optional[torch.device] = None,
+    device: torch.device | None = None,
 ) -> torch.Tensor:
     """
     Update the generated indices with random reuse
@@ -642,7 +639,7 @@ def update_indices_with_random_pruning(
     return indices
 
 
-def maybe_to_dtype(tensor: torch.Tensor, dtype: Optional[torch.dtype]) -> torch.Tensor:
+def maybe_to_dtype(tensor: torch.Tensor, dtype: torch.dtype | None) -> torch.Tensor:
     return tensor if dtype is None else tensor.to(dtype)
 
 
@@ -659,20 +656,20 @@ def generate_requests(  # noqa C901
     alpha: float = 1.0,
     zipf_oversample_ratio: int = 3,
     weighted: bool = False,
-    requests_data_file: Optional[str] = None,
+    requests_data_file: str | None = None,
     # Path to file containing indices and offsets. If provided, this will be used
-    indices_file: Optional[str] = None,
-    offsets_file: Optional[str] = None,
+    indices_file: str | None = None,
+    offsets_file: str | None = None,
     # Comma-separated list of table numbers
-    tables: Optional[str] = None,
+    tables: str | None = None,
     # If sigma_L is not None, treat L as mu_L and generate Ls from sigma_L
     # and mu_L
-    sigma_L: Optional[int] = None,
+    sigma_L: int | None = None,
     # If Ls is not None, use these per-table bag sizes directly instead of
     # generating from sigma_L. Must have len(Ls) == T.
-    Ls: Optional[list[int]] = None,
+    Ls: list[int] | None = None,
     # If sigma_B is not None, treat B as mu_B and generate Bs from sigma_B
-    sigma_B: Optional[int] = None,
+    sigma_B: int | None = None,
     emulate_pruning: bool = False,
     use_cpu: bool = False,
     # generate_requests uses numpy.random.default_rng without a set random seed
@@ -685,12 +682,12 @@ def generate_requests(  # noqa C901
     # distribution of batch sizes
     batch_size_dist: str = "normal",
     # Number of ranks for variable batch size generation
-    vbe_num_ranks: Optional[int] = None,
-    index_dtype: Optional[torch.dtype] = None,
-    offset_dtype: Optional[torch.dtype] = None,
+    vbe_num_ranks: int | None = None,
+    index_dtype: torch.dtype | None = None,
+    offset_dtype: torch.dtype | None = None,
     # Per-table num_embeddings. If provided, indices for table t are generated
     # in [0, Es[t]). Must have len(Es) == T.
-    Es: Optional[list[int]] = None,
+    Es: list[int] | None = None,
 ) -> list[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data

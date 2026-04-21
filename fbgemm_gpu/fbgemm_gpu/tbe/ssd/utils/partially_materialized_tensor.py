@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import functools
-from typing import Optional, Union
 
 import torch
 
@@ -133,7 +132,7 @@ class PartiallyMaterializedTensor:
         return self._requires_grad
 
     @property
-    def grad(self) -> Optional[torch.Tensor]:
+    def grad(self) -> torch.Tensor | None:
         return None
 
     @property
@@ -147,7 +146,7 @@ class PartiallyMaterializedTensor:
         """
         return torch.Size(self._wrapped.shape)
 
-    def size(self, dim: Optional[int] = None) -> Union[int, torch.Size]:
+    def size(self, dim: int | None = None) -> int | torch.Size:
         sz = self.shape
         if dim is None:
             return sz

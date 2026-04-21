@@ -16,9 +16,10 @@ import math
 import os
 import threading
 import time
+from collections.abc import Callable
 from functools import cached_property
 from math import floor, log2
-from typing import Any, Callable, ClassVar, Optional, Union
+from typing import Any, ClassVar
 import torch  # usort:skip
 import weakref
 
@@ -73,8 +74,8 @@ class IterData:
     lxu_cache_ptrs: Tensor
     actions_count_gpu: Tensor
     cache_set_inverse_indices: Tensor
-    B_offsets: Optional[Tensor] = None
-    max_B: Optional[int] = -1
+    B_offsets: Tensor | None = None
+    max_B: int | None = -1
 
 
 @dataclass
@@ -111,7 +112,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def __init__(
         self,
         embedding_specs: list[tuple[int, int]],  # tuple of (rows, dims)
-        feature_table_map: Optional[list[int]],  # [T]
+        feature_table_map: list[int] | None,  # [T]
         cache_sets: int,
         # A comma-separated string, e.g. "/data00_nvidia0,/data01_nvidia0/", db shards
         # will be placed in these paths round-robin.
@@ -145,19 +146,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
-        counter_based_regularization: Optional[
+        counter_based_regularization: None | (
             CounterBasedRegularizationDefinition
-        ] = None,  # used by Rowwise Adagrad
-        cowclip_regularization: Optional[
+        ) = None,  # used by Rowwise Adagrad
+        cowclip_regularization: None | (
             CowClipDefinition
-        ] = None,  # used by Rowwise Adagrad
+        ) = None,  # used by Rowwise Adagrad
         pooling_mode: PoolingMode = PoolingMode.SUM,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         # Parameter Server Configs
-        ps_hosts: Optional[tuple[tuple[str, int]]] = None,
-        ps_max_key_per_request: Optional[int] = None,
-        ps_client_thread_num: Optional[int] = None,
-        ps_max_local_index_length: Optional[int] = None,
+        ps_hosts: tuple[tuple[str, int]] | None = None,
+        ps_max_key_per_request: int | None = None,
+        ps_client_thread_num: int | None = None,
+        ps_max_local_index_length: int | None = None,
         tbe_unique_id: int = -1,
         # If set to True, will use `ssd_storage_directory` as the ssd paths.
         # If set to False, will use the default ssd paths.
@@ -165,8 +166,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # fn production we could either use the default ssd mount points or explicity specify ssd
         # mount points using `ssd_storage_directory`.
         use_passed_in_path: int = True,
-        gather_ssd_cache_stats: Optional[bool] = False,
-        stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
+        gather_ssd_cache_stats: bool | None = False,
+        stats_reporter_config: TBEStatsReporterConfig | None = None,
         l2_cache_size: int = 0,
         # Set to True to enable pipeline prefetching
         prefetch_pipeline: bool = False,
@@ -179,16 +180,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         bulk_init_chunk_size: int = 0,
         lazy_bulk_init_enabled: bool = False,
         backend_type: BackendType = BackendType.SSD,
-        kv_zch_params: Optional[KVZCHParams] = None,
+        kv_zch_params: KVZCHParams | None = None,
         enable_raw_embedding_streaming: bool = False,  # whether enable raw embedding streaming
-        res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
+        res_params: RESParams | None = None,  # raw embedding streaming sharding info
         flushing_block_size: int = 2_000_000_000,  # 2GB
-        table_names: Optional[list[str]] = None,
+        table_names: list[str] | None = None,
         use_rowwise_bias_correction: bool = False,  # For Adam use
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
-        pg: Optional[dist.ProcessGroup] = None,
+        pg: dist.ProcessGroup | None = None,
     ) -> None:
-        super(SSDTableBatchedEmbeddingBags, self).__init__()
+        super().__init__()
 
         # Set the optimizer
         assert optimizer in (
@@ -429,7 +430,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # Set prefetch pipeline
         self.prefetch_pipeline: bool = prefetch_pipeline
-        self.prefetch_stream: Optional[torch.cuda.Stream] = None
+        self.prefetch_stream: torch.cuda.Stream | None = None
 
         # Cache locking counter for pipeline prefetching
         if self.prefetch_pipeline:
@@ -617,7 +618,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         data move from cached weight and optimizer to key/value format without duplicate one whole tensor's
         memory.
         """
-        self._cached_kvzch_data: Optional[KVZCHCachedData] = None
+        self._cached_kvzch_data: KVZCHCachedData | None = None
         # initial embedding rows on this rank per table, this is used for loading checkpoint
         self.local_weight_counts: list[int] = [0] * T_
         # groundtruth global id on this rank per table, this is used for loading checkpoint
@@ -959,9 +960,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.prefetched_info: list[tuple[Tensor, Tensor]] = []
 
         self.timesteps_prefetched: list[int] = []
-        # TODO: add type annotation
-        # pyre-fixme[4]: Attribute must be annotated.
-        self.ssd_prefetch_data = []
+        self.ssd_prefetch_data: list[
+            tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
+        ] = []
 
         # Scratch pad eviction data queue
         self.ssd_scratch_pad_eviction_data: list[
@@ -1034,7 +1035,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 offsets=[0] * (len(rows)),
             ),
             "weights",
-            # pyre-fixme[6]: For 3rd argument expected `Type[dtype]` but got `dtype`.
+            # pyre-fixme[6]: For 3rd argument expected `type[dtype]` but got `dtype`.
             dtype=table_embedding_dtype,
         )
 
@@ -1044,11 +1045,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.optimizer_state_dtypes,
             self.enable_optimizer_offloading,
         ):
-            # pyre-fixme[6]: For 3rd argument expected `Type[dtype]` but got `dtype`.
+            # pyre-fixme[6]: For 3rd argument expected `type[dtype]` but got `dtype`.
             self._apply_split(*template)
 
         # For storing current iteration data
-        self.current_iter_data: Optional[IterData] = None
+        self.current_iter_data: IterData | None = None
 
         # add placeholder require_grad param to enable autograd without nn.parameter
         # this is needed to enable int8 embedding weights for SplitTableBatchedEmbedding
@@ -1067,7 +1068,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # stats reporter
         self.gather_ssd_cache_stats = gather_ssd_cache_stats
-        self.stats_reporter: Optional[TBEStatsReporter] = (
+        self.stats_reporter: TBEStatsReporter | None = (
             stats_reporter_config.create_reporter() if stats_reporter_config else None
         )
         self.ssd_cache_stats_size = 6
@@ -1099,8 +1100,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         # prefetch launch a series of kernels, we use AsyncSeriesTimer to track the kernel time
-        self.ssd_prefetch_read_timer: Optional[AsyncSeriesTimer] = None
-        self.ssd_prefetch_evict_timer: Optional[AsyncSeriesTimer] = None
+        self.ssd_prefetch_read_timer: AsyncSeriesTimer | None = None
+        self.ssd_prefetch_evict_timer: AsyncSeriesTimer | None = None
         self.prefetch_parallel_stream_cnt: int = 2
         # tuple of iteration, prefetch parallel stream cnt, reported duration
         # since there are 2 stream in parallel in prefetch, we want to count the longest one
@@ -1444,7 +1445,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         dtype: type[torch.dtype],
         enforce_hbm: bool = False,
         make_dev_param: bool = False,
-        dev_reshape: Optional[tuple[int, ...]] = None,
+        dev_reshape: tuple[int, ...] | None = None,
     ) -> None:
         apply_split_helper(
             self.register_buffer,
@@ -1470,7 +1471,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         tensors: list[Tensor],
         stream: torch.cuda.Stream,
         stream_to_wait_on: torch.cuda.Stream,
-        post_event: Optional[torch.cuda.Event] = None,
+        post_event: torch.cuda.Event | None = None,
     ) -> list[Tensor]:
         """
         Transfer input tensors from GPU to CPU using a pinned host
@@ -1479,7 +1480,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         (`stream_to_wait_on`) are complete.
 
         Args:
-            tensors (List[Tensor]): The list of tensors to be
+            tensors (list[Tensor]): The list of tensors to be
                                     transferred
             stream (Stream): The stream to run memory copy
             stream_to_wait_on (Stream): The stream to wait on
@@ -1504,10 +1505,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         indices_cpu: Tensor,
         actions_count_cpu: Tensor,
         stream: torch.cuda.Stream,
-        pre_event: Optional[torch.cuda.Event],
-        post_event: Optional[torch.cuda.Event],
+        pre_event: torch.cuda.Event | None,
+        post_event: torch.cuda.Event | None,
         is_rows_uvm: bool,
-        name: Optional[str] = "",
+        name: str | None = "",
         is_bwd: bool = True,
     ) -> None:
         """
@@ -1560,9 +1561,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def raw_embedding_stream_sync(
         self,
         stream: torch.cuda.Stream,
-        pre_event: Optional[torch.cuda.Event],
-        post_event: Optional[torch.cuda.Event],
-        name: Optional[str] = "",
+        pre_event: torch.cuda.Event | None,
+        post_event: torch.cuda.Event | None,
+        name: str | None = "",
     ) -> None:
         """
         Blocking wait the copy operation of the tensors to be streamed,
@@ -1597,11 +1598,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         indices_cpu: Tensor,
         actions_count_cpu: Tensor,
         stream: torch.cuda.Stream,
-        pre_event: Optional[torch.cuda.Event],
-        post_event: Optional[torch.cuda.Event],
+        pre_event: torch.cuda.Event | None,
+        post_event: torch.cuda.Event | None,
         is_rows_uvm: bool,
         blocking_tensor_copy: bool = True,
-        name: Optional[str] = "",
+        name: str | None = "",
     ) -> None:
         """
         Stream data from the given input tensors to a remote service
@@ -1722,7 +1723,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def _update_cache_counter_and_pointers(
         self,
         module: nn.Module,
-        grad_input: Union[tuple[Tensor, ...], Tensor],
+        grad_input: tuple[Tensor, ...] | Tensor,
     ) -> None:
         """
         Update cache line locking counter and pointers before backward
@@ -1748,7 +1749,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         Args:
             module (nn.Module): Unused
-            grad_input (Union[Tuple[Tensor, ...], Tensor]): Unused
+            grad_input (tuple[Tensor, ...] | Tensor): Unused
 
         Returns:
             None
@@ -1829,7 +1830,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         d2h_stream: torch.cuda.Stream,
         write_stream: torch.cuda.Stream,
         pre_event_for_write: torch.cuda.Event,
-        post_event: Optional[torch.cuda.Event] = None,
+        post_event: torch.cuda.Event | None = None,
     ) -> None:
         """
         Write feature score metadata to DRAM
@@ -1876,9 +1877,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        weights: Optional[Tensor] = None,  # todo: need to update caller
-        forward_stream: Optional[torch.cuda.Stream] = None,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        weights: Tensor | None = None,  # todo: need to update caller
+        forward_stream: torch.cuda.Stream | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
     ) -> None:
         if self.prefetch_stream is None and forward_stream is not None:
             # Set the prefetch stream to the current stream
@@ -1911,9 +1912,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        weights: Optional[Tensor] = None,
-        vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
-        forward_stream: Optional[torch.cuda.Stream] = None,
+        weights: Tensor | None = None,
+        vbe_metadata: invokers.lookup_args.VBEMetadata | None = None,
+        forward_stream: torch.cuda.Stream | None = None,
     ) -> None:
         # Wait for any ongoing direct_write_embedding operations to complete
         # Moving this from forward() to _prefetch() is more logical as direct_write
@@ -1929,7 +1930,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             B_offsets = vbe_metadata.B_offsets
             max_B = vbe_metadata.max_B
 
-        with record_function("## ssd_prefetch {} ##".format(self.timestep)):
+        with record_function(f"## ssd_prefetch {self.timestep} ##"):
             if self.gather_ssd_cache_stats:
                 self.local_ssd_cache_stats.zero_()
 
@@ -2453,9 +2454,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def _generate_vbe_metadata(
         self,
         offsets: Tensor,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]],
-        vbe_output: Optional[Tensor] = None,
-        vbe_output_offsets: Optional[Tensor] = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None,
+        vbe_output: Tensor | None = None,
+        vbe_output_offsets: Tensor | None = None,
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -2502,12 +2503,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        weights: Optional[Tensor] = None,
-        per_sample_weights: Optional[Tensor] = None,
-        feature_requires_grad: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
-        vbe_output: Optional[Tensor] = None,
-        vbe_output_offsets: Optional[Tensor] = None,
+        weights: Tensor | None = None,
+        per_sample_weights: Tensor | None = None,
+        feature_requires_grad: Tensor | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
+        vbe_output: Tensor | None = None,
+        vbe_output_offsets: Tensor | None = None,
         # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
     ) -> Tensor:
         self.clear_cache()
@@ -2883,10 +2884,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 [start for _, (start, _) in optimizer_state_byte_offsets.items()]
             )
             # Update the start/end pairs to be relative to offset_
-            optimizer_state_byte_offsets = dict(
-                (k, (v1 - offset_, v2 - offset_))
+            optimizer_state_byte_offsets = {
+                k: (v1 - offset_, v2 - offset_)
                 for k, (v1, v2) in optimizer_state_byte_offsets.items()
-            )
+            }
 
             # Since the backend returns cache rows that pack the weights and
             # optimizer states together, reading the whole tensor could cause OOM,
@@ -3125,7 +3126,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.export
     def split_optimizer_states(
         self,
-        sorted_id_tensor: Optional[list[torch.Tensor]] = None,
+        sorted_id_tensor: list[torch.Tensor] | None = None,
         no_snapshot: bool = True,
         should_flush: bool = False,
     ) -> list[list[torch.Tensor]]:
@@ -3138,7 +3139,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         to allow caller to read the optimizer states using `narrow()` in a rolling-window manner.
 
         Args:
-            sorted_id_tensor (Optional[List[torch.Tensor]]): sorted id tensor by table, used to query optimizer
+            sorted_id_tensor (list[torch.Tensor] | None): sorted id tensor by table, used to query optimizer
             state from backend. Call should reuse the generated id tensor from weight state_dict, to guarantee
             id consistency between weight and optimizer states.
 
@@ -3193,7 +3194,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.export
     def get_optimizer_state(
         self,
-        sorted_id_tensor: Optional[list[torch.Tensor]],
+        sorted_id_tensor: list[torch.Tensor] | None,
         no_snapshot: bool = True,
         should_flush: bool = False,
     ) -> list[dict[str, torch.Tensor]]:
@@ -3334,10 +3335,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         no_snapshot: bool = True,
         should_flush: bool = False,
     ) -> tuple[  # TODO: make this a NamedTuple for readability
-        Union[list[PartiallyMaterializedTensor], list[torch.Tensor]],
-        Optional[list[torch.Tensor]],
-        Optional[list[torch.Tensor]],
-        Optional[list[torch.Tensor]],
+        list[PartiallyMaterializedTensor] | list[torch.Tensor],
+        list[torch.Tensor] | None,
+        list[torch.Tensor] | None,
+        list[torch.Tensor] | None,
     ]:
         """
         This method is intended to be used by the checkpointing engine
@@ -3913,11 +3914,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
-        vbe_output: Optional[Tensor] = None,
-        vbe_output_offsets: Optional[Tensor] = None,
-    ) -> tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
+        per_sample_weights: Tensor | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
+        vbe_output: Tensor | None = None,
+        vbe_output_offsets: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor | None, invokers.lookup_args.VBEMetadata]:
         """
         Prepare TBE inputs
         """
@@ -4703,9 +4704,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     enable_tb_metrics=True,
                 )
 
-    def _recording_to_timer(
-        self, timer: Optional[AsyncSeriesTimer], **kwargs: Any
-    ) -> Any:
+    def _recording_to_timer(self, timer: AsyncSeriesTimer | None, **kwargs: Any) -> Any:
         """
         helper function to call AsyncSeriesTimer, wrap it inside the kernels we want to record
         """
