@@ -9,7 +9,7 @@
 import functools
 import logging
 import random
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import nullcontext
 from typing import Optional, Union
 
@@ -248,7 +248,7 @@ def bench_mx4(
     assert group_size > 0, "group_size needs to be > 0"
     assert group_size % 32 == 0, "group_size needs to be multiple of 32"
     assert torch.cuda.is_available(), "NO GPUs available"
-    device = torch.device("cuda")
+    device = torch.accelerator.current_accelerator()
 
     if power_input_size != 0:
         start = power_input_size
@@ -434,6 +434,17 @@ def bench(
     default=True,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="mixdim_trace_{ospid}.json",
+)
 def mixdim(
     flush_gpu_cache_size_mb: int,
     iters: int,
@@ -443,6 +454,8 @@ def mixdim(
     max_dim: int,
     warmup_runs: int,
     manual_seed: bool,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available.")
@@ -474,28 +487,38 @@ def mixdim(
         num_warmups=warmup_runs,
     )
 
-    average_time_mixed_dim_fp32, _ = benchmark(
-        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
-        (
-            input_data,
-            D_offsets,
-            0,
-        ),
-    )  # output is FP32
+    def _kineto_trace_handler(p: profile) -> None:
+        import os
 
-    average_time_mixed_dim_fp16, _ = benchmark_torch_function(
-        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
-        (
-            input_data,
-            D_offsets,
-            1,
-        ),
-    )  # output is FP16
+        p.export_chrome_trace(trace_url.format(ospid=os.getpid()))
 
-    average_time_single_dim, _ = benchmark(
-        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
-        (input_data,),
-    )  # output is FP32
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    with context_factory(_kineto_trace_handler):
+        average_time_mixed_dim_fp32, _ = benchmark(
+            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
+            (
+                input_data,
+                D_offsets,
+                0,
+            ),
+        )  # output is FP32
+
+        average_time_mixed_dim_fp16, _ = benchmark(
+            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
+            (
+                input_data,
+                D_offsets,
+                1,
+            ),
+        )  # output is FP16
+
+        average_time_single_dim, _ = benchmark(
+            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
+            (input_data,),
+        )  # output is FP32
 
     print(
         f"Input tensor batch_size: {batch_size}, num_tables: {num_tables}, tensor_size: {input_data.numel() / (1 << 30)} GB, average table dimension: {sum(table_dims) * 1.0 / num_tables}."
