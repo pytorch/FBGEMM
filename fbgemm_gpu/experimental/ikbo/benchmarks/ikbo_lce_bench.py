@@ -18,7 +18,7 @@ DEVICE = "cuda"
 DTYPE = torch.float16
 PAD_UNIT = 8  # for fp16/bf16
 
-# Representative realistic dimensions.
+# Representative dimensions.
 # M is non-round because torch.compile fuses multiple LCE modules (with output
 # sizes like 128, 64, 32, ...) into one batched matmul; M is their sum.
 M, N, K_USER, K_CAND = 433, 256, 1178, 866
