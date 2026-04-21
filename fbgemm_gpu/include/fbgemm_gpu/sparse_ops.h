@@ -22,6 +22,10 @@ namespace fbgemm_gpu {
 inline void check_total_num_blocks_divisibility(
     const at::Tensor& total_num_blocks,
     int64_t my_size) {
+  TORCH_CHECK(
+      my_size > 0,
+      "block_bucketize_sparse_features: my_size must be > 0, got ",
+      my_size);
   const auto tnb = total_num_blocks.cpu();
   AT_DISPATCH_INDEX_TYPES(
       tnb.scalar_type(),

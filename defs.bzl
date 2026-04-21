@@ -125,23 +125,37 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Types.h",
     ]
 
-def get_fbgemm_avx2_srcs():
-    return [
+def get_fbgemm_avx2_srcs(buck = False):
+    # These 3 depthwise files are also compiled in fbgemm_sve.  On ARM,
+    # exclude them from fbgemm_avx2 to avoid duplicate symbols when
+    # downstream targets pull in both fbgemm_avx2 and fbgemm_sve (the
+    # latter is selected by the main fbgemm target on arm64).
+    depthwise_srcs = [
+        "src/FbgemmI8Depthwise3DAvx2.cc",
+        "src/FbgemmI8DepthwiseAvx2.cc",
+        "src/PackDepthwiseConvMatrixAvx2.cc",
+    ]
+
+    common_srcs = [
         #All the source files that either use avx2 instructions statically
         "src/EmbeddingSpMDMAvx2.cc",
         "src/FbgemmBfloat16ConvertAvx2.cc",
         "src/FbgemmFloat16ConvertAvx2.cc",
-        "src/FbgemmI8Depthwise3DAvx2.cc",
-        "src/FbgemmI8DepthwiseAvx2.cc",
         "src/FbgemmI8DepthwisePerChannelQuantAvx2.cc",
         "src/FbgemmSparseDenseAvx2.cc",
         "src/FbgemmSparseDenseInt8Avx2.cc",
         "src/OptimizedKernelsAvx2.cc",
-        "src/PackDepthwiseConvMatrixAvx2.cc",
         "src/QuantUtilsAvx2.cc",
         "src/spmmUtilsAvx2.cc",
         "src/UtilsAvx2.cc",
     ]
+
+    if buck:
+        return common_srcs + select({
+            "DEFAULT": depthwise_srcs,
+            "ovr_config//cpu:arm64": [],  # Provided by fbgemm_sve on ARM
+        })
+    return common_srcs + depthwise_srcs
 
 def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
     intrinsics_srcs = ["src/FbgemmFP16UKernelsIntrinsicAvx2.cc"]

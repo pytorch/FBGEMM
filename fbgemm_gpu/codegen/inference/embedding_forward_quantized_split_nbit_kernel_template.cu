@@ -139,13 +139,13 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
 
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
+    using AllBuffers = uint4[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
     __shared__ AllBuffers buffers;
 
     {% if weighted %}
     // In case of PackedMode, overallocate indice weights buffer to store additional per-row weights for
     // packed bags.
-    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][PackedMode ? NumUint4LoadsPerRow : 1];
+    using AllIndiceWeights = float[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][PackedMode ? NumUint4LoadsPerRow : 1];
     __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
 

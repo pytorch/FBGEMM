@@ -126,7 +126,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
     """
     split_post_update = """
     if (max_norm > 0.0) {
-        CUDA_KERNEL_ASSERT(!(std::is_same<emb_t, uint8_t>::value && !cache_weights)); // not supported for uint8 yet
+        CUDA_KERNEL_ASSERT(!(std::is_same_v<emb_t, uint8_t> && !cache_weights)); // not supported for uint8 yet
 
         // compute weight norm
         at::acc_type<cache_t, true> weight_sum_square = 0.0;
@@ -932,9 +932,9 @@ def lamb() -> Dict[str, Any]:
     at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D);
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) { if (!cache_weights) {
       qparams = weight_row.load_qparams();
-    }
+    } }
     """
     split_precomputation += generate_optimized_grad_sum_loop_access(
         """
@@ -1038,9 +1038,9 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
     at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D);
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) { if (!cache_weights) {
         qparams = weight_row.load_qparams();
-    }
+    } }
     """
     split_precomputation += generate_optimized_grad_sum_loop_access(
         """
@@ -1378,9 +1378,9 @@ def lars_sgd() -> Dict[str, Any]:
 
     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D);
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) { if (!cache_weights) {
         qparams = weight_row.load_qparams();
-    }
+    } }
     """
     split_precomputation += generate_optimized_grad_sum_loop_access(
         """

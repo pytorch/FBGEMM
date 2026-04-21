@@ -122,7 +122,7 @@ fbgemm_gpu::StreamQueueItem tensor_copy(
                     });
               }
               if (runtime_meta.has_value()) {
-                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                FBGEMM_DISPATCH_ALL_TYPES(
                     runtime_meta->scalar_type(), "tensor_copy", [&] {
                       using runtime_meta_t = scalar_t;
                       auto runtime_meta_addr =
