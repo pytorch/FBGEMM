@@ -88,7 +88,7 @@ class KVCacheTests(unittest.TestCase):
                 torch.tensor(0, device=cls.device)
             )
             cls.compile_backend = "inductor"
-        except torch._dynamo.exc.BackendCompilerFailed:
+        except Exception:
             cls.compile_backend = "eager"
 
     @settings(deadline=None)
