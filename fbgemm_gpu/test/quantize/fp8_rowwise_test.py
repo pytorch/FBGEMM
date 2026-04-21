@@ -227,6 +227,59 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
 
         torch.testing.assert_allclose(dqcat, qref, rtol=0.1, atol=0.05)
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_padded_fp8_rowwise_input_validation(self) -> None:
+        fp32 = SparseType.FP32.as_int()
+        x = torch.rand(2, 32, device=torch.accelerator.current_accelerator())
+        # row_dim must be a positive multiple of 4.
+        for bad in (0, -4, 3, 6):
+            with self.assertRaises(RuntimeError):
+                torch.ops.fbgemm.FloatToPaddedFP8RowwiseQuantized(
+                    x, forward=True, row_dim=bad
+                )
+            with self.assertRaises(RuntimeError):
+                torch.ops.fbgemm.PaddedFP8RowwiseQuantizedToFloat(
+                    torch.zeros(
+                        2,
+                        24,
+                        device=torch.accelerator.current_accelerator(),
+                        dtype=torch.uint8,
+                    ),
+                    forward=True,
+                    row_dim=bad,
+                    output_dtype=fp32,
+                )
+        # Dequant ncols must be a multiple of row_dim + 8.
+        with self.assertRaises(RuntimeError):
+            torch.ops.fbgemm.PaddedFP8RowwiseQuantizedToFloat(
+                torch.zeros(
+                    2,
+                    25,
+                    device=torch.accelerator.current_accelerator(),
+                    dtype=torch.uint8,
+                ),
+                forward=True,
+                row_dim=16,
+                output_dtype=fp32,
+            )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_padded_fp8_rowwise_1d_roundtrip(self) -> None:
+        # Exercises the nrows == 1 path where _get_padding_value_kernel used
+        # to read past the offsets buffer at the boundary thread.
+        fp32 = SparseType.FP32.as_int()
+        for row_dim, num_buckets in [(4, 1), (16, 7), (256, 33)]:
+            x = torch.rand(
+                row_dim * num_buckets, device=torch.accelerator.current_accelerator()
+            )
+            q = torch.ops.fbgemm.FloatToPaddedFP8RowwiseQuantized(
+                x, forward=True, row_dim=row_dim
+            )
+            dq = torch.ops.fbgemm.PaddedFP8RowwiseQuantizedToFloat(
+                q, forward=True, row_dim=row_dim, output_dtype=fp32
+            )
+            torch.testing.assert_close(dq.cpu(), x.cpu(), rtol=0.1, atol=0.05)
+
 
 if __name__ == "__main__":
     unittest.main()
