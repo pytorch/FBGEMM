@@ -608,7 +608,8 @@ batch_index_select_dim0_codegen_forward_cuda(
 
         {%- if has_experimental %}
         const bool is_experimental_ = (
-            is_experimental && !(std::is_same_v<emb_t, uint8_t> || std::is_same_v<output_t, uint8_t>)
+            is_experimental
+            && !(std::is_same_v<emb_t, uint8_t> || std::is_same_v<output_t, uint8_t>)
         );
         // if max_D > {{ legacy_max_embedding_dim }}, use TBE v2
         if (!is_experimental_ && max_D <= {{ legacy_max_embedding_dim }}) {
@@ -809,14 +810,27 @@ batch_index_select_dim0_codegen_forward_cuda(
         // if (!is_experimental)
         } else {
             // Allocate num warps per table based on max_D
-            
+
             const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
             #ifdef USE_ROCM
               const uint32_t num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2);
+              const auto num_threadblocks =
+                  div_round_up(T * num_warps_per_table, num_warps_per_threadblock);
+              const uint64_t num_threads =
+                  static_cast<uint64_t>(num_threadblocks)
+                  * kWarpSize * num_warps_per_threadblock;
+              // Cap the grid only when total threads exceed uint32 limits;
+              // the kernel's grid-striding loop handles the overflow.
+              const auto grid = num_threads >= std::numeric_limits<uint32_t>::max()
+                  ? min(
+                        num_threadblocks,
+                        utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()))
+                  : num_threadblocks;
             #else
               const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
+              const auto grid = div_round_up(T * num_warps_per_table, num_warps_per_threadblock);
             #endif
-            
+
             const auto kernel_func =
               (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
                                   emb_t, cache_t, output_t, index_t, true>
@@ -825,7 +839,7 @@ batch_index_select_dim0_codegen_forward_cuda(
 
             FBGEMM_LAUNCH_KERNEL(
               kernel_func,
-              div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
+              grid,
               dim3(kWarpSize, num_warps_per_threadblock),
               0,
               at::cuda::getCurrentCUDAStream(),

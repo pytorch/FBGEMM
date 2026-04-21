@@ -697,9 +697,6 @@ class ForwardTest(unittest.TestCase):
             use_experimental_tbe,
         )
 
-    @unittest.skip(
-        "Test will be un-skipped with https://github.com/pytorch/FBGEMM/pull/5447"
-    )
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(
         not torch.version.hip,
