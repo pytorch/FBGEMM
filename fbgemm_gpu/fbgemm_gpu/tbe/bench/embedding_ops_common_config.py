@@ -8,7 +8,7 @@
 # pyre-strict
 
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 
 import click
 import torch
@@ -27,7 +27,7 @@ class EmbeddingOpsCommonConfig:
     # Precision of the embedding weights
     weights_dtype: SparseType
     # Precision of the embedding cache
-    cache_dtype: Optional[SparseType]
+    cache_dtype: SparseType | None
     # Precision of the embedding output
     output_dtype: SparseType
     # Enable stochastic rounding when performing quantization
@@ -41,8 +41,7 @@ class EmbeddingOpsCommonConfig:
     # Bounds check mode
     bounds_check_mode: BoundsCheckMode
 
-    # pyre-ignore [3]
-    def validate(self):
+    def validate(self) -> "EmbeddingOpsCommonConfig":
         return self
 
     def split_args(self) -> dict[str, Any]:

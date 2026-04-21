@@ -11,7 +11,6 @@ import io
 import json
 import logging
 import os
-from typing import List, Optional, Tuple
 
 import fbgemm_gpu  # noqa F401
 import torch  # usort:skip
@@ -51,8 +50,8 @@ class TBEBenchmarkParamsReporter:
         report_interval: int,
         report_iter_start: int = 0,
         report_iter_end: int = -1,
-        bucket: Optional[str] = None,
-        path_prefix: Optional[str] = None,
+        bucket: str | None = None,
+        path_prefix: str | None = None,
     ) -> None:
         """
         Initializes the TBEBenchmarkParamsReporter with the specified parameters.
@@ -61,8 +60,8 @@ class TBEBenchmarkParamsReporter:
             report_interval (int): The interval at which reports are generated.
             report_iter_start (int): The start of the iteration range to capture. Defaults to 0.
             report_iter_end (int): The end of the iteration range to capture. Defaults to -1 (last iteration).
-            bucket (Optional[str], optional): The storage bucket for reports. Defaults to None.
-            path_prefix (Optional[str], optional): The path prefix for report storage. Defaults to None.
+            bucket (str | None, optional): The storage bucket for reports. Defaults to None.
+            path_prefix (str | None, optional): The path prefix for report storage. Defaults to None.
         """
 
         assert report_interval > 0, "report_interval must be greater than 0"
@@ -139,9 +138,9 @@ class TBEBenchmarkParamsReporter:
 
     def extract_Ls(
         self,
-        bag_sizes: List[int],
-        Bs: List[int],
-    ) -> List[float]:
+        bag_sizes: list[int],
+        Bs: list[int],
+    ) -> list[float]:
         Ls = []
         start = 0
         for b in Bs:
@@ -157,12 +156,12 @@ class TBEBenchmarkParamsReporter:
         feature_dims: torch.Tensor,
         indices: torch.Tensor,
         offsets: torch.Tensor,
-        per_sample_weights: Optional[torch.Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-        Es: Optional[List[int]] = None,
-        Ds: Optional[List[int]] = None,
-        embedding_specs: Optional[List[Tuple[int, int]]] = None,
-        feature_table_map: Optional[List[int]] = None,
+        per_sample_weights: torch.Tensor | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
+        Es: list[int] | None = None,
+        Ds: list[int] | None = None,
+        embedding_specs: list[tuple[int, int]] | None = None,
+        feature_table_map: list[int] | None = None,
     ) -> TBEDataConfig:
         """
         Extracts parameters from the embedding operation, input indices, and offsets to create a TBEDataConfig.
@@ -172,8 +171,8 @@ class TBEBenchmarkParamsReporter:
             feature_dims (torch.Tensor): Number of dimensions in each feature.
             indices (torch.Tensor): The input indices tensor.
             offsets (torch.Tensor): The input offsets tensor.
-            per_sample_weights (Optional[torch.Tensor], optional): Weights for each sample. Defaults to None.
-            batch_size_per_feature_per_rank (Optional[List[List[int]]], optional): Batch sizes per feature per rank. Defaults to None.
+            per_sample_weights (torch.Tensor | None, optional): Weights for each sample. Defaults to None.
+            batch_size_per_feature_per_rank (list[list[int]] | None, optional): Batch sizes per feature per rank. Defaults to None.
 
         Returns:
             TBEDataConfig: The configuration data for TBE benchmarking.
@@ -316,10 +315,10 @@ class TBEBenchmarkParamsReporter:
         indices: torch.Tensor,
         offsets: torch.Tensor,
         op_id: str = "",
-        per_sample_weights: Optional[torch.Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-        embedding_specs: Optional[List[Tuple[int, int]]] = None,
-        feature_table_map: Optional[List[int]] = None,
+        per_sample_weights: torch.Tensor | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
+        embedding_specs: list[tuple[int, int]] | None = None,
+        feature_table_map: list[int] | None = None,
     ) -> None:
         """
         Reports the configuration of the embedding operation and input data, then writes the TBE configuration to the filestore.
@@ -331,10 +330,10 @@ class TBEBenchmarkParamsReporter:
             indices (torch.Tensor): The input indices tensor.
             offsets (torch.Tensor): The input offsets tensor.
             op_id (str, optional): The operation identifier. Defaults to an empty string.
-            per_sample_weights (Optional[torch.Tensor], optional): Weights for each sample. Defaults to None.
-            batch_size_per_feature_per_rank (Optional[List[List[int]]], optional): Batch sizes per feature per rank. Defaults to None.
-            embedding_specs (Optional[List[Tuple[int, int]]]): Embedding specs. Defaults to None.
-            feature_table_map (Optional[List[int]], optional): Feature table map. Defaults to None.
+            per_sample_weights (torch.Tensor | None, optional): Weights for each sample. Defaults to None.
+            batch_size_per_feature_per_rank (list[list[int]] | None, optional): Batch sizes per feature per rank. Defaults to None.
+            embedding_specs (list[tuple[int, int]] | None): Embedding specs. Defaults to None.
+            feature_table_map (list[int] | None, optional): Feature table map. Defaults to None.
         """
         if (
             (iteration - self.report_iter_start) % self.report_interval == 0

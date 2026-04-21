@@ -13,9 +13,9 @@ import logging
 import os
 import tempfile
 import threading
+from collections.abc import Generator
 from contextlib import contextmanager
 from math import log2
-from typing import Generator, Optional
 
 import torch  # usort:skip
 
@@ -94,7 +94,7 @@ class _RWLock:
 
     @contextmanager
     def write_lock(
-        self, cuda_device: Optional[torch.device] = None
+        self, cuda_device: torch.device | None = None
     ) -> Generator[None, None, None]:
         self.acquire_write()
         try:
@@ -131,12 +131,12 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         embedding_specs: list[
             tuple[str, int, int, SparseType]
         ],  # tuple of (feature_names, rows, dims, SparseType)
-        feature_table_map: Optional[list[int]] = None,  # [T]
+        feature_table_map: list[int] | None = None,  # [T]
         pooling_mode: PoolingMode = PoolingMode.SUM,
         output_dtype: SparseType = SparseType.FP16,
-        row_alignment: Optional[int] = None,
-        fp8_exponent_bits: Optional[int] = None,
-        fp8_exponent_bias: Optional[int] = None,
+        row_alignment: int | None = None,
+        fp8_exponent_bits: int | None = None,
+        fp8_exponent_bias: int | None = None,
         cache_assoc: int = ASSOC,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cache_sets: int = 0,
@@ -154,14 +154,14 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ssd_uniform_init_lower: float = -0.01,
         ssd_uniform_init_upper: float = 0.01,
         # Parameter Server Configs
-        ps_hosts: Optional[tuple[tuple[str, int]]] = None,
-        ps_max_key_per_request: Optional[int] = None,
-        ps_client_thread_num: Optional[int] = None,
-        ps_max_local_index_length: Optional[int] = None,
+        ps_hosts: tuple[tuple[str, int]] | None = None,
+        ps_max_key_per_request: int | None = None,
+        ps_client_thread_num: int | None = None,
+        ps_max_local_index_length: int | None = None,
         tbe_unique_id: int = -1,  # unique id for this embedding, if not set, will derive based on current rank and tbe index id
         enable_cache_locking: bool = False,  # opt-in: lock cache lines during forward to prevent eviction races
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
-        super(SSDIntNBitTableBatchedEmbeddingBags, self).__init__()
+        super().__init__()
 
         assert cache_assoc == ASSOC, (
             f"cache_assoc must match platform ASSOC={ASSOC} "
@@ -590,7 +590,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
+        per_sample_weights: Tensor | None = None,
     ) -> Tensor:
         with self._rw_lock.read_lock():
             return self._forward_impl(indices, offsets, per_sample_weights)
@@ -599,7 +599,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
+        per_sample_weights: Tensor | None = None,
     ) -> Tensor:
         if self.timestep_prefetch_size.get() <= 0:
             with record_function("## prefetch ##"):
@@ -663,13 +663,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.export
     def split_embedding_weights(
         self, split_scale_shifts: bool = True
-    ) -> list[tuple[Tensor, Optional[Tensor]]]:
+    ) -> list[tuple[Tensor, Tensor | None]]:
         """
         Returns a list of weights, split by table.
 
         Testing only, very slow.
         """
-        splits: list[tuple[Tensor, Optional[Tensor]]] = []
+        splits: list[tuple[Tensor, Tensor | None]] = []
         rows_cumsum = 0
         for _, row, dim, weight_ty in self.embedding_specs:
             weights = torch.empty(
