@@ -425,11 +425,22 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   }
   
 #ifdef USE_ROCM
-  // The value is selected empirically. Potential
+  // The values are selected empirically. Potential
   // place for optimization.
-  constexpr size_t kSortIndicesThreshold = 15'000'000;
+  constexpr size_t kSortIndicesUpperThreshold = 15'000'000;
+
+  // Sorting only pays off when there are enough indices to amortize 
+  // the sorting cost, and the crossover point depends on the dtype.
+  constexpr size_t kSortIndicesLowerThresholdLowPrec = 1'000'000;
+  constexpr size_t kSortIndicesLowerThresholdFullPrec = 2'000'000;
+  
+  const bool is_low_precision = first_input.dtype().itemsize() <= 2;
+  const size_t kSortIndicesLowerThreshold = is_low_precision
+      ? kSortIndicesLowerThresholdLowPrec
+      : kSortIndicesLowerThresholdFullPrec;
   const bool use_sorted_indices_for_bwd =
-      (num_total_indices < kSortIndicesThreshold);
+      (num_total_indices >= kSortIndicesLowerThreshold) &&
+      (num_total_indices < kSortIndicesUpperThreshold);
 #else
   const bool use_sorted_indices_for_bwd = false;
   (void)num_total_indices;
