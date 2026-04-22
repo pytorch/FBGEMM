@@ -7,7 +7,6 @@
 # pyre-strict
 # pyre-ignore-all-errors[61]
 
-from typing import Optional
 
 import torch
 
@@ -21,8 +20,8 @@ from fbgemm_gpu.split_embedding_configs import (
 def quantize_embs(
     weight: torch.Tensor,
     weight_ty: SparseType,
-    fp8_config: Optional[FP8QuantizationConfig] = None,
-) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+    fp8_config: FP8QuantizationConfig | None = None,
+) -> tuple[torch.Tensor, torch.Tensor | None]:
     weight = weight.detach()
     if weight_ty == SparseType.FP32:
         q_weight = weight.float()
@@ -70,7 +69,7 @@ def quantize_embs(
         return (res_weight, res_scale_shift)
 
     else:
-        raise RuntimeError("Unsupported SparseType: {}".format(weight_ty))
+        raise RuntimeError(f"Unsupported SparseType: {weight_ty}")
 
 
 def dequantize_embs(
@@ -78,7 +77,7 @@ def dequantize_embs(
     scale_shift: torch.Tensor,
     weight_ty: SparseType,
     use_cpu: bool,
-    fp8_config: Optional[FP8QuantizationConfig] = None,
+    fp8_config: FP8QuantizationConfig | None = None,
     # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
 ) -> torch.Tensor:
     print(f"weight_ty: {weight_ty}")
@@ -160,11 +159,11 @@ def dequantize_embs(
 
 def fake_quantize_embs(
     weights: torch.Tensor,
-    scale_shift: Optional[torch.Tensor],
+    scale_shift: torch.Tensor | None,
     dequant_weights: torch.Tensor,
     weight_ty: SparseType,
     use_cpu: bool,
-    fp8_config: Optional[FP8QuantizationConfig] = None,
+    fp8_config: FP8QuantizationConfig | None = None,
 ) -> None:
     assert (
         weights.dtype == torch.uint8

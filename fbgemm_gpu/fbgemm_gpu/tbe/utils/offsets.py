@@ -6,7 +6,7 @@
 
 # pyre-strict
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -18,15 +18,15 @@ from .common import to_device
 # (T * B * L), offsets with shape (T * B + 1))
 def get_table_batched_offsets_from_dense(
     merged_indices: torch.Tensor,
-    L: Optional[int] = None,
-    total_B: Optional[int] = None,
+    L: int | None = None,
+    total_B: int | None = None,
     use_cpu: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if L is None and total_B is None:
         T, B, L = merged_indices.size()
         total_B = T * B
     # pyre-fixme[6]: For 1st argument expected `Union[Sequence[SupportsIndex],
-    #  SupportsIndex]` but got `Optional[int]`.
+    #  SupportsIndex]` but got `int | None`.
     lengths = np.ones(total_B, dtype=np.int64) * L
     return (
         to_device(merged_indices.contiguous().view(-1), use_cpu),
@@ -50,7 +50,7 @@ def get_offsets_from_dense(indices: torch.Tensor) -> tuple[torch.Tensor, torch.T
 def b_indices(
     b: Callable[..., torch.Tensor],
     x: torch.Tensor,
-    per_sample_weights: Optional[torch.Tensor] = None,
+    per_sample_weights: torch.Tensor | None = None,
     use_cpu: bool = False,
     do_pooling: bool = True,
 ) -> torch.Tensor:

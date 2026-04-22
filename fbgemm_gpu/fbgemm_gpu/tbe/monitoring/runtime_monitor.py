@@ -10,9 +10,10 @@
 import abc
 import logging
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Callable, Optional, TypeVar
+from typing import TypeVar
 
 import torch
 
@@ -126,7 +127,7 @@ class TBEStatsReporterConfig:
     # no collection or reporting
     interval: int = -1
 
-    def create_reporter(self) -> Optional[TBEStatsReporter]:
+    def create_reporter(self) -> TBEStatsReporter | None:
         assert (
             self.interval <= 0
         ), "Cannot specify interval without an actual implementation of reporter"
@@ -135,7 +136,7 @@ class TBEStatsReporterConfig:
 
 @dataclass(frozen=True)
 class StdLogStatsReporterConfig(TBEStatsReporterConfig):
-    def create_reporter(self) -> Optional[TBEStatsReporter]:
+    def create_reporter(self) -> TBEStatsReporter | None:
         if self.interval <= 0:
             return None
         return StdLogStatsReporter(report_interval=self.interval)
@@ -160,7 +161,7 @@ class AsyncSeriesTimerRecordedContext:
         self,
         timer: "AsyncSeriesTimer",
         context: T,
-        stream: Optional[torch.cuda.Stream] = None,
+        stream: torch.cuda.Stream | None = None,
     ) -> None:
         self._context = context
         self._stream = stream
@@ -171,9 +172,9 @@ class AsyncSeriesTimerRecordedContext:
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         self._timer.stop(self._context, self._stream)
 
@@ -194,16 +195,16 @@ class AsyncSeriesTimer:
         self._events_queue: deque[tuple[torch.cuda.Event, torch.cuda.Event, T]] = (
             deque()
         )
-        self._active_start_event: Optional[torch.cuda.Event] = None
+        self._active_start_event: torch.cuda.Event | None = None
         self._report_functor = report_functor
 
-    def start(self, stream: Optional[torch.cuda.Stream] = None) -> None:
+    def start(self, stream: torch.cuda.Stream | None = None) -> None:
         assert self._active_start_event is None, "There's an active recording"
         self._active_start_event = torch.cuda.Event(enable_timing=True)
         self._active_start_event.record(stream)
         self._lazy_report()
 
-    def stop(self, context: T, stream: Optional[torch.cuda.Stream] = None) -> None:
+    def stop(self, context: T, stream: torch.cuda.Stream | None = None) -> None:
         assert self._active_start_event is not None, "There's no active recording"
         active_start_event: torch.cuda.Event = self._active_start_event
 
@@ -214,7 +215,7 @@ class AsyncSeriesTimer:
         self._lazy_report()
 
     def recording(
-        self, context: T, stream: Optional[torch.cuda.Stream] = None
+        self, context: T, stream: torch.cuda.Stream | None = None
     ) -> AsyncSeriesTimerRecordedContext:
         return AsyncSeriesTimerRecordedContext(self, context, stream)
 

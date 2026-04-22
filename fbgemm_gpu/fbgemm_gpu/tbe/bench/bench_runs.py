@@ -11,8 +11,8 @@ import logging
 import statistics
 import threading
 import time
+from collections.abc import Callable
 from subprocess import Popen
-from typing import Callable, Optional
 
 import torch
 
@@ -27,9 +27,9 @@ def bench_warmup(
     request: TBERequest,
     warmup_ms: int,
     warmup_runs: int,
-    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    func: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor],
     bwd_only: bool = False,
-    grad: Optional[torch.Tensor] = None,
+    grad: torch.Tensor | None = None,
 ) -> None:
     indices, offsets, weights = request.unpack_3()
     if warmup_ms:
@@ -50,11 +50,11 @@ def bench_warmup_with_spec(
     warmup_ms: int,
     warmup_runs: int,
     func: Callable[
-        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[list[list[int]]]],
+        [torch.Tensor, torch.Tensor, torch.Tensor | None, list[list[int]] | None],
         torch.Tensor,
     ],
     bwd_only: bool = False,
-    grad: Optional[torch.Tensor] = None,
+    grad: torch.Tensor | None = None,
 ) -> None:
     indices, offsets, weights, batch_size_per_feature_per_rank = request.unpack_4()
     if warmup_ms:
@@ -75,7 +75,7 @@ def bench_warmup_with_spec(
 class BMBarrier:
 
     def __init__(self) -> None:
-        self.bar: Optional[threading.Barrier] = None
+        self.bar: threading.Barrier | None = None
 
     def create_barrier(self, party_size: int) -> None:
         if self.bar is not None:
@@ -96,15 +96,15 @@ cpu_bm_barrier = BMBarrier()
 
 def cpu_tbe_worker(
     requests_: list[TBERequest],
-    func_: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    func_: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor],
     use_barrier: bool = False,
 ) -> float:
     """
     Worker function to process CPU TBE workload.
 
     Args:
-        requests_ (List[TBERequest]): A list of TBERequest objects to be processed. Namely, the dataset.
-        func_ (Callable[[Tensor, Tensor, Optional[Tensor]], Tensor]):
+        requests_ (list[TBERequest]): A list of TBERequest objects to be processed. Namely, the dataset.
+        func_ (Callable[[Tensor, Tensor, Tensor | None], Tensor]):
             The function to process each request, usually the `.forward()` method
             n the embedding module instance.
         use_barrier (bool, optional): Whether to use a barrier to synchronize the
@@ -138,7 +138,7 @@ def benchmark_cpu_requests_mp(
     CPU benchmark request handler with multi-processing support
 
     Args:
-        requests (List[TBERequest]): A list of TBERequest objects to be processed.
+        requests (list[TBERequest]): A list of TBERequest objects to be processed.
         emb_module (torch.nn.Module): The embedding module to be used for processing requests,
             for example, an instance of `IntNBitTableBatchedEmbeddingBagsCodegen` module.
         num_warmups (int, optional): Number of warm-up iterations to perform before benchmarking. Defaults to 0.
@@ -218,7 +218,7 @@ def benchmark_cpu_requests_mp(
 
 def benchmark_cpu_requests(
     requests: list[TBERequest],
-    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    func: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor],
     num_warmups: int = 0,
 ) -> float:
     import time
@@ -236,20 +236,20 @@ def benchmark_cpu_requests(
 
 def benchmark_requests(  # noqa: C901
     requests: list[TBERequest],
-    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    func: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
     num_warmups: int = 0,
     bwd_only: bool = False,
-    grad: Optional[torch.Tensor] = None,
+    grad: torch.Tensor | None = None,
     # Used to label benchmark iterations differently in nsys profile result
     # so that we can compare performance of two different models for example.
     # If empty string is provided, it won't have any effect.
     nvtx_range: str = "",
     # Can be used to clear model's stats after warmup for example.
-    callback_after_warmup: Optional[Callable[[], None]] = None,
+    callback_after_warmup: Callable[[], None] | None = None,
     periodic_logs: bool = False,
-    warmup_ms: Optional[int] = None,
+    warmup_ms: int | None = None,
     iters: int = -1,
 ) -> float:
     times = []
@@ -347,22 +347,22 @@ def benchmark_requests(  # noqa: C901
 def benchmark_requests_with_spec(  # noqa: C901
     requests: list[TBERequest],
     func: Callable[
-        [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[list[list[int]]]],
+        [torch.Tensor, torch.Tensor, torch.Tensor | None, list[list[int]] | None],
         torch.Tensor,
     ],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
     num_warmups: int = 0,
     bwd_only: bool = False,
-    grad: Optional[torch.Tensor] = None,
+    grad: torch.Tensor | None = None,
     # Used to label benchmark iterations differently in nsys profile result
     # so that we can compare performance of two different models for example.
     # If empty string is provided, it won't have any effect.
     nvtx_range: str = "",
     # Can be used to clear model's stats after warmup for example.
-    callback_after_warmup: Optional[Callable[[], None]] = None,
+    callback_after_warmup: Callable[[], None] | None = None,
     periodic_logs: bool = False,
-    warmup_ms: Optional[int] = None,
+    warmup_ms: int | None = None,
     iters: int = -1,
 ) -> float:
     times = []
@@ -555,8 +555,8 @@ def benchmark_requests_refer(
 
 def benchmark_pipelined_requests(
     requests: list[TBERequest],
-    func1: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
-    func2: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
+    func1: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], None],
+    func2: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], None],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
 ) -> tuple[float, float]:
@@ -611,8 +611,8 @@ def benchmark_pipelined_requests(
 
 
 def benchmark_vbe(
-    requests: list[tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
-    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    requests: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]],
+    func: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor],
     num_warmups: int = 0,
 ) -> tuple[float, float]:
     """
@@ -620,11 +620,11 @@ def benchmark_vbe(
     forward and backward of VBE kernels.
 
     Args:
-        requests (List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]):
+        requests (list[tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]]):
             A list of requests.  Each request is a tuple
             of indices, offsets and weights.
 
-        func (Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor]):
+        func (Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor]):
             A function that takes in indices, offsets, and weights
             and returns the output of the VBE kernel.
 
@@ -632,7 +632,7 @@ def benchmark_vbe(
             The number of warm-up iterations before measuring performance.
 
     Returns:
-        Tuple[float, float]:
+        tuple[float, float]:
             A tuple of average execution time in seconds of forward and
             backward of VBE kernels.
     """

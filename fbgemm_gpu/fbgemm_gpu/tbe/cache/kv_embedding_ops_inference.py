@@ -10,8 +10,6 @@
 # pyre-ignore-all-errors[56]
 
 
-from typing import Optional, Union
-
 import torch  # usort:skip
 from torch import Tensor  # usort:skip
 from fbgemm_gpu.split_embedding_configs import SparseType
@@ -50,12 +48,12 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         embedding_specs: list[
             tuple[str, int, int, SparseType, EmbeddingLocation]
         ],  # tuple of (feature_names, rows, dims, SparseType, EmbeddingLocation/placement)
-        feature_table_map: Optional[list[int]] = None,  # [T]
-        index_remapping: Optional[list[Tensor]] = None,
+        feature_table_map: list[int] | None = None,  # [T]
+        index_remapping: list[Tensor] | None = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
-        device: Optional[Union[str, int, torch.device]] = None,
+        device: str | int | torch.device | None = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
-        weight_lists: Optional[list[tuple[Tensor, Optional[Tensor]]]] = None,
+        weight_lists: list[tuple[Tensor, Tensor | None]] | None = None,
         pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
@@ -64,21 +62,21 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
-        record_cache_metrics: Optional[RecordCacheMetrics] = None,
-        gather_uvm_cache_stats: Optional[bool] = False,
-        row_alignment: Optional[int] = None,
-        fp8_exponent_bits: Optional[int] = None,
-        fp8_exponent_bias: Optional[int] = None,
+        record_cache_metrics: RecordCacheMetrics | None = None,
+        gather_uvm_cache_stats: bool | None = False,
+        row_alignment: int | None = None,
+        fp8_exponent_bits: int | None = None,
+        fp8_exponent_bias: int | None = None,
         cache_assoc: int = 32,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cacheline_alignment: bool = True,
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
-        feature_names_per_table: Optional[list[list[str]]] = None,
+        feature_names_per_table: list[list[str]] | None = None,
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
         embedding_cache_mode: bool = False,  # True for zero initialization, False for randomized initialization
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
-        super(KVEmbeddingInference, self).__init__(
+        super().__init__(
             embedding_specs=embedding_specs,
             feature_table_map=feature_table_map,
             index_remapping=index_remapping,
@@ -208,7 +206,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
+        per_sample_weights: Tensor | None = None,
     ) -> Tensor:
         assert (
             self.weight_initialized
@@ -316,7 +314,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         table_id: int,
         update_row_indices: Tensor,
         update_weights: Tensor,
-        inplace_update_ts_sec: Optional[int] = None,
+        inplace_update_ts_sec: int | None = None,
     ) -> None:
         assert table_id < len(
             self.embedding_specs

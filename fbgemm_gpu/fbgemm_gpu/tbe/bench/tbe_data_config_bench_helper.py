@@ -8,7 +8,6 @@
 # pyre-strict
 
 import logging
-from typing import Optional
 
 import numpy as np
 import torch
@@ -35,7 +34,7 @@ except Exception:
 
 def _generate_batch_sizes(
     tbe_data_config: TBEDataConfig,
-) -> tuple[list[int], Optional[list[list[int]]]]:
+) -> tuple[list[int], list[list[int]] | None]:
     logging.info(
         f"DEBUG_TBE: [_generate_batch_sizes] VBE tbe_data_config.variable_B()={tbe_data_config.variable_B()}"
     )
@@ -143,7 +142,7 @@ def _build_requests_jagged(
     tbe_data_config: TBEDataConfig,
     iters: int,
     Bs: list[int],
-    Bs_feature_rank: Optional[list[list[int]]],
+    Bs_feature_rank: list[list[int]] | None,
     L_offsets: torch.Tensor,
     all_indices: torch.Tensor,
 ) -> list[TBERequest]:
@@ -210,7 +209,7 @@ def _build_requests_dense(
 def generate_requests(
     tbe_data_config: TBEDataConfig,
     iters: int = 1,
-    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+    batch_size_per_feature_per_rank: list[list[int]] | None = None,
 ) -> list[TBERequest]:
 
     # Generate batch sizes
@@ -260,7 +259,7 @@ def generate_requests_with_Llist(
     tbe_data_config: TBEDataConfig,
     L_list: torch.Tensor,
     iters: int = 1,
-    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+    batch_size_per_feature_per_rank: list[list[int]] | None = None,
 ) -> list[TBERequest]:
     """
     Generate a list of TBERequest objects based on the provided TBE data configuration and L_list
@@ -271,9 +270,9 @@ def generate_requests_with_Llist(
         tbe_data_config (TBEDataConfig): Configuration object containing batch parameters and pooling parameters.
         L_list (torch.Tensor): Tensor of base sequence lengths for each batch.
         iters (int, optional): Number of iterations to repeat the generated requests. Defaults to 1.
-        batch_size_per_feature_per_rank (Optional[List[List[int]]], optional): Optional batch size specification per feature per rank. Defaults to None.
+        batch_size_per_feature_per_rank (list[list[int]] | None, optional): Optional batch size specification per feature per rank. Defaults to None.
     Returns:
-        List[TBERequest]: A list of TBERequest objects constructed according to the configuration and input parameters.
+        list[TBERequest]: A list of TBERequest objects constructed according to the configuration and input parameters.
     Raises:
         AssertionError: If batch sizes (Bs) are not set in the tbe_data_config.
     Example:

@@ -6,7 +6,6 @@
 
 # pyre-strict
 
-from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -21,7 +20,7 @@ def fill_random_scale_bias(
     weights_precision: SparseType,
 ) -> None:
     for t in range(T):
-        # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
+        # pyre-fixme[29]: `Module | Tensor` is not a function.
         weights, scale_shift = emb.split_embedding_weights()[t]
         if scale_shift is not None:
             E, R = scale_shift.shape
@@ -49,7 +48,7 @@ def fill_random_scale_bias(
 
 def check_oom(
     data_size: int,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     free_memory, total_memory = torch.cuda.mem_get_info()
     if data_size > free_memory:
         warning = f"Expect to allocate {round(data_size / (1024 ** 3), 2)} GB, but available memory is {round(free_memory / (1024 ** 3), 2)} GB from {round(total_memory / (1024 ** 3), 2)} GB."
@@ -58,16 +57,16 @@ def check_oom(
 
 
 def generate_batch_size_per_feature_per_rank(
-    Bs: List[int], num_ranks: int
-) -> List[List[int]]:
+    Bs: list[int], num_ranks: int
+) -> list[list[int]]:
     """
     Generate batch size per feature per rank for VBE, assuming the batch size
     is evenly distributed across ranks.
     Args:
-        Bs (List[int]): batch size per feature
+        Bs (list[int]): batch size per feature
         num_ranks (int): number of ranks
     Returns:
-        List[List[int]]: batch size per feature per rank
+        list[list[int]]: batch size per feature per rank
     """
     b_per_feature_per_rank = []
     for B in Bs:
@@ -82,25 +81,25 @@ def generate_batch_size_per_feature_per_rank(
 
 
 def generate_merged_output_and_offsets(
-    Ds: List[int],
-    Bs: List[int],
+    Ds: list[int],
+    Bs: list[int],
     output_dtype: torch.dtype,
     device: torch.device,
     num_ranks: int = 2,
     num_tbe_ops: int = 2,
-) -> Tuple[List[List[int]], torch.Tensor, torch.Tensor]:
+) -> tuple[list[list[int]], torch.Tensor, torch.Tensor]:
     """
     Generate merged vbe_output and vbe_output_offsets tensors for VBE.
     The vbe_output is a tensor that will contain forward output from all VBE TBE ops.
     The vbe_output_offsets is a tensor that will contain start offsets for the output to be written to.
 
     Args:
-        Ds (List[int]): embedding dimension per feature
-        Bs (List[int]): batch size per feature
+        Ds (list[int]): embedding dimension per feature
+        Bs (list[int]): batch size per feature
         num_ranks (int): number of ranks
         num_tbe_ops (int): number of TBE ops
     Returns:
-        Tuple[List[List[int]], torch.Tensor, torch.Tensor]: batch_size_per_feature_per_rank, merged vbe_output and vbe_output_offsets tensors
+        tuple[list[list[int]], torch.Tensor, torch.Tensor]: batch_size_per_feature_per_rank, merged vbe_output and vbe_output_offsets tensors
     """
     # The first embedding ops is the embedding op created in the benchmark
     emb_op = {}
@@ -138,7 +137,7 @@ def generate_merged_output_and_offsets(
                 ranks[r].append(output_size_per_batch)
                 total_output += output_size_per_batch
     ranks[0].insert(0, 0)
-    offsets_ranks: List[List[int]] = [[] for _ in range(num_ranks)]
+    offsets_ranks: list[list[int]] = [[] for _ in range(num_ranks)]
     total_output_offsets = []
     start = 0
     for r in range(num_ranks):

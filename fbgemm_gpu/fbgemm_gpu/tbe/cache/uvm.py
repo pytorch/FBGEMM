@@ -8,7 +8,6 @@
 # pyre-strict
 
 from enum import Enum
-from typing import Optional
 
 import torch
 
@@ -22,7 +21,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
 
 # Import all uvm enums from c++ library
-# pyre-fixme[6]: For 2nd argument expected `() -> List[Tuple[str, List[Tuple[str,
+# pyre-fixme[6]: For 2nd argument expected `() -> list[tuple[str, list[tuple[str,
 #  int]]]]` but got `OpOverloadPacket`.
 create_enums(globals(), torch.ops.fbgemm.fbgemm_gpu_uvm_enum_query)
 
@@ -36,6 +35,6 @@ def cudaMemAdvise(
 
 def cudaMemPrefetchAsync(
     t: torch.Tensor,
-    device_t: Optional[torch.Tensor] = None,
+    device_t: torch.Tensor | None = None,
 ) -> None:
     torch.ops.fbgemm.cuda_mem_prefetch_async(t, device_t)

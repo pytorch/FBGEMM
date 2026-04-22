@@ -18,7 +18,7 @@ import torch
 DEVICE = "cuda"
 DTYPE = torch.float16
 
-# Representative realistic dimensions.
+# Representative dimensions.
 B, M, N, K_USER, K_CAND = 1024, 433, 256, 1178, 866
 CAND_TO_USER_RATIO = 70
 
