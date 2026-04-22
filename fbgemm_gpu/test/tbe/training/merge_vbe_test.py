@@ -5,7 +5,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
+# pyre-strict
 
 # pyre-ignore-all-errors[56]
 
@@ -84,7 +84,7 @@ class EmbeddingBag:
         weights_precision: SparseType,
         feature_table_map: Optional[List[int]],
         is_ssd: bool = False,
-    ):
+    ) -> None:
         self.T = (
             len(embedding_specs)
             if feature_table_map is None
@@ -305,7 +305,7 @@ class MergeVBETest(unittest.TestCase):
         features_list: Optional[list[int]] = None,
         dims_list: Optional[list[int]] = None,
         Bs_feature_rank_list: Optional[List[List[List[int]]]] = None,
-    ):
+    ) -> None:
         """
         Execute merge VBE
 
@@ -503,9 +503,9 @@ class MergeVBETest(unittest.TestCase):
     @settings(**common_settings)
     def test_merge_VBE_nonSSD(  # noqa C901
         self,
-        optimizer,
-        weights_precision,
-        output_dtype,
+        optimizer: OptimType,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
         **kwargs: Any,
     ) -> None:
         """
@@ -530,7 +530,7 @@ class MergeVBETest(unittest.TestCase):
     @settings(**common_settings)
     def test_merge_VBE_simple(  # noqa C901
         self,
-        num_ssd,
+        num_ssd: int,
     ) -> None:
         """
         Test merge VBE simple case
