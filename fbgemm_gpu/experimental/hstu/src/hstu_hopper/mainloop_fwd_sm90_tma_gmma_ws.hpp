@@ -633,6 +633,7 @@ struct CollectiveMainloopFwd {
               flatten(sVt_divide(_, i, j, stage)));
         }
       }
+      cutlass::arch::fence_view_async_shared();
       cutlass::arch::NamedBarrier::sync(
           cutlass::NumThreadsPerWarpGroup,
           static_cast<int>(FwdNamedBarriers::ProducerWG));
