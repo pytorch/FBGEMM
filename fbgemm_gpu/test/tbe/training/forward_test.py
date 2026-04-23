@@ -1194,6 +1194,7 @@ class ForwardTest(unittest.TestCase):
             weighted = random.choice([True, False])
         else:
             weighted = False
+        print("just before execute_forward_ call - check the error on CI/CD")
         self.execute_forward_(
             T,
             D,
