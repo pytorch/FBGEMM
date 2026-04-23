@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import FrozenSet, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 import torch
 from torch import Tensor
@@ -33,8 +33,7 @@ class EmbeddingLocation(enum.IntEnum):
     MTIA = 4
 
     @classmethod
-    # pyre-ignore[3]
-    def str_values(cls):
+    def str_values(cls) -> list[str]:
         return [
             "device",
             "managed",
@@ -44,8 +43,7 @@ class EmbeddingLocation(enum.IntEnum):
         ]
 
     @classmethod
-    # pyre-ignore[3]
-    def from_str(cls, key: str):
+    def from_str(cls, key: str) -> "EmbeddingLocation":
         lookup = {
             "device": EmbeddingLocation.DEVICE,
             "managed": EmbeddingLocation.MANAGED,
@@ -66,37 +64,37 @@ class EvictionPolicy(NamedTuple):
     eviction_strategy: int = (
         0  # 0: timestamp, 1: counter , 2: counter + timestamp, 3: feature l2 norm 4: timestamp threshold 5: feature score
     )
-    eviction_step_intervals: Optional[int] = (
+    eviction_step_intervals: int | None = (
         None  # trigger_step_interval if trigger mode is iteration
     )
-    eviction_mem_threshold_gb: Optional[int] = (
+    eviction_mem_threshold_gb: int | None = (
         None  # eviction trigger condition if trigger mode is mem_util
     )
-    counter_thresholds: Optional[list[int]] = (
+    counter_thresholds: list[int] | None = (
         None  # count_thresholds for each table if eviction strategy is counter
     )
-    ttls_in_mins: Optional[list[int]] = (
+    ttls_in_mins: list[int] | None = (
         None  # ttls_in_mins for each table if eviction strategy is timestamp
     )
-    counter_decay_rates: Optional[list[float]] = (
+    counter_decay_rates: list[float] | None = (
         None  # count_decay_rates for each table if eviction strategy is counter
     )
-    feature_score_counter_decay_rates: Optional[list[float]] = (
+    feature_score_counter_decay_rates: list[float] | None = (
         None  # feature_score_counter_decay_rates for each table if eviction strategy is feature score
     )
-    training_id_eviction_trigger_count: Optional[list[int]] = (
+    training_id_eviction_trigger_count: list[int] | None = (
         None  # Number of training IDs that, when exceeded, will trigger eviction for each table.
     )
-    training_id_keep_count: Optional[list[int]] = (
+    training_id_keep_count: list[int] | None = (
         None  # Target number of training IDs to retain in each table after eviction.
     )
-    l2_weight_thresholds: Optional[list[float]] = (
+    l2_weight_thresholds: list[float] | None = (
         None  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
     )
-    threshold_calculation_bucket_stride: Optional[float] = (
+    threshold_calculation_bucket_stride: float | None = (
         0.2  # The width of each feature score bucket used for threshold calculation in feature score-based eviction.
     )
-    threshold_calculation_bucket_num: Optional[int] = (
+    threshold_calculation_bucket_num: int | None = (
         1000000  # 1M, Total number of feature score buckets used for threshold calculation in feature score-based eviction.
     )
     interval_for_insufficient_eviction_s: int = (
@@ -112,14 +110,14 @@ class EvictionPolicy(NamedTuple):
     interval_for_feature_statistics_decay_s: int = (
         24 * 3600  # 1 day, interval for feature statistics decay
     )
-    meta_header_lens: Optional[list[int]] = None  # metaheader length for each table
-    eviction_free_mem_threshold_gb: Optional[int] = (
+    meta_header_lens: list[int] | None = None  # metaheader length for each table
+    eviction_free_mem_threshold_gb: int | None = (
         None  # Minimum free memory (in GB) required before triggering eviction when using free_mem trigger mode.
     )
-    eviction_free_mem_check_interval_batch: Optional[int] = (
+    eviction_free_mem_check_interval_batch: int | None = (
         None  # Number of batches between checks for free memory threshold when using free_mem trigger mode.
     )
-    enable_eviction_for_feature_score_eviction_policy: Optional[list[bool]] = (
+    enable_eviction_for_feature_score_eviction_policy: list[bool] | None = (
         None  # enable eviction if eviction policy is feature score, false means no eviction
     )
 
@@ -290,10 +288,10 @@ class KVZCHParams(NamedTuple):
     eviction_policy: EvictionPolicy = EvictionPolicy()
     embedding_cache_mode: bool = False
     load_ckpt_without_opt: bool = False
-    optimizer_type_for_st: Optional[str] = None
-    optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
+    optimizer_type_for_st: str | None = None
+    optimizer_state_dtypes_for_st: frozenset[tuple[str, int]] | None = None
     # Enrichment config for embedding cache enrichment from external sources
-    enrichment_policy: Optional[EnrichmentPolicy] = None
+    enrichment_policy: EnrichmentPolicy | None = None
     feature_score_collection_enabled: bool = False
 
     def validate(self) -> None:
@@ -317,15 +315,15 @@ class KVZCHTBEConfig(NamedTuple):
     # The width of each feature score bucket used for threshold calculation in feature score-based eviction.
     threshold_calculation_bucket_stride: float = 0.2
     # Total number of feature score buckets used for threshold calculation in feature score-based eviction.
-    threshold_calculation_bucket_num: Optional[int] = 1000000  # 1M
+    threshold_calculation_bucket_num: int | None = 1000000  # 1M
     # When true, we only save weight to kvzch backend and not optimizer state.
     load_ckpt_without_opt: bool = False
     # [DO NOT USE] This is for st publish only, do not set it in your config
-    optimizer_type_for_st: Optional[str] = None
+    optimizer_type_for_st: str | None = None
     # [DO NOT USE] This is for st publish only, do not set it in your config
-    optimizer_state_dtypes_for_st: Optional[FrozenSet[Tuple[str, int]]] = None
+    optimizer_state_dtypes_for_st: frozenset[tuple[str, int]] | None = None
     # Enrichment policy for embedding cache enrichment from external sources (e.g. Laser)
-    enrichment_policy: Optional[EnrichmentPolicy] = None
+    enrichment_policy: EnrichmentPolicy | None = None
 
 
 class BackendType(enum.IntEnum):
@@ -334,8 +332,7 @@ class BackendType(enum.IntEnum):
     PS = 2
 
     @classmethod
-    # pyre-ignore[3]
-    def from_str(cls, key: str):
+    def from_str(cls, key: str) -> "BackendType":
         lookup = {
             "ssd": BackendType.SSD,
             "dram": BackendType.DRAM,
@@ -373,8 +370,7 @@ class PoolingMode(enum.IntEnum):
         return self is not PoolingMode.NONE
 
     @classmethod
-    # pyre-ignore[3]
-    def from_str(cls, key: str):
+    def from_str(cls, key: str) -> "PoolingMode":
         lookup = {
             "sum": PoolingMode.SUM,
             "mean": PoolingMode.MEAN,

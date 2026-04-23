@@ -7,7 +7,6 @@
 
 # pyre-unsafe
 
-from typing import List, Optional
 
 import torch  # usort:skip
 from torch import Tensor  # usort:skip
@@ -21,12 +20,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 
 def generate_vbe_metadata(
     offsets: Tensor,
-    batch_size_per_feature_per_rank: Optional[list[list[int]]],
+    batch_size_per_feature_per_rank: list[list[int]] | None,
     pooling_mode: PoolingMode,
     feature_dims_cpu: Tensor,
     device: torch.device,
-    vbe_output: Optional[Tensor] = None,
-    vbe_output_offsets: Optional[Tensor] = None,
+    vbe_output: Tensor | None = None,
+    vbe_output_offsets: Tensor | None = None,
 ) -> invokers.lookup_args.VBEMetadata:
     """
     Generate VBE metadata based on batch_size_per_feature_per_rank.
@@ -139,9 +138,9 @@ def generate_vbe_metadata(
 
 def check_allocated_vbe_output(
     output_dtype: int,
-    batch_size_per_feature_per_rank: Optional[List[List[int]]],
-    vbe_output: Optional[Tensor] = None,
-    vbe_output_offsets: Optional[Tensor] = None,
+    batch_size_per_feature_per_rank: list[list[int]] | None,
+    vbe_output: Tensor | None = None,
+    vbe_output_offsets: Tensor | None = None,
 ) -> None:
     assert (
         batch_size_per_feature_per_rank is not None

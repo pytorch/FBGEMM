@@ -15,10 +15,11 @@ import logging
 import math
 import os
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
-from typing import Any, Callable, Optional, Union
+from typing import Any
 
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
@@ -216,8 +217,8 @@ class PrefetchedInfo:
         linear_unique_indices: torch.Tensor,
         linear_unique_cache_indices: torch.Tensor,
         linear_unique_indices_length: torch.Tensor,
-        hash_zch_identities: Optional[torch.Tensor],
-        hash_zch_runtime_meta: Optional[torch.Tensor],
+        hash_zch_identities: torch.Tensor | None,
+        hash_zch_runtime_meta: torch.Tensor | None,
     ) -> None:
         self.linear_unique_indices = linear_unique_indices
         self.linear_unique_cache_indices = linear_unique_cache_indices
@@ -232,7 +233,7 @@ def construct_split_state(
     cacheable: bool,
     precision: SparseType = SparseType.FP32,
     int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET,
-    placement: Optional[EmbeddingLocation] = None,
+    placement: EmbeddingLocation | None = None,
 ) -> SplitState:
     placements: list[EmbeddingLocation] = []
     offsets: list[int] = []
@@ -276,9 +277,7 @@ def construct_split_state(
 
 def apply_split_helper(
     persistent_state_fn: Callable[[str, Tensor], None],
-    set_attr_fn: Callable[
-        [str, Union[Tensor, list[int], list[EmbeddingLocation]]], None
-    ],
+    set_attr_fn: Callable[[str, Tensor | list[int] | list[EmbeddingLocation]], None],
     current_device: torch.device,
     use_cpu: bool,
     feature_table_map: list[int],
@@ -287,8 +286,8 @@ def apply_split_helper(
     dtype: type[torch.dtype],
     enforce_hbm: bool = False,
     make_dev_param: bool = False,
-    dev_reshape: Optional[tuple[int, ...]] = None,
-    uvm_tensors_log: Optional[list[str]] = None,
+    dev_reshape: tuple[int, ...] | None = None,
+    uvm_tensors_log: list[str] | None = None,
     uvm_host_mapped: bool = False,
     make_persistent: bool = False,
 ) -> None:
@@ -326,8 +325,8 @@ def apply_split_helper(
         host_buffer = torch.zeros(
             split.host_size,
             device=current_device,
-            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
-            #  3rd param but got `Type[Type[torch._dtype]]`.
+            # pyre-fixme[6]: Expected `type[torch._dtype] | None` for
+            #  3rd param but got `type[type[torch._dtype]]`.
             dtype=dtype,
         )
         if dtype == torch.uint8:
@@ -350,7 +349,7 @@ def apply_split_helper(
     else:
         persistent_state_fn(
             f"{prefix}_host",
-            # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
+            # pyre-fixme[6]: For 3rd param expected `dtype` but got `type[dtype]`.
             torch.empty(0, device=current_device, dtype=dtype),
         )
     if split.uvm_size > 0:
@@ -362,8 +361,8 @@ def apply_split_helper(
                 torch.zeros(
                     split.uvm_size,
                     device=current_device,
-                    # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
-                    #  3rd param but got `Type[Type[torch._dtype]]`.
+                    # pyre-fixme[6]: Expected `type[torch._dtype] | None` for
+                    #  3rd param but got `type[type[torch._dtype]]`.
                     dtype=dtype,
                 ),
             )
@@ -374,8 +373,8 @@ def apply_split_helper(
                     split.uvm_size,
                     device=current_device,
                     out=torch.ops.fbgemm.new_unified_tensor(
-                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
-                        #  for 3rd param but got `Type[Type[torch._dtype]]`.
+                        # pyre-fixme[6]: Expected `type[torch._dtype] | None`
+                        #  for 3rd param but got `type[type[torch._dtype]]`.
                         torch.zeros(1, device=current_device, dtype=dtype),
                         [split.uvm_size],
                         is_host_mapped=uvm_host_mapped,
@@ -387,7 +386,7 @@ def apply_split_helper(
     else:
         persistent_state_fn(
             f"{prefix}_uvm",
-            # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
+            # pyre-fixme[6]: For 3rd param expected `dtype` but got `type[dtype]`.
             torch.empty(0, device=current_device, dtype=dtype),
         )
 
@@ -411,7 +410,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     backward.
 
     Args:
-        embedding_specs (List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]):
+        embedding_specs (list[tuple[int, int, EmbeddingLocation, ComputeDevice]]):
             A list of embedding specifications. Each spec describes a
             specification of a physical embedding table. Each one is a tuple of
             number of embedding rows, embedding dimension (must be a multiple of
@@ -441,7 +440,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (3) `MTIA` = performing table lookup on MTIA
 
-        feature_table_map (Optional[List[int]] = None): An optional list that
+        feature_table_map (list[int] | None = None): An optional list that
             specifies feature-table mapping. feature_table_map[i] indicates the
             physical embedding table that feature i maps to.
 
@@ -506,13 +505,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             (11) `NONE` = Not applying an optimizer update in the backward pass
                 and outputting a sparse weight gradient
 
-        record_cache_metrics (Optional[RecordCacheMetrics] = None): Record
+        record_cache_metrics (RecordCacheMetrics | None = None): Record
             a number of hits, a number of requests, etc if
             `RecordCacheMetrics.record_cache_miss_counter` is True and record
             the similar metrics table-wise if
             `RecordCacheMetrics.record_tablewise_cache_miss is True`
 
-        gather_uvm_cache_stats (Optional[bool] = False): If True, collect the
+        gather_uvm_cache_stats (bool | None = False): If True, collect the
             cache statistics when `EmbeddingLocation` is set to
             `MANAGED_CACHING`
 
@@ -554,16 +553,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         beta2 (float = 0.999): The beta2 value used by LAMB and ADAM
 
-        ensemble_mode (Optional[EnsembleModeDefinition] = None):
+        ensemble_mode (EnsembleModeDefinition | None = None):
             Used by Ensemble Rowwise Adagrad
 
-        emainplace_mode (Optional[EmainplaceModeDefinition] = None):
+        emainplace_mode (EmainplaceModeDefinition | None = None):
             Used by EMA in-place Rowwise Adagrad
 
-        counter_based_regularization (Optional[CounterBasedRegularizationDefinition] = None):
+        counter_based_regularization (CounterBasedRegularizationDefinition | None = None):
             Used by Rowwise Adagrad
 
-        cowclip_regularization (Optional[CowClipDefinition] = None): Used by
+        cowclip_regularization (CowClipDefinition | None = None): Used by
             Rowwise Adagrad
 
         pooling_mode (PoolingMode = PoolingMode.SUM): Pooling mode. Available
@@ -575,7 +574,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (3) `NONE` = No pooling (sequence embedding)
 
-        device (Optional[Union[str, int, torch.device]] = None): The current
+        device (str | int | torch.device | None = None): The current
             device to place tensors on
 
         bounds_check_mode (BoundsCheckMode = BoundsCheckMode.WARNING): Input
@@ -607,28 +606,28 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for prefetch, the optional `forward_stream` arg of prefetch
             function must be set.
 
-        stats_reporter_config (Optional[TBEStatsReporterConfig] = None):
+        stats_reporter_config (TBEStatsReporterConfig | None = None):
             A config for TBE stats reporter
 
-        table_names (Optional[List[str]] = None): A list of embedding table
+        table_names (list[str] | None = None): A list of embedding table
             names in this TBE
 
-        optimizer_state_dtypes (Optional[Dict[str, SparseType]] = None): A
+        optimizer_state_dtypes (dict[str, SparseType] | None = None): A
             optimizer state data types dict. Keys are the optimizer state names
             and values are their corresponding types
 
-        multipass_prefetch_config (Optional[MultiPassPrefetchConfig] = None):
+        multipass_prefetch_config (MultiPassPrefetchConfig | None = None):
             A config for multipass cache prefetching (when
             `EmbeddingLocation.MANAGED_CACHING` is used)
 
-        global_weight_decay (Optional[GlobalWeightDecayDefinition] = None):
+        global_weight_decay (GlobalWeightDecayDefinition | None = None):
             A config for global weight decay
 
         uvm_host_mapped (bool = False): If True, allocate every UVM tensor
             using `malloc` + `cudaHostRegister`. Otherwise use
             `cudaMallocManaged`
 
-        extra_optimizer_config Optional[UserEnabledConfigDefinition] = None):
+        extra_optimizer_config UserEnabledConfigDefinition | None = None):
             An extra config to enable certain modes for optimizer. These modes
             are not enabled by default.
             - `use_rowwise_bias_correction` is used in Adam to enable rowwise
@@ -642,7 +641,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             the embedding table offset tensor. Options are `torch.int32` and
             `torch.int64`
 
-        embedding_shard_info (Optional[List[Tuple[int, int, int, int]]] = None): the
+        embedding_shard_info (list[tuple[int, int, int, int]] | None = None): the
             information about shard position and pre-sharded table size. If not set,
             the table is not sharded.
             (preshard_table_height, preshard_table_dim, height_offset, dim_offset)
@@ -650,7 +649,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         enable_raw_embedding_streaming (bool = False): Whether to enable raw
             embedding streaming (RES) for streaming embedding table data.
 
-        res_params (Optional[RESParams] = None): Parameters for raw embedding
+        res_params (RESParams | None = None): Parameters for raw embedding
             streaming. If not provided and `enable_raw_embedding_streaming` is
             True, defaults to RESParams().
 
@@ -671,7 +670,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     uuid: str
     # pyre-fixme[13]: Attribute `last_uvm_cache_print_state` is never initialized.
     last_uvm_cache_print_state: torch.Tensor
-    _vbe_B_offsets: Optional[torch.Tensor]
+    _vbe_B_offsets: torch.Tensor | None
     _vbe_max_B: int
 
     def __init__(  # noqa C901
@@ -679,18 +678,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         embedding_specs: list[
             tuple[int, int, EmbeddingLocation, ComputeDevice]
         ],  # tuple of (rows, dims, placements, compute_devices)
-        feature_table_map: Optional[list[int]] = None,  # [T]
+        feature_table_map: list[int] | None = None,  # [T]
         cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
         cache_load_factor: float = 0.2,
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
-        cache_precision: Optional[SparseType] = None,
+        cache_precision: SparseType | None = None,
         weights_precision: SparseType = SparseType.FP32,
         output_dtype: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,
         optimizer: OptimType = OptimType.EXACT_SGD,
-        record_cache_metrics: Optional[RecordCacheMetrics] = None,
-        gather_uvm_cache_stats: Optional[bool] = False,
+        record_cache_metrics: RecordCacheMetrics | None = None,
+        gather_uvm_cache_stats: bool | None = False,
         # General Optimizer args
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
@@ -704,34 +703,34 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         eta: float = 0.001,
         beta1: float = 0.9,
         beta2: float = 0.999,
-        ensemble_mode: Optional[EnsembleModeDefinition] = None,
-        emainplace_mode: Optional[EmainplaceModeDefinition] = None,
-        counter_based_regularization: Optional[
+        ensemble_mode: EnsembleModeDefinition | None = None,
+        emainplace_mode: EmainplaceModeDefinition | None = None,
+        counter_based_regularization: None | (
             CounterBasedRegularizationDefinition
-        ] = None,
-        cowclip_regularization: Optional[CowClipDefinition] = None,
+        ) = None,
+        cowclip_regularization: CowClipDefinition | None = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
-        device: Optional[Union[str, int, torch.device]] = None,
+        device: str | int | torch.device | None = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         uvm_non_rowwise_momentum: bool = False,
         use_experimental_tbe: bool = False,
         prefetch_pipeline: bool = False,
-        stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
-        table_names: Optional[list[str]] = None,
-        optimizer_state_dtypes: Optional[dict[str, SparseType]] = None,
-        multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
-        global_weight_decay: Optional[GlobalWeightDecayDefinition] = None,
+        stats_reporter_config: TBEStatsReporterConfig | None = None,
+        table_names: list[str] | None = None,
+        optimizer_state_dtypes: dict[str, SparseType] | None = None,
+        multipass_prefetch_config: MultiPassPrefetchConfig | None = None,
+        global_weight_decay: GlobalWeightDecayDefinition | None = None,
         uvm_host_mapped: bool = False,
-        extra_optimizer_config: Optional[UserEnabledConfigDefinition] = None,
-        tbe_input_multiplexer_config: Optional[TBEInputMultiplexerConfig] = None,
+        extra_optimizer_config: UserEnabledConfigDefinition | None = None,
+        tbe_input_multiplexer_config: TBEInputMultiplexerConfig | None = None,
         embedding_table_index_type: torch.dtype = torch.int64,
         embedding_table_offset_type: torch.dtype = torch.int64,
-        embedding_shard_info: Optional[list[tuple[int, int, int, int]]] = None,
+        embedding_shard_info: list[tuple[int, int, int, int]] | None = None,
         enable_raw_embedding_streaming: bool = False,
-        res_params: Optional[RESParams] = None,
+        res_params: RESParams | None = None,
         is_qr_tbe: bool = False,
     ) -> None:
-        super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
+        super().__init__()
         self.uuid = str(uuid.uuid4())
         self.log("SplitTableBatchedEmbeddingBagsCodegen API: V2")
         self.log(f"SplitTableBatchedEmbeddingBagsCodegen Arguments: {locals()}")
@@ -739,7 +738,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
         )
 
-        self.table_names: Optional[list[str]] = table_names
+        self.table_names: list[str] | None = table_names
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.enable_raw_embedding_streaming: bool = enable_raw_embedding_streaming
         self.pooling_mode = pooling_mode
@@ -795,7 +794,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.prefetch_pipeline: bool = prefetch_pipeline
         self.lock_cache_line: bool = self.prefetch_pipeline
         self.use_uniq_cache_locations_bwd: bool = self.prefetch_pipeline
-        self.multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = (
+        self.multipass_prefetch_config: MultiPassPrefetchConfig | None = (
             multipass_prefetch_config
         )
 
@@ -900,13 +899,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Reporter to collect runtime performance stats bottom-up. Reporter may
         # do aggregation across TBEs and publish results per training batch.
         # Example of stats include UVM cache hit rate, table I/O size, etc.
-        self.stats_reporter: Optional[TBEStatsReporter] = (
+        self.stats_reporter: TBEStatsReporter | None = (
             stats_reporter_config.create_reporter() if stats_reporter_config else None
         )
         self._uvm_tensors_log: list[str] = []
 
-        self.bwd_wait_prefetch_timer: Optional[AsyncSeriesTimer] = None
-        self.prefetch_duration_timer: Optional[AsyncSeriesTimer] = None
+        self.bwd_wait_prefetch_timer: AsyncSeriesTimer | None = None
+        self.prefetch_duration_timer: AsyncSeriesTimer | None = None
         if self.stats_reporter:
             # When stats_reporter is present, we set up async series timer to
             # measure the GPU time per tracked event accordingly. Each of them
@@ -944,7 +943,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             full_table_dims = dims
             row_offset = [0] * len(rows)
             col_offset = [0] * len(rows)
-        self.tbe_input_multiplexer: Optional[TBEInputMultiplexer] = (
+        self.tbe_input_multiplexer: TBEInputMultiplexer | None = (
             tbe_input_multiplexer_config.create_tbe_input_multiplexer(
                 tbe_info=TBEInfo(
                     table_names=(
@@ -1052,8 +1051,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._apply_split(
             weight_split,
             prefix="weights",
-            # pyre-fixme[6]: For 3rd param expected `Type[Type[_dtype]]` but got
-            #  `Type[_dtype]`.
+            # pyre-fixme[6]: For 3rd param expected `type[type[_dtype]]` but got
+            #  `type[_dtype]`.
             dtype=table_embedding_dtype,
             enforce_hbm=enforce_hbm,
             make_dev_param=optimizer == OptimType.NONE,
@@ -1264,8 +1263,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         ),
                     ),
                     prefix="momentum1",
-                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                    #  but got `Type[torch.float32]`.
+                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
+                    #  but got `type[torch.float32]`.
                     dtype=momentum1_dtype,
                     enforce_hbm=enforce_hbm,
                     uvm_host_mapped=self.uvm_host_mapped,
@@ -1301,8 +1300,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         ),
                     ),
                     prefix="momentum2",
-                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                    #  but got `Type[torch.float32]`.
+                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
+                    #  but got `type[torch.float32]`.
                     dtype=momentum2_dtype,
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
@@ -1320,8 +1319,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     # TODO: ideally we should use int64 to track iter but it failed to compile.
                     # It may be related to low precision training code. Currently using float32
                     # as a workaround while investigating the issue.
-                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                    #  but got `Type[torch.float32]`.
+                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
+                    #  but got `type[torch.float32]`.
                     dtype=torch.float32,
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
@@ -1332,8 +1331,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         cacheable=False,
                     ),
                     prefix="row_counter",
-                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                    #  but got `Type[torch.float32]`.
+                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
+                    #  but got `type[torch.float32]`.
                     dtype=torch.float32,
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
@@ -1351,8 +1350,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     # TODO: ideally we should use int64 to track iter but it failed to compile.
                     # It may be related to low precision training code. Currently using float32
                     # as a workaround while investigating the issue.
-                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                    #  but got `Type[torch.float32]`.
+                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
+                    #  but got `type[torch.float32]`.
                     dtype=torch.float32,
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
@@ -1370,8 +1369,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         cacheable=False,
                     ),
                     prefix="row_counter",
-                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                    #  but got `Type[torch.float32]`.
+                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
+                    #  but got `type[torch.float32]`.
                     dtype=torch.float32,
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
@@ -1477,7 +1476,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._writeback_first_feature_only: bool = (
             extra_optimizer_config.writeback_first_feature_only
         )
-        self._writeback_precomputed_index: Optional[Tensor] = None
+        self._writeback_precomputed_index: Tensor | None = None
         self._precompute_writeback: bool = extra_optimizer_config.precompute_writeback
 
         # Get a debug function pointer
@@ -1495,7 +1494,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.log(
                 f"SplitTableBatchedEmbeddingBagsCodegen:  use_writeback_bwd_prehook is enabled with first feature only={self._writeback_first_feature_only}"
             )
-            # pyre-fixme[6]: Expected `typing.Callable[[Module, Union[Tensor, typing.Tuple[Tensor, ...]]], Union[None, Tensor, typing.Tuple[Tensor, ...]]]`
+            # pyre-fixme[6]: Expected `typing.Callable[[Module, Tensor | typing.tuple[Tensor, ...]], None | Tensor | typing.tuple[Tensor, ...]]`
             self.register_full_backward_pre_hook(self.writeback_hook)
 
         if embedding_table_index_type not in [torch.int32, torch.int64]:
@@ -1566,7 +1565,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(
                     1,
                     device=self.current_device,
-                    # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.empty`, for argument `dtype`, expected `Optional[dtype]` but got `Union[Module, dtype, Tensor]`
+                    # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.empty`, for argument `dtype`, expected `dtype | None` but got `Module | dtype | Tensor`
                     dtype=self.lxu_cache_weights.dtype,
                 ),
                 self.lxu_cache_weights.shape,
@@ -1635,7 +1634,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 0,
                 0,
                 device=self.current_device,
-                # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.zeros`, for argument `dtype`, expected `Optional[dtype]` but got `Union[Module, dtype, Tensor]`
+                # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.zeros`, for argument `dtype`, expected `dtype | None` but got `Module | dtype | Tensor`
                 dtype=self.lxu_cache_weights.dtype,
             ),
         )
@@ -1700,14 +1699,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
     @staticmethod
-    def get_table_name_for_logging(table_names: Optional[list[str]]) -> str:
+    def get_table_name_for_logging(table_names: list[str] | None) -> str:
         """
         Given a list of all table names in the TBE, generate a string to
         represent them in logging. If there is more than one table, this method
         will count them than list them.
 
         Args:
-            table_names (Optional[List[str]]): A list of table anmes in TBE
+            table_names (list[str] | None): A list of table anmes in TBE
 
         Returns:
             A string that represents tables in logging
@@ -1723,7 +1722,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @staticmethod
     def get_prefetch_passes(
-        multipass_prefetch_config: Optional[MultiPassPrefetchConfig],
+        multipass_prefetch_config: MultiPassPrefetchConfig | None,
         input_tensor: Tensor,
         output_tensor: Tensor,
     ) -> list[tuple[Tensor, Tensor, int]]:
@@ -1740,7 +1739,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         itself.
 
         Args:
-            multipass_prefetch_config (Optional[MultiPassPrefetchConfig]):
+            multipass_prefetch_config (MultiPassPrefetchConfig | None):
                 A config for multi-pass cache prefetch. If None, multi-pass
                 prefetch is not used.
 
@@ -1749,7 +1748,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             output_tensor (Tensor): The output tensor to be partitioned
 
         Returns:
-            A list of partitioned inputs and outputs (List[Tuple[Tensor,
+            A list of partitioned inputs and outputs (list[tuple[Tensor,
                 Tensor, int]])
         """
         if multipass_prefetch_config is None:
@@ -1845,7 +1844,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Returns:
             The cache miss counter
         """
-        # pyre-fixme[7]: Expected `Tensor` but got `Union[Module, Tensor]`.
+        # pyre-fixme[7]: Expected `Tensor` but got `Module | Tensor`.
         return self.cache_miss_counter
 
     @torch.jit.export
@@ -2188,9 +2187,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def _generate_vbe_metadata(
         self,
         offsets: Tensor,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]],
-        vbe_output: Optional[Tensor] = None,
-        vbe_output_offsets: Optional[Tensor] = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None,
+        vbe_output: Tensor | None = None,
+        vbe_output_offsets: Tensor | None = None,
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -2239,14 +2238,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
-        feature_requires_grad: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
-        total_unique_indices: Optional[int] = None,
-        hash_zch_identities: Optional[Tensor] = None,
-        hash_zch_runtime_meta: Optional[Tensor] = None,
-        vbe_output: Optional[Tensor] = None,
-        vbe_output_offsets: Optional[Tensor] = None,
+        per_sample_weights: Tensor | None = None,
+        feature_requires_grad: Tensor | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
+        total_unique_indices: int | None = None,
+        hash_zch_identities: Tensor | None = None,
+        hash_zch_runtime_meta: Tensor | None = None,
+        vbe_output: Tensor | None = None,
+        vbe_output_offsets: Tensor | None = None,
     ) -> Tensor:
         """
         The forward pass function that
@@ -2272,7 +2271,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 of features.  `offsets[t * B + b + 1] - offsets[t * B + b]` is
                 the length of bag `b` of feature `t`
 
-            per_sample_weights (Optional[Tensor]): An optional 1D-float-tensor that
+            per_sample_weights (Tensor | None): An optional 1D-float-tensor that
                 contains per sample weights. If None, **unweighted** embedding
                 lookup will be perform. Otherwise, **weighted** will be used. The
                 length of this tensor must be the same as the length of the
@@ -2280,11 +2279,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 used to multiply with every element in the looked up row
                 `indices[i]`, where `0 <= i < len(per_sample_weights)`.
 
-            feature_requires_grad (Optional[Tensor]): An optional 1D-tensor for
+            feature_requires_grad (Tensor | None): An optional 1D-tensor for
                 indicating if `per_sample_weights` requires gradient. The
                 length of the tensor must be equal to the number of features
 
-            batch_size_per_feature_per_rank (Optional[List[List[int]]]): An
+            batch_size_per_feature_per_rank (list[list[int]] | None): An
                 optional 2D-tensor that contains batch sizes for every rank and
                 every feature. If None, TBE assumes that **every feature has the
                 same batch size** and computes the batch size from the `offsets`
@@ -2294,23 +2293,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 number of ranks). `batch_size_per_feature_per_rank[f][r]`
                 represents the batch size of feature `f` and rank `r`
 
-            total_unique_indices (Optional[int]): An optional integer that
+            total_unique_indices (int | None): An optional integer that
                 represents the total number of unique indices. This value must
                 be set when using `OptimType.NONE`. This is because TBE
                 requires this information for allocating the weight gradient
                 tensor in the backward pass.
-            hash_zch_identities (Optional[Tensor]): The original raw IDs before
+            hash_zch_identities (Tensor | None): The original raw IDs before
                 remapping to ZCH (Zero-Collision Hash) table slots. This tensor is
                 populated when using Multi-Probe Zero Collision Hash (MPZCH) modules
                 and is required for Raw Embedding Streaming (RES) to maintain
                 consistency between training and inference.
-            vbe_output (Optional[Tensor]): An optional 2-D tensor of size that
+            vbe_output (Tensor | None): An optional 2-D tensor of size that
                 contains output for TBE VBE. The shape of the tensor is
                 [1, total_vbe_output_size] where total_vbe_output_size is the
                 output size across all ranks and all embedding tables.
                 If this tensor is not None, the TBE VBE forward output is written
                 to this tensor at the locations specified by `vbe_output_offsets`.
-            vbe_output_offsets (Optional[Tensor]): An optional 2-D tensor that
+            vbe_output_offsets (Tensor | None): An optional 2-D tensor that
                 contains VBE output offsets to `vbe_output`. The shape of the
                 tensor is [num_ranks, num_features].
                 vbe_output_offsets[r][f] represents the starting offset for rank `r`
@@ -2475,22 +2474,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         common_args = invokers.lookup_args.CommonArgs(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
             # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             dev_weights=self.weights_dev,
             # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             host_weights=self.weights_host,
             # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             uvm_weights=self.weights_uvm,
             # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             lxu_cache_weights=self.lxu_cache_weights,
             # pyre-fixme[6]: For 6th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             weights_placements=self.weights_placements,
             # pyre-fixme[6]: For 7th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             weights_offsets=self.weights_offsets,
             D_offsets=self.D_offsets,
             total_D=self.total_D,
@@ -2543,19 +2542,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         momentum1 = invokers.lookup_args.Momentum(
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             dev=self.momentum1_dev,
             # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             host=self.momentum1_host,
             # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             uvm=self.momentum1_uvm,
             # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             offsets=self.momentum1_offsets,
             # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             placements=self.momentum1_placements,
         )
 
@@ -2576,19 +2575,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         momentum2 = invokers.lookup_args.Momentum(
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             dev=self.momentum2_dev,
             # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             host=self.momentum2_host,
             # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             uvm=self.momentum2_uvm,
             # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             offsets=self.momentum2_offsets,
             # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             placements=self.momentum2_placements,
         )
 
@@ -2609,19 +2608,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         row_counter = invokers.lookup_args.Momentum(
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             dev=self.row_counter_dev,
             # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             host=self.row_counter_host,
             # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             uvm=self.row_counter_uvm,
             # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             offsets=self.row_counter_offsets,
             # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             placements=self.row_counter_placements,
         )
 
@@ -2675,19 +2674,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         prev_iter = invokers.lookup_args.Momentum(
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             dev=self.prev_iter_dev,
             # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             host=self.prev_iter_host,
             # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             uvm=self.prev_iter_uvm,
             # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             offsets=self.prev_iter_offsets,
             # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-            #  `Union[Module, Tensor]`.
+            #  `Module | Tensor`.
             placements=self.prev_iter_placements,
         )
 
@@ -2759,7 +2758,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         iter=iter_int,
                         apply_global_weight_decay=apply_global_weight_decay,
                         # pyre-fixme[6]: For 6th argument expected
-                        #  `Optional[Tensor]` but got `Union[Module, Tensor]`.
+                        #  `Tensor | None` but got `Module | Tensor`.
                         prev_iter_dev=self.prev_iter_dev,
                         gwd_lower_bound=self.gwd_lower_bound,
                         mixed_D=self.mixed_D,
@@ -2927,7 +2926,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self.last_reported_uvm_stats = uvm_cache_stats
 
-        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         element_size = self.lxu_cache_weights.element_size()
         for stat_index in UVMCacheStatsIndex:
@@ -2948,8 +2947,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        forward_stream: Optional[torch.cuda.Stream] = None,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        forward_stream: torch.cuda.Stream | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
     ) -> None:
         if self.prefetch_stream is None and forward_stream is not None:
             self.prefetch_stream = torch.cuda.current_stream()
@@ -2986,17 +2985,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
-        multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
-        hash_zch_identities: Optional[Tensor] = None,
-        hash_zch_runtime_meta: Optional[Tensor] = None,
+        vbe_metadata: invokers.lookup_args.VBEMetadata | None = None,
+        multipass_prefetch_config: MultiPassPrefetchConfig | None = None,
+        hash_zch_identities: Tensor | None = None,
+        hash_zch_runtime_meta: Tensor | None = None,
     ) -> None:
         if not is_torchdynamo_compiling():
             # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
 
-        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
             return
@@ -3174,9 +3173,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         CACHE_MISS = -1
         CACHE_HIT = -2
 
-        # pyre-fixme[6]: For 1st argument expected
-        #  `pyre_extensions.PyreReadOnly[Sized]` but got `Union[Module, Tensor]`.
-        num_tables = len(self.cache_hash_size_cumsum) - 1
+        cache_hash_size_cumsum: Tensor = self.cache_hash_size_cumsum  # pyre-fixme[9]
+        num_tables = len(cache_hash_size_cumsum) - 1
         num_offsets_per_table = (len(offsets) - 1) // num_tables
         cache_missed_locations = torch.where(
             lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT
@@ -3255,7 +3253,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights = self.weights_host
             else:
                 weights = self.weights_uvm
-            # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is
+            # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is
             #  not a function.
             if weights.dim() == 2:
                 weights = weights.flatten()
@@ -3432,19 +3430,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             states.append(
                 get_optimizer_states(
                     # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum1_dev,
                     # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum1_host,
                     # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum1_uvm,
                     # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum1_physical_offsets,
                     # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum1_physical_placements,
                     rowwise=self.optimizer
                     in [
@@ -3464,19 +3462,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             states.append(
                 get_optimizer_states(
                     # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum2_dev,
                     # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum2_host,
                     # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum2_uvm,
                     # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum2_physical_offsets,
                     # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.momentum2_physical_placements,
                     rowwise=self.optimizer
                     in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
@@ -3489,19 +3487,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             states.append(
                 get_optimizer_states(
                     # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.prev_iter_dev,
                     # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.prev_iter_host,
                     # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.prev_iter_uvm,
                     # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.prev_iter_physical_offsets,
                     # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.prev_iter_physical_placements,
                     rowwise=True,
                 )
@@ -3512,19 +3510,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             states.append(
                 get_optimizer_states(
                     # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.row_counter_dev,
                     # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.row_counter_host,
                     # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.row_counter_uvm,
                     # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.row_counter_physical_offsets,
                     # pyre-fixme[6]: For 5th argument expected `Tensor` but got
-                    #  `Union[Module, Tensor]`.
+                    #  `Module | Tensor`.
                     self.row_counter_physical_placements,
                     rowwise=True,
                 )
@@ -3558,7 +3556,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Sets hyper-parameters from external control flow.
 
         Args:
-            params_dict (Dict[str, float]): The dict that contains the
+            params_dict (dict[str, float]): The dict that contains the
                 hyper-parameter names and their values
         """
         if self.optimizer == OptimType.NONE:
@@ -3609,7 +3607,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def flush(self) -> None:
-        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
             return
@@ -3632,7 +3630,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         dtype: type[torch.dtype],
         enforce_hbm: bool = False,
         make_dev_param: bool = False,
-        dev_reshape: Optional[tuple[int, ...]] = None,
+        dev_reshape: tuple[int, ...] | None = None,
         uvm_host_mapped: bool = False,
     ) -> None:
         apply_split_helper(
@@ -3676,7 +3674,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._offsets = self.lxu_cache_locations_empty
         self._vbe_B_offsets = self.lxu_cache_locations_empty
         self._vbe_max_B = -1
-        self.prefetch_stream: Optional[torch.cuda.Stream] = None
+        self.prefetch_stream: torch.cuda.Stream | None = None
 
         self._init_uvm_cache_stats()
 
@@ -3849,9 +3847,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
     # pyre-ignore
-    def _recording_to_timer(
-        self, timer: Optional[AsyncSeriesTimer], **kwargs: Any
-    ) -> Any:
+    def _recording_to_timer(self, timer: AsyncSeriesTimer | None, **kwargs: Any) -> Any:
         if self.stats_reporter is not None and self.stats_reporter.should_report(
             self.step
         ):
@@ -3880,7 +3876,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def _update_cache_counter_and_locations(
         self,
         module: nn.Module,
-        grad_input: Union[tuple[Tensor, ...], Tensor],
+        grad_input: tuple[Tensor, ...] | Tensor,
     ) -> None:
         """
         Backward prehook function when prefetch_pipeline is enabled.
@@ -4020,7 +4016,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.last_uvm_cache_print_state = torch.zeros_like(self.uvm_cache_stats)
 
     def reset_cache_states(self) -> None:
-        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
             return
@@ -4075,13 +4071,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        per_sample_weights: Tensor | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
         force_cast_input_types: bool = True,
         prefetch_pipeline: bool = False,
-        vbe_output: Optional[Tensor] = None,
-        vbe_output_offsets: Optional[Tensor] = None,
-    ) -> tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
+        vbe_output: Tensor | None = None,
+        vbe_output_offsets: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor | None, invokers.lookup_args.VBEMetadata]:
         """
         Prepare TBE inputs as follows:
 
@@ -4093,10 +4089,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Args:
             indices (Tensor): Input indices
             offsets (Tensor): Input offsets
-            per_sample_weights (Optional[Tensor]): Input per sample
+            per_sample_weights (Tensor | None): Input per sample
                 weights
             batch_size_per_feature_per_rank
-                (Optional[List[List[int]]]): A 2D tensor of batch size
+                (list[list[int]] | None): A 2D tensor of batch size
                 for each rank and feature. Shape = (number of
                 features, number of ranks)
             force_cast_input_types (bool): A flag to force convert
@@ -4232,7 +4228,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         def _debug_print_input_stats_factory_impl(
             indices: Tensor,
             offsets: Tensor,
-            per_sample_weights: Optional[Tensor] = None,
+            per_sample_weights: Tensor | None = None,
         ) -> None:
             """
             Print input stats (for debugging purpose only)
@@ -4240,7 +4236,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             Args:
                 indices (Tensor): Input indices
                 offsets (Tensor): Input offsets
-                per_sample_weights (Optional[Tensor]): Input per
+                per_sample_weights (Tensor | None): Input per
                     sample weights
             """
             # pyre-fixme[29]: `Union[(self: TensorBase, other: Union[bool, complex,
@@ -4340,7 +4336,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         def _debug_print_input_stats_factory_null(
             indices: Tensor,
             offsets: Tensor,
-            per_sample_weights: Optional[Tensor] = None,
+            per_sample_weights: Tensor | None = None,
         ) -> None:
             pass
 
@@ -4368,7 +4364,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not len(self.prefetched_info_list) > (target_prev_iter - 1):
             return None
         with record_function(
-            "## uvm_lookup_prefetched_rows {} {} ##".format(self.timestep, self.uuid)
+            f"## uvm_lookup_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
             if not self._res_sync_copy and self._res_require_copy:
                 self._raw_embedding_streamer.join_stream_tensor_copy_thread()
@@ -4394,14 +4390,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 prefetched_info.linear_unique_indices,
                 -1,
             )
-            # pyre-ignore[29]: `Union[...]` is not a function.
+            # pyre-ignore[29]: `...` is not a function.
             self.res_indices[: prefetched_info.linear_unique_indices.size(0)].copy_(
                 linear_unique_hit_indices
             )
-            # pyre-ignore[29]: `Union[...]` is not a function.
+            # pyre-ignore[29]: `...` is not a function.
             self.res_count[:1].copy_(prefetched_info.linear_unique_indices_length)
             if prefetched_info.hash_zch_identities is not None:
-                # pyre-ignore[29]: `Union[...]` is not a function.
+                # pyre-ignore[29]: `...` is not a function.
                 self.res_identities[
                     : prefetched_info.hash_zch_identities.size(0)
                 ].copy_(prefetched_info.hash_zch_identities)
@@ -4436,7 +4432,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                             ),
                             persistent=False,  # shape may change via lazy resize, exclude from checkpoints
                         )
-                    # pyre-ignore[29]: `Union[...]` is not a function.
+                    # pyre-ignore[29]: `...` is not a function.
                     self.res_runtime_meta[: runtime_meta.size(0)].copy_(runtime_meta)
 
             self.res_copy_done.fill_(1)
@@ -4467,8 +4463,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         linear_indices: torch.Tensor,
         linear_cache_indices_merged: torch.Tensor,
         total_cache_hash_size: int,
-        hash_zch_identities: Optional[torch.Tensor],
-        hash_zch_runtime_meta: Optional[torch.Tensor],
+        hash_zch_identities: torch.Tensor | None,
+        hash_zch_runtime_meta: torch.Tensor | None,
         max_indices_length: int,
     ) -> PrefetchedInfo:
         (
@@ -4539,11 +4535,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: torch.Tensor,
         offsets: torch.Tensor,
-        vbe_metadata: Optional[invokers.lookup_args.VBEMetadata],
+        vbe_metadata: invokers.lookup_args.VBEMetadata | None,
         linear_cache_indices_merged: torch.Tensor,
         final_lxu_cache_locations: torch.Tensor,
-        hash_zch_identities: Optional[torch.Tensor],
-        hash_zch_runtime_meta: Optional[torch.Tensor],
+        hash_zch_identities: torch.Tensor | None,
+        hash_zch_runtime_meta: torch.Tensor | None,
     ) -> None:
         """
         NOTE: this needs to be a method with jit.ignore as the identities tensor is conditional.
@@ -4553,7 +4549,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return
 
         with record_function(
-            "## uvm_save_prefetched_rows {} {} ##".format(self.timestep, self.uuid)
+            f"## uvm_save_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
             found_in_cache_mask = final_lxu_cache_locations != -1
             # only process the indices that are found in the cache
@@ -4591,7 +4587,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.ignore
     def __report_input_params_factory(
         self,
-    ) -> Optional[Callable[..., None]]:
+    ) -> Callable[..., None] | None:
         """
         This function returns a function pointer based on the environment variable `FBGEMM_REPORT_INPUT_PARAMS_INTERVAL`.
 
@@ -4632,14 +4628,14 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     def __init__(
         self,
         embedding_specs: list[tuple[int, int]],  # tuple of (rows, dims)
-        feature_table_map: Optional[list[int]] = None,  # [T]
+        feature_table_map: list[int] | None = None,  # [T]
         weights_precision: SparseType = SparseType.FP32,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
         output_dtype: SparseType = SparseType.FP32,
         use_mtia: bool = False,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
-        super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
+        super().__init__()
         self.uuid = str(uuid.uuid4())
 
         self.log(
@@ -4663,7 +4659,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 SparseType.BF16,
             ], "Fused pooled embedding quantization only supported for cuda."
 
-        # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
+        # pyre-fixme[8]: Attribute has type `device`; used as `int | device`.
         self.current_device: torch.device = (
             torch.device("cpu")
             if self.use_cpu
@@ -4772,7 +4768,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     def _generate_vbe_metadata(
         self,
         offsets: Tensor,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]],
+        batch_size_per_feature_per_rank: list[list[int]] | None,
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -4788,9 +4784,9 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
-        feature_requires_grad: Optional[Tensor] = None,
-        batch_size_per_feature_per_rank: Optional[list[list[int]]] = None,
+        per_sample_weights: Tensor | None = None,
+        feature_requires_grad: Tensor | None = None,
+        batch_size_per_feature_per_rank: list[list[int]] | None = None,
     ) -> Tensor:
         # Generate VBE metadata
         vbe_metadata = self._generate_vbe_metadata(
