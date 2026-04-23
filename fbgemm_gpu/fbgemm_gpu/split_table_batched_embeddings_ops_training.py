@@ -291,7 +291,17 @@ def apply_split_helper(
     uvm_tensors_log: Optional[list[str]] = None,
     uvm_host_mapped: bool = False,
     make_persistent: bool = False,
+    dev_weight_init_device: Optional[torch.device] = None,
 ) -> None:
+    dev_device = (
+        dev_weight_init_device if dev_weight_init_device is not None else current_device
+    )
+    if dev_weight_init_device is not None and dev_weight_init_device != current_device:
+        logging.info(
+            f"[FBGEMM TBE] Allocating {prefix}_dev buffer on {dev_device} "
+            f"instead of {current_device} (dev_size={split.dev_size})"
+        )
+
     set_attr_fn(f"{prefix}_physical_placements", split.placements)
     set_attr_fn(f"{prefix}_physical_offsets", split.offsets)
 
@@ -308,7 +318,7 @@ def apply_split_helper(
     if split.dev_size > 0:
         dev_buffer = torch.zeros(
             split.dev_size,
-            device=current_device,
+            device=dev_device,
             # pyre-fixme[6]
             dtype=dtype,
         )
@@ -655,6 +665,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             True, defaults to RESParams().
 
         is_qr_tbe (bool = False): Whether this is a QRSplitTableBatchedEmbeddingBagsCodegen.
+
+        weight_init_device (Optional[torch.device] = None): When set, allocate
+            the dev weight buffer on this device instead of `current_device`.
+            Metadata tensors (`weights_offsets`, `weights_placements`) remain on
+            `current_device`. The caller is responsible for moving weights to the
+            compute device before any forward pass. Only affects the `weights`
+            prefix `_apply_split` call, not optimizer states.
     """
 
     embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]]
@@ -730,6 +747,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         enable_raw_embedding_streaming: bool = False,
         res_params: Optional[RESParams] = None,
         is_qr_tbe: bool = False,
+        weight_init_device: Optional[torch.device] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
@@ -1059,6 +1077,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             make_dev_param=optimizer == OptimType.NONE,
             dev_reshape=(-1, self.max_D) if optimizer == OptimType.NONE else None,
             uvm_host_mapped=self.uvm_host_mapped,
+            dev_weight_init_device=weight_init_device,
         )
 
         assert optimizer not in (
@@ -3634,6 +3653,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         make_dev_param: bool = False,
         dev_reshape: Optional[tuple[int, ...]] = None,
         uvm_host_mapped: bool = False,
+        dev_weight_init_device: Optional[torch.device] = None,
     ) -> None:
         apply_split_helper(
             self.register_buffer,
@@ -3651,6 +3671,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             uvm_host_mapped=uvm_host_mapped,
             # Only force persistent for Split TBE on MTIA, see D97971757 for details.
             make_persistent=(self.use_mtia and not self.is_qr_tbe),
+            dev_weight_init_device=dev_weight_init_device,
         )
 
     def _apply_cache_state(
@@ -4638,7 +4659,15 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         use_cpu: bool = False,
         output_dtype: SparseType = SparseType.FP32,
         use_mtia: bool = False,
-    ) -> None:  # noqa C901  # tuple of (rows, dims,)
+        weight_init_device: Optional[torch.device] = None,
+    ) -> None:  # noqa C901
+        """
+        Args:
+            weight_init_device: When set, allocate the embedding weight tensor
+                on this device instead of the compute device. The caller is
+                responsible for moving weights to the compute device before
+                any forward pass.
+        """
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
 
@@ -4720,10 +4749,20 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights_offsets = [0] + list(
             accumulate([row * dim for (row, dim) in embedding_specs])
         )
+        weights_device = (
+            weight_init_device
+            if weight_init_device is not None
+            else self.current_device
+        )
+        if weight_init_device is not None and weight_init_device != self.current_device:
+            logging.info(
+                f"[FBGEMM DenseTBE] Allocating weights on {weights_device} "
+                f"instead of {self.current_device} (size={weights_offsets[-1]})"
+            )
         self.weights = nn.Parameter(
             torch.randn(
                 weights_offsets[-1],
-                device=self.current_device,
+                device=weights_device,
                 dtype=table_embedding_dtype,
             )
         )
