@@ -297,17 +297,18 @@ class BuildConfigScheme:
 
     def cuda_versions(self) -> List[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
-            return ["12.8.1"]
+            return ["12.6.3"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
-            return ["12.8.1"]
+            return ["12.6.3"]
         if self.target == TARGET_HSTU:
             # FBGEMM HSTU is expensive, so conserve CI resources
-            return ["12.8.1"]
+            return ["12.6.3"]
         elif self.target == TARGET_GENAI:
-            return ["12.6.3", "12.8.1", "12.9.1", "13.0.2", "13.2.0"]
+            # CUDA 12.8 (cu128) nightly builds deprecated in PyTorch 2.12+
+            return ["12.6.3", "12.9.1", "13.0.2", "13.2.0"]
         else:
-            # GenAI is unable to support 11.8.0 anymore as of https://github.com/pytorch/FBGEMM/pull/4138
-            return ["12.6.3", "12.8.1", "12.9.1", "13.0.2", "13.2.0"]
+            # CUDA 12.8 (cu128) nightly builds deprecated in PyTorch 2.12+
+            return ["12.6.3", "12.9.1", "13.0.2", "13.2.0"]
 
     def rocm_versions(self) -> List[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
