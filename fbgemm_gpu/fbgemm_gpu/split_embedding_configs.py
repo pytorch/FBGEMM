@@ -9,7 +9,7 @@
 
 import enum
 import itertools
-from typing import Any
+from typing import Any, Dict  # noqa: F401
 
 import torch
 
@@ -276,7 +276,7 @@ class EmbOptimType(enum.Enum):
 # configs)
 class QuantizationConfig:
     def __init__(self) -> None:
-        self.config: dict[str, Any] = {}
+        self.config = {}  # type: Dict[str, Any]
 
     def get(self, name: str) -> int:
         return -1
@@ -286,17 +286,17 @@ class QuantizationConfig:
 # Compute necessary parameters in the constructor
 class FP8QuantizationConfig(QuantizationConfig):
     def __init__(self, exponent_bits: int, exponent_bias: int) -> None:
-        super().__init__()
-        self.config: dict[str, Any] = {
+        super(FP8QuantizationConfig, self).__init__()
+        self.config = {
             "exponent_bits": exponent_bits,
             "exponent_bias": exponent_bias,
             "max_position": (1 << ((1 << exponent_bits) - 2 - exponent_bias))
             * (2 - 2 ** (exponent_bits - 7)),
-        }
+        }  # type: Dict[str, Any]
 
     def get(self, name: str) -> int:
         if name not in self.config:
-            raise RuntimeError(f"{name} must be set in config")
+            raise RuntimeError("{} must be set in config".format(name))
         return self.config[name]
 
 

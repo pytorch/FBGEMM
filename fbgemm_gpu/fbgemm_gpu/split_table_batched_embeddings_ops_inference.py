@@ -12,6 +12,7 @@
 import logging
 import uuid
 from itertools import accumulate
+from typing import Optional, Union
 
 import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
@@ -137,7 +138,7 @@ def nbit_construct_split_state(
 def random_quant_scaled_tensor(
     shape: torch.Size,
     device: torch.device,
-    output_tensor: torch.Tensor | None = None,
+    output_tensor: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     if output_tensor is not None:
         return torch.randint(
@@ -162,9 +163,9 @@ def random_quant_scaled_tensor(
 def inputs_to_device(
     indices: torch.Tensor,
     offsets: torch.Tensor,
-    per_sample_weights: torch.Tensor | None,
+    per_sample_weights: Optional[torch.Tensor],
     bounds_check_warning: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     if bounds_check_warning.device.type == "meta":
         return indices, offsets, per_sample_weights
 
@@ -190,7 +191,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     Inference version, with support for FP32/FP16/FP8/INT8/INT4/INT2 weights
 
     Args:
-        embedding_specs (list[tuple[int, int, EmbeddingLocation, ComputeDevice]]):
+        embedding_specs (List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]):
             A list of embedding specifications. Each spec describes a
             specification of a physical embedding table. Each one is a tuple of
             number of embedding rows, embedding dimension (must be a multiple of
@@ -220,11 +221,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (3) `MTIA` = performing table lookup on MTIA
 
-        feature_table_map (list[int] | None = None): An optional list that
+        feature_table_map (Optional[List[int]] = None): An optional list that
             specifies feature-table mapping. feature_table_map[i] indicates the
             physical embedding table that feature i maps to.
 
-        index_remapping (list[Tensor] | None = None): Index remapping for pruning
+        index_remapping (Optional[List[Tensor]] = None): Index remapping for pruning
 
         pooling_mode (PoolingMode = PoolingMode.SUM): Pooling mode. Available
             `PoolingMode` options are
@@ -235,7 +236,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (3) `NONE` = No pooling (sequence embedding)
 
-        device (str | int | torch.device | None = None): The current
+        device (Optional[Union[str, int, torch.device]] = None): The current
             device to place tensors on
 
         bounds_check_mode (BoundsCheckMode = BoundsCheckMode.WARNING): Input
@@ -254,7 +255,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 invalid index to zero and adjusting an invalid offset to be
                 within the bound)
 
-        weight_lists (list[tuple[Tensor, Tensor | None]] | None = None):
+        weight_lists (Optional[List[Tuple[Tensor, Optional[Tensor]]]] = None):
             [T]
 
         pruning_hash_load_factor (float = 0.5):
@@ -289,21 +290,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         enforce_hbm (bool = False): If True, place all weights/momentums in HBM
             when using `EmbeddingLocation.MANAGED_CACHING`
 
-        record_cache_metrics (RecordCacheMetrics | None = None): Record
+        record_cache_metrics (Optional[RecordCacheMetrics] = None): Record
             a number of hits, a number of requests, etc if
             `RecordCacheMetrics.record_cache_miss_counter` is True and record
             the similar metrics table-wise if
             `RecordCacheMetrics.record_tablewise_cache_miss is True`
 
-        gather_uvm_cache_stats (bool | None = False): If True, collect the
+        gather_uvm_cache_stats (Optional[bool] = False): If True, collect the
             cache statistics when `EmbeddingLocation` is set to
             `MANAGED_CACHING`
 
-        row_alignment (int | None = None): Row alignment
+        row_alignment (Optional[int] = None): Row alignment
 
-        fp8_exponent_bits (int | None = None): Exponent bits when using FP8
+        fp8_exponent_bits (Optional[int] = None): Exponent bits when using FP8
 
-        fp8_exponent_bias (int | None = None): Exponent bias when using FP8
+        fp8_exponent_bias (Optional[int] = None): Exponent bias when using FP8
 
         cache_assoc (int = 32): Number of ways for cache
 
@@ -320,7 +321,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         reverse_qparam (bool = False): If True, load `qparams` at end of each
             row.  Otherwise, load `qparams` at begnning of each row.
 
-        feature_names_per_table (list[list[str]] | None = None): An optional
+        feature_names_per_table (Optional[List[List[str]]] = None): An optional
             list that specifies feature names per table. `feature_names_per_table[t]`
             indicates the feature names of table `t`.
 
@@ -348,12 +349,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         embedding_specs: list[
             tuple[str, int, int, SparseType, EmbeddingLocation]
         ],  # tuple of (feature_names, rows, dims, SparseType, EmbeddingLocation/placement)
-        feature_table_map: list[int] | None = None,  # [T]
-        index_remapping: list[Tensor] | None = None,
+        feature_table_map: Optional[list[int]] = None,  # [T]
+        index_remapping: Optional[list[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
-        device: str | int | torch.device | None = None,
+        device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
-        weight_lists: list[tuple[Tensor, Tensor | None]] | None = None,
+        weight_lists: Optional[list[tuple[Tensor, Optional[Tensor]]]] = None,
         pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
@@ -362,20 +363,20 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
-        record_cache_metrics: RecordCacheMetrics | None = None,
-        gather_uvm_cache_stats: bool | None = False,
-        row_alignment: int | None = None,
-        fp8_exponent_bits: int | None = None,
-        fp8_exponent_bias: int | None = None,
+        record_cache_metrics: Optional[RecordCacheMetrics] = None,
+        gather_uvm_cache_stats: Optional[bool] = False,
+        row_alignment: Optional[int] = None,
+        fp8_exponent_bits: Optional[int] = None,
+        fp8_exponent_bias: Optional[int] = None,
         cache_assoc: int = 32,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cacheline_alignment: bool = True,
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
-        feature_names_per_table: list[list[str]] | None = None,
+        feature_names_per_table: Optional[list[list[str]]] = None,
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
-        super().__init__()
+        super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
         self.log(
             f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
@@ -742,7 +743,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
             return
@@ -926,8 +927,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
         CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
 
-        cache_hash_size_cumsum: Tensor = self.cache_hash_size_cumsum  # pyre-fixme[9]
-        num_tables = len(cache_hash_size_cumsum) - 1
+        # pyre-fixme[6]: For 1st argument expected
+        #  `pyre_extensions.PyreReadOnly[Sized]` but got `Union[Module, Tensor]`.
+        num_tables = len(self.cache_hash_size_cumsum) - 1
         num_offsets_per_table = (len(offsets) - 1) // num_tables
         cache_missed_locations = torch.where(
             lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT
@@ -949,7 +951,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Tensor | None = None,
+        per_sample_weights: Optional[Tensor] = None,
     ) -> Tensor:
         assert (
             self.weight_initialized
@@ -999,7 +1001,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
         #  a function.
         if self.lxu_cache_weights.numel() > 0:
             if self.timestep_prefetch_size.get() <= 0:
@@ -1054,7 +1056,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Tensor | None = None,
+        per_sample_weights: Optional[Tensor] = None,
     ) -> Tensor:
         return self._forward_impl(
             indices=indices, offsets=offsets, per_sample_weights=per_sample_weights
@@ -1190,7 +1192,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #  `lxu_cache_weights`.
         self.lxu_cache_weights = torch.empty_like(
             # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Module | Tensor`.
+            #  `Union[Module, Tensor]`.
             self.lxu_cache_weights,
             device=self.current_device,
         )
@@ -1483,7 +1485,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.reset_uvm_cache_stats()
 
     def reset_cache_states(self) -> None:
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
             return
@@ -1600,7 +1602,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def split_embedding_weights_with_scale_bias(
         self, split_scale_bias_mode: int = 1
-    ) -> list[tuple[Tensor, Tensor | None, Tensor | None]]:
+    ) -> list[tuple[Tensor, Optional[Tensor], Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
         split_scale_bias_mode:
@@ -1609,7 +1611,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             2: return weights, scale, bias.
         """
         assert self.weight_initialized
-        splits: list[tuple[Tensor, Tensor | None, Tensor | None]] = []
+        splits: list[tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = []
         for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
             placement = self.weights_physical_placements[t]
             if (
@@ -1734,12 +1736,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # the second with scale_bias.
         # This should've been named as split_scale_bias.
         # Keep as is for backward compatibility.
-    ) -> list[tuple[Tensor, Tensor | None]]:
+    ) -> list[tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
         """
         # fmt: off
-        splits: list[tuple[Tensor, Tensor | None, Tensor | None]] = (
+        splits: list[tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = (
             self.split_embedding_weights_with_scale_bias(
                 split_scale_bias_mode=(1 if split_scale_shifts else 0)
             )
@@ -1777,7 +1779,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
     def assign_embedding_weights(
-        self, q_weight_list: list[tuple[Tensor, Tensor | None]]
+        self, q_weight_list: list[tuple[Tensor, Optional[Tensor]]]
     ) -> None:
         """
         Assigns self.split_embedding_weights() with values from the input list of weights and scale_shifts.
@@ -1920,7 +1922,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         row_size = len(update_row_indices)
         if row_size == 0:
             return
-        # pyre-fixme[9]: update_row_indices has type `list[int]`; used as `Tensor`.
+        # pyre-fixme[9]: update_row_indices has type `List[int]`; used as `Tensor`.
         update_row_indices = torch.tensor(
             update_row_indices,
             device=self.current_device,
@@ -1970,13 +1972,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             update_offset += D_bytes
         update_offsets.append(update_offset)
 
-        # pyre-fixme[9]: update_table_indices has type `list[int]`; used as `Tensor`.
+        # pyre-fixme[9]: update_table_indices has type `List[int]`; used as `Tensor`.
         update_table_indices = torch.tensor(
             update_table_indices,
             device=self.current_device,
             dtype=torch.int32,
         )
-        # pyre-fixme[9]: update_row_indices has type `list[int]`; used as `Tensor`.
+        # pyre-fixme[9]: update_row_indices has type `List[int]`; used as `Tensor`.
         update_row_indices = torch.tensor(
             update_row_indices,
             device=self.current_device,
@@ -2002,7 +2004,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         lxu_cache_locations = None
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
         #  a function.
         if self.lxu_cache_weights.numel() > 0:
             linear_cache_indices = (

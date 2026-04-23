@@ -10,7 +10,7 @@
 
 import logging
 import math
-from typing import cast
+from typing import cast, Optional
 
 import torch
 
@@ -35,13 +35,14 @@ from torch import Tensor  # usort:skip
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
 # TODO: optimize embedding pruning and quantization latency.
 class SplitEmbInferenceConverter:
+    # pyre-fixme[3]: Return type must be annotated.
     def __init__(
         self,
         quantize_type: SparseType,
-        pruning_ratio: float | None,
+        pruning_ratio: Optional[float],
         use_array_for_index_remapping: bool = True,
-        quantization_config: QuantizationConfig | None = None,
-    ) -> None:
+        quantization_config: Optional[QuantizationConfig] = None,
+    ):
         self.quantize_type = quantize_type
         # TODO(yingz): Change the pruning ratio to per-table settings.
         self.pruning_ratio = pruning_ratio
@@ -52,9 +53,8 @@ class SplitEmbInferenceConverter:
         self._process_split_embs(model)
         return model
 
-    def _prune_by_weights_l2_norm(
-        self, new_num_rows: int, weights: Tensor
-    ) -> tuple[Tensor, float]:
+    # pyre-fixme[2]: Parameter must be annotated.
+    def _prune_by_weights_l2_norm(self, new_num_rows, weights) -> tuple[Tensor, float]:
         assert new_num_rows > 0
         from numpy.linalg import norm
 
@@ -76,13 +76,12 @@ class SplitEmbInferenceConverter:
         idx: int,
         num_rows: int,
         module: SplitTableBatchedEmbeddingBagsCodegen,
-    ) -> tuple[Tensor, Tensor | None]:
+    ) -> tuple[Tensor, Optional[Tensor]]:
         # TODO(yingz): Avoid DtoH / HtoD overhead.
         weights = module.split_embedding_weights()[idx].cpu()
-        pruning_ratio = self.pruning_ratio
-        if pruning_ratio is None:
+        if self.pruning_ratio is None:
             return (weights, None)
-        new_num_rows = int(math.ceil(num_rows * (1.0 - pruning_ratio)))
+        new_num_rows = int(math.ceil(num_rows * (1.0 - self.pruning_ratio)))  # type: ignore
         if new_num_rows == num_rows:
             return (weights, None)
 
@@ -92,7 +91,9 @@ class SplitEmbInferenceConverter:
             weights, indicators, threshold, torch.int32
         )
 
-    def _get_quantization_config(self, name: str) -> int:
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
+    def _get_quantization_config(self, name):
         quantization_config = self.quantization_config
         if quantization_config is None:
             raise RuntimeError("quantization_config must be set for FP8 weight")
@@ -100,7 +101,7 @@ class SplitEmbInferenceConverter:
 
     def _quantize_embs(
         self, weight: Tensor, weight_ty: SparseType
-    ) -> tuple[Tensor, Tensor | None]:
+    ) -> tuple[Tensor, Optional[Tensor]]:
         fp8_quant_config = cast(FP8QuantizationConfig, self.quantization_config)
         return quantize_embs(weight, weight_ty, fp8_quant_config)
 
