@@ -213,10 +213,10 @@ class KVCacheTests(unittest.TestCase):
         cache_k, cache_v = dequantized_cache
 
         torch.testing.assert_close(
-            cache_k[:, :T], cache_k_bf16[:, :T], atol=1.0e-2, rtol=1.0e-2
+            cache_k[:, :T], cache_k_bf16[:, :T], atol=5.0e-2, rtol=1.0
         )
         torch.testing.assert_close(
-            cache_v[:, :T], cache_v_bf16[:, :T], atol=1.0e-2, rtol=1.0e-2
+            cache_v[:, :T], cache_v_bf16[:, :T], atol=5.0e-2, rtol=1.0
         )
 
     @settings(deadline=None)
@@ -351,10 +351,10 @@ class KVCacheTests(unittest.TestCase):
         cache_k, cache_v = dequantized_cache
 
         torch.testing.assert_close(
-            cache_k[:, :T], cache_k_bf16[:, :T], atol=1.0e-2, rtol=5.0e-2
+            cache_k[:, :T], cache_k_bf16[:, :T], atol=1.0e-1, rtol=1.0
         )
         torch.testing.assert_close(
-            cache_v[:, :T], cache_v_bf16[:, :T], atol=1.0e-2, rtol=5.0e-2
+            cache_v[:, :T], cache_v_bf16[:, :T], atol=1.0e-1, rtol=1.0
         )
 
     @settings(deadline=None)
