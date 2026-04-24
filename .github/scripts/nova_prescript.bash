@@ -141,6 +141,39 @@ if [[ ${CHANNEL} == "" ]]; then
   export CHANNEL="nightly"
 fi
 
+# Cap build parallelism for multi-arch CUDA builds (cu128+) that target 4+
+# GPU architectures (8.0;9.0a;10.0a;12.0a) to prevent OOM (exit code 137).
+# This performs memory-based capping similar to setup.py, but acts as a safety
+# net that setup.py can further reduce if needed.
+if [[ "${fbgemm_build_variant}" == "cuda" ]]; then
+  if [[ "$CU_VERSION" == "cu132" ]] ||
+     [[ "$CU_VERSION" == "cu130" ]] ||
+     [[ "$CU_VERSION" == "cu129" ]] ||
+     [[ "$CU_VERSION" == "cu128" ]]; then
+    if [[ -z "${CMAKE_BUILD_PARALLEL_LEVEL:-}" ]]; then
+      # Compute memory-aware parallelism: ~5 GB per NVCC job for multi-arch builds
+      _nova_parallel=4
+      if [ -f /proc/meminfo ]; then
+        _nova_mem_gb=$(awk '/MemAvailable/ {printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo "0")
+        if [[ $_nova_mem_gb -gt 0 ]]; then
+          _nova_mem_jobs=$((_nova_mem_gb / 5))
+          if [[ $_nova_mem_jobs -lt 1 ]]; then
+            _nova_mem_jobs=1
+          fi
+          if [[ $_nova_mem_jobs -lt $_nova_parallel ]]; then
+            echo "[NOVA] Capping parallelism from ${_nova_parallel} to ${_nova_mem_jobs} (available memory: ~${_nova_mem_gb} GB)"
+            _nova_parallel=$_nova_mem_jobs
+          fi
+        fi
+      fi
+      export CMAKE_BUILD_PARALLEL_LEVEL=$_nova_parallel
+      echo "[NOVA] Set CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL} for multi-arch CUDA build (${CU_VERSION})"
+    else
+      echo "[NOVA] CMAKE_BUILD_PARALLEL_LEVEL already set to ${CMAKE_BUILD_PARALLEL_LEVEL}"
+    fi
+  fi
+fi
+
 # Build the wheel
 build_fbgemm_gpu_package "${BUILD_ENV_NAME}" "${CHANNEL}" "${fbgemm_build_target}/${fbgemm_build_variant}"
 end_time=$(date +%s)
