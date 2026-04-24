@@ -121,20 +121,28 @@ The AMDGPU display drivers must be installed on the system prior to all other
 environment setup. The steps provided by
 `AMD <https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.5/page/How_to_Install_ROCm.html>`__
 are the most authoritative instructions for doing this. Driver setup may be
-verified with the ``rocm-smi`` command:
+verified with the ``amd-smi`` command:
 
 .. code:: sh
 
-  rocm-smi
+  amd-smi
 
-  ======================= ROCm System Management Interface =======================
-  ================================= Concise Info =================================
-  GPU  Temp (DieEdge)  AvgPwr  SCLK    MCLK     Fan  Perf  PwrCap  VRAM%  GPU%
-  0    33.0c           37.0W   300Mhz  1200Mhz  0%   auto  290.0W    0%   0%
-  1    32.0c           39.0W   300Mhz  1200Mhz  0%   auto  290.0W    0%   0%
-  2    33.0c           37.0W   300Mhz  1200Mhz  0%   auto  290.0W    0%   0%
-  ================================================================================
-  ============================= End of ROCm SMI Log ==============================
++------------------------------------------------------------------------------+
+| AMD-SMI          26.3.0+615aab95ed                                           |
+| amdgpu Version:  6.14.19                                                     |
+| ROCm Version:    7.3.0                                                       |
+| VBIOS Version:   020.001.000.060.000000                                      |
+| Platform:        Linux Baremetal                                             |
+|-------------------------------------+----------------------------------------|
+| BDF                        GPU-Name | Mem-Uti   Temp   UEC       Power-Usage |
+| GPU  HIP-ID  OAM-ID  Partition-Mode | GFX-Uti    Fan               Mem-Usage |
+|=====================================+========================================|
+| 0000:43:00.0  AMD Radeon RX 6800 XT | 0 %      32 °C   0            12/272 W |
+|   0       1     N/A             N/A | 0 %      0.0 %             16/16368 MB |
+|-------------------------------------+----------------------------------------|
+| 0000:63:00.0      Radeon RX 7900 XT | 0 %      41 °C   0            50/257 W |
+|   1       0     N/A             N/A | 4 %      0.0 %             26/20464 MB |
++-------------------------------------+----------------------------------------+
 
 Set Up the ROCm Docker Container and Conda Environment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

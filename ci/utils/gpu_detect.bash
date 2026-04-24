@@ -30,7 +30,7 @@
 detect_gpu_vendor() {
     if command -v nvidia-smi &> /dev/null; then
         echo "nvidia"
-    elif command -v rocm-smi &> /dev/null; then
+    elif command -v amd-smi &> /dev/null; then
         echo "amd"
     else
         echo ""
@@ -111,13 +111,13 @@ detect_nvidia_gpu_model() {
 
 # Detect the GPU model of the first AMD GPU.
 #
-# This function queries rocm-smi for the GFX Version and maps it to a known
+# This function queries amd-smi for the GFX Version and maps it to a known
 # GPU model name using the AMD_GFX_MODEL_MAP associative array.
 # The returned model name is always lowercased.
 #
 # Returns:
 #   Lowercased GPU model (e.g., "mi300", "mi350", "mi250")
-#   "" - if rocm-smi is not available or no GPU is detected
+#   "" - if amd-smi is not available or no GPU is detected
 #
 # Usage:
 #   source gpu.bash
@@ -125,14 +125,14 @@ detect_nvidia_gpu_model() {
 #   echo "GPU model: $model"  # e.g., "mi350"
 #
 detect_amd_gpu_model() {
-    # Check if rocm-smi is available
-    if ! command -v rocm-smi &> /dev/null; then
-        echo "rocm-smi not found; cannot detect AMD GPU model" >&2
+    # Check if amd-smi is available
+    if ! command -v amd-smi &> /dev/null; then
+        echo "amd-smi not found; cannot detect AMD GPU model" >&2
         return 1
     fi
 
     # Associative array mapping GFX versions to GPU model names.
-    # Keys are the GFX versions (from "GFX Version" field in rocm-smi --showproductname).
+    # Keys are the GFX versions (from "TARGET_GRAPHICS_VERSION" field in amd-smi static --asic).
     # Values are the desired lowercased model names.
     #
     # Target architecture, card model, and ROCm compatibility tables can be found
@@ -142,7 +142,7 @@ detect_amd_gpu_model() {
     #   https://www.coelacanth-dream.com/posts/2019/12/30/did-rid-product-matome-p2/
     #
     # To find the GFX version for a new GPU, run:
-    #   rocm-smi --showproductname | grep "GFX Version"
+    #   amd-smi static --asic | grep "TARGET_GRAPHICS_VERSION"
     #
     declare -A AMD_GFX_MODEL_MAP=(
         # MI350 series (CDNA 4)
@@ -157,11 +157,13 @@ detect_amd_gpu_model() {
         ["gfx906"]="mi50"
     )
 
-    # Get the GFX Version from rocm-smi (first GPU only)
-    # rocm-smi --showproductname outputs something like:
-    #   GPU[0]          : GFX Version:       gfx950
+    # Get the GFX Version from amd-smi (first GPU only)
+    # amd-smi static --asic outputs something like:
+    #   GPU: 0
+    #       ASIC:
+    #           TARGET_GRAPHICS_VERSION: gfx950
     local gfx_version
-    gfx_version=$(rocm-smi --showproductname 2>/dev/null | grep -m1 "GFX Version:" | sed 's/.*GFX Version:[[:space:]]*//' | xargs)
+    gfx_version=$(amd-smi static --asic 2>/dev/null | grep -m1 "TARGET_GRAPHICS_VERSION:" | sed 's/.*TARGET_GRAPHICS_VERSION:[[:space:]]*//' | xargs)
 
     if [[ -z "$gfx_version" ]]; then
         echo "Could not detect AMD GPU GFX version" >&2
@@ -269,7 +271,7 @@ detect_gpu_count() {
     if [[ "${vendor}" == "nvidia" ]]; then
         nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | wc -l
     elif [[ "${vendor}" == "amd" ]]; then
-        rocm-smi --showid 2>/dev/null | grep -oP "GPU\[\K[0-9]+" | sort -u | wc -l
+        amd-smi list 2>/dev/null | grep -c "^GPU"
     else
         echo 1
     fi
@@ -311,7 +313,7 @@ gpu_is_busy() {
         fi
     elif [[ "${vendor}" == "amd" ]]; then
         local util
-        util=$(rocm-smi -d "${gpu_id}" --showuse 2>/dev/null | grep "GPU use" | awk '{print $NF}' | tr -d '%' || echo "0")
+        util=$(amd-smi metric -g "${gpu_id}" --usage 2>/dev/null | grep "GFX_ACTIVITY:" | awk '{print $(NF-1)}' || echo "0")
         if [[ "${util}" -gt "${util_threshold}" ]]; then
             return 0
         fi
