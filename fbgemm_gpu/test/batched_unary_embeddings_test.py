@@ -235,7 +235,3 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
 
     def test_cpu(self) -> None:
         self._test_main(gpu_infer=False)
-
-
-if __name__ == "__main__":
-    unittest.main()
