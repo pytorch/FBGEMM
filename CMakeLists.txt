@@ -156,12 +156,18 @@ if(NOT MSVC)
 endif()
 
 set(fbgemm_arm_defs)
+set(fbgemm_arm_bf16_flags)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
   set(fbgemm_arm_defs
       FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
       FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
   if(NOT APPLE)
     list(APPEND fbgemm_arm_defs FBGEMM_ENABLE_KLEIDIAI)
+  endif()
+  check_cxx_compiler_flag("-march=armv8.6-a+bf16+fp16fml" COMPILER_SUPPORTS_BF16)
+  if(COMPILER_SUPPORTS_BF16)
+    set(fbgemm_arm_bf16_flags "-march=armv8.6-a+bf16+fp16fml")
+    message(STATUS "Enabling hardware BF16 (BFCVT) for aarch64")
   endif()
 endif()
 
@@ -196,6 +202,8 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
   MSVC_FLAGS
     /wd4717 /bigobj
+  CC_FLAGS
+    ${fbgemm_arm_bf16_flags}
   SANITIZER_OPTIONS
     "${FBGEMM_USE_SANITIZER}"
   DEFINITIONS
@@ -293,6 +301,10 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
 
   if(NOT COMPILER_SUPPORTS_FP16FML)
     message(FATAL_ERROR "The current compiler does not support building FP16FML code")
+  endif()
+
+  if(COMPILER_SUPPORTS_BF16)
+    set(fbgemm_fml_flags "${fbgemm_arm_bf16_flags}")
   endif()
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")

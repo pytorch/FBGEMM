@@ -37,6 +37,20 @@
 namespace fbgemm {
 namespace internal {
 
+// RNE fp32 -> bf16, returned as u32 with the bf16 value in the low 16 bits
+// so that svst1h_u32 narrow-stores it. On Armv8.6-A BF16 this collapses to
+// a single BFCVT; otherwise we use the integer round-to-even formula.
+static inline svuint32_t rne_fp32_to_bf16_sve(svbool_t pg, svfloat32_t val) {
+#if defined(__ARM_FEATURE_BF16)
+  return svreinterpret_u32_bf16(svcvt_bf16_f32_x(pg, val));
+#else
+  const auto bits = svreinterpret_u32_f32(val);
+  const auto lsb = svand_n_u32_x(pg, svlsr_n_u32_x(pg, bits, 16), 1);
+  const auto rounded = svadd_u32_x(pg, bits, svadd_n_u32_x(pg, lsb, 0x7FFF));
+  return svlsr_n_u32_x(pg, rounded, 16);
+#endif
+}
+
 static constexpr size_t LOCAL_STORAGE_SIZE = 512;
 
 template <typename OutType>
@@ -112,10 +126,10 @@ static inline void fill_output_sve(
           row_1 = vmulq_f32(row_1, scale);
         }
 
-        auto svrow_0 = svreinterpret_u32_u16(svrshrnb_n_u32(
-            svreinterpret_u32_f32(svset_neonq_f32(svundef_f32(), row_0)), 16));
-        auto svrow_1 = svreinterpret_u32_u16(svrshrnb_n_u32(
-            svreinterpret_u32_f32(svset_neonq_f32(svundef_f32(), row_1)), 16));
+        auto svrow_0 = rne_fp32_to_bf16_sve(
+            svptrue_b32(), svset_neonq_f32(svundef_f32(), row_0));
+        auto svrow_1 = rne_fp32_to_bf16_sve(
+            svptrue_b32(), svset_neonq_f32(svundef_f32(), row_1));
 
         svst1h_u32(svptrue_b8(), ptrOut, svrow_0);
         svst1h_u32(svptrue_b8(), ptrOut + 4, svrow_1);
@@ -136,10 +150,10 @@ static inline void fill_output_sve(
               lastPredB, trailing_row_1, svset_neonq_f32(svundef_f32(), scale));
         }
 
-        auto trailing_row_0_u32 = svreinterpret_u32_u16(
-            svrshrnb_n_u32(svreinterpret_u32_f32(trailing_row_0), 16));
-        auto trailing_row_1_u32 = svreinterpret_u32_u16(
-            svrshrnb_n_u32(svreinterpret_u32_f32(trailing_row_1), 16));
+        auto trailing_row_0_u32 =
+            rne_fp32_to_bf16_sve(lastPredA, trailing_row_0);
+        auto trailing_row_1_u32 =
+            rne_fp32_to_bf16_sve(lastPredB, trailing_row_1);
 
         svst1h_u32(lastPredA, ptrOut, trailing_row_0_u32);
         svst1h_u32(lastPredB, ptrOut + 4, trailing_row_1_u32);
@@ -251,10 +265,8 @@ static inline void sve_fma_round(
       buf += 1;
     } else if constexpr (std::is_same_v<OutType, uint16_t>) {
       if (is_bf16_out) {
-        auto svrow_0 = svreinterpret_u32_u16(
-            svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
-        auto svrow_1 = svreinterpret_u32_u16(
-            svrshrnb_n_u32(svreinterpret_u32_f32(in_v_1_f), 16));
+        auto svrow_0 = rne_fp32_to_bf16_sve(svptrue_b32(), in_v_0_f);
+        auto svrow_1 = rne_fp32_to_bf16_sve(svptrue_b32(), in_v_1_f);
 
         svst1h_u32(svptrue_b8(), outBf16, svrow_0);
         svst1h_u32(svptrue_b8(), outBf16 + 4, svrow_1);
@@ -301,10 +313,8 @@ static inline void sve_fma_round(
       svst1_f32(lastPredB, bufPtr + 4, in_v_1_f);
     } else if constexpr (std::is_same_v<OutType, uint16_t>) {
       if (is_bf16_out) {
-        auto trailing_row_0_u32 = svreinterpret_u32_u16(
-            svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
-        auto trailing_row_1_u32 = svreinterpret_u32_u16(
-            svrshrnb_n_u32(svreinterpret_u32_f32(in_v_1_f), 16));
+        auto trailing_row_0_u32 = rne_fp32_to_bf16_sve(lastPredA, in_v_0_f);
+        auto trailing_row_1_u32 = rne_fp32_to_bf16_sve(lastPredB, in_v_1_f);
 
         svst1h_u32(lastPredA, outBf16, trailing_row_0_u32);
         svst1h_u32(lastPredB, outBf16 + 4, trailing_row_1_u32);
