@@ -467,7 +467,7 @@ Inference version, with support for FP32/FP16/FP8/INT8/INT4/INT2 weights</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>embedding_specs</strong> (<em>List</em><em>[</em><em>Tuple</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>EmbeddingLocation</em><em>, </em><em>ComputeDevice</em><em>]</em><em>]</em>) – <p>A list of embedding specifications. Each spec describes a
+<li><p><strong>embedding_specs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>EmbeddingLocation</em><em>, </em><em>ComputeDevice</em><em>]</em><em>]</em>) – <p>A list of embedding specifications. Each spec describes a
 specification of a physical embedding table. Each one is a tuple of
 number of embedding rows, embedding dimension (must be a multiple of
 4), table placement (<cite>EmbeddingLocation</cite>), and compute device
@@ -490,10 +490,10 @@ virtual memory and using the GPU global memory (HBM) as a cache</p></li>
 <li><p><cite>MTIA</cite> = performing table lookup on MTIA</p></li>
 </ol>
 </p></li>
-<li><p><strong>feature_table_map</strong> (<em>Optional</em><em>[</em><em>List</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>]</em><em>] </em><em>= None</em>) – An optional list that
+<li><p><strong>feature_table_map</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>] </em><em>| </em><em>None = None</em>) – An optional list that
 specifies feature-table mapping. feature_table_map[i] indicates the
 physical embedding table that feature i maps to.</p></li>
-<li><p><strong>index_remapping</strong> (<em>Optional</em><em>[</em><em>List</em><em>[</em><em>Tensor</em><em>]</em><em>] </em><em>= None</em>) – Index remapping for pruning</p></li>
+<li><p><strong>index_remapping</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><em>Tensor</em><em>] </em><em>| </em><em>None = None</em>) – Index remapping for pruning</p></li>
 <li><p><strong>pooling_mode</strong> (<em>PoolingMode = PoolingMode.SUM</em>) – <p>Pooling mode. Available
 <cite>PoolingMode</cite> options are</p>
 <ol class="arabic simple">
@@ -502,7 +502,7 @@ physical embedding table that feature i maps to.</p></li>
 <li><p><cite>NONE</cite> = No pooling (sequence embedding)</p></li>
 </ol>
 </p></li>
-<li><p><strong>device</strong> (<em>Optional</em><em>[</em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.12.0a0+git0775839 ))"><em>torch.device</em></a><em>]</em><em>] </em><em>= None</em>) – The current
+<li><p><strong>device</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.12.0a0+git0775839 ))"><em>torch.device</em></a><em> | </em><em>None = None</em>) – The current
 device to place tensors on</p></li>
 <li><p><strong>bounds_check_mode</strong> (<em>BoundsCheckMode = BoundsCheckMode.WARNING</em>) – <p>Input
 checking mode. Available <cite>BoundsCheckMode</cite> options are</p>
@@ -518,7 +518,7 @@ invalid index to zero and adjusting an invalid offset to be
 within the bound)</p></li>
 </ol>
 </p></li>
-<li><p><strong>weight_lists</strong> (<em>Optional</em><em>[</em><em>List</em><em>[</em><em>Tuple</em><em>[</em><em>Tensor</em><em>, </em><em>Optional</em><em>[</em><em>Tensor</em><em>]</em><em>]</em><em>]</em><em>] </em><em>= None</em>) – [T]</p></li>
+<li><p><strong>weight_lists</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><em>Tensor</em><em>, </em><em>Tensor</em><em> | </em><em>None</em><em>]</em><em>] </em><em>| </em><em>None = None</em>) – [T]</p></li>
 <li><p><strong>pruning_hash_load_factor</strong> (<em>float = 0.5</em>) – Load factor for pruning hash</p></li>
 <li><p><strong>use_array_for_index_remapping</strong> (<em>bool = True</em>) – If True, use array for index remapping. Otherwise, use hash map.</p></li>
 <li><p><strong>output_dtype</strong> (<em>SparseType = SparseType.FP16</em>) – The data type of an output
@@ -542,17 +542,17 @@ HBM for non-cache purpose (used when <cite>EmbeddingLocation</cite> is set to
 <cite>MANAGED_CACHING</cite>).</p></li>
 <li><p><strong>enforce_hbm</strong> (<em>bool = False</em>) – If True, place all weights/momentums in HBM
 when using <cite>EmbeddingLocation.MANAGED_CACHING</cite></p></li>
-<li><p><strong>record_cache_metrics</strong> (<em>Optional</em><em>[</em><em>RecordCacheMetrics</em><em>] </em><em>= None</em>) – Record
+<li><p><strong>record_cache_metrics</strong> (<em>RecordCacheMetrics</em><em> | </em><em>None = None</em>) – Record
 a number of hits, a number of requests, etc if
 <cite>RecordCacheMetrics.record_cache_miss_counter</cite> is True and record
 the similar metrics table-wise if
 <cite>RecordCacheMetrics.record_tablewise_cache_miss is True</cite></p></li>
-<li><p><strong>gather_uvm_cache_stats</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em>] </em><em>= False</em>) – If True, collect the
+<li><p><strong>gather_uvm_cache_stats</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em> | </em><em>None = False</em>) – If True, collect the
 cache statistics when <cite>EmbeddingLocation</cite> is set to
 <cite>MANAGED_CACHING</cite></p></li>
-<li><p><strong>row_alignment</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>] </em><em>= None</em>) – Row alignment</p></li>
-<li><p><strong>fp8_exponent_bits</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>] </em><em>= None</em>) – Exponent bits when using FP8</p></li>
-<li><p><strong>fp8_exponent_bias</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>] </em><em>= None</em>) – Exponent bias when using FP8</p></li>
+<li><p><strong>row_alignment</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None = None</em>) – Row alignment</p></li>
+<li><p><strong>fp8_exponent_bits</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None = None</em>) – Exponent bits when using FP8</p></li>
+<li><p><strong>fp8_exponent_bias</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None = None</em>) – Exponent bias when using FP8</p></li>
 <li><p><strong>cache_assoc</strong> (<em>int = 32</em>) – Number of ways for cache</p></li>
 <li><p><strong>scale_bias_size_in_bytes</strong> (<em>int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES</em>) – Size
 of scale and bias in bytes</p></li>
@@ -563,7 +563,7 @@ using <cite>malloc</cite> + <cite>cudaHostRegister</cite>. Otherwise use
 <cite>cudaMallocManaged</cite></p></li>
 <li><p><strong>reverse_qparam</strong> (<em>bool = False</em>) – If True, load <cite>qparams</cite> at end of each
 row.  Otherwise, load <cite>qparams</cite> at begnning of each row.</p></li>
-<li><p><strong>feature_names_per_table</strong> (<em>Optional</em><em>[</em><em>List</em><em>[</em><em>List</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em><em>]</em><em>] </em><em>= None</em>) – An optional
+<li><p><strong>feature_names_per_table</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em><em>] </em><em>| </em><em>None = None</em>) – An optional
 list that specifies feature names per table. <cite>feature_names_per_table[t]</cite>
 indicates the feature names of table <cite>t</cite>.</p></li>
 <li><p><strong>indices_dtype</strong> (<em>torch.dtype = torch.int32</em>) – The expected dtype of the

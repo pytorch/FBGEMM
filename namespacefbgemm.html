@@ -282,9 +282,9 @@ Functions</h2></td></tr>
 <tr class="separator:a0bfa499fd1b485bc3e457842343bca57"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1671cc912f6aa4bab678a0d255c8a690" id="r_a1671cc912f6aa4bab678a0d255c8a690"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1671cc912f6aa4bab678a0d255c8a690">SparseDenseMM</a> (int M, int N, const int *row_ptr, const int *col_idx, const float *values, const float *B, int ldb, float *C, int ldc, bool accum=false)</td></tr>
 <tr class="separator:a1671cc912f6aa4bab678a0d255c8a690"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abd985ab6123d0e7cb4a7334265aa26c5" id="r_abd985ab6123d0e7cb4a7334265aa26c5"><td class="memTemplParams" colspan="2">template&lt;typename T, bool LEGACY = false&gt; </td></tr>
-<tr class="memitem:abd985ab6123d0e7cb4a7334265aa26c5"><td class="memTemplItemLeft" align="right" valign="top">T&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#abd985ab6123d0e7cb4a7334265aa26c5">Quantize</a> (float src, std::int32_t zero_point, float scale, int result_precision, bool result_is_signed=std::is_signed_v&lt; T &gt;)</td></tr>
-<tr class="separator:abd985ab6123d0e7cb4a7334265aa26c5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a25c40fb5a5070ea7ea71c695b1614d38" id="r_a25c40fb5a5070ea7ea71c695b1614d38"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
+<tr class="memitem:a25c40fb5a5070ea7ea71c695b1614d38"><td class="memTemplItemLeft" align="right" valign="top">T&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a25c40fb5a5070ea7ea71c695b1614d38">Quantize</a> (float src, std::int32_t zero_point, float scale, int result_precision, bool result_is_signed=std::is_signed_v&lt; T &gt;)</td></tr>
+<tr class="separator:a25c40fb5a5070ea7ea71c695b1614d38"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga7a5705b5705425abc8f72fe339c2ae91" id="r_ga7a5705b5705425abc8f72fe339c2ae91"><td class="memTemplParams" colspan="2">template&lt;typename T, layout_t LAYOUT = layout_t::KCX&gt; </td></tr>
 <tr class="memitem:ga7a5705b5705425abc8f72fe339c2ae91"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-generic.html#ga7a5705b5705425abc8f72fe339c2ae91">QuantizeGroupwise</a> (const float *src, int K, int C, int X, int G, const float *scales, const std::int32_t *zero_points, T *dst)</td></tr>
 <tr class="separator:ga7a5705b5705425abc8f72fe339c2ae91"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -2712,13 +2712,13 @@ template&lt;typename T&gt; </div>
 
 </div>
 </div>
-<a id="abd985ab6123d0e7cb4a7334265aa26c5" name="abd985ab6123d0e7cb4a7334265aa26c5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abd985ab6123d0e7cb4a7334265aa26c5">&#9670;&#160;</a></span>Quantize()</h2>
+<a id="a25c40fb5a5070ea7ea71c695b1614d38" name="a25c40fb5a5070ea7ea71c695b1614d38"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a25c40fb5a5070ea7ea71c695b1614d38">&#9670;&#160;</a></span>Quantize()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename T, bool LEGACY = false&gt; </div>
+template&lt;typename T&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">T Quantize </td>
