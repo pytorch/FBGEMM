@@ -11,7 +11,6 @@
 import logging
 import os
 import signal
-from contextlib import nullcontext
 
 import click
 import fbgemm_gpu
