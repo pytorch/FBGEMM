@@ -77,6 +77,7 @@ Hardened changes (matching tritonbench port):
 from __future__ import annotations
 
 import logging
+import typing
 
 import click
 import fbgemm_gpu
@@ -257,7 +258,9 @@ def _export_kineto_trace(lengths: torch.Tensor, trace_name: str, device: str) ->
     if device != "cpu" and torch.cuda.is_available():
         activities.append(torch.profiler.ProfilerActivity.CUDA)  # pyre-fixme[16]
 
-    impls = [("pytorch", repeat_arange_pytorch)]
+    impls: list[tuple[str, typing.Callable[[torch.Tensor], torch.Tensor]]] = [
+        ("pytorch", repeat_arange_pytorch)
+    ]
     if device != "cpu":
         impls.append(("cuda", repeat_arange_cuda))
 
