@@ -392,6 +392,18 @@ def bench_mx4(
     default=False,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of kineto trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="bench_rowwise_{ospid}.json",
+    help="Trace output filename template ({ospid} replaced with PID).",
+)
 def bench(
     flush_gpu_cache_size_mb: int,
     iters: int,
@@ -399,11 +411,22 @@ def bench(
     num_rows: int,
     warmup_runs: int,
     manual_seed: bool,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     # set manual seed for reproducibility
     if manual_seed:
         torch.manual_seed(42)
         random.seed(42)
+
+    def _kineto_trace_handler(p: profile) -> None:
+        import os
+
+        p.export_chrome_trace(trace_url.format(ospid=os.getpid()))
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
     if num_columns == -1 or num_rows == -1:
         bench_spectrum(
@@ -412,13 +435,14 @@ def bench(
             warmup_runs=warmup_runs,
         )
     else:
-        bench_impl(
-            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-            iters=iters,
-            num_columns=num_columns,
-            num_rows=num_rows,
-            warmup_runs=warmup_runs,
-        )
+        with context_factory(_kineto_trace_handler):
+            bench_impl(
+                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                iters=iters,
+                num_columns=num_columns,
+                num_rows=num_rows,
+                warmup_runs=warmup_runs,
+            )
 
 
 @cli.command()
