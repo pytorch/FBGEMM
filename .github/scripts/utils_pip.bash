@@ -239,7 +239,9 @@ install_from_pytorch_pip () {
 
   echo "[INSTALL] Attempting to install [${package_name}, ${package_version:-LATEST}] from PyTorch PIP using channel ${pip_channel} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} pip install ${pip_package} --index-url ${pip_channel}) || return 1
+  # NOTE: `python -m pip` (not bare `pip`) ensures we install into the env's own
+  # site-packages even if its `pip` resolution falls back to base conda's pip.
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install ${pip_package} --index-url ${pip_channel}) || return 1
 
   # Ensure that the correct package variant has been installed
   __check_package_variant || return 1

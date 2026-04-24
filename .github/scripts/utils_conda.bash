@@ -192,13 +192,18 @@ create_conda_environment () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # The `-y` flag removes any existing Conda environment with the same name
+  # NOTE: `pip` is requested explicitly because the conda-forge `python` package
+  # no longer pulls it in as a hard dependency starting with Python 3.13. Without
+  # this, `conda run env pip ...` falls back to base conda's pip and installs to
+  # the wrong site-packages, causing later `import` checks to fail with
+  # ModuleNotFoundError.
   echo "[SETUP] Creating new Conda environment (Python ${python_version}) ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda create ${env_prefix} -c conda-forge -y python="${python_version}") || return 1
+  (exec_with_retries 3 conda create ${env_prefix} -c conda-forge -y python="${python_version}" pip) || return 1
 
   echo "[SETUP] Upgrading PIP to latest ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} pip install --upgrade pip) || return 1
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install --upgrade pip) || return 1
 
   # Handle pyOpenSSL version issue
   __handle_pyopenssl_version_issue "${env_name}"
