@@ -407,7 +407,7 @@ def device(  # noqa C901
 
     logging.info(
         f"Forward, B: {B}, "
-        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, a: {alpha}, "
         f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
@@ -441,7 +441,7 @@ def device(  # noqa C901
         )
 
     logging.info(
-        f"Backward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
+        f"Backward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, a: {alpha}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
@@ -1052,6 +1052,17 @@ def cache(  # noqa C901
     default=SparseType.FP32,
     help="The output data type, default is FP32.",
 )
+@click.option(
+    "--export-trace",
+    is_flag=True,
+    default=False,
+    help="Enable export of trace for profiling. Default is False.",
+)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
 @TbeBenchClickInterface.common_options
 @TbeBenchClickInterface.device_options
 @TbeBenchClickInterface.vbe_options
@@ -1075,6 +1086,8 @@ def device_with_spec(  # noqa C901
     bounds_check_mode: int,
     flush_gpu_cache_size_mb: int,
     output_dtype: SparseType,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1236,21 +1249,31 @@ def device_with_spec(  # noqa C901
         f"Accessed weights per batch: {B * sum_DLs * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
-    # forward
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb.forward(
-            indices,
-            offsets,
-            per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
-        ),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        num_warmups=warmup_runs,
-    )
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type="split", phase=phase, ospid=os.getpid())
+        )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        # forward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices,
+                offsets,
+                per_sample_weights,
+                feature_requires_grad=feature_requires_grad,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            num_warmups=warmup_runs,
+        )
     logging.info(
         f"Forward, B: {B}, "
-        f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, W: {weighted}, "
+        f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, W: {weighted}, a: {alpha}, "
         f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
@@ -1266,22 +1289,24 @@ def device_with_spec(  # noqa C901
         # pyre-ignore[19]
         # pyre-fixme[61]: `D` is undefined, or not always defined.
         grad_output = torch.randn(requests[0].indices.numel(), D).to(get_device())
-    # backward
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb(
-            indices,
-            offsets,
-            per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
-        ),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        bwd_only=True,
-        grad=grad_output,
-        num_warmups=warmup_runs,
-    )
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
+        # backward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb(
+                indices,
+                offsets,
+                per_sample_weights,
+                feature_requires_grad=feature_requires_grad,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            bwd_only=True,
+            grad=grad_output,
+            num_warmups=warmup_runs,
+        )
     logging.info(
-        f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, "
+        f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, a: {alpha}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
@@ -1369,7 +1394,7 @@ def device_with_spec(  # noqa C901
 @TBEBenchmarkingConfigLoader.options
 @EmbeddingOpsCommonConfigLoader.options
 @click.pass_context
-def vbe(
+def vbe(  # noqa: C901
     context: click.Context,
     batch_size_list: str,
     embedding_dim_list: str,
@@ -1410,11 +1435,13 @@ def vbe(
         raise ValueError("--emb-uvm-host-mapped is not supported.")
 
     T = num_tables
-    alphas = (
-        [float(alpha) for alpha in alpha_list.split(",")]
-        if alpha_list != "None"
-        else [0.0] * T
-    )
+    alphas: list[float] = []
+    if alpha_list in ["None", ""]:
+        alphas = [0.0] * T
+    elif "," not in alpha_list:
+        alphas = [float(alpha_list)] * T
+    else:
+        alphas = [float(alpha) for alpha in alpha_list.split(",")]
     Bs = [int(v) for v in batch_size_list.split(",")]
     Ds = [int(v) for v in embedding_dim_list.split(",")]
     Ls = [int(v) for v in bag_size_list.split(",")]
@@ -1573,7 +1600,7 @@ def vbe(
             num_warmups=benchconfig.warmup_iterations,
         )
     logging.info(
-        f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}\n"
+        f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}, alphas: {alphas}\n"
         f"fwd: {fwd_time_sec * 1.0e6:.0f}us, bwd: {bwd_time_sec * 1.0e6:.0f}us"
     )
 

@@ -198,7 +198,7 @@ void ChooseRequantizationMultiplier(
 
 #define FBGEMM_SPECIALIZED_QUANTIZE(T)                              \
   template <>                                                       \
-  FBGEMM_API void Quantize<T, false>(                               \
+  FBGEMM_API void Quantize<T>(                                      \
       const float* src,                                             \
       T* dst,                                                       \
       const int64_t len,                                            \
@@ -218,7 +218,7 @@ FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
 
 #define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                                    \
   template <>                                                                  \
-  FBGEMM_API void Quantize<T, false>(                                          \
+  FBGEMM_API void Quantize<T>(                                                 \
       const float* src,                                                        \
       T* dst,                                                                  \
       int64_t len,                                                             \

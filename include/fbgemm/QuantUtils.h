@@ -63,14 +63,13 @@ T2 clamp(T1 src, int precision, bool is_signed = false) {
 
 /// Quantize src using zero_point and scale, clamp to the specified precision,
 /// and convert it to type T
-template <typename T, bool LEGACY = false>
+template <typename T>
 T Quantize(
     float src,
     std::int32_t zero_point,
     float scale,
     int result_precision,
     bool result_is_signed = std::is_signed_v<T>) {
-  static_assert(!LEGACY, "Legacy quantize is removed");
   // Note: We want to multiply with src with inv_scale instead of
   // dividing src by scale. The same is done in vector code and
   // at other places.
@@ -95,13 +94,12 @@ T Quantize(
   return clamp<double, T>(transformed_val, result_precision, result_is_signed);
 }
 
-template <typename T, bool LEGACY = false>
+template <typename T>
 T Quantize(float src, const TensorQuantizationParams& qparams) {
-  static_assert(!LEGACY, "Legacy quantize is removed");
   return Quantize<T>(src, qparams.zero_point, qparams.scale, qparams.precision);
 }
 
-template <typename T, bool LEGACY = false>
+template <typename T>
 FBGEMM_API void Quantize(
     const float* src,
     T* dst,
