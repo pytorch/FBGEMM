@@ -43,7 +43,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
     int input_columns,
     std::uint8_t* output);
 
-template <typename OutputType, int BIT_RATE>
+template <typename OutputType, int BIT_RATE, bool IS_BF16_OUT = false>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
     const std::uint8_t* input,
     size_t input_rows,
