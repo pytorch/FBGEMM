@@ -587,12 +587,22 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
   } // for each row
 }
 
-template <typename OutputType, int BIT_RATE>
+// fp32→bf16; matches Bf16ConvertAvx2.h (val + 0x8000, take high 16 bits).
+static inline uint16x4_t cvt_fp32x4_to_bf16x4(float32x4_t v) {
+  const uint32x4_t u = vreinterpretq_u32_f32(v);
+  const uint32x4_t rounded = vaddq_u32(u, vdupq_n_u32(0x8000));
+  return vshrn_n_u32(rounded, 16);
+}
+
+template <typename OutputType, int BIT_RATE, bool IS_BF16_OUT = false>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
     const std::uint8_t* input,
     size_t input_rows,
     int input_columns,
     OutputType* output) {
+  static_assert(
+      !IS_BF16_OUT || std::is_same_v<OutputType, float16>,
+      "IS_BF16_OUT requires float16 output type (bf16 is stored as uint16_t).");
   svbool_t allTruePred = svptrue_b8();
   constexpr size_t kNumElemsPerIter = 8;
   constexpr size_t kNumBytesPerIter = BIT_RATE;
@@ -668,6 +678,11 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
       if constexpr (std::is_same_v<OutputType, float>) {
         vst1q_f32(output, svget_neonq(in_v_0_f));
         vst1q_f32(output + 4, svget_neonq(in_v_1_f));
+      } else if constexpr (IS_BF16_OUT) {
+        const uint16x4_t bf_lo = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_0_f));
+        const uint16x4_t bf_hi = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_1_f));
+        vst1q_u16(
+            reinterpret_cast<uint16_t*>(output), vcombine_u16(bf_lo, bf_hi));
       } else {
         float16x4_t dequantzed_v_half_low = vcvt_f16_f32(svget_neonq(in_v_0_f));
         float16x4_t dequantzed_v_half_high =
@@ -716,6 +731,13 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
       if constexpr (std::is_same_v<OutputType, float>) {
         svst1_f32(lastPredA, output, in_v_0_f);
         svst1_f32(lastPredB, output + 4, in_v_1_f);
+      } else if constexpr (IS_BF16_OUT) {
+        const uint16x4_t bf_lo = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_0_f));
+        const uint16x4_t bf_hi = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_1_f));
+        svst1_u16(
+            lastPredC,
+            reinterpret_cast<uint16_t*>(output),
+            svset_neonq_u16(svundef_u16(), vcombine_u16(bf_lo, bf_hi)));
       } else {
         float16x4_t dequantzed_v_half_low_low =
             vcvt_f16_f32(svget_neonq(in_v_0_f));
@@ -775,6 +797,21 @@ INSTANTIATE_QuantizationNeonFunctionsNBits(float16, 4)
 INSTANTIATE_QuantizationNeonFunctionsNBits(float16, 8)
 // clang-format on
 #undef INSTANTIATE_QuantizationNeonFunctionsNBits
+
+#define INSTANTIATE_DequantNBitBf16Neon(bit_rate)                           \
+  template void                                                             \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<float16, bit_rate, true>(\
+      const std::uint8_t* input,                                            \
+      size_t input_rows,                                                    \
+      int input_columns,                                                    \
+      float16* output);
+
+// clang-format off
+INSTANTIATE_DequantNBitBf16Neon(2)
+INSTANTIATE_DequantNBitBf16Neon(4)
+INSTANTIATE_DequantNBitBf16Neon(8)
+// clang-format on
+#undef INSTANTIATE_DequantNBitBf16Neon
 
 #endif // HAVE_SVE
 

@@ -812,15 +812,18 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
 #if HAVE_SVE
   switch (bit_rate) {
     case 2:
-      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<OutputType, 2>(
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<
+          OutputType, 2, is_uint16_t_of_type_bf16>(
           input, input_rows, input_columns, output);
       break;
     case 4:
-      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<OutputType, 4>(
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<
+          OutputType, 4, is_uint16_t_of_type_bf16>(
           input, input_rows, input_columns, output);
       break;
     case 8:
-      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<OutputType, 8>(
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<
+          OutputType, 8, is_uint16_t_of_type_bf16>(
           input, input_rows, input_columns, output);
       break;
     default:
