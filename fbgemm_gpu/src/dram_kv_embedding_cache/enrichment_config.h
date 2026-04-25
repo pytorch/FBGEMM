@@ -68,7 +68,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
       int64_t fs_batch_size = 500,
       int64_t fs_feature_group_id = 0,
       std::string fs_feature_group_name = "",
-      std::string fs_feature_name = "")
+      std::string fs_feature_name = "",
+      int64_t laser_batch_size = 0)
       : enrichment_type_(static_cast<EnrichmentType>(enrichment_type)),
         provider_name_(std::move(provider_name)),
         client_id_(std::move(client_id)),
@@ -88,7 +89,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
         fs_batch_size_(fs_batch_size),
         fs_feature_group_id_(fs_feature_group_id),
         fs_feature_group_name_(std::move(fs_feature_group_name)),
-        fs_feature_name_(std::move(fs_feature_name)) {}
+        fs_feature_name_(std::move(fs_feature_name)),
+        laser_batch_size_(laser_batch_size) {}
 
   EnrichmentType enrichment_type_;
   std::string provider_name_;
@@ -115,6 +117,9 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
   int64_t fs_feature_group_id_;
   std::string fs_feature_group_name_;
   std::string fs_feature_name_;
+
+  // Laser IGR batch size (0 = no batching, send all IDs in one RPC)
+  int64_t laser_batch_size_;
 };
 
 } // namespace kv_mem
