@@ -305,4 +305,26 @@ class QuantizedCommCodec:
             padded_dim_sum = padding_size + dim_sum
             return padded_dim_sum, padding_size
 
+        elif self._comm_precision == SparseType.FP8 and self._row_dim > 0:
+            # FP8 rowwise quantization requires input_len % row_dim == 0.
+            # Pad each rank's dim_sum to be a multiple of row_dim so that
+            # B * padded_dim_sum is always divisible, preventing misalignment
+            # errors during AllToAll with non-standard batch sizes (e.g. eval).
+            row_dim = qcomm_ctx.row_dim
+            padding_size_per_rank = [
+                row_dim - (t if (t := dim_sum % row_dim) > 0 else row_dim)
+                for dim_sum in dim_per_rank
+            ]
+            padded_dim_sum_per_rank = [
+                a + b for a, b in zip(dim_per_rank, padding_size_per_rank)
+            ]
+            dim_sum, padding_size = (
+                dim_per_rank[my_rank],
+                padding_size_per_rank[my_rank],
+            )
+            assert input_tensor.ndim == 2 and input_tensor.shape[1] == dim_sum
+            qcomm_ctx.padded_dim_sum_per_rank = padded_dim_sum_per_rank
+            padded_dim_sum = padding_size + dim_sum
+            return padded_dim_sum, padding_size
+
         return padded_dim_sum, padding_size
