@@ -12,12 +12,13 @@
 import logging
 import uuid
 from itertools import accumulate
+from typing import Callable, Optional
 
 import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
-from fbgemm_gpu.config import FeatureGateName
+from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.split_embedding_configs import sparse_type_to_int, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -637,6 +638,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.bounds_check_version: int = get_bounds_check_version_for_platform()
 
+        # Get a reporter function pointer
+        self._report_input_params: Optional[Callable[..., None]] = (
+            self.__report_input_params_factory()
+        )
+        self._eeg_step: int = 0
+
     @torch.jit.ignore
     def log(self, msg: str) -> None:
         """
@@ -650,6 +657,78 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             None
         """
         logging.info(f"[TBE={self.uuid}] {msg}")
+
+    @torch.jit.ignore
+    def _feature_is_enabled(self, feature: FeatureGateName) -> bool:
+        # Define proxy method so that it can be marked with @torch.jit.ignore
+        # This allows models using this class to compile correctly
+        return FeatureGate.is_enabled(feature)
+
+    @torch.jit.ignore
+    def __report_input_params_factory(
+        self,
+    ) -> Optional[Callable[..., None]]:
+        """
+        Returns a function pointer for reporting input parameters (TBEDataConfig)
+        if the TBE_REPORT_INPUT_PARAMS feature gate is enabled, otherwise None.
+        """
+        # The reporter requires the TBEBenchmarkParamsReporter C++ backend
+        # (torch.ops.fbgemm.*) which may not be available in all build
+        # configurations (e.g. OSS builds without the C++ extensions).
+        try:
+            if self._feature_is_enabled(FeatureGateName.TBE_REPORT_INPUT_PARAMS):
+                from fbgemm_gpu.tbe.monitoring.bench_params_reporter import (
+                    TBEBenchmarkParamsReporter,
+                )
+
+                reporter = TBEBenchmarkParamsReporter.create()
+                return reporter.report_stats
+        except Exception as e:
+            logging.warning(
+                f"[TBE={self.uuid}] TBEBenchmarkParamsReporter is skipped "
+                f"due to: {e}"
+            )
+            return None
+
+        return None
+
+    @torch.jit.ignore
+    def _maybe_report_eeg(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+    ) -> None:
+        """
+        Extract and write input stats if enabled.
+        """
+        # Use getattr to guard against the attribute not existing when the
+        # module is loaded from a checkpoint that predates the EEG fields.
+        report_fn = getattr(self, "_report_input_params", None)
+        if report_fn is None:
+            return
+
+        dims = [e[2] for e in self.embedding_specs]
+        feature_dims = torch.tensor(
+            [dims[t] for t in self.feature_table_map],
+            device="cpu",
+            dtype=torch.int64,
+        )
+
+        report_fn(
+            feature_rows=self.rows_per_table,
+            feature_dims=feature_dims,
+            iteration=self._eeg_step,
+            indices=indices,
+            offsets=offsets,
+            op_id=self.uuid,
+            per_sample_weights=per_sample_weights,
+            batch_size_per_feature_per_rank=None,
+            embedding_specs=[(s[1], s[2]) for s in self.embedding_specs],
+            feature_table_map=self.feature_table_map,
+        )
+
+        self._eeg_step += 1
 
     def get_cache_miss_counter(self) -> Tensor:
         # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
@@ -1056,6 +1135,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         per_sample_weights: Tensor | None = None,
     ) -> Tensor:
+        # Extract and write input stats if enabled
+        if not torch.jit.is_scripting():
+            self._maybe_report_eeg(indices, offsets, per_sample_weights)
         return self._forward_impl(
             indices=indices, offsets=offsets, per_sample_weights=per_sample_weights
         )

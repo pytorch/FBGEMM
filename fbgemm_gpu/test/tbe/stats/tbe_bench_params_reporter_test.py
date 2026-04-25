@@ -9,15 +9,19 @@
 
 import unittest
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.config import FeatureGateName
+from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     ComputeDevice,
     EmbeddingLocation,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
+    IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -244,6 +248,147 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
 
             # Clenaup, delete the file
             store.remove(path)
+
+
+class TestInferenceTBEBenchmarkParamsReporter(unittest.TestCase):
+    def test_inference_report_stats(self) -> None:
+        """Test that the reporter can extract a valid config from inference TBE."""
+        T = 3
+        E = 1000
+        D = 64
+        L = 5
+        B = 32
+
+        use_cpu = not torch.cuda.is_available() or torch.version.hip is not None
+        embedding_location = (
+            EmbeddingLocation.HOST if use_cpu else EmbeddingLocation.DEVICE
+        )
+
+        embedding_specs = [
+            ("", E, D, SparseType.FP16, embedding_location) for _ in range(T)
+        ]
+
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            indices_dtype=torch.int64,
+            device=torch.device("cpu") if use_cpu else None,
+        )
+        cc.fill_random_weights()
+
+        reporter = TBEBenchmarkParamsReporter(report_interval=1)
+
+        # Generate test indices and offsets (int64 required by tbe_estimate_indices_distribution)
+        indices = torch.randint(0, E, (T * B * L,), dtype=torch.int64)
+        offsets = torch.arange(0, T * B * L + 1, L, dtype=torch.int64)
+
+        feature_dims = torch.tensor([D] * T, device="cpu", dtype=torch.int64)
+
+        extracted_config = reporter.extract_params(
+            feature_rows=cc.rows_per_table,
+            feature_dims=feature_dims,
+            indices=indices,
+            offsets=offsets,
+        )
+
+        self.assertEqual(extracted_config.T, T)
+        self.assertEqual(extracted_config.E, E)
+        self.assertEqual(extracted_config.D, D)
+        self.assertEqual(extracted_config.pooling_params.L, L)
+        self.assertEqual(extracted_config.batch_params.B, B)
+
+    def test_inference_jit_script_with_eeg(self) -> None:
+        """Confirm TorchScript compatibility is preserved when EEG is initialized."""
+        T = 2
+        E = 100
+        D = 32
+        B = 4
+        L = 3
+
+        use_cpu = not torch.cuda.is_available() or torch.version.hip is not None
+        embedding_location = (
+            EmbeddingLocation.HOST if use_cpu else EmbeddingLocation.DEVICE
+        )
+
+        with patch(
+            "torch.ops.fbgemm.check_feature_gate_key"
+        ) as mock_check_feature_gate_key:
+
+            def side_effect(feature_name: str) -> Optional[bool]:
+                if feature_name == FeatureGateName.TBE_REPORT_INPUT_PARAMS.name:
+                    return True
+
+            mock_check_feature_gate_key.side_effect = side_effect
+
+            embedding_specs = [
+                ("", E, D, SparseType.FP16, embedding_location) for _ in range(T)
+            ]
+
+            cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                device=torch.device("cpu") if use_cpu else None,
+            )
+            cc.fill_random_weights()
+
+            # TorchScript should succeed
+            scripted = torch.jit.script(cc)
+
+            indices = torch.randint(0, E, (T * B * L,), dtype=torch.int32)
+            offsets = torch.arange(0, T * B * L + 1, L, dtype=torch.int32)
+
+            # Forward should succeed on scripted module
+            output = scripted(indices, offsets)
+            self.assertEqual(output.shape, (B, T * D))
+
+    def test_inference_eeg_forward_reports(self) -> None:
+        """Test that forward() calls report_stats when EEG is enabled."""
+        T = 2
+        E = 100
+        D = 32
+        B = 4
+        L = 3
+
+        use_cpu = not torch.cuda.is_available() or torch.version.hip is not None
+        embedding_location = (
+            EmbeddingLocation.HOST if use_cpu else EmbeddingLocation.DEVICE
+        )
+
+        with patch(
+            "torch.ops.fbgemm.check_feature_gate_key"
+        ) as mock_check_feature_gate_key:
+
+            def side_effect(feature_name: str) -> Optional[bool]:
+                if feature_name == FeatureGateName.TBE_REPORT_INPUT_PARAMS.name:
+                    return True
+
+            mock_check_feature_gate_key.side_effect = side_effect
+
+            embedding_specs = [
+                ("", E, D, SparseType.FP16, embedding_location) for _ in range(T)
+            ]
+
+            cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                indices_dtype=torch.int64,
+                device=torch.device("cpu") if use_cpu else None,
+            )
+            cc.fill_random_weights()
+
+            # Replace the report function with a mock to verify it's called
+            report_mock = MagicMock()
+            cc._report_input_params = report_mock
+
+            indices = torch.randint(0, E, (T * B * L,), dtype=torch.int64)
+            offsets = torch.arange(0, T * B * L + 1, L, dtype=torch.int64)
+
+            # Forward should trigger reporting
+            cc.forward(indices, offsets)
+
+            # Verify the report function was called
+            report_mock.assert_called_once()
+            call_kwargs = report_mock.call_args[1]
+            self.assertEqual(call_kwargs["op_id"], cc.uuid)
+            self.assertEqual(len(call_kwargs["feature_rows"]), T)
+            self.assertEqual(call_kwargs["feature_dims"].shape[0], T)
 
 
 if __name__ == "__main__":
