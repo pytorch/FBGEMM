@@ -169,6 +169,62 @@ install_pytorch_pip () {
   # Install the torch package from PyTorch PIP (not PyPI)
   install_from_pytorch_pip "${env_name}" torch "${pytorch_channel_version}" "${pytorch_variant_type_version}" || return 1
 
+  # [DIAGNOSTIC] Capture environment state before import check to debug
+  # ModuleNotFoundError: No module named 'torch' (GHA-specific failure)
+  echo "========================================================================"
+  echo "[DIAG] Post-install diagnostic (investigating torch import failure)"
+  echo "========================================================================"
+
+  echo "[DIAG] pip list (torch-related):"
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} pip list 2>&1 | grep -i torch || true
+
+  echo "[DIAG] Python sys.path:"
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} python -c "import sys; print('\n'.join(sys.path))" || true
+
+  echo "[DIAG] site-packages torch* contents:"
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} python -c "
+import site, os, glob
+for sp in site.getsitepackages():
+    matches = sorted(glob.glob(os.path.join(sp, 'torch*')))
+    if matches:
+        print(f'  {sp}:')
+        for m in matches:
+            print(f'    {os.path.basename(m)}')
+" || true
+
+  echo "[DIAG] .pth files in site-packages:"
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} python -c "
+import site, os, glob
+for sp in site.getsitepackages():
+    for f in sorted(glob.glob(os.path.join(sp, '*.pth'))):
+        print(f'  {os.path.basename(f)}:')
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    print(f'    {line}')
+" || true
+
+  echo "[DIAG] importlib.util.find_spec('torch'):"
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} python -c "import importlib.util; spec = importlib.util.find_spec('torch'); print(f'  spec={spec}')" || true
+
+  echo "[DIAG] which python / python version / conda env:"
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} python -c "import sys; print(f'  executable={sys.executable}\n  version={sys.version}\n  prefix={sys.prefix}')" || true
+
+  echo "[DIAG] Verbose import (last 40 lines):"
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} python -v -c "import torch" 2>&1 | tail -40 || true
+
+  echo "========================================================================"
+  echo "[DIAG] End diagnostic"
+  echo "========================================================================"
+
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
 
