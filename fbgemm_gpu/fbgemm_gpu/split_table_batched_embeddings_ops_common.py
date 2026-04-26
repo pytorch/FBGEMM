@@ -271,6 +271,8 @@ class EnrichmentPolicy(NamedTuple):
     fs_feature_group_id: int = 0
     fs_feature_group_name: str = ""
     fs_feature_name: str = ""
+    # Laser IGR batch size (0 = no batching, send all IDs in one RPC)
+    laser_batch_size: int = 0
 
 
 class KVZCHParams(NamedTuple):
