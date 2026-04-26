@@ -16,8 +16,9 @@ import logging
 from dataclasses import dataclass
 from typing import TypeVar
 
-import fbgemm_gpu.quantize.quantize_ops  # noqa: F401
-import torch
+import torch  # usort: skip
+
+import fbgemm_gpu.quantize.quantize_ops  # noqa: F401  # usort: skip
 from fbgemm_gpu.quantize_utils import (
     bf16_to_fp32,
     fp16_to_fp32,
