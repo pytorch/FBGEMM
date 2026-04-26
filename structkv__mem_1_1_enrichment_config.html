@@ -99,14 +99,14 @@ $(function(){ initResizable(false); });
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:ac3b413dc7c0575cf972164264ddba29e" id="r_ac3b413dc7c0575cf972164264ddba29e"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac3b413dc7c0575cf972164264ddba29e">EnrichmentConfig</a> (int64_t enrichment_type, std::string provider_name, std::string client_id, int64_t enrichment_dim, int64_t response_format, std::string opentab_tier_name=&quot;&quot;, std::string opentab_payload_ids=&quot;&quot;, std::string opentab_payload_types=&quot;&quot;, std::string opentab_column_group_ids=&quot;&quot;, std::string opentab_vec_payload_indexes=&quot;&quot;, int64_t opentab_timeout_ms=5000, int64_t opentab_batch_size=100, std::string fs_tier=&quot;&quot;, std::string fs_caller_id=&quot;&quot;, int64_t fs_timeout_ms=5000, int64_t fs_batch_size=500, int64_t fs_feature_group_id=0, std::string fs_feature_group_name=&quot;&quot;, std::string fs_feature_name=&quot;&quot;)</td></tr>
-<tr class="separator:ac3b413dc7c0575cf972164264ddba29e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a66e74f27b75af1a14258aef42ced6b86" id="r_a66e74f27b75af1a14258aef42ced6b86"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a66e74f27b75af1a14258aef42ced6b86">EnrichmentConfig</a> (int64_t enrichment_type, std::string provider_name, std::string client_id, int64_t enrichment_dim, int64_t response_format, std::string opentab_tier_name=&quot;&quot;, std::string opentab_payload_ids=&quot;&quot;, std::string opentab_payload_types=&quot;&quot;, std::string opentab_column_group_ids=&quot;&quot;, std::string opentab_vec_payload_indexes=&quot;&quot;, int64_t opentab_timeout_ms=5000, int64_t opentab_batch_size=100, std::string fs_tier=&quot;&quot;, std::string fs_caller_id=&quot;&quot;, int64_t fs_timeout_ms=5000, int64_t fs_batch_size=500, int64_t fs_feature_group_id=0, std::string fs_feature_group_name=&quot;&quot;, std::string fs_feature_name=&quot;&quot;, int64_t laser_batch_size=0)</td></tr>
+<tr class="separator:a66e74f27b75af1a14258aef42ced6b86"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Configuration for embedding enrichment from external sources. Passed from Python as a TorchScript custom class so that switching providers or enrichment methods requires no C++ rebuild. </p>
 </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="ac3b413dc7c0575cf972164264ddba29e" name="ac3b413dc7c0575cf972164264ddba29e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac3b413dc7c0575cf972164264ddba29e">&#9670;&#160;</a></span>EnrichmentConfig()</h2>
+<a id="a66e74f27b75af1a14258aef42ced6b86" name="a66e74f27b75af1a14258aef42ced6b86"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a66e74f27b75af1a14258aef42ced6b86">&#9670;&#160;</a></span>EnrichmentConfig()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -207,7 +207,12 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::string</td>          <td class="paramname"><span class="paramname"><em>fs_feature_name</em></span><span class="paramdefsep"> = </span><span class="paramdefval">&quot;&quot;</span>&#160;)</td>
+          <td class="paramtype">std::string</td>          <td class="paramname"><span class="paramname"><em>fs_feature_name</em></span><span class="paramdefsep"> = </span><span class="paramdefval">&quot;&quot;</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>laser_batch_size</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
         </tr>
       </table>
   </td>

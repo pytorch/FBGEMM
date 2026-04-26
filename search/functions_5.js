@@ -3,7 +3,7 @@ var searchData=
   ['embedding_5finplace_5fupdate_5fcuda_0',['embedding_inplace_update_cuda',['../namespacefbgemm__gpu.html#a358cc74c17a25856e51a4bf73a8247ec',1,'fbgemm_gpu']]],
   ['emitextracthalfvector_1',['emitExtractHalfVector',['../namespacefbgemm.html#a4c25a363a50f7ddc8ebb3e23346701bf',1,'fbgemm']]],
   ['emitloaddword_2',['emitLoadDWord',['../namespacefbgemm.html#a8fc7c09b12c7af0d68ecc42f36b95f2c',1,'fbgemm']]],
-  ['enrichmentconfig_3',['EnrichmentConfig',['../structkv__mem_1_1_enrichment_config.html#ac3b413dc7c0575cf972164264ddba29e',1,'kv_mem::EnrichmentConfig']]],
+  ['enrichmentconfig_3',['EnrichmentConfig',['../structkv__mem_1_1_enrichment_config.html#a66e74f27b75af1a14258aef42ced6b86',1,'kv_mem::EnrichmentConfig']]],
   ['equals_4',['equals',['../classfbgemm_1_1_pack_b_matrix.html#a5299773354edb62a96e39dc55ab5d770',1,'fbgemm::PackBMatrix']]],
   ['example_5fmethod_5',['example_method',['../group__example-method-group.html#ga56a504c1752577359ba5b75a9cd52737',1,'example_code.cpp']]],
   ['executekernel_6',['ExecuteKernel',['../classfbgemm_1_1_execute_kernel_3_01packing_a_matrix_00_01_pack_b_matrix_3_01int8__t_00_01typenam9894617fba2431fcc8042b1a22b96270.html#ae4a4e6063c0cb62d64d6159d102a899b',1,'fbgemm::ExecuteKernel&lt; packingAMatrix, PackBMatrix&lt; int8_t, typename packingAMatrix::accType &gt;, cT, processOutputType &gt;']]],
