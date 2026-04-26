@@ -128,6 +128,20 @@ jobs:
         . $PRELUDE
         cd fbgemm_gpu
 
+        # Cap build parallelism for multi-arch CUDA builds to prevent OOM
+        # (exit code 137). CUDA 12.8+ targets 3-4 GPU architectures and each
+        # NVCC job can use 4-6 GB when compiling large translation units.
+        if [ -f /proc/meminfo ]; then
+          MEM_GB=$(awk '/MemAvailable/ {printf "%d", $2/1024/1024}' /proc/meminfo)
+          # Allow ~5 GB per parallel compilation job (conservative for multi-arch)
+          MEM_JOBS=$((MEM_GB / 5))
+          CPU_JOBS=$(( $(nproc) / 2 ))
+          if [ "$MEM_JOBS" -lt "$CPU_JOBS" ] && [ "$MEM_JOBS" -gt 0 ]; then
+            export CMAKE_BUILD_PARALLEL_LEVEL=$MEM_JOBS
+            echo "[BUILD] Set CMAKE_BUILD_PARALLEL_LEVEL=${MEM_JOBS} (memory-capped: ~${MEM_GB} GB available)"
+          fi
+        fi
+
         # Extract channel from channel/version string
         PYTORCH_CHANNEL_VERSION="${{ inputs.pytorch-channel-version }}"
         PYTORCH_CHANNEL_ONLY="${PYTORCH_CHANNEL_VERSION%%/*}"

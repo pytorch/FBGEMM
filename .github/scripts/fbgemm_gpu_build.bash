@@ -536,8 +536,9 @@ __build_fbgemm_gpu_set_run_multicore () {
       fi
 
       if [[ $mem_gb -gt 0 ]]; then
-        # Allow ~4 GB per parallel compilation job
-        local mem_jobs=$((mem_gb / 4))
+        # Allow ~5 GB per parallel compilation job.  NVCC jobs targeting
+        # multiple GPU architectures can use 4-6 GB for large translation units.
+        local mem_jobs=$((mem_gb / 5))
         if [[ $mem_jobs -lt 1 ]]; then
           mem_jobs=1
         fi
