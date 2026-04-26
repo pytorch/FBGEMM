@@ -61,10 +61,23 @@ namespace fbgemm_gpu {
 #define DIV_ROUND_UP(a, b) (a + b - 1) / b
 
 // Warp size
-#ifdef USE_ROCM
-static constexpr int32_t kWarpSize = 64;
-#else
+//
+// Device code: per-arch constexpr. __GFX9__ is defined by HIP-Clang during
+// device compilation for gfx9xx targets (warpSize 64); it is undefined for
+// warpSize 32 targets. HIP-Clang runs the device-code backend once per
+// --offload-arch, so the same source produces correct per-arch device code.
+//
+// Host code on ROCm: warpSize is only known at runtime. This 64 is a
+// stop-gap constexpr. Host-side launches that must size thread blocks for
+// the active device should call at::cuda::warp_size() directly.
+#if !defined(USE_ROCM)
 static constexpr int32_t kWarpSize = 32;
+#elif defined(__GFX9__)
+static constexpr int32_t kWarpSize = 64;
+#elif defined(__HIP_DEVICE_COMPILE__)
+static constexpr int32_t kWarpSize = 32;
+#else
+static constexpr int32_t kWarpSize = 64;
 #endif
 
 // Max thread num in one thread block
@@ -77,10 +90,15 @@ static constexpr int32_t kMaxBlockYDim = 65535;
 static constexpr int32_t kMaxBlockZDim = 65535;
 
 // Full warp mask
+//
+// On ROCm this is always uint64_t regardless of warpSize. HIP's
+// __ballot_sync / __any_sync / __all_sync statically require a 64-bit mask
+// type and internally truncate on warpSize 32 archs, so narrowing
+// kFullWarpMask would break compilation.
 #if defined(USE_ROCM)
-static constexpr uint64_t kFullWarpMask = 0xff'ff'ff'ff'ff'ff'ff'ff;
+static constexpr uint64_t kFullWarpMask = 0xff'ff'ff'ff'ff'ff'ff'ffull;
 #else
-static constexpr uint32_t kFullWarpMask = 0xff'ff'ff'ff;
+static constexpr uint32_t kFullWarpMask = 0xff'ff'ff'ffu;
 #endif
 
 static constexpr float kQParamEps = 1e-8f;
@@ -176,11 +194,12 @@ DEVICE_INLINE void syncwarp() {
 #endif
 }
 
-// ROCm does not natively support __any_sync(). Using __ballot()
-// (https://rocmdocs.amd.com/en/latest/Programming_Guides/Kernel_language.html)
-// to implement __any_sync(). Note: the "warp-size" of AMD GPU is 64.
+// ROCm does not natively support __any_sync() on older HIP versions. Using
+// __ballot() to implement __any_sync(). The mask is uint64_t to match
+// kFullWarpMask and the HIP warp-sync function signatures; on warpSize 32
+// archs only the low 32 bits of the ballot and the mask are meaningful.
 #ifdef USE_ROCM
-__device__ int __any_sync(uint64_t mask, int predicate) {
+__device__ inline int __any_sync(uint64_t mask, int predicate) {
   uint64_t predicate_bit_pattern = __ballot(predicate);
   return (predicate_bit_pattern & mask) > 0;
 }
