@@ -35,9 +35,7 @@ except Exception:
 def _generate_batch_sizes(
     tbe_data_config: TBEDataConfig,
 ) -> tuple[list[int], list[list[int]] | None]:
-    logging.info(
-        f"DEBUG_TBE: [_generate_batch_sizes] VBE tbe_data_config.variable_B()={tbe_data_config.variable_B()}"
-    )
+    logging.debug(f"[_generate_batch_sizes] variable_B={tbe_data_config.variable_B()}")
     if tbe_data_config.variable_B():
         assert (
             tbe_data_config.batch_params.vbe_num_ranks is not None
@@ -58,7 +56,18 @@ def _generate_batch_sizes(
 def _generate_pooling_info(
     tbe_data_config: TBEDataConfig, iters: int, Bs: list[int]
 ) -> torch.Tensor:
-    if tbe_data_config.variable_L():
+    if tbe_data_config.pooling_params.Ls is not None:
+        # Per-feature pooling factors: each feature has its own L value.
+        # Bs has one entry per feature (length T, which equals F for data generation).
+        # For non-VBE, all Bs entries are the same B.
+        Ls_per_feature = tbe_data_config.pooling_params.Ls
+        Ls_expanded = []
+        for i, B_i in enumerate(Bs):
+            Ls_expanded.extend([int(Ls_per_feature[i])] * B_i)
+        # Replicate across iterations
+        Ls_all = Ls_expanded * iters
+        L_offsets = torch.tensor([0] + Ls_all, dtype=torch.long).cumsum(0)
+    elif tbe_data_config.variable_L():
         # Generate L from stats
         _, L_offsets = generate_pooling_factors_from_stats(
             iters,
@@ -121,7 +130,7 @@ def _generate_indices(
             start_offset = L_offsets_list[it * total_B]
             end_offset = L_offsets_list[(it + 1) * total_B]
 
-            logging.info(f"DEBUG_TBE: _generate_indices E={tbe_data_config.E}")
+            logging.debug(f"_generate_indices E={tbe_data_config.E}")
 
             indices_list.append(
                 torch.ops.fbgemm.tbe_generate_indices_from_distribution(
@@ -215,14 +224,16 @@ def generate_requests(
     # Generate batch sizes
     if batch_size_per_feature_per_rank:
         Bs = tbe_data_config.batch_params.Bs
+        Bs_feature_rank = batch_size_per_feature_per_rank
     else:
-        Bs, _ = _generate_batch_sizes(tbe_data_config)
-
-    logging.info(
-        f"DEBUG_TBE: VBE [generate_requests] batch_size_per_feature_per_rank={batch_size_per_feature_per_rank} Bs={Bs}"
-    )
+        Bs, Bs_feature_rank = _generate_batch_sizes(tbe_data_config)
 
     assert Bs is not None, "Batch sizes (Bs) must be set"
+
+    logging.debug(
+        f"[generate_requests] Bs_len={len(Bs)}"
+        f" Bs_feature_rank={Bs_feature_rank is not None}"
+    )
 
     # Generate pooling info
     L_offsets = _generate_pooling_info(tbe_data_config, iters, Bs)
@@ -232,25 +243,19 @@ def generate_requests(
     all_indices = all_indices.to(get_device())
 
     # Build TBE requests
-    if tbe_data_config.variable_B() or tbe_data_config.variable_L():
-        if batch_size_per_feature_per_rank:
-            return _build_requests_jagged(
-                tbe_data_config,
-                iters,
-                Bs,
-                batch_size_per_feature_per_rank,
-                L_offsets,
-                all_indices,
-            )
-        else:
-            return _build_requests_jagged(
-                tbe_data_config,
-                iters,
-                Bs,
-                batch_size_per_feature_per_rank,
-                L_offsets,
-                all_indices,
-            )
+    if (
+        tbe_data_config.variable_B()
+        or tbe_data_config.variable_L()
+        or tbe_data_config.pooling_params.Ls is not None
+    ):
+        return _build_requests_jagged(
+            tbe_data_config,
+            iters,
+            Bs,
+            Bs_feature_rank,
+            L_offsets,
+            all_indices,
+        )
     else:
         return _build_requests_dense(tbe_data_config, iters, all_indices)
 
@@ -309,7 +314,13 @@ def generate_requests_with_Llist(
     all_indices = all_indices.to(get_device())
 
     # Build TBE requests
-    if tbe_data_config.variable_B() or tbe_data_config.variable_L():
+    # batch_size_per_feature_per_rank is passed through directly
+    # from the caller (no _generate_batch_sizes call here).
+    if (
+        tbe_data_config.variable_B()
+        or tbe_data_config.variable_L()
+        or tbe_data_config.pooling_params.Ls is not None
+    ):
         return _build_requests_jagged(
             tbe_data_config,
             iters,
