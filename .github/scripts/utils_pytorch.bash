@@ -169,6 +169,13 @@ install_pytorch_pip () {
   # Install the torch package from PyTorch PIP (not PyPI)
   install_from_pytorch_pip "${env_name}" torch "${pytorch_channel_version}" "${pytorch_variant_type_version}" || return 1
 
+  # Workaround: The torch nightly wheel downgrades setuptools (e.g. 82 -> 78),
+  # which can break Python's package discovery and make torch un-importable.
+  # Reinstall setuptools to restore a working version.  Also install packaging,
+  # which is an undeclared dependency of torch nightly (T263209424).
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} pip install --upgrade setuptools packaging || true
+
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
 
