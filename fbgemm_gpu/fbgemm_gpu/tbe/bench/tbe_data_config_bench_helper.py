@@ -56,7 +56,18 @@ def _generate_batch_sizes(
 def _generate_pooling_info(
     tbe_data_config: TBEDataConfig, iters: int, Bs: list[int]
 ) -> torch.Tensor:
-    if tbe_data_config.variable_L():
+    if tbe_data_config.pooling_params.Ls is not None:
+        # Per-feature pooling factors: each feature has its own L value.
+        # Bs has one entry per feature (length T, which equals F for data generation).
+        # For non-VBE, all Bs entries are the same B.
+        Ls_per_feature = tbe_data_config.pooling_params.Ls
+        Ls_expanded = []
+        for i, B_i in enumerate(Bs):
+            Ls_expanded.extend([int(Ls_per_feature[i])] * B_i)
+        # Replicate across iterations
+        Ls_all = Ls_expanded * iters
+        L_offsets = torch.tensor([0] + Ls_all, dtype=torch.long).cumsum(0)
+    elif tbe_data_config.variable_L():
         # Generate L from stats
         _, L_offsets = generate_pooling_factors_from_stats(
             iters,
@@ -232,7 +243,11 @@ def generate_requests(
     all_indices = all_indices.to(get_device())
 
     # Build TBE requests
-    if tbe_data_config.variable_B() or tbe_data_config.variable_L():
+    if (
+        tbe_data_config.variable_B()
+        or tbe_data_config.variable_L()
+        or tbe_data_config.pooling_params.Ls is not None
+    ):
         return _build_requests_jagged(
             tbe_data_config,
             iters,
@@ -301,7 +316,11 @@ def generate_requests_with_Llist(
     # Build TBE requests
     # batch_size_per_feature_per_rank is passed through directly
     # from the caller (no _generate_batch_sizes call here).
-    if tbe_data_config.variable_B() or tbe_data_config.variable_L():
+    if (
+        tbe_data_config.variable_B()
+        or tbe_data_config.variable_L()
+        or tbe_data_config.pooling_params.Ls is not None
+    ):
         return _build_requests_jagged(
             tbe_data_config,
             iters,
