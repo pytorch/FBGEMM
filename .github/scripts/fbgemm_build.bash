@@ -73,7 +73,7 @@ __build_fbgemm_library_cmake () {
   echo "[BUILD] Running the build ..."
   # shellcheck disable=SC2086
   (print_exec conda run --no-capture-output ${env_prefix} \
-    make -j VERBOSE=1) || return 1
+    make -j "$(nproc)" VERBOSE=1) || return 1
 
   cd - || return 1
 }

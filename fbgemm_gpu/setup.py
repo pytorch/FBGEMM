@@ -274,7 +274,33 @@ class FbgemmGpuBuild:
             return f"-D_GLIBCXX_USE_CXX11_ABI={value}"
 
         torch_root = os.path.dirname(torch.__file__)
-        os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str((os.cpu_count() or 4) // 2)
+
+        # Set build parallelism: respect externally-set value, otherwise
+        # auto-detect based on CPU count and available memory to avoid OOM
+        # (exit code 137) on memory-constrained CI runners.
+        if "CMAKE_BUILD_PARALLEL_LEVEL" not in os.environ:
+            parallel_level = (os.cpu_count() or 4) // 2
+            try:
+                with open("/proc/meminfo") as f:
+                    for line in f:
+                        if line.startswith("MemAvailable:"):
+                            mem_kb = int(line.split()[1])
+                            # Allow ~5 GB per parallel compilation job.
+                            # NVCC jobs targeting multiple GPU architectures
+                            # (e.g. 8.0;9.0a;10.0a;12.0a for cu132) can use
+                            # 4-6 GB for large translation units.
+                            mem_jobs = max(1, mem_kb // (5 * 1024 * 1024))
+                            if mem_jobs < parallel_level:
+                                print(
+                                    f"[FBGEMM] Capping build parallelism from"
+                                    f" {parallel_level} to {mem_jobs} based on"
+                                    f" available memory (~{mem_kb // 1024 // 1024} GB)"
+                                )
+                                parallel_level = mem_jobs
+                            break
+            except (OSError, ValueError):
+                pass
+            os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(parallel_level)
 
         cmake_args = [
             f"-DCMAKE_PREFIX_PATH={torch_root}",

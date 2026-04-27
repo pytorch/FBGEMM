@@ -120,7 +120,7 @@ jobs:
         mkdir $BUILD_DIR; cd $BUILD_DIR
         cmake --version
         cmake -DFBGEMM_USE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} ..
-        make -j VERBOSE=1
+        make -j $(sysctl -n hw.ncpu) VERBOSE=1
 
 
   build-bazel:
@@ -210,7 +210,7 @@ jobs:
         echo "STARTING CMAKE"
         cmake --version
         cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
-        ninja -v all
+        ninja -j %NUMBER_OF_PROCESSORS% -v all
         echo "Build Success"
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
