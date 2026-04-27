@@ -17,6 +17,7 @@
 #include <tuple>
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
+#include "./EmbeddingSpMDMSve.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
@@ -1102,6 +1103,42 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     }
   }
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+
+#if HAVE_SVE
+  if constexpr (std::is_same_v<outType, uint16_t>) {
+    if (is_sve_fp16_enabled() && !no_bag && !is_bf16_out) {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const uint8_t* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return internal::
+            EmbeddingSpMDMNBit_Sve_Fp16<indxType, offsetType, outType, true>(
+                input_bit_rate,
+                block_size,
+                output_size,
+                index_size,
+                data_size,
+                input,
+                indices,
+                offsets_or_lengths,
+                weights,
+                normalize_by_lengths,
+                out,
+                is_weight_positional,
+                use_offsets,
+                output_stride,
+                input_stride,
+                scale_bias_last,
+                is_bf16_out);
+      };
+    }
+  }
+
+#endif
 
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
   if (!cpuinfo_initialize()) {

@@ -47,6 +47,14 @@ static vector<vector<int>> GetInputs_() {
 
 static vector<int> prefetch_distances{0, 16, 1000000};
 
+static float fp16_tolerance(int /*average_len*/, float expected) {
+  return 0.01f + 0.01f * abs(expected);
+}
+
+static float clamp_for_fp16(float val) {
+  return std::min(std::abs(val), 1.0f);
+}
+
 namespace {
 
 class FusedNBitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
@@ -144,6 +152,10 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
                : 0));
       float scale = embedding_distribution(generator);
       float bias = embedding_distribution(generator);
+      if (is_sve_fp16_enabled()) {
+        scale = clamp_for_fp16(scale);
+        bias = clamp_for_fp16(bias);
+      }
       FloatToFloat16_ref(&scale, scale_bias, 1, true /* clip */);
       FloatToFloat16_ref(&bias, scale_bias + 1, 1, true /* clip */);
     }
@@ -167,6 +179,12 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
         (use_offsets ? offsets : lengths).data();
     const int32_t* offsets_or_lengths_32 =
         (use_offsets ? offsets_32 : lengths_32).data();
+
+    if (is_sve_fp16_enabled()) {
+      for (auto& w : weights) {
+        w = abs(w);
+      }
+    }
 
     if (!scale_bias_last && use_weight) {
       // When scale_bias_last == false, assume this is for table batched
@@ -365,21 +383,415 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       for (size_t i = 0; i < output.size(); ++i) {
         float actual = get_actual(i);
         float expected = get_expected(i);
-        EXPECT_EQ(actual, expected)
-            << "results differ at (" << i << ") reference: " << expected
-            << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
+        if (is_sve_fp16_enabled() && out_type == FLOAT16) {
+          EXPECT_NEAR(actual, expected, fp16_tolerance(average_len, expected))
+              << "results differ at (" << i << ") reference: " << expected
+              << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
+        } else {
+          EXPECT_EQ(actual, expected)
+              << "results differ at (" << i << ") reference: " << expected
+              << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
+        }
       }
       for (int offset = output_size_wo_sentries;
            offset < output_size_wo_sentries + num_sentries;
            ++offset) {
         float actual = get_actual(offset);
         float expected = get_expected(offset);
-        EXPECT_EQ(actual, expected)
-            << "results differ at (" << offset << ") reference: " << expected
-            << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
+        if (is_sve_fp16_enabled() && out_type == FLOAT16) {
+          EXPECT_NEAR(actual, expected, fp16_tolerance(average_len, expected))
+              << "results differ at (" << offset << ") reference: " << expected
+              << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
+        } else {
+          EXPECT_EQ(actual, expected)
+              << "results differ at (" << offset << ") reference: " << expected
+              << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
+        }
       }
     }
   } // end for input
+}
+
+TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
+  auto
+      [bit_rate,
+       prefetch,
+       weight_choice,
+       corner_case,
+       out_type,
+       kernel_choice] = GetParam();
+  if (!is_sve_fp16_enabled() || out_type != FLOAT16) {
+    return;
+  }
+  ScopedKernelOverride kernel_override(kernel_choice);
+  bool use_weight = weight_choice != UNWEIGHTED;
+  bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
+  int num_elem_per_byte = 8 / bit_rate;
+
+  vector<vector<int>> inputs = {
+      // {batch, rows, dim, avg_len}
+      {4, 100, 2, 4},
+      {4, 100, 4, 10},
+      {4, 100, 8, 4},
+      {4, 100, 16, 4},
+      {4, 100, 32, 10},
+      {4, 100, 48, 10},
+      {4, 100, 64, 10},
+      {4, 100, 128, 10},
+      {4, 100, 256, 4},
+  };
+
+  random_device r;
+  default_random_engine generator(r());
+  uniform_int_distribution<int> entries(0, 16);
+
+  for (auto& input : inputs) {
+    int batch_size = input[0];
+    int num_rows = input[1];
+    int embedding_dim = input[2];
+    int average_len = input[3];
+
+    int fused_embedding_dim =
+        (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte +
+        2 * sizeof(float16);
+
+    // ---- Test 1: Integer scale/bias (should be exact) ----
+    {
+      vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
+      for (int i = 0; i < num_rows; i++) {
+        for (int ii = 0;
+             ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
+             ii++) {
+          fused_embedding_table[i * fused_embedding_dim + ii] =
+              entries(generator);
+        }
+        float16* scale_bias = reinterpret_cast<float16*>(
+            fused_embedding_table.data() + i * fused_embedding_dim +
+            (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte);
+        float scale = 1.0f;
+        float bias = 0.0f;
+        FloatToFloat16_ref(&scale, scale_bias, 1, true);
+        FloatToFloat16_ref(&bias, scale_bias + 1, 1, true);
+      }
+
+      vector<int64_t> lengths, offsets, indices;
+      vector<int32_t> lengths_32, offsets_32, indices_32;
+      vector<float> weights;
+      int lengths_sum = GenerateLengthsIndicesWeights(
+          lengths,
+          lengths_32,
+          offsets,
+          offsets_32,
+          indices,
+          indices_32,
+          weights,
+          batch_size,
+          num_rows,
+          average_len,
+          corner_case);
+
+      if (use_weight) {
+        for (auto& w : weights) {
+          w = 1.0f;
+        }
+      }
+      if (is_wt_positional) {
+        for (auto& w : weights) {
+          w = 1.0f;
+        }
+      }
+
+      int output_size = batch_size;
+      vector<float16> output_ref_fp16(output_size * embedding_dim);
+      vector<float16> output_fp16(output_size * embedding_dim);
+
+      bool success_ref = EmbeddingSpMDMNBit_ref<int64_t, int64_t, float16>(
+          bit_rate,
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_rows,
+          fused_embedding_table.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+          offsets.data(),
+          use_weight ? weights.data() : nullptr,
+          false,
+          output_ref_fp16.data(),
+          is_wt_positional,
+          true,
+          -1,
+          -1,
+          true,
+          false);
+
+      auto kernel =
+          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+              bit_rate,
+              embedding_dim,
+              use_weight,
+              false,
+              prefetch,
+              is_wt_positional,
+              true,
+              -1,
+              -1,
+              true,
+              false);
+
+      bool success = kernel(
+          batch_size,
+          lengths_sum,
+          num_rows,
+          fused_embedding_table.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+          offsets.data(),
+          use_weight ? weights.data() : nullptr,
+          output_fp16.data());
+
+      ASSERT_EQ(success, success_ref)
+          << "Integer test: ref and kernel disagree"
+          << " bit_rate=" << bit_rate << " dim=" << embedding_dim;
+      if (corner_case == OUT_OF_BOUND_INDICES ||
+          corner_case == UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM) {
+        EXPECT_FALSE(success);
+      }
+
+      if (success) {
+        for (int i = 0; i < output_size * embedding_dim; ++i) {
+          float actual = cpu_half2float(output_fp16[i]);
+          float expected = cpu_half2float(output_ref_fp16[i]);
+          EXPECT_EQ(actual, expected)
+              << "Integer test MISMATCH at i=" << i << " bit_rate=" << bit_rate
+              << " dim=" << embedding_dim << " expected=" << expected
+              << " actual=" << actual;
+        }
+      }
+    }
+
+    // ---- Test 2: fp16-representable float scale/bias ----
+    {
+      vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
+      for (int i = 0; i < num_rows; i++) {
+        for (int ii = 0;
+             ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
+             ii++) {
+          fused_embedding_table[i * fused_embedding_dim + ii] =
+              entries(generator);
+        }
+        float16* scale_bias = reinterpret_cast<float16*>(
+            fused_embedding_table.data() + i * fused_embedding_dim +
+            (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte);
+        float scale = 0.25f;
+        float bias = 0.5f;
+        FloatToFloat16_ref(&scale, scale_bias, 1, true);
+        FloatToFloat16_ref(&bias, scale_bias + 1, 1, true);
+      }
+
+      vector<int64_t> lengths, offsets, indices;
+      vector<int32_t> lengths_32, offsets_32, indices_32;
+      vector<float> weights;
+      int lengths_sum = GenerateLengthsIndicesWeights(
+          lengths,
+          lengths_32,
+          offsets,
+          offsets_32,
+          indices,
+          indices_32,
+          weights,
+          batch_size,
+          num_rows,
+          average_len,
+          corner_case);
+
+      if (use_weight) {
+        for (auto& w : weights) {
+          w = 1.0f;
+        }
+      }
+      if (is_wt_positional) {
+        for (auto& w : weights) {
+          w = 1.0f;
+        }
+      }
+
+      int output_size = batch_size;
+      vector<float16> output_ref_fp16(output_size * embedding_dim);
+      vector<float16> output_fp16(output_size * embedding_dim);
+
+      bool success_ref = EmbeddingSpMDMNBit_ref<int64_t, int64_t, float16>(
+          bit_rate,
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_rows,
+          fused_embedding_table.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+          offsets.data(),
+          use_weight ? weights.data() : nullptr,
+          false,
+          output_ref_fp16.data(),
+          is_wt_positional,
+          true,
+          -1,
+          -1,
+          true,
+          false);
+
+      auto kernel =
+          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+              bit_rate,
+              embedding_dim,
+              use_weight,
+              false,
+              prefetch,
+              is_wt_positional,
+              true,
+              -1,
+              -1,
+              true,
+              false);
+
+      bool success = kernel(
+          batch_size,
+          lengths_sum,
+          num_rows,
+          fused_embedding_table.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+          offsets.data(),
+          use_weight ? weights.data() : nullptr,
+          output_fp16.data());
+
+      ASSERT_EQ(success, success_ref);
+      if (corner_case == OUT_OF_BOUND_INDICES ||
+          corner_case == UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM) {
+        EXPECT_FALSE(success);
+      }
+
+      if (success) {
+        for (int i = 0; i < output_size * embedding_dim; ++i) {
+          float actual = cpu_half2float(output_fp16[i]);
+          float expected = cpu_half2float(output_ref_fp16[i]);
+          EXPECT_EQ(actual, expected)
+              << "FP16 representable test at i=" << i
+              << " bit_rate=" << bit_rate << " dim=" << embedding_dim
+              << " expected=" << expected << " actual=" << actual;
+        }
+      }
+    }
+
+    // ---- Test 3: Random scale/bias with normalization ----
+    for (int norm = 0; norm <= 1; ++norm) {
+      bool normalize = (norm == 1);
+      normal_distribution<float> embedding_distribution;
+
+      vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
+      for (int i = 0; i < num_rows; i++) {
+        for (int ii = 0;
+             ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
+             ii++) {
+          fused_embedding_table[i * fused_embedding_dim + ii] =
+              entries(generator);
+        }
+        float16* scale_bias = reinterpret_cast<float16*>(
+            fused_embedding_table.data() + i * fused_embedding_dim +
+            (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte);
+        float scale = embedding_distribution(generator);
+        float bias = embedding_distribution(generator);
+        if (is_sve_fp16_enabled()) {
+          scale = clamp_for_fp16(scale);
+          bias = clamp_for_fp16(bias);
+        }
+        FloatToFloat16_ref(&scale, scale_bias, 1, true);
+        FloatToFloat16_ref(&bias, scale_bias + 1, 1, true);
+      }
+
+      vector<int64_t> lengths, offsets, indices;
+      vector<int32_t> lengths_32, offsets_32, indices_32;
+      vector<float> weights;
+      int lengths_sum = GenerateLengthsIndicesWeights(
+          lengths,
+          lengths_32,
+          offsets,
+          offsets_32,
+          indices,
+          indices_32,
+          weights,
+          batch_size,
+          num_rows,
+          average_len,
+          corner_case);
+
+      if (is_sve_fp16_enabled()) {
+        for (auto& w : weights) {
+          w = abs(w);
+        }
+      }
+
+      int output_size = batch_size;
+      vector<float16> output_ref_fp16(output_size * embedding_dim);
+      vector<float16> output_fp16(output_size * embedding_dim);
+
+      bool success_ref = EmbeddingSpMDMNBit_ref<int64_t, int64_t, float16>(
+          bit_rate,
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_rows,
+          fused_embedding_table.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+          offsets.data(),
+          use_weight ? weights.data() : nullptr,
+          normalize,
+          output_ref_fp16.data(),
+          is_wt_positional,
+          true,
+          -1,
+          -1,
+          true,
+          false);
+
+      auto kernel =
+          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+              bit_rate,
+              embedding_dim,
+              use_weight,
+              normalize,
+              prefetch,
+              is_wt_positional,
+              true,
+              -1,
+              -1,
+              true,
+              false);
+
+      bool success = kernel(
+          batch_size,
+          lengths_sum,
+          num_rows,
+          fused_embedding_table.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+          offsets.data(),
+          use_weight ? weights.data() : nullptr,
+          output_fp16.data());
+
+      ASSERT_EQ(success, success_ref);
+      if (corner_case == OUT_OF_BOUND_INDICES ||
+          corner_case == UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM) {
+        EXPECT_FALSE(success);
+      }
+
+      if (success) {
+        for (int i = 0; i < output_size * embedding_dim; ++i) {
+          float actual = cpu_half2float(output_fp16[i]);
+          float expected = cpu_half2float(output_ref_fp16[i]);
+          EXPECT_NEAR(actual, expected, fp16_tolerance(average_len, expected))
+              << "Random test at i=" << i << " bit_rate=" << bit_rate
+              << " dim=" << embedding_dim << " avg_len=" << average_len
+              << " norm=" << normalize << " wt=" << use_weight;
+        }
+      }
+    }
+  }
 }
 
 TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
@@ -445,6 +857,10 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte);
       float scale = embedding_distribution(generator);
       float bias = embedding_distribution(generator);
+      if (is_sve_fp16_enabled()) {
+        scale = clamp_for_fp16(scale);
+        bias = clamp_for_fp16(bias);
+      }
       FloatToFloat16_ref(&scale, scale_bias, 1, true /* clip */);
       FloatToFloat16_ref(&bias, scale_bias + 1, 1, true /* clip */);
     }
@@ -468,6 +884,12 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
         (use_offsets ? offsets : lengths).data();
     const int32_t* offsets_or_lengths_32 =
         (use_offsets ? offsets_32 : lengths_32).data();
+
+    if (is_sve_fp16_enabled()) {
+      for (auto& w : weights) {
+        w = abs(w);
+      }
+    }
 
     vector<float> output_sls_ref(batch_size * embedding_dim);
     vector<float> output_slws_ref(output_sls_ref.size()),

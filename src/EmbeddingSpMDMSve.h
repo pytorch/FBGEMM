@@ -715,16 +715,17 @@ static inline void sve_fma_round_fp16(
 static inline void load_scale_bias_fp16(
     const uint8_t* row_base,
     int64_t scale_bias_offset,
-    bool scale_bias_last,
+    bool is_fp32_scale_bias,
     float& scale,
     float& bias) {
-  if (scale_bias_last) {
+  if (is_fp32_scale_bias) {
     const float* sb =
         reinterpret_cast<const float*>(row_base + scale_bias_offset);
     scale = sb[0];
     bias = sb[1];
   } else {
-    const float16_t* sb = reinterpret_cast<const float16_t*>(row_base);
+    const float16_t* sb =
+        reinterpret_cast<const float16_t*>(row_base + scale_bias_offset);
     scale = static_cast<float>(sb[0]);
     bias = static_cast<float>(sb[1]);
   }
@@ -770,7 +771,11 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
 
   if constexpr (EnablePrefetching) {
     for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-      const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
+      const IndexType idx = indices[pf_idx];
+      if (idx < 0 || idx >= data_size) {
+        continue;
+      }
+      const uint8_t* prefetch_addr = input + input_stride * idx;
       for (int64_t offset = 0; offset < input_stride;
            offset += CACHE_LINE_SIZE) {
         do_prefetch(prefetch_addr + offset, 0, 0);
@@ -1479,6 +1484,727 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
       } else {
         fill_output_sve_fp16<false>(
             out, buf, iters_8, lastPredC, vdupq_n_f16(1.0f));
+      }
+    } else {
+      memset(out, 0, sizeof(OutType) * block_size);
+    }
+  }
+  return current == index_size;
+}
+
+// Unpack 4-bit packed values (4 bytes -> 8 elements) to float16x8_t.
+// Uses SVE zip to split lo/hi nibbles and interleave into sequential order.
+// svld1ub_u16 loads 4 bytes (with predicate limiting to 4 active lanes),
+// widening each byte to u16. AND extracts low nibbles, LSR extracts high
+// nibbles, then svzip1 interleaves [lo0,hi0,lo1,hi1] into correct element
+// order.
+static inline float16x8_t unpack_4bit_to_fp16_neon(const uint8_t* ptr) {
+  const svbool_t pg4 = svwhilelt_b16_u64(0, 4);
+  svuint16_t raw = svld1ub_u16(pg4, ptr);
+  svuint16_t lo = svand_u16_x(pg4, raw, svdup_n_u16(0x0f));
+  svuint16_t hi = svlsr_n_u16_x(pg4, raw, 4);
+  // zip interleaves: [lo0,hi0,lo1,hi1,lo2,hi2,lo3,hi3] = 8 elements
+  svuint16_t zipped = svzip1_u16(lo, hi);
+  return svget_neonq(svcvt_f16_u16_x(svptrue_b16(), zipped));
+}
+
+// Unpack 2-bit packed values (2 bytes -> 8 elements) to float16x8_t using NEON
+static inline float16x8_t unpack_2bit_to_fp16_neon(const uint8_t* ptr) {
+  uint8x8_t raw =
+      vreinterpret_u8_u16(vdup_n_u16(*reinterpret_cast<const uint16_t*>(ptr)));
+  // raw = [b0, b1, b0, b1, b0, b1, b0, b1]
+
+  // Replicate: [b0, b0, b0, b0, b1, b1, b1, b1]
+  static const uint8_t tbl_idx[8] = {0, 0, 0, 0, 1, 1, 1, 1};
+  uint8x8_t replicated = vtbl1_u8(raw, vld1_u8(tbl_idx));
+
+  // Shift each position to place the target 2-bit field in the low 2 bits
+  static const int8_t shifts[8] = {0, -2, -4, -6, 0, -2, -4, -6};
+  uint8x8_t shifted = vshl_u8(replicated, vld1_s8(shifts));
+
+  uint8x8_t masked = vand_u8(shifted, vdup_n_u8(0x03));
+  return vcvtq_f16_u16(vmovl_u8(masked));
+}
+
+template <bool FuseWithOutput>
+static inline void sve_nbit_fma_round_fp16(
+    int bit_rate,
+    const uint8_t* input_row,
+    float16_t* buf,
+    uint64_t iters,
+    uint64_t block_size_mod,
+    float scale_f32,
+    float bias_f32,
+    svbool_t fullRowPred,
+    svbool_t lastPred) {
+  svfloat16_t scale = svdup_n_f16((float16_t)scale_f32);
+  svfloat16_t bias = svdup_n_f16((float16_t)bias_f32);
+
+  const int bytes_per_iter = (bit_rate == 4) ? 4 : 2;
+  const uint8_t* input_ptr = input_row;
+  auto* bufPtr = reinterpret_cast<float16x8_t*>(buf);
+
+  // Body loop: process 8 output elements per iteration
+  for (uint64_t i = 0; i < iters; ++i) {
+    float16x8_t values = (bit_rate == 4) ? unpack_4bit_to_fp16_neon(input_ptr)
+                                         : unpack_2bit_to_fp16_neon(input_ptr);
+    input_ptr += bytes_per_iter;
+
+    svfloat16_t in_v_f = svset_neonq_f16(svundef_f16(), values);
+
+    if constexpr (FuseWithOutput) {
+      svfloat16_t buf_sv = svset_neonq_f16(svundef_f16(), *bufPtr);
+      buf_sv = svadd_f16_x(fullRowPred, buf_sv, bias);
+      in_v_f = svmad_f16_m(fullRowPred, in_v_f, scale, buf_sv);
+    } else {
+      in_v_f = svmad_f16_m(fullRowPred, in_v_f, scale, bias);
+    }
+
+    *bufPtr = svget_neonq(in_v_f);
+    bufPtr += 1;
+  }
+
+  // Tail: unpack remaining elements using scalar code for safe memory access
+  auto tailBufPtr = reinterpret_cast<float16_t*>(bufPtr);
+
+  uint8_t unpacked[8] = {0};
+  for (uint64_t k = 0; k < block_size_mod; ++k) {
+    if (bit_rate == 4) {
+      unpacked[k] = (input_ptr[k / 2] >> ((k % 2) * 4)) & 0x0f;
+    } else {
+      unpacked[k] = (input_ptr[k / 4] >> ((k % 4) * 2)) & 0x03;
+    }
+  }
+
+  svuint16_t in_v = svld1ub_u16(lastPred, unpacked);
+  svfloat16_t in_v_f = svcvt_f16_u16_x(lastPred, in_v);
+
+  if constexpr (FuseWithOutput) {
+    svfloat16_t buf_sv = svld1_f16(lastPred, tailBufPtr);
+    buf_sv = svadd_f16_x(lastPred, buf_sv, bias);
+    in_v_f = svmad_f16_m(lastPred, in_v_f, scale, buf_sv);
+  } else {
+    in_v_f = svmad_f16_m(lastPred, in_v_f, scale, bias);
+  }
+
+  svst1_f16(lastPred, tailBufPtr, in_v_f);
+}
+
+template <
+    typename IndexType,
+    typename OffsetType,
+    typename OutType,
+    bool EnablePrefetching>
+bool EmbeddingSpMDMNBit_Sve_Fp16(
+    int bit_rate,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t data_size,
+    const uint8_t* input,
+    const IndexType* indices,
+    const OffsetType* offsets_or_lengths,
+    const float* weights,
+    const bool normalize_by_lengths,
+    OutType* out,
+    const bool is_weight_positional,
+    const bool use_offsets,
+    const int64_t output_stride,
+    const int64_t input_stride,
+    const bool scale_bias_last,
+    const bool /*is_bf16_out*/) {
+  // This kernel is only dispatched for fp16 output (OutType == uint16_t
+  // && !is_bf16_out). All paths produce fp16 directly — no fp32 widening.
+  if constexpr (!std::is_same_v<OutType, uint16_t>) {
+    return false;
+  }
+
+  if (data_size < 0) {
+    return false;
+  }
+
+  constexpr int64_t CACHE_LINE_SIZE = 64;
+  constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
+  const int64_t prefetch_stride =
+      std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
+
+  if constexpr (EnablePrefetching) {
+    for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+      const IndexType idx = indices[pf_idx];
+      if (idx < 0 || idx >= data_size) {
+        continue;
+      }
+      const uint8_t* prefetch_addr = input + input_stride * idx;
+      for (int64_t offset = 0; offset < input_stride;
+           offset += CACHE_LINE_SIZE) {
+        do_prefetch(prefetch_addr + offset, 0, 0);
+      }
+    }
+  }
+
+  const int num_elem_per_byte = 8 / bit_rate;
+  constexpr int64_t scale_bias_size = 2 * sizeof(float16_t);
+  const int64_t scale_bias_offset = scale_bias_last
+      ? ((block_size + num_elem_per_byte - 1) / num_elem_per_byte)
+      : 0;
+  const int64_t input_offset = scale_bias_last ? 0 : scale_bias_size;
+
+  uint64_t iters = ((uint64_t)std::max<int64_t>(block_size, 0)) / 8ull;
+  uint64_t block_size_mod = block_size % 8;
+
+  // All-true mask for full 8-element SVE iterations (body loop)
+  svbool_t fullRowPred16 = svptrue_b16();
+  // Partial mask with only block_size_mod active lanes (tail iteration)
+  svbool_t lastPred16 = svwhilelt_b16_u64(0, block_size_mod);
+
+  // Accumulate in NEON fp16 registers, store fp16 directly.
+
+  if (iters >= 1 && iters <= 32) {
+    int64_t current = 0;
+    const float* weights_addr = weights;
+    int64_t outputSize = output_size;
+
+    const int bytes_per_8elem = (bit_rate == 4) ? 4 : 2;
+
+    auto process_row = [&]<uint64_t ITERS>() -> bool {
+      constexpr uint64_t CHUNK = 16;
+      constexpr uint64_t NUM_TILES = (ITERS + CHUNK - 1) / CHUNK;
+      float16x8_t acc[ITERS <= CHUNK ? ITERS : CHUNK];
+      float16x8_t acc_b[ITERS <= 8 ? ITERS : 1];
+
+      const OffsetType raw_len = use_offsets
+          ? offsets_or_lengths[1] - offsets_or_lengths[0]
+          : offsets_or_lengths[0];
+      const int64_t end = current + raw_len;
+      if (end > index_size) {
+        return false;
+      }
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                        : EmbeddingStatsTracker::DataType::INT2,
+          EmbeddingStatsTracker::DataType::FP16,
+          output_size,
+          raw_len);
+
+      const int64_t len =
+          normalize_by_lengths ? static_cast<int64_t>(raw_len) : 0;
+      if (is_weight_positional) {
+        weights_addr = weights;
+      }
+
+      bool oneIterationDone = false;
+
+      // ---- Tiled path for ITERS > 16 (e.g. dim=256) ----
+      if constexpr (ITERS > 16) {
+        const int64_t current_start = current;
+        const float* weights_start = weights_addr;
+
+        const float16x8_t norm_fp16 = vdupq_n_f16(
+            len > 0 ? (float16_t)(1.0f / static_cast<float>(len))
+                    : (float16_t)1.0f);
+        const bool do_normalize = (len > 0);
+
+        for (uint64_t tile = 0; tile < NUM_TILES; ++tile) {
+          const uint64_t tile_offset = tile * CHUNK * bytes_per_8elem;
+          const uint64_t tile_out_offset = tile * CHUNK * 8;
+          constexpr uint64_t LAST_TILE_ITERS =
+              ITERS % CHUNK == 0 ? CHUNK : (ITERS % CHUNK);
+          const uint64_t tile_iters =
+              (tile == NUM_TILES - 1) ? LAST_TILE_ITERS : CHUNK;
+
+          for (uint64_t j = 0; j < tile_iters; ++j) {
+            acc[j] = vdupq_n_f16(0.0f);
+          }
+
+          int64_t tile_current =
+              (tile == NUM_TILES - 1) ? current : current_start;
+          const float* tile_weights = weights_start;
+
+          for (; tile_current < end; ++tile_current) {
+            const IndexType idx = indices[tile_current];
+
+            if constexpr (EnablePrefetching) {
+              const IndexType pidx = indices[std::min(
+                  tile_current + prefetch_stride, index_size - 1)];
+              const uint8_t* paddr = input + input_stride * pidx;
+              for (int64_t off = 0; off < input_stride;
+                   off += CACHE_LINE_SIZE) {
+                do_prefetch(paddr + off, 0, 0);
+              }
+            }
+
+            if (idx < 0 || idx >= data_size) {
+              if (!scale_bias_last && idx == -1) {
+                if (weights != nullptr) {
+                  ++tile_weights;
+                }
+                continue;
+              }
+              return false;
+            }
+
+            const uint8_t* input_row_base = input + input_stride * idx;
+            float scale_val, bias_val;
+            load_scale_bias_fp16(
+                input_row_base, scale_bias_offset, false, scale_val, bias_val);
+            if (weights != nullptr) {
+              scale_val *= *tile_weights;
+              bias_val *= *tile_weights;
+              ++tile_weights;
+            }
+
+            const float16x8_t scale_neon = vdupq_n_f16((float16_t)scale_val);
+            const float16x8_t bias_neon = vdupq_n_f16((float16_t)bias_val);
+            const uint8_t* input_row =
+                input_row_base + input_offset + tile_offset;
+
+            for (uint64_t j = 0; j < tile_iters; ++j) {
+              const float16x8_t in_f16 = (bit_rate == 4)
+                  ? unpack_4bit_to_fp16_neon(input_row + j * bytes_per_8elem)
+                  : unpack_2bit_to_fp16_neon(input_row + j * bytes_per_8elem);
+              acc[j] =
+                  vaddq_f16(acc[j], vfmaq_f16(bias_neon, in_f16, scale_neon));
+            }
+            oneIterationDone = true;
+          }
+
+          if (tile == NUM_TILES - 1) {
+            current = tile_current;
+            weights_addr = tile_weights;
+          }
+
+          if (oneIterationDone) {
+            float16_t* outPtr =
+                reinterpret_cast<float16_t*>(out) + tile_out_offset;
+            for (uint64_t j = 0; j < tile_iters; ++j) {
+              float16x8_t val = acc[j];
+              if (do_normalize) {
+                val = vmulq_f16(val, norm_fp16);
+              }
+              vst1q_f16(outPtr, val);
+              outPtr += 8;
+            }
+          }
+        } // tile loop
+
+        if (!oneIterationDone) {
+          memset(out, 0, sizeof(OutType) * block_size);
+        }
+        return true;
+      } // ITERS > 16 tiled path
+
+      // ---- Non-tiled path for ITERS <= 16 ----
+      // Initialize accumulators
+      for (uint64_t j = 0; j < ITERS; ++j) {
+        acc[j] = vdupq_n_f16(0.0f);
+        if constexpr (ITERS <= 8) {
+          acc_b[j] = vdupq_n_f16(0.0f);
+        }
+      }
+
+      // Phase 1: 2-way unrolled paired loop (ITERS <= 8 only)
+      if constexpr (ITERS <= 8) {
+        while (current + 1 < end) {
+          const IndexType idx_a = indices[current];
+          const IndexType idx_b = indices[current + 1];
+
+          if (idx_a < 0 || idx_b < 0) {
+            // Handle each element individually to correctly skip
+            // pruned (-1) rows while still processing the valid partner.
+            for (int k = 0; k < 2; ++k) {
+              const IndexType idx = indices[current + k];
+              if (idx < 0 || idx >= data_size) {
+                if (!scale_bias_last && idx == -1) {
+                  if (weights != nullptr) {
+                    ++weights_addr;
+                  }
+                  continue;
+                }
+                return false;
+              }
+              const uint8_t* row_base = input + input_stride * idx;
+              float s, b;
+              load_scale_bias_fp16(row_base, scale_bias_offset, false, s, b);
+              if (weights != nullptr) {
+                s *= *weights_addr;
+                b *= *weights_addr;
+                ++weights_addr;
+              }
+              const float16x8_t sc = vdupq_n_f16((float16_t)s);
+              const float16x8_t bs = vdupq_n_f16((float16_t)b);
+              const uint8_t* row = row_base + input_offset;
+              for (uint64_t j = 0; j < ITERS; ++j) {
+                const float16x8_t in_f16 = (bit_rate == 4)
+                    ? unpack_4bit_to_fp16_neon(row + j * bytes_per_8elem)
+                    : unpack_2bit_to_fp16_neon(row + j * bytes_per_8elem);
+                acc[j] = vaddq_f16(acc[j], vfmaq_f16(bs, in_f16, sc));
+              }
+              oneIterationDone = true;
+            }
+            current += 2;
+            continue;
+          }
+          if (idx_a >= data_size || idx_b >= data_size) {
+            return false;
+          }
+
+          if constexpr (EnablePrefetching) {
+            auto prefetch_row = [&](int64_t cur) {
+              const IndexType pidx =
+                  indices[std::min(cur + prefetch_stride, index_size - 1)];
+              const uint8_t* paddr = input + input_stride * pidx;
+              for (int64_t off = 0; off < input_stride;
+                   off += CACHE_LINE_SIZE) {
+                do_prefetch(paddr + off, 0, 0);
+              }
+            };
+            prefetch_row(current);
+            prefetch_row(current + 1);
+          }
+
+          const uint8_t* row_base_a = input + input_stride * idx_a;
+          float scale_a, bias_a;
+          load_scale_bias_fp16(
+              row_base_a, scale_bias_offset, false, scale_a, bias_a);
+          if (weights != nullptr) {
+            scale_a *= weights_addr[0];
+            bias_a *= weights_addr[0];
+          }
+          const float16x8_t scale_a_neon = vdupq_n_f16((float16_t)scale_a);
+          const float16x8_t bias_a_neon = vdupq_n_f16((float16_t)bias_a);
+          const uint8_t* row_a = row_base_a + input_offset;
+
+          const uint8_t* row_base_b = input + input_stride * idx_b;
+          float scale_b, bias_b;
+          load_scale_bias_fp16(
+              row_base_b, scale_bias_offset, false, scale_b, bias_b);
+          if (weights != nullptr) {
+            scale_b *= weights_addr[1];
+            bias_b *= weights_addr[1];
+          }
+          const float16x8_t scale_b_neon = vdupq_n_f16((float16_t)scale_b);
+          const float16x8_t bias_b_neon = vdupq_n_f16((float16_t)bias_b);
+          const uint8_t* row_b = row_base_b + input_offset;
+
+          for (uint64_t j = 0; j < ITERS; ++j) {
+            const float16x8_t in_a = (bit_rate == 4)
+                ? unpack_4bit_to_fp16_neon(row_a + j * bytes_per_8elem)
+                : unpack_2bit_to_fp16_neon(row_a + j * bytes_per_8elem);
+            const float16x8_t in_b = (bit_rate == 4)
+                ? unpack_4bit_to_fp16_neon(row_b + j * bytes_per_8elem)
+                : unpack_2bit_to_fp16_neon(row_b + j * bytes_per_8elem);
+            acc[j] =
+                vaddq_f16(acc[j], vfmaq_f16(bias_a_neon, in_a, scale_a_neon));
+            acc_b[j] =
+                vaddq_f16(acc_b[j], vfmaq_f16(bias_b_neon, in_b, scale_b_neon));
+          }
+
+          current += 2;
+          if (weights != nullptr) {
+            weights_addr += 2;
+          }
+          oneIterationDone = true;
+        }
+      } // if constexpr (ITERS <= 8)
+
+      // Phase 2: single-embedding loop
+      for (; current < end; ++current) {
+        IndexType idx = indices[current];
+
+        if constexpr (EnablePrefetching) {
+          IndexType prefetch_idx =
+              indices[std::min(current + prefetch_stride, index_size - 1)];
+          const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
+          for (int64_t offset = 0; offset < input_stride;
+               offset += CACHE_LINE_SIZE) {
+            do_prefetch(prefetch_addr + offset, 0, 0);
+          }
+        }
+
+        if (idx < 0 || idx >= data_size) {
+          if (!scale_bias_last && idx == -1) {
+            if (weights != nullptr) {
+              ++weights_addr;
+            }
+            continue;
+          }
+          return false;
+        }
+
+        const uint8_t* input_row_base = input + input_stride * idx;
+        float scale_val, bias_val;
+        load_scale_bias_fp16(
+            input_row_base, scale_bias_offset, false, scale_val, bias_val);
+        if (weights != nullptr) {
+          scale_val *= *weights_addr;
+          bias_val *= *weights_addr;
+          ++weights_addr;
+        }
+
+        const float16x8_t scale_neon = vdupq_n_f16((float16_t)scale_val);
+        const float16x8_t bias_neon = vdupq_n_f16((float16_t)bias_val);
+        const uint8_t* input_row = input_row_base + input_offset;
+
+        for (uint64_t j = 0; j < ITERS; ++j) {
+          const float16x8_t in_f16 = (bit_rate == 4)
+              ? unpack_4bit_to_fp16_neon(input_row + j * bytes_per_8elem)
+              : unpack_2bit_to_fp16_neon(input_row + j * bytes_per_8elem);
+          acc[j] = vaddq_f16(acc[j], vfmaq_f16(bias_neon, in_f16, scale_neon));
+        }
+        oneIterationDone = true;
+      }
+
+      // Store fp16 accumulators directly — no fp32 widening
+      if (oneIterationDone) {
+        const float16x8_t norm_fp16 = vdupq_n_f16(
+            len > 0 ? (float16_t)(1.0f / static_cast<float>(len))
+                    : (float16_t)1.0f);
+        const bool do_normalize = (len > 0);
+
+        float16_t* outPtr = reinterpret_cast<float16_t*>(out);
+        for (uint64_t j = 0; j < ITERS; ++j) {
+          float16x8_t combined;
+          if constexpr (ITERS <= 8) {
+            combined = vaddq_f16(acc[j], acc_b[j]);
+          } else {
+            combined = acc[j];
+          }
+          if (do_normalize) {
+            combined = vmulq_f16(combined, norm_fp16);
+          }
+          vst1q_f16(outPtr, combined);
+          outPtr += 8;
+        }
+      } else {
+        memset(out, 0, sizeof(OutType) * block_size);
+      }
+      return true;
+    };
+
+    for (; outputSize > 0;
+         ++offsets_or_lengths, --outputSize, out += output_stride) {
+      bool ok;
+      switch (iters) {
+        case 1:
+          ok = process_row.template operator()<1>();
+          break;
+        case 2:
+          ok = process_row.template operator()<2>();
+          break;
+        case 3:
+          ok = process_row.template operator()<3>();
+          break;
+        case 4:
+          ok = process_row.template operator()<4>();
+          break;
+        case 5:
+          ok = process_row.template operator()<5>();
+          break;
+        case 6:
+          ok = process_row.template operator()<6>();
+          break;
+        case 7:
+          ok = process_row.template operator()<7>();
+          break;
+        case 8:
+          ok = process_row.template operator()<8>();
+          break;
+        case 9:
+          ok = process_row.template operator()<9>();
+          break;
+        case 10:
+          ok = process_row.template operator()<10>();
+          break;
+        case 11:
+          ok = process_row.template operator()<11>();
+          break;
+        case 12:
+          ok = process_row.template operator()<12>();
+          break;
+        case 13:
+          ok = process_row.template operator()<13>();
+          break;
+        case 14:
+          ok = process_row.template operator()<14>();
+          break;
+        case 15:
+          ok = process_row.template operator()<15>();
+          break;
+        case 16:
+          ok = process_row.template operator()<16>();
+          break;
+        case 17:
+          ok = process_row.template operator()<17>();
+          break;
+        case 18:
+          ok = process_row.template operator()<18>();
+          break;
+        case 19:
+          ok = process_row.template operator()<19>();
+          break;
+        case 20:
+          ok = process_row.template operator()<20>();
+          break;
+        case 21:
+          ok = process_row.template operator()<21>();
+          break;
+        case 22:
+          ok = process_row.template operator()<22>();
+          break;
+        case 23:
+          ok = process_row.template operator()<23>();
+          break;
+        case 24:
+          ok = process_row.template operator()<24>();
+          break;
+        case 25:
+          ok = process_row.template operator()<25>();
+          break;
+        case 26:
+          ok = process_row.template operator()<26>();
+          break;
+        case 27:
+          ok = process_row.template operator()<27>();
+          break;
+        case 28:
+          ok = process_row.template operator()<28>();
+          break;
+        case 29:
+          ok = process_row.template operator()<29>();
+          break;
+        case 30:
+          ok = process_row.template operator()<30>();
+          break;
+        case 31:
+          ok = process_row.template operator()<31>();
+          break;
+        case 32:
+          ok = process_row.template operator()<32>();
+          break;
+        default:
+          ok = false;
+          break;
+      }
+      if (!ok) {
+        return false;
+      }
+    }
+    return current == index_size;
+  }
+
+  // Buf-based fp16 accumulation fallback (iters > 32).
+  std::array<float16_t, LOCAL_STORAGE_SIZE> local_storage;
+  std::unique_ptr<float16_t[]> heap_storage;
+  float16_t* buf;
+
+  if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
+    buf = local_storage.data();
+  } else {
+    heap_storage.reset(new float16_t[block_size]);
+    buf = heap_storage.get();
+  }
+
+  int64_t current = 0;
+  const float* weights_addr = weights;
+  int64_t outputSize = output_size;
+  for (; outputSize > 0;
+       ++offsets_or_lengths, --outputSize, out += output_stride) {
+    OffsetType len = use_offsets ? offsets_or_lengths[1] - offsets_or_lengths[0]
+                                 : offsets_or_lengths[0];
+    int64_t end = current + len;
+    if (end > index_size) {
+      return false;
+    }
+
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                      : EmbeddingStatsTracker::DataType::INT2,
+        EmbeddingStatsTracker::DataType::FP16,
+        output_size,
+        len);
+
+    if (!normalize_by_lengths) {
+      len = 0;
+    }
+
+    if (is_weight_positional) {
+      weights_addr = weights;
+    }
+
+    bool oneIterationDone = false;
+    for (; current < end; ++current) {
+      IndexType idx = indices[current];
+
+      if constexpr (EnablePrefetching) {
+        IndexType prefetch_idx =
+            indices[std::min(current + prefetch_stride, index_size - 1)];
+        const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
+        for (int64_t offset = 0; offset < input_stride;
+             offset += CACHE_LINE_SIZE) {
+          do_prefetch(prefetch_addr + offset, 0, 0);
+        }
+      }
+
+      if (idx < 0 || idx >= data_size) {
+        if (!scale_bias_last && idx == -1) {
+          if (weights != nullptr) {
+            ++weights_addr;
+          }
+          continue;
+        }
+        return false;
+      }
+
+      const uint8_t* input_row_base = input + input_stride * idx;
+      float scale_val, bias_val;
+      load_scale_bias_fp16(
+          input_row_base, scale_bias_offset, false, scale_val, bias_val);
+      if (weights != nullptr) {
+        scale_val *= *weights_addr;
+        bias_val *= *weights_addr;
+        ++weights_addr;
+      }
+
+      const uint8_t* input_row = input_row_base + input_offset;
+      if (oneIterationDone) {
+        sve_nbit_fma_round_fp16<true>(
+            bit_rate,
+            input_row,
+            buf,
+            iters,
+            block_size_mod,
+            scale_val,
+            bias_val,
+            fullRowPred16,
+            lastPred16);
+      } else {
+        sve_nbit_fma_round_fp16<false>(
+            bit_rate,
+            input_row,
+            buf,
+            iters,
+            block_size_mod,
+            scale_val,
+            bias_val,
+            fullRowPred16,
+            lastPred16);
+        oneIterationDone = true;
+      }
+    }
+
+    if (oneIterationDone) {
+      if (len) {
+        float16x8_t normalize_scale =
+            vdupq_n_f16((float16_t)(1.0f / static_cast<float>(len)));
+        fill_output_sve_fp16<true>(
+            out, buf, iters, lastPred16, normalize_scale);
+      } else {
+        fill_output_sve_fp16<false>(
+            out, buf, iters, lastPred16, vdupq_n_f16(1.0f));
       }
     } else {
       memset(out, 0, sizeof(OutType) * block_size);
