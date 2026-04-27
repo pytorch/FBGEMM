@@ -833,6 +833,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.fs_feature_group_id,
                     ep.fs_feature_group_name,
                     ep.fs_feature_name,
+                    ep.laser_batch_size,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
