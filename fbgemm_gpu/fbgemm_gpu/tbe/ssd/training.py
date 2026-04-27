@@ -2302,19 +2302,22 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
 
             # When enrichment is enabled, invalidate L1 slots that received all-zero
-            # rows from DRAM so they will be re-fetched next prefetch
+            # rows from DRAM so they will be re-fetched next prefetch.
+            # NOTE: Use GPU-only ops to avoid .item()/.any() CPU-GPU syncs
+            # that stall the pipeline (~200ms per sync in traces).
             if self._enrichment_enabled:
-                n = actions_count_gpu.item()
-                if n > 0:
-                    slots = assigned_cache_slots[:n]
-                    valid_mask = slots >= 0
-                    if valid_mask.any():
-                        valid_slots = slots[valid_mask]
-                        rows = self.lxu_cache_weights[valid_slots]
-                        zero_rows = (rows == 0).all(dim=1)
-                        if zero_rows.any():
-                            zero_slots = valid_slots[zero_rows]
-                            self.lxu_cache_state.view(-1)[zero_slots] = -1
+                arange_idx = torch.arange(
+                    assigned_cache_slots.numel(),
+                    device=assigned_cache_slots.device,
+                )
+                valid_mask = (arange_idx < actions_count_gpu) & (
+                    assigned_cache_slots >= 0
+                )
+                valid_slots = assigned_cache_slots[valid_mask]
+                rows = self.lxu_cache_weights[valid_slots]
+                zero_rows = (rows == 0).all(dim=1)
+                zero_slots = valid_slots[zero_rows]
+                self.lxu_cache_state.view(-1)[zero_slots] = -1
 
             if self.training:
                 if linear_cache_indices.numel() > 0 and not self._embedding_cache_mode:
