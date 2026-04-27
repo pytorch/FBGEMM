@@ -81,6 +81,31 @@ DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
 INT8_EMB_ROW_DIM_OFFSET = 8
 
 
+def _get_consumed_preallocated_keys(optimizer: OptimType) -> set[str]:
+    """Return the preallocated_host_buffers keys the optimizer will consume.
+
+    Buffers passed for any other key are rejected by
+    SplitTableBatchedEmbeddingBagsCodegen.__init__. The mapping is derived
+    from the buffer-allocation branches in __init__:
+      - 'weights' is always consumed.
+      - 'momentum1' is consumed by every optimizer except NONE and EXACT_SGD.
+      - 'momentum2' is consumed only by ADAM, PARTIAL_ROWWISE_ADAM, LAMB,
+        PARTIAL_ROWWISE_LAMB, and ENSEMBLE_ROWWISE_ADAGRAD.
+    """
+    names = {"weights"}
+    if optimizer not in (OptimType.NONE, OptimType.EXACT_SGD):
+        names.add("momentum1")
+    if optimizer in (
+        OptimType.ADAM,
+        OptimType.PARTIAL_ROWWISE_ADAM,
+        OptimType.LAMB,
+        OptimType.PARTIAL_ROWWISE_LAMB,
+        OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+    ):
+        names.add("momentum2")
+    return names
+
+
 class DoesNotHavePrefix(Exception):
     pass
 
@@ -290,6 +315,7 @@ def apply_split_helper(
     uvm_tensors_log: list[str] | None = None,
     uvm_host_mapped: bool = False,
     make_persistent: bool = False,
+    preallocated_host_buffer: Tensor | None = None,
 ) -> None:
     set_attr_fn(f"{prefix}_physical_placements", split.placements)
     set_attr_fn(f"{prefix}_physical_offsets", split.offsets)
@@ -322,13 +348,35 @@ def apply_split_helper(
     else:
         persistent_state_fn(f"{prefix}_dev", dev_buffer)
     if split.host_size > 0:
-        host_buffer = torch.zeros(
-            split.host_size,
-            device=current_device,
-            # pyre-fixme[6]: Expected `type[torch._dtype] | None` for
-            #  3rd param but got `type[type[torch._dtype]]`.
-            dtype=dtype,
-        )
+        if preallocated_host_buffer is not None:
+            assert preallocated_host_buffer.numel() == split.host_size, (
+                f"preallocated_host_buffer size mismatch for '{prefix}_host': "
+                f"expected {split.host_size}, got {preallocated_host_buffer.numel()}"
+            )
+            assert (
+                preallocated_host_buffer.is_contiguous()
+            ), f"preallocated_host_buffer for '{prefix}_host' must be contiguous"
+            assert preallocated_host_buffer.dim() == 1, (
+                f"preallocated_host_buffer for '{prefix}_host' must be 1D, "
+                f"got {preallocated_host_buffer.dim()}D with shape {preallocated_host_buffer.shape}"
+            )
+            assert preallocated_host_buffer.dtype == dtype, (
+                f"preallocated_host_buffer dtype mismatch for '{prefix}_host': "
+                f"expected {dtype}, got {preallocated_host_buffer.dtype}"
+            )
+            assert preallocated_host_buffer.device == current_device, (
+                f"preallocated_host_buffer device mismatch for '{prefix}_host': "
+                f"expected {current_device}, got {preallocated_host_buffer.device}"
+            )
+            host_buffer = preallocated_host_buffer
+        else:
+            host_buffer = torch.zeros(
+                split.host_size,
+                device=current_device,
+                # pyre-fixme[6]: Expected `type[torch._dtype] | None` for
+                #  3rd param but got `type[type[torch._dtype]]`.
+                dtype=dtype,
+            )
         if dtype == torch.uint8:
             persistent_state_fn(f"{prefix}_host", host_buffer)
         # For fused TBE on MTIA, always set tensor in persistent states and not nn.Parameter
@@ -729,11 +777,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         enable_raw_embedding_streaming: bool = False,
         res_params: RESParams | None = None,
         is_qr_tbe: bool = False,
+        preallocated_host_buffers: dict[str, torch.Tensor] | None = None,
     ) -> None:
         super().__init__()
         self.uuid = str(uuid.uuid4())
         self.log("SplitTableBatchedEmbeddingBagsCodegen API: V2")
         self.log(f"SplitTableBatchedEmbeddingBagsCodegen Arguments: {locals()}")
+        self._preallocated_host_buffers = preallocated_host_buffers
+        if preallocated_host_buffers is not None:
+            consumed = _get_consumed_preallocated_keys(optimizer)
+            provided = set(preallocated_host_buffers.keys())
+            unconsumed = provided - consumed
+            assert not unconsumed, (
+                f"preallocated_host_buffers contains keys not consumed by "
+                f"optimizer={optimizer}: {unconsumed}. Consumed keys for this "
+                f"optimizer are: {consumed}"
+            )
         self.log(
             f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
         )
@@ -1058,6 +1117,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             make_dev_param=optimizer == OptimType.NONE,
             dev_reshape=(-1, self.max_D) if optimizer == OptimType.NONE else None,
             uvm_host_mapped=self.uvm_host_mapped,
+            preallocated_host_buffer=(
+                self._preallocated_host_buffers.get("weights")
+                if self._preallocated_host_buffers is not None
+                else None
+            ),
         )
 
         assert optimizer not in (
@@ -1268,6 +1332,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     dtype=momentum1_dtype,
                     enforce_hbm=enforce_hbm,
                     uvm_host_mapped=self.uvm_host_mapped,
+                    preallocated_host_buffer=(
+                        self._preallocated_host_buffers.get("momentum1")
+                        if self._preallocated_host_buffers is not None
+                        else None
+                    ),
                 )
             if optimizer in (
                 OptimType.ADAM,
@@ -1304,6 +1373,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     #  but got `type[torch.float32]`.
                     dtype=momentum2_dtype,
                     uvm_host_mapped=self.uvm_host_mapped,
+                    preallocated_host_buffer=(
+                        self._preallocated_host_buffers.get("momentum2")
+                        if self._preallocated_host_buffers is not None
+                        else None
+                    ),
                 )
             else:
                 # NOTE: make TorchScript work!
@@ -3632,6 +3706,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         make_dev_param: bool = False,
         dev_reshape: tuple[int, ...] | None = None,
         uvm_host_mapped: bool = False,
+        preallocated_host_buffer: torch.Tensor | None = None,
     ) -> None:
         apply_split_helper(
             self.register_buffer,
@@ -3649,6 +3724,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             uvm_host_mapped=uvm_host_mapped,
             # Only force persistent for Split TBE on MTIA, see D97971757 for details.
             make_persistent=(self.use_mtia and not self.is_qr_tbe),
+            preallocated_host_buffer=preallocated_host_buffer,
         )
 
     def _apply_cache_state(
