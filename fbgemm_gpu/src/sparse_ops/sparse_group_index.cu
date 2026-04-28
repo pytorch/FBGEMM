@@ -264,14 +264,23 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
           const bool member_changed =
               (last_member_id_for_accum != -1 &&
                member_id != last_member_id_for_accum);
-          // Probably might be merged into following if-else cascade
-          if (member_changed) {
+          // Detect column-tile change within the same member: when a single
+          // thread iterates across multiple warp_ids that map to different
+          // col_tiles (e.g. USE_CONTIGUOUS_WARPS with warps_per_row > 1), the
+          // output pointer (which embeds col_offset) shifts. The accumulated
+          // `storage` belongs to the previous tile and must be flushed before
+          // we start summing inputs from the new tile, otherwise gradients
+          // from different columns get mixed when `cached_idx == idx`.
+          const bool col_tile_changed =
+              (last_member_output_tile != nullptr &&
+               output != last_member_output_tile);
+          const bool tile_changed = member_changed || col_tile_changed;
+          if (tile_changed) {
             flush_cache_accumulator(
                 last_member_output_tile, last_member_num_cols);
           }
 
-          const bool is_first_warp =
-              member_changed || (warp_id == start_warp_id);
+          const bool is_first_warp = tile_changed || (warp_id == start_warp_id);
           const bool is_last_warp = (warp_id + warp_stride >= warp_end);
           if (is_first_warp) {
             storage = input[row * num_cols + i];
