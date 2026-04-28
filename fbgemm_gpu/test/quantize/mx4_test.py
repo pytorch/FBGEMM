@@ -460,6 +460,32 @@ class TestMXQuantizationConversion(unittest.TestCase):
                 msg=f"Triton dequantize failed for magnitude={magnitude}",
             )
 
+    def test_mx4_high_bit_scale_exponent_ref(self) -> None:
+        """Regression test: py_dequantize_mx4 sign-extension for scale exponents >= 128.
+
+        The Python reference dequantize viewed packed data as int8 and
+        subtracted FP32_EXP_BIAS directly, causing sign-extension for biased
+        exponents >= 128.
+        """
+        group_size = 32
+
+        for magnitude in [2.0, 4.0, 64.0, 1024.0]:
+            input_tensor = torch.full([1, group_size], magnitude, dtype=torch.float32)
+
+            quantized = py_quantize_mx4(
+                input_tensor, group_size, rounding_mode=RoundingMode.nearest
+            )
+            output_ref = py_dequantize_mx4(quantized, group_size)
+            output_ref = output_ref.reshape(input_tensor.shape)
+
+            torch.testing.assert_close(
+                input_tensor,
+                output_ref,
+                rtol=0.0,
+                atol=0.0,
+                msg=f"py_dequantize_mx4 failed for magnitude={magnitude}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
