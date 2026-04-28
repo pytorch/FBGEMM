@@ -558,7 +558,9 @@ def _kernel_dequantize_mx4(
             other=0.0,
         )
         # Remove fp32 exponent bias.
-        exp = exp.to(tl.int16) - FP32_EXP_BIAS
+        # Mask with 0xFF to interpret as unsigned before subtracting bias,
+        # since biased exponents >= 128 are sign-extended when cast from int8.
+        exp = (exp.to(tl.int16) & 0xFF) - FP32_EXP_BIAS
 
         # Convert exponent to scale and apply to input.
         # Requires higher precision to avoid rounding out small values.
