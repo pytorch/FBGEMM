@@ -1632,6 +1632,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 (cache_size,),
                 is_host_mapped=self.uvm_host_mapped,
             ),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_weights",
@@ -1645,6 +1646,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.lxu_cache_weights.shape,
                 is_host_mapped=self.uvm_host_mapped,
             ),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_identities",
@@ -1657,6 +1659,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 (cache_size, 1),
                 is_host_mapped=self.uvm_host_mapped,
             ),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_runtime_meta",
@@ -1682,6 +1685,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 (1,),
                 is_host_mapped=self.uvm_host_mapped,
             ),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_copy_done",
@@ -1694,6 +1698,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 (1,),
                 is_host_mapped=self.uvm_host_mapped,
             ),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
 
     def _register_empty_res_buffers(self) -> None:
@@ -1701,6 +1706,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "res_indices",
             torch.zeros(0, device=self.current_device, dtype=torch.long),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_weights",
@@ -1711,10 +1717,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.zeros`, for argument `dtype`, expected `dtype | None` but got `Module | dtype | Tensor`
                 dtype=self.lxu_cache_weights.dtype,
             ),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_identities",
             torch.zeros(0, 1, device=self.current_device, dtype=torch.long),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_runtime_meta",
@@ -1724,10 +1732,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "res_count",
             torch.zeros(1, device=self.current_device, dtype=torch.int),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_copy_done",
             torch.zeros(1, device=self.current_device, dtype=torch.int32),
+            persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
 
     @torch.jit.ignore
