@@ -251,8 +251,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 assert self.optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD
                 ], f"only EXACT_ROWWISE_ADAGRAD supports embedding cache mode, but got {self.optimizer}"
-            # pyre-ignore [16]
-            self._enrichment_enabled = self.kv_zch_params.enrichment_policy is not None
+            # enrichment_policy is plumbed globally from KVZCHTBEConfig and reaches
+            # every TBE that shares the params, but enrichment is only meaningful
+            # when this TBE is acting as an external-write cache. Gate it on
+            # embedding_cache_mode (which is already populated per-TBE by the
+            # ZeroCollision*Cache wrappers in batched_embedding_kernel.py) so a
+            # regular gradient-trained KVZCH TBE does not run the enrichment-only
+            # paths (early-return flush, async enrichment writeback) that would
+            # otherwise cause fp16 weight overflow on unrelated tables.
+            self._enrichment_enabled = (
+                # pyre-ignore [16]
+                self.kv_zch_params.enrichment_policy is not None
+                and self._embedding_cache_mode
+            )
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -806,7 +817,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     eviction_policy.interval_for_feature_statistics_decay_s,
                 )
             enrichment_config = None
-            if self.kv_zch_params and self.kv_zch_params.enrichment_policy is not None:
+            if (
+                self.kv_zch_params
+                and self.kv_zch_params.enrichment_policy is not None
+                and self._embedding_cache_mode
+            ):
                 ep = self.kv_zch_params.enrichment_policy
                 if ep.enrichment_type is None:
                     raise ValueError(
