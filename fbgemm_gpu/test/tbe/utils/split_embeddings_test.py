@@ -23,7 +23,9 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     rounded_row_size_in_bytes,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    _get_consumed_preallocated_keys,
     ComputeDevice,
+    construct_split_state,
     INT8_EMB_ROW_DIM_OFFSET,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
@@ -69,12 +71,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             uvm_weights = torch.rand(10456, dtype=torch.half).cuda()
             lxu_cache_weights = torch.rand(544, 4, dtype=torch.float).cuda()
             weights_placements = torch.tensor([2, 2, 2]).to(
-                dtype=torch.int, device="cuda"
+                dtype=torch.int, device=torch.accelerator.current_accelerator()
             )
             weights_offsets = torch.tensor([0, 2784, 2784]).to(
-                dtype=torch.long, device="cuda"
+                dtype=torch.long, device=torch.accelerator.current_accelerator()
             )
-            D_offsets = torch.tensor([0, 4, 8]).to(dtype=torch.int, device="cuda")
+            D_offsets = torch.tensor([0, 4, 8]).to(
+                dtype=torch.int, device=torch.accelerator.current_accelerator()
+            )
             total_D = 12
             max_D = 4
             indices = torch.tensor(
@@ -92,9 +96,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     187,
                     89,
                 ]
-            ).to(dtype=torch.long, device="cuda")
+            ).to(dtype=torch.long, device=torch.accelerator.current_accelerator())
             offsets = torch.tensor([0, 2, 4, 6, 8, 10, 12]).to(
-                dtype=torch.long, device="cuda"
+                dtype=torch.long, device=torch.accelerator.current_accelerator()
             )
             pooling_mode = False
             indice_weights = torch.rand(12, dtype=torch.float).cuda()
@@ -113,7 +117,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     0,
                     193,
                 ]
-            ).to(dtype=torch.int, device="cuda")
+            ).to(dtype=torch.int, device=torch.accelerator.current_accelerator())
             uvm_cache_stats = torch.tensor(
                 [
                     0,
@@ -123,7 +127,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     1,
                     0,
                 ]
-            ).to(dtype=torch.int, device="cuda")
+            ).to(dtype=torch.int, device=torch.accelerator.current_accelerator())
 
             output_dtype = 0  # SparseType.FP32
             is_experimental = False
@@ -609,6 +613,527 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             f"Setting hyper-parameter {invalid_parameter} is not supported",
         ):
             cc.update_hyper_parameters({"invalid_parameter": 1.0})
+
+
+class PreallocatedHostBuffersTest(unittest.TestCase):
+    """Tests for the preallocated_host_buffers feature in SplitTableBatchedEmbeddingBagsCodegen."""
+
+    def _make_cpu_embedding_specs(
+        self,
+        T: int = 3,
+        D: int = 8,
+        E: int = 100,
+    ) -> list[tuple[int, int, EmbeddingLocation, ComputeDevice]]:
+        return [(E, D, EmbeddingLocation.HOST, ComputeDevice.CPU) for _ in range(T)]
+
+    def test_preallocated_host_buffers_data_ptr_identity(self) -> None:
+        T, D, E = 3, 8, 100
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+        momentum1_split = construct_split_state(
+            embedding_specs,
+            rowwise=True,
+            cacheable=False,
+        )
+
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+        momentum1_buffer = torch.zeros(momentum1_split.host_size, dtype=torch.float32)
+
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            preallocated_host_buffers={
+                "weights": weights_buffer,
+                "momentum1": momentum1_buffer,
+            },
+        )
+
+        weights_host = cc.weights_host
+        momentum1_host = cc.momentum1_host
+        assert isinstance(weights_host, torch.Tensor)
+        assert isinstance(momentum1_host, torch.Tensor)
+        self.assertEqual(weights_host.data_ptr(), weights_buffer.data_ptr())
+        self.assertEqual(momentum1_host.data_ptr(), momentum1_buffer.data_ptr())
+
+    def test_preallocated_host_buffers_none_falls_back_to_default(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        cc_default = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+        )
+
+        cc_none = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            preallocated_host_buffers=None,
+        )
+
+        default_weights_host = cc_default.weights_host
+        none_weights_host = cc_none.weights_host
+        default_momentum1_host = cc_default.momentum1_host
+        none_momentum1_host = cc_none.momentum1_host
+        assert isinstance(default_weights_host, torch.Tensor)
+        assert isinstance(none_weights_host, torch.Tensor)
+        assert isinstance(default_momentum1_host, torch.Tensor)
+        assert isinstance(none_momentum1_host, torch.Tensor)
+        self.assertEqual(default_weights_host.numel(), none_weights_host.numel())
+        self.assertEqual(default_momentum1_host.numel(), none_momentum1_host.numel())
+
+    def test_preallocated_host_buffers_size_mismatch_raises(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        wrong_size_buffer = torch.zeros(7, dtype=torch.float32)
+
+        with self.assertRaises(AssertionError):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weights_precision=SparseType.FP32,
+                preallocated_host_buffers={"weights": wrong_size_buffer},
+            )
+
+    def test_preallocated_host_buffers_forward_correctness(self) -> None:
+        T, D, E = 3, 8, 100
+        B, L = 4, 5
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+        momentum1_split = construct_split_state(
+            embedding_specs,
+            rowwise=True,
+            cacheable=False,
+        )
+
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+        momentum1_buffer = torch.zeros(momentum1_split.host_size, dtype=torch.float32)
+
+        cc_prealloc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            preallocated_host_buffers={
+                "weights": weights_buffer,
+                "momentum1": momentum1_buffer,
+            },
+        )
+        cc_default = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+        )
+
+        # Copy weights from default to preallocated so they match
+        for t in range(T):
+            w_prealloc = cc_prealloc.split_embedding_weights()[t]
+            w_default = cc_default.split_embedding_weights()[t]
+            w_prealloc.data.copy_(w_default.data)
+
+        indices = torch.randint(0, E, (T * B * L,))
+        offsets = torch.arange(0, T * B + 1) * L
+
+        out_prealloc = cc_prealloc(indices, offsets)
+        out_default = cc_default(indices, offsets)
+
+        torch.testing.assert_close(out_prealloc, out_default, atol=0.0, rtol=0.0)
+
+    def test_preallocated_host_buffers_backward_updates_buffer(self) -> None:
+        T, D, E = 2, 8, 50
+        B, L = 4, 3
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+        momentum1_split = construct_split_state(
+            embedding_specs,
+            rowwise=True,
+            cacheable=False,
+        )
+
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+        momentum1_buffer = torch.zeros(momentum1_split.host_size, dtype=torch.float32)
+
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            learning_rate=0.1,
+            preallocated_host_buffers={
+                "weights": weights_buffer,
+                "momentum1": momentum1_buffer,
+            },
+        )
+
+        # Initialize weights to non-zero so backward produces visible updates
+        for t in range(T):
+            w = cc.split_embedding_weights()[t]
+            w.data.fill_(1.0)
+
+        indices = torch.randint(0, E, (T * B * L,))
+        offsets = torch.arange(0, T * B + 1) * L
+
+        output = cc(indices, offsets)
+        output.sum().backward()
+
+        # After backward, momentum1 accumulates squared gradients → should be non-zero
+        self.assertTrue(
+            momentum1_buffer.any(),
+            "momentum1 buffer should have been updated by backward pass",
+        )
+
+    def test_preallocated_host_buffers_partial_keys(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            preallocated_host_buffers={"weights": weights_buffer},
+        )
+
+        weights_host = cc.weights_host
+        momentum1_host = cc.momentum1_host
+        assert isinstance(weights_host, torch.Tensor)
+        assert isinstance(momentum1_host, torch.Tensor)
+        self.assertEqual(weights_host.data_ptr(), weights_buffer.data_ptr())
+        # momentum1 should still be allocated (not preallocated)
+        self.assertGreater(momentum1_host.numel(), 0)
+        self.assertNotEqual(momentum1_host.data_ptr(), weights_buffer.data_ptr())
+
+    def test_preallocated_host_buffers_adagrad_per_element_momentum1(
+        self,
+    ) -> None:
+        """Test preallocated buffers with EXACT_ADAGRAD (non-rowwise momentum1).
+
+        Uses EXACT_ADAGRAD to exercise a different momentum1 allocation size
+        (per-element, non-rowwise) compared to EXACT_ROWWISE_ADAGRAD (per-row).
+
+        Note: the momentum2 preallocated path is structurally untestable here
+        because the optimizers that allocate momentum2 (ADAM, PARTIAL_ROWWISE_ADAM,
+        LAMB, PARTIAL_ROWWISE_LAMB, ENSEMBLE_ROWWISE_ADAGRAD) require CUDA, and
+        FBGEMM forbids EmbeddingLocation.HOST on CUDA devices (assertion at
+        split_table_batched_embeddings_ops_training.py:~915 — 'EmbeddingLocation.HOST
+        doesn't work for CUDA device!'). This per-element momentum1 test exercises
+        the same apply_split_helper plumbing that momentum2 would use — the only
+        untested surface is the kwarg-routing wiring at the call site, which is
+        a one-line `.get("momentum2")` mirroring the momentum1 routing.
+        """
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+        # EXACT_ADAGRAD: non-rowwise momentum1 (per-element, same size as weights)
+        momentum1_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=False,
+        )
+
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+        momentum1_buffer = torch.zeros(momentum1_split.host_size, dtype=torch.float32)
+
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            preallocated_host_buffers={
+                "weights": weights_buffer,
+                "momentum1": momentum1_buffer,
+            },
+        )
+
+        weights_host = cc.weights_host
+        momentum1_host = cc.momentum1_host
+        assert isinstance(weights_host, torch.Tensor)
+        assert isinstance(momentum1_host, torch.Tensor)
+        self.assertEqual(weights_host.data_ptr(), weights_buffer.data_ptr())
+        self.assertEqual(momentum1_host.data_ptr(), momentum1_buffer.data_ptr())
+        # Non-rowwise momentum1 has same numel as weights (per-element)
+        self.assertEqual(momentum1_host.numel(), weights_host.numel())
+
+    def test_preallocated_host_buffers_wrong_dtype_raises(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+
+        # float16 buffer when float32 expected
+        wrong_dtype_buffer = torch.zeros(weight_split.host_size, dtype=torch.float16)
+
+        with self.assertRaises(AssertionError):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weights_precision=SparseType.FP32,
+                preallocated_host_buffers={"weights": wrong_dtype_buffer},
+            )
+
+    def test_preallocated_host_buffers_non_contiguous_raises(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+
+        # Non-contiguous via stride-2 slicing
+        non_contiguous_buffer = torch.zeros(
+            2 * weight_split.host_size, dtype=torch.float32
+        )[::2]
+
+        with self.assertRaises(AssertionError):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weights_precision=SparseType.FP32,
+                preallocated_host_buffers={"weights": non_contiguous_buffer},
+            )
+
+    def test_preallocated_host_buffers_2d_buffer_raises(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+
+        # 2D buffer with matching numel
+        buffer_2d = torch.zeros(E, D * T, dtype=torch.float32)
+        # Ensure numel matches
+        self.assertEqual(buffer_2d.numel(), weight_split.host_size)
+
+        with self.assertRaises(AssertionError):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weights_precision=SparseType.FP32,
+                preallocated_host_buffers={"weights": buffer_2d},
+            )
+
+    def test_preallocated_host_buffers_invalid_key_raises(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+
+        buf = torch.zeros(weight_split.host_size, dtype=torch.float32)
+
+        # "weight" is a typo for "weights"
+        with self.assertRaises(AssertionError):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weights_precision=SparseType.FP32,
+                preallocated_host_buffers={"weight": buf},
+            )
+
+    def test_preallocated_host_buffers_empty_dict_falls_back_to_default(self) -> None:
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+
+        cc_default = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+        )
+
+        cc_empty = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            preallocated_host_buffers={},
+        )
+
+        default_weights_host = cc_default.weights_host
+        empty_weights_host = cc_empty.weights_host
+        default_momentum1_host = cc_default.momentum1_host
+        empty_momentum1_host = cc_empty.momentum1_host
+        assert isinstance(default_weights_host, torch.Tensor)
+        assert isinstance(empty_weights_host, torch.Tensor)
+        assert isinstance(default_momentum1_host, torch.Tensor)
+        assert isinstance(empty_momentum1_host, torch.Tensor)
+        self.assertEqual(default_weights_host.numel(), empty_weights_host.numel())
+        self.assertEqual(default_momentum1_host.numel(), empty_momentum1_host.numel())
+
+    def test_consumed_keys_for_each_optimizer(self) -> None:
+        """_get_consumed_preallocated_keys returns the documented set per OptimType.
+
+        Locks down the optimizer→buffer-name mapping that the validation in
+        SplitTableBatchedEmbeddingBagsCodegen.__init__ relies on. If a future
+        optimizer is added to OptimType, this test will fail until the helper
+        is updated to classify it.
+        """
+        # weights only (no momentum allocation paths in __init__).
+        for optimizer in (OptimType.NONE, OptimType.EXACT_SGD):
+            self.assertEqual(
+                _get_consumed_preallocated_keys(optimizer),
+                {"weights"},
+                f"unexpected consumed keys for {optimizer}",
+            )
+        # weights + momentum1 only.
+        for optimizer in (
+            OptimType.EXACT_ADAGRAD,
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+        ):
+            self.assertEqual(
+                _get_consumed_preallocated_keys(optimizer),
+                {"weights", "momentum1"},
+                f"unexpected consumed keys for {optimizer}",
+            )
+        # weights + momentum1 + momentum2.
+        for optimizer in (
+            OptimType.ADAM,
+            OptimType.PARTIAL_ROWWISE_ADAM,
+            OptimType.LAMB,
+            OptimType.PARTIAL_ROWWISE_LAMB,
+            OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+        ):
+            self.assertEqual(
+                _get_consumed_preallocated_keys(optimizer),
+                {"weights", "momentum1", "momentum2"},
+                f"unexpected consumed keys for {optimizer}",
+            )
+
+    def test_unconsumed_key_raises_for_sgd(self) -> None:
+        """SGD with momentum1 buffer raises (SGD only consumes 'weights')."""
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+        momentum_buffer = torch.zeros(100, dtype=torch.float32)
+
+        with self.assertRaisesRegex(AssertionError, r"momentum1"):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=OptimType.EXACT_SGD,
+                weights_precision=SparseType.FP32,
+                preallocated_host_buffers={
+                    "weights": weights_buffer,
+                    "momentum1": momentum_buffer,
+                },
+            )
+
+    def test_unconsumed_key_raises_for_adagrad_momentum2(self) -> None:
+        """EXACT_ROWWISE_ADAGRAD with momentum2 buffer raises (Adagrad doesn't use momentum2)."""
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+        momentum1_split = construct_split_state(
+            embedding_specs,
+            rowwise=True,
+            cacheable=False,
+        )
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+        momentum1_buffer = torch.zeros(momentum1_split.host_size, dtype=torch.float32)
+        momentum2_buffer = torch.zeros(100, dtype=torch.float32)
+
+        with self.assertRaisesRegex(AssertionError, r"momentum2"):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weights_precision=SparseType.FP32,
+                preallocated_host_buffers={
+                    "weights": weights_buffer,
+                    "momentum1": momentum1_buffer,
+                    "momentum2": momentum2_buffer,
+                },
+            )
+
+    def test_consumed_keys_only_succeeds(self) -> None:
+        """Providing exactly the consumed-key set constructs successfully (regression guard)."""
+        T, D, E = 2, 8, 50
+        embedding_specs = self._make_cpu_embedding_specs(T, D, E)
+        weight_split = construct_split_state(
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=SparseType.FP32,
+        )
+        momentum1_split = construct_split_state(
+            embedding_specs,
+            rowwise=True,
+            cacheable=False,
+        )
+        weights_buffer = torch.zeros(weight_split.host_size, dtype=torch.float32)
+        momentum1_buffer = torch.zeros(momentum1_split.host_size, dtype=torch.float32)
+
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=embedding_specs,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weights_precision=SparseType.FP32,
+            preallocated_host_buffers={
+                "weights": weights_buffer,
+                "momentum1": momentum1_buffer,
+            },
+        )
+        weights_host = cc.weights_host
+        momentum1_host = cc.momentum1_host
+        assert isinstance(weights_host, torch.Tensor)
+        assert isinstance(momentum1_host, torch.Tensor)
+        self.assertEqual(weights_host.data_ptr(), weights_buffer.data_ptr())
+        self.assertEqual(momentum1_host.data_ptr(), momentum1_buffer.data_ptr())
 
 
 if __name__ == "__main__":
