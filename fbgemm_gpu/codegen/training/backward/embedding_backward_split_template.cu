@@ -315,6 +315,75 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- endif %}
 );
 {%- endif %}
+
+{%- if enable_optimized_hip_mixed_D_kernel  %}
+
+template <
+    typename emb_t,
+    typename grad_t,
+    typename cache_t,
+    typename index_t,
+    {%- for ph_name in args.placeholder_tensor_names %}
+    typename {{ ph_name + "_ph_t" }},
+    {%- endfor %}
+    int32_t kFixedMaxVecsPerThread,
+    int32_t kThreadGroupSize,
+    bool kUseVecBlocking>
+__global__ __launch_bounds__(kBackwardMaxThreads) void
+hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1(
+    const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag or is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- else %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> sorted_{{ locs_or_addrs_tensor }},
+    const bool use_uniq_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
+    {%- endif %}
+    {%- if weighted %}
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
+    int32_t max_segment_length_per_warp,
+    {%- if not dense and optimizer != "none" %}
+    bool stochastic_rounding,
+    at::PhiloxCudaState stochastic_rounding_philox_args,
+    {%- else %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- endif %} // if not dense and optimizer != "none"
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- endif %}
+    const int32_t max_D,
+    const int32_t max_vecs_per_thread,
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
+);
+{%- endif %}
+
 {% if is_index_select %}
 namespace index_select {
 {% else %}
@@ -885,7 +954,17 @@ Tensor {{ embedding_cuda_op }}(
             wdesc,
             vdesc,
             )
-     %}
+    %}
+    {%- endif %}
+
+    {%- if enable_optimized_hip_mixed_D_kernel  %}
+    {%- set hip_mixed_d_warp_kernel = "hip_mixed_d_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
+            ndesc,
+            optimizer,
+            wdesc,
+            vdesc,
+            )
+    %}
     {%- endif %}
 
     AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&] {
@@ -1050,6 +1129,10 @@ Tensor {{ embedding_cuda_op }}(
                 auto temp_grad_accum = at::zeros(
                     {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
                     aligned_grad_output.options().dtype(std::is_same_v<cache_t, double> ? at::kDouble : at::kFloat));
+
+                {%- if enable_optimized_hip_mixed_D_kernel  %}
+                const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
+                {%- endif %}
 
                 DISPATCH_PLACEHOLDER_TYPES(
                   {%- for ph_name in args.placeholder_tensor_names %}
@@ -1226,6 +1309,7 @@ Tensor {{ embedding_cuda_op }}(
                             desc_suffix,
                         )
                     %}
+                    // When 'enable_optimized_hip_mixed_D_kernel' and 'is_optimized_hip_kernel_supported_mode' is False, we use the default kernel.
                     auto backward_warp_per_row_kernel =
                         {{ warp_kernel }}
                             <emb_t,
@@ -1239,7 +1323,6 @@ Tensor {{ embedding_cuda_op }}(
                              kThreadGroupSize,
                              kUseVecBlocking>;
 
-                    // Compute shared memory size for warp_per_row
                     {%- if is_rocm %}
                         int32_t num_warp_per_row_groups;
                         if (total_L/total_B > 1){
@@ -1250,6 +1333,50 @@ Tensor {{ embedding_cuda_op }}(
                         }
                     {%- else %}
                         int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                    {%- endif %}
+                    auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
+                    // We made targeted performance optimizations for certain backward kernels. These optimizations take effect when 'enable_optimized_hip_mixed_D_kernel' is True.
+                    {%- if enable_optimized_hip_mixed_D_kernel %}
+                    // Currently, 'hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1' kernel
+                    // don`t support vbe==True and mixed_D==True, so we use 'hip_mixed_d_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1'
+                    // kernel as a fallback for vbe==True and mixed_D==True cases when 'use_hip_kernel' is True. For !vbe and !mixed_D cases, we use
+                    // 'hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1' kernel when the
+                    // condition 'use_hip_kernel' is True and "is_optimized_hip_kernel_supported_mode" is True. If no optimization is available for current
+                    // condition , it will fallback to the default kernel.
+                    {%- if vbe %}
+                    if (use_hip_kernel) {
+                    {%- else %}
+                    if (use_hip_kernel && mixed_D) {
+                    {%- endif %}
+                        backward_warp_per_row_kernel =
+                        {{ hip_mixed_d_warp_kernel }}
+                            <emb_t,
+                             grad_t,
+                             cache_t,
+                             index_t,
+                             {%- for ph_name in args.placeholder_tensor_names %}
+                             {{ ph_name + "_ph_t" }},
+                             {%- endfor %}
+                             kFixedMaxVecsPerThread,
+                             kThreadGroupSize,
+                             kUseVecBlocking>;
+                        if (max_D <= 128) {
+                            backward_warp_per_row_kernel =
+                            {{ hip_mixed_d_warp_kernel }}
+                                <emb_t,
+                                grad_t,
+                                cache_t,
+                                index_t,
+                                {%- for ph_name in args.placeholder_tensor_names %}
+                                {{ ph_name + "_ph_t" }},
+                                {%- endfor %}
+                                1,
+                                32,
+                                false>;
+                            blockSize = dim3(32, num_warp_per_row_groups);
+                            // Notice that, kThreadGroupSize * kFixedMaxVecsPerThread * vec_width should >= max_D
+                        }
+                    }
                     {%- endif %}
                     int32_t warp_per_row_smem_bytes = 0;
 
@@ -1265,9 +1392,6 @@ Tensor {{ embedding_cuda_op }}(
                           backward_warp_per_row_kernel,
                           used_shared_bytes);
                     }
-
-                    auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
-
                     int32_t warp_per_row_grid_size = std::min(
                         div_round_up(total_unique_indices, num_warp_per_row_groups),
                         get_max_thread_blocks_());
@@ -1491,4 +1615,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     );
 }
 {%- endif %} {#-/* if not is_index_select */#}
-// clang-format on
+    // clang-format on
