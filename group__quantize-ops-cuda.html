@@ -120,12 +120,16 @@ Functions</h2></td></tr>
 <tr class="separator:ga399e3ece67cad23f6627ebf1f8127512"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaae960240a6e2884a30205ed3fa9d3111" id="r_gaae960240a6e2884a30205ed3fa9d3111"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gaae960240a6e2884a30205ed3fa9d3111">_single_or_half_precision_to_fusednbitrowwise_gpu</a> (const Tensor &amp;input, const int64_t bit_rate)</td></tr>
 <tr class="separator:gaae960240a6e2884a30205ed3fa9d3111"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga13a49f09b5b7ef90dc1480dad87e5683" id="r_ga13a49f09b5b7ef90dc1480dad87e5683"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga13a49f09b5b7ef90dc1480dad87e5683">_single_or_half_precision_to_fusednbitrowwise_bf16sb_gpu</a> (const Tensor &amp;input, const int64_t bit_rate)</td></tr>
+<tr class="separator:ga13a49f09b5b7ef90dc1480dad87e5683"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga802490706abaca9d86d780bbdc0922cc" id="r_ga802490706abaca9d86d780bbdc0922cc"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga802490706abaca9d86d780bbdc0922cc">_fusednbitrowwise_to_float_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate)</td></tr>
 <tr class="separator:ga802490706abaca9d86d780bbdc0922cc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga756a59a6b84321e9b91af3e5f3334c31" id="r_ga756a59a6b84321e9b91af3e5f3334c31"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga756a59a6b84321e9b91af3e5f3334c31">_fusednbitrowwise_to_half_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate)</td></tr>
 <tr class="separator:ga756a59a6b84321e9b91af3e5f3334c31"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga3c4470ccad29f964a31ac68490f10d90" id="r_ga3c4470ccad29f964a31ac68490f10d90"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga3c4470ccad29f964a31ac68490f10d90">_fusednbitrowwise_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype, const bool scale_bias_last)</td></tr>
 <tr class="separator:ga3c4470ccad29f964a31ac68490f10d90"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gae8d2b303fd79cd6c60148412d4028067" id="r_gae8d2b303fd79cd6c60148412d4028067"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gae8d2b303fd79cd6c60148412d4028067">_fusednbitrowwise_bf16sb_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype, const bool scale_bias_last)</td></tr>
+<tr class="separator:gae8d2b303fd79cd6c60148412d4028067"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga4050ec86de055f06ad3a89c8b9cd24e9" id="r_ga4050ec86de055f06ad3a89c8b9cd24e9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga4050ec86de055f06ad3a89c8b9cd24e9">_float_to_hfp8_gpu</a> (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias, const double max_pos)</td></tr>
 <tr class="separator:ga4050ec86de055f06ad3a89c8b9cd24e9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga1dd6b70398b542022b236f4c576609a2" id="r_ga1dd6b70398b542022b236f4c576609a2"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga1dd6b70398b542022b236f4c576609a2">_hfp8_to_float_gpu</a> (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias)</td></tr>
@@ -606,6 +610,53 @@ Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="gae8d2b303fd79cd6c60148412d4028067" name="gae8d2b303fd79cd6c60148412d4028067"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gae8d2b303fd79cd6c60148412d4028067">&#9670;&#160;</a></span>_fusednbitrowwise_bf16sb_to_single_or_half_precision_gpu()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">at::Tensor _fusednbitrowwise_bf16sb_to_single_or_half_precision_gpu </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>scale_bias_last</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Converts a tensor of fused N-bit rowwise values with bf16 scale/bias into a tensor of <code>float</code> or <code>at::Half</code> or <code>at::Bf16</code> values.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">input</td><td>A tensor of fused N-bit rowwise values with bf16 scale/bias </td></tr>
+    <tr><td class="paramname">bit_rate</td><td></td></tr>
+    <tr><td class="paramname">output_dtype</td><td>The target floating point type, specified as integer representation of <code>SparseType</code> enum</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>A new tensor with values from the input tensor converted to <code>float</code> or <code>at::Half</code> or <code>at::Bf16</code>, depending on <code>output_dtype</code>.</dd></dl>
+<dl class="exception"><dt>Exceptions</dt><dd>
+  <table class="exception">
+    <tr><td class="paramname">c10::Error</td><td>if <code>output_dtype</code> is not one of (<code>SparseType::FP32</code> or <code>SparseType::FP16</code> or <code>SparseType::BF16</code>). </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
 <a id="ga802490706abaca9d86d780bbdc0922cc" name="ga802490706abaca9d86d780bbdc0922cc"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ga802490706abaca9d86d780bbdc0922cc">&#9670;&#160;</a></span>_fusednbitrowwise_to_float_gpu()</h2>
 
@@ -922,6 +973,36 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>A new tensor with values from the input tensor converted to fused 8-bit rowwise. </dd></dl>
+
+</div>
+</div>
+<a id="ga13a49f09b5b7ef90dc1480dad87e5683" name="ga13a49f09b5b7ef90dc1480dad87e5683"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga13a49f09b5b7ef90dc1480dad87e5683">&#9670;&#160;</a></span>_single_or_half_precision_to_fusednbitrowwise_bf16sb_gpu()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor _single_or_half_precision_to_fusednbitrowwise_bf16sb_gpu </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Converts a tensor of <code>float</code> or <code>at::Half</code> values into a tensor of fused N-bit rowwise values with bf16 scale/bias.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">input</td><td>A tensor of <code>float</code> or <code>at::Half</code> values </td></tr>
+    <tr><td class="paramname">bit_rate</td><td></td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>A new tensor with values from the input tensor converted to fused N-bit rowwise with bf16 scale/bias. </dd></dl>
 
 </div>
 </div>
