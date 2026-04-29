@@ -65,6 +65,14 @@ using namespace fbgemm_gpu;
                                                not nobag and
                                                not ssd %}
 
+{%- set enable_optimized_hip_mixed_D_kernel  = is_rocm and
+                                               optimizer == "rowwise_adagrad" and
+                                               not dense and
+                                               not is_index_select and
+                                               not is_gwd_kernel and
+                                               not nobag and
+                                               not ssd %}
+
 template <
     typename emb_t,
     typename grad_t,
