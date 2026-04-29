@@ -22,10 +22,9 @@ try:
     # pyre-ignore[21]
     from test_utils import (  # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
         gpu_unavailable,
-        skipIfRocm,
     )
 except Exception:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, skipIfRocm
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:faster_hash_ops")
 
@@ -36,7 +35,6 @@ class HashZchKernelEvictionPolicy(IntEnum):
 
 
 class FasterHashTest(unittest.TestCase):
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_no_evict(self) -> None:
         """
@@ -149,7 +147,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output_readonly.cpu(), output_readonly_cpu))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_no_evict_rand(self) -> None:
         """
@@ -214,7 +211,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output.cpu(), output_readonly_cpu))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_evict(self) -> None:
         """
@@ -284,7 +280,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output, output_readonly))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_evict_with_rand_unique_numbers(self) -> None:
         """
@@ -340,7 +335,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output, output_readonly))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_eviction_during_lookup(self) -> None:
         """
@@ -427,7 +421,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(evict_slots.numel() == 1)
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_int64_nohash_identity(self) -> None:
         """
@@ -491,7 +484,6 @@ class FasterHashTest(unittest.TestCase):
             f"{identities=} vs {numbers_100_200=}",
         )
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_int32_nohash_identity(self) -> None:
         """
@@ -555,7 +547,6 @@ class FasterHashTest(unittest.TestCase):
             f"{identities=} vs {numbers_100_200=}",
         )
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_fallback(self) -> None:
         """
@@ -654,7 +645,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.all(remapped_ids[-20:] == -1))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_individual_score_evict(self) -> None:
         """
@@ -759,7 +749,6 @@ class FasterHashTest(unittest.TestCase):
         # metadata should not be overwritten
         self.assertTrue(torch.equal(metadata, metadata0))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict(self) -> None:
         """
@@ -908,7 +897,6 @@ class FasterHashTest(unittest.TestCase):
             f"{output_readonly_cpu=} v.s {output_readonly.cpu()=}",
         )
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_with_unexpired_slots(self) -> None:
         """
@@ -1048,7 +1036,6 @@ class FasterHashTest(unittest.TestCase):
             f"{output_readonly_cpu=} v.s {output_readonly.cpu()=}",
         )
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_rand_numbers_zch_lru_evict(self) -> None:
         """
@@ -1154,7 +1141,6 @@ class FasterHashTest(unittest.TestCase):
             f"{output_readonly_cpu=} v.s {output_readonly.cpu()=}",
         )
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_with_offsets(self) -> None:
         """
@@ -1325,7 +1311,6 @@ class FasterHashTest(unittest.TestCase):
             f"{set(second_half[second_half >= 300].tolist())=}, {set(random_numbers_300_350.tolist())=}",
         )
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_opt_in_with_prob(self) -> None:
         """
@@ -1525,7 +1510,6 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output_readonly_cpu, output_readonly.cpu()))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_train_eval(self) -> None:
         """
@@ -1614,7 +1598,6 @@ class FasterHashTest(unittest.TestCase):
             f"{output_readonly_cpu=} v.s {output_readonly=}",
         )
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_murmur_hash(self) -> None:
         """
@@ -1638,7 +1621,6 @@ class FasterHashTest(unittest.TestCase):
         output_item_second_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
         self.assertTrue(torch.equal(output_item_first_round, output_item_second_round))
 
-    @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     @settings(deadline=None)
     # pyre-ignore [56]

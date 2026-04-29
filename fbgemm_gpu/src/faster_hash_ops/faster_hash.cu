@@ -32,6 +32,7 @@ static constexpr int32_t kDefaultTensor = -1;
 static constexpr int64_t kMaxIdentityNum = INT32_MAX;
 static constexpr int64_t kMaxHours = INT32_MAX;
 static constexpr int64_t kSecondsInHour = 60 * 60;
+static constexpr int32_t kMaxSpinCount = 1000 * 1000;
 
 template <typename T>
 __device__ __inline__ T CAS(T* data, T cmp, T val) {
@@ -167,12 +168,23 @@ __device__ __inline__ int64_t check_min(
   // wait.
   auto insert_idx = output_index + offset;
   int32_t last_seen = kDefaultTensor;
+  int32_t spin_count = 0;
   while (true) {
     last_seen =
         atomicCAS(metadata + insert_idx, kDefaultTensor, kDefaultTensor);
     if (last_seen != kDefaultTensor) {
       break;
     }
+    if (++spin_count == kMaxSpinCount) {
+      break;
+    }
+  }
+  if (spin_count == kMaxSpinCount) {
+    CUDA_KERNEL_ASSERT(
+        false &&
+        "MPZCH Exception: Max spin-count was achieved, possible GPU hang has "
+        "occurred due to atomic contention. Please reach out to oncall "
+        "torchrec");
   }
 
   // only check those expired slots
@@ -225,12 +237,23 @@ __device__ __inline__ bool check_evict<1>(
   // has not been written yet, while the other id checking the slot's eviction
   // status. Therefore, wait until the metadata is not -1.
   int32_t identity_metadata = kDefaultTensor;
+  int32_t spin_count = 0;
   while (true) {
     identity_metadata =
         atomicCAS(metadata + output_index, kDefaultTensor, kDefaultTensor);
     if (identity_metadata != kDefaultTensor) {
       break;
     }
+    if (++spin_count == kMaxSpinCount) {
+      break;
+    }
+  }
+  if (spin_count == kMaxSpinCount) {
+    CUDA_KERNEL_ASSERT(
+        false &&
+        "MPZCH Exception: Max spin-count was achieved, possible GPU hang has "
+        "occurred due to atomic contention. Please reach out to oncall "
+        "torchrec");
   }
   bool is_more_recent = (identity_metadata < metadata_val);
   bool threshold_met = (eviction_threshold > identity_metadata);
@@ -242,6 +265,8 @@ __device__ __inline__ bool check_and_maybe_update_slot(
     TIdentity* identities_slot,
     TIdentity identity,
     TIdentity& old_value,
+    int32_t* metadata_slot = nullptr,
+    int32_t metadata_val = 0,
     std::enable_if_t<READONLY == true>* = nullptr) {
   static_assert(READONLY);
   old_value = *identities_slot;
@@ -256,12 +281,21 @@ __device__ __inline__ bool check_and_maybe_update_slot(
     TIdentity* identities_slot,
     TIdentity identity,
     TIdentity& old_value,
+    int32_t* metadata_slot = nullptr,
+    int32_t metadata_val = 0,
     std::enable_if_t<READONLY == false>* = nullptr) {
   static_assert(!READONLY);
   old_value =
       CAS(identities_slot, static_cast<TIdentity>(kDefaultTensor), identity);
   if ((old_value == identity) ||
       (old_value == static_cast<TIdentity>(kDefaultTensor))) {
+    if (metadata_slot != nullptr &&
+        old_value == static_cast<TIdentity>(kDefaultTensor)) {
+      // Add an extra metadata write for AMD MI3X hardware,
+      // This removes the GPU-hang by moving the write closer toidentity
+      // reducing the window but not increasing the atomic contention.
+      atomicMax(metadata_slot, metadata_val);
+    }
     return true;
   }
   return false;
@@ -399,7 +433,15 @@ __global__ void process_item_zch(
     while (max_probe_local-- > 0 && opt_in) {
       auto insert_idx = output_index + offset;
       if (check_and_maybe_update_slot<READONLY, TIdentity>(
-              &identities[insert_idx][0], identity, old_value)) {
+              &identities[insert_idx][0],
+              identity,
+              old_value,
+              metadata ? metadata + insert_idx : nullptr,
+              metadata_val)) {
+        // Although check_and_maybe_update_slot also updates metadata
+        // when slot is empty, we need a extra call here, and placed here
+        // due to GPU hang that occurs with AMD MI3X hardware, i.e.
+        //  moving this call inside the check function does not mitigate it.
         update_metadata<METADATA_COUNT>(metadata, insert_idx, metadata_val);
         increment_freq_counter<ID_FREQ>(runtime_meta, insert_idx);
         break;
@@ -536,7 +578,15 @@ __global__ void process_item_zch(
     while (max_probe_local-- > 0 && opt_in) {
       auto insert_idx = output_index + offset;
       if (check_and_maybe_update_slot<READONLY, TIdentity>(
-              &identities[insert_idx][0], identity, old_value)) {
+              &identities[insert_idx][0],
+              identity,
+              old_value,
+              metadata ? metadata + insert_idx : nullptr,
+              metadata_val)) {
+        // Although check_and_maybe_update_slot also updates metadata
+        // when slot is empty, we need a extra call here, and placed here
+        // due to GPU hang that occurs with AMD MI3X hardware, i.e.
+        //  moving this call inside the check function does not mitigate it.
         update_metadata_lru<METADATA_COUNT>(
             metadata, insert_idx, metadata_val, process_lock);
         increment_freq_counter<ID_FREQ>(runtime_meta, insert_idx);
