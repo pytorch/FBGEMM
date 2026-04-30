@@ -734,12 +734,23 @@ class ForwardTest(unittest.TestCase):
         # Get parameters that trigger the overflow condition
         T, B, D = get_v2_kernel_overflow_params()
 
-        # Verify the parameters would trigger overflow
-        # For ROCm: kWarpSize=64, num_warps_per_threadblock=8, threads_per_block=512
-        num_warps_per_table = B * ((D + 255) // 256)  # ceil(D / 256)
+        # Verify the parameters would trigger overflow. These V2 kernel
+        # constants must track the runtime warp size: warpSize 64 (CDNA)
+        # gives num_warps_per_threadblock=8 and per-table divisor 256;
+        # warpSize 32 (RDNA) gives 16 and 128 respectively.
+        device = torch.cuda.current_device()
+        warp_size = torch.cuda.get_device_properties(device).warp_size
+        k_forward_max_threads = 1024
+        num_warps_per_threadblock = k_forward_max_threads // (warp_size * 2)
+        threads_per_block = warp_size * num_warps_per_threadblock
+        per_table_divisor = warp_size * 4
+
+        num_warps_per_table = B * ((D + per_table_divisor - 1) // per_table_divisor)
         total_warps = T * num_warps_per_table
-        grid = (total_warps + 7) // 8  # ceil(total_warps / 8)
-        total_threads = grid * 512
+        grid = (
+            total_warps + num_warps_per_threadblock - 1
+        ) // num_warps_per_threadblock
+        total_threads = grid * threads_per_block
 
         assert total_threads > 2**32 - 1, (
             f"Test parameters should trigger overflow: "
