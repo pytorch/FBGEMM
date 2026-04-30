@@ -269,6 +269,123 @@ class UniqueIndicesTest(unittest.TestCase):
         self.assertEqual(torch.sum(output_lengths).item(), 0)
         self.assertEqual(torch.sum(output_offsets).item(), 0)
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        B=st.integers(min_value=32, max_value=128),
+        F=st.integers(min_value=2, max_value=32),
+        max_length=st.integers(min_value=2, max_value=12),
+        # Drives both int32-path (small) and int64-path (large) branches.
+        # hash_size_bits <= 30 keeps int32 path when F*hash_size < INT32_MAX;
+        # larger values exercise the int64 path.
+        per_feature_hash_bits=st.integers(min_value=3, max_value=30),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_unique_indices_randomized_differential(
+        self,
+        B: int,
+        F: int,
+        max_length: int,
+        per_feature_hash_bits: int,
+    ) -> None:
+        """Differential test against torch.unique(linear_indices,
+        return_inverse=True).
+
+        Checks that the op's (output_lengths, output_offsets, unique_indices
+        sorted, and the set of (input_idx, reverse_idx) pairs) match the
+        reference derived from torch.unique on the equivalent linearized
+        indices. Covers both int32-key and int64-key pipelines via
+        per_feature_hash_bits sweep.
+        """
+        # Build per-feature hash sizes. Use a non-uniform schedule so that
+        # hash_size_cumsum[T] spans both small and large ranges.
+        per_feature_hash = 1 << per_feature_hash_bits
+        hash_size_list = [per_feature_hash] * F
+        # Randomize each feature's length per sample.
+        lengths_list: list[int] = []
+        indices_list: list[int] = []
+        for t in range(F):
+            hs = hash_size_list[t]
+            for _ in range(B):
+                L = random.randint(0, max_length)
+                lengths_list.append(L)
+                if L > 0:
+                    indices_list.extend(np.random.randint(0, hs, size=L).tolist())
+
+        device = torch.device("cuda")
+        dtype = torch.int64
+        hash_size = torch.as_tensor(hash_size_list, dtype=dtype, device=device)
+        lengths = torch.as_tensor(lengths_list, dtype=dtype, device=device)
+        indices = torch.as_tensor(indices_list, dtype=dtype, device=device)
+
+        hash_size_cum_sum = torch.zeros(F + 1, dtype=dtype, device=device)
+        hash_size_cum_sum[1:] = torch.cumsum(hash_size, dim=0)
+        offsets = torch.zeros(F * B + 1, dtype=dtype, device=device)
+        offsets[1:] = torch.cumsum(lengths, dim=0)
+        hash_size_offsets_list = hash_size_cumsum_to_offsets(hash_size_cum_sum.tolist())
+        hash_size_offsets = torch.as_tensor(
+            hash_size_offsets_list, dtype=dtype, device=device
+        )
+
+        (
+            output_lengths,
+            output_offsets,
+            unique_indices,
+            reverse_index,
+        ) = torch.ops.fbgemm.jagged_unique_indices(
+            hash_size_cum_sum, hash_size_offsets, offsets, indices
+        )
+
+        # Compute reference via torch.unique on the host-linearized indices.
+        linear_indices_list: list[int] = []
+        for t in range(F):
+            hs_off = int(hash_size_cum_sum[t].item())
+            start = int(offsets[t * B].item())
+            end = int(offsets[(t + 1) * B].item())
+            for pos in range(start, end):
+                linear_indices_list.append(int(indices[pos].item()) + hs_off)
+
+        # Cardinality check.
+        if len(linear_indices_list) == 0:
+            self.assertEqual(unique_indices.numel(), 0)
+            self.assertEqual(reverse_index.numel(), 0)
+            return
+
+        linear_indices_tensor = torch.as_tensor(
+            linear_indices_list, dtype=dtype, device=device
+        )
+        ref_unique, ref_inverse = torch.unique(
+            linear_indices_tensor, sorted=True, return_inverse=True
+        )
+        self.assertEqual(unique_indices.numel(), ref_unique.numel())
+
+        # Check the (input_index, reverse_index) mapping: for each input
+        # position i, unique_indices[reverse_index[i]] must equal indices[i].
+        rev_list = reverse_index.tolist()
+        uniq_list = unique_indices.tolist()
+        idx_list = indices.tolist()
+        self.assertEqual(len(rev_list), len(idx_list))
+        for i, rev in enumerate(rev_list):
+            self.assertTrue(0 <= rev < len(uniq_list))
+            self.assertEqual(uniq_list[rev], idx_list[i])
+
+        # Check output_lengths: sum should equal num unique.
+        self.assertEqual(int(torch.sum(output_lengths).item()), unique_indices.numel())
+        # Each feature slice of unique_indices must lie within its hash
+        # range [0, hash_size[t]).
+        output_offsets_list = output_offsets.tolist()
+        for t in range(F):
+            lo = output_offsets_list[t * B]
+            hi = (
+                output_offsets_list[(t + 1) * B]
+                if t + 1 < F
+                else (
+                    output_offsets_list[t * B]
+                    + int(torch.sum(output_lengths[t * B : (t + 1) * B]).item())
+                )
+            )
+            for u in uniq_list[lo:hi]:
+                self.assertTrue(0 <= u < hash_size_list[t])
+
     @given(
         num_elements=st.integers(min_value=100, max_value=10000),
         num_unique_indices=st.integers(min_value=5, max_value=100),
