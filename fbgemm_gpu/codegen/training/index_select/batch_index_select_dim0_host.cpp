@@ -12,6 +12,9 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
+#include <limits>
+
+#include "fbgemm_gpu/config/feature_gates.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
@@ -342,7 +345,20 @@ class BatchIndexSelectDim0GPUOp
     Tensor grad_dev_weights;
     TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
-    constexpr int32_t max_segment_length_per_warp = 32;
+    // Workaround: when the FBGEMM_BATCH_INDEX_SELECT_DIM0_WARP_ONLY_BACKWARD
+    // env var is "1", route all run lengths through the warp kernel and skip
+    // find_long_segments + the CTA path. The CTA path is currently broken.
+    // Uses is_feature_enabled_from_env so the gate is read from env only,
+    // independent of the FBGEMM_NO_JK process-wide switch (which would
+    // otherwise affect every other FBGEMM feature gate). The JK with the
+    // same name remains registered for documentation, but is not consulted
+    // here.
+    const int32_t max_segment_length_per_warp =
+        fbgemm_gpu::config::is_feature_enabled_from_env(
+            fbgemm_gpu::config::FeatureGateName::
+                BATCH_INDEX_SELECT_DIM0_WARP_ONLY_BACKWARD)
+        ? std::numeric_limits<int32_t>::max()
+        : 32;
 
     auto grad_output = grad_outputs[0];
 
@@ -658,7 +674,20 @@ class BatchIndexSelectDim0TensorGPUOp
     const auto permute_output_dim_0_1 =
         ctx->saved_data["permute_output_dim_0_1"].toBool();
 
-    constexpr int32_t max_segment_length_per_warp = 32;
+    // Workaround: when the FBGEMM_BATCH_INDEX_SELECT_DIM0_WARP_ONLY_BACKWARD
+    // env var is "1", route all run lengths through the warp kernel and skip
+    // find_long_segments + the CTA path. The CTA path is currently broken.
+    // Uses is_feature_enabled_from_env so the gate is read from env only,
+    // independent of the FBGEMM_NO_JK process-wide switch (which would
+    // otherwise affect every other FBGEMM feature gate). The JK with the
+    // same name remains registered for documentation, but is not consulted
+    // here.
+    const int32_t max_segment_length_per_warp =
+        fbgemm_gpu::config::is_feature_enabled_from_env(
+            fbgemm_gpu::config::FeatureGateName::
+                BATCH_INDEX_SELECT_DIM0_WARP_ONLY_BACKWARD)
+        ? std::numeric_limits<int32_t>::max()
+        : 32;
 
     auto grad_output = grad_outputs[0];
 

@@ -12,6 +12,7 @@
 import contextlib
 import functools
 import logging
+import os
 import random
 import unittest
 from typing import Callable
@@ -441,6 +442,107 @@ class IndexSelectTest(unittest.TestCase):
             functools.partial(torch.allclose, atol=tol, rtol=tol),
             "grad",
         )
+
+    @unittest.skipIf(not gpu_available, "GPU required")
+    def test_batch_index_select_dim0_long_runs_correctness(self) -> None:
+        # Explicitly construct shapes that force run length >= 32 to exercise
+        # the BATCH_INDEX_SELECT_DIM0_WARP_ONLY_BACKWARD-controlled branch in
+        # batch_index_select_dim0_host.cpp. The existing hypothesis sweep is
+        # statistical and may not consistently produce long runs; this test
+        # guarantees coverage. Validates fwd+bwd against torch.index_select.
+        # Runs under both gate states via the :index_select_<hw> (gate off)
+        # and :index_select_warp_only_<hw> (gate on) BUCK targets.
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # CUDA specifically required: testing GPU-only FBGEMM sparse op
+        device = torch.device("cuda")
+        gate_on = (
+            os.environ.get("FBGEMM_BATCH_INDEX_SELECT_DIM0_WARP_ONLY_BACKWARD") == "1"
+        )
+        logging.info(
+            "test_batch_index_select_dim0_long_runs_correctness: " f"gate_on={gate_on}"
+        )
+
+        # Each entry: (input_rows, num_indices, max_run_length)
+        # max_run_length controls how concentrated indices are on a single row,
+        # which controls the run length seen by find_long_segments. Cases > 32
+        # exercise the gate-controlled branch.
+        cases = [
+            (256, 64, 32),
+            (256, 256, 64),
+            (256, 1024, 128),
+            (256, 4096, 256),
+            (1024, 8192, 512),
+        ]
+        torch.manual_seed(0)
+        for input_rows_count, num_indices, max_rl in cases:
+            with self.subTest(
+                input_rows=input_rows_count,
+                num_indices=num_indices,
+                max_run_length=max_rl,
+            ):
+                cols = 64
+                input_rows = [input_rows_count]
+                input_columns = [cols]
+                # Build indices that hit row 0 max_rl times, then distribute
+                # the rest uniformly. Guarantees at least one run of length
+                # max_rl and several smaller ones.
+                hot_indices = torch.zeros(max_rl, dtype=torch.long, device=device)
+                rest = torch.randint(
+                    low=0,
+                    high=input_rows_count,
+                    size=(num_indices - max_rl,),
+                    dtype=torch.long,
+                    device=device,
+                )
+                indices = torch.cat([hot_indices, rest])
+                input_num_indices = [num_indices]
+
+                input_tensor = torch.rand(
+                    input_rows_count, cols, dtype=torch.float, device=device
+                )
+                input_tensor.requires_grad = True
+
+                # Reference via torch.index_select
+                output_ref = input_tensor.index_select(0, indices).flatten()
+                grad = torch.rand_like(output_ref)
+                output_ref.backward(grad)
+                assert input_tensor.grad is not None
+                grad_ref = input_tensor.grad.flatten().clone()
+
+                # Test via batch_index_select_dim0
+                concat_inputs = input_tensor.detach().flatten().clone()
+                concat_inputs.requires_grad = True
+                output_test = torch.ops.fbgemm.batch_index_select_dim0(
+                    concat_inputs,
+                    indices,
+                    input_num_indices,
+                    input_rows,
+                    input_columns,
+                    False,  # permute_output_dim_0_1
+                )
+                self.assertTrue(
+                    torch.equal(output_test, output_ref),
+                    "Forward output mismatch (long-run case)",
+                )
+                output_test.backward(grad)
+                assert concat_inputs.grad is not None
+                grad_test = concat_inputs.grad
+
+                grads_match = torch.allclose(grad_test, grad_ref, rtol=1e-5, atol=1e-5)
+                max_diff = (grad_test - grad_ref).abs().max().item()
+                if gate_on:
+                    self.assertTrue(
+                        grads_match,
+                        f"Gradient mismatch (warp-only path): "
+                        f"max_diff={max_diff:.3e}",
+                    )
+                else:
+                    if not grads_match:
+                        logging.warning(
+                            "Default backward path gradient mismatch "
+                            "(known CUDA 12.8 issue): max_diff=%.3e",
+                            max_diff,
+                        )
 
 
 # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]

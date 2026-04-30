@@ -69,6 +69,10 @@ class FeatureGateName(Enum):
     # Enable warp-parallel kernel for populate_bucketized_permute
     BUCKETIZED_PERMUTE_WARP_KERNEL = auto()
 
+    # Force batch_index_select_dim0 backward to use the warp-only path for all
+    # run lengths, bypassing find_long_segments + the CTA path.
+    BATCH_INDEX_SELECT_DIM0_WARP_ONLY_BACKWARD = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
