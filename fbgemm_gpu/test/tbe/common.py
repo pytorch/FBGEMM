@@ -120,42 +120,56 @@ def get_v2_kernel_overflow_params() -> tuple[int, int, int]:
     on the V2 forward kernel for ROCm.
 
     The V2 forward kernel launch parameters on ROCm:
-        kWarpSize = 64 (AMD wavefront size)
+        kWarpSize = active device's hardware warp size (64 on CDNA, 32 on RDNA)
         kForwardMaxThreads = 1024
-        num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2) = 8
+        num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2)
         threads_per_block = kWarpSize * num_warps_per_threadblock = 512
 
     Grid calculation:
-        num_warps_per_table = B * ceil(D / (kWarpSize * 4)) = B * ceil(D / 256)
+        num_warps_per_table = B * ceil(D / (kWarpSize * 4))
         grid = ceil(T * num_warps_per_table / num_warps_per_threadblock)
-             = ceil(T * B * ceil(D / 256) / 8)
 
     Overflow condition:
-        grid * 512 > 2^32 - 1
-        grid >= 8,388,608
+        grid * threads_per_block > 2^32 - 1
+        grid >= 8,388,609
 
-    To trigger overflow:
-        T * B * ceil(D / 256) >= 67,108,864
+    With D <= kWarpSize * 4, ceil(D / (kWarpSize * 4)) == 1, so:
+        grid = ceil(T * B / num_warps_per_threadblock)
+    To trigger overflow we need:
+        T * B >= 8,388,609 * num_warps_per_threadblock
 
-    Memory optimization:
-        D only affects memory, NOT grid calculation when D <= 256 (ceil(D/256)=1)
-        Using D=64 requires T*B >= 67,108,864 and uses only ~8.6 GB output
-        This is 2x smaller than D=128 (~17.2 GB) and 4x smaller than D=256
+    This function adapts to the active device's warp size at runtime so the
+    same test parameters trigger overflow on both warpSize 64 (CDNA) and
+    warpSize 32 (RDNA) AMD GPUs. Must mirror whatever the V2 forward kernel
+    uses for kWarpSize at launch time (either the compile-time constexpr or
+    the runtime at::cuda::warp_size() query, depending on the build).
 
     Returns:
-        Tuple of (T, B, D) that triggers overflow on ROCm V2 kernel
-        while fitting in memory on most GPUs
+        Tuple of (T, B, D) that triggers overflow on the V2 kernel for the
+        active device while fitting in memory on most GPUs.
     """
-    # Memory-efficient parameters that trigger overflow on V2 kernel
-    # T=8400, B=8000, D=64 => ceil(64/256)=1
-    # num_warps_per_table = 8000 * 1 = 8,000
-    # total_warps = 8400 * 8,000 = 67,200,000
-    # grid = ceil(67,200,000 / 8) = 8,400,000
-    # total_threads = 8,400,000 * 512 = 4,300,800,000 > 2^32 ✓
-    # Output tensor: 8000 * 8400 * 64 * 2 = 8.6 GB (fits on most GPUs)
+    # Query the hardware warp size at runtime rather than relying on a
+    # compile-time host-side constant — this keeps the helper correct
+    # whether the kernel launches use kWarpSize or at::cuda::warp_size().
+    device = torch.cuda.current_device()
+    warp_size = torch.cuda.get_device_properties(device).warp_size
+
+    k_forward_max_threads = 1024
+    num_warps_per_threadblock = k_forward_max_threads // (warp_size * 2)
+
+    # D <= warp_size*4 keeps ceil(D/(warp_size*4)) == 1, saving memory.
+    # On warpSize 64 this is D=64 (matching the pre-existing parameters).
+    # On warpSize 32 this is D=32.
+    D = warp_size
+
+    # Required T*B to cross the grid * threads_per_block > 2^32 - 1 threshold.
+    # On warpSize 64: 8,388,609 * 8 = 67,108,872 (e.g. T=8400, B=8000 -> 67.2M).
+    # On warpSize 32: 8,388,609 * 16 = 134,217,744 (twice as much).
+    required_TB = 8_388_609 * num_warps_per_threadblock
+
+    # Keep T fixed at 8400 (the original value); scale B.
     T = 8400
-    B = 8000
-    D = 64
+    B = (required_TB + T - 1) // T + 64  # +64 slack to clear the threshold
 
     return T, B, D
 
