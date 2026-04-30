@@ -389,6 +389,11 @@ function(gpu_cpp_library)
         list(APPEND library_dependencies ${NVML_LIB_PATH})
     endif()
 
+    # Add AMD SMI if available (ROCm builds)
+    if(FBGEMM_AMDSMI_LIB)
+        list(APPEND library_dependencies ${FBGEMM_AMDSMI_LIB})
+    endif()
+
     # Link against the external libraries as needed
     target_link_libraries(${lib_name} PRIVATE ${library_dependencies})
 
