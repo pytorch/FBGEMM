@@ -386,6 +386,59 @@ class LXUCacheTest(unittest.TestCase):
 
         assert torch.equal(expanded_lxu_cache_locations, duplicate_lookup_output)
 
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(
+        torch.version.hip is None,
+        "Only relevant on ROCm (TBE cache kernels require warpSize == 64)",
+    )
+    def test_warp_size_guard_positive_path_rocm(self) -> None:
+        """
+        Positive-path smoke test for the ROCm TBE cache ops. On warpSize 64
+        CDNA hosts (the only AMD hardware currently in CI), LRU/LFU prefetch
+        and forward cache lookup must succeed without raising. Exercises:
+          * LRU populate via prefetch() -> lru_cache_populate_cuda
+          * LFU populate via prefetch() -> lfu_cache_populate_cuda
+          * Cache lookup via forward() -> lxu_cache_lookup_cuda
+
+        These ops each hold a runtime check requiring warpSize == 64 on
+        ROCm; this test is the regression guard that the check stays a
+        no-op on CDNA. Negative-path testing (raising on warpSize != 64)
+        requires either RDNA hardware or an injectable
+        at::cuda::warp_size() indirection; defer until gfx11xx lands in CI.
+        """
+        T = 2
+        D = 4
+        B = 4
+        L = 4
+        log_E = 3
+
+        for cache_algorithm in (CacheAlgorithm.LRU, CacheAlgorithm.LFU):
+            cc, _, min_Es, _ = generate_cache_tbes(
+                T,
+                D,
+                log_E,
+                mixed=False,
+                cache_algorithm=cache_algorithm,
+                use_int_weight=True,
+            )
+
+            requests = generate_requests(1, B, T, L, min_Es, reuse=0.1)
+            indices, offsets, _, _ = requests[0].unpack_4()
+            indices = indices.long()
+            offsets = offsets.long()
+
+            # Exercises {lru,lfu}_cache_populate_cuda via prefetch — hits
+            # the TORCH_CHECK(warp_size == 64) guard.
+            cc.prefetch(indices, offsets)
+
+            # Exercises lxu_cache_lookup_cuda via the forward lookup path —
+            # hits the TORCH_CHECK(warp_size == 64) guard.
+            output = cc(indices, offsets)
+
+            # Reaching this line means all three guards passed on CDNA.
+            self.assertIsInstance(output, torch.Tensor)
+            self.assertGreater(output.numel(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
