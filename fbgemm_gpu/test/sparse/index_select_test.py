@@ -19,7 +19,7 @@ from typing import Callable
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from hypothesis import given, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from .common import extend_test_class, open_source
 
@@ -273,51 +273,20 @@ class IndexSelectTest(unittest.TestCase):
                 [input0, input1], [indices0, indices1]
             )
 
-    @given(
-        num_inputs=st.integers(0, 100),
-        max_input_rows=st.integers(2, 32),
-        max_cols_factor=st.integers(2, 256),
-        max_output_rows=st.integers(2, 32),
-        permute_output_dim_0_1=st.booleans(),
-        dtype=st.sampled_from([torch.float, torch.half]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
-        op=st.sampled_from(
-            [
-                torch.ops.fbgemm.batch_index_select_dim0,
-                torch.ops.fbgemm.batch_index_select_dim0_tensor,
-            ]
-        ),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_batch_index_select_dim0(  # noqa: C901
+    def execute_batch_index_select_dim0(  # noqa: C901
         self,
         num_inputs: int,
-        max_input_rows: int,
-        max_cols_factor: int,
-        max_output_rows: int,
+        inputs: list[torch.Tensor],
+        indices: list[torch.Tensor],
+        input_rows: list[int],
+        input_columns: list[int],
+        input_num_indices: list[int],
         permute_output_dim_0_1: bool,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device: torch.device,
         # pyre-ignore
         op,
     ) -> None:
-        device = "cpu" if use_cpu else "cuda"
-        input_rows = torch.randint(
-            low=1, high=max_input_rows, size=(num_inputs,)
-        ).tolist()
-        input_columns = (
-            torch.randint(low=1, high=max_cols_factor, size=(num_inputs,)) * 4
-        ).tolist()
-        if permute_output_dim_0_1:
-            # All num_indices must be the same if permute_output_dim_0_1 is
-            # True
-            num_indices = torch.randint(low=1, high=max_output_rows, size=(1,)).item()
-            input_num_indices = [num_indices] * num_inputs
-        else:
-            input_num_indices = torch.randint(
-                low=1, high=max_output_rows, size=(num_inputs,)
-            ).tolist()
-
         def validate(
             test_list: list[torch.Tensor],
             ref_list: list[torch.Tensor],
@@ -342,21 +311,6 @@ class IndexSelectTest(unittest.TestCase):
                             error_msg += f"ERROR: {name} {i} row {r} are different, test {test_row}, ref {ref_row}\n"
             assert test_passed_all, error_msg
             logging.info(f"{name} test passed")
-
-        if num_inputs == 0:
-            inputs = [torch.empty(0, dtype=dtype, device=device)]
-            indices = [torch.empty(0, dtype=torch.long, device=device)]
-        else:
-            inputs = [
-                torch.rand(rows, cols, dtype=dtype, device=device)
-                for rows, cols in zip(input_rows, input_columns)
-            ]
-            indices = [
-                torch.randint(
-                    low=0, high=rows, size=(num,), dtype=torch.long, device=device
-                )
-                for num, rows in zip(input_num_indices, input_rows)
-            ]
 
         for i in range(len(inputs)):
             inputs[i].requires_grad = True
@@ -440,6 +394,138 @@ class IndexSelectTest(unittest.TestCase):
             input_rows,
             functools.partial(torch.allclose, atol=tol, rtol=tol),
             "grad",
+        )
+
+    @given(
+        num_inputs=st.integers(0, 100),
+        max_input_rows=st.integers(2, 32),
+        max_cols_factor=st.integers(2, 256),
+        max_output_rows=st.integers(2, 32),
+        permute_output_dim_0_1=st.booleans(),
+        dtype=st.sampled_from([torch.float, torch.half]),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        op=st.sampled_from(
+            [
+                torch.ops.fbgemm.batch_index_select_dim0,
+                torch.ops.fbgemm.batch_index_select_dim0_tensor,
+            ]
+        ),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    def test_batch_index_select_dim0(
+        self,
+        num_inputs: int,
+        max_input_rows: int,
+        max_cols_factor: int,
+        max_output_rows: int,
+        permute_output_dim_0_1: bool,
+        dtype: torch.dtype,
+        use_cpu: bool,
+        # pyre-ignore
+        op,
+    ) -> None:
+        device: torch.device = (
+            torch.device("cpu")
+            if use_cpu
+            else torch.device(torch.accelerator.current_accelerator())
+        )
+        input_rows = torch.randint(
+            low=1, high=max_input_rows, size=(num_inputs,)
+        ).tolist()
+        input_columns = (
+            torch.randint(low=1, high=max_cols_factor, size=(num_inputs,)) * 4
+        ).tolist()
+        if permute_output_dim_0_1:
+            # All num_indices must be the same if permute_output_dim_0_1 is
+            # True
+            num_indices = torch.randint(low=1, high=max_output_rows, size=(1,)).item()
+            input_num_indices = [num_indices] * num_inputs
+        else:
+            input_num_indices = torch.randint(
+                low=1, high=max_output_rows, size=(num_inputs,)
+            ).tolist()
+
+        if num_inputs == 0:
+            inputs = [torch.empty(0, dtype=dtype, device=device)]
+            indices = [torch.empty(0, dtype=torch.long, device=device)]
+        else:
+            inputs = [
+                torch.rand(rows, cols, dtype=dtype, device=device)
+                for rows, cols in zip(input_rows, input_columns)
+            ]
+            indices = [
+                torch.randint(
+                    low=0, high=rows, size=(num,), dtype=torch.long, device=device
+                )
+                for num, rows in zip(input_num_indices, input_rows)
+            ]
+
+        self.execute_batch_index_select_dim0(
+            num_inputs=num_inputs,
+            inputs=inputs,
+            indices=indices,
+            input_rows=input_rows,
+            input_columns=input_columns,
+            input_num_indices=input_num_indices,
+            permute_output_dim_0_1=permute_output_dim_0_1,
+            dtype=dtype,
+            device=device,
+            op=op,
+        )
+
+    @unittest.skipIf(not gpu_available, "GPU required")
+    @given(
+        input_rows_count=st.sampled_from([256, 1024]),
+        num_indices=st.sampled_from([64, 256, 1024, 4096, 8192]),
+        max_rl=st.sampled_from([32, 64, 128, 256, 512]),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    def test_batch_index_select_dim0_long_runs(
+        self,
+        input_rows_count: int,
+        num_indices: int,
+        max_rl: int,
+    ) -> None:
+        assume(max_rl < num_indices)
+        device: torch.device = (
+            torch.device(torch.accelerator.current_accelerator())
+            if torch.accelerator.is_available()
+            else torch.device("cpu")
+        )
+        cols = 64
+        hot_indices = torch.zeros(max_rl, dtype=torch.long, device=device)
+        rest = torch.randint(
+            low=0,
+            high=input_rows_count,
+            size=(num_indices - max_rl,),
+            dtype=torch.long,
+            device=device,
+        )
+        all_indices = torch.cat([hot_indices, rest])
+
+        input_tensor = torch.rand(
+            input_rows_count, cols, dtype=torch.float, device=device
+        )
+
+        self.execute_batch_index_select_dim0(
+            num_inputs=1,
+            inputs=[input_tensor],
+            indices=[all_indices],
+            input_rows=[input_rows_count],
+            input_columns=[cols],
+            input_num_indices=[num_indices],
+            permute_output_dim_0_1=False,
+            dtype=torch.float,
+            device=device,
+            op=torch.ops.fbgemm.batch_index_select_dim0,
         )
 
 
