@@ -95,36 +95,6 @@ Tensor fusednbitrowwise_to_float_or_half_meta(
   }
 }
 
-/// @ingroup quantize-data-meta
-///
-Tensor fusednbitrowwise_bf16sb_to_float_or_half_meta(
-    const Tensor& input,
-    const int64_t bit_rate,
-    const int64_t output_dtype,
-    const bool scale_bias_last [[maybe_unused]]) {
-  const at::SymIntArrayRef input_sizes = input.sym_sizes();
-  const at::SymInt& nrows = input_sizes[0];
-  const at::SymInt ncols = nbit_elems_to_bytes_meta(input);
-  const at::SymInt num_elem_per_byte = 8 / bit_rate;
-  const at::SymInt output_columns =
-      (ncols - 2 * sizeof(at::BFloat16)) * num_elem_per_byte;
-
-  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
-  switch (output_sparse_dtype) {
-    case SparseType::FP32:
-      return at::empty_symint(
-          {nrows, output_columns}, input.options().dtype(at::kFloat));
-    case SparseType::FP16:
-      return at::empty_symint(
-          {nrows, output_columns}, input.options().dtype(at::kHalf));
-    case SparseType::BF16:
-      return at::empty_symint(
-          {nrows, output_columns}, input.options().dtype(at::kBFloat16));
-    default:
-      TORCH_CHECK(false, "Unsupported output dtype ");
-  }
-}
-
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
@@ -137,7 +107,4 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
       TORCH_FN(fbgemm_gpu::fusednbitrowwise_to_float_or_half_meta));
-  m.impl(
-      "FusedNBitRowwiseQuantizedSBBFloat16ToFloatOrHalf",
-      TORCH_FN(fbgemm_gpu::fusednbitrowwise_bf16sb_to_float_or_half_meta));
 }
