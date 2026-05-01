@@ -1140,6 +1140,35 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                  const float*
                      weights, // optional, can be null for non-weighted sum
                  outType* out) {
+        if constexpr (std::is_same_v<outType, uint16_t>) {
+          // FP16 accumulation (eps ~= 9.77e-4) trades precision for
+          // throughput: ~0.5-1% relative error vs FP32 at typical bag
+          // sizes (L=100), worst-case O(L * eps_fp16) ~= 10%.
+          if (is_sve_fp16_enabled() && !is_bf16_out) {
+            return internal::EmbeddingSpMDM8Bit_Sve_Fp16<
+                indxType,
+                offsetType,
+                outType,
+                true,
+                true>(
+                block_size,
+                output_size,
+                index_size,
+                data_size,
+                input_u8,
+                indices,
+                offsets_or_lengths,
+                weights,
+                normalize_by_lengths,
+                out,
+                is_weight_positional,
+                use_offsets,
+                output_stride,
+                input_stride,
+                scale_bias_last,
+                is_bf16_out);
+          }
+        }
         return internal::
             EmbeddingSpMDM8Bit_Sve<indxType, offsetType, outType, true, true>(
                 block_size,
@@ -1169,6 +1198,35 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                  const float* weights, // optional, can be null for
                                        // non-weighted sum
                  outType* out) {
+        if constexpr (std::is_same_v<outType, uint16_t>) {
+          // FP16 accumulation (eps ~= 9.77e-4) trades precision for
+          // throughput: ~0.5-1% relative error vs FP32 at typical bag
+          // sizes (L=100), worst-case O(L * eps_fp16) ~= 10%.
+          if (is_sve_fp16_enabled() && !is_bf16_out) {
+            return internal::EmbeddingSpMDM8Bit_Sve_Fp16<
+                indxType,
+                offsetType,
+                outType,
+                false,
+                true>(
+                block_size,
+                output_size,
+                index_size,
+                data_size,
+                input_u8,
+                indices,
+                offsets_or_lengths,
+                weights,
+                normalize_by_lengths,
+                out,
+                is_weight_positional,
+                use_offsets,
+                output_stride,
+                input_stride,
+                scale_bias_last,
+                is_bf16_out);
+          }
+        }
         return internal::
             EmbeddingSpMDM8Bit_Sve<indxType, offsetType, outType, false, true>(
                 block_size,
