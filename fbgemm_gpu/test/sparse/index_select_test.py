@@ -288,7 +288,11 @@ class IndexSelectTest(unittest.TestCase):
             ]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
     def test_batch_index_select_dim0(  # noqa: C901
         self,
         num_inputs: int,
