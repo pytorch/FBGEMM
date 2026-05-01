@@ -68,9 +68,9 @@ if(HIP_FOUND)
   # setup, hcc is only used for linking, but it should be used to
   # compile the *_hip.cc files as well.
   find_library(FBGEMM_HIP_HCC_LIBRARIES ${hip_library_name} HINTS ${ROCM_PATH}/lib)
-  find_library(FBGEMM_AMDSMI_LIB amdsmi HINTS ${ROCM_PATH}/lib)
+  find_library(FBGEMM_AMDSMI_LIB amd_smi HINTS ${ROCM_PATH}/lib)
   if(FBGEMM_AMDSMI_LIB)
-    message(STATUS "Found AMDSMI library: ${FBGEMM_AMDSMI_LIB}")
+    message(STATUS "Found AMD SMI library: ${FBGEMM_AMDSMI_LIB}")
   endif()
 
   list(APPEND HIP_CXX_FLAGS -D__HIP_NO_HALF_OPERATORS__=1)
