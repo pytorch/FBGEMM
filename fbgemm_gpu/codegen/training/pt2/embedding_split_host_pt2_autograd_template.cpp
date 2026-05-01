@@ -1078,9 +1078,9 @@ static torch::autograd::variable_list backward(
 
     TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
+    const int32_t BT_block_size = at::cuda::warp_size();
+    int32_t max_segment_length_per_warp = at::cuda::warp_size();
 #ifdef USE_ROCM
-    constexpr int32_t BT_block_size = 64;
-    int32_t max_segment_length_per_warp = 64;
     {%- if (not nobag) and
            (optimizer == "rowwise_adagrad") and
            (not vbe) and
@@ -1110,9 +1110,6 @@ static torch::autograd::variable_list backward(
     }
     {%- endfor %}
     {%- endif %}
-#else
-    constexpr int32_t BT_block_size = 32;
-    constexpr int32_t max_segment_length_per_warp = 32;
 #endif
     using torch::autograd::Variable;
 
