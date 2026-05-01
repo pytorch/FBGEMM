@@ -32,6 +32,11 @@ suppressed_list: list[HealthCheck] = (
     else []
 )
 
+settings.register_profile(
+    "suppress_differing_executors_check", suppress_health_check=suppressed_list
+)
+settings.load_profile("suppress_differing_executors_check")
+
 
 @settings(suppress_health_check=suppressed_list)
 def permute_indices_ref_(
