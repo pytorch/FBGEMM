@@ -55,30 +55,33 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
   auto indices_end = offsets[b_t + 1];
   const index_t num_indices = indices.size(0);
 
-  if (bounds_check_mode == BoundsCheckMode::FATAL) {
-    CUDA_KERNEL_ASSERT(
-        indices_start >= 0 && "indices_start must be non-negative");
-    CUDA_KERNEL_ASSERT(
-        indices_start <= indices_end &&
-        "indices_start must not exceed indices_end");
-    CUDA_KERNEL_ASSERT(
-        indices_end <= num_indices &&
-        "indices_end must not exceed num_indices");
-  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-    if (indices_start < 0 || indices_start > indices_end ||
-        indices_end > num_indices) {
-      if (gpuAtomicIncrement(&warning[0]) == 0) {
-        printf(
-            "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
-            "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
-            " num_indices: %lld. Setting indices_start and indices_end within "
-            "the range.\n",
-            vbe ? "true" : "false",
-            b,
-            t,
-            static_cast<int64_t>(indices_start),
-            static_cast<int64_t>(indices_end),
-            static_cast<int64_t>(num_indices));
+  // Condition first, then branch on mode.
+  if (indices_start < 0 || indices_start > indices_end ||
+      indices_end > num_indices) {
+    if (bounds_check_mode == BoundsCheckMode::FATAL) {
+      CUDA_KERNEL_ASSERT(
+          indices_start >= 0 && "indices_start must be non-negative");
+      CUDA_KERNEL_ASSERT(
+          indices_start <= indices_end &&
+          "indices_start must not exceed indices_end");
+      CUDA_KERNEL_ASSERT(
+          indices_end <= num_indices &&
+          "indices_end must not exceed num_indices");
+    } else {
+      if (bounds_check_mode == BoundsCheckMode::WARNING) {
+        if (gpuAtomicIncrement(&warning[0]) == 0) {
+          printf(
+              "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
+              "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
+              " num_indices: %lld. Setting indices_start and indices_end within "
+              "the range.\n",
+              vbe ? "true" : "false",
+              b,
+              t,
+              static_cast<int64_t>(indices_start),
+              static_cast<int64_t>(indices_end),
+              static_cast<int64_t>(num_indices));
+        }
       }
       adjust_offset_kernel(
           indices_start,
@@ -87,13 +90,6 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
           &offsets[b_t],
           &offsets[b_t + 1]);
     }
-  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-    adjust_offset_kernel(
-        indices_start,
-        indices_end,
-        num_indices,
-        &offsets[b_t],
-        &offsets[b_t + 1]);
   }
 
   const auto L = indices_end - indices_start;
