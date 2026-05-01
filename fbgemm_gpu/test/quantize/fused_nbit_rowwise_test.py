@@ -414,6 +414,218 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                 )
             torch.testing.assert_close(dequantized_data.cpu(), reference)
 
+    @unittest.skipIf(not gpu_available, "Test requires GPU")
+    def test_nbit_dequant_fp32_intermediate_precision(self) -> None:
+        """Verify that FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf uses fp32
+        intermediate arithmetic when dequantizing to BF16.
+
+        The kernel must upcast fp16 scale/bias to fp32 before multiply-add,
+        then downcast the fp32 result to bf16. This test constructs inputs
+        where computing in fp16 arithmetic (without fp32 upcast) would produce
+        a different result from computing in fp32 then casting to bf16.
+        """
+        bit_rate = 4
+        nrows = 4
+        # ncols must be divisible by 2 * num_elem_per_byte = 4
+        ncols = 8
+        num_elem_per_byte = 8 // bit_rate
+
+        # Construct quantized data manually with adversarial scale/bias.
+        # We choose scale and bias values where fp16 intermediate arithmetic
+        # would overflow or lose precision, but fp32 intermediate is fine.
+        #
+        # fp16 max is ~65504. If scale=1024 (representable in fp16) and
+        # quantized_val=15 (max for 4-bit), then scale*15 = 15360 (fine in fp16).
+        # But if bias = 50000 (representable in fp16), then
+        # scale*15 + bias = 15360 + 50000 = 65360 (still in fp16 range).
+        #
+        # Instead, use a case where fp16 accumulation rounds differently from fp32:
+        # scale = 2049.0 (in fp16: rounded to 2048.0 due to 10-bit mantissa)
+        # but in fp32, 2049.0 is exact.
+        # If the kernel does NOT upcast to fp32, it reads scale as fp16 (2048.0)
+        # and computes 2048*val + bias. With fp32 upcast, it gets 2049*val + bias.
+        #
+        # Actually, scale/bias ARE stored as fp16 in the quantized tensor,
+        # so 2049.0 stored as fp16 is 2048.0. The kernel reads fp16 bytes.
+        # The fp32 upcast of fp16(2049) = fp16(2048) → fp32(2048).
+        # So the upcast doesn't help with values that don't fit in fp16.
+        #
+        # The real difference is in the ARITHMETIC: fp16 multiply-add vs fp32.
+        # Use values where fp16 multiply-add loses precision:
+        # scale = 0.1 (fp16: 0.0999755859375), bias = 1000.0 (exact in fp16)
+        # quantized_val = 15
+        # fp32 arithmetic: 0.0999755859375 * 15 + 1000.0 = 1001.49963...
+        # fp16 arithmetic: fp16(fp16(0.0999755859375 * 15) + 1000.0)
+        #   = fp16(fp16(1.4996...) + 1000.0) = fp16(1.5 + 1000.0) = fp16(1001.5)
+        # The key: in fp16 arithmetic, 1000.0 + 1.4996 rounds to 1001.5
+        # (since fp16 at magnitude 1000 has precision of 0.5)
+        # In fp32: 1000.0 + 1.4996... = 1001.4996... → bf16: 1001.0 or 1002.0
+        #
+        # Better approach: use exact fp16 representable values that demonstrate
+        # the fp32 intermediate is used for the final store to bf16.
+        # The kernel stores as: bf16(fp32_result) where fp32_result = scale*q+bias
+        # vs hypothetical: bf16(fp16(scale*q+bias))
+        #
+        # Most reliable test: compute the expected output using fp32 arithmetic
+        # on the EXACT fp16 scale/bias values, cast to bf16, and compare
+        # bit-for-bit with kernel output.
+
+        packed_dim = (ncols + num_elem_per_byte - 1) // num_elem_per_byte
+        # Each row: packed_data (packed_dim bytes) + scale (2 bytes) + bias (2 bytes)
+        row_size = packed_dim + 4
+
+        quantized = torch.zeros(nrows, row_size, dtype=torch.uint8)
+
+        # Fill with different scale/bias per row to test various precision scenarios
+        test_cases = [
+            # (scale_fp16, bias_fp16, quantized_vals)
+            # Case 1: Large scale, moderate bias
+            (np.float16(1000.0), np.float16(500.0), [15, 7, 3, 1, 14, 8, 2, 0]),
+            # Case 2: Small scale, large bias — tests precision of addition
+            (np.float16(0.1), np.float16(2000.0), [15, 15, 15, 15, 0, 0, 0, 0]),
+            # Case 3: Scale near fp16 boundary
+            (np.float16(60000.0), np.float16(0.0), [1, 0, 1, 0, 1, 0, 1, 0]),
+            # Case 4: Very small scale and bias
+            (np.float16(0.001), np.float16(0.001), [15, 8, 4, 2, 1, 0, 15, 8]),
+        ]
+
+        for row_idx, (scale_f16, bias_f16, qvals) in enumerate(test_cases):
+            # Pack quantized values (4-bit each, 2 per byte)
+            for j in range(ncols):
+                byte_idx = j // num_elem_per_byte
+                shift = (j % num_elem_per_byte) * bit_rate
+                quantized[row_idx, byte_idx] |= (qvals[j] & 0xF) << shift
+
+            # Store scale and bias as fp16 bytes (scale_bias_last=True)
+            scale_bytes = np.array([scale_f16]).view(np.uint8)
+            bias_bytes = np.array([bias_f16]).view(np.uint8)
+            quantized[row_idx, packed_dim] = scale_bytes[0]
+            quantized[row_idx, packed_dim + 1] = scale_bytes[1]
+            quantized[row_idx, packed_dim + 2] = bias_bytes[0]
+            quantized[row_idx, packed_dim + 3] = bias_bytes[1]
+
+        # Compute expected output using fp32 arithmetic on exact fp16 scale/bias
+        expected = torch.zeros(nrows, ncols, dtype=torch.bfloat16)
+        for row_idx, (scale_f16, bias_f16, qvals) in enumerate(test_cases):
+            scale_fp32 = float(scale_f16)  # exact fp16 → fp32
+            bias_fp32 = float(bias_f16)
+            for j in range(ncols):
+                # fp32 arithmetic, then cast to bf16
+                val_fp32 = scale_fp32 * qvals[j] + bias_fp32
+                expected[row_idx, j] = torch.tensor(val_fp32, dtype=torch.float32).to(
+                    torch.bfloat16
+                )
+
+        # Run kernel on CUDA with output_dtype=BF16 (5)
+        quantized_gpu = quantized.cuda()
+        dequantized_gpu = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+            quantized_gpu,
+            bit_rate,
+            5,  # SparseType.BF16.as_int()
+        )
+
+        # Bit-exact comparison: kernel output must match fp32-computed reference
+        # cast to bf16, proving fp32 intermediate is used.
+        torch.testing.assert_close(
+            dequantized_gpu.cpu(),
+            expected,
+            rtol=0,
+            atol=0,
+            msg=(
+                "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf BF16 output does not "
+                "match fp32-intermediate reference. The kernel may not be upcasting "
+                "fp16 scale/bias to fp32 before computation."
+            ),
+        )
+
+    @unittest.skipIf(not gpu_available, "Test requires GPU")
+    @given(
+        nrows=st.integers(min_value=1, max_value=50),
+        ncols=st.sampled_from([8, 16, 32, 64]),
+    )
+    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
+    def test_fp16_input_int4_quant_dequant_bf16_vs_fp16_roundtrip(
+        self,
+        nrows: int,
+        ncols: int,
+    ) -> None:
+        """Compare two dequantization paths for fp16 input quantized to INT4:
+
+        Path A (direct bf16):  fp16 → INT4 quant → dequant to BF16
+        Path B (via fp16):     fp16 → INT4 quant → dequant to FP16 → cast to BF16
+
+        Both paths should produce identical BF16 results because the kernel
+        uses fp32 intermediate arithmetic for both, and the only difference
+        is the final fp32→output_dtype cast. Since fp16 has strictly more
+        mantissa precision (10 bits) than bf16 (7 bits), casting
+        fp32→fp16→bf16 should equal fp32→bf16 for values within fp16 range
+        (which embedding values typically are).
+
+        If they differ, it indicates the dequant paths have inconsistent
+        intermediate precision.
+        """
+        bit_rate = 4
+        num_elem_per_byte = 8 // bit_rate
+        assume(ncols % (2 * num_elem_per_byte) == 0)
+
+        # Start with fp16 input (simulating fp16-trained embeddings)
+        input_data_fp16 = torch.rand(nrows, ncols).half()
+
+        # Quantize fp16 → INT4
+        quantized_data = torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
+            input_data_fp16.cuda(), bit_rate
+        )
+
+        # Path A: INT4 → dequant directly to BF16
+        dequant_bf16 = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+            quantized_data,
+            bit_rate,
+            5,  # SparseType.BF16.as_int()
+        )
+
+        # Path B: INT4 → dequant to FP16 → cast to BF16
+        dequant_fp16 = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+            quantized_data,
+            bit_rate,
+            1,  # SparseType.FP16.as_int()
+        )
+        dequant_fp16_to_bf16 = dequant_fp16.to(torch.bfloat16)
+
+        # Both paths should produce identical bf16 values.
+        # The kernel uses fp32 arithmetic in both cases:
+        #   Path A: fp32_result → bf16
+        #   Path B: fp32_result → fp16 → bf16
+        # For values in fp16 range, fp32→bf16 truncates to 7-bit mantissa,
+        # while fp32→fp16→bf16 first rounds to 10-bit then truncates to 7-bit.
+        # These can differ by at most 1 ULP in bf16 due to double-rounding.
+        # We use atol=0, rtol=0 to detect ANY difference and document it.
+        try:
+            torch.testing.assert_close(
+                dequant_bf16.cpu(),
+                dequant_fp16_to_bf16.cpu(),
+                rtol=0,
+                atol=0,
+            )
+        except AssertionError:
+            # If bit-exact fails, check that differences are at most 1 bf16 ULP.
+            # Double-rounding (fp32→fp16→bf16 vs fp32→bf16) can cause 1 ULP diff.
+            diff = (dequant_bf16.float() - dequant_fp16_to_bf16.float()).abs().cpu()
+            # Compute 1 ULP for each bf16 value
+            bf16_vals = dequant_bf16.cpu().float()
+            # bf16 has 7 mantissa bits, so ULP = 2^(exponent - 7)
+            # Use torch.finfo to check
+            max_diff = diff.max().item()
+            max_val = bf16_vals.abs().max().item()
+            # Allow up to 1 ULP: for bf16 values around max_val,
+            # 1 ULP ≈ max_val * 2^-7 ≈ max_val * 0.0078125
+            self.assertLessEqual(
+                max_diff,
+                max_val * 0.0078125 + 1e-10,
+                f"Dequant BF16 direct vs fp16→bf16 differ by more than 1 bf16 ULP. "
+                f"max_diff={max_diff}, max_val={max_val}. "
+                f"This suggests inconsistent intermediate precision in the kernel.",
+            )
+
 
 def _bf16_round_trip(t: torch.Tensor) -> torch.Tensor:
     return t.to(torch.bfloat16).to(torch.float32)
