@@ -227,66 +227,6 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
   return output;
 }
 
-template <typename output_t>
-Tensor _fusednbitrowwise_bf16sb_to_float_or_half_cpu(
-    const Tensor& input,
-    const int64_t bit_rate,
-    const bool scale_bias_last) {
-  TENSOR_ON_CPU(input);
-  TENSOR_NDIM_EQUALS(input, 2);
-
-  const auto input_sizes = input.sizes();
-  const int64_t nrows = input_sizes[0];
-  const int32_t ncols = nbit_elems_to_bytes(input);
-  const int32_t num_elem_per_byte = 8 / bit_rate;
-  const int32_t output_columns =
-      (ncols - 2 * sizeof(at::BFloat16)) * num_elem_per_byte;
-
-  Tensor output;
-  if constexpr (std::is_same_v<output_t, float>) {
-    output =
-        at::empty({nrows, output_columns}, input.options().dtype(at::kFloat));
-  } else if constexpr (std::is_same_v<output_t, at::Half>) {
-    output =
-        at::empty({nrows, output_columns}, input.options().dtype(at::kHalf));
-  } else if constexpr (std::is_same_v<output_t, at::BFloat16>) {
-    output = at::empty(
-        {nrows, output_columns}, input.options().dtype(at::kBFloat16));
-  } else {
-    TORCH_CHECK(
-        false,
-        "Unsupported output dtype for _fusednbitrowwise_bf16sb_to_float_or_half_cpu");
-  }
-
-  const uint8_t* input_data = input.const_data_ptr<uint8_t>();
-  output_t* output_data = output.mutable_data_ptr<output_t>();
-
-  for (int64_t row = 0; row < nrows; ++row) {
-    const uint8_t* input_row = input_data + row * ncols;
-    const at::BFloat16* input_row_scale_bias =
-        reinterpret_cast<const at::BFloat16*>(
-            input_row +
-            (scale_bias_last
-                 ? (output_columns + num_elem_per_byte - 1) / num_elem_per_byte
-                 : 0));
-    const float scale = static_cast<float>(input_row_scale_bias[0]);
-    const float bias = static_cast<float>(input_row_scale_bias[1]);
-    const uint8_t* nums =
-        scale_bias_last ? input_row : input_row + 2 * sizeof(at::BFloat16);
-    output_t* output_row = output_data + row * output_columns;
-
-    for (int32_t col = 0; col < output_columns; ++col) {
-      uint8_t quantized = nums[col / num_elem_per_byte];
-      quantized >>= (col % num_elem_per_byte) * bit_rate;
-      quantized &= (1 << bit_rate) - 1;
-      const float output_value = scale * quantized + bias;
-      output_row[col] = static_cast<output_t>(output_value);
-    }
-  }
-
-  return output;
-}
-
 /// @ingroup quantize-data-cpu
 ///
 Tensor& _fused8bitrowwise_to_float_cpu_out(
@@ -511,32 +451,6 @@ Tensor fusednbitrowwise_to_float_or_half_cpu(
   return output;
 }
 
-Tensor fusednbitrowwise_bf16sb_to_float_or_half_cpu(
-    const Tensor& input,
-    const int64_t bit_rate,
-    const int64_t output_dtype,
-    const bool scale_bias_last) {
-  Tensor output;
-  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
-  switch (output_sparse_dtype) {
-    case SparseType::FP32:
-      output = _fusednbitrowwise_bf16sb_to_float_or_half_cpu<float>(
-          input, bit_rate, scale_bias_last);
-      break;
-    case SparseType::FP16:
-      output = _fusednbitrowwise_bf16sb_to_float_or_half_cpu<at::Half>(
-          input, bit_rate, scale_bias_last);
-      break;
-    case SparseType::BF16:
-      output = _fusednbitrowwise_bf16sb_to_float_or_half_cpu<at::BFloat16>(
-          input, bit_rate, scale_bias_last);
-      break;
-    default:
-      TORCH_CHECK(false);
-  }
-  return output;
-}
-
 Tensor float_to_fusednbitrowwise_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
@@ -730,8 +644,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfWithRowwiseMinMax(Tensor input, int bit_rate, Tensor rowwise_min_max) -> Tensor");
   m.def(
-      "FloatOrHalfToFusedNBitRowwiseQuantizedSBBFloat16(Tensor input, int bit_rate) -> Tensor");
-  m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfFrontToFloatOrHalf(Tensor input, int bit_rate, int output_dtype) -> Tensor");
@@ -739,8 +651,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0, bool scale_bias_last=True) -> Tensor");
-  m.def(
-      "FusedNBitRowwiseQuantizedSBBFloat16ToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0, bool scale_bias_last=True) -> Tensor");
   m.def(
       "FloatToHFP8Quantized(Tensor input, int ebits, int exponent_bias, float max_pos) -> Tensor");
   m.def(
@@ -816,9 +726,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
       fbgemm_gpu::fusednbitrowwise_to_float_or_half_cpu);
-  DISPATCH_TO_CPU(
-      "FusedNBitRowwiseQuantizedSBBFloat16ToFloatOrHalf",
-      fbgemm_gpu::fusednbitrowwise_bf16sb_to_float_or_half_cpu);
   DISPATCH_TO_CPU("FloatToHFP8Quantized", fbgemm_gpu::_float_to_hfp8_cpu);
   DISPATCH_TO_CPU("HFP8QuantizedToFloat", fbgemm_gpu::_hfp8_to_float_cpu);
 }
