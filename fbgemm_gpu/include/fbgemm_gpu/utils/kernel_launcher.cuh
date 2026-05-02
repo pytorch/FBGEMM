@@ -265,9 +265,7 @@ struct KernelLauncher {
         context.description(),
         " CUDA Error: ",
         cudaGetErrorString(cuda_error),
-        // TODO: Re-enable when xformers is updated to use a more recent
-        // version of PyTorch
-        // c10::cuda::get_cuda_error_help(cuda_error),
+        c10::cuda::get_cuda_error_help(cuda_error),
         c10::cuda::get_cuda_check_suffix(),
         "\n",
         c10::cuda::c10_retrieve_device_side_assertion_info());
