@@ -12,6 +12,7 @@
 
 #include <cpuinfo.h>
 #include <cassert>
+#include <concepts>
 #include <iostream>
 #include <mutex>
 #include <tuple>
@@ -356,7 +357,9 @@ GenEmbeddingSpMDMNBitLookup<
         Ymm mask_vreg; // mask for avx2
         Xmm mask2_vreg;
         Xmm mask_fp16_vreg;
-        vec_reg_t ones_vreg;
+        vec_reg_t bf16_bias_vreg; // 0x7FFF for bf16 ties-to-even rounding
+        vec_reg_t bf16_one_vreg;  // set1(1) for LSB mask
+        vec_reg_t bf16_tmp_vreg;  // scratch for bf16 rounding
 
         // We need 2 vec registers for 1. scale 2. bias
         --unroll_factor;
@@ -366,11 +369,29 @@ GenEmbeddingSpMDMNBitLookup<
 
         if (is_bf16_out) {
           --unroll_factor;
-          ones_vreg = vec_reg_t(unroll_factor);
-          a->mov(scratchReg2_, 1 << 15);
-          a->vpinsrd(ones_vreg.xmm(), ones_vreg.xmm(), scratchReg2_, 0);
-          a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
+          bf16_bias_vreg = vec_reg_t(unroll_factor);
+          a->mov(scratchReg2_, 0x7FFF);
+          a->vpinsrd(bf16_bias_vreg.xmm(), bf16_bias_vreg.xmm(), scratchReg2_,
+                     0);
+          a->vpbroadcastd(bf16_bias_vreg, bf16_bias_vreg.xmm());
+          --unroll_factor;
+          bf16_one_vreg = vec_reg_t(unroll_factor);
+          a->mov(scratchReg2_, 1);
+          a->vpinsrd(bf16_one_vreg.xmm(), bf16_one_vreg.xmm(), scratchReg2_, 0);
+          a->vpbroadcastd(bf16_one_vreg, bf16_one_vreg.xmm());
+          --unroll_factor;
+          bf16_tmp_vreg = vec_reg_t(unroll_factor);
         }
+
+        // See EmbeddingSpMDM.cc for rationale; 4-deep critical path form.
+        auto emit_bf16_rne = [&]<std::invocable Pred>(
+                                 const vec_reg_t& out, Pred&& emitPred) {
+          emitPred().vpsrld(bf16_tmp_vreg, out, 16);
+          emitPred().vpaddd(out, out, bf16_bias_vreg);
+          emitPred().vpand(bf16_tmp_vreg, bf16_tmp_vreg, bf16_one_vreg);
+          emitPred().vpaddd(out, out, bf16_tmp_vreg);
+          emitPred().vpsrld(out, out, 16);
+        };
 
         --unroll_factor;
         src_vreg = vec_reg_t(unroll_factor);
@@ -838,8 +859,7 @@ GenEmbeddingSpMDMNBitLookup<
               // 16-bit output
               if constexpr (instSet == inst_set_t::avx2) {
                 if (is_bf16_out) {
-                  a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                  a->vpsrld(out_vreg, out_vreg, 16);
+                  emit_bf16_rne(out_vreg, [&]() -> auto& { return *a; });
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
                 } else {
@@ -869,18 +889,15 @@ GenEmbeddingSpMDMNBitLookup<
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (is_bf16_out) {
-                    // bf16
-                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
+                    emit_bf16_rne(
+                        out_vreg, [&]() -> auto& { return a->k(x86::k(1)); });
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
                   }
                 } else {
                   if (is_bf16_out) {
-                    // bf16
-                    a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->vpsrld(out_vreg, out_vreg, 16);
+                    emit_bf16_rne(out_vreg, [&]() -> auto& { return *a; });
                     a->vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->vcvtps2ph(dst_addr, out_vreg, 8);

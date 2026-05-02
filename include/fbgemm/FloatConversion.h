@@ -29,6 +29,12 @@
 // instructions for scalar fp16<->fp32 conversion.
 // - GCC/Clang: __F16C__ is defined by -mf16c or -march=haswell+
 // - MSVC: never defines __F16C__, but /arch:AVX2 implies F16C hardware
+// ARMv8.6-A BF16 extension: hardware BFCVT with IEEE 754 ties-to-even
+#if defined(__aarch64__) && defined(__ARM_FEATURE_BF16)
+#define HAS_NATIVE_BF16_TYPE
+#include <arm_neon.h>
+#endif
+
 #if defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__))
 #define HAS_F16C
 #include <immintrin.h>
@@ -305,13 +311,22 @@ inline float16 cpu_float2half(const float f) {
 }
 
 inline float cpu_bf162float(bfloat16 src) {
+#ifdef HAS_NATIVE_BF16_TYPE
+  return vcvtah_f32_bf16(std::bit_cast<bfloat16_t>(src));
+#else
   uint32_t val_fp32 = static_cast<uint32_t>(src) << 16;
   return std::bit_cast<float>(val_fp32);
+#endif
 }
 
 inline bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp = std::bit_cast<uint32_t>(src);
-  return (temp + (1u << 15)) >> 16;
+#ifdef HAS_NATIVE_BF16_TYPE
+  return std::bit_cast<bfloat16>(vcvth_bf16_f32(src));
+#else
+  // IEEE 754 round-to-nearest-even
+  uint32_t bits = std::bit_cast<uint32_t>(src);
+  return (bits + ((bits >> 16) & 1) + 0x7FFFu) >> 16;
+#endif
 }
 
 } // namespace fbgemm
