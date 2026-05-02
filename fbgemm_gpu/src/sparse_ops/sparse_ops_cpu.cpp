@@ -593,24 +593,21 @@ void BFloat16QuantizedToFloat_ref(
   }
 }
 
-// TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
 at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
   TENSOR_ON_CPU(input);
 
   const auto input_sizes = input.sizes();
-  auto output = at::empty(
-      input_sizes,
-      input.options().dtype(at::kHalf)); // at::kHalf
+  auto output =
+      at::empty(input_sizes, input.options().dtype(at::kBFloat16));
 
   FloatToBFloat16Quantized_ref(
       input.const_data_ptr<float>(),
       input.numel(),
-      reinterpret_cast<uint16_t*>(output.mutable_data_ptr<at::Half>()));
+      reinterpret_cast<uint16_t*>(output.mutable_data_ptr<at::BFloat16>()));
 
   return output;
 }
 
-// TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
 at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   TENSOR_ON_CPU(input);
 
@@ -619,7 +616,7 @@ at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   auto output = at::empty(input_sizes, input.options().dtype(at::kFloat));
 
   BFloat16QuantizedToFloat_ref(
-      reinterpret_cast<const at::BFloat16*>(input.const_data_ptr<at::Half>()),
+      input.const_data_ptr<at::BFloat16>(),
       input.numel(),
       output.mutable_data_ptr<float>());
 

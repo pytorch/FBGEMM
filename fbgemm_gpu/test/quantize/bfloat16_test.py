@@ -69,8 +69,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             return
         f = np.vectorize(lambda x: bfloat_quantize(x))
         reference = f(input_data.numpy())
-        quantized_data_uint16 = quantized_data.numpy()
-        quantized_data_uint16.dtype = np.uint16
+        quantized_data_uint16 = quantized_data.view(torch.uint16).numpy()
         np.testing.assert_array_almost_equal(quantized_data_uint16, reference)
 
         if torch.cuda.is_available():
@@ -78,8 +77,9 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             quantized_data_gpu = torch.ops.fbgemm.FloatToBfloat16Quantized(
                 input_data_gpu
             )
-            quantized_data_numpy = quantized_data_gpu.cpu().numpy()
-            quantized_data_numpy.dtype = np.uint16
+            quantized_data_numpy = (
+                quantized_data_gpu.view(torch.uint16).cpu().numpy()
+            )
             np.testing.assert_allclose(quantized_data_numpy, reference)
 
     # pyre-fixme[56]: Pyre was not able to infer the type of argument

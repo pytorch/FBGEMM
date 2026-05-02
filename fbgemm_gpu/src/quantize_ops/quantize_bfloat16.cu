@@ -24,9 +24,7 @@ namespace fbgemm_gpu {
 DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   CUDA_DEVICE_GUARD(input);
 
-  // TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia
-  // NCCL input.options().dtype(at::kBFloat16)); // at::kBFloat16
-  auto output = at::empty({}, input.options().dtype(at::kHalf));
+  auto output = at::empty({}, input.options().dtype(at::kBFloat16));
   output.resize_(0);
 
   auto iter = at::TensorIteratorConfig()
@@ -34,10 +32,11 @@ DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
                   .add_output(output)
                   .add_input(input)
                   .build();
-  at::native::gpu_kernel(iter, [] GPU_LAMBDA(float in) -> at::Half {
+  at::native::gpu_kernel(iter, [] GPU_LAMBDA(float in) -> at::BFloat16 {
     fbgemm_gpu::fint32 temp;
     temp.F = in;
-    return at::Half((temp.I + (1 << 15)) >> 16, at::Half::from_bits());
+    return at::BFloat16(
+        (temp.I + (1 << 15)) >> 16, at::BFloat16::from_bits());
   });
 
   return output;
@@ -62,7 +61,7 @@ DLL_PUBLIC at::Tensor _bfloat16_to_float_gpu(const at::Tensor& input) {
                   .add_input(input)
                   .build();
 
-  at::native::gpu_kernel(iter, [] GPU_LAMBDA(at::Half in) -> float {
+  at::native::gpu_kernel(iter, [] GPU_LAMBDA(at::BFloat16 in) -> float {
     fbgemm_gpu::fint32 temp;
     temp.I = in.x << 16;
     return temp.F;
