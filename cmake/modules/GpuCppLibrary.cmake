@@ -246,8 +246,6 @@ function(gpu_cpp_library)
         # Append ROCM includes
         target_include_directories(${lib_name} PUBLIC
             ${FBGEMM_HIP_INCLUDE}
-            ${ROCRAND_INCLUDE}
-            ${ROCM_SMI_INCLUDE}
             ${args_INCLUDE_DIRS})
 
     else()
@@ -339,6 +337,11 @@ function(gpu_cpp_library)
     # Add NVML if available
     if(NVML_LIB_PATH)
         list(APPEND library_dependencies ${NVML_LIB_PATH})
+    endif()
+
+    # Add AMD SMI if available (ROCm builds)
+    if(FBGEMM_AMDSMI_LIB)
+        list(APPEND library_dependencies ${FBGEMM_AMDSMI_LIB})
     endif()
 
     # Link against the external libraries as needed
