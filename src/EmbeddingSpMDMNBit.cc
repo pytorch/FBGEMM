@@ -1108,7 +1108,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
-      is_autovec_forced()) {
+      (is_autovec_forced() &&
+       (!CPUINFO_ARCH_X86_64 || fbgemmHasAvx512Support()))) {
     return GenerateEmbeddingSpMDMNBitWithStrides_autovec<
         /*IndexType=*/indxType,
         /*OffsetType=*/offsetType,
@@ -1301,7 +1302,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
-      is_autovec_forced()) {
+      (is_autovec_forced() &&
+       (!CPUINFO_ARCH_X86_64 || fbgemmHasAvx512Support()))) {
     return GenerateEmbeddingSpMDMNBitRowWiseSparse_autovec<
         /*IndexType=*/indxType,
         /*OffsetType=*/offsetType>(
