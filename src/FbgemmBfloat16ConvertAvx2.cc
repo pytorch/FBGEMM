@@ -11,30 +11,18 @@
 #include <immintrin.h>
 #endif
 #define FBGEMM_EXPORTS
+#include "./Bf16ConvertAvx2.h"
 #include "fbgemm/FbgemmConvert.h"
 
 namespace fbgemm {
 
 namespace {
 
-inline __m256i QuantizeBfloat16Avx2(const __m256& x0, const __m256& x1) {
-  // Add 2^15 and right shift 16 to do round-nearest
-  __m256i y0 = _mm256_srli_epi32(
-      _mm256_add_epi32(_mm256_castps_si256(x0), _mm256_set1_epi32(1 << 15)),
-      16);
-  __m256i y1 = _mm256_srli_epi32(
-      _mm256_add_epi32(_mm256_castps_si256(x1), _mm256_set1_epi32(1 << 15)),
-      16);
-  // AVX2 doesn't have _mm256_cvtepi32_epi16 so we need this instruction
-  // sequence.
-  return _mm256_permute4x64_epi64(_mm256_packus_epi32(y0, y1), 0xd8);
-}
-
 inline void FloatToBfloat16KernelAvx2(const float* src, bfloat16* dst) {
   // Two float m256i -> One bfloat16 m256i
   const __m256 src_reg0 = _mm256_loadu_ps(src);
   const __m256 src_reg1 = _mm256_loadu_ps(src + 8);
-  __m256i dst_reg = QuantizeBfloat16Avx2(src_reg0, src_reg1);
+  __m256i dst_reg = internal::cvt_fp32x16_bf16x16(src_reg0, src_reg1);
   _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), dst_reg);
 }
 
