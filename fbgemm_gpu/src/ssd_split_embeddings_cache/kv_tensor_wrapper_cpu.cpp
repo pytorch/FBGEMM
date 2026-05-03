@@ -28,6 +28,21 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
 class SnapshotHandle {};
 
+// Stub definitions to anchor typeinfo for these polymorphic types in the
+// CPU-only build. The real implementations live in
+// ssd_split_table_batched_embeddings.cpp, which is only compiled in GPU builds.
+EmbeddingSnapshotHandleWrapper::EmbeddingSnapshotHandleWrapper(
+    const SnapshotHandle* /*handle*/,
+    std::shared_ptr<EmbeddingRocksDB> /*db*/)
+    : handle(nullptr), db(nullptr) {}
+
+EmbeddingSnapshotHandleWrapper::~EmbeddingSnapshotHandleWrapper() = default;
+
+RocksdbCheckpointHandleWrapper::RocksdbCheckpointHandleWrapper(
+    const std::string& checkpoint_uuid,
+    std::shared_ptr<EmbeddingRocksDB> db)
+    : uuid(checkpoint_uuid), db(std::move(db)) {}
+
 KVTensorWrapper::KVTensorWrapper(
     std::vector<int64_t> shape,
     int64_t dtype [[maybe_unused]],
