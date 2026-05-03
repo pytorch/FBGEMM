@@ -158,7 +158,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_mx4(self, power: int, sizes: int) -> None:
         group_size = 2**power
-        device = torch.device("cuda")
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         input = all_encodings(8, sizes, device=device)
         assert input.numel() % group_size == 0
@@ -366,7 +366,9 @@ class TestMXQuantizationConversion(unittest.TestCase):
     )
     def test_mx4_index_overflow(self) -> None:
         """Tests that mx4 quantization kernels can handle inputs that would overflow int32 indices."""
-        large_input = torch.zeros(2**32, dtype=torch.float32).to("cuda")
+        large_input = torch.zeros(2**32, dtype=torch.float32).to(
+            torch.accelerator.current_accelerator() or "cuda"
+        )
         mx_quantized = fp32_to_mx4(large_input, 32)
         mx_dequantized = mx4_to_fp32(mx_quantized, 32)
         # We just need to check that everything ran without an illegal memory access.
@@ -423,6 +425,66 @@ class TestMXQuantizationConversion(unittest.TestCase):
         # Check that values are reasonably close, based on expected variance.
         # I give quite a bit of wiggle room to make sure this isnt flaky.
         torch.testing.assert_close(input, mx_dequantized, rtol=1.0, atol=magnitude / 2)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_mx4_high_bit_scale_exponent_triton(self) -> None:
+        """Regression test: scale exponents >= 128 (biased) must not be sign-extended.
+
+        Scale exponents are stored as uint8 bit patterns in int8 storage.
+        Values >= 128 have the high bit set and were incorrectly sign-extended
+        when cast to int16 in the Triton dequantize kernel, producing wildly
+        wrong (negative) exponents.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        group_size = 32
+
+        # Values with exponents >= 1 produce biased scale exponents >= 128.
+        # Use powers of 2 so quantization is exact and roundtrip is lossless
+        # for the scale component.
+        for magnitude in [2.0, 4.0, 64.0, 1024.0]:
+            input_tensor = torch.full(
+                [1, group_size], magnitude, device=device, dtype=torch.float32
+            )
+
+            quantized = fp32_to_mx4(
+                input_tensor, group_size, rounding_mode=RoundingMode.nearest
+            )
+            output_triton = mx4_to_fp32(quantized, group_size, use_triton=True)
+            output_triton = output_triton.reshape(input_tensor.shape)
+
+            torch.testing.assert_close(
+                input_tensor,
+                output_triton,
+                rtol=0.0,
+                atol=0.0,
+                msg=f"Triton dequantize failed for magnitude={magnitude}",
+            )
+
+    def test_mx4_high_bit_scale_exponent_ref(self) -> None:
+        """Regression test: py_dequantize_mx4 sign-extension for scale exponents >= 128.
+
+        The Python reference dequantize viewed packed data as int8 and
+        subtracted FP32_EXP_BIAS directly, causing sign-extension for biased
+        exponents >= 128.
+        """
+        group_size = 32
+
+        for magnitude in [2.0, 4.0, 64.0, 1024.0]:
+            input_tensor = torch.full([1, group_size], magnitude, dtype=torch.float32)
+
+            quantized = py_quantize_mx4(
+                input_tensor, group_size, rounding_mode=RoundingMode.nearest
+            )
+            output_ref = py_dequantize_mx4(quantized, group_size)
+            output_ref = output_ref.reshape(input_tensor.shape)
+
+            torch.testing.assert_close(
+                input_tensor,
+                output_ref,
+                rtol=0.0,
+                atol=0.0,
+                msg=f"py_dequantize_mx4 failed for magnitude={magnitude}",
+            )
 
 
 if __name__ == "__main__":
