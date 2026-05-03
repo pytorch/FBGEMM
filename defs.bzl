@@ -9,33 +9,28 @@ def default_compiler_flags():
         "-pedantic",
         "-Wall",
         "-DFBGEMM_FBCODE",  # Used for enabling fbcode-specific code paths
-    ] + select(
-        {
+    ] + select({
+        "DEFAULT": [],
+        "ovr_config//compiler:clang": [
+            "-Werror",
+            "-Wextra",
+            "-Wno-gnu-zero-variadic-macro-arguments",
+            "-Wno-c99-extensions",
+            "-Wno-unused-parameter",
+            "-Wno-unused-variable",
+            "-Wimplicit-fallthrough",
+            "-Wignored-qualifiers",
+            "-Wno-vla",
+        ],
+        "ovr_config//compiler:gcc": [
+            "-fno-trapping-math",
+        ] + select({
             "DEFAULT": [],
-            "ovr_config//compiler:clang": [
-                "-Werror",
-                "-Wextra",
-                "-Wno-gnu-zero-variadic-macro-arguments",
-                "-Wno-c99-extensions",
-                "-Wno-unused-parameter",
-                "-Wno-unused-variable",
-                "-Wimplicit-fallthrough",
-                "-Wignored-qualifiers",
-                "-Wno-vla",
+            "ovr_config//cpu:arm64": [
+                "-ftree-vectorize",
             ],
-            "ovr_config//compiler:gcc": [
-                "-fno-trapping-math",
-            ]
-            + select(
-                {
-                    "DEFAULT": [],
-                    "ovr_config//cpu:arm64": [
-                        "-ftree-vectorize",
-                    ],
-                }
-            ),
-        }
-    )
+        }),
+    })
 
 def get_fbgemm_base_srcs():
     return [
@@ -91,12 +86,10 @@ def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
     ]
 
     if buck:
-        return select(
-            {
-                "DEFAULT": sources + fp32sources,
-                "ovr_config//compiler:cl": sources,
-            }
-        )
+        return select({
+            "DEFAULT": sources + fp32sources,
+            "ovr_config//compiler:cl": sources,
+        })
 
     return sources + fp32sources if not msvc else sources
 
@@ -144,7 +137,7 @@ def get_fbgemm_avx2_srcs(buck = False):
     ]
 
     common_srcs = [
-        # All the source files that either use avx2 instructions statically
+        #All the source files that either use avx2 instructions statically
         "src/EmbeddingSpMDMAvx2.cc",
         "src/FbgemmBfloat16ConvertAvx2.cc",
         "src/FbgemmFloat16ConvertAvx2.cc",
@@ -158,35 +151,31 @@ def get_fbgemm_avx2_srcs(buck = False):
     ]
 
     if buck:
-        return common_srcs + select(
-            {
-                "DEFAULT": depthwise_srcs,
-                "ovr_config//cpu:arm64": [],  # Provided by fbgemm_sve on ARM
-            }
-        )
+        return common_srcs + select({
+            "DEFAULT": depthwise_srcs,
+            "ovr_config//cpu:arm64": [],  # Provided by fbgemm_sve on ARM
+        })
     return common_srcs + depthwise_srcs
 
 def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
     intrinsics_srcs = ["src/FbgemmFP16UKernelsIntrinsicAvx2.cc"]
 
-    # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
+    #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
         "src/fp32/FbgemmFP32UKernelsAvx2.cc",
         "src/FbgemmFP16UKernelsAvx2.cc",
     ]
     if buck:
-        return select(
-            {
-                "DEFAULT": asm_srcs,
-                "ovr_config//compiler:cl": intrinsics_srcs,
-                "ovr_config//cpu:arm64": intrinsics_srcs,
-            }
-        )
+        return select({
+            "DEFAULT": asm_srcs,
+            "ovr_config//compiler:cl": intrinsics_srcs,
+            "ovr_config//cpu:arm64": intrinsics_srcs,
+        })
     return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_avx512_srcs():
     return [
-        # All the source files that use avx512 instructions statically
+        #All the source files that use avx512 instructions statically
         "src/FbgemmBfloat16ConvertAvx512.cc",
         "src/EmbeddingSpMDMAvx512.cc",
         "src/FbgemmFloat16ConvertAvx512.cc",
@@ -209,13 +198,11 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
         "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
     ]
     if buck:
-        return select(
-            {
-                "DEFAULT": asm_srcs,
-                "ovr_config//compiler:cl": intrinsics_srcs,
-                "ovr_config//cpu:arm64": intrinsics_srcs,
-            }
-        )
+        return select({
+            "DEFAULT": asm_srcs,
+            "ovr_config//compiler:cl": intrinsics_srcs,
+            "ovr_config//cpu:arm64": intrinsics_srcs,
+        })
     return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
@@ -227,21 +214,17 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
 
     if buck:
         # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-        srcs += select(
-            {
-                "DEFAULT": [],
-                "ovr_config//cpu:arm64": [
-                    "src/FbgemmFloat16ConvertSVE.cc",
-                ],
-            }
-        )
-        return select(
-            {
-                "DEFAULT": srcs,
-                "ovr_config//compiler:cl": srcs,
-                "ovr_config//cpu:arm64": srcs,
-            }
-        )
+        srcs += select({
+            "DEFAULT": [],
+            "ovr_config//cpu:arm64": [
+                "src/FbgemmFloat16ConvertSVE.cc",
+            ],
+        })
+        return select({
+            "DEFAULT": srcs,
+            "ovr_config//compiler:cl": srcs,
+            "ovr_config//cpu:arm64": srcs,
+        })
 
     else:
         return srcs
@@ -257,13 +240,11 @@ def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
         "src/QuantUtilsNeon.cc",
     ]
     if buck:
-        return select(
-            {
-                "DEFAULT": asm_srcs,
-                "ovr_config//compiler:cl": intrinsics_srcs,
-                "ovr_config//cpu:arm64": asm_srcs,
-            }
-        )
+        return select({
+            "DEFAULT": asm_srcs,
+            "ovr_config//compiler:cl": intrinsics_srcs,
+            "ovr_config//cpu:arm64": asm_srcs,
+        })
     return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_autovec_srcs():
