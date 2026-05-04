@@ -684,7 +684,7 @@ class FeatureEvict {
   }
 
   // the inner loop of each evict that can be paused
-  void start_inference_eviction_loop(
+  virtual void start_inference_eviction_loop(
       int shard_id,
       std::vector<int64_t>& evicted_counts,
       std::vector<int64_t>& processed_counts) {
@@ -1405,7 +1405,6 @@ class TimeThresholdBasedEvict : public FeatureEvict<weight_type> {
     return FixedBlockPool::get_timestamp(block) < eviction_timestamp_threshold_;
   }
 
- private:
   std::atomic<uint32_t> eviction_timestamp_threshold_{0};
 };
 
