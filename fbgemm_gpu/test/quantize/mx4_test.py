@@ -53,7 +53,6 @@ def fake_quantize_mx_cuda(
     scale_bits: int = 8,
     ebits: int = 2,
     mbits: int = 3,
-    emax: int = 2,
     max_norm: float = 6.0,
     group_size: int = 32,
 ) -> torch.Tensor:
@@ -148,7 +147,6 @@ def fake_quantize_mx(
 
 # @optests.generate_opcheck_tests()
 class TestMXQuantizationConversion(unittest.TestCase):
-
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
@@ -185,7 +183,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
             scale_bits,
             ebits,
             mbits,
-            emax,
             max_norm,
             group_size=group_size,
         )
