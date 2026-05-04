@@ -26,9 +26,24 @@ namespace kv_mem {
 //    wlmap = map.by(shard_id).wlock();
 //    wlmap[topic] = 19;
 //
-template <typename K, typename V, typename M = folly::SharedMutexWritePriority>
+// Template parameters:
+//   K - Key type
+//   V - Value type
+//   M - Mutex type (default: folly::SharedMutexWritePriority)
+//   PoolType - Memory pool type (default: FixedBlockPool). Use
+//              InferenceFixedBlockPool for inference workloads with 12-byte
+//              MetaHeader.
+//
+template <
+    typename K,
+    typename V,
+    typename M = folly::SharedMutexWritePriority,
+    typename PoolType = FixedBlockPool>
 class SynchronizedShardedMap {
  public:
+  using iterator = typename folly::F14FastMap<K, V>::const_iterator;
+  using pool_type = PoolType;
+
   explicit SynchronizedShardedMap(
       std::size_t numShards,
       std::size_t block_size,
@@ -37,7 +52,7 @@ class SynchronizedShardedMap {
       : shards_(numShards), mempools_(numShards) {
     // Init mempools_
     for (auto& pool : mempools_) {
-      pool = std::make_unique<kv_mem::FixedBlockPool>(
+      pool = std::make_unique<PoolType>(
           block_size, block_alignment, blocks_per_chunk);
     }
   }
@@ -48,7 +63,7 @@ class SynchronizedShardedMap {
   }
 
   // Get shard pool by index
-  auto* pool_by(int index) {
+  PoolType* pool_by(int index) {
     return mempools_.at(index % shards_.size()).get();
   }
 
@@ -87,8 +102,8 @@ class SynchronizedShardedMap {
     return num_rows;
   }
 
- private:
+ protected:
   std::vector<folly::Synchronized<folly::F14FastMap<K, V>, M>> shards_;
-  std::vector<std::unique_ptr<FixedBlockPool>> mempools_;
+  std::vector<std::unique_ptr<PoolType>> mempools_;
 };
 } // namespace kv_mem

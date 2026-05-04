@@ -43,6 +43,8 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
 
   void log_inplace_update_stats();
 
+  std::vector<int64_t> get_read_hit_rate_stats();
+
   void trigger_evict(int64_t inplace_update_ts_64b);
 
   void wait_evict_completion();
