@@ -553,19 +553,38 @@ back to running the CPU version of the operators.</p>
 environment setup. The steps provided by
 <a class="reference external" href="https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.5/page/How_to_Install_ROCm.html">AMD</a>
 are the most authoritative instructions for doing this. Driver setup may be
-verified with the <code class="docutils literal notranslate"><span class="pre">rocm-smi</span></code> command:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>rocm-smi
-
-<span class="o">=======================</span><span class="w"> </span>ROCm<span class="w"> </span>System<span class="w"> </span>Management<span class="w"> </span><span class="nv">Interface</span><span class="w"> </span><span class="o">=======================</span>
-<span class="o">=================================</span><span class="w"> </span>Concise<span class="w"> </span><span class="nv">Info</span><span class="w"> </span><span class="o">=================================</span>
-GPU<span class="w">  </span>Temp<span class="w"> </span><span class="o">(</span>DieEdge<span class="o">)</span><span class="w">  </span>AvgPwr<span class="w">  </span>SCLK<span class="w">    </span>MCLK<span class="w">     </span>Fan<span class="w">  </span>Perf<span class="w">  </span>PwrCap<span class="w">  </span>VRAM%<span class="w">  </span>GPU%
-<span class="m">0</span><span class="w">    </span><span class="m">33</span>.0c<span class="w">           </span><span class="m">37</span>.0W<span class="w">   </span>300Mhz<span class="w">  </span>1200Mhz<span class="w">  </span><span class="m">0</span>%<span class="w">   </span>auto<span class="w">  </span><span class="m">290</span>.0W<span class="w">    </span><span class="m">0</span>%<span class="w">   </span><span class="m">0</span>%
-<span class="m">1</span><span class="w">    </span><span class="m">32</span>.0c<span class="w">           </span><span class="m">39</span>.0W<span class="w">   </span>300Mhz<span class="w">  </span>1200Mhz<span class="w">  </span><span class="m">0</span>%<span class="w">   </span>auto<span class="w">  </span><span class="m">290</span>.0W<span class="w">    </span><span class="m">0</span>%<span class="w">   </span><span class="m">0</span>%
-<span class="m">2</span><span class="w">    </span><span class="m">33</span>.0c<span class="w">           </span><span class="m">37</span>.0W<span class="w">   </span>300Mhz<span class="w">  </span>1200Mhz<span class="w">  </span><span class="m">0</span>%<span class="w">   </span>auto<span class="w">  </span><span class="m">290</span>.0W<span class="w">    </span><span class="m">0</span>%<span class="w">   </span><span class="m">0</span>%
-<span class="o">================================================================================</span>
-<span class="o">=============================</span><span class="w"> </span>End<span class="w"> </span>of<span class="w"> </span>ROCm<span class="w"> </span>SMI<span class="w"> </span><span class="nv">Log</span><span class="w"> </span><span class="o">==============================</span>
+verified with the <code class="docutils literal notranslate"><span class="pre">amd-smi</span></code> command:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>amd-smi
 </pre></div>
 </div>
+<table class="docutils align-default">
+<tbody>
+<tr class="row-odd"><td colspan="2"><blockquote>
+<div><p>AMD-SMI          26.3.0+615aab95ed
+amdgpu Version:  6.14.19
+ROCm Version:    7.3.0
+VBIOS Version:   020.001.000.060.000000
+Platform:        Linux Baremetal</p>
+</div></blockquote>
+<dl class="simple">
+<dt>————————————-+—————————————-</dt><dd><p>BDF                        GPU-Name | Mem-Uti   Temp   UEC       Power-Usage
+GPU  HIP-ID  OAM-ID  Partition-Mode | GFX-Uti    Fan               Mem-Usage</p>
+</dd>
+<dt>=====================================+========================================</dt><dd><dl class="simple">
+<dt>0000:43:00.0  AMD Radeon RX 6800 XT | 0 %      32 °C   0            12/272 W</dt><dd><p>0       1     N/A             N/A | 0 %      0.0 %             16/16368 MB</p>
+</dd>
+</dl>
+</dd>
+<dt>————————————-+—————————————-</dt><dd><dl class="simple">
+<dt>0000:63:00.0      Radeon RX 7900 XT | 0 %      41 °C   0            50/257 W</dt><dd><p>1       0     N/A             N/A | 4 %      0.0 %             26/20464 MB</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</td>
+</tr>
+</tbody>
+</table>
 </section>
 <section id="set-up-the-rocm-docker-container-and-conda-environment">
 <h3>Set Up the ROCm Docker Container and Conda Environment<a class="headerlink" href="#set-up-the-rocm-docker-container-and-conda-environment" title="Permalink to this heading">¶</a></h3>
