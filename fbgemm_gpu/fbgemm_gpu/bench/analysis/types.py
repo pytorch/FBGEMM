@@ -312,3 +312,148 @@ class KernelStats:
                         writer.writerow(row)
 
         print(f"CSV exported to: {output_path}")
+
+
+# ======================================================================
+# Canonical per-(config x kernel) CSV writer for the benchmark report.
+# Schema is pinned by the stability contract in build_report_html.py.
+# ======================================================================
+
+
+def write_config_stats_csv(
+    rows: list[tuple[dict[str, object], str, str, "KernelStats"]],
+    output_path: str,
+    config_columns: list[str],
+) -> None:
+    """Write one row per ``(config_tuple, kernel_name)`` to ``output_path``.
+
+    ``rows`` is a list of ``(config_dict, kernel_base, kernel_name, stats)``
+    tuples. Each ``config_dict`` MUST contain every column listed in
+    ``config_columns`` (missing entries get an empty cell).
+
+    Column order is the v1 canonical schema:
+        ``config.<col1>, ..., config.<colK>, kernel_base, kernel_name,
+         count, mean_us, stdev_us, median_us, min_us, max_us``
+
+    ``count == 0`` rows are preserved; they are the first-class "kernel
+    not dispatched for this config" signal. When ``count == 0``, the stat
+    cells are written as empty strings rather than ``0.00`` to avoid
+    misleading the human reader.
+    """
+    fieldnames: list[str] = [f"config.{c}" for c in config_columns]
+    fieldnames.extend(
+        [
+            "kernel_base",
+            "kernel_name",
+            "count",
+            "mean_us",
+            "stdev_us",
+            "median_us",
+            "min_us",
+            "max_us",
+        ]
+    )
+
+    with open(output_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for config_dict, kernel_base, kernel_name, stats in rows:
+            out: dict[str, object] = {}
+            for col in config_columns:
+                val = config_dict.get(col, "")
+                out[f"config.{col}"] = "" if val is None else val
+            out["kernel_base"] = kernel_base
+            out["kernel_name"] = kernel_name
+            if stats.count == 0:
+                out["count"] = 0
+                out["mean_us"] = ""
+                out["stdev_us"] = ""
+                out["median_us"] = ""
+                out["min_us"] = ""
+                out["max_us"] = ""
+            else:
+                out["count"] = stats.count
+                out["mean_us"] = f"{stats.mean_us:.2f}"
+                out["stdev_us"] = f"{stats.stdev_us:.2f}"
+                out["median_us"] = f"{stats.median_us:.2f}"
+                out["min_us"] = f"{stats.min_us:.2f}"
+                out["max_us"] = f"{stats.max_us:.2f}"
+            writer.writerow(out)
+
+    print(f"Canonical stats CSV exported to: {output_path}")
+
+
+CANONICAL_CSV_STAT_COLUMNS: tuple[str, ...] = (
+    "kernel_base",
+    "kernel_name",
+    "count",
+    "mean_us",
+    "stdev_us",
+    "median_us",
+    "min_us",
+    "max_us",
+)
+
+
+def read_config_stats_csv(
+    csv_path: str,
+) -> tuple[list[str], list[dict[str, object]]]:
+    """Parse a canonical ``stats_summary.csv`` file.
+
+    Returns ``(config_columns, rows)`` where ``config_columns`` is the
+    list of column names (sans the ``config.`` prefix, in file order) and
+    each row is a dict with keys ``config`` (nested dict of config values
+    with numeric strings coerced to int/float), ``kernel_base``,
+    ``kernel_name``, plus the stat columns (``count`` as int, others as
+    float or ``None`` when the cell is empty / count is zero).
+    """
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        header = reader.fieldnames or []
+
+        config_columns: list[str] = []
+        for name in header:
+            if name.startswith("config."):
+                config_columns.append(name[len("config.") :])
+
+        for required in CANONICAL_CSV_STAT_COLUMNS:
+            if required not in header:
+                raise ValueError(
+                    f"CSV {csv_path} missing required column: {required!r} "
+                    f"(header={header})"
+                )
+
+        rows: list[dict[str, object]] = []
+        for raw in reader:
+            config: dict[str, object] = {}
+            for c in config_columns:
+                config[c] = _coerce_scalar(raw.get(f"config.{c}", ""))
+            row: dict[str, object] = {
+                "config": config,
+                "kernel_base": raw.get("kernel_base", "") or "",
+                "kernel_name": raw.get("kernel_name", "") or "",
+                "count": int(raw.get("count", "0") or 0),
+            }
+            for stat in ("mean_us", "stdev_us", "median_us", "min_us", "max_us"):
+                cell = raw.get(stat, "")
+                row[stat] = float(cell) if cell not in ("", None) else None
+            rows.append(row)
+
+    return config_columns, rows
+
+
+def _coerce_scalar(value: str) -> object:
+    """Coerce a CSV cell to int/float when possible, else return the
+    stripped string (empty stays empty). Booleans-as-strings stay
+    strings."""
+    if value is None:
+        return ""
+    stripped = value.strip()
+    if stripped == "":
+        return ""
+    try:
+        if "." in stripped or "e" in stripped.lower():
+            return float(stripped)
+        return int(stripped)
+    except ValueError:
+        return stripped
