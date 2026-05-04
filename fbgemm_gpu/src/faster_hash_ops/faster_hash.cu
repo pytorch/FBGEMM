@@ -32,6 +32,7 @@ static constexpr int32_t kDefaultTensor = -1;
 static constexpr int64_t kMaxIdentityNum = INT32_MAX;
 static constexpr int64_t kMaxHours = INT32_MAX;
 static constexpr int64_t kSecondsInHour = 60 * 60;
+static constexpr int32_t kMaxSpinCount = 10 * 1000;
 
 template <typename T>
 __device__ __inline__ T CAS(T* data, T cmp, T val) {
@@ -167,12 +168,20 @@ __device__ __inline__ int64_t check_min(
   // wait.
   auto insert_idx = output_index + offset;
   int32_t last_seen = kDefaultTensor;
+  int32_t spin_count = 0;
   while (true) {
     last_seen =
         atomicCAS(metadata + insert_idx, kDefaultTensor, kDefaultTensor);
     if (last_seen != kDefaultTensor) {
       break;
     }
+#ifdef USE_ROCM
+    if (++spin_count > kMaxSpinCount) {
+      // Metadata write may not be visible yet due to atomic contention.
+      // Slot not considered, keep original min_index, move to next slot
+      return min_index;
+    }
+#endif
   }
 
   // only check those expired slots
@@ -225,12 +234,20 @@ __device__ __inline__ bool check_evict<1>(
   // has not been written yet, while the other id checking the slot's eviction
   // status. Therefore, wait until the metadata is not -1.
   int32_t identity_metadata = kDefaultTensor;
+  int32_t spin_counter = 0;
   while (true) {
     identity_metadata =
         atomicCAS(metadata + output_index, kDefaultTensor, kDefaultTensor);
     if (identity_metadata != kDefaultTensor) {
       break;
     }
+#ifdef USE_ROCM
+    if (++spin_counter > kMaxSpinCount) {
+      // Metadata write may not be visible yet due to atomic contention.
+      // Slot not considered, return false, and move to next slot
+      return false;
+    }
+#endif
   }
   bool is_more_recent = (identity_metadata < metadata_val);
   bool threshold_met = (eviction_threshold > identity_metadata);
