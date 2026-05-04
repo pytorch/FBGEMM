@@ -152,7 +152,7 @@ __configure_fbgemm_gpu_test_rocm () {
 
   # AMD GPUs need to be explicitly made visible to PyTorch for use
   # shellcheck disable=SC2155,SC2126
-  local num_gpus=$(rocm-smi --showproductname | grep GUID | wc -l)
+  local num_gpus=$(amd-smi list | grep -c "^GPU")
   # shellcheck disable=SC2155
   local gpu_indices=$(seq 0 $((num_gpus - 1)) | paste -sd, -)
   # shellcheck disable=SC2086
