@@ -836,6 +836,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           XLOG(INFO) << "[EmbeddingCacheEnrich] " << log_prefix
                      << payloads.size() << "/" << unhashed_ids.size()
                      << ", latency_ms: " << latency_ms;
+          enrichment_query_count_.fetch_add(unhashed_ids.size());
+          if (unhashed_ids.size() >= payloads.size()) {
+            enrichment_empty_count_.fetch_add(
+                unhashed_ids.size() - payloads.size());
+          } else {
+            XLOG(WARN) << "[EmbeddingCacheEnrich] " << log_prefix
+                       << "payloads.size() (" << payloads.size()
+                       << ") > unhashed_ids.size() (" << unhashed_ids.size()
+                       << ")";
+          }
           if (!payloads.empty()) {
             auto result = prepareFn(hashed_ids, unhashed_ids, payloads);
             if (result.has_value()) {
@@ -2049,7 +2059,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<double> get_dram_kv_perf(
       const int64_t step,
       const int64_t interval) {
-    std::vector<double> ret(38, 0); // num metrics
+    std::vector<double> ret(40, 0); // num metrics
     if (step > 0 && step % interval == 0) {
       const double d_interval = static_cast<double>(interval);
       int reset_val = 0;
@@ -2125,6 +2135,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       auto read_num_counts = read_num_counts_.exchange(reset_val);
       auto read_hit_count = read_hit_count_.exchange(reset_val);
       auto read_miss_count = read_miss_count_.exchange(reset_val);
+      auto enrichment_query_count = enrichment_query_count_.exchange(reset_val);
+      auto enrichment_empty_count = enrichment_empty_count_.exchange(reset_val);
 
       ret[0] = dram_read_total_duration / d_interval;
       ret[1] = dram_read_sharding_total_duration / d_interval;
@@ -2173,6 +2185,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
       ret[36] = read_hit_count;
       ret[37] = read_miss_count;
+
+      ret[38] = enrichment_query_count;
+      ret[39] = enrichment_empty_count;
     }
     return ret;
   }
@@ -2435,6 +2450,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   // DRAM KV cache hit/miss raw counters (not averaged per shard)
   std::atomic<int64_t> read_hit_count_{0};
   std::atomic<int64_t> read_miss_count_{0};
+
+  // Enrichment (laser) query counters: total keys queried and empty results
+  std::atomic<int64_t> enrichment_query_count_{0};
+  std::atomic<int64_t> enrichment_empty_count_{0};
 
   bool disable_random_init_;
 
