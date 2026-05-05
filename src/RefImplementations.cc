@@ -110,7 +110,8 @@ void Float16ToFloat_ref(const float16* src, float* dst, size_t size) {
 void FloatToBfloat16_ref(const float* src, bfloat16* dst, size_t size) {
   for (size_t i = 0; i < size; i++) {
     // Add 2^15 and right shift 16 to do round-nearest
-    dst[i] = (*reinterpret_cast<const uint32_t*>(src + i) + (1 << 15)) >> 16;
+    dst[i] = bfloat16{static_cast<uint16_t>(
+        (*reinterpret_cast<const uint32_t*>(src + i) + (1 << 15)) >> 16)};
   }
 }
 
@@ -1600,9 +1601,7 @@ bool EmbeddingSpMDMFP8_ref(
       }
     }
     for (int j = 0; j < block_size; ++j) {
-      out[j] = is_same_v<OutType, uint16_t>
-          ? convert_from_float_ref<OutType>(buf[j], is_bf16_out)
-          : buf[j];
+      out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
     }
     out += output_stride;
   }
@@ -1713,10 +1712,13 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + block_size * idx + j;
-          out[j] = std::fma(
-              w,
-              is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
-              out[j]);
+          float in_val = 0.f;
+          if constexpr (is_same_v<InType, float16>) {
+            in_val = cpu_half2float(*inptr);
+          } else {
+            in_val = *inptr;
+          }
+          out[j] = std::fma(w, in_val, out[j]);
         }
 
         ++current;
@@ -2009,30 +2011,32 @@ int rowwise_sparse_adagrad_fused_ref(
         int cur_vlen = (n == nvec - 1) ? rem : vlen;
         int sr_idx = n % 4;
 
-        if (isFloat16w && use_stochastic_rounding) {
-          if (sr_idx == 0) {
-            for (int v = 0; v < vlen; ++v) {
-              R[v] = rnd128_next(v, vlen);
-              r[v] = (R[v] & 0xFFU) << 5;
-            }
-          } else if (sr_idx == 1) {
-            for (int v = 0; v < vlen; ++v) {
-              r[v] = ((R[v] & 0xFF00U) >> 8) << 5;
-            }
-          } else if (sr_idx == 2) {
-            for (int v = 0; v < vlen; ++v) {
-              r[v] = ((R[v] & 0xFF0000U) >> 16) << 5;
-            }
-          } else { // 3
-            for (int v = 0; v < vlen; ++v) {
-              r[v] = ((R[v] & 0xFF000000U) >> 24) << 5;
+        if constexpr (isFloat16w) {
+          if (use_stochastic_rounding) {
+            if (sr_idx == 0) {
+              for (int v = 0; v < vlen; ++v) {
+                R[v] = rnd128_next(v, vlen);
+                r[v] = (R[v] & 0xFFU) << 5;
+              }
+            } else if (sr_idx == 1) {
+              for (int v = 0; v < vlen; ++v) {
+                r[v] = ((R[v] & 0xFF00U) >> 8) << 5;
+              }
+            } else if (sr_idx == 2) {
+              for (int v = 0; v < vlen; ++v) {
+                r[v] = ((R[v] & 0xFF0000U) >> 16) << 5;
+              }
+            } else { // 3
+              for (int v = 0; v < vlen; ++v) {
+                r[v] = ((R[v] & 0xFF000000U) >> 24) << 5;
+              }
             }
           }
         }
 
         for (int v = 0; v < cur_vlen; ++v) {
           int j = n * vlen + v;
-          if (isFloat16w) {
+          if constexpr (isFloat16w) {
             union {
               float w_f32;
               uint32_t w_i32;
@@ -2091,10 +2095,11 @@ template FBGEMM_API void transposeConvWeights(
       bool is_bf16_out,                                                    \
       bool is_bf16_in);
 
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)         \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)         \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)       \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint16_t) \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t)  \
   template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(              \
       const int64_t block_size,                                          \
       const int64_t output_size,                                         \
@@ -2120,6 +2125,7 @@ template FBGEMM_API void transposeConvWeights(
 
 INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
+INSTANTIATE_SPMDM_INDEX_T(std::uint16_t)
 INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 
 #undef INSTANTIATE_SPMDM_INDEX_T
@@ -2168,12 +2174,14 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       int exponent_bias,                                              \
       bool is_bf16_out);
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)        \
-  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
-  INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, float)    \
-  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
-  INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, float16)  \
-  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, uint8_t) \
+#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)         \
+  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float)    \
+  INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, float)     \
+  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float16)  \
+  INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, float16)   \
+  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, uint16_t) \
+  INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, uint16_t)  \
+  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, uint8_t)  \
   template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref( \
       int bit_rate,                                             \
       const int64_t block_size,                                 \

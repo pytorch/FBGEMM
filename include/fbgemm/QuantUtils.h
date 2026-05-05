@@ -290,8 +290,7 @@ FBGEMM_API void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
  *
  * @param bit_rate can be 2, 4, or 8
  */
-template <typename OutputType, bool is_uint16_t_of_type_bf16 = false>
-  requires(!is_uint16_t_of_type_bf16 || !std::is_same_v<OutputType, float>)
+template <typename OutputType>
 FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     int bit_rate,
     const uint8_t* input,
@@ -325,8 +324,7 @@ FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
  * This version intentionally supports only 8-bit because
  * the corresponding quantize version only supports 8-bit.
  */
-template <typename OutputType, bool is_uint16_t_of_type_bf16 = false>
-  requires(!is_uint16_t_of_type_bf16 || !std::is_same_v<OutputType, float>)
+template <typename OutputType>
 FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     const uint8_t* input,
     size_t input_rows,
@@ -362,8 +360,7 @@ FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
  * Same as FusedNBitRowwiseQuantizedSBHalfToFloat but unoptimized.
  * This should not be called directly except in testing.
  */
-template <typename OutputType, bool is_uint16_t_of_type_bf16 = false>
-  requires(!is_uint16_t_of_type_bf16 || !std::is_same_v<OutputType, float>)
+template <typename OutputType>
 FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     int bit_rate,
     const uint8_t* input,
@@ -376,8 +373,7 @@ FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
  * Same as Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf but unoptimized.
  * This should not be called directly except in testing.
  */
-template <typename OutputType, bool is_uint16_t_of_type_bf16 = false>
-  requires(!is_uint16_t_of_type_bf16 || !std::is_same_v<OutputType, float>)
+template <typename OutputType>
 FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const uint8_t* input,
     size_t input_rows,
