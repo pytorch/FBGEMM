@@ -25,11 +25,11 @@
 #include "common/time/Time.h"
 
 #include "../ssd_split_embeddings_cache/initializer.h"
-#include "SynchronizedShardedMap.h"
+#include "InferenceSynchronizedShardedMap.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
-#include "feature_evict.h"
-#include "fixed_block_pool.h"
+#include "inference_feature_evict.h"
+#include "inference_fixed_block_pool.h"
 #include "kv_inference_embedding_interface.h"
 
 namespace kv_mem {
@@ -113,11 +113,12 @@ class DramKVInferenceEmbedding
       bool disable_random_init = false)
       : max_D_(max_D),
         num_shards_(num_shards),
-        block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
+        block_size_(
+            InferenceFixedBlockPool::calculate_block_size<weight_type>(max_D)),
         block_alignment_(
-            FixedBlockPool::calculate_block_alignment<weight_type>()),
+            InferenceFixedBlockPool::calculate_block_alignment<weight_type>()),
         kv_store_(
-            SynchronizedShardedMap<int64_t, weight_type*>(
+            InferenceSynchronizedShardedMap<int64_t, weight_type*>(
                 num_shards_,
                 block_size_,
                 block_alignment_,
@@ -150,11 +151,8 @@ class DramKVInferenceEmbedding
         feature_evict_config_.value()->trigger_mode_ !=
             EvictTriggerMode::DISABLED) {
       TORCH_CHECK(hash_size_cumsum.has_value());
-      feature_evict_ = create_feature_evict(
-          feature_evict_config_.value(),
-          kv_store_,
-          sub_table_hash_cumsum_,
-          false /* is_train */);
+      feature_evict_ = create_inference_feature_evict(
+          feature_evict_config_.value(), kv_store_, sub_table_hash_cumsum_);
     }
     LOG(INFO) << "DramKVInferenceEmbedding initialized: disable_random_init "
               << disable_random_init_;
@@ -269,7 +267,8 @@ class DramKVInferenceEmbedding
                         // we find QE regress during inplace update
                         for (auto& [tensor_offset, block] : hit_info) {
                           auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(block);
+                              InferenceFixedBlockPool::data_ptr<weight_type>(
+                                  block);
                           std::copy(
                               weights_data_ptr + tensor_offset * stride,
                               weights_data_ptr + (tensor_offset + 1) * stride,
@@ -279,7 +278,7 @@ class DramKVInferenceEmbedding
                               feature_evict_config_.value()->trigger_mode_ !=
                                   EvictTriggerMode::DISABLED &&
                               feature_evict_ && inplace_update_ts.has_value()) {
-                            FixedBlockPool::set_timestamp(
+                            InferenceFixedBlockPool::set_timestamp(
                                 block, inplace_update_ts.value());
                           }
                         }
@@ -294,11 +293,12 @@ class DramKVInferenceEmbedding
                         auto mem_pool_lock = pool->acquire_lock();
                         for (auto& [id, tensor_offset] : miss_info) {
                           auto block = pool->template allocate_t<weight_type>();
-                          FixedBlockPool::set_key(block, id);
+                          InferenceFixedBlockPool::set_key(block, id);
                           temp_kv.insert({id, block});
 
                           auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(block);
+                              InferenceFixedBlockPool::data_ptr<weight_type>(
+                                  block);
                           std::copy(
                               weights_data_ptr + tensor_offset * stride,
                               weights_data_ptr + (tensor_offset + 1) * stride,
@@ -310,7 +310,7 @@ class DramKVInferenceEmbedding
                                   EvictTriggerMode::DISABLED &&
                               feature_evict_) {
                             if (inplace_update_ts.has_value()) {
-                              FixedBlockPool::set_timestamp(
+                              InferenceFixedBlockPool::set_timestamp(
                                   block, inplace_update_ts.value());
                             } else {
                               // inplace_update_ts is nullopt for delta publish
@@ -440,7 +440,7 @@ class DramKVInferenceEmbedding
 
                       if (!wlmap->empty() && !disable_random_init_) {
                         row_storage_data_ptr =
-                            FixedBlockPool::data_ptr<weight_type>(
+                            InferenceFixedBlockPool::data_ptr<weight_type>(
                                 wlmap->begin()->second);
                       } else {
                         const auto& init_storage =
@@ -488,7 +488,7 @@ class DramKVInferenceEmbedding
                           }
                           // use mempool
                           const auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(
+                              InferenceFixedBlockPool::data_ptr<weight_type>(
                                   cached_iter->second);
                           auto before_cache_hit_copy_ts =
                               facebook::WallClockUtil::NowInUsecFast();
@@ -879,7 +879,7 @@ class DramKVInferenceEmbedding
   // mempool params
   size_t block_size_;
   size_t block_alignment_;
-  SynchronizedShardedMap<int64_t, weight_type*> kv_store_;
+  InferenceSynchronizedShardedMap<int64_t, weight_type*> kv_store_;
   std::atomic_bool is_eviction_ongoing_ = false;
   std::vector<std::unique_ptr<ssd::Initializer>> initializers_;
   int64_t elem_size_;
