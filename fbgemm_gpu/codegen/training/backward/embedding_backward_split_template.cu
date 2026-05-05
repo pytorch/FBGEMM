@@ -1020,19 +1020,20 @@ Tensor {{ embedding_cuda_op }}(
                     use_deterministic_algorithms ? 0 : (indices.numel() / max_segment_length_per_cta),
                     indices.options().dtype(at::kInt));
 
+                constexpr auto fls_ctx = "find_long_segments";
                 FBGEMM_LAUNCH_KERNEL(
                     split_embedding_backward_codegen_find_long_segments,
                     div_round_up(total_unique_indices, kMaxThreads),
                     kMaxThreads,
                     0,
                     at::cuda::getCurrentCUDAStream(),
-                    PTA_B(sorted_linear_indices_num_runs, int32_t, 1, 32),
-                    PTA_B(sorted_linear_indices_run_lengths, int32_t, 1, 32),
-                    PTA_B(long_run_ids, int32_t, 1, 32),
-                    PTA_B(num_long_run_ids, int32_t, 1, 32),
-                    PTA_B(long_run_id_to_really_long_run_ids, int32_t, 1, 32),
-                    PTA_B(num_really_long_run_ids, int32_t, 1, 32),
-                    PTA_B(grad_accum_counter, int32_t, 1, 32),
+                    PTA_B(sorted_linear_indices_num_runs, int32_t, 1, 32).build(fls_ctx),
+                    PTA_B(sorted_linear_indices_run_lengths, int32_t, 1, 32).build(fls_ctx),
+                    PTA_B(long_run_ids, int32_t, 1, 32).build(fls_ctx),
+                    PTA_B(num_long_run_ids, int32_t, 1, 32).build(fls_ctx),
+                    PTA_B(long_run_id_to_really_long_run_ids, int32_t, 1, 32).build(fls_ctx),
+                    PTA_B(num_really_long_run_ids, int32_t, 1, 32).build(fls_ctx),
+                    PTA_B(grad_accum_counter, int32_t, 1, 32).build(fls_ctx),
                     max_segment_length_per_warp,
                     max_segment_length_per_cta,
                     use_deterministic_algorithms
