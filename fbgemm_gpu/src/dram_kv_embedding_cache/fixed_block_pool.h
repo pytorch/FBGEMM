@@ -163,7 +163,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   template <typename scalar_t>
   static scalar_t get_l2weight(scalar_t* block, size_t dimension) {
-    scalar_t* data = FixedBlockPool::data_ptr(block);
+    scalar_t* data = data_ptr(block);
     return std::sqrt(
         std::accumulate(
             data,
@@ -250,7 +250,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     char* current_chunk =
         static_cast<char*>(chunks_[index / blocks_per_chunk_].ptr);
     char* block = current_chunk + block_size_ * (index % blocks_per_chunk_);
-    if (FixedBlockPool::get_used(block)) {
+    if (get_used(block)) {
       return reinterpret_cast<scalar_t*>(block);
     } else {
       return nullptr;
@@ -299,9 +299,9 @@ class FixedBlockPool : public std::pmr::memory_resource {
     // Take a block from the head of the free list
     void* result = free_list_;
     free_list_ = *static_cast<void**>(free_list_);
-    FixedBlockPool::set_used(result, true);
-    FixedBlockPool::set_count(result, 0);
-    FixedBlockPool::update_timestamp(result);
+    set_used(result, true);
+    set_count(result, 0);
+    update_timestamp(result);
     return result;
   }
 
@@ -313,7 +313,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     // Insert memory block back to the head of free list
     *static_cast<void**>(p) = free_list_;
     free_list_ = p;
-    FixedBlockPool::set_used(free_list_, false);
+    set_used(free_list_, false);
   }
 
   // Resource equality comparison (only the same object is equal)
@@ -322,9 +322,9 @@ class FixedBlockPool : public std::pmr::memory_resource {
     return this == &other;
   }
 
- private:
-  // Allocate a new memory chunk
-  void allocate_chunk() {
+  // Allocate a new memory chunk (virtual to allow subclasses to customize
+  // block initialization)
+  virtual void allocate_chunk() {
     const std::size_t chunk_size = block_size_ * blocks_per_chunk_;
 
     // Allocate aligned memory through upstream resource
@@ -342,12 +342,12 @@ class FixedBlockPool : public std::pmr::memory_resource {
     for (std::size_t i = 0; i < blocks_per_chunk_; ++i) {
       current -= block_size_;
       *reinterpret_cast<void**>(current) = free_list_;
-      FixedBlockPool::set_used(current, false);
+      set_used(current, false);
       free_list_ = current;
     }
   }
 
-  // Member variables
+  // Member variables (protected for subclass access in allocate_chunk override)
   const std::size_t block_size_; // Block size (not less than pointer size)
   const std::size_t block_alignment_; // Block alignment requirement
   const std::size_t blocks_per_chunk_; // Number of blocks per chunk
@@ -356,6 +356,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
   void* free_list_ = nullptr; // Free block list head pointer
   mutable std::mutex chunks_mutex_; // Mutex for chunks_
 
+ private:
   // block pool lock, only used on the inference side to guard in-place update
   // and eviction exclusive update, this is needed to reduce locking time for
   // better inference qps
