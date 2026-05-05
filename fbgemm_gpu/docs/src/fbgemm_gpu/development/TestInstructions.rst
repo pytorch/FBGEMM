@@ -78,7 +78,7 @@ For ROCm machines, testing against a ROCm GPU needs to be enabled with
   # Specify the specific HIP devices to run the tests on
   #
   # NOTE: This is necessary if PyTorch is unable to see the devices that
-  # `rocm-smi --showproductname` can see
+  # `amd-smi static --asic` can see
   export HIP_VISIBLE_DEVICES=0,1,2,3
 
   # Enable for debugging kernel executions

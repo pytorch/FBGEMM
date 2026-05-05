@@ -100,10 +100,9 @@ install_rocm_ubuntu () {
   echo "[INSTALL] Cleaning up ..."
   print_exec rm -f "${package_name}"
 
-  echo "[INFO] Printing ROCM utilities info ..."
-  # If rocm-smi is installed on a machine without GPUs, this will return error
-  (print_exec rocminfo) || true
-  (print_exec rocm-smi) || true
+  echo "[INFO] Printing AMD-SMI utilities info ..."
+  # If amd-smi is installed on a machine without GPUs, this will return error
+  (print_exec amd-smi) || true
   (print_exec hipcc -v) || true
 
   echo "[INSTALL] Successfully installed ROCm ${rocm_version}"

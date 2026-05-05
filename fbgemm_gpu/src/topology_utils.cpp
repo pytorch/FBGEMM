@@ -15,32 +15,48 @@
 
 #ifdef USE_ROCM
 #include <inttypes.h>
+#include "amd_smi/amdsmi.h"
 #include "hip/hip_runtime.h"
-#include "rocm_smi/rocm_smi.h"
 
-#define RSMI_CHECK(fn)                          \
-  do {                                          \
-    rsmi_status_t ret = (fn);                   \
-    TORCH_CHECK_EQ((ret), RSMI_STATUS_SUCCESS); \
+#define AMDSMI_CHECK(fn)                          \
+  do {                                            \
+    amdsmi_status_t ret = (fn);                   \
+    TORCH_CHECK_EQ((ret), AMDSMI_STATUS_SUCCESS); \
   } while (0)
 
-#define RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE 16
+#define AMDSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE 16
 
 namespace fbgemm_gpu {
 AdjacencyMatrix<Links> get_nvlink_matrix() {
   auto world_size = at::cuda::getNumGPUs();
-  RSMI_CHECK(rsmi_init(0));
+  AMDSMI_CHECK(amdsmi_init(AMDSMI_INIT_AMD_GPUS));
 
-  // Note that ROCm_SMI uses a different numbering method to ROCm runtime,
+  // Note that AMD SMI uses a different numbering method to ROCm runtime,
   // so we need to learn the mapping by using the bus ID.
-  uint32_t device_count;
-  RSMI_CHECK(rsmi_num_monitor_devices(&device_count));
 
-  std::unordered_map<Node, uint32_t> rocm_device_to_rsmi_device;
+  // Get all sockets, then collect all GPU processor handles across sockets.
+  uint32_t socket_count = 0;
+  AMDSMI_CHECK(amdsmi_get_socket_handles(&socket_count, nullptr));
+  std::vector<amdsmi_socket_handle> sockets(socket_count);
+  AMDSMI_CHECK(amdsmi_get_socket_handles(&socket_count, sockets.data()));
 
-  for (const auto i : c10::irange(device_count)) {
+  std::vector<amdsmi_processor_handle> processor_handles;
+  for (uint32_t s = 0; s < socket_count; s++) {
+    uint32_t device_count = 0;
+    AMDSMI_CHECK(
+        amdsmi_get_processor_handles(sockets[s], &device_count, nullptr));
+    std::vector<amdsmi_processor_handle> socket_handles(device_count);
+    AMDSMI_CHECK(amdsmi_get_processor_handles(
+        sockets[s], &device_count, socket_handles.data()));
+    processor_handles.insert(
+        processor_handles.end(), socket_handles.begin(), socket_handles.end());
+  }
+
+  std::unordered_map<Node, amdsmi_processor_handle> hip_device_to_handle;
+
+  for (const auto& handle : processor_handles) {
     uint64_t pci_info;
-    RSMI_CHECK(rsmi_dev_pci_id_get(i, &pci_info));
+    AMDSMI_CHECK(amdsmi_get_gpu_bdf_id(handle, &pci_info));
     uint64_t domain, bus, device, function;
     domain = (pci_info >> 32) & 0xffffffff;
     bus = (pci_info >> 8) & 0xff;
@@ -48,7 +64,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
     function = pci_info & 0x7;
     // Different from CUDA, we do not get the PCI BUS ID as a char* and we need
     // to reconstruct it.
-    char pci_bus_id_str[RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
+    char pci_bus_id_str[AMDSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
     sprintf(
         pci_bus_id_str,
         "%04" PRIu64 ":%02" PRIu64 ":%02" PRIu64 ".%0" PRIu64,
@@ -57,15 +73,15 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
         device,
         function);
 
-    std::array<char, RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id;
+    std::array<char, AMDSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id;
     std::copy(
         &pci_bus_id_str[0],
-        &pci_bus_id_str[RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE],
+        &pci_bus_id_str[AMDSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE],
         pci_bus_id.data());
     int32_t node = 0;
     auto err = hipDeviceGetByPCIBusId(&node, pci_bus_id.data());
     if (err == hipSuccess) {
-      rocm_device_to_rsmi_device.insert({node, i});
+      hip_device_to_handle.insert({node, handle});
     } else {
       // flush the last error - this can occur when e.g. we set
       // HIP_VISIBLE_DEVICES to a subset of the available GPUs in the system.
@@ -75,14 +91,14 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
 
   std::vector<Links> links(world_size * world_size);
   for (const auto i : c10::irange(world_size)) {
-    auto src_rsmi_device = rocm_device_to_rsmi_device.find(i);
-    if (src_rsmi_device != rocm_device_to_rsmi_device.end()) {
+    auto src = hip_device_to_handle.find(i);
+    if (src != hip_device_to_handle.end()) {
       for (const auto j : c10::irange(world_size)) {
-        auto dst_rsmi_device = rocm_device_to_rsmi_device.find(j);
-        if (dst_rsmi_device != rocm_device_to_rsmi_device.end()) {
+        auto dst = hip_device_to_handle.find(j);
+        if (dst != hip_device_to_handle.end()) {
           bool is_active;
-          RSMI_CHECK(rsmi_is_P2P_accessible(
-              src_rsmi_device->second, dst_rsmi_device->second, &is_active));
+          AMDSMI_CHECK(
+              amdsmi_is_P2P_accessible(src->second, dst->second, &is_active));
           if (is_active) {
             links[i * world_size + j] += 1;
           }
@@ -90,7 +106,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
       }
     }
   }
-  RSMI_CHECK(rsmi_shut_down());
+  AMDSMI_CHECK(amdsmi_shut_down());
   return [=](Node i, Node j) {
     TORCH_CHECK_LT(i, world_size);
     TORCH_CHECK_LT(j, world_size);

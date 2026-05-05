@@ -68,6 +68,10 @@ if(HIP_FOUND)
   # setup, hcc is only used for linking, but it should be used to
   # compile the *_hip.cc files as well.
   find_library(FBGEMM_HIP_HCC_LIBRARIES ${hip_library_name} HINTS ${ROCM_PATH}/lib)
+  find_library(FBGEMM_AMDSMI_LIB amd_smi HINTS ${ROCM_PATH}/lib)
+  if(FBGEMM_AMDSMI_LIB)
+    message(STATUS "Found AMD SMI library: ${FBGEMM_AMDSMI_LIB}")
+  endif()
 
   list(APPEND HIP_CXX_FLAGS -D__HIP_NO_HALF_OPERATORS__=1)
   # list(APPEND HIP_CXX_FLAGS -D__HIP_NO_HALF_CONVERSIONS__=1)
@@ -100,7 +104,7 @@ if(HIP_FOUND)
   set(FBGEMM_HIP_INCLUDE ${ROCM_PATH}/include ${FBGEMM_HIP_INCLUDE})
   set(FBGEMM_HIP_INCLUDE ${hip_INCLUDE_DIRS} $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}> $<INSTALL_INTERFACE:include> ${FBGEMM_HIP_INCLUDE})
 
-  hip_include_directories(${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
+  hip_include_directories(${FBGEMM_HIP_INCLUDE})
 
   list (APPEND CMAKE_PREFIX_PATH ${HIP_PATH} ${ROCM_PATH})
 endif()
