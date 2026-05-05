@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.13.2"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>fbgemm_gpu: SynchronizedShardedMap&lt; K, V, M, PoolType &gt; Class Template Reference</title>
+<title>fbgemm_gpu: InferenceFixedBlockPool Class Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -83,20 +83,23 @@ $(function(){ initResizable(false); });
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><b>kv_mem</b></li><li class="navelem"><a class="el" href="classkv__mem_1_1_synchronized_sharded_map.html">SynchronizedShardedMap</a></li>  </ul>
+<li class="navelem"><b>kv_mem</b></li><li class="navelem"><a class="el" href="classkv__mem_1_1_inference_fixed_block_pool.html">InferenceFixedBlockPool</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div id="doc-content">
 <div class="header">
   <div class="summary">
-<a href="classkv__mem_1_1_synchronized_sharded_map-members.html">List of all members</a>  </div>
-  <div class="headertitle"><div class="title">SynchronizedShardedMap&lt; K, V, M, PoolType &gt; Class Template Reference</div></div>
+<a href="classkv__mem_1_1_inference_fixed_block_pool-members.html">List of all members</a>  </div>
+  <div class="headertitle"><div class="title">InferenceFixedBlockPool Class Reference</div></div>
 </div><!--header-->
 <div class="contents">
 
-<p><code>#include &lt;SynchronizedShardedMap.h&gt;</code></p>
-<hr/>The documentation for this class was generated from the following file:<ul>
-<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/dram_kv_embedding_cache/<b>SynchronizedShardedMap.h</b></li>
+<p><code>#include &lt;inference_fixed_block_pool.h&gt;</code></p>
+<a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
+<div class="textblock"><p>Uses a compact 12-byte MetaHeader (vs 16-byte in base class) to save 4 bytes per embedding. Only supports timestamp-based TTL eviction (no count field for LFU eviction).</p>
+<p>Memory layout per block: ┌──────────────────────────────────────────────────────────────────┐ │ MetaHeader (12 bytes) │ Embedding weights (D × scalar) │ ├────────────┬───────────────────┼──────────────────────────────────┤ │ key (8B) │ timestamp:31 + used:1 (4B) │ weight_type[max_D] │ └────────────┴───────────────────┴──────────────────────────────────┘ </p>
+</div><hr/>The documentation for this class was generated from the following file:<ul>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/dram_kv_embedding_cache/<b>inference_fixed_block_pool.h</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->
