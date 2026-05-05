@@ -11,6 +11,7 @@
 #include <caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h>
 #include <common/base/Proc.h>
 #include <common/stats/Stats.h>
+#include <fb303/ServiceData.h>
 #include <folly/SocketAddress.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
@@ -18,6 +19,7 @@
 #include <folly/coro/Task.h>
 #include <folly/executors/FunctionScheduler.h>
 #include <folly/logging/xlog.h>
+#include <folly/synchronization/CallOnce.h>
 #include <servicerouter/client/cpp2/ServiceRouter.h>
 #include <thrift/lib/cpp2/protocol/CompactProtocol.h>
 #include <thrift/lib/cpp2/protocol/Serializer.h>
@@ -154,6 +156,18 @@ class DramKVInferenceEmbedding
       feature_evict_ = create_inference_feature_evict(
           feature_evict_config_.value(), kv_store_, sub_table_hash_cumsum_);
     }
+    // Register fb303 export types once per process so the read hit-rate
+    // counters surface in ODS as time-series (e.g. *.sum.60) rather than
+    // raw values that ODS / fbagent will not scrape.
+    static folly::once_flag readHitRateExportFlag;
+    folly::call_once(readHitRateExportFlag, [] {
+      facebook::fb303::fbData->addStatExportType(
+          "kvzch.inference.read_hit_count", facebook::fb303::SUM);
+      facebook::fb303::fbData->addStatExportType(
+          "kvzch.inference.read_miss_count", facebook::fb303::SUM);
+      facebook::fb303::fbData->addStatExportType(
+          "kvzch.inference.read_total_count", facebook::fb303::SUM);
+    });
     LOG(INFO) << "DramKVInferenceEmbedding initialized: disable_random_init "
               << disable_random_init_;
   }
@@ -381,8 +395,8 @@ class DramKVInferenceEmbedding
     // iteration(excluding state_dict)
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     pause_ongoing_eviction(); // noop calls, no impact if called multiple times
-    std::vector<
-        folly::Future<std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>>
+    std::vector<folly::Future<
+        std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>>>
         futures;
     auto row_width = weights.size(1);
     auto copy_width = width_length.value_or(row_width);
@@ -408,6 +422,7 @@ class DramKVInferenceEmbedding
                 int64_t local_read_lookup_cache_total_duration = 0;
                 int64_t local_read_aquire_lock_duration = 0;
                 int64_t local_read_missing_load = 0;
+                int64_t local_read_hit_load = 0;
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "get_kv_db_async_impl",
@@ -422,7 +437,8 @@ class DramKVInferenceEmbedding
                      &local_read_fill_row_storage_total_duration,
                      &local_read_lookup_cache_total_duration,
                      &local_read_aquire_lock_duration,
-                     &local_read_missing_load] {
+                     &local_read_missing_load,
+                     &local_read_hit_load] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -501,6 +517,7 @@ class DramKVInferenceEmbedding
                           local_read_cache_hit_copy_total_duration +=
                               facebook::WallClockUtil::NowInUsecFast() -
                               before_cache_hit_copy_ts;
+                          local_read_hit_load++;
                         }
                       }
                     });
@@ -509,7 +526,8 @@ class DramKVInferenceEmbedding
                     local_read_fill_row_storage_total_duration,
                     local_read_cache_hit_copy_total_duration,
                     local_read_aquire_lock_duration,
-                    local_read_missing_load};
+                    local_read_missing_load,
+                    local_read_hit_load};
               }));
     }
 
@@ -521,20 +539,23 @@ class DramKVInferenceEmbedding
                            int64_t,
                            int64_t,
                            int64_t,
+                           int64_t,
                            int64_t>>& results) {
           int64_t read_lookup_cache_total_duration = 0;
           int64_t read_fill_row_storage_total_duration = 0;
           int64_t read_cache_hit_copy_total_duration = 0;
           int64_t read_acquire_lock_total_duration = 0;
           int64_t read_missing_load = 0;
+          int64_t read_hit_load = 0;
           for (
-              const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load] :
+              const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load, hit_load] :
               results) {
             read_lookup_cache_total_duration += lookup_cache_dur;
             read_fill_row_storage_total_duration += fill_row_storage_dur;
             read_cache_hit_copy_total_duration += cache_hit_copy_dur;
             read_acquire_lock_total_duration += acquire_lock_dur;
             read_missing_load += missing_load;
+            read_hit_load += hit_load;
           }
           auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
           read_total_duration_ += duration;
@@ -547,6 +568,15 @@ class DramKVInferenceEmbedding
           read_acquire_lock_avg_duration_ +=
               read_acquire_lock_total_duration / num_shards_;
           read_missing_load_avg_ += read_missing_load / num_shards_;
+          read_hit_count_ += read_hit_load;
+          read_miss_count_ += read_missing_load;
+          facebook::fb303::fbData->addStatValue(
+              "kvzch.inference.read_hit_count", read_hit_load);
+          facebook::fb303::fbData->addStatValue(
+              "kvzch.inference.read_miss_count", read_missing_load);
+          facebook::fb303::fbData->addStatValue(
+              "kvzch.inference.read_total_count",
+              read_hit_load + read_missing_load);
           return std::vector<folly::Unit>(results.size());
         });
   };
@@ -661,6 +691,13 @@ class DramKVInferenceEmbedding
         << ", miss count: " << inplace_update_miss_cnt
         << ", total count: " << total_cnt << ", hit ratio: "
         << (total_cnt > 0 ? (double)inplace_update_hit_cnt / total_cnt : 0.0);
+  }
+
+  std::vector<int64_t> get_read_hit_rate_stats() override {
+    int reset_val = 0;
+    auto hit = read_hit_count_.exchange(reset_val);
+    auto miss = read_miss_count_.exchange(reset_val);
+    return {hit, miss, hit + miss};
   }
 
   std::optional<FeatureEvictMetricTensors> get_feature_evict_metric()
@@ -916,6 +953,9 @@ class DramKVInferenceEmbedding
 
   std::atomic<int64_t> inplace_update_hit_cnt_{0};
   std::atomic<int64_t> inplace_update_miss_cnt_{0};
+
+  std::atomic<int64_t> read_hit_count_{0};
+  std::atomic<int64_t> read_miss_count_{0};
 }; // class DramKVInferenceEmbedding
 
 } // namespace kv_mem
