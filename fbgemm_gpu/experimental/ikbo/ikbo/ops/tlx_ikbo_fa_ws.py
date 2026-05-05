@@ -48,7 +48,7 @@ configs_tlx_persistent = [
             "NUM_MMA_GROUPS": 2,
         },
         num_warps=4,
-        num_stages=0,
+        num_stages=1,
         pre_hook=_host_descriptor_pre_hook_tlx_persistent,
     ),
 ]
