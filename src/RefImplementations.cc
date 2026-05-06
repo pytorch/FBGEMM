@@ -1715,6 +1715,8 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
           float in_val = 0.f;
           if constexpr (is_same_v<InType, float16>) {
             in_val = cpu_half2float(*inptr);
+          } else if constexpr (is_same_v<InType, uint16_t>) {
+            in_val = cpu_half2float(float16{*inptr});
           } else {
             in_val = *inptr;
           }
