@@ -947,10 +947,11 @@ Tensor {{ embedding_cuda_op }}(
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
                 grad_output_mean = at::empty_like(grad_output_reshaped);
 
+                const int grad_mean_warp_size = at::cuda::warp_size();
                 FBGEMM_LAUNCH_KERNEL(
                     (grad_mean{{ vdesc }}_kernel<grad_t, index_t>),
-                    div_round_up(total_B, kMaxThreads / kWarpSize),
-                    dim3(kWarpSize, kMaxThreads / kWarpSize),
+                    div_round_up(total_B, kMaxThreads / grad_mean_warp_size),
+                    dim3(grad_mean_warp_size, kMaxThreads / grad_mean_warp_size),
                     0,
                     at::cuda::getCurrentCUDAStream(),
                     PTA_B(grad_output_mean, grad_t, 2, 64),
@@ -1077,26 +1078,27 @@ Tensor {{ embedding_cuda_op }}(
 
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
+                    const int cta_warp_size = at::cuda::warp_size();
                     {% if is_rocm %}
                     int32_t total_L = indices.numel();
                     int32_t num_cta_per_row_groups;
                     int32_t work_group_size;
                     if (total_L/total_B > 1) {
-                        num_cta_per_row_groups = (kMaxThreads/4) / kWarpSize;
+                        num_cta_per_row_groups = (kMaxThreads/4) / cta_warp_size;
                         work_group_size = (kMaxThreads/4);
                     }
                     else {
-                        num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                        num_cta_per_row_groups = kMaxThreads / cta_warp_size;
                         work_group_size = kMaxThreads;
                     }
                     {%- else %}
-                    int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                    int32_t num_cta_per_row_groups = kMaxThreads / cta_warp_size;
                     const int32_t work_group_size = kMaxThreads;
                     {%- endif %}
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
                         [&] (int num_groups) {
-                          return num_groups * kCacheAccBytes * 4 * kWarpSize * max_vecs_per_thread;
+                          return num_groups * kCacheAccBytes * 4 * cta_warp_size * max_vecs_per_thread;
                         },
                         backward_cta_per_row_kernel,
                         used_shared_bytes
@@ -1255,7 +1257,12 @@ Tensor {{ embedding_cuda_op }}(
 
                     constexpr bool same_precision = std::is_same_v<emb_t, grad_t>;
 
-                    if (use_hip_kernel && !mixed_D && !cached && supported_weights_type && supported_grad_type && same_precision && rocm::is_supported_cdna())
+                    // The optimized HIP backward kernel uses warpSize-64-only
+                    // intrinsics; it must only be dispatched on warpSize 64
+                    // devices. warpSize 32 devices fall through to the generic
+                    // shuffle-based backward kernel.
+
+                    if (use_hip_kernel && at::cuda::warp_size() == 64 && !mixed_D && !cached && supported_weights_type && supported_grad_type && same_precision && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}

@@ -374,8 +374,8 @@ enum SSDTensor {
     std::vector<Tensor> ret;
 
     {%- if vbe and not dense %}
-    // To avoid overhead of merging multiple VBE embedding outputs, each embedding ops return 
-    // the same output tensor i.e., vbe_output. To ensure all backward ops are triggered, the embedding 
+    // To avoid overhead of merging multiple VBE embedding outputs, each embedding ops return
+    // the same output tensor i.e., vbe_output. To ensure all backward ops are triggered, the embedding
     // ops are called in chain. We hence need to pass the grad_outputs to the next embedding op.
     // So, if vbe_output is passed, we return the grad_outputs.
     Tensor grad_vbe_output = has_vbe_output ? grad_outputs[0] : Variable();
@@ -1078,9 +1078,53 @@ static torch::autograd::variable_list backward(
 
     TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
+    // BT_block_size and max_segment_length_per_warp are GPU kernel
+    // launch parameters that the dispatched backward op consumes only
+    // on the CUDA dispatch path; CPU and MTIA dispatches pass them
+    // through unused. Defer at::cuda::warp_size() to the CUDA path —
+    // calling it unconditionally would force HIP/CUDA runtime
+    // initialization on pure-CPU TBE invocations and can abort the
+    // process when no GPU is accessible.
+{%- if not dense %}
+    // After unpack_tensorlist (in forward) and save/restore for
+    // backward, weights_dev is defined only on the CUDA dispatch
+    // path. CPU/MTIA size-3 and MTIA size-5 assign weights_host
+    // instead and leave weights_dev undefined. This matches the
+    // existing convention at the `weights_host.defined() ? … :
+    // weights_dev.defined() …` site earlier in this file.
+    const bool gpu_dispatch = weights_dev.defined();
+{%- else %}
+    const bool gpu_dispatch = dev_weights.is_cuda();
+{%- endif %}
+    int32_t BT_block_size;
+    int32_t max_segment_length_per_warp;
+    if (gpu_dispatch) {
 #ifdef USE_ROCM
-    constexpr int32_t BT_block_size = 64;
-    int32_t max_segment_length_per_warp = 64;
+      // ROCm warpSize is per-arch and must be queried at runtime so that
+      // mixed gfx9 (warp 64) + gfx10/11 (warp 32) builds dispatch the right
+      // launch config. The forward declaration of at::cuda::warp_size() is
+      // provided by <c10/macros/Macros.h> (transitively included via
+      // <ATen/ATen.h>) when USE_ROCM is defined, so we don't need
+      // <ATen/cuda/CUDAContext.h>.
+      const auto warp_size = at::cuda::warp_size();
+      BT_block_size = warp_size;
+      max_segment_length_per_warp = warp_size;
+#else
+      // NVIDIA GPUs all have warpSize 32; no runtime query needed.
+      BT_block_size = 32;
+      max_segment_length_per_warp = 32;
+#endif
+    } else {
+#ifdef USE_ROCM
+      // Match the pre-diff host-side ROCm fallback (constexpr 64).
+      BT_block_size = 64;
+      max_segment_length_per_warp = 64;
+#else
+      BT_block_size = 32;
+      max_segment_length_per_warp = 32;
+#endif
+    }
+#ifdef USE_ROCM
     {%- if (not nobag) and
            (optimizer == "rowwise_adagrad") and
            (not vbe) and
@@ -1110,9 +1154,6 @@ static torch::autograd::variable_list backward(
     }
     {%- endfor %}
     {%- endif %}
-#else
-    constexpr int32_t BT_block_size = 32;
-    constexpr int32_t max_segment_length_per_warp = 32;
 #endif
     using torch::autograd::Variable;
 
@@ -1287,10 +1328,10 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
   {%- if has_gpu_support or has_cpu_support %}
 
   if (aux_tensor.size() > AUX_TENSOR_SIZE){
-    TORCH_WARN_ONCE( 
-      "aux_tensor.size() should not be larger than ", 
+    TORCH_WARN_ONCE(
+      "aux_tensor.size() should not be larger than ",
       AUX_TENSOR_SIZE,
-      " but found to be  ", 
+      " but found to be  ",
       aux_tensor.size(),
       ". This is possibly due to frontend package does not match with backend package, so some functionalities from the backend might be missing. Please contact FBGEMM team for any assistance."
     );

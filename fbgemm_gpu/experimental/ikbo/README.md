@@ -19,7 +19,7 @@ pip install -e . --no-build-isolation
 ```bash
 # Install the source code
 git clone https://github.com/pytorch/FBGEMM.git
-cd fbgemm/fbgemm_gpu/experimental/ikbo
+cd FBGEMM/fbgemm_gpu/experimental/ikbo
 pip install -e .
 ```
 
@@ -44,12 +44,18 @@ user_flag = create_user_flag(W_user, E_user)
 output = tlx_ikbo_lce(W_cand, W_user, E_cand, E_user, cand_to_user_index, user_flag)
 ```
 
-## Testing
+## Accuracy Testing
 ```bash
 FAST_TUNE=1 python -m pytest tests/ -v
 ```
 
 ## Benchmarks
+Command to boost GPU power and clock to its max with persistent mode (700W, 1980MHz is for H100 SXM5 version):
 ```bash
-python benchmarks/ikbo_lce_bench.py
+sudo nvidia-smi -i {GPU_ID} -pm 1 && sudo nvidia-smi --power-limit={GPU_max_power} -i 6 && MAX_SM_CLOCK=$(nvidia-smi --query-gpu=clocks.max.graphics --format=csv,noheader,nounits -i {GPU_ID}) && sudo nvidia-smi -lgc $MAX_SM_CLOCK -i {GPU_ID}
+```
+Run benchmark with the dedicate GPU ID and corresponding NUMA node:
+```bash
+CUDA_VISIBLE_DEVICES={GPU_ID} numactl -m {NUMA_node} -c {NUMA_node} python benchmarks/ikbo_lce_bench.py
+CUDA_VISIBLE_DEVICES={GPU_ID} numactl -m {NUMA_node} -c {NUMA_node} python benchmarks/ikbo_fa_bench.py
 ```

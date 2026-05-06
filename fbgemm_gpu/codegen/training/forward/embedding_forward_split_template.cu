@@ -811,14 +811,15 @@ batch_index_select_dim0_codegen_forward_cuda(
         } else {
             // Allocate num warps per table based on max_D
 
-            const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
+            const int warp_size = at::cuda::warp_size();
+            const int num_warps_per_table = B * div_round_up(max_D, warp_size * 4);
             #ifdef USE_ROCM
-              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / (kWarpSize * 2);
+              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / (warp_size * 2);
               const auto num_threadblocks =
                   div_round_up(T * num_warps_per_table, num_warps_per_threadblock);
               const uint64_t num_threads =
                   static_cast<uint64_t>(num_threadblocks)
-                  * kWarpSize * num_warps_per_threadblock;
+                  * warp_size * num_warps_per_threadblock;
               // Cap the grid only when total threads exceed uint32 limits;
               // the kernel's grid-striding loop handles the overflow.
               const auto grid = num_threads >= std::numeric_limits<uint32_t>::max()
@@ -827,7 +828,7 @@ batch_index_select_dim0_codegen_forward_cuda(
                         utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()))
                   : num_threadblocks;
             #else
-              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
+              const uint32_t num_warps_per_threadblock = kForwardMaxThreads / warp_size;
               const auto grid = div_round_up(T * num_warps_per_table, num_warps_per_threadblock);
             #endif
 
@@ -840,7 +841,7 @@ batch_index_select_dim0_codegen_forward_cuda(
             FBGEMM_LAUNCH_KERNEL(
               kernel_func,
               grid,
-              dim3(kWarpSize, num_warps_per_threadblock),
+              dim3(warp_size, num_warps_per_threadblock),
               0,
               at::cuda::getCurrentCUDAStream(),
               dev_weights.data_ptr<emb_t>(),

@@ -89,19 +89,16 @@ inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
 template <typename K, typename V, bool Dir, typename Comp>
 struct BitonicSort {
   static inline __device__ void sort(K k[1], V v[1]) {
-#ifdef USE_ROCM
-    static_assert(fbgemm_gpu::kWarpSize == 64, "unexpected warp size");
-#else
-    static_assert(fbgemm_gpu::kWarpSize == 32, "unexpected warp size");
-#endif
     warpBitonicMergeLE16<K, V, 1, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 2, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 4, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 8, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 16, Dir, Comp, false>(k[0], v[0]);
-#ifdef USE_ROCM
-    // AMD wavefronts are 64-wide, so we need a 6th merge stage (L=32)
-    // to fully sort all 64 elements. L=32 <= kWarpSize/2 = 32. ✓
+#if defined(USE_ROCM) && defined(__GFX9__)
+    // warpSize 64 archs need a 6th merge stage (L=32) to fully sort all 64
+    // elements. On warpSize 32 archs the L=16 stage already covered the
+    // sort. Per-arch device compilation means the same source produces the
+    // right code for each offload arch.
     warpBitonicMergeLE16<K, V, 32, Dir, Comp, false>(k[0], v[0]);
 #endif
   }

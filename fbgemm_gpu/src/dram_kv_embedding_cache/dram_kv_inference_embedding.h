@@ -11,6 +11,7 @@
 #include <caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h>
 #include <common/base/Proc.h>
 #include <common/stats/Stats.h>
+#include <fb303/ServiceData.h>
 #include <folly/SocketAddress.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
@@ -18,6 +19,7 @@
 #include <folly/coro/Task.h>
 #include <folly/executors/FunctionScheduler.h>
 #include <folly/logging/xlog.h>
+#include <folly/synchronization/CallOnce.h>
 #include <servicerouter/client/cpp2/ServiceRouter.h>
 #include <thrift/lib/cpp2/protocol/CompactProtocol.h>
 #include <thrift/lib/cpp2/protocol/Serializer.h>
@@ -25,11 +27,11 @@
 #include "common/time/Time.h"
 
 #include "../ssd_split_embeddings_cache/initializer.h"
-#include "SynchronizedShardedMap.h"
+#include "InferenceSynchronizedShardedMap.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
-#include "feature_evict.h"
-#include "fixed_block_pool.h"
+#include "inference_feature_evict.h"
+#include "inference_fixed_block_pool.h"
 #include "kv_inference_embedding_interface.h"
 
 namespace kv_mem {
@@ -113,11 +115,12 @@ class DramKVInferenceEmbedding
       bool disable_random_init = false)
       : max_D_(max_D),
         num_shards_(num_shards),
-        block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
+        block_size_(
+            InferenceFixedBlockPool::calculate_block_size<weight_type>(max_D)),
         block_alignment_(
-            FixedBlockPool::calculate_block_alignment<weight_type>()),
+            InferenceFixedBlockPool::calculate_block_alignment<weight_type>()),
         kv_store_(
-            SynchronizedShardedMap<int64_t, weight_type*>(
+            InferenceSynchronizedShardedMap<int64_t, weight_type*>(
                 num_shards_,
                 block_size_,
                 block_alignment_,
@@ -150,12 +153,21 @@ class DramKVInferenceEmbedding
         feature_evict_config_.value()->trigger_mode_ !=
             EvictTriggerMode::DISABLED) {
       TORCH_CHECK(hash_size_cumsum.has_value());
-      feature_evict_ = create_feature_evict(
-          feature_evict_config_.value(),
-          kv_store_,
-          sub_table_hash_cumsum_,
-          false /* is_train */);
+      feature_evict_ = create_inference_feature_evict(
+          feature_evict_config_.value(), kv_store_, sub_table_hash_cumsum_);
     }
+    // Register fb303 export types once per process so the read hit-rate
+    // counters surface in ODS as time-series (e.g. *.sum.60) rather than
+    // raw values that ODS / fbagent will not scrape.
+    static folly::once_flag readHitRateExportFlag;
+    folly::call_once(readHitRateExportFlag, [] {
+      facebook::fb303::fbData->addStatExportType(
+          "kvzch.inference.read_hit_count", facebook::fb303::SUM);
+      facebook::fb303::fbData->addStatExportType(
+          "kvzch.inference.read_miss_count", facebook::fb303::SUM);
+      facebook::fb303::fbData->addStatExportType(
+          "kvzch.inference.read_total_count", facebook::fb303::SUM);
+    });
     LOG(INFO) << "DramKVInferenceEmbedding initialized: disable_random_init "
               << disable_random_init_;
   }
@@ -269,7 +281,8 @@ class DramKVInferenceEmbedding
                         // we find QE regress during inplace update
                         for (auto& [tensor_offset, block] : hit_info) {
                           auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(block);
+                              InferenceFixedBlockPool::data_ptr<weight_type>(
+                                  block);
                           std::copy(
                               weights_data_ptr + tensor_offset * stride,
                               weights_data_ptr + (tensor_offset + 1) * stride,
@@ -279,7 +292,7 @@ class DramKVInferenceEmbedding
                               feature_evict_config_.value()->trigger_mode_ !=
                                   EvictTriggerMode::DISABLED &&
                               feature_evict_ && inplace_update_ts.has_value()) {
-                            FixedBlockPool::set_timestamp(
+                            InferenceFixedBlockPool::set_timestamp(
                                 block, inplace_update_ts.value());
                           }
                         }
@@ -294,11 +307,12 @@ class DramKVInferenceEmbedding
                         auto mem_pool_lock = pool->acquire_lock();
                         for (auto& [id, tensor_offset] : miss_info) {
                           auto block = pool->template allocate_t<weight_type>();
-                          FixedBlockPool::set_key(block, id);
+                          InferenceFixedBlockPool::set_key(block, id);
                           temp_kv.insert({id, block});
 
                           auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(block);
+                              InferenceFixedBlockPool::data_ptr<weight_type>(
+                                  block);
                           std::copy(
                               weights_data_ptr + tensor_offset * stride,
                               weights_data_ptr + (tensor_offset + 1) * stride,
@@ -310,7 +324,7 @@ class DramKVInferenceEmbedding
                                   EvictTriggerMode::DISABLED &&
                               feature_evict_) {
                             if (inplace_update_ts.has_value()) {
-                              FixedBlockPool::set_timestamp(
+                              InferenceFixedBlockPool::set_timestamp(
                                   block, inplace_update_ts.value());
                             } else {
                               // inplace_update_ts is nullopt for delta publish
@@ -381,8 +395,8 @@ class DramKVInferenceEmbedding
     // iteration(excluding state_dict)
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     pause_ongoing_eviction(); // noop calls, no impact if called multiple times
-    std::vector<
-        folly::Future<std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>>
+    std::vector<folly::Future<
+        std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>>>
         futures;
     auto row_width = weights.size(1);
     auto copy_width = width_length.value_or(row_width);
@@ -408,6 +422,7 @@ class DramKVInferenceEmbedding
                 int64_t local_read_lookup_cache_total_duration = 0;
                 int64_t local_read_aquire_lock_duration = 0;
                 int64_t local_read_missing_load = 0;
+                int64_t local_read_hit_load = 0;
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "get_kv_db_async_impl",
@@ -422,7 +437,8 @@ class DramKVInferenceEmbedding
                      &local_read_fill_row_storage_total_duration,
                      &local_read_lookup_cache_total_duration,
                      &local_read_aquire_lock_duration,
-                     &local_read_missing_load] {
+                     &local_read_missing_load,
+                     &local_read_hit_load] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -440,7 +456,7 @@ class DramKVInferenceEmbedding
 
                       if (!wlmap->empty() && !disable_random_init_) {
                         row_storage_data_ptr =
-                            FixedBlockPool::data_ptr<weight_type>(
+                            InferenceFixedBlockPool::data_ptr<weight_type>(
                                 wlmap->begin()->second);
                       } else {
                         const auto& init_storage =
@@ -488,7 +504,7 @@ class DramKVInferenceEmbedding
                           }
                           // use mempool
                           const auto* data_ptr =
-                              FixedBlockPool::data_ptr<weight_type>(
+                              InferenceFixedBlockPool::data_ptr<weight_type>(
                                   cached_iter->second);
                           auto before_cache_hit_copy_ts =
                               facebook::WallClockUtil::NowInUsecFast();
@@ -501,6 +517,7 @@ class DramKVInferenceEmbedding
                           local_read_cache_hit_copy_total_duration +=
                               facebook::WallClockUtil::NowInUsecFast() -
                               before_cache_hit_copy_ts;
+                          local_read_hit_load++;
                         }
                       }
                     });
@@ -509,7 +526,8 @@ class DramKVInferenceEmbedding
                     local_read_fill_row_storage_total_duration,
                     local_read_cache_hit_copy_total_duration,
                     local_read_aquire_lock_duration,
-                    local_read_missing_load};
+                    local_read_missing_load,
+                    local_read_hit_load};
               }));
     }
 
@@ -521,20 +539,23 @@ class DramKVInferenceEmbedding
                            int64_t,
                            int64_t,
                            int64_t,
+                           int64_t,
                            int64_t>>& results) {
           int64_t read_lookup_cache_total_duration = 0;
           int64_t read_fill_row_storage_total_duration = 0;
           int64_t read_cache_hit_copy_total_duration = 0;
           int64_t read_acquire_lock_total_duration = 0;
           int64_t read_missing_load = 0;
+          int64_t read_hit_load = 0;
           for (
-              const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load] :
+              const auto& [lookup_cache_dur, fill_row_storage_dur, cache_hit_copy_dur, acquire_lock_dur, missing_load, hit_load] :
               results) {
             read_lookup_cache_total_duration += lookup_cache_dur;
             read_fill_row_storage_total_duration += fill_row_storage_dur;
             read_cache_hit_copy_total_duration += cache_hit_copy_dur;
             read_acquire_lock_total_duration += acquire_lock_dur;
             read_missing_load += missing_load;
+            read_hit_load += hit_load;
           }
           auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
           read_total_duration_ += duration;
@@ -547,6 +568,15 @@ class DramKVInferenceEmbedding
           read_acquire_lock_avg_duration_ +=
               read_acquire_lock_total_duration / num_shards_;
           read_missing_load_avg_ += read_missing_load / num_shards_;
+          read_hit_count_ += read_hit_load;
+          read_miss_count_ += read_missing_load;
+          facebook::fb303::fbData->addStatValue(
+              "kvzch.inference.read_hit_count", read_hit_load);
+          facebook::fb303::fbData->addStatValue(
+              "kvzch.inference.read_miss_count", read_missing_load);
+          facebook::fb303::fbData->addStatValue(
+              "kvzch.inference.read_total_count",
+              read_hit_load + read_missing_load);
           return std::vector<folly::Unit>(results.size());
         });
   };
@@ -661,6 +691,13 @@ class DramKVInferenceEmbedding
         << ", miss count: " << inplace_update_miss_cnt
         << ", total count: " << total_cnt << ", hit ratio: "
         << (total_cnt > 0 ? (double)inplace_update_hit_cnt / total_cnt : 0.0);
+  }
+
+  std::vector<int64_t> get_read_hit_rate_stats() override {
+    int reset_val = 0;
+    auto hit = read_hit_count_.exchange(reset_val);
+    auto miss = read_miss_count_.exchange(reset_val);
+    return {hit, miss, hit + miss};
   }
 
   std::optional<FeatureEvictMetricTensors> get_feature_evict_metric()
@@ -879,7 +916,7 @@ class DramKVInferenceEmbedding
   // mempool params
   size_t block_size_;
   size_t block_alignment_;
-  SynchronizedShardedMap<int64_t, weight_type*> kv_store_;
+  InferenceSynchronizedShardedMap<int64_t, weight_type*> kv_store_;
   std::atomic_bool is_eviction_ongoing_ = false;
   std::vector<std::unique_ptr<ssd::Initializer>> initializers_;
   int64_t elem_size_;
@@ -916,6 +953,9 @@ class DramKVInferenceEmbedding
 
   std::atomic<int64_t> inplace_update_hit_cnt_{0};
   std::atomic<int64_t> inplace_update_miss_cnt_{0};
+
+  std::atomic<int64_t> read_hit_count_{0};
+  std::atomic<int64_t> read_miss_count_{0};
 }; // class DramKVInferenceEmbedding
 
 } // namespace kv_mem

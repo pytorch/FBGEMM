@@ -125,6 +125,51 @@ class DramKvInferenceTest(unittest.TestCase):
         self.assertTrue(equal_one_of(embs[4, :4], possible_embs))
         self.assertTrue(equal_one_of(embs[5, :4], possible_embs))
 
+    def test_read_hit_rate_stats(self) -> None:
+        num_shards = 32
+        uniform_init_lower: float = 0.0
+        uniform_init_upper: float = 0.0
+
+        kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
+            num_shards,
+            uniform_init_lower,
+            uniform_init_upper,
+            True,  # disable_random_init (zero init for predictable misses)
+        )
+        kv_embedding_cache.init(
+            [(20, 4, SparseType.INT8.as_int())],
+            8,
+            4,
+            torch.tensor([0, 20], dtype=torch.int64),
+        )
+
+        # Set embeddings for indices 0-3
+        kv_embedding_cache.set_embeddings(
+            torch.tensor([0, 1, 2, 3], dtype=torch.int64),
+            torch.tensor(
+                [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]],
+                dtype=torch.uint8,
+            ),
+        )
+
+        # Read with a mix of present (0-3) and absent (4-7) indices
+        _ = kv_embedding_cache.get_embeddings(
+            torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.int64),
+        )
+
+        stats = kv_embedding_cache.get_read_hit_rate_stats()
+        self.assertEqual(len(stats), 3)
+        hit_count, miss_count, total_count = stats[0], stats[1], stats[2]
+        self.assertEqual(hit_count, 4)
+        self.assertEqual(miss_count, 4)
+        self.assertEqual(total_count, 8)
+
+        # Verify counters reset after read
+        stats2 = kv_embedding_cache.get_read_hit_rate_stats()
+        self.assertEqual(stats2[0], 0)
+        self.assertEqual(stats2[1], 0)
+        self.assertEqual(stats2[2], 0)
+
     def test_inplace_update(self) -> None:
         num_shards = 1
         uniform_init_lower: float = 0.0

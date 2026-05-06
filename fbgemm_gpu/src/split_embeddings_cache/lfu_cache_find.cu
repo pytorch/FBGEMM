@@ -53,11 +53,7 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
     const auto slot = threadIdx.x;
     const bool found = ::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
 
-#ifdef USE_ROCM
-    if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
-#else
-    if (!__any_sync(0xFFFFFFFF, found)) {
-#endif
+    if (!__any_sync(kFullWarpMask, found)) {
       if (threadIdx.x == 0) {
         // sort so the highest LFUs come first in the segment.
         // assume lfu_state[idx] <= 2^40 - 1 and cache_set < 2^24 -1

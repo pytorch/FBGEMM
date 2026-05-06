@@ -294,19 +294,13 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
     n_indices++;
     const bool found =
         (::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
-#ifdef USE_ROCM
-    // HIP does not support __ballot_sync with mask; use __ballot instead.
-    // AMD wavefronts execute in lockstep, so no explicit sync is needed.
-    // __ballot returns uint64_t on ROCm (64-wide wavefront).
-    const auto bitmap = __ballot(found);
-    if (bitmap) {
-      const auto way = __ffsll(bitmap) - 1;
-#else
-    const auto bitmap = __ballot_sync(0xFFFFFFFF, found);
+    // fbgemm_gpu::ballot_sync wraps __ballot (ROCm, unsynchronized) vs
+    // __ballot_sync (CUDA). Return type is uint64_t on ROCm and uint32_t
+    // on CUDA, so __ffsll handles both via implicit promotion.
+    const auto bitmap = fbgemm_gpu::ballot_sync(found);
     if (bitmap) {
       // LSB == 1 hence we need to subtract one to get lane ID.
-      const auto way = __ffs(bitmap) - 1;
-#endif
+      const auto way = __ffsll(static_cast<long long>(bitmap)) - 1;
       if (i == threadIdx.x) {
         cache_location = cache_set * kWarpSize + way;
       }
@@ -439,6 +433,19 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
   }
 
   CUDA_DEVICE_GUARD(linear_cache_indices);
+
+#ifdef USE_ROCM
+  // Cache kernels use kWarpSize as the stride for indexing cache rows.
+  // On warpSize 32 ROCm devices (e.g. gfx1100) this produces wrong
+  // addresses because DEFAULT_ASSOC (kWarpSize on host) is 64.
+  // D102579845 introduces kCacheAssoc to fix this; until then, guard.
+  TORCH_CHECK(
+      at::cuda::warp_size() == 64,
+      __func__,
+      ": TBE cache requires warpSize 64 on ROCm (got ",
+      at::cuda::warp_size(),
+      "); warpSize 32 devices are not yet supported");
+#endif
 
   const auto lxu_cache_locations =
       lxu_cache_locations_output.value_or(empty_like(

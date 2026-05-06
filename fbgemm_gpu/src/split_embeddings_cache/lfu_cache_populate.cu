@@ -248,6 +248,15 @@ DLL_PUBLIC void lfu_cache_populate_cuda(
 
   CUDA_DEVICE_GUARD(weights);
 
+#ifdef USE_ROCM
+  TORCH_CHECK(
+      at::cuda::warp_size() == 64,
+      __func__,
+      ": TBE cache requires warpSize 64 on ROCm (got ",
+      at::cuda::warp_size(),
+      "); warpSize 32 devices are not yet supported");
+#endif
+
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());
   if (linear_cache_indices.numel() == 0) {
