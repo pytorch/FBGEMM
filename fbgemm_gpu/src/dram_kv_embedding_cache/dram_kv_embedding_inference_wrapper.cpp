@@ -142,11 +142,6 @@ void DramKVEmbeddingInferenceWrapper::log_inplace_update_stats() {
   kv_backend_->log_inplace_update_stats();
 }
 
-std::vector<int64_t>
-DramKVEmbeddingInferenceWrapper::get_read_hit_rate_stats() {
-  return kv_backend_->get_read_hit_rate_stats();
-}
-
 void DramKVEmbeddingInferenceWrapper::trigger_evict(
     int64_t inplace_update_ts_64b) {
   uint32_t inplace_update_ts_32b =
@@ -224,10 +219,6 @@ static auto dram_kv_embedding_inference_wrapper =
             "log_inplace_update_stats",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::
                 log_inplace_update_stats)
-        .def(
-            "get_read_hit_rate_stats",
-            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::
-                get_read_hit_rate_stats)
         .def(
             "serialize",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::serialize)

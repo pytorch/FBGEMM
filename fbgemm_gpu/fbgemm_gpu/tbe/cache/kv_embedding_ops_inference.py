@@ -341,18 +341,6 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         self.kv_embedding_cache.log_inplace_update_stats()
 
     @torch.jit.export
-    def get_read_hit_rate_stats(
-        self,
-    ) -> tuple[int, int, int]:
-        """
-        Get read-time (forward pass) hit rate stats from the DRAM KV cache.
-        Returns (hit_count, miss_count, total_count) since last call.
-        Counters are reset atomically on each call.
-        """
-        stats = self.kv_embedding_cache.get_read_hit_rate_stats()
-        return int(stats[0]), int(stats[1]), int(stats[2])
-
-    @torch.jit.export
     def embedding_trigger_evict(
         self,
         inplace_update_ts_sec: int,

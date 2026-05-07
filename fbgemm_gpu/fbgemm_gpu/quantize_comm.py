@@ -13,6 +13,7 @@
 
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -54,6 +55,10 @@ def none_throws(
     if optional is None:
         raise AssertionError(message)
     return optional
+
+
+def _is_fp8_rowwise_padding_enabled() -> bool:
+    return bool(int(os.environ.get("TORCHREC_ENABLE_FP8_ROWWISE_PADDING", 0)))
 
 
 @dataclass
@@ -292,6 +297,31 @@ class QuantizedCommCodec:
             padding_size_per_rank = [
                 group_size - (t if (t := dim_sum % group_size) > 0 else group_size)
                 for dim_sum in dim_per_rank
+            ]
+            padded_dim_sum_per_rank = [
+                a + b for a, b in zip(dim_per_rank, padding_size_per_rank)
+            ]
+            dim_sum, padding_size = (
+                dim_per_rank[my_rank],
+                padding_size_per_rank[my_rank],
+            )
+            assert input_tensor.ndim == 2 and input_tensor.shape[1] == dim_sum
+            qcomm_ctx.padded_dim_sum_per_rank = padded_dim_sum_per_rank
+            padded_dim_sum = padding_size + dim_sum
+            return padded_dim_sum, padding_size
+
+        elif (
+            self._comm_precision == SparseType.FP8
+            and self._row_dim > 0
+            and _is_fp8_rowwise_padding_enabled()
+        ):
+            # FP8 rowwise quantization requires input_len % row_dim == 0.
+            # Pad each rank's dim_sum to be a multiple of row_dim so that
+            # B * padded_dim_sum is always divisible, preventing misalignment
+            # errors during AllToAll with non-standard batch sizes (e.g. eval).
+            row_dim = qcomm_ctx.row_dim
+            padding_size_per_rank = [
+                (row_dim - dim_sum % row_dim) % row_dim for dim_sum in dim_per_rank
             ]
             padded_dim_sum_per_rank = [
                 a + b for a, b in zip(dim_per_rank, padding_size_per_rank)
