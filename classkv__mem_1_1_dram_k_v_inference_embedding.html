@@ -134,8 +134,6 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a3467f940c7df2c2f71d0ec9c69a2f3fd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a700a279c2f2a7f119eff580812bb5d3d" id="r_a700a279c2f2a7f119eff580812bb5d3d"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a700a279c2f2a7f119eff580812bb5d3d">pause_ongoing_eviction</a> (bool force_pause=false) override</td></tr>
 <tr class="separator:a700a279c2f2a7f119eff580812bb5d3d"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ae3eaa217096b8c12d3d3ff59366d811d" id="r_ae3eaa217096b8c12d3d3ff59366d811d"><td class="memItemLeft" align="right" valign="top">std::vector&lt; int64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae3eaa217096b8c12d3d3ff59366d811d">get_read_hit_rate_stats</a> () override</td></tr>
-<tr class="separator:ae3eaa217096b8c12d3d3ff59366d811d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa646d094604ab3ded4eb79d789d8b253" id="r_aa646d094604ab3ded4eb79d789d8b253"><td class="memItemLeft" align="right" valign="top">std::optional&lt; FeatureEvictMetricTensors &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa646d094604ab3ded4eb79d789d8b253">get_feature_evict_metric</a> () const override</td></tr>
 <tr class="separator:aa646d094604ab3ded4eb79d789d8b253"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
@@ -513,36 +511,6 @@ template&lt;typename weight_type&gt; </div>
 <dl class="section return"><dt>Returns</dt><dd>Number of rows </dd></dl>
 
 <p>Implements <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a07bf031cfe8aca76ddbd05df51602023">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a>.</p>
-
-</div>
-</div>
-<a id="ae3eaa217096b8c12d3d3ff59366d811d" name="ae3eaa217096b8c12d3d3ff59366d811d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae3eaa217096b8c12d3d3ff59366d811d">&#9670;&#160;</a></span>get_read_hit_rate_stats()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename weight_type&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::vector&lt; int64_t &gt; get_read_hit_rate_stats </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-<p>Get read-time (forward pass) hit rate stats and reset counters. Returns {hit_count, miss_count, total_count}. </p>
-
-<p>Implements <a class="el" href="classkv__mem_1_1_k_v_inference_embedding_interface.html#a9d9f1c4492a950093a021a71af5bb271">KVInferenceEmbeddingInterface&lt; weight_type &gt;</a>.</p>
 
 </div>
 </div>
