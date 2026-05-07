@@ -134,6 +134,10 @@ class KVInferenceEmbeddingInterface {
   /// Log statistics for inplace update (inference only)
   virtual void log_inplace_update_stats() = 0;
 
+  /// Get read-time (forward pass) hit rate stats and reset counters.
+  /// Returns {hit_count, miss_count, total_count}.
+  virtual std::vector<int64_t> get_read_hit_rate_stats() = 0;
+
   /// Get feature eviction metrics
   ///
   /// @return Optional metrics tensors
