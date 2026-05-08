@@ -327,7 +327,11 @@ using namespace fbgemm_gpu;
 
             {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
             // Load cache's index from thread j in the group
-            [[maybe_unused]] int32_t {{ locs_or_addrs_idx }}_j_[kManualUnrollLength];
+            // NOTE: Use {{ locs_or_addrs_type }} here. For SSD path, this is int64_t
+            // (raw row pointer). Hardcoding int32_t silently truncates 64-bit
+            // pointers to 32 bits and sign-extends on reload, producing garbage
+            // pointer dereferences (HSA Memory access fault on AMD MI350X).
+            [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j_[kManualUnrollLength];
             for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
                 {{ locs_or_addrs_idx }}_j_[inner_j] = use_lxu_cache ? SHFL_SYNC({{ locs_or_addrs_idx }}, outer_j + inner_j) : 0;
@@ -415,7 +419,7 @@ using namespace fbgemm_gpu;
                 [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
                 {%- endif %}
                 {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
-                [[maybe_unused]] int32_t {{ locs_or_addrs_idx }}_j = {{ locs_or_addrs_idx }}_j_[inner_j];
+                [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j = {{ locs_or_addrs_idx }}_j_[inner_j];
                 {%- endif %}
                 {%- if weighted %}
                 at::acc_type<cache_t, true> idx_weight_j = idx_weight_j_[inner_j];

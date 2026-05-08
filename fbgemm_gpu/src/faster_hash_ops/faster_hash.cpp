@@ -34,9 +34,9 @@ template <
     typename TInput,
     typename TIdentity>
 void process_item_zch(
-    const at::PackedTensorAccessor64<TInput, 1>& input,
-    at::PackedTensorAccessor64<int64_t, 1> output,
-    const at::PackedTensorAccessor64<TIdentity, 2>& identities,
+    const at::TensorAccessor<TInput, 1>& input,
+    at::TensorAccessor<int64_t, 1> output,
+    const at::TensorAccessor<TIdentity, 2>& identities,
     int64_t modulo,
     int64_t max_probe,
     const int64_t* const local_sizes,
@@ -140,9 +140,9 @@ void _zero_collision_hash_cpu_out(
         HAS_OFFSET,                                                \
         TInput,                                                    \
         TIdentity>(                                                \
-        input.packed_accessor64<TInput, 1>(),                      \
-        output.packed_accessor64<int64_t, 1>(),                    \
-        identities.packed_accessor64<TIdentity, 2>(),              \
+        input.accessor<TInput, 1>(),                               \
+        output.accessor<int64_t, 1>(),                             \
+        identities.accessor<TIdentity, 2>(),                       \
         modulo,                                                    \
         max_probe,                                                 \
         local_sizes_ptr,                                           \

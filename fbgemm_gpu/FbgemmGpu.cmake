@@ -24,6 +24,7 @@ set(tbe_eeg_cpu_sources
   src/tbe/eeg/indices_generator.cpp)
 
 set(fbgemm_gpu_sources_cpu_static
+    src/faster_hash_ops/faster_hash.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_cpu.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
@@ -44,11 +45,6 @@ set(fbgemm_gpu_sources_cpu_static
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     ${tbe_eeg_cpu_sources})
-
-if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
-  list(APPEND fbgemm_gpu_sources_cpu_static
-    src/faster_hash_ops/faster_hash.cpp)
-endif()
 
 if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   list(APPEND fbgemm_gpu_sources_cpu_static
@@ -73,6 +69,7 @@ endif()
 
 if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   set(fbgemm_gpu_sources_gpu_static
+      src/faster_hash_ops/faster_hash.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
       src/intraining_embedding_pruning_ops/intraining_embedding_pruning.cu
@@ -131,11 +128,6 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/sparse_ops/sparse_segment_sum_csr.cu
       src/sparse_ops/sparse_zipf.cu
       src/sparse_ops/sparse_block_bucketize_features_2d_weights.cu)
-
-  if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
-    list(APPEND fbgemm_gpu_sources_gpu_static
-      src/faster_hash_ops/faster_hash.cu)
-  endif()
 endif()
 
 
