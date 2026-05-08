@@ -284,14 +284,12 @@ integration_fbgemm_gpu_install_matrix_run () {
       12.8.1
       12.9.1
       13.0.2
-      13.2.0
     )
   elif [ "$variant_type" == "genai" ]; then
     local variant_versions=(
       12.6.3
       12.8.1
       13.0.2
-      13.2.0
     )
   elif [ "$variant_type" == "rocm" ]; then
     local variant_versions=(

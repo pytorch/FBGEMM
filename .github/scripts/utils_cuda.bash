@@ -35,21 +35,9 @@ __set_cuda_symlinks_envvars () {
 
     echo "[INSTALL] Copying nvtx3 headers ..."
     # shellcheck disable=SC2086
-    if compgen -G "${conda_prefix}/nsight-compute*/host/*/nvtx/include/nvtx3/*" > /dev/null 2>&1; then
-      # Copy nvtx3 headers from nsight-compute if available
-      # shellcheck disable=SC2086
-      print_exec cp -r ${conda_prefix}/nsight-compute*/host/*/nvtx/include/nvtx3/* ${conda_prefix}/include/
-      # shellcheck disable=SC2086
-      print_exec cp -r ${conda_prefix}/nsight-compute*/host/*/nvtx/include/nvtx3/* ${new_cuda_home}/include/
-    elif [ -d "${conda_prefix}/include/nvtx3" ]; then
-      # nvtx3 headers already available from cuda-nvtx package
-      echo "[INSTALL] nvtx3 headers already present in ${conda_prefix}/include/nvtx3 (from cuda-nvtx)"
-      if [ ! -d "${new_cuda_home}/include/nvtx3" ]; then
-        print_exec cp -r "${conda_prefix}/include/nvtx3" "${new_cuda_home}/include/"
-      fi
-    else
-      echo "[INSTALL] WARNING: nvtx3 headers not found in nsight-compute or cuda-nvtx"
-    fi
+    print_exec cp -r ${conda_prefix}/nsight-compute*/host/*/nvtx/include/nvtx3/* ${conda_prefix}/include/
+    # shellcheck disable=SC2086
+    print_exec cp -r ${conda_prefix}/nsight-compute*/host/*/nvtx/include/nvtx3/* ${new_cuda_home}/include/
   fi
 
   echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
@@ -232,24 +220,8 @@ install_cuda () {
       cuda-nvrtc-dev \
       cuda-cupti-dev \
       cuda-profiler-api \
-      cuda-opencl-dev) || return 1
-
-    # NOTE: nsight-compute is installed separately as best-effort because for
-    # newer CUDA versions (e.g. 13.2+), it may have unresolvable dependency
-    # conflicts on conda-forge (libxkbcommon -> libxml2-16 vs clangxx ->
-    # libllvm16 -> libxml2 <2.14).  The nvtx3 headers it provides are handled
-    # in __set_cuda_symlinks_envvars with a fallback to cuda-nvtx.
-    #
-    # Skip the install entirely for known-broken versions to avoid the conda
-    # solver OOM (exit code 137) on memory-constrained CI runners.
-    if [[ "$cuda_version" =~ ^13\.[2-9].*$ ]]; then
-      echo "[INSTALL] Skipping nsight-compute for CUDA ${cuda_version} (known dependency conflict on conda-forge)"
-    else
-      # shellcheck disable=SC2086
-      (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
-        "cuda-version=${cuda_version%.*}" \
-        nsight-compute) || echo "[INSTALL] WARNING: nsight-compute could not be installed, skipping (nvtx3 headers will be sourced from cuda-nvtx)"
-    fi
+      cuda-opencl-dev \
+      nsight-compute) || return 1
   fi
 
   # Set the symlinks and environment variables not covered by conda install
