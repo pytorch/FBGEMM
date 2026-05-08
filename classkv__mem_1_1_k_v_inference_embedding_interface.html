@@ -130,6 +130,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a97dc5bfa90b30c588d6034e5f0dade79"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a548df3bb20e168703a567da43e8509cd" id="r_a548df3bb20e168703a567da43e8509cd"><td class="memItemLeft" align="right" valign="top">virtual void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a548df3bb20e168703a567da43e8509cd">pause_ongoing_eviction</a> (bool force_pause=false)=0</td></tr>
 <tr class="separator:a548df3bb20e168703a567da43e8509cd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9d9f1c4492a950093a021a71af5bb271" id="r_a9d9f1c4492a950093a021a71af5bb271"><td class="memItemLeft" align="right" valign="top">virtual std::vector&lt; int64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d9f1c4492a950093a021a71af5bb271">get_read_hit_rate_stats</a> ()=0</td></tr>
+<tr class="separator:a9d9f1c4492a950093a021a71af5bb271"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a15d598b52a359b4e9e541ebde63e2fb0" id="r_a15d598b52a359b4e9e541ebde63e2fb0"><td class="memItemLeft" align="right" valign="top">virtual std::optional&lt; FeatureEvictMetricTensors &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a15d598b52a359b4e9e541ebde63e2fb0">get_feature_evict_metric</a> () const =0</td></tr>
 <tr class="separator:a15d598b52a359b4e9e541ebde63e2fb0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a278de6afe5f4c5357030652d07e552bc" id="r_a278de6afe5f4c5357030652d07e552bc"><td class="memItemLeft" align="right" valign="top">virtual std::vector&lt; double &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a278de6afe5f4c5357030652d07e552bc">get_dram_kv_perf</a> (const int64_t step, const int64_t interval)=0</td></tr>
@@ -431,6 +433,36 @@ template&lt;typename weight_type&gt; </div>
 <dl class="section return"><dt>Returns</dt><dd>Number of rows </dd></dl>
 
 <p>Implemented in <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a55e12f0ce6f52ca464e6eb7c382a3dda">DramKVInferenceEmbedding&lt; weight_type &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a9d9f1c4492a950093a021a71af5bb271" name="a9d9f1c4492a950093a021a71af5bb271"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9d9f1c4492a950093a021a71af5bb271">&#9670;&#160;</a></span>get_read_hit_rate_stats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual std::vector&lt; int64_t &gt; get_read_hit_rate_stats </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel pure-virtual">pure virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Get read-time (forward pass) hit rate stats and reset counters. Returns {hit_count, miss_count, total_count}. </p>
+
+<p>Implemented in <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#ae3eaa217096b8c12d3d3ff59366d811d">DramKVInferenceEmbedding&lt; weight_type &gt;</a>.</p>
 
 </div>
 </div>
