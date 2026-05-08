@@ -7,12 +7,12 @@
 
 # pyre-strict
 
+from __future__ import annotations
 
 import logging
 import math
 import random
 import unittest
-from typing import Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -81,14 +81,10 @@ class SparseArch(nn.Module):
 
     def __init__(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
-        emb_dim,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_tables,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_rows,
-        # pyre-fixme[2]: Parameter must be annotated.
-        use_cpu,
+        emb_dim: int,
+        num_tables: int,
+        num_rows: int,
+        use_cpu: bool,
     ) -> None:
         super().__init__()
         pooling_mode = PoolingMode.SUM
@@ -118,9 +114,7 @@ class SparseArch(nn.Module):
             -EMB_WEIGHT_UNIFORM_INIT_BOUND, +EMB_WEIGHT_UNIFORM_INIT_BOUND
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
-    def forward(self, indices, offsets):
+    def forward(self, indices: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
         return self.emb_module(indices, offsets)
 
 
@@ -163,7 +157,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         L: int,
         pooling_mode: PoolingMode,
         quantize_type: SparseType,
-        pruning_ratio: Optional[float],
+        pruning_ratio: float | None,
         use_cpu: bool,
     ) -> None:
         E = int(10**log_E)
@@ -345,7 +339,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         T: int,
         D: int,
         log_E: int,
-        pruning_ratio: Optional[float],
+        pruning_ratio: float | None,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
     ) -> None:
