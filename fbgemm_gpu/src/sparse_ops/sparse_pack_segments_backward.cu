@@ -69,11 +69,18 @@ DLL_PUBLIC Tensor pack_segments_backward_cuda(
   AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "unpack_segments_cuda", [&] {
     const auto* const lengths_data = lengths.const_data_ptr<index_t>();
 
-    // Create output tensor of appropriate dimensions
+    // Create output tensor of appropriate dimensions.
+    // Use at::zeros (not at::empty): when lengths[seq] > max_length, the
+    // unpack kernel only writes positions cumsum[seq]+cell for cell<max_length,
+    // leaving positions [cumsum[seq]+max_length, cumsum[seq]+lengths[seq])
+    // uninitialized. Those rows correspond to events that were truncated by
+    // forward pack_segments and so MUST receive zero gradient. With at::empty
+    // they would receive uninitialized memory, corrupting upstream gradients
+    // and causing NaN cascades in deep networks.
     auto shape = data_contig->sizes().vec();
     shape.erase(shape.begin());
     shape[0] = total_length;
-    unpacked_tensor = at::empty(shape, data_contig->options());
+    unpacked_tensor = at::zeros(shape, data_contig->options());
 
     if (!(data_contig->size(0) &&
           data_contig->size(1))) { // TODO: What does this mean?
