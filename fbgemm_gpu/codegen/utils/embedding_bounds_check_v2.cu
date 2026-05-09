@@ -173,7 +173,6 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
       gpuAtomicAdd(&warning[0], block_warning_sum);
     }
   }
-  __syncthreads();
 #else
   if (warning_inc > 0) {
     gpuAtomicAdd(&warning[0], warning_inc);

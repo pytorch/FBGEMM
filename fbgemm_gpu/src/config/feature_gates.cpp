@@ -13,6 +13,7 @@
 #include "fbgemm_gpu/config/feature_gates_fb.h"
 #endif
 
+#include <cstdint>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -31,6 +32,15 @@ std::string to_string(const FeatureGateName& value) {
   return "UNKNOWN";
 }
 
+namespace {
+
+// Returns true iff the env var "FBGEMM_<key>" is set (regardless of value).
+bool env_has_key(const std::string& key) {
+  const auto env_var = "FBGEMM_" + key;
+  return std::getenv(env_var.c_str()) != nullptr;
+}
+
+// Reads the env var "FBGEMM_<key>" and returns true iff it is set to "1".
 bool ev_check_key(const std::string& key) {
   const auto env_var = "FBGEMM_" + key;
 
@@ -46,48 +56,105 @@ bool ev_check_key(const std::string& key) {
   }
 }
 
-static bool check_feature_gate_key_impl(
-    const std::string& key,
-    bool check_env_vars_only [[maybe_unused]]) {
-  // Cache feature flags to avoid repeated JK and env var checks
-  static std::unordered_map<std::string, bool> feature_flags_cache;
-  if (const auto search = feature_flags_cache.find(key);
-      search != feature_flags_cache.end()) {
-    return search->second;
-  }
 #ifdef FBGEMM_FBCODE
-  const auto value =
-      check_env_vars_only ? ev_check_key(key) : jk_check_key(key);
+// Lookup policy controlled by the FBGEMM_NO_JK env var.
+//   unset or "0" -> JkOnly
+//   "1"          -> EnvOnly
+//   "2"          -> EnvFirstThenJk
+class NoJkMode {
+ public:
+  enum Value : uint8_t { JkOnly, EnvOnly, EnvFirstThenJk };
+
+  constexpr NoJkMode(Value value) : value_(value) {}
+
+  constexpr operator Value() const {
+    return value_;
+  }
+
+  explicit operator bool() const = delete;
+
+  static NoJkMode from_env() {
+    const auto value = std::getenv("FBGEMM_NO_JK");
+    if (!value) {
+      return NoJkMode::JkOnly;
+    }
+
+    try {
+      const auto parsed = std::stoi(value);
+      if (parsed == 1) {
+        return NoJkMode::EnvOnly;
+      } else if (parsed == 2) {
+        return NoJkMode::EnvFirstThenJk;
+      } else {
+        return NoJkMode::JkOnly;
+      }
+    } catch (const std::exception&) {
+      // Best-effort parse: fall back to JkOnly on any parse failure
+      // (std::invalid_argument for non-numeric input,
+      //  std::out_of_range for values that overflow int).
+      return NoJkMode::JkOnly;
+    }
+  }
+
+ private:
+  Value value_;
+};
+#endif // FBGEMM_FBCODE
+
+class FeatureGate {
+ public:
+  static FeatureGate& instance() {
+    static FeatureGate gate;
+    return gate;
+  }
+
+  FeatureGate(const FeatureGate&) = delete;
+  FeatureGate& operator=(const FeatureGate&) = delete;
+  FeatureGate(FeatureGate&&) = delete;
+  FeatureGate& operator=(FeatureGate&&) = delete;
+
+  bool lookup(const std::string& key) {
+    if (const auto search = cache_.find(key); search != cache_.end()) {
+      return search->second;
+    }
+
+    bool value = false;
+#ifdef FBGEMM_FBCODE
+    static const NoJkMode mode = NoJkMode::from_env();
+    if (mode == NoJkMode::EnvOnly) {
+      value = ev_check_key(key);
+    } else if (mode == NoJkMode::EnvFirstThenJk) {
+      value = env_has_key(key) ? ev_check_key(key) : jk_check_key(key);
+    } else /* NoJkMode::JkOnly */ {
+      value = jk_check_key(key);
+    }
 #else
-  const auto value = ev_check_key(key);
+    value = ev_check_key(key);
 #endif
 
-  feature_flags_cache.insert({key, value});
-  return value;
-}
+    cache_.insert({key, value});
+    return value;
+  }
+
+ private:
+  FeatureGate() = default;
+
+  std::unordered_map<std::string, bool> cache_;
+};
+
+} // namespace
 
 DLL_PUBLIC bool check_feature_gate_key(const std::string& key) {
-#ifdef FBGEMM_FBCODE
-  static const auto no_jk = ev_check_key("NO_JK");
-#else
-  static const auto no_jk = false;
-#endif
-
-  return check_feature_gate_key_impl(key, no_jk);
+  return FeatureGate::instance().lookup(key);
 }
 
 DLL_PUBLIC bool is_feature_enabled(const FeatureGateName& feature) {
-  return check_feature_gate_key(to_string(feature));
-}
-
-DLL_PUBLIC bool is_feature_enabled_from_env(const FeatureGateName& feature) {
-  return check_feature_gate_key_impl(
-      to_string(feature), /* check_env_vars_only */ true);
+  return FeatureGate::instance().lookup(to_string(feature));
 }
 
 #ifdef FBGEMM_FBCODE
 DLL_PUBLIC bool is_feature_enabled(const FbFeatureGateName& feature) {
-  return check_feature_gate_key(to_string(feature));
+  return FeatureGate::instance().lookup(to_string(feature));
 }
 #endif // FBGEMM_FBCODE
 

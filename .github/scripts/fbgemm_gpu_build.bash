@@ -315,7 +315,7 @@ __configure_fbgemm_gpu_build_cuda () {
         local arch_list="9.0a"
       fi
 
-    elif  [[ $cuda_version_nvcc == *"V13"* ]] ||
+    elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
           [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
       # NOTE: If we reach this point, then we are building the package for
@@ -524,29 +524,6 @@ __build_fbgemm_gpu_set_run_multicore () {
     export run_multicore=""
     if [[ $core =~ $re && $sockets =~ $re ]]; then
       local n_core=$((core * sockets))
-
-      # Cap parallelism based on available memory to avoid OOM (exit code 137)
-      # on memory-constrained CI runners.  Each NVCC compilation job can use
-      # 2-4 GB when targeting multiple GPU architectures (e.g. 8.0;9.0a;10.0a).
-      local mem_gb=0
-      if [ -f /proc/meminfo ]; then
-        # shellcheck disable=SC2155
-        local mem_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
-        mem_gb=$((mem_kb / 1024 / 1024))
-      fi
-
-      if [[ $mem_gb -gt 0 ]]; then
-        # Allow ~4 GB per parallel compilation job
-        local mem_jobs=$((mem_gb / 4))
-        if [[ $mem_jobs -lt 1 ]]; then
-          mem_jobs=1
-        fi
-        if [[ $mem_jobs -lt $n_core ]]; then
-          echo "[BUILD] Capping parallelism from ${n_core} to ${mem_jobs} (available memory: ~${mem_gb} GB)"
-          n_core=$mem_jobs
-        fi
-      fi
-
       export run_multicore="-j ${n_core}"
     fi
   fi

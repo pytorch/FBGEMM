@@ -195,7 +195,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     {% else %}
     TORCH_CHECK(D > 0);
     {% endif %}
-    const static bool disablePinnedMemory = fbgemm_gpu::config::is_feature_enabled_from_env(fbgemm_gpu::config::FeatureGateName::TBE_CPU_OUTPUT_DISABLE_PINNED_MEMORY);
+    const static bool disablePinnedMemory = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_CPU_OUTPUT_DISABLE_PINNED_MEMORY);
     bool pinned_memory = false;
     if (!disablePinnedMemory && at::Context::hasCUDA() && at::getNumGPUs() > 0) {
       pinned_memory = true;

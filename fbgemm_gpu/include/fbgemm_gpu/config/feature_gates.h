@@ -94,12 +94,6 @@ bool check_feature_gate_key(const std::string& key);
 /// is enabled.
 bool is_feature_enabled(const FeatureGateName& feature);
 
-/// @ingroup fbgemm-gpu-config
-///
-/// @brief For the given `FeatureGateName`, check if the corresponding
-/// feature is enabled in the env vars only.
-bool is_feature_enabled_from_env(const FeatureGateName& feature);
-
 #ifdef FBGEMM_FBCODE
 bool is_feature_enabled(const FbFeatureGateName& feature);
 #endif

@@ -22,3 +22,18 @@ from fbgemm_gpu.tbe.config.embedding_config import (  # noqa: F401
     SplitState,
     tensor_to_device,
 )
+from fbgemm_gpu.tbe.config.optimizer_config import (  # noqa: F401
+    CounterBasedRegularizationDefinition,
+    CounterWeightDecayMode,
+    CowClipDefinition,
+    DoesNotHavePrefix,
+    EmainplaceModeDefinition,
+    EnsembleModeDefinition,
+    GlobalWeightDecayDefinition,
+    GradSumDecay,
+    LearningRateMode,
+    StepMode,
+    TailIdThreshold,
+    UserEnabledConfigDefinition,
+    WeightDecayMode,
+)
