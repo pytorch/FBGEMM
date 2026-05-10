@@ -77,9 +77,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             quantized_data_gpu = torch.ops.fbgemm.FloatToBfloat16Quantized(
                 input_data_gpu
             )
-            quantized_data_numpy = (
-                quantized_data_gpu.view(torch.uint16).cpu().numpy()
-            )
+            quantized_data_numpy = quantized_data_gpu.view(torch.uint16).cpu().numpy()
             np.testing.assert_allclose(quantized_data_numpy, reference)
 
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
