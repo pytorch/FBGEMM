@@ -106,7 +106,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     res_params: RESParams
     table_names: list[str]
     _all_tbe_instances: ClassVar[weakref.WeakSet] = weakref.WeakSet()
-    _first_instance_ref: ClassVar[weakref.ref] = None
+    _first_instance_ref: ClassVar[weakref.ref[Any] | None] = None
     _eviction_triggered: ClassVar[bool] = False
 
     def __init__(
@@ -300,7 +300,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.current_device: torch.device = torch.cuda.current_device()
 
         self.enable_raw_embedding_streaming = enable_raw_embedding_streaming
-        self._enable_ssd_raw_embedding_streaming = (
+        self._enable_ssd_raw_embedding_streaming: bool = (
             self.enable_raw_embedding_streaming and not self._embedding_cache_mode
         )
         # initialize the raw embedding streaming related variables

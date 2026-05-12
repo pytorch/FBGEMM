@@ -64,10 +64,10 @@ class OptimizerConfigJITTest(unittest.TestCase):
 
     @unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA required")
     def test_tbe_jit_script_with_weight_decay_l2(self) -> None:
-        from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
             ComputeDevice,
             EmbeddingLocation,
+            OptimType,
             SplitTableBatchedEmbeddingBagsCodegen,
             WeightDecayMode,
         )
@@ -91,11 +91,11 @@ class OptimizerConfigJITTest(unittest.TestCase):
     @unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA required")
     def test_tbe_jit_script_with_counter_regularization(self) -> None:
         """Counter-based regularization exercises the most complex dataclass path."""
-        from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
             ComputeDevice,
             CounterBasedRegularizationDefinition,
             EmbeddingLocation,
+            OptimType,
             SplitTableBatchedEmbeddingBagsCodegen,
             WeightDecayMode,
         )
