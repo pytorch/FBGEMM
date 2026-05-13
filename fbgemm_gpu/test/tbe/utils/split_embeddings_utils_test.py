@@ -335,8 +335,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 rows_per_table.cuda(),
                 warning.cuda(),
             )
-            if weighted:
-                # pyre-fixme[16]: `Optional` has no attribute `cuda`.
+            if weights is not None:
                 weights = weights.cuda()
         indices_copy = indices.clone()
         offsets_copy = offsets.clone()
