@@ -751,6 +751,19 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16>(
       bit_rate, outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
   EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
+
+  // ref (double) vs SIMD (fp32 FMA) can differ by ~1 fp32 ULP; allow ~2 bf16 ULPs.
+  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float16, true>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16, true>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Test.data());
+  for (int i = 0; i < rows * cols; ++i) {
+    float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
+    float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
+    EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
+  }
+  EXPECT_NE(dequantBf16Ref, dequantOutHalfRef);
 }
 
 // Scale and bias are of type float
@@ -824,6 +837,19 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16>(
       outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
   EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
+
+  // ref (double) vs SIMD (fp32 FMA) can differ by ~1 fp32 ULP; allow ~2 bf16 ULPs.
+  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<float16, true>(
+      outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16, true>(
+      outVecRef.data(), rows, out_cols, dequantBf16Test.data());
+  for (int i = 0; i < rows * cols; ++i) {
+    float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
+    float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
+    EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
+  }
+  EXPECT_NE(dequantBf16Ref, dequantOutHalfRef);
 }
 
 TEST_P(
