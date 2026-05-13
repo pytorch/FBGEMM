@@ -63,11 +63,12 @@ DLL_PUBLIC Tensor pack_segments_backward_cuda(
   CUDA_DEVICE_GUARD(data);
 
   const auto data_contig = data.expect_contiguous();
+  const auto lengths_c = lengths.contiguous();
 
   Tensor unpacked_tensor; // The output tensor
 
-  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "unpack_segments_cuda", [&] {
-    const auto* const lengths_data = lengths.const_data_ptr<index_t>();
+  AT_DISPATCH_INDEX_TYPES(lengths_c.scalar_type(), "unpack_segments_cuda", [&] {
+    const auto* const lengths_data = lengths_c.const_data_ptr<index_t>();
 
     // Create output tensor of appropriate dimensions
     auto shape = data_contig->sizes().vec();
@@ -81,12 +82,12 @@ DLL_PUBLIC Tensor pack_segments_backward_cuda(
     }
 
     auto lengths_prefix_sum =
-        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths);
+        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_c);
     auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
 
     FBGEMM_DISPATCH_ALL_TYPES(
         data_contig->scalar_type(), "unpack_segments_cuda-unpacking", [&] {
-          const auto num_seq = lengths.size(0);
+          const auto num_seq = lengths_c.size(0);
           const auto cell_size = data_contig->numel() /
               (data_contig->size(0) * data_contig->size(1));
           const auto* const data_ptr = data_contig->const_data_ptr<scalar_t>();

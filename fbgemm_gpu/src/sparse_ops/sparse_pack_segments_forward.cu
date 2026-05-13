@@ -107,32 +107,33 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
   CUDA_DEVICE_GUARD(t_in);
 
   const auto t_in_c = t_in.contiguous();
+  const auto lengths_c = lengths.contiguous();
 
   Tensor packed_tensor;
 
-  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "pack_segments_cuda", [&] {
-    const auto* const lengths_data = lengths.const_data_ptr<index_t>();
+  AT_DISPATCH_INDEX_TYPES(lengths_c.scalar_type(), "pack_segments_cuda", [&] {
+    const auto* const lengths_data = lengths_c.const_data_ptr<index_t>();
 
     // Shape of output is batch_size x max_len x ...
     auto shape = t_in_c.sizes().vec(); // Get copy of current shape
     shape[0] = max_length; // Set first element to max_len
     shape.insert(
-        shape.begin(), lengths.numel()); // Insert batch size at beginning
+        shape.begin(), lengths_c.numel()); // Insert batch size at beginning
     packed_tensor = at::zeros(shape, t_in_c.options());
 
-    if (t_in_c.size(0) == 0 || lengths.size(0) == 0) {
+    if (t_in_c.size(0) == 0 || lengths_c.size(0) == 0) {
       return; // Return empty output (with the proper shape)
     }
 
     auto lengths_prefix_sum =
-        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths);
+        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_c);
     auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
 
     FBGEMM_DISPATCH_ALL_TYPES(
         t_in_c.scalar_type(), "pack_segments_cuda-packing", [&] {
           const auto* const data_ptr = t_in_c.const_data_ptr<scalar_t>();
           auto* const out_data = packed_tensor.mutable_data_ptr<scalar_t>();
-          const auto num_seq = lengths.size(0);
+          const auto num_seq = lengths_c.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
 
           FBGEMM_LAUNCH_DSA_KERNEL(
@@ -188,22 +189,22 @@ pack_segments_forward_cuda_v2(
   CUDA_DEVICE_GUARD(t_in);
 
   const auto t_in_c = t_in.contiguous();
+  const auto lengths_c = lengths.contiguous();
 
   Tensor packed_tensor;
   std::optional<Tensor> presence_mask;
 
-  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "pack_segments_cuda", [&] {
-    const auto* const lengths_data = lengths.const_data_ptr<index_t>();
+  AT_DISPATCH_INDEX_TYPES(lengths_c.scalar_type(), "pack_segments_cuda", [&] {
+    const auto* const lengths_data = lengths_c.const_data_ptr<index_t>();
 
     // Shape of output is batch_size x max_len x ...
     auto shape = t_in_c.sizes().vec(); // Get copy of current shape
     shape[0] = max_length; // Set first element to max_len
     shape.insert(
-        shape.begin(), lengths.numel()); // Insert batch size at beginning
+        shape.begin(), lengths_c.numel()); // Insert batch size at beginning
     packed_tensor = at::zeros(shape, t_in_c.options());
 
     if (pad_minf) {
-      // Downcasting double infinity to float should still give infinity
       packed_tensor = at::full(
           shape, -std::numeric_limits<double>::infinity(), t_in_c.options());
     } else {
@@ -212,25 +213,24 @@ pack_segments_forward_cuda_v2(
 
     bool* presence_mask_data = nullptr;
     if (return_presence_mask) {
-      // Shape of presence is batch_size x max_len
       presence_mask = at::zeros(
-          {lengths.numel(), max_length}, t_in_c.options().dtype(at::kBool));
+          {lengths_c.numel(), max_length}, t_in_c.options().dtype(at::kBool));
       presence_mask_data = presence_mask->mutable_data_ptr<bool>();
     }
 
-    if (t_in_c.size(0) == 0 || lengths.size(0) == 0) {
+    if (t_in_c.size(0) == 0 || lengths_c.size(0) == 0) {
       return; // Return empty output (with the proper shape)
     }
 
     auto lengths_prefix_sum =
-        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths);
+        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_c);
     auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
 
     FBGEMM_DISPATCH_ALL_TYPES(
         t_in_c.scalar_type(), "pack_segments_cuda-packing", [&] {
           const auto* const data_ptr = t_in_c.const_data_ptr<scalar_t>();
           auto* const out_data = packed_tensor.mutable_data_ptr<scalar_t>();
-          const auto num_seq = lengths.size(0);
+          const auto num_seq = lengths_c.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
 
           FBGEMM_LAUNCH_DSA_KERNEL(
