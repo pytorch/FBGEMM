@@ -195,11 +195,6 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           row_valid_v[inner_i] = final_valid;
         }
 #if (defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800) || (defined(USE_ROCM) && defined(__gfx950__))
-        // Async-LDS path: cp_async_zfill_cg fires asynchronously on
-        // Ampere+ (cp.async) and MI350 (global_load_lds), so the fused
-        // per-iteration load+store is correct here. The weighted
-        // indice_weights write runs as a separate sweep to keep the row
-        // loads tight.
         #pragma unroll
         for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
           uint32_t i = outer_i + inner_i;
@@ -231,14 +226,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         }
         {% endif %}
 #else
-        // Synchronous fallback (e.g. MI300/gfx942): cp_async_zfill_cg's
-        // #else body is a per-lane predicated load+store. Fusing it per
-        // iteration kills load pipelining (each store depends on its
-        // load, so the compiler emits N waitcnts instead of one) and
-        // adds wave divergence on mixed-validity warps. Restore the
-        // original unfused load followed by masked store so the
-        // compiler can issue all kRowUnroll global loads back-to-back
-        // behind a single waitcnt.
+        // Maintain pipelining of load and store operations when async shared memory/lds
+        // loads are not available.
         uint4 row_data_v[kRowUnroll];
         #pragma unroll
         for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
