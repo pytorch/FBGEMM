@@ -186,29 +186,29 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
+    auto dirtyVecRegs = asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15);
     if (numRegs >= 16) {
-      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-          asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+      dirtyVecRegs |= asmjit::Support::bit_mask<int>(16, 17, 18, 19, 20, 21, 22, 23) |
+          asmjit::Support::bit_mask<int>(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
-    frame.setDirtyRegs(
+    frame.set_dirty_regs(asmjit::RegGroup::kVec, dirtyVecRegs);
+    frame.set_dirty_regs(
         asmjit::RegGroup::kGp,
-        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+        asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
-    args.assignAll(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
+    args.assign_all(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
 
-    args.updateFuncFrame(frame);
+    args.update_func_frame(frame);
     frame.finalize();
 
-    a->emitProlog(frame);
-    a->emitArgsAssignment(frame, args);
+    a->emit_prolog(frame);
+    a->emit_args_assignment(frame, args);
 
-    asmjit::Label LoopMBlocks = a->newLabel();
-    asmjit::Label LoopNBlocks = a->newLabel();
+    asmjit::Label LoopMBlocks = a->new_label();
+    asmjit::Label LoopNBlocks = a->new_label();
 
     const x86::Gp& buffer_B_saved = a->gpz(10);
     const x86::Gp& C_Offset = a->gpz(11);
@@ -232,7 +232,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     int colRegs = std::min(currColRegs, maxNRegs);
 
     auto issueLoopOverK = [&](int rowRegs) {
-      asmjit::Label LoopKLabel = a->newLabel();
+      asmjit::Label LoopKLabel = a->new_label();
 
       // Init C (result) vector registers
       initCRegs(a, rowRegs, colRegs);
@@ -327,7 +327,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     }
     // generate code for remainder
     if (mRegBlocksRem > 0) {
-      asmjit::Label LoopNRem = a->newLabel();
+      asmjit::Label LoopNRem = a->new_label();
 
       a->xor_(jIdx.r32(), jIdx.r32());
       a->bind(LoopNRem);
@@ -345,15 +345,15 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       a->jl(LoopNRem);
     }
 
-    a->emitEpilog(frame);
+    a->emit_epilog(frame);
 
     jit_micro_kernel_fp fn = nullptr;
-    asmjit::Error err = 0;
+    asmjit::Error err = asmjit::Error::kOk;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
     }
-    if (err) {
+    if (err != asmjit::Error::kOk) {
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }

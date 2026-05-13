@@ -231,16 +231,16 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
 
   frame_.init(func_);
 
-  frame_.setDirtyRegs(
+  frame_.set_dirty_regs(
       asmjit::RegGroup::kVec,
-      asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-          asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
-  frame_.setDirtyRegs(
+      asmjit::Support::bit_mask<int>(0, 1, 2, 3, 4, 5, 6, 7) |
+          asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
+  frame_.set_dirty_regs(
       asmjit::RegGroup::kGp,
-      asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+      asmjit::Support::bit_mask<int>(8, 9, 10, 11, 12, 13, 14, 15));
 
   asmjit::FuncArgsAssignment args(&func_);
-  args.assignAll(
+  args.assign_all(
       in_acts_R_,
       wghts_R_,
       out_acts_R_,
@@ -250,11 +250,11 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
       W_R_,
       row_offset_R_);
 
-  args.updateFuncFrame(frame_);
+  args.update_func_frame(frame_);
   frame_.finalize();
 
-  a->emitProlog(frame_);
-  a->emitArgsAssignment(frame_, args);
+  a->emit_prolog(frame_);
+  a->emit_args_assignment(frame_, args);
 
   // We have run out of register so can't keep
   // this in a register. It's generated again at
@@ -297,16 +297,16 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
         a, false /* isTopEdge */, this->use_bottom_padding_ /* isBottomEdge */);
   }
 
-  a->emitEpilog(frame_);
+  a->emit_epilog(frame_);
 
   jit_conv_kernel_fp fn = nullptr;
-  asmjit::Error err = 0;
+  asmjit::Error err = asmjit::Error::kOk;
   {
     unique_lock<mutex> lock(this->rtMutex_);
     err = this->runtime().add(&fn, &code);
   }
 
-  if (err) {
+  if (err != asmjit::Error::kOk) {
     cout << "Error: in fn add" << '\n';
     return nullptr;
   }
@@ -419,11 +419,11 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genForTopOrBottomEdge(
   a->movsxd(
       loopR1_,
       x86::dword_ptr(
-          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
-  asmjit::Label LoopWStart = a->newLabel();
-  asmjit::Label LoopWEnd = a->newLabel();
-  asmjit::Label skipRightEdge = a->newLabel();
-  asmjit::Label skipRightEdgeTemp = a->newLabel();
+          x86::rsp, frame_.sa_offset_from_sp() + func_.arg(6).stack_offset()));
+  asmjit::Label LoopWStart = a->new_label();
+  asmjit::Label LoopWEnd = a->new_label();
+  asmjit::Label skipRightEdge = a->new_label();
+  asmjit::Label skipRightEdgeTemp = a->new_label();
   a->cmp(loopR1_, static_cast<asmjit::Imm>(this->W_PAD_));
   a->jle(skipRightEdgeTemp);
 
@@ -507,10 +507,10 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
     a->dec(H_end_R_);
   }
   // main compute
-  asmjit::Label LoopHStart = a->newLabel();
-  asmjit::Label LoopHEnd = a->newLabel();
-  asmjit::Label LoopWStart = a->newLabel();
-  asmjit::Label LoopWEnd = a->newLabel();
+  asmjit::Label LoopHStart = a->new_label();
+  asmjit::Label LoopHEnd = a->new_label();
+  asmjit::Label LoopWStart = a->new_label();
+  asmjit::Label LoopWEnd = a->new_label();
 
   // H loop
   a->mov(loopR1_, H_start_R_);
@@ -521,9 +521,9 @@ void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
   a->movsxd(
       loopR2_,
       x86::dword_ptr(
-          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
-  asmjit::Label skipRightEdge = a->newLabel();
-  asmjit::Label skipRightEdgeTemp = a->newLabel();
+          x86::rsp, frame_.sa_offset_from_sp() + func_.arg(6).stack_offset()));
+  asmjit::Label skipRightEdge = a->new_label();
+  asmjit::Label skipRightEdgeTemp = a->new_label();
   a->cmp(loopR2_, static_cast<asmjit::Imm>(this->W_PAD_));
   a->jle(skipRightEdgeTemp);
 
