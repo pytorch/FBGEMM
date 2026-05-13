@@ -49,13 +49,26 @@ jobs:
       id: filter
       env:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
-      # Nova Coordinate Filters:
-      # rocm/3.13t: causes segfaults at runtime
+      # DRAFT — DO NOT LAND.
+      # Restrict matrix to ONLY cuda 13.2 builds to test the hypothesis that
+      # `upload-manywheel-py3_10-cuda13_2` failures are due to OSS CI runner
+      # resource starvation when many CUDA/ROCm/CPU jobs run in parallel.
+      # If cu13.2 passes in isolation -> resource issue.
+      # If cu13.2 still fails -> real bug in cu13.2 build/upload path.
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
+        MATRIX_BLOB="$( python -c '
+        import json, os
+        m = json.loads(os.environ["MAT"])
+        entries = [
+            c for c in m["include"]
+            if c.get("gpu_arch_type") == "cuda"
+            and c.get("gpu_arch_version") == "13.2"
+        ]
+        print(json.dumps({"include": entries}))
+        ' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
