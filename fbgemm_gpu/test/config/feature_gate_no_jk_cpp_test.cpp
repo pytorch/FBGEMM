@@ -20,7 +20,7 @@ namespace config = fbgemm_gpu::config;
 //
 // In FBCODE builds, these exercise the new EnvFirstThenJk path: env_has_key
 // returning true must short-circuit the JustKnobs lookup, so the value comes
-// from ev_check_key alone.
+// from env_check_key alone.
 //
 // In OSS builds, the same env values flow through the unconditional env-only
 // path (FBGEMM_NO_JK is ignored), and the assertions still hold by

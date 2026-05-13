@@ -35,13 +35,13 @@ std::string to_string(const FeatureGateName& value) {
 namespace {
 
 // Returns true iff the env var "FBGEMM_<key>" is set (regardless of value).
-bool env_has_key(const std::string& key) {
+[[maybe_unused]] bool env_has_key(const std::string& key) {
   const auto env_var = "FBGEMM_" + key;
   return std::getenv(env_var.c_str()) != nullptr;
 }
 
 // Reads the env var "FBGEMM_<key>" and returns true iff it is set to "1".
-bool ev_check_key(const std::string& key) {
+bool env_check_key(const std::string& key) {
   const auto env_var = "FBGEMM_" + key;
 
   const auto value = std::getenv(env_var.c_str());
@@ -122,14 +122,14 @@ class FeatureGate {
 #ifdef FBGEMM_FBCODE
     static const NoJkMode mode = NoJkMode::from_env();
     if (mode == NoJkMode::EnvOnly) {
-      value = ev_check_key(key);
+      value = env_check_key(key);
     } else if (mode == NoJkMode::EnvFirstThenJk) {
-      value = env_has_key(key) ? ev_check_key(key) : jk_check_key(key);
+      value = env_has_key(key) ? env_check_key(key) : jk_check_key(key);
     } else /* NoJkMode::JkOnly */ {
       value = jk_check_key(key);
     }
 #else
-    value = ev_check_key(key);
+    value = env_check_key(key);
 #endif
 
     cache_.insert({key, value});

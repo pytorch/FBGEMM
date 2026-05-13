@@ -97,8 +97,8 @@ class BackwardSGDTest(unittest.TestCase):
             return
         if use_cpu and weights_precision == SparseType.FP16:
             return
-        # No bag ops only work on GPUs, no mixed, no weighted
-        if use_cpu and pooling_mode == PoolingMode.NONE:
+        # V1 API doesn't support nobag on CPU (only PT2 path does)
+        if use_cpu and pooling_mode == PoolingMode.NONE and use_api_v1:
             return
         if mixed and pooling_mode == PoolingMode.NONE:
             return
@@ -447,6 +447,47 @@ class BackwardSGDTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,  # output_dtype
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.sampled_from([2, 4, 128, 256]),
+        B=st.integers(min_value=1, max_value=10),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=1, max_value=20),
+        long_segments=st.booleans(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_sgd_fp32_pmNONE_cpu(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        long_segments: bool,
+    ) -> None:
+        self.execute_backward_sgd_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision=SparseType.FP32,
+            weighted=False,
+            mixed=False,
+            mixed_B=False,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            long_segments=long_segments,
+            pooling_mode=PoolingMode.NONE,
+            use_cpu=True,
+            output_dtype=SparseType.FP32,
         )
 
     @given(
