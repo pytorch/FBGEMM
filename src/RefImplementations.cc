@@ -109,8 +109,9 @@ void Float16ToFloat_ref(const float16* src, float* dst, size_t size) {
 
 void FloatToBfloat16_ref(const float* src, bfloat16* dst, size_t size) {
   for (size_t i = 0; i < size; i++) {
-    // Add 2^15 and right shift 16 to do round-nearest
-    dst[i] = (*reinterpret_cast<const uint32_t*>(src + i) + (1 << 15)) >> 16;
+    // IEEE 754 round-to-nearest-even
+    uint32_t bits = std::bit_cast<uint32_t>(src[i]);
+    dst[i] = (bits + ((bits >> 16) & 1) + 0x7FFFu) >> 16;
   }
 }
 

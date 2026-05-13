@@ -17,16 +17,18 @@ namespace fbgemm {
 
 namespace {
 
-inline __m256i QuantizeBfloat16Avx2(const __m256& x0, const __m256& x1) {
-  // Add 2^15 and right shift 16 to do round-nearest
-  __m256i y0 = _mm256_srli_epi32(
-      _mm256_add_epi32(_mm256_castps_si256(x0), _mm256_set1_epi32(1 << 15)),
+// Round to nearest, ties to even
+inline __m256i rne_fp32_to_bf16x8(__m256i val) {
+  __m256i lsb =
+      _mm256_and_si256(_mm256_srli_epi32(val, 16), _mm256_set1_epi32(1));
+  return _mm256_srli_epi32(
+      _mm256_add_epi32(val, _mm256_add_epi32(lsb, _mm256_set1_epi32(0x7FFF))),
       16);
-  __m256i y1 = _mm256_srli_epi32(
-      _mm256_add_epi32(_mm256_castps_si256(x1), _mm256_set1_epi32(1 << 15)),
-      16);
-  // AVX2 doesn't have _mm256_cvtepi32_epi16 so we need this instruction
-  // sequence.
+}
+
+inline __m256i QuantizeBfloat16Avx2(const __m256 &x0, const __m256 &x1) {
+  __m256i y0 = rne_fp32_to_bf16x8(_mm256_castps_si256(x0));
+  __m256i y1 = rne_fp32_to_bf16x8(_mm256_castps_si256(x1));
   return _mm256_permute4x64_epi64(_mm256_packus_epi32(y0, y1), 0xd8);
 }
 
