@@ -826,14 +826,10 @@ bool is_stats_enabled() {
 }
 
 bool is_sve_fp16_enabled() {
-  static bool res;
-  static bool called_once = false;
-  if (called_once) {
-    return res;
-  }
-  called_once = true;
-  char* env_val = std::getenv("FBGEMM_TBE_SVE_FP16_ACCUMULATOR");
-  res = (env_val != nullptr);
+  static bool res = [] {
+    char* env_val = std::getenv("FBGEMM_TBE_SVE_FP16_ACCUMULATOR");
+    return env_val != nullptr;
+  }();
   return res;
 }
 
