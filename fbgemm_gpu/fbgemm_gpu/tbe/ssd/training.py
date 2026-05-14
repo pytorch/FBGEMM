@@ -1160,6 +1160,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.dram_kv_miss_count_stats_name: str = (
             f"dram_kv.perf.get.tbe_id{tbe_unique_id}.dram_read_miss_count"
         )
+        self.enrichment_query_count_stats_name: str = (
+            f"dram_kv.perf.get.tbe_id{tbe_unique_id}.enrichment_query_count"
+        )
+        self.enrichment_empty_count_stats_name: str = (
+            f"dram_kv.perf.get.tbe_id{tbe_unique_id}.enrichment_empty_count"
+        )
+        self.enrichment_success_rate_stats_name: str = (
+            f"dram_kv.perf.get.tbe_id{tbe_unique_id}.enrichment_success_rate_pct"
+        )
         self.l1_hit_rate_stats_name: str = (
             f"ssd_tbe.prefetch.tbe_id{tbe_unique_id}.l1_hit_rate_pct"
         )
@@ -1212,6 +1221,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.dram_kv_hit_rate_stats_name)
             self.stats_reporter.register_stats(self.dram_kv_hit_count_stats_name)
             self.stats_reporter.register_stats(self.dram_kv_miss_count_stats_name)
+            self.stats_reporter.register_stats(self.enrichment_query_count_stats_name)
+            self.stats_reporter.register_stats(self.enrichment_empty_count_stats_name)
+            self.stats_reporter.register_stats(self.enrichment_success_rate_stats_name)
             self.stats_reporter.register_stats(self.l1_hit_rate_stats_name)
             for t in self.feature_table_map:
                 self.stats_reporter.register_stats(
@@ -4717,6 +4729,35 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     iteration_step=self.step,
                     event_name="dram_kv.hit_rate_pct",
                     data_bytes=hit_rate_pct,
+                    enable_tb_metrics=True,
+                )
+
+        # Enrichment query metrics (indices 38-39)
+        if len(dram_kv_perf_stats) >= 40:
+            enrichment_query_count = dram_kv_perf_stats[38]
+            enrichment_empty_count = dram_kv_perf_stats[39]
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.enrichment_query_count_stats_name,
+                data_bytes=enrichment_query_count,
+                enable_tb_metrics=True,
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.enrichment_empty_count_stats_name,
+                data_bytes=enrichment_empty_count,
+                enable_tb_metrics=True,
+            )
+            if enrichment_query_count > 0:
+                enrichment_success_rate = (
+                    100.0
+                    * (enrichment_query_count - enrichment_empty_count)
+                    / enrichment_query_count
+                )
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=self.enrichment_success_rate_stats_name,
+                    data_bytes=enrichment_success_rate,
                     enable_tb_metrics=True,
                 )
 

@@ -24,7 +24,8 @@ def default_compiler_flags():
         ],
         "ovr_config//compiler:gcc": [
             "-fno-trapping-math",
-        ] + select({
+        ]
+        + select({
             "DEFAULT": [],
             "ovr_config//cpu:arm64": [
                 "-ftree-vectorize",
@@ -137,7 +138,7 @@ def get_fbgemm_avx2_srcs(buck = False):
     ]
 
     common_srcs = [
-        #All the source files that either use avx2 instructions statically
+        # All the source files that either use avx2 instructions statically
         "src/EmbeddingSpMDMAvx2.cc",
         "src/FbgemmBfloat16ConvertAvx2.cc",
         "src/FbgemmFloat16ConvertAvx2.cc",
@@ -160,7 +161,7 @@ def get_fbgemm_avx2_srcs(buck = False):
 def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
     intrinsics_srcs = ["src/FbgemmFP16UKernelsIntrinsicAvx2.cc"]
 
-    #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
+    # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
         "src/fp32/FbgemmFP32UKernelsAvx2.cc",
         "src/FbgemmFP16UKernelsAvx2.cc",
@@ -175,7 +176,7 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
 
 def get_fbgemm_avx512_srcs():
     return [
-        #All the source files that use avx512 instructions statically
+        # All the source files that use avx512 instructions statically
         "src/FbgemmBfloat16ConvertAvx512.cc",
         "src/EmbeddingSpMDMAvx512.cc",
         "src/FbgemmFloat16ConvertAvx512.cc",
