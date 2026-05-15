@@ -4,11 +4,11 @@ High-performance GPU kernels for following operations (at the moment) with In-Ke
 - Linear Compression Embedding (LCE)
 - Flash Attention
 
-The Deep Dive Blog: (to add)
+**Blog Post:** [In-Kernel Broadcast Optimization: Co-Designing Kernels for RecSys Inference](https://pytorch.org/blog/in-kernel-broadcast-optimization-co-designing-kernels-for-recsys-inference/)
 
 ## Installation
 
-Install `triton` TLX from: https://github.com/facebookexperimental/triton/tree/main
+Install `triton` TLX [[1]](#references) from: https://github.com/facebookexperimental/triton/tree/main
 
 ```bash
 git clone -b tlx https://github.com/facebookexperimental/triton.git
@@ -59,3 +59,7 @@ Run benchmark with the dedicate GPU ID and corresponding NUMA node:
 CUDA_VISIBLE_DEVICES={GPU_ID} numactl -m {NUMA_node} -c {NUMA_node} python benchmarks/ikbo_lce_bench.py
 CUDA_VISIBLE_DEVICES={GPU_ID} numactl -m {NUMA_node} -c {NUMA_node} python benchmarks/ikbo_fa_bench.py
 ```
+
+## References
+
+[1] Y. Guan, H. Yu, et al., "TLX: A Triton Language Extension for Efficient Data Movement," *arXiv preprint arXiv:2605.10905*, 2025. [[paper]](https://arxiv.org/abs/2605.10905)
