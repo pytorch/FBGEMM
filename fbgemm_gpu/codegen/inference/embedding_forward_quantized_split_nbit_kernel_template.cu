@@ -281,16 +281,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       }
     }
 
-    {#- Hoist the writeopt branch outside the per-input_row / per-i loop nest
-        so the runtime check `D % (kWarpSize*kOutputsPerThread) == 0` is evaluated
-        once per L-tile instead of per inner iteration. The compiler doesn't
-        auto-hoist this; observed per-iter `s_cbranch` adds ~3-5% overhead on
-        non-triggering D values. Both inner-loop bodies are identical except
-        for the store/accumulate at the bottom — we duplicate the loop nest to
-        get the branch out, but the binary already contained both paths, so this
-        adds source duplication without adding binary size. -#}
     {% if not nobag %}
-    {#- Bagged path is unchanged: writeopt is not (yet) applied here. -#}
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -318,15 +309,9 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       }
     }
     {% else %}
-    {#- Nobag path: hoist the writeopt branch outside the input_row_idx / i loops. -#}
     using scalar_t = {{ emb_weight_type.cpp_type_name }};
     {% if emb_weight_type.primitive_type == "INT" %}
-    // Hoisted runtime check — evaluated once per L-tile (vs once per inner iter
-    // before hoisting). When true, every (input_row_idx, i) inside takes the
-    // optimized store path; otherwise every (input_row_idx, i) takes the
-    // original path. Eliminates per-iter branch overhead on the original path.
     if (D % (kWarpSize * kOutputsPerThread) == 0 && D_padding > 0) {
-      // ============ Optimized branch (writeopt active) ============
       for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
         for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -378,7 +363,6 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     } else
     {% endif %}
     {
-      // ============ Original branch (no writeopt) ============
       for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
         for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
