@@ -329,9 +329,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           }
           const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
           half2 shift_scale = reinterpret_cast<const half2*>(row)[PackedMode ? packed_bag_acc_idx * uints_per_row : 0];
-          // Number of scalar_t-sized entries occupied by the per-row scale/bias header.
-          // Derived from `shift_scale`'s type so this offset auto-updates if the header type
-          // ever changes. Folds to 1 for all INT weight types.
+          // Size of the per-row scale/bias header in scalar_t units; derived from shift_scale's type.
           constexpr uint32_t kHeaderScalarOffset = sizeof(decltype(shift_scale)) / sizeof(scalar_t);
           const uint32_t opt_iters = D / (kWarpSize * kOutputsPerThread);
           const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
@@ -370,6 +368,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       }
     } else
     {% endif %}
+    {#- For non-INT weight types the {%- if %} above renders nothing; this block then
+        becomes a bare scope holding the unmodified loop. -#}
     {
       for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
