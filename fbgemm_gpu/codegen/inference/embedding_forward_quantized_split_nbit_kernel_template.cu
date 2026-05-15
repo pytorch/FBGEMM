@@ -387,13 +387,27 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             continue;
           }
           const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+          // scale and bias are at the beginning of each row.
+          // rationale: have scale/shift at start since these get loaded first
+          // and then broadcasted around so it might speed up the first cache miss.
           {% if emb_weight_type.primitive_type == "INT" %}
+          // In PackedMode, row pointer may contain several rows from different bags, so each thread/lane should
+          // read the certain shift_scale related to the row in the packed_bag.
           half2 shift_scale = reinterpret_cast<const half2*>(row)[PackedMode ? packed_bag_acc_idx * uints_per_row : 0];
           {% endif %}
+
+          {% if weighted %}
+          float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx][PackedMode ? packed_bag_acc_idx : 0];
+          {% endif %}
+
           const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
           if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
             #pragma unroll AccumulateStoreRequests
             for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
+              // We shift back by 4/8/16 elements to remove the first 4 Bytes (which is garbage due to
+              // the scale/shift handling).
+              // Reason: to avoid divergence the first thread in the warp computes garbage.
               const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
               scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
               if (output_d < D) {
@@ -403,6 +417,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
               }
             }
           } else if constexpr (std::is_same_v<output_t, uint8_t>) {
+            // INT8:
+            // apply per feature row-wise int8
             auto thread_local_min = std::numeric_limits<float>::max();
             auto thread_local_max = std::numeric_limits<float>::lowest();
             float2 qparams;
