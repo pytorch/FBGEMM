@@ -49,6 +49,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # Build on CPU hosts, run tests, and upload to GHA
   build_artifact:
