@@ -318,7 +318,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     }
     {% else %}
     using scalar_t = {{ emb_weight_type.cpp_type_name }};
-    {% if emb_weight_type.primitive_type == "INT" %}
+    {% if emb_weight_type.primitive_type == "INT" and is_rocm %}
     if (D % (kWarpSize * kOutputsPerThread) == 0 && D_padding > 0) {
       for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
@@ -368,8 +368,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       }
     } else
     {% endif %}
-    {#- For non-INT weight types the {%- if %} above renders nothing; this block then
-        becomes a bare scope holding the unmodified loop. -#}
+    {#- For non-INT weight types or non-ROCm builds the {%- if %} above renders
+        nothing; this block then becomes a bare scope holding the unmodified loop. -#}
     {
       for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
