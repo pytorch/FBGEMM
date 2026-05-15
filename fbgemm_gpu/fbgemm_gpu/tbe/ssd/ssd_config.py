@@ -210,6 +210,10 @@ class EnrichmentType(enum.IntEnum):
     IGR_LASER_SID = 1
     ONEFLOW_OPENTAB_SID = 2
     ONEFLOW_FEATURE_STORE_SID = 3
+    # Test-only: in-process fake that returns deterministic embeddings derived
+    # from the requested ID. Used by hermetic tests to exercise the
+    # enrichment + EC.write() round trip without a real Laser tier.
+    IN_MEMORY_TEST_ONLY = 4
 
 
 class EnrichmentResponseFormat(enum.IntEnum):

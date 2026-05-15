@@ -30,6 +30,7 @@
 #include "../ssd_split_embeddings_cache/initializer.h"
 #include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
 #include "SynchronizedShardedMap.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/fake_enrichment.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/feature_store_enrichment.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/igr_enrichment.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/oneflow_enrichment.h"
@@ -1264,6 +1265,24 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             const std::vector<int64_t>& u,
                             const auto& data) {
                           return oneflow_enrichment::prepareInt64PayloadTensors<
+                              weight_type>(h, u, data, max_D_);
+                        });
+                  } else if (
+                      enrichment_type ==
+                      kv_mem::EnrichmentType::IN_MEMORY_TEST_ONLY) {
+                    dispatchEnrichmentAsync(
+                        std::move(all_zero_weight_hashed_ids),
+                        std::move(all_zero_weight_unhashed_ids),
+                        "fake_hit: ",
+                        [this](const std::vector<int64_t>& ids) {
+                          return fake_enrichment::fetchFromFake(
+                              *enrichment_config_.value(), ids);
+                        },
+                        [this](
+                            const std::vector<int64_t>& h,
+                            const std::vector<int64_t>& u,
+                            const auto& data) {
+                          return fake_enrichment::prepareCacheWriteTensors<
                               weight_type>(h, u, data, max_D_);
                         });
                   } else {
