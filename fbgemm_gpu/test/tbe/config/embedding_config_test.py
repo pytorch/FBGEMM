@@ -19,19 +19,22 @@ Tests cover:
 
 import enum
 import unittest
-from typing import Final
 
 import torch
 
-
-CUDA_NOT_AVAILABLE: Final[bool] = not torch.cuda.is_available()
+try:
+    # pyre-ignore[21]
+    from test_utils import gpu_unavailable
+except ModuleNotFoundError:
+    import fbgemm_gpu  # noqa: F401
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
 class EmbeddingConfigImportTest(unittest.TestCase):
     """Verify all symbols are importable from tbe.config."""
 
     def test_import_from_tbe_config_package(self) -> None:
-        from fbgemm_gpu.tbe.config import (  # noqa: F401
+        from fbgemm_gpu.tbe.config import (
             BoundsCheckMode,
             ComputeDevice,
             DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
@@ -52,6 +55,14 @@ class EmbeddingConfigImportTest(unittest.TestCase):
         self.assertTrue(issubclass(PoolingMode, enum.IntEnum))
         self.assertTrue(issubclass(BoundsCheckMode, enum.IntEnum))
         self.assertTrue(issubclass(EmbeddingSpecInfo, enum.IntEnum))
+        self.assertTrue(isinstance(DEFAULT_SCALE_BIAS_SIZE_IN_BYTES, int))
+        self.assertTrue(callable(get_bounds_check_version_for_platform))
+        self.assertTrue(isinstance(INT8_EMB_ROW_DIM_OFFSET, int))
+        self.assertTrue(isinstance(MAX_PREFETCH_DEPTH, int))
+        self.assertTrue(callable(RecordCacheMetrics))
+        self.assertTrue(callable(round_up))
+        self.assertTrue(callable(SplitState))
+        self.assertTrue(callable(tensor_to_device))
 
 
 class EmbeddingConfigClassmethodTest(unittest.TestCase):
@@ -71,37 +82,50 @@ class EmbeddingConfigClassmethodTest(unittest.TestCase):
             EmbeddingLocation.HOST,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_cuda_managed(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
 
+        device: torch.device = torch.accelerator.current_accelerator()  # pyre-ignore[9]
+        assert device is not None
         self.assertEqual(
-            EmbeddingLocation.from_device_and_clf(torch.device("cuda"), 0.0),
+            EmbeddingLocation.from_device_and_clf(device, 0.0),
             EmbeddingLocation.MANAGED,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_cuda_device(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
 
+        device: torch.device = torch.accelerator.current_accelerator()  # pyre-ignore[9]
+        assert device is not None
         self.assertEqual(
-            EmbeddingLocation.from_device_and_clf(torch.device("cuda"), 1.0),
+            EmbeddingLocation.from_device_and_clf(device, 1.0),
             EmbeddingLocation.DEVICE,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_cuda_caching(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
 
+        device: torch.device = torch.accelerator.current_accelerator()  # pyre-ignore[9]
+        assert device is not None
         self.assertEqual(
-            EmbeddingLocation.from_device_and_clf(torch.device("cuda"), 0.5),
+            EmbeddingLocation.from_device_and_clf(device, 0.5),
             EmbeddingLocation.MANAGED_CACHING,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_invalid_raises(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
 
+        device: torch.device = torch.accelerator.current_accelerator()  # pyre-ignore[9]
+        assert device is not None
+
         with self.assertRaises(ValueError):
-            EmbeddingLocation.from_device_and_clf(torch.device("cuda"), 1.5)
+            EmbeddingLocation.from_device_and_clf(device, 1.5)
         with self.assertRaises(ValueError):
-            EmbeddingLocation.from_device_and_clf(torch.device("cuda"), -0.1)
+            EmbeddingLocation.from_device_and_clf(device, -0.1)
 
     def test_embedding_location_from_str_roundtrip(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
@@ -152,7 +176,7 @@ class EmbeddingConfigJITTest(unittest.TestCase):
     3. Module-level references breaking due to import rewriting
     """
 
-    @unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA required")
+    @unittest.skipIf(*gpu_unavailable)
     def test_tbe_jit_script_with_new_import_paths(self) -> None:
         """Critical: Ensure TBE can still be JIT-scripted."""
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
@@ -167,8 +191,12 @@ class EmbeddingConfigJITTest(unittest.TestCase):
             ],
         )
         cc_scripted = torch.jit.script(cc)
-        indices = torch.randint(0, 100, (10,), device="cuda")
-        offsets = torch.tensor([0, 5, 10], device="cuda", dtype=torch.long)
+        indices = torch.randint(
+            0, 100, (10,), device=torch.accelerator.current_accelerator()
+        )
+        offsets = torch.tensor(
+            [0, 5, 10], device=torch.accelerator.current_accelerator(), dtype=torch.long
+        )
         output = cc_scripted(indices, offsets)
         self.assertEqual(output.shape[0], 2)
         self.assertEqual(output.shape[1], 16)

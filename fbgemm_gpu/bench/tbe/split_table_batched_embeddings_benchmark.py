@@ -38,6 +38,7 @@ from fbgemm_gpu.tbe.bench import (
     EmbeddingOpsCommonConfigLoader,
     generate_merged_output_and_offsets,
     TbeBenchClickInterface,
+    TBEBenchmarkingConfig,
     TBEBenchmarkingConfigLoader,
 )
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
@@ -114,6 +115,129 @@ def compute_read_write_bytes(
     return read_write_bytes
 
 
+def print_comparison_summary(
+    results: Dict[str, Dict[str, float]],
+    config_str: str,
+    output_dtype: SparseType,
+    accelerator_name: Optional[str] = None,
+) -> None:
+    logging.info(f"\n{'=' * 60}")
+    logging.info("COMPARISON SUMMARY")
+    logging.info(f"{'=' * 60}")
+    logging.info(config_str)
+    logging.info("")
+    header = f"{'Device':<15} {'Fwd Time (us)':<15} {'Fwd BW (GB/s)':<15}"
+    if output_dtype != SparseType.INT8:
+        header += f" {'Bwd Time (us)':<15} {'Bwd BW (GB/s)':<15}"
+    logging.info(header)
+    logging.info("-" * len(header))
+    for device_name, metrics in results.items():
+        row = f"{device_name:<15} {metrics['fwd_time_us']:<15.2f} {metrics['fwd_bw_gbs']:<15.2f}"
+        if output_dtype != SparseType.INT8:
+            row += (
+                f" {metrics.get('bwd_time_us', 0):<15.2f}"
+                f" {metrics.get('bwd_bw_gbs', 0):<15.2f}"
+            )
+        logging.info(row)
+    if accelerator_name and "CPU" in results and accelerator_name in results:
+        fwd_speedup = (
+            results["CPU"]["fwd_time_us"] / results[accelerator_name]["fwd_time_us"]
+        )
+        logging.info("")
+        logging.info(f"Forward Speedup ({accelerator_name} vs CPU): {fwd_speedup:.2f}x")
+        if output_dtype != SparseType.INT8:
+            bwd_speedup = (
+                results["CPU"]["bwd_time_us"] / results[accelerator_name]["bwd_time_us"]
+            )
+            logging.info(
+                f"Backward Speedup ({accelerator_name} vs CPU): {bwd_speedup:.2f}x"
+            )
+
+
+def _move_requests_to_device(
+    requests: list[TBERequest], device: torch.device
+) -> list[TBERequest]:
+    moved = []
+    for req in requests:
+        indices, offsets, weights = req.unpack_3()
+        moved.append(
+            TBERequest(
+                indices.to(device),
+                offsets.to(device),
+                weights.to(device) if weights is not None else None,
+            )
+        )
+    return moved
+
+
+def _run_cpu_comparison(
+    accel_fwd_time_sec: float,
+    accel_bwd_time_sec: float,
+    cpu_benchmark_fn: Callable[[], Tuple[float, float]],
+    read_write_bytes: float,
+    config_str: str,
+    output_dtype: SparseType,
+) -> None:
+    cpu_fwd_sec, cpu_bwd_sec = cpu_benchmark_fn()
+    accel_name = get_available_compute_device().name
+    results: Dict[str, Dict[str, float]] = {
+        accel_name: {
+            "fwd_time_us": accel_fwd_time_sec * 1.0e6,
+            "fwd_bw_gbs": (
+                read_write_bytes / accel_fwd_time_sec / 1.0e9
+                if read_write_bytes > 0
+                else 0.0
+            ),
+            "bwd_time_us": accel_bwd_time_sec * 1.0e6,
+            "bwd_bw_gbs": (
+                2 * read_write_bytes / accel_bwd_time_sec / 1.0e9
+                if read_write_bytes > 0
+                else 0.0
+            ),
+        },
+        "CPU": {
+            "fwd_time_us": cpu_fwd_sec * 1.0e6,
+            "fwd_bw_gbs": (
+                read_write_bytes / cpu_fwd_sec / 1.0e9 if read_write_bytes > 0 else 0.0
+            ),
+            "bwd_time_us": cpu_bwd_sec * 1.0e6,
+            "bwd_bw_gbs": (
+                2 * read_write_bytes / cpu_bwd_sec / 1.0e9
+                if read_write_bytes > 0
+                else 0.0
+            ),
+        },
+    }
+    print_comparison_summary(results, config_str, output_dtype, accel_name)
+
+
+def _benchmark_cpu_fwd_bwd(
+    cpu_requests: list[TBERequest],
+    fwd_func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    grad_output: Tensor,
+    warmup_runs: int,
+    iters: int = -1,
+) -> Tuple[float, float]:
+    cpu_grad_output = grad_output.to(torch.device("cpu"))
+    fwd_time = benchmark_requests(
+        cpu_requests,
+        fwd_func,
+        flush_gpu_cache_size_mb=0,
+        num_warmups=warmup_runs,
+        iters=iters,
+    )
+    bwd_time = benchmark_requests(
+        cpu_requests,
+        fwd_func,
+        flush_gpu_cache_size_mb=0,
+        bwd_only=True,
+        grad=cpu_grad_output,
+        num_warmups=warmup_runs,
+        iters=iters,
+    )
+    return fwd_time, bwd_time
+
+
 @cli.command()
 @TbeBenchClickInterface.common_options
 @TbeBenchClickInterface.device_options
@@ -188,6 +312,12 @@ def compute_read_write_bytes(
     help="Number of input batches to generate. If the value is smaller than "
     "iters, the benchmark will reuse the input batches",
 )
+@click.option(
+    "--compare",
+    is_flag=True,
+    default=False,
+    help="Run CPU baseline comparison",
+)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -223,6 +353,7 @@ def device(  # noqa C901
     num_requests: int,
     indices_file: Optional[str],
     offsets_file: Optional[str],
+    compare: bool,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
     num_requests = iters if num_requests == -1 else num_requests
@@ -405,11 +536,12 @@ def device(  # noqa C901
             iters=iters,
         )
 
+    fwd_time_per_iter = time_per_iter
     logging.info(
         f"Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, a: {alpha}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-        f"T: {time_per_iter * 1.0e6:.0f}us"
+        f"BW: {read_write_bytes / fwd_time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"T: {fwd_time_per_iter * 1.0e6:.0f}us"
     )
 
     if output_dtype == SparseType.INT8:
@@ -445,6 +577,46 @@ def device(  # noqa C901
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
+
+    if compare and not ssd and get_available_compute_device() != ComputeDevice.CPU:
+        cpu_device = torch.device("cpu")
+        if dense:
+            cpu_emb = DenseTableBatchedEmbeddingBagsCodegen(
+                [(E, d) for d in Ds],
+                pooling_mode=pooling_mode,
+                use_cpu=True,
+            )
+        else:
+            cpu_emb = SplitTableBatchedEmbeddingBagsCodegen(
+                [(E, d, EmbeddingLocation.HOST, ComputeDevice.CPU) for d in Ds],
+                **common_split_args,
+            )
+        if weights_precision in [SparseType.INT8, SparseType.NFP8]:
+            cpu_emb.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+        cpu_requests = _move_requests_to_device(requests, cpu_device)
+
+        _run_cpu_comparison(
+            accel_fwd_time_sec=fwd_time_per_iter,
+            accel_bwd_time_sec=time_per_iter,
+            cpu_benchmark_fn=lambda: _benchmark_cpu_fwd_bwd(
+                cpu_requests,
+                lambda indices, offsets, per_sample_weights: cpu_emb.forward(
+                    indices.to(dtype=indices_dtype_torch),
+                    offsets.to(dtype=indices_dtype_torch),
+                    per_sample_weights,
+                ),
+                grad_output,
+                warmup_runs,
+                iters,
+            ),
+            read_write_bytes=read_write_bytes,
+            config_str=(
+                f"Configuration: B={B}, E={E}, T={T}, D={D}, L={L}, W={weighted}\n"
+                f"Weights precision: {weights_precision}, Output dtype: {output_dtype}"
+            ),
+            output_dtype=output_dtype,
+        )
 
 
 @cli.command()
@@ -1066,6 +1238,12 @@ def cache(  # noqa C901
 @TbeBenchClickInterface.common_options
 @TbeBenchClickInterface.device_options
 @TbeBenchClickInterface.vbe_options
+@click.option(
+    "--compare",
+    is_flag=True,
+    default=False,
+    help="Run CPU baseline comparison",
+)
 def device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -1088,6 +1266,7 @@ def device_with_spec(  # noqa C901
     output_dtype: SparseType,
     export_trace: bool,
     trace_url: str,
+    compare: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1271,11 +1450,13 @@ def device_with_spec(  # noqa C901
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
             num_warmups=warmup_runs,
         )
+
+    fwd_time_per_iter = time_per_iter
     logging.info(
         f"Forward, B: {B}, "
         f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, W: {weighted}, a: {alpha}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-        f"T: {time_per_iter * 1.0e6:.0f}us"
+        f"BW: {read_write_bytes / fwd_time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"T: {fwd_time_per_iter * 1.0e6:.0f}us"
     )
 
     if output_dtype == SparseType.INT8:
@@ -1305,11 +1486,51 @@ def device_with_spec(  # noqa C901
             grad=grad_output,
             num_warmups=warmup_runs,
         )
+
     logging.info(
         f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, a: {alpha}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
+
+    if compare and get_available_compute_device() != ComputeDevice.CPU:
+        cpu_device = torch.device("cpu")
+        cpu_emb = SplitTableBatchedEmbeddingBagsCodegen(
+            [(e, d, EmbeddingLocation.HOST, ComputeDevice.CPU) for d, e in zip(Ds, Es)],
+            optimizer=optimizer,
+            learning_rate=0.1,
+            eps=0.1,
+            weights_precision=weights_precision,
+            cache_precision=cache_precision,
+            stochastic_rounding=stoc,
+            output_dtype=output_dtype,
+            pooling_mode=pooling_mode,
+            bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+        )
+        if weights_precision == SparseType.INT8:
+            cpu_emb.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+        cpu_requests = _move_requests_to_device(requests, cpu_device)
+
+        _run_cpu_comparison(
+            accel_fwd_time_sec=fwd_time_per_iter,
+            accel_bwd_time_sec=time_per_iter,
+            cpu_benchmark_fn=lambda: _benchmark_cpu_fwd_bwd(
+                cpu_requests,
+                lambda indices, offsets, per_sample_weights: cpu_emb.forward(
+                    indices, offsets, per_sample_weights
+                ),
+                grad_output,
+                warmup_runs,
+            ),
+            read_write_bytes=read_write_bytes,
+            config_str=(
+                f"Configuration: B={B}, Es={Es}, T={T}, Ds={Ds}, "
+                f"Ls={Ls_str}, W={weighted}\n"
+                f"Weights precision: {weights_precision}, Output dtype: {output_dtype}"
+            ),
+            output_dtype=output_dtype,
+        )
 
 
 @cli.command()
@@ -1391,6 +1612,12 @@ def device_with_spec(  # noqa C901
     default=2,
     help="Number of TBE ops for merged output allocation.",
 )
+@click.option(
+    "--compare",
+    is_flag=True,
+    default=False,
+    help="Run CPU baseline comparison",
+)
 @TBEBenchmarkingConfigLoader.options
 @EmbeddingOpsCommonConfigLoader.options
 @click.pass_context
@@ -1410,6 +1637,7 @@ def vbe(  # noqa: C901
     merge_output: bool,
     merge_output_num_ranks: int,
     merge_output_num_tbe_ops: int,
+    compare: bool,
     # pyre-ignore[2]
     **kwargs,
 ) -> None:
@@ -1421,8 +1649,13 @@ def vbe(  # noqa: C901
     np.random.seed(42)
     torch.manual_seed(42)
 
+    use_cpu: bool = get_available_compute_device() == ComputeDevice.CPU
+
+    # merge_output is not supported for CPU
+    assert not (merge_output and use_cpu), "merge_output is not supported for CPU"
+
     # Load general TBE benchmarking configuration from cli arguments
-    benchconfig = TBEBenchmarkingConfigLoader.load(context)
+    benchconfig: TBEBenchmarkingConfig = TBEBenchmarkingConfigLoader.load(context)
     if benchconfig.num_requests != benchconfig.iterations:
         raise ValueError("--bench-num-requests is not supported.")
 
@@ -1442,7 +1675,7 @@ def vbe(  # noqa: C901
         alphas = [float(alpha_list)] * T
     else:
         alphas = [float(alpha) for alpha in alpha_list.split(",")]
-    Bs = [int(v) for v in batch_size_list.split(",")]
+    Bs: list[int] = [int(v) for v in batch_size_list.split(",")]
     Ds = [int(v) for v in embedding_dim_list.split(",")]
     Ls = [int(v) for v in bag_size_list.split(",")]
     sigma_Ls = (
@@ -1522,7 +1755,7 @@ def vbe(  # noqa: C901
             weighted=weighted,
             sigma_L=sigma_L,
             zipf_oversample_ratio=3 if L > 5 else 5,
-            use_cpu=get_available_compute_device() == ComputeDevice.CPU,
+            use_cpu=use_cpu,
             index_dtype=torch.long,
             offset_dtype=torch.long,
         )
@@ -1541,9 +1774,10 @@ def vbe(  # noqa: C901
     def _kineto_trace_handler(
         p: profile, emb_op_type: str = "vbe", print_summary: bool = False
     ) -> None:
-        p.export_chrome_trace(
-            benchconfig.trace_url.format(emb_op_type=emb_op_type, ospid=os.getpid())
-        )
+        if benchconfig.trace_url is not None:
+            p.export_chrome_trace(
+                benchconfig.trace_url.format(emb_op_type=emb_op_type, ospid=os.getpid())
+            )
         if print_summary:
             print(p.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
@@ -1569,7 +1803,7 @@ def vbe(  # noqa: C901
 
     del all_requests
 
-    batch_size_per_feature_per_rank = [[B] for B in Bs]
+    batch_size_per_feature_per_rank: list[list[int]] = [[B] for B in Bs]
     out = None
     out_offsets = None
     if merge_output:
@@ -1599,10 +1833,61 @@ def vbe(  # noqa: C901
             ),
             num_warmups=benchconfig.warmup_iterations,
         )
+    fwd_time_us = fwd_time_sec * 1.0e6
+    bwd_time_us = bwd_time_sec * 1.0e6
     logging.info(
         f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}, alphas: {alphas}\n"
-        f"fwd: {fwd_time_sec * 1.0e6:.0f}us, bwd: {bwd_time_sec * 1.0e6:.0f}us"
+        f"fwd: {fwd_time_us:.0f}us, bwd: {bwd_time_us:.0f}us"
     )
+
+    if compare and not ssd and get_available_compute_device() != ComputeDevice.CPU:
+        cpu_device = torch.device("cpu")
+        cpu_emb: SplitTableBatchedEmbeddingBagsCodegen = (
+            SplitTableBatchedEmbeddingBagsCodegen(
+                [
+                    (E, D, EmbeddingLocation.HOST, ComputeDevice.CPU)
+                    for E, D in zip(Es, Ds)
+                ],
+                cache_precision=embconfig.cache_dtype,
+                **common_split_args,
+            )
+        )
+
+        cpu_requests: list[
+            tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]
+        ] = [
+            (
+                indices.to(cpu_device),
+                offsets.to(cpu_device),
+                weights.to(cpu_device) if weights is not None else None,
+            )
+            for indices, offsets, weights in requests
+        ]
+
+        def cpu_benchmark_fn() -> Tuple[float, float]:
+            return benchmark_vbe(
+                cpu_requests,
+                func=lambda indices, offsets, per_sample_weights: cpu_emb.forward(
+                    indices,
+                    offsets,
+                    per_sample_weights,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                ),
+                num_warmups=benchconfig.warmup_iterations,
+            )
+
+        _run_cpu_comparison(
+            accel_fwd_time_sec=fwd_time_sec,
+            accel_bwd_time_sec=bwd_time_sec,
+            cpu_benchmark_fn=cpu_benchmark_fn,
+            read_write_bytes=0.0,
+            config_str=(
+                f"Configuration: T={T}, Bs={Bs}, Ds={Ds}, Ls={Ls}, Es={Es}\n"
+                f"Weights precision: {embconfig.weights_dtype}, "
+                f"Output dtype: {embconfig.output_dtype}"
+            ),
+            output_dtype=embconfig.output_dtype,
+        )
 
 
 @cli.command()
@@ -1999,44 +2284,15 @@ def device_from_files(  # noqa C901
             compute_device = [dev] * len(_Es)
         results[accel_name] = run_benchmark_on_device(accelerator_device)
 
-    # Print comparison summary
-    logging.info(f"\n{'=' * 60}")
-    logging.info("COMPARISON SUMMARY")
-    logging.info(f"{'=' * 60}")
-    logging.info(
+    config_str = (
         f"Configuration: B={total_B}, E={avg_E:.0f}, T={T}, "
-        f"D={avg_D:.0f}, L={avg_L:.1f}, W={weighted}"
-    )
-    logging.info(
+        f"D={avg_D:.0f}, L={avg_L:.1f}, W={weighted}\n"
         f"Weights precision: {weights_precision}, Output dtype: {output_dtype}"
     )
-    logging.info("")
-
-    # Print table header
-    header = f"{'Device':<15} {'Fwd Time (us)':<15} {'Fwd BW (GB/s)':<15}"
-    if output_dtype != SparseType.INT8:
-        header += f" {'Bwd Time (us)':<15} {'Bwd BW (GB/s)':<15}"
-    logging.info(header)
-    logging.info("-" * len(header))
-
-    for device_name, metrics in results.items():
-        row = f"{device_name:<15} {metrics['fwd_time_us']:<15.2f} {metrics['fwd_bw_gbs']:<15.2f}"
-        if output_dtype != SparseType.INT8:
-            row += f" {metrics.get('bwd_time_us', 0):<15.2f} {metrics.get('bwd_bw_gbs', 0):<15.2f}"
-        logging.info(row)
-
-    # Print speedup if accelerator is available
-    if compare and accelerator_device is not None:
-        accel_name = accelerator_device.type.upper()
-        fwd_speedup = results["CPU"]["fwd_time_us"] / results[accel_name]["fwd_time_us"]
-        logging.info("")
-        logging.info(f"Forward Speedup ({accel_name} vs CPU): {fwd_speedup:.2f}x")
-
-        if output_dtype != SparseType.INT8:
-            bwd_speedup = (
-                results["CPU"]["bwd_time_us"] / results[accel_name]["bwd_time_us"]
-            )
-            logging.info(f"Backward Speedup ({accel_name} vs CPU): {bwd_speedup:.2f}x")
+    accel_name = (
+        accelerator_device.type.upper() if accelerator_device is not None else None
+    )
+    print_comparison_summary(results, config_str, output_dtype, accel_name)
 
 
 if __name__ == "__main__":
