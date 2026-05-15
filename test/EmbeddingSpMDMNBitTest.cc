@@ -221,7 +221,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       offsets_or_lengths,                                               \
       use_weight ? weights.data() : nullptr,                            \
       normalize_by_lengths,                                             \
-      output_ref.data(),                                                \
+      reinterpret_cast<OutType*>(output_ref.data()),                    \
       is_wt_positional,                                                 \
       use_offsets,                                                      \
       /*output_stride=*/-1,                                             \
@@ -253,7 +253,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       corner_case == EMPTY_INDICES ? nullptr : indices.data(),          \
       offsets_or_lengths,                                               \
       use_weight ? weights.data() : nullptr,                            \
-      output.data());
+      reinterpret_cast<OutType*>(output.data()));
 
 #define TEST_THREAD_LOCAL(  \
     indices,                \
@@ -303,7 +303,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
         output_bf16,                                                      \
         IndexType,                                                        \
         OffsetType,                                                       \
-        bfloat16);                                                        \
+        uint16_t);                                                        \
   } else {                                                                \
     TEST_THREAD_LOCAL(                                                    \
         indices,                                                          \
@@ -312,7 +312,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
         output_fp16,                                                      \
         IndexType,                                                        \
         OffsetType,                                                       \
-        float16);                                                         \
+        uint16_t);                                                        \
   }
 
 #define TEST_OFFSET_TYPE(indices, IndexType)                           \
@@ -345,9 +345,9 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       if (out_type == FLOAT) {
         return output[offset];
       } else if (out_type == BFLOAT16) {
-        return cpu_bf162float(output[offset]);
+        return cpu_bf162float(output_bf16[offset]);
       } else {
-        return cpu_half2float(output[offset]);
+        return cpu_half2float(output_fp16[offset]);
       }
     };
 
@@ -355,9 +355,9 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       if (out_type == FLOAT) {
         return output_ref[offset];
       } else if (out_type == BFLOAT16) {
-        return cpu_bf162float(output_ref[offset]);
+        return cpu_bf162float(output_ref_bf16[offset]);
       } else {
-        return cpu_half2float(output_ref[offset]);
+        return cpu_half2float(output_ref_fp16[offset]);
       }
     };
 

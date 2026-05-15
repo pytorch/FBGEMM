@@ -1608,8 +1608,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       if constexpr (std::is_same_v<InputType, float>) {
         min_max_row_float = min_max_row;
       } else {
-        min_max_row_float_for_fp16[0] = halfToFloat(min_max_row[0]);
-        min_max_row_float_for_fp16[1] = halfToFloat(min_max_row[1]);
+        min_max_row_float_for_fp16[0] = halfToFloat(min_max_row[0].val);
+        min_max_row_float_for_fp16[1] = halfToFloat(min_max_row[1].val);
         min_max_row_float = min_max_row_float_for_fp16;
       }
     }
@@ -1663,7 +1663,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
           minimum_element = std::min(minimum_element, input_row_float[col]);
           maximum_element = std::max(maximum_element, input_row_float[col]);
         } else {
-          float element = halfToFloat(input_row[col]);
+          float element = halfToFloat(input_row[col].val);
           input_row_float_for_fp16[col] = element;
           minimum_element = std::min(minimum_element, element);
           maximum_element = std::max(maximum_element, element);
@@ -1834,8 +1834,8 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
       if constexpr (std::is_same_v<InputType, float>) {
         min_max_row_float = min_max_row;
       } else {
-        min_max_row_float_for_fp16[0] = halfToFloat(min_max_row[0]);
-        min_max_row_float_for_fp16[1] = halfToFloat(min_max_row[1]);
+        min_max_row_float_for_fp16[0] = halfToFloat(min_max_row[0].val);
+        min_max_row_float_for_fp16[1] = halfToFloat(min_max_row[1].val);
         min_max_row_float = min_max_row_float_for_fp16;
       }
     }
@@ -1888,7 +1888,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
           minimum_element = std::min(minimum_element, input_row_float[col]);
           maximum_element = std::max(maximum_element, input_row_float[col]);
         } else {
-          float element = halfToFloat(input_row[col]);
+          float element = halfToFloat(input_row[col].val);
           input_row_float_for_fp16[col] = element;
           minimum_element = std::min(minimum_element, element);
           maximum_element = std::max(maximum_element, element);

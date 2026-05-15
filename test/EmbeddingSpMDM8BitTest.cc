@@ -229,7 +229,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       offsets_or_lengths,                                                    \
       use_weight ? weights.data() : nullptr,                                 \
       normalize_by_lengths,                                                  \
-      output_ref.data(),                                                     \
+      reinterpret_cast<OutType*>(output_ref.data()),                         \
       is_wt_positional,                                                      \
       use_offsets,                                                           \
       /*output_stride=*/-1,                                                  \
@@ -264,7 +264,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       corner_case == EMPTY_INDICES ? nullptr : indices.data(),               \
       offsets_or_lengths,                                                    \
       use_weight ? weights.data() : nullptr,                                 \
-      output.data());
+      reinterpret_cast<OutType*>(output.data()));
 
 #define TEST_OUT_TYPE(indices, offsets_or_lengths, IndexType, OffsetType) \
   if (out_type == FLOAT) {                                                \
@@ -284,7 +284,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
         output_16b,                                                       \
         IndexType,                                                        \
         OffsetType,                                                       \
-        float16);                                                         \
+        uint16_t);                                                        \
   }
 
 #define TEST_OFFSET_TYPE(indices, IndexType)                           \
@@ -453,10 +453,10 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
       }
 
       int output_size = batch_size;
-      vector<float16> output_ref_16b(output_size * embedding_dim);
-      vector<float16> output_16b(output_size * embedding_dim);
+      vector<uint16_t> output_ref_16b(output_size * embedding_dim);
+      vector<uint16_t> output_16b(output_size * embedding_dim);
 
-      bool success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t, int64_t, float16>(
+      bool success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t, int64_t, uint16_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -475,7 +475,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           false); // is_bf16_out
 
       auto kernel =
-          GenerateEmbeddingSpMDMWithStrides<uint8_t, int64_t, int64_t, float16>(
+          GenerateEmbeddingSpMDMWithStrides<uint8_t, int64_t, int64_t, uint16_t>(
               embedding_dim,
               use_weight,
               false, // normalize_by_lengths
@@ -507,8 +507,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
 
       if (success) {
         for (int i = 0; i < output_size * embedding_dim; ++i) {
-          float actual = cpu_half2float(output_16b[i]);
-          float expected = cpu_half2float(output_ref_16b[i]);
+          float actual = cpu_half2float(float16{output_16b[i]});
+          float expected = cpu_half2float(float16{output_ref_16b[i]});
           EXPECT_EQ(actual, expected)
               << "Integer test MISMATCH at i=" << i << " dim=" << embedding_dim
               << " avg_len=" << average_len << " expected=" << expected
@@ -562,10 +562,10 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
       }
 
       int output_size = batch_size;
-      vector<float16> output_ref_16b(output_size * embedding_dim);
-      vector<float16> output_16b(output_size * embedding_dim);
+      vector<uint16_t> output_ref_16b(output_size * embedding_dim);
+      vector<uint16_t> output_16b(output_size * embedding_dim);
 
-      bool success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t, int64_t, float16>(
+      bool success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t, int64_t, uint16_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -584,7 +584,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           false);
 
       auto kernel =
-          GenerateEmbeddingSpMDMWithStrides<uint8_t, int64_t, int64_t, float16>(
+          GenerateEmbeddingSpMDMWithStrides<uint8_t, int64_t, int64_t, uint16_t>(
               embedding_dim,
               use_weight,
               false,
@@ -614,8 +614,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
 
       if (success) {
         for (int i = 0; i < output_size * embedding_dim; ++i) {
-          float actual = cpu_half2float(output_16b[i]);
-          float expected = cpu_half2float(output_ref_16b[i]);
+          float actual = cpu_half2float(float16{output_16b[i]});
+          float expected = cpu_half2float(float16{output_ref_16b[i]});
           EXPECT_EQ(actual, expected)
               << "FP16 representable test at i=" << i
               << " dim=" << embedding_dim << " avg_len=" << average_len
@@ -669,10 +669,10 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
       }
 
       int output_size = batch_size;
-      vector<float16> output_ref_16b(output_size * embedding_dim);
-      vector<float16> output_16b(output_size * embedding_dim);
+      vector<uint16_t> output_ref_16b(output_size * embedding_dim);
+      vector<uint16_t> output_16b(output_size * embedding_dim);
 
-      bool success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t, int64_t, float16>(
+      bool success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t, int64_t, uint16_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -692,7 +692,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           false);
 
       auto kernel =
-          GenerateEmbeddingSpMDMWithStrides<uint8_t, int64_t, int64_t, float16>(
+          GenerateEmbeddingSpMDMWithStrides<uint8_t, int64_t, int64_t, uint16_t>(
               embedding_dim,
               use_weight,
               normalize,
@@ -722,8 +722,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
 
       if (success) {
         for (int i = 0; i < output_size * embedding_dim; ++i) {
-          float actual = cpu_half2float(output_16b[i]);
-          float expected = cpu_half2float(output_ref_16b[i]);
+          float actual = cpu_half2float(float16{output_16b[i]});
+          float expected = cpu_half2float(float16{output_ref_16b[i]});
           EXPECT_NEAR(actual, expected, fp16_tolerance(average_len, expected))
               << "Random test at i=" << i << " dim=" << embedding_dim
               << " avg_len=" << average_len << " norm=" << normalize
