@@ -336,12 +336,14 @@ class BackendType(enum.IntEnum):
     SSD = 0
     DRAM = 1
     PS = 2
+    DRAM_SSD = 3
 
     @classmethod
     def from_str(cls, key: str) -> "BackendType":
         lookup = {
             "ssd": BackendType.SSD,
             "dram": BackendType.DRAM,
+            "dram_ssd": BackendType.DRAM_SSD,
         }
         if key in lookup:
             return lookup[key]
