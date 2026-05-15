@@ -19,9 +19,14 @@ from .common import additional_decorators, generate_jagged_tensor, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
+    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+    )
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -159,6 +164,90 @@ class DenseToJaggedTest(unittest.TestCase):
             device,
             precompute_total_L,
         )
+
+    @optests.dontGenerateOpCheckTests("regression test, not an op-shape check")
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(16))
+    def test_dense_to_jagged_backward_int32_overflow(self) -> None:
+        """Regression: int32 overflow in dense_to_jagged backward at
+        B * max_L * D > INT_MAX, even when B * max_L itself fits in int32.
+
+        dense_to_jagged.backward dispatches to fbgemm::jagged_to_padded_dense
+        forward, which fills a dense (B, max_L, D) gradient using
+        jagged_dense_elementwise_dense_output_kernel_ in common.cuh. Pre-fix,
+        that kernel uses PackedTensorAccessor32 for the dense `y` and
+        `output` parameters: stride[0] is stored as int32 and the access
+        `output[oidx][jidx][iidx]` lowers to `oidx * stride[0]` in int32.
+        For shapes where (B - 1) * (max_L * D) > INT_MAX the multiply wraps
+        negative and writes go to addresses outside the destination buffer.
+        Outer-loop bound and grid sizing are unaffected (B * max_L need not
+        overflow), so there is no FBGEMM_LAUNCH_KERNEL grid abort - the
+        kernel runs to completion silently writing wrong memory, leaving
+        ~25% of high-oidx rows of the dense gradient at the at::empty bit
+        pattern. Downstream NaN. (T264042859, observed in production at
+        Instagram Reels MTML pos_encoding training.)
+
+        Workload: B=1024, max_L=40960, D=64, bf16. B * max_L = 42M < INT_MAX
+        (so no outer-loop / grid hazard), B * max_L * D ~ 2.68B > INT_MAX
+        (so PTA32 stride math wraps for oidx >= 819, i.e. the last ~25% of
+        batches). Peak GPU memory ~ B * max_L * D * 2 bytes ~ 5 GB.
+
+        The single jagged value of 1.0 is placed in the LAST batch (at
+        oidx = B - 1 = 1023, well into the wrap zone). On unfixed code the
+        write to out[1023, 0, :] never happens; it stays at uninitialized
+        memory. After the fix routes this shape to the int64 (PTA64) kernel
+        path the write lands correctly.
+        """
+        device = torch.accelerator.current_accelerator()
+        B = 1024
+        max_L = 40960
+        D = 64
+        dtype = torch.bfloat16
+        assert B * max_L < (1 << 31), (
+            "test must keep B * max_L below INT_MAX (we are testing the PTA32 "
+            "stride-overflow path, not the outer-loop overflow path)"
+        )
+        assert (
+            B * max_L * D > (1 << 31) - 1
+        ), "test must exceed INT_MAX on B * max_L * D"
+        # PTA32 stride wraps for oidx >= ceil(INT_MAX / (max_L * D)).
+        wrap_oidx = (((1 << 31) - 1) + (max_L * D) - 1) // (max_L * D)
+        assert (
+            B - 1 >= wrap_oidx
+        ), "last batch must fall inside the PTA32 stride-overflow zone"
+
+        # Tiny jagged: only the LAST batch has length=1, all others empty.
+        # That keeps total_L = 1 (and thus the (total_L, D) values tensor
+        # microscopic) so the only large allocation is the (B, max_L, D)
+        # padded output.
+        offsets = torch.zeros(B + 1, dtype=torch.long, device=device)
+        offsets[B] = 1
+        grad_jagged = torch.ones((1, D), dtype=dtype, device=device)
+
+        # Exact code path that dense_to_jagged.backward executes.
+        out = torch.ops.fbgemm.jagged_to_padded_dense(
+            grad_jagged, [offsets], [max_L], padding_value=0.0
+        )
+
+        self.assertEqual(tuple(out.shape), (B, max_L, D))
+
+        # The strongest signal: the in-range position MUST equal the jagged
+        # value. On unfixed code oidx=B-1 falls in the PTA32 wrap zone and
+        # the write goes to a wrong address; this position stays as
+        # whatever at::empty left in memory - anything but 1.0.
+        self.assertEqual(out[B - 1, 0, 0].item(), 1.0)
+        self.assertEqual(out[B - 1, 0, D - 1].item(), 1.0)
+
+        # Spot-check padding inside the wrap zone (oidx=B-1) and outside
+        # it (oidx=0). 0.0 here means the kernel correctly wrote
+        # padding_value; an unwritten cell would surface as garbage / NaN
+        # after the autograd reduce.
+        for pos in [1, max_L // 2, max_L - 1]:
+            self.assertEqual(out[B - 1, pos, 0].item(), 0.0)
+            self.assertEqual(out[0, pos, 0].item(), 0.0)
+        # Spot-check a batch right at the wrap boundary.
+        self.assertEqual(out[wrap_oidx, 0, 0].item(), 0.0)
+        self.assertEqual(out[wrap_oidx, max_L - 1, 0].item(), 0.0)
 
     @given(
         num_jagged_dim=st.integers(1, 5),

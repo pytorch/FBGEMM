@@ -83,18 +83,22 @@ namespace {
  * @returns true if the flattend jagged idx points to zero'ed (masked out)
  *               portion of the jagged tensor
  */
-template <int NUM_JAGGED_DIM, typename index_t>
+// `PosT` is the position/offset type used for indexing into the jagged
+// storage tree. Templating it lets the int64 specialization of the calling
+// kernel pass int64_t while existing int callers keep their int32 behavior
+// via auto template deduction (no callsite change needed).
+template <int NUM_JAGGED_DIM, typename PosT, typename index_t>
 DEVICE_INLINE bool walk_down_tensor_storage_tree_(
-    int& offset,
-    const int flattened_jagged_idx,
+    PosT& offset,
+    const PosT flattened_jagged_idx,
     const StackArray<int64_t>& jagged_dims,
     const StackArray<index_t*>& x_offsets) {
   // compute coorindates
-  int jagged_coords[NUM_JAGGED_DIM];
-  int j_temp = flattened_jagged_idx;
+  PosT jagged_coords[NUM_JAGGED_DIM];
+  PosT j_temp = flattened_jagged_idx;
 #pragma unroll
   for (int d = NUM_JAGGED_DIM - 1; d >= 0; --d) {
-    const int jagged_size = jagged_dims.vals[d];
+    const PosT jagged_size = jagged_dims.vals[d];
     jagged_coords[d] = j_temp % jagged_size;
     j_temp /= jagged_size;
   }
@@ -103,8 +107,8 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
   bool is_zero = false;
 #pragma unroll
   for (int d = 0; d < NUM_JAGGED_DIM; ++d) {
-    const int begin = x_offsets.vals[d][offset];
-    const int end = x_offsets.vals[d][offset + 1];
+    const PosT begin = x_offsets.vals[d][offset];
+    const PosT end = x_offsets.vals[d][offset + 1];
     if (jagged_coords[d] >= end - begin) {
       is_zero = true;
       break;
@@ -128,34 +132,47 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
 // blockDim.x so the inner dense dimension should be similar to or bigger than
 // warp size.
 // We rely on compiler unrolling the compiler time constant NUM_JAGGED_DIM.
-template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
+// `IdxT` is the index type used for the PackedTensorAccessor stride width
+// and outer-loop counter. The launcher picks int32_t for the common fast
+// path and int64_t when (B - 1) * (max_L * D) > INT_MAX, where the int32
+// PackedTensorAccessor would otherwise wrap `oidx * strides_[0]` and
+// scribble outside the destination buffer (T264042859). Loop / index
+// variables stay in IdxT so the compiler picks consistent register width
+// for the int32 fast path.
+template <
+    int NUM_JAGGED_DIM,
+    typename IdxT,
+    typename index_t,
+    typename scalar_t,
+    typename F>
 __global__
 __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel_(
-    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor<scalar_t, 2, at::RestrictPtrTraits, IdxT>
         x_values,
     StackArray<index_t*> x_offsets,
-    const pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
-    pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
+    const pta::PackedTensorAccessor<scalar_t, 3, at::RestrictPtrTraits, IdxT> y,
+    pta::PackedTensorAccessor<scalar_t, 3, at::RestrictPtrTraits, IdxT> output,
     StackArray<int64_t> jagged_dims,
     F f,
     const scalar_t padding_value) {
-  const int outer_dense_size = y.size(0);
-  const int jagged_folded_size = y.size(1);
-  const int inner_dense_size = y.size(2);
+  const IdxT outer_dense_size = y.size(0);
+  const IdxT jagged_folded_size = y.size(1);
+  const IdxT inner_dense_size = y.size(2);
 
-  const auto outer_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto outer_stride = gridDim.x * blockDim.y;
-  for (int outer = outer_begin; outer < outer_dense_size * jagged_folded_size;
-       outer += outer_stride) {
-    const int oidx = outer / jagged_folded_size;
-    const int jidx = outer % jagged_folded_size;
+  const IdxT outer_begin =
+      static_cast<IdxT>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const IdxT outer_stride = static_cast<IdxT>(gridDim.x) * blockDim.y;
+  const IdxT total_outer = outer_dense_size * jagged_folded_size;
+  for (IdxT outer = outer_begin; outer < total_outer; outer += outer_stride) {
+    const IdxT oidx = outer / jagged_folded_size;
+    const IdxT jidx = outer % jagged_folded_size;
 
-    int offset = oidx;
+    IdxT offset = oidx;
     const bool is_zero = walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
         offset, jidx, jagged_dims, x_offsets);
 
     if (is_zero) {
-      int iidx;
+      IdxT iidx;
       for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
         output[oidx][jidx][2 * iidx] =
@@ -168,7 +185,7 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel
             f(padding_value, y[oidx][jidx][2 * iidx]);
       }
     } else {
-      int iidx;
+      IdxT iidx;
       for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
         output[oidx][jidx][2 * iidx] =
@@ -256,35 +273,68 @@ void jagged_dense_elementwise_dense_output_(
   const Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});
   Tensor output_reshaped = output.view(y_reshaped.sizes());
 
-#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)              \
-  {                                                         \
-    std::vector<Tensor> x_offsets_contig;                   \
-    x_offsets_contig.resize(num_jagged_dim);                \
-    StackArray<index_t*> x_offset_ptrs;                     \
-    x_offset_ptrs.ndim = num_jagged_dim;                    \
-    for (int d = 0; d < num_jagged_dim; ++d) {              \
-      x_offsets_contig[d] = x_offsets[d].contiguous();      \
-      x_offset_ptrs.vals[d] =                               \
-          x_offsets_contig[d].template data_ptr<index_t>(); \
-    }                                                       \
-                                                            \
-    FBGEMM_LAUNCH_KERNEL(                                   \
-        (jagged_dense_elementwise_dense_output_kernel_<     \
-            NUM_JAGGED_DIM,                                 \
-            index_t,                                        \
-            scalar_t,                                       \
-            F>),                                            \
-        blocks,                                             \
-        threads,                                            \
-        0,                                                  \
-        at::cuda::getCurrentCUDAStream(),                   \
-        PTA_B(x_values, scalar_t, 2, 32),                   \
-        x_offset_ptrs,                                      \
-        PTA_B(y_reshaped, scalar_t, 3, 32),                 \
-        PTA_B(output_reshaped, scalar_t, 3, 32),            \
-        jagged_dims_tensor,                                 \
-        f,                                                  \
-        padding_value);                                     \
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                               \
+  {                                                                          \
+    std::vector<Tensor> x_offsets_contig;                                    \
+    x_offsets_contig.resize(num_jagged_dim);                                 \
+    StackArray<index_t*> x_offset_ptrs;                                      \
+    x_offset_ptrs.ndim = num_jagged_dim;                                     \
+    for (int d = 0; d < num_jagged_dim; ++d) {                               \
+      x_offsets_contig[d] = x_offsets[d].contiguous();                       \
+      x_offset_ptrs.vals[d] =                                                \
+          x_offsets_contig[d].template data_ptr<index_t>();                  \
+    }                                                                        \
+                                                                             \
+    /* Pick int32 fast path when every touched tensor's numel fits in int32; \
+     * otherwise dispatch the int64 specialization. The int64 path defends   \
+     * against `oidx * strides_[0]` overflowing int32 inside                 \
+     * PackedTensorAccessor32, which scribbles outside the buffer for high   \
+     * oidx and surfaces as silent NaN downstream (T264042859). */           \
+    constexpr int64_t kInt32Limit =                                          \
+        static_cast<int64_t>(std::numeric_limits<int32_t>::max());           \
+    const bool use_int32_indexing = x_values.numel() < kInt32Limit &&        \
+        y_reshaped.numel() < kInt32Limit &&                                  \
+        output_reshaped.numel() < kInt32Limit;                               \
+                                                                             \
+    if (use_int32_indexing) {                                                \
+      FBGEMM_LAUNCH_KERNEL(                                                  \
+          (jagged_dense_elementwise_dense_output_kernel_<                    \
+              NUM_JAGGED_DIM,                                                \
+              int32_t,                                                       \
+              index_t,                                                       \
+              scalar_t,                                                      \
+              F>),                                                           \
+          blocks,                                                            \
+          threads,                                                           \
+          0,                                                                 \
+          at::cuda::getCurrentCUDAStream(),                                  \
+          PTA_B(x_values, scalar_t, 2, 32),                                  \
+          x_offset_ptrs,                                                     \
+          PTA_B(y_reshaped, scalar_t, 3, 32),                                \
+          PTA_B(output_reshaped, scalar_t, 3, 32),                           \
+          jagged_dims_tensor,                                                \
+          f,                                                                 \
+          padding_value);                                                    \
+    } else {                                                                 \
+      FBGEMM_LAUNCH_KERNEL(                                                  \
+          (jagged_dense_elementwise_dense_output_kernel_<                    \
+              NUM_JAGGED_DIM,                                                \
+              int64_t,                                                       \
+              index_t,                                                       \
+              scalar_t,                                                      \
+              F>),                                                           \
+          blocks,                                                            \
+          threads,                                                           \
+          0,                                                                 \
+          at::cuda::getCurrentCUDAStream(),                                  \
+          PTA_B(x_values, scalar_t, 2, 64),                                  \
+          x_offset_ptrs,                                                     \
+          PTA_B(y_reshaped, scalar_t, 3, 64),                                \
+          PTA_B(output_reshaped, scalar_t, 3, 64),                           \
+          jagged_dims_tensor,                                                \
+          f,                                                                 \
+          padding_value);                                                    \
+    }                                                                        \
   }
 
   JAGGED_TENSOR_DISPATCH_DIMS();

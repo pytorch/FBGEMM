@@ -29,4 +29,4 @@ from .ssd_config import (  # noqa: F401
 )
 
 # pyre-ignore[21]: fbgemm_gpu C extensions are not analyzed by Pyre
-from .training import SSDTableBatchedEmbeddingBags  # noqa: F401
+from .training import DramKvPerfStat, SSDTableBatchedEmbeddingBags  # noqa: F401
