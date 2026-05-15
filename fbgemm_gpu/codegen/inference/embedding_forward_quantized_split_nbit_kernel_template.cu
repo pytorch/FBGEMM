@@ -290,13 +290,21 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           continue;
         }
         const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+        // scale and bias are at the beginning of each row.
+        // rationale: have scale/shift at start since these get loaded first
+        // and then broadcasted around so it might speed up the first cache miss.
         {% if emb_weight_type.primitive_type == "INT" %}
+        // In PackedMode, row pointer may contain several rows from different bags, so each thread/lane should
+        // read the certain shift_scale related to the row in the packed_bag.
         half2 shift_scale = reinterpret_cast<const half2*>(row)[PackedMode ? packed_bag_acc_idx * uints_per_row : 0];
         {% endif %}
+
         {% if weighted %}
         float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx][PackedMode ? packed_bag_acc_idx : 0];
         {% endif %}
+
         using scalar_t = {{ emb_weight_type.cpp_type_name }};
+
         #pragma unroll AccumulateStoreRequests
         for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
           scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
