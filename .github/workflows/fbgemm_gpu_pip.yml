@@ -48,6 +48,8 @@ on:
         options: [ "cpu", "cuda", "rocm" ]
         default: "cpu"
 
+permissions:
+  contents: read
 
 jobs:
   generate-test-matrix-cuda:

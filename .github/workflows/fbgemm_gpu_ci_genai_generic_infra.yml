@@ -33,6 +33,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   generate-build-matrix:
     if: ${{ github.repository_owner != 'pytorch' }}
