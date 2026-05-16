@@ -179,7 +179,7 @@ FBGEMM_API void ref_kernel<float>(
 }
 #endif // FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
 
-template void cblas_gemm_compute(
+template FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
     const float* A,

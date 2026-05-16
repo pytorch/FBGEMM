@@ -102,11 +102,6 @@ if(FBGEMM_BUILD_BENCHMARKS)
     list(FILTER BENCH_LIST EXCLUDE REGEX "quantize")
   endif()
 
-  if(MSVC)
-    # NOTE: Skip FP32 benchmark for MSVC until intrinsic kernels are implemented
-    list(FILTER BENCH_LIST EXCLUDE REGEX "FP32Benchmark\\.cc$")
-  endif()
-
   foreach(BENCH_FILE ${BENCH_LIST})
     get_filename_component(BENCH_NAME ${BENCH_FILE} NAME_WE)
     get_filename_component(BENCH_FILENAME ${BENCH_FILE} NAME)
