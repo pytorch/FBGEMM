@@ -56,8 +56,17 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
   }
 }
 
-// Vectorized kernel for permuting 2D indices and weights. Uses vec4 loads for
+// Vectorized kernel for permuting 2D indices and weights. Uses wide loads for
 // improved memory bandwidth when data is aligned.
+//
+// Vector width per type is chosen so each warp issues a single 16B-aligned
+// load per element (32 threads * 16B = 512B = 16 contiguous 32B sectors at
+// 100% utilization):
+//   - 2-byte elements (Half/BFloat16): float4 (8 elements, 16B per thread).
+//   - 4-byte elements (int32/float): float4 (4 elements, 16B per thread).
+//   - 8-byte elements (int64): long2 (2 elements, 16B per thread). Using
+//     long4 (32B) here would compile to two LDG.E.128 with a 16B stride per
+//     32B sector, halving sector utilization.
 template <
     bool has_weight,
     typename offsets_t,
@@ -74,11 +83,15 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
     const offsets_t* __restrict__ output_offsets,
     indices_t* __restrict__ permuted_indices,
     weights_t* __restrict__ permuted_weights) {
-  // Select vector types based on element size (vec4 for 4x bandwidth)
-  using indices_vec4_t =
-      typename std::conditional<sizeof(indices_t) == 8, long4, float4>::type;
-  using weights_vec4_t =
-      typename std::conditional<sizeof(weights_t) == 8, long4, float4>::type;
+  using indices_vec_t =
+      typename std::conditional<sizeof(indices_t) == 8, long2, float4>::type;
+  using weights_vec_t =
+      typename std::conditional<sizeof(weights_t) == 8, long2, float4>::type;
+
+  static constexpr int kIndicesVecWidth =
+      sizeof(indices_vec_t) / sizeof(indices_t);
+  static constexpr int kWeightsVecWidth =
+      sizeof(weights_vec_t) / sizeof(weights_t);
 
   const auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
   const auto stride = gridDim.x * blockDim.y;
@@ -95,7 +108,6 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
         static_cast<int32_t>(output_end - output_start);
     const offsets_t input_start = input_offsets[permute[t] * B + b];
 
-    // Compute pointers
     indices_t* __restrict__ indices_dst_ptr = permuted_indices + output_start;
     const indices_t* __restrict__ indices_src_ptr = indices + input_start;
     weights_t* __restrict__ weights_dst_ptr =
@@ -103,55 +115,62 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
     const weights_t* __restrict__ weights_src_ptr =
         has_weight ? weights + input_start : nullptr;
 
-    // Check alignment once per segment
-    const bool indices_vec4_aligned =
+    const bool indices_vec_aligned =
         (sizeof(indices_t) == 4 || sizeof(indices_t) == 8) &&
         (reinterpret_cast<uintptr_t>(indices_dst_ptr) &
-         (alignof(indices_vec4_t) - 1)) == 0 &&
+         (alignof(indices_vec_t) - 1)) == 0 &&
         (reinterpret_cast<uintptr_t>(indices_src_ptr) &
-         (alignof(indices_vec4_t) - 1)) == 0;
+         (alignof(indices_vec_t) - 1)) == 0;
 
-    const bool weights_vec4_aligned = !has_weight ||
+    const bool weights_vec_aligned = !has_weight ||
         ((reinterpret_cast<uintptr_t>(weights_dst_ptr) &
-          (alignof(weights_vec4_t) - 1)) == 0 &&
+          (alignof(weights_vec_t) - 1)) == 0 &&
          (reinterpret_cast<uintptr_t>(weights_src_ptr) &
-          (alignof(weights_vec4_t) - 1)) == 0);
+          (alignof(weights_vec_t) - 1)) == 0);
 
-    if (indices_vec4_aligned && weights_vec4_aligned) {
-      // Vectorized path - process 4 elements at a time
-      const int32_t vec4_count = segment_length / 4;
-      const int32_t remainder = segment_length & 3; // segment_length % 4
+    if (indices_vec_aligned && weights_vec_aligned) {
+      const int32_t indices_vec_count = segment_length / kIndicesVecWidth;
+      const int32_t indices_remainder = segment_length % kIndicesVecWidth;
 
-      auto indices_dst = reinterpret_cast<indices_vec4_t*>(indices_dst_ptr);
+      auto indices_dst = reinterpret_cast<indices_vec_t*>(indices_dst_ptr);
       auto indices_src =
-          reinterpret_cast<const indices_vec4_t*>(indices_src_ptr);
+          reinterpret_cast<const indices_vec_t*>(indices_src_ptr);
 
       if (has_weight) {
-        auto weights_dst = reinterpret_cast<weights_vec4_t*>(weights_dst_ptr);
-        auto weights_src =
-            reinterpret_cast<const weights_vec4_t*>(weights_src_ptr);
+        const int32_t weights_vec_count = segment_length / kWeightsVecWidth;
+        const int32_t weights_remainder = segment_length % kWeightsVecWidth;
 
-// Copy both indices and weights with vec4
+        auto weights_dst = reinterpret_cast<weights_vec_t*>(weights_dst_ptr);
+        auto weights_src =
+            reinterpret_cast<const weights_vec_t*>(weights_src_ptr);
+
 #pragma unroll
-        for (auto i = threadIdx.x; i < vec4_count; i += blockDim.x) {
+        for (auto i = threadIdx.x; i < indices_vec_count; i += blockDim.x) {
           indices_dst[i] = indices_src[i];
+        }
+        if (threadIdx.x < indices_remainder) {
+          const auto offset =
+              indices_vec_count * kIndicesVecWidth + threadIdx.x;
+          indices_dst_ptr[offset] = indices_src_ptr[offset];
+        }
+
+#pragma unroll
+        for (auto i = threadIdx.x; i < weights_vec_count; i += blockDim.x) {
           weights_dst[i] = weights_src[i];
         }
-        // Handle remainder elements (0-3 elements)
-        if (threadIdx.x < remainder) {
-          const auto offset = vec4_count * 4 + threadIdx.x;
-          indices_dst_ptr[offset] = indices_src_ptr[offset];
+        if (threadIdx.x < weights_remainder) {
+          const auto offset =
+              weights_vec_count * kWeightsVecWidth + threadIdx.x;
           weights_dst_ptr[offset] = weights_src_ptr[offset];
         }
       } else {
-// Copy only indices with vec4
 #pragma unroll
-        for (auto i = threadIdx.x; i < vec4_count; i += blockDim.x) {
+        for (auto i = threadIdx.x; i < indices_vec_count; i += blockDim.x) {
           indices_dst[i] = indices_src[i];
         }
-        // Handle remainder elements (0-3 elements)
-        if (threadIdx.x < remainder) {
-          const auto offset = vec4_count * 4 + threadIdx.x;
+        if (threadIdx.x < indices_remainder) {
+          const auto offset =
+              indices_vec_count * kIndicesVecWidth + threadIdx.x;
           indices_dst_ptr[offset] = indices_src_ptr[offset];
         }
       }
