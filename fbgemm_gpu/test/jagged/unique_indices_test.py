@@ -269,6 +269,74 @@ class UniqueIndicesTest(unittest.TestCase):
         self.assertEqual(torch.sum(output_lengths).item(), 0)
         self.assertEqual(torch.sum(output_offsets).item(), 0)
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_jagged_unique_indices_zch_huge_hash_size(self) -> None:
+        """Exercise the op with a hash_size_cumsum entry at INT64_MAX -
+        the shape produced by ZCH callers that leave per-feature hash size
+        unbounded. The op must handle hash boundaries spanning the full
+        int64 range without overflow in any internal arithmetic.
+        """
+        T = 2
+        B = 64
+        max_length = 5
+        int64_max = torch.iinfo(torch.int64).max
+        hash_size_cumsum_list = [0, 0, int64_max]
+        hash_size_offsets_list = [0, 0, 2]
+        # Per-feature linearized values lie in [0, INT64_MAX). The kernels
+        # under test are boundary-value-sensitive on hash_size_cumsum, not
+        # on the indices themselves, so a small index range is sufficient
+        # and keeps the reference comparison fast.
+        per_feature_value_cap = 1024
+        lengths_list: list[int] = []
+        indices_list: list[int] = []
+        for _ in range(T):
+            for _ in range(B):
+                length = random.randint(0, max_length)
+                lengths_list.append(length)
+                if length > 0:
+                    indices_list.extend(
+                        np.random.randint(
+                            0, per_feature_value_cap, size=length
+                        ).tolist()
+                    )
+
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        dtype = torch.int64
+        hash_size_cumsum = torch.as_tensor(
+            hash_size_cumsum_list, dtype=dtype, device=device
+        )
+        hash_size_offsets = torch.as_tensor(
+            hash_size_offsets_list, dtype=dtype, device=device
+        )
+        lengths = torch.as_tensor(lengths_list, dtype=dtype, device=device)
+        indices = torch.as_tensor(indices_list, dtype=dtype, device=device)
+        offsets = torch.zeros(T * B + 1, dtype=dtype, device=device)
+        offsets[1:] = torch.cumsum(lengths, dim=0)
+
+        (
+            output_lengths,
+            output_offsets,
+            unique_indices,
+            reverse_index,
+        ) = torch.ops.fbgemm.jagged_unique_indices(
+            hash_size_cumsum, hash_size_offsets, offsets, indices
+        )
+
+        # Both features share the same hash space (hash_offset = 0 for
+        # both, since hash_size_cumsum[0] == hash_size_cumsum[1] == 0),
+        # so the global unique set is the union of all input indices.
+        expected_unique = sorted(set(indices_list))
+        self.assertEqual(unique_indices.numel(), len(expected_unique))
+        self.assertEqual(int(torch.sum(output_lengths).item()), unique_indices.numel())
+        # Inverse-index round-trip: unique_indices[reverse_index[i]] == indices[i].
+        rev_list = reverse_index.tolist()
+        uniq_list = unique_indices.tolist()
+        self.assertEqual(len(rev_list), len(indices_list))
+        for i, rev in enumerate(rev_list):
+            self.assertTrue(0 <= rev < len(uniq_list))
+            self.assertEqual(uniq_list[rev], indices_list[i])
+
     @given(
         num_elements=st.integers(min_value=100, max_value=10000),
         num_unique_indices=st.integers(min_value=5, max_value=100),
