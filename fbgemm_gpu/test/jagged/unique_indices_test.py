@@ -55,6 +55,7 @@ class UniqueIndicesTest(unittest.TestCase):
         B=st.integers(min_value=100, max_value=200),
         F=st.integers(min_value=50, max_value=100),
         max_length=st.integers(min_value=5, max_value=10),
+        dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_jagged_unique_indices(
@@ -62,6 +63,7 @@ class UniqueIndicesTest(unittest.TestCase):
         B: int,  # Batch size
         F: int,  # The number of features
         max_length: int,  # The maximum value of pooling factor
+        dtype: torch.dtype,
     ) -> None:
         hash_size_list = []
         lengths_list = []
@@ -83,8 +85,8 @@ class UniqueIndicesTest(unittest.TestCase):
                     indices_list.extend(indices)
                     linearized_indices_list.extend(linearized_indices)
 
-        device = torch.device("cuda")
-        dtype = torch.int64
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
         hash_size = torch.as_tensor(hash_size_list, dtype=dtype, device=device)
         hash_size_offsets = torch.as_tensor(
             hash_size_offsets_list, dtype=dtype, device=device
@@ -159,6 +161,7 @@ class UniqueIndicesTest(unittest.TestCase):
         B=st.integers(min_value=100, max_value=200),
         F=st.integers(min_value=50, max_value=100),
         max_length=st.integers(min_value=5, max_value=10),
+        dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_jagged_unique_indices_multi_keys(
@@ -166,6 +169,7 @@ class UniqueIndicesTest(unittest.TestCase):
         B: int,  # Batch size
         F: int,  # The number of features
         max_length: int,  # The maximum value of pooling factor
+        dtype: torch.dtype,
     ) -> None:
         hash_size_list = []
         lengths_list = []
@@ -187,8 +191,8 @@ class UniqueIndicesTest(unittest.TestCase):
                     indices_list.extend(indices)
                     linearized_indices_list.extend(linearized_indices)
 
-        device = torch.device("cuda")
-        dtype = torch.int64
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
         hash_size = torch.as_tensor(hash_size_list, dtype=dtype, device=device)
         lengths = torch.as_tensor(lengths_list, dtype=dtype, device=device)
         indices = torch.as_tensor(indices_list, dtype=dtype, device=device)
@@ -231,20 +235,22 @@ class UniqueIndicesTest(unittest.TestCase):
     @given(
         B=st.integers(min_value=100, max_value=200),
         F=st.integers(min_value=50, max_value=100),
+        dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
     def test_jagged_unique_indices_empty(
         self,
         B: int,  # Batch size
         F: int,  # The number of features
+        dtype: torch.dtype,
     ) -> None:
         hash_size_cumsum_list = [0] + list(itertools.accumulate([10] * F))
         hash_size_offsets_list = [0] + list(itertools.accumulate([1] * F))
         offsets_list = [0] * (B * F + 1)
         indices_list = []
 
-        device = torch.device("cuda")
-        dtype = torch.int64
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
         hash_size_cumsum = torch.as_tensor(
             hash_size_cumsum_list, device=device, dtype=dtype
         )
