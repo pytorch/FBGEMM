@@ -67,32 +67,6 @@ __global__ __launch_bounds__(kFlatBlockSize) void linearize_index_flat_kernel(
   }
 }
 
-// Delinearize the unique indices from the reverse index info and the original
-// indices. For each element in the input indices, the value should equal to
-// the element from the unique indices according to the reverse index info.
-//
-// reverse_index is always int64 to match the public contract of
-// jagged_unique_indices (see jagged_unique_scatter_kernel), independent of
-// indices.scalar_type(); typing it as int64_t here (instead of reusing
-// index_t) keeps PTA_B's runtime dtype check from firing when index_t is
-// int32_t.
-template <typename index_t>
-__global__ __launch_bounds__(kMaxThreads) void delinearize_unique_index_kernel(
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
-        indices,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        reverse_index,
-    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
-        unique_indices) {
-  const auto total_indices = indices.size(0);
-  const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
-  if (b_t < total_indices) {
-    const auto original_index = indices[b_t];
-    const auto pos = reverse_index[b_t];
-    unique_indices[pos] = original_index;
-  }
-}
-
 // Adjacent-difference over sorted keys. out[0] = 0; out[i > 0] = 1 if
 // sorted[i] != sorted[i-1] else 0. Mirrors
 // caffe2/aten/src/ATen/native/cuda/UniqueCub.cu.
@@ -284,6 +258,37 @@ __device__ __forceinline__ int32_t device_lower_bound(
   return lo;
 }
 
+// Delinearize the unique indices via per-feature lookup over hash_size_cumsum.
+// Each thread handles one sorted unique key v: locate its feature t via
+// device_lower_bound(hash_size_cumsum, v + 1) - 1 (largest t with
+// hash_size_cumsum[t] <= v) and emit unique_indices[i] = v -
+// hash_size_cumsum[t].
+//
+// Replaces delinearize_unique_index_kernel which iterated over total_indices
+// (~24M on the prod IFR-MTML mc7 shape) and scatter-wrote via reverse_index.
+// The new form iterates over num_unique (~1-2M) with a small O(log T) probe
+// per thread - 24x fewer threads, and the writes are sequential.
+template <typename index_t>
+__global__
+__launch_bounds__(kFlatBlockSize) void delinearize_unique_from_sorted_kernel(
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        hash_size_cumsum,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        unique_keys,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        unique_indices) {
+  const auto num_unique = unique_keys.size(0);
+  const auto i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= static_cast<uint64_t>(num_unique)) {
+    return;
+  }
+  const index_t v = unique_keys[i];
+  // unique_keys[i] < hash_size_cumsum[T] <= total_hash_size, so v + 1
+  // does not overflow even at the ZCH boundary (total_hash_size = INT64_MAX).
+  const int32_t t = device_lower_bound<index_t>(hash_size_cumsum, v + 1) - 1;
+  unique_indices[i] = v - hash_size_cumsum[t];
+}
+
 // Compute the per-(feature, batch) lengths for the unique indices.
 //
 // Caller-provided invariant (see jagged_unique_indices_cuda for the
@@ -364,9 +369,12 @@ __global__ __launch_bounds__(kFlatBlockSize) void unique_indices_length_kernel(
 //      which on production shapes (hash_size ~1M) reduces 8 radix passes
 //      to ~3.
 //
-//   3. delinearize_unique_index_kernel scatters the original
-//      (pre-linearization) per-feature index values back into
-//      unique_indices via reverse_index.
+//   3. delinearize_unique_from_sorted_kernel iterates over num_unique
+//      (~1-2M) instead of total_indices (~24M). Each thread reads one
+//      sorted unique key v and recovers its (feature, per-feature index)
+//      via a binary search on hash_size_cumsum. Writes are sequential
+//      over the num_unique output, eliminating the scatter-via-
+//      reverse_index pattern of the prior kernel.
 //
 //   4. unique_indices_length_kernel relies on (1)+(2) to compute
 //      num_unique per feature group via two binary searches over
@@ -462,18 +470,22 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
   const auto total_indices = indices.size(0);
   Tensor unique_indices = at::empty_like(linear_unique_indices);
 
-  AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "delinearize_unique_index", ([&] {
-        FBGEMM_LAUNCH_KERNEL(
-            (delinearize_unique_index_kernel<index_t>),
-            div_round_up(total_indices + 1, kMaxThreads),
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream(),
-            PTA_B(indices, index_t, 1, 32),
-            PTA_B(reverse_index, int64_t, 1, 32),
-            PTA_B(unique_indices, index_t, 1, 32));
-      }));
+  if (total_indices > 0 && unique_indices.numel() > 0) {
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "delinearize_unique_index", ([&] {
+          FBGEMM_LAUNCH_KERNEL(
+              (delinearize_unique_from_sorted_kernel<index_t>),
+              static_cast<int32_t>(
+                  (unique_indices.numel() + kFlatBlockSize - 1) /
+                  kFlatBlockSize),
+              kFlatBlockSize,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              PTA_B(hash_size_cumsum, index_t, 1, 32),
+              PTA_B(linear_unique_indices, index_t, 1, 32),
+              PTA_B(unique_indices, index_t, 1, 32));
+        }));
+  }
 
   Tensor output_lengths = at::zeros({total_B}, offsets.options());
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "unique_indices_length", ([&] {
