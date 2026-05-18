@@ -1186,9 +1186,11 @@ class BlockBucketizeTest(unittest.TestCase):
             torch.testing.assert_close(
                 new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 bucket_mapping_gpu.cpu(),
                 bucket_mapping,
+                rtol=0,
+                atol=0,
             )
 
     @given(
@@ -1289,9 +1291,11 @@ class BlockBucketizeTest(unittest.TestCase):
             torch.testing.assert_close(
                 new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 bucket_mapping_gpu.cpu(),
                 bucket_mapping_cpu,
+                rtol=0,
+                atol=0,
             )
 
     def _run_populate_bucketized_permute_test(
