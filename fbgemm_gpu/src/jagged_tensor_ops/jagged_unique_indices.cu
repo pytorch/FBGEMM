@@ -18,6 +18,8 @@
 
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+#include <climits>
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -68,11 +70,17 @@ __global__ __launch_bounds__(kFlatBlockSize) void linearize_index_flat_kernel(
 // Delinearize the unique indices from the reverse index info and the original
 // indices. For each element in the input indices, the value should equal to
 // the element from the unique indices according to the reverse index info.
+//
+// reverse_index is always int64 to match the public contract of
+// jagged_unique_indices (see jagged_unique_scatter_kernel), independent of
+// indices.scalar_type(); typing it as int64_t here (instead of reusing
+// index_t) keeps PTA_B's runtime dtype check from firing when index_t is
+// int32_t.
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void delinearize_unique_index_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         reverse_index,
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         unique_indices) {
@@ -83,6 +91,177 @@ __global__ __launch_bounds__(kMaxThreads) void delinearize_unique_index_kernel(
     const auto pos = reverse_index[b_t];
     unique_indices[pos] = original_index;
   }
+}
+
+// Adjacent-difference over sorted keys. out[0] = 0; out[i > 0] = 1 if
+// sorted[i] != sorted[i-1] else 0. Mirrors
+// caffe2/aten/src/ATen/native/cuda/UniqueCub.cu.
+template <typename index_t>
+__global__
+__launch_bounds__(kFlatBlockSize) void jagged_unique_adjacent_diff_kernel(
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        sorted_keys,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> out) {
+  const auto n = sorted_keys.size(0);
+  const auto i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < static_cast<uint64_t>(n)) {
+    out[i] = (i > 0 && sorted_keys[i] != sorted_keys[i - 1]) ? 1 : 0;
+  }
+}
+
+// Scatter inv_loc_out[i] -> reverse_index[sorted_positions[i]] to recover the
+// inverse-index in the original input order. Output is int64 to preserve the
+// public contract of jagged_unique_indices (matches at::_unique's historical
+// inverse-index dtype).
+__global__ __launch_bounds__(kFlatBlockSize) void jagged_unique_scatter_kernel(
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_positions,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        inv_loc_out,
+    pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        reverse_index) {
+  const auto n = sorted_positions.size(0);
+  const auto i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < static_cast<uint64_t>(n)) {
+    reverse_index[sorted_positions[i]] = static_cast<int64_t>(inv_loc_out[i]);
+  }
+}
+
+// Cub-based replacement for at::_unique(linear_indices, sorted=true,
+// return_inverse=true). Returns sorted unique linearized keys and an
+// int64 inverse-index in the original input order.
+//
+// Pipeline:
+//   1. cub::DeviceRadixSort::SortPairs on (linear_indices, arange-positions)
+//      with end_bit trimmed to the bit-width of total_hash_size, cutting
+//      radix-sort passes from ceil(64/8)=8 to ceil(bit_width/8) (e.g. 3
+//      passes for hash_size=1M).
+//   2. cub::DeviceRunLengthEncode::Encode to extract the sorted unique keys.
+//   3. adjacent_diff -> inclusive_scan -> scatter to recover the inverse
+//      index in the original (pre-sort) input order, mirroring pytorch's
+//      UniqueCub.cu pattern.
+template <typename index_t>
+static void jagged_unique_indices_pipeline(
+    const Tensor& linear_indices,
+    const int total_hash_size_bits,
+    Tensor& linear_unique_indices,
+    Tensor& reverse_index) {
+  const int64_t N = linear_indices.numel();
+  auto stream = at::cuda::getCurrentCUDAStream();
+
+  const auto int32_opts = linear_indices.options().dtype(at::kInt);
+  const auto int64_opts = linear_indices.options().dtype(at::kLong);
+  const auto byte_opts = linear_indices.options().dtype(at::kByte);
+
+  // --- Step 1: radix sort pairs ---
+  Tensor sorted_keys = at::empty({N}, linear_indices.options());
+  Tensor positions = at::arange(N, int32_opts);
+  Tensor sorted_positions = at::empty({N}, int32_opts);
+  {
+    size_t temp_storage_bytes = 0;
+    AT_CUDA_CHECK(radix_sort_pairs(
+        nullptr,
+        temp_storage_bytes,
+        linear_indices.const_data_ptr<index_t>(),
+        sorted_keys.data_ptr<index_t>(),
+        positions.const_data_ptr<int32_t>(),
+        sorted_positions.data_ptr<int32_t>(),
+        static_cast<int>(N),
+        0,
+        total_hash_size_bits,
+        stream));
+    Tensor temp_storage =
+        at::empty({static_cast<int64_t>(temp_storage_bytes)}, byte_opts);
+    AT_CUDA_CHECK(radix_sort_pairs(
+        temp_storage.data_ptr(),
+        temp_storage_bytes,
+        linear_indices.const_data_ptr<index_t>(),
+        sorted_keys.data_ptr<index_t>(),
+        positions.const_data_ptr<int32_t>(),
+        sorted_positions.data_ptr<int32_t>(),
+        static_cast<int>(N),
+        0,
+        total_hash_size_bits,
+        stream));
+  }
+
+  // --- Step 2: run-length encode to extract sorted unique keys ---
+  Tensor unique_keys = at::empty({N}, linear_indices.options());
+  Tensor run_lengths = at::empty({N}, int32_opts);
+  Tensor num_unique_d = at::empty({1}, int32_opts);
+  {
+    size_t temp_storage_bytes = 0;
+    AT_CUDA_CHECK(
+        FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
+            nullptr,
+            temp_storage_bytes,
+            sorted_keys.const_data_ptr<index_t>(),
+            unique_keys.data_ptr<index_t>(),
+            run_lengths.data_ptr<int32_t>(),
+            num_unique_d.data_ptr<int32_t>(),
+            static_cast<int>(N),
+            stream));
+    Tensor temp_storage =
+        at::empty({static_cast<int64_t>(temp_storage_bytes)}, byte_opts);
+    AT_CUDA_CHECK(
+        FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
+            temp_storage.data_ptr(),
+            temp_storage_bytes,
+            sorted_keys.const_data_ptr<index_t>(),
+            unique_keys.data_ptr<index_t>(),
+            run_lengths.data_ptr<int32_t>(),
+            num_unique_d.data_ptr<int32_t>(),
+            static_cast<int>(N),
+            stream));
+  }
+  const int32_t num_unique = num_unique_d.item<int32_t>();
+  linear_unique_indices = unique_keys.narrow(0, 0, num_unique);
+
+  // --- Step 3: build inverse-index (adjacent_diff + inclusive_scan + scatter)
+  // ---
+  Tensor inv_loc = at::empty({N}, int32_opts);
+  FBGEMM_LAUNCH_KERNEL(
+      (jagged_unique_adjacent_diff_kernel<index_t>),
+      static_cast<int32_t>((N + kFlatBlockSize - 1) / kFlatBlockSize),
+      kFlatBlockSize,
+      0,
+      stream,
+      PTA_B(sorted_keys, index_t, 1, 32),
+      PTA_B(inv_loc, int32_t, 1, 32));
+
+  Tensor inv_loc_out = at::empty({N}, int32_opts);
+  {
+    size_t temp_storage_bytes = 0;
+    AT_CUDA_CHECK(
+        FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
+            nullptr,
+            temp_storage_bytes,
+            inv_loc.const_data_ptr<int32_t>(),
+            inv_loc_out.data_ptr<int32_t>(),
+            static_cast<int>(N),
+            stream));
+    Tensor temp_storage =
+        at::empty({static_cast<int64_t>(temp_storage_bytes)}, byte_opts);
+    AT_CUDA_CHECK(
+        FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
+            temp_storage.data_ptr(),
+            temp_storage_bytes,
+            inv_loc.const_data_ptr<int32_t>(),
+            inv_loc_out.data_ptr<int32_t>(),
+            static_cast<int>(N),
+            stream));
+  }
+
+  reverse_index = at::empty({N}, int64_opts);
+  FBGEMM_LAUNCH_KERNEL(
+      (jagged_unique_scatter_kernel),
+      static_cast<int32_t>((N + kFlatBlockSize - 1) / kFlatBlockSize),
+      kFlatBlockSize,
+      0,
+      stream,
+      PTA_B(sorted_positions, int32_t, 1, 32),
+      PTA_B(inv_loc_out, int32_t, 1, 32),
+      PTA_B(reverse_index, int64_t, 1, 32));
 }
 
 // Device-side lower_bound over a PackedTensorAccessor32<index_t, 1>.
@@ -169,18 +348,21 @@ __global__ __launch_bounds__(kFlatBlockSize) void unique_indices_length_kernel(
   }
 }
 
-// Pipeline (cross-kernel data flow that ties the four steps together):
+// Pipeline (cross-kernel data flow that ties the steps together):
 //
 //   1. linearize_index_flat_kernel writes
 //        linear_indices[i] = hash_size_cumsum[t] + indices[i]
 //      so feature t's linearized values lie in
 //        [hash_size_cumsum[t], hash_size_cumsum[t+1]).
 //
-//   2. at::_unique(linear_indices, sorted=True, return_inverse=True)
-//      returns (linear_unique_indices, reverse_index) where
-//      linear_unique_indices is sorted ascending. Combined with (1), this
-//      means feature t's unique linearized values occupy a contiguous
-//      slice of linear_unique_indices.
+//   2. jagged_unique_indices_pipeline replaces at::_unique with an
+//      explicit cub radix sort + RLE + inverse-index scatter, returning
+//      (linear_unique_indices, reverse_index). linear_unique_indices is
+//      sorted ascending. Combined with (1), this means feature t's unique
+//      linearized values occupy a contiguous slice of linear_unique_indices.
+//      The radix sort end_bit is trimmed to bit_width(total_hash_size),
+//      which on production shapes (hash_size ~1M) reduces 8 radix passes
+//      to ~3.
 //
 //   3. delinearize_unique_index_kernel scatters the original
 //      (pre-linearization) per-feature index values back into
@@ -196,8 +378,25 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
     const Tensor& hash_size_offsets,
     const Tensor& offsets,
     const Tensor& indices) {
+  TORCH_CHECK(hash_size_cumsum.dtype() == indices.dtype());
+  TORCH_CHECK(
+      hash_size_cumsum.numel() >= 2,
+      "jagged_unique_indices: hash_size_cumsum must have at least 2 entries "
+      "(T >= 1), got ",
+      hash_size_cumsum.numel());
+
   const auto total_B = offsets.size(0) - 1;
   const auto T = hash_size_cumsum.size(0) - 1;
+  const auto N = indices.numel();
+  // The cub pipeline uses int32 positions and an int32 num_items argument
+  // for radix sort, RLE, and scan, so N must fit in int32. In practice this
+  // is enforced upstream by the int32 PackedTensorAccessor on indices, but
+  // we make it explicit here to fail loudly rather than silently truncating.
+  TORCH_CHECK(
+      N < static_cast<int64_t>(INT32_MAX),
+      "jagged_unique_indices: indices.numel() (",
+      N,
+      ") exceeds INT32_MAX");
 
   Tensor linear_indices = at::empty_like(indices);
 
@@ -219,8 +418,46 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 
   Tensor linear_unique_indices;
   Tensor reverse_index;
-  std::tie(linear_unique_indices, reverse_index) =
-      at::_unique(linear_indices, true, true);
+  if (N == 0) {
+    linear_unique_indices = at::empty({0}, indices.options());
+    reverse_index = at::empty({0}, indices.options().dtype(at::kLong));
+  } else {
+    // Read total_hash_size to trim radix-sort end_bit. at::_unique
+    // historically performed an implicit D->H sync to allocate its outputs,
+    // so this sync is net-neutral.
+    const int64_t total_hash_size =
+        hash_size_cumsum[hash_size_cumsum.numel() - 1].item().toLong();
+    TORCH_CHECK(
+        total_hash_size >= 0,
+        "jagged_unique_indices: hash_size_cumsum[-1] must be non-negative, got ",
+        total_hash_size);
+    // Bit-width of total_hash_size via integer math. __builtin_clzll is
+    // defined for any positive uint64_t, so this expression is total over
+    // the entire [0, INT64_MAX] range and never invokes UB. (Unlike the
+    // float-log2 formulation, which produces NaN at INT64_MAX due to
+    // signed overflow in `total_hash_size + 1`.)
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "jagged_unique_indices_pipeline", ([&] {
+          const int max_bits = static_cast<int>(sizeof(index_t) * 8);
+          int total_hash_size_bits;
+          if (total_hash_size <= 0) {
+            total_hash_size_bits = 1;
+          } else {
+            total_hash_size_bits =
+                64 - __builtin_clzll(static_cast<uint64_t>(total_hash_size));
+          }
+          total_hash_size_bits = std::min(total_hash_size_bits, max_bits);
+          TORCH_CHECK(
+              total_hash_size_bits >= 1 && total_hash_size_bits <= max_bits,
+              "jagged_unique_indices: bad end_bit=",
+              total_hash_size_bits);
+          jagged_unique_indices_pipeline<index_t>(
+              linear_indices,
+              total_hash_size_bits,
+              linear_unique_indices,
+              reverse_index);
+        }));
+  }
 
   const auto total_indices = indices.size(0);
   Tensor unique_indices = at::empty_like(linear_unique_indices);
@@ -234,7 +471,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(indices, index_t, 1, 32),
-            PTA_B(reverse_index, index_t, 1, 32),
+            PTA_B(reverse_index, int64_t, 1, 32),
             PTA_B(unique_indices, index_t, 1, 32));
       }));
 
