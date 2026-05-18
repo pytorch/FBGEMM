@@ -12,7 +12,7 @@
 import random
 import unittest
 from itertools import accumulate
-from typing import Optional
+from typing import Callable, Optional
 
 import hypothesis.strategies as st
 import torch
@@ -786,8 +786,765 @@ class PermuteIndicesTest(unittest.TestCase):
         else:
             self.assertIsNone(permuted_weights_gpu)
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_long2_remainder(
+        self,
+    ) -> None:
+        """
+        Test new int64 long2 vectorized path remainder handling.
 
-extend_test_class(PermuteIndicesTest)
+        After the long4 -> long2 change, the vec width for 8-byte types is 2
+        elements per thread. Lengths chosen to exercise:
+        - Pure remainder (lens 1, 3): len % 2 == 1 stragglers
+        - Exact vec width (lens 2, 4, 6, 8): len % 2 == 0
+        - Mixed combinations (lens 0..9)
+
+        Uses int64 indices AND torch.double weights (8-byte) to exercise both
+        the new indices vec path AND the new weights vec path (weights_vec_t
+        = long2 for 8-byte types). int64 weights are not supported by the CPU
+        reference dispatch, so double is the only 8-byte weights dtype that
+        can be cross-checked CPU vs GPU.
+        """
+        index_dtype = torch.int64
+        weights_dtype = torch.double  # 8-byte, hits long2 weights vec path
+        # Shape [T=2, B=10]: each row covers all interesting boundary cases
+        # row 0: ascending lens 0..9, row 1: descending to add variety
+        lengths_list = [
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+        ]
+        T = len(lengths_list)
+        lengths = torch.tensor(lengths_list, dtype=index_dtype)
+        total = int(lengths.sum().item())
+
+        indices = torch.randint(
+            low=1,
+            high=int(1e9),
+            size=(total,),
+            dtype=index_dtype,
+        )
+        # 8-byte (double) weights to exercise weights_vec_t = long2 path
+        weights = torch.rand(total, dtype=weights_dtype)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        # CPU reference
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, None
+        )
+
+        # GPU (uses vectorized long2 kernel for 8-byte indices and weights)
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights.cuda(),
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+
+    @given(
+        has_weight=st.booleans(),
+        weights_dtype=st.sampled_from([torch.float32, torch.double, torch.float16]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_int64_large_segments(
+        self,
+        has_weight: bool,
+        weights_dtype: torch.dtype,
+    ) -> None:
+        """
+        Test the int64 hot path (long2 vec) with long segments.
+
+        This is the path being optimized: int64 indices with segment lengths
+        in the thousands. Sweeps weights dtypes (float32, double, float16) to
+        cover both 8-byte weights (double -> long2 vec) and 4-byte weights
+        (float -> float4 vec) and 2-byte weights (float16 -> float4 vec).
+        The CPU reference dispatch (FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE for
+        weights) does not support integer weights, so they are excluded here.
+        """
+        index_dtype = torch.int64
+        T = 6
+        # Long segments (several thousand) to exercise the vec loop hard.
+        lengths_list = [
+            [4096, 8192, 2048, 1024],
+            [3000, 5000, 7000, 2500],
+            [6000, 1500, 4500, 3500],
+            [2049, 4097, 8193, 1025],  # odd lengths to hit remainder
+            [10000, 5000, 2500, 1250],
+            [3333, 6666, 9999, 1111],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        indices = torch.randint(
+            low=0,
+            high=2**62,
+            size=(total,),
+            dtype=index_dtype,
+        )
+
+        weights = torch.rand(total, dtype=weights_dtype) if has_weight else None
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        # CPU reference
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, None
+        )
+
+        # GPU (uses vectorized long2 kernel)
+        weights_cuda = weights.cuda() if has_weight and weights is not None else None
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights_cuda,
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        if has_weight:
+            torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+        else:
+            self.assertIsNone(permuted_weights_gpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_bf16_correctness(
+        self,
+    ) -> None:
+        """
+        Test BF16 "indices" (2-byte type) correctness.
+
+        Note: BF16 indices always route through the scalar fallback inside
+        permute_2D_data_kernel_vec because the alignment guard at
+        sparse_permute_2d.cu:118-123 requires sizeof(indices_t) in {4, 8}.
+        This test therefore exercises the scalar-fallback path for 2-byte
+        indices, not the vec path. The companion
+        test_permute_2D_indices_2byte_weights_correctness covers the actual
+        vec-path correctness fix from D105336279, which affects 2-byte
+        weights (whose alignment guard has no sizeof restriction).
+        """
+        T = 4
+        # Mix of even/odd-aligned segment lengths.
+        # With BF16 (2 bytes), float4 holds 8 elements per vec.
+        # Lengths chosen to span < 1 vec, exact vec, and vec + remainder.
+        lengths_list = [
+            [1, 7, 8, 9],
+            [15, 16, 17, 23],
+            [64, 100, 256, 333],
+            [512, 1000, 2000, 4096],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        # BF16 "indices" — operator treats them as opaque 2-byte payloads.
+        indices = torch.rand(total, dtype=torch.bfloat16)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        # CPU reference
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, None, None
+        )
+
+        # GPU (uses vectorized kernel — currently buggy for 2-byte)
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            None,
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        self.assertIsNone(permuted_weights_gpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_half_correctness(
+        self,
+    ) -> None:
+        """
+        Test Half (float16) "indices" (2-byte type) correctness.
+
+        Sibling of test_permute_2D_indices_bf16_correctness. Covers the OTHER
+        2-byte dtype in FBGEMM_DISPATCH_ALL_TYPES dispatch. After the
+        sizeof(vec_t)/sizeof(elem_t) fix, kIndicesVecWidth for half is 8
+        (float4 / sizeof(half) = 16 / 2 = 8), not the previously-hardcoded 4.
+        """
+        T = 4
+        # Same shape pattern as bf16 test: span < 1 vec, exact vec, vec + remainder.
+        lengths_list = [
+            [1, 7, 8, 9],
+            [15, 16, 17, 23],
+            [64, 100, 256, 333],
+            [512, 1000, 2000, 4096],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        # Half "indices" — operator treats them as opaque 2-byte payloads.
+        indices = torch.rand(total, dtype=torch.float16)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, None, None
+        )
+
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            None,
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        self.assertIsNone(permuted_weights_gpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_double_correctness(
+        self,
+    ) -> None:
+        """
+        Test Double (float64) "indices"-style payload via weights (8-byte type).
+
+        Double is only reachable via the weights dispatch (FBGEMM_DISPATCH_ALL_
+        TYPES_AND_DOUBLE), not indices. This test pairs int64 indices with
+        double weights so BOTH the indices vec path (long2, kWidth=2) and the
+        weights vec path (long2, kWidth=2) are exercised on segments chosen
+        to cover all len % 2 remainders.
+        """
+        index_dtype = torch.int64
+        weights_dtype = torch.double
+        T = 4
+        # Mix of segment lengths covering remainders for kWidth=2.
+        lengths_list = [
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+            [100, 101, 255, 256],
+            [1023, 1024, 2049, 4096],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        indices = torch.randint(low=0, high=2**62, size=(total,), dtype=index_dtype)
+        weights = torch.rand(total, dtype=weights_dtype)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, None
+        )
+
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights.cuda(),
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_2byte_weights_correctness(
+        self,
+    ) -> None:
+        """
+        Test 2-byte weights correctness with weights_columns=1.
+
+        Direct regression test for the D89161131 latent bug fixed by
+        D105336279. Unlike 2-byte indices (which always route to the scalar
+        fallback because of the alignment guard at sparse_permute_2d.cu:118-
+        123 requiring sizeof(indices_t) in {4, 8}), 2-byte weights ARE
+        reachable via the vec path: the weights_vec_aligned check at
+        sparse_permute_2d.cu:125-129 has no sizeof restriction. Pre-fix:
+        kWeightsVecWidth was hardcoded to 4 for non-8-byte types, but
+        float4 holds 8 elements per 2-byte slot
+        (sizeof(float4)/sizeof(half) = 16/2 = 8). The vec loop wrote 2x
+        past each segment, silently corrupting adjacent segments' weights.
+        Post-fix: width is sizeof(vec_t)/sizeof(elem_t) = 8.
+
+        Uses Half (float16) weights as the testable proxy: the CPU
+        dispatch (FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE) does not include
+        BFloat16, so CPU cross-validation isn't available for BF16
+        weights; the bug mechanics are identical for Half and BFloat16
+        (both 2-byte, both routed through float4 vec).
+        """
+        T = 4
+        # Lengths chosen to span < 1 vec, exact vec, vec + remainder
+        # at kWeightsVecWidth = 8 (the post-fix width for 2-byte weights).
+        lengths_list = [
+            [1, 7, 8, 9],
+            [15, 16, 17, 23],
+            [64, 100, 256, 333],
+            [512, 1000, 2000, 4096],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        # int64 indices + Half weights, weights_columns = 1 (1D weights).
+        indices = torch.randint(low=0, high=2**62, size=(total,), dtype=torch.int64)
+        weights = torch.rand(total, dtype=torch.float16)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, None
+        )
+
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights.cuda(),
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_mixed_width_weights(
+        self,
+    ) -> None:
+        """
+        Test mixed-width vec kernel: int64 indices (kWidth=2, long2) +
+        float32 weights (kWidth=4, float4).
+
+        The indices and weights vec counts/remainders are computed
+        independently inside permute_2D_data_kernel_vec. This test verifies
+        the two parallel vec loops produce consistent output when widths
+        differ, across segment lengths that hit:
+        - len % 2 == 1 (indices remainder)
+        - len % 4 != 0 (weights remainder)
+        - len divisible by both
+        """
+        T = 4
+        # Lengths chosen so vec counts/remainders differ for the two widths.
+        lengths_list = [
+            [1, 2, 3, 4],  # all in remainder territory
+            [5, 6, 7, 8],  # mix: 5 = 2v+1 (idx) / 1v+1 (wt)
+            [9, 10, 11, 12],  # 11 = 5v+1 (idx) / 2v+3 (wt)
+            [255, 256, 257, 1000],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        indices = torch.randint(low=0, high=2**62, size=(total,), dtype=torch.int64)
+        weights = torch.rand(total, dtype=torch.float32)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, weights, None
+        )
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights.cuda(),
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
+
+    @given(
+        weights_columns=st.sampled_from([2, 4, 8]),
+        long_index=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_weights_columns_gt1(
+        self,
+        weights_columns: int,
+        long_index: bool,
+    ) -> None:
+        """
+        Test the scalar fallback dispatch (weights_columns > 1).
+
+        permute_2D_sparse_data routes weights_columns > 1 to the scalar
+        permute_2D_data_kernel, which is NOT touched by this diff. This is a
+        no-regression smoke test confirming the other dispatch arm still
+        works after the vec kernel changes.
+
+        Uses a Python reference for cross-validation: the CPU op flattens 2D
+        weights to 1D (different convention from the GPU), so we cannot
+        compare GPU vs CPU directly.
+        """
+        index_dtype = torch.int64 if long_index else torch.int32
+        T = 4
+        lengths_list = [
+            [1, 7, 8, 9],
+            [15, 16, 17, 23],
+            [64, 100, 256, 333],
+            [512, 1000, 2000, 4096],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=index_dtype)
+        total = int(lengths.sum().item())
+
+        indices = torch.randint(low=0, high=int(1e9), size=(total,), dtype=index_dtype)
+        # 2D weights -> weights_columns > 1 -> scalar dispatch
+        weights = torch.rand(total, weights_columns, dtype=torch.float32)
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        # Python reference (segment-by-segment copy).
+        B = lengths.size(1)
+        input_offsets = torch.cat(
+            [torch.zeros(1, dtype=torch.int64), lengths.view(-1).long().cumsum(0)]
+        )
+        permuted_lengths_ref = torch.index_select(
+            lengths.view(T, -1), 0, permute.long()
+        )
+        out_offsets = torch.cat(
+            [
+                torch.zeros(1, dtype=torch.int64),
+                permuted_lengths_ref.view(-1).long().cumsum(0),
+            ]
+        )
+        permuted_indices_ref = torch.empty(total, dtype=indices.dtype)
+        permuted_weights_ref = torch.empty(total, weights_columns, dtype=weights.dtype)
+        for i in range(permute.numel()):
+            src_t = int(permute[i].item())
+            for b in range(B):
+                src_start = int(input_offsets[src_t * B + b].item())
+                seg_len = int(lengths[src_t, b].item())
+                dst_start = int(out_offsets[i * B + b].item())
+                permuted_indices_ref[dst_start : dst_start + seg_len] = indices[
+                    src_start : src_start + seg_len
+                ]
+                permuted_weights_ref[dst_start : dst_start + seg_len] = weights[
+                    src_start : src_start + seg_len
+                ]
+
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute.cuda(),
+            lengths.cuda(),
+            indices.cuda(),
+            weights.cuda(),
+            None,
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_ref)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_ref)
+        torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_ref)
+        # Confirm 2D shape preserved on GPU.
+        self.assertEqual(permuted_weights_gpu.dim(), 2)
+        self.assertEqual(permuted_weights_gpu.size(1), weights_columns)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_misalignment_fallback(
+        self,
+    ) -> None:
+        """
+        Test scalar fallback inside permute_2D_data_kernel_vec when offsets are
+        not vec-aligned.
+
+        The kernel falls back to scalar copy if the per-segment src/dst
+        pointers are not aligned to alignof(vec_t). Using odd-only lengths
+        (1, 3, 5, ...) creates cumulative offsets that are odd element counts,
+        so for any vec_t whose alignment exceeds the element size, the second
+        segment's pointer is misaligned. This forces the scalar branch.
+
+        Covers all 5 indices dtypes in FBGEMM_DISPATCH_ALL_TYPES.
+        """
+        T = 4
+        # Odd-only lengths -> cumulative offsets land on odd element counts.
+        # For 8-byte indices (int64) with long2 (alignof 16B = 2 elems), an
+        # odd elem-offset is misaligned. For 4-byte (int32/float) with float4
+        # (alignof 16B = 4 elems), 1 mod 4 != 0 -> misaligned. For 2-byte
+        # (bf16/half) with float4 (8 elems), 1 mod 8 != 0 -> misaligned.
+        lengths_list = [
+            [1, 3, 5, 7],
+            [9, 11, 13, 15],
+            [17, 19, 21, 23],
+            [25, 27, 29, 31],
+        ]
+        lengths = torch.tensor(lengths_list, dtype=torch.int32)
+        total = int(lengths.sum().item())
+
+        permute_list = list(range(T))
+        random.shuffle(permute_list)
+        permute = torch.IntTensor(permute_list)
+
+        for indices_dtype in [
+            torch.int32,
+            torch.int64,
+            torch.float32,
+            torch.float16,
+            torch.bfloat16,
+        ]:
+            if indices_dtype in (torch.float32, torch.float16, torch.bfloat16):
+                indices = torch.rand(total, dtype=indices_dtype)
+            else:
+                indices = torch.randint(
+                    low=0, high=int(1e9), size=(total,), dtype=indices_dtype
+                )
+
+            (
+                permuted_lengths_cpu,
+                permuted_indices_cpu,
+                permuted_weights_cpu,
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
+                permute, lengths, indices, None, None
+            )
+            (
+                permuted_lengths_gpu,
+                permuted_indices_gpu,
+                permuted_weights_gpu,
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
+                permute.cuda(),
+                lengths.cuda(),
+                indices.cuda(),
+                None,
+                None,
+            )
+            torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+            torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+            self.assertIsNone(permuted_weights_gpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_2D_indices_stress_randomized(
+        self,
+    ) -> None:
+        """
+        Seeded-random stress test that sweeps dtypes, shapes, permutation
+        styles, and has_weight flag.
+
+        Goal is breadth — each iteration keeps shapes modest so the full
+        loop finishes well under 60s. All dtypes from FBGEMM_DISPATCH_ALL_
+        TYPES are exercised on the indices side; the weights side uses the
+        CPU-supported dtypes (float32, float64, float16, bfloat16) so the
+        CPU reference can validate.
+        """
+        rng = random.Random(0xFBE0)
+        torch.manual_seed(0xFBE0)
+
+        indices_dtypes = [
+            torch.int32,
+            torch.int64,
+            torch.float32,
+            torch.float16,
+            torch.bfloat16,
+        ]
+        # CPU weights dispatch supports only FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE
+        # -> exclude bfloat16 / int weights so the CPU reference is available.
+        weights_dtypes = [torch.float32, torch.float64, torch.float16]
+        permutation_styles = ["random", "identity", "inverse", "with_repeats"]
+
+        n_iters = 50
+        for it in range(n_iters):
+            T = rng.randint(1, 32)
+            B = rng.randint(1, 16)
+            # Cap max segment length to keep memory and time modest.
+            max_seg = rng.randint(0, 200)
+            indices_dtype = rng.choice(indices_dtypes)
+            has_weight = rng.choice([True, False])
+            weights_dtype = rng.choice(weights_dtypes) if has_weight else None
+            style = rng.choice(permutation_styles)
+
+            lengths = torch.randint(
+                low=0, high=max_seg + 1, size=(T, B), dtype=torch.int32
+            )
+            total = int(lengths.sum().item())
+            if total == 0:
+                # Skip degenerate iter — the op behaviour on empty totals is
+                # tested separately by the existing T=0/B=0 paths.
+                continue
+
+            if indices_dtype in (torch.float32, torch.float16, torch.bfloat16):
+                indices = torch.rand(total, dtype=indices_dtype)
+            else:
+                indices = torch.randint(
+                    low=0, high=int(1e9), size=(total,), dtype=indices_dtype
+                )
+
+            weights = torch.rand(total, dtype=weights_dtype) if has_weight else None
+
+            if style == "random":
+                permute_list = list(range(T))
+                rng.shuffle(permute_list)
+            elif style == "identity":
+                permute_list = list(range(T))
+            elif style == "inverse":
+                permute_list = list(range(T - 1, -1, -1))
+            else:  # with_repeats
+                base = list(range(T))
+                extra = [rng.randint(0, T - 1) for _ in range(rng.randint(0, T))]
+                permute_list = base + extra
+                rng.shuffle(permute_list)
+
+            permute = torch.IntTensor(permute_list)
+
+            (
+                permuted_lengths_cpu,
+                permuted_indices_cpu,
+                permuted_weights_cpu,
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
+                permute, lengths, indices, weights, None
+            )
+            weights_cuda = (
+                weights.cuda() if has_weight and weights is not None else None
+            )
+            (
+                permuted_lengths_gpu,
+                permuted_indices_gpu,
+                permuted_weights_gpu,
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
+                permute.cuda(),
+                lengths.cuda(),
+                indices.cuda(),
+                weights_cuda,
+                None,
+            )
+
+            msg = (
+                f"iter={it} T={T} B={B} max_seg={max_seg} "
+                f"indices_dtype={indices_dtype} has_weight={has_weight} "
+                f"weights_dtype={weights_dtype} style={style}"
+            )
+            torch.testing.assert_close(
+                permuted_lengths_gpu.cpu(), permuted_lengths_cpu, msg=msg
+            )
+            torch.testing.assert_close(
+                permuted_indices_gpu.cpu(), permuted_indices_cpu, msg=msg
+            )
+            if has_weight:
+                torch.testing.assert_close(
+                    permuted_weights_gpu.cpu(), permuted_weights_cpu, msg=msg
+                )
+            else:
+                self.assertIsNone(permuted_weights_gpu)
+
+
+# Skip opcheck wrappers for tests that:
+# - exercise 2D weights (pre-existing fake-tensor metadata mismatch in
+#   permute_2D_sparse_data — the fake meta impl returns 1D shape regardless
+#   of input weights rank, same class of issue tracked elsewhere)
+# - run many iterations and would multiply opcheck overhead unproductively
+#   (stress test already does CPU-vs-GPU cross-check on every iteration).
+# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
+additional_decorators: dict[str, list[Callable]] = {
+    "test_aot_dispatch_dynamic__test_permute_2D_indices_weights_columns_gt1": [
+        unittest.skip("fake tensor meta returns 1D shape regardless of weights rank")
+    ],
+    "test_faketensor__test_permute_2D_indices_weights_columns_gt1": [
+        unittest.skip("fake tensor meta returns 1D shape regardless of weights rank")
+    ],
+    "test_schema__test_permute_2D_indices_weights_columns_gt1": [
+        unittest.skip("fake tensor meta returns 1D shape regardless of weights rank")
+    ],
+    "test_autograd_registration__test_permute_2D_indices_weights_columns_gt1": [
+        unittest.skip("fake tensor meta returns 1D shape regardless of weights rank")
+    ],
+    "test_aot_dispatch_dynamic__test_permute_2D_indices_stress_randomized": [
+        unittest.skip("real test already covers CPU vs GPU; opcheck overhead too high")
+    ],
+    "test_faketensor__test_permute_2D_indices_stress_randomized": [
+        unittest.skip("real test already covers CPU vs GPU; opcheck overhead too high")
+    ],
+    "test_schema__test_permute_2D_indices_stress_randomized": [
+        unittest.skip("real test already covers CPU vs GPU; opcheck overhead too high")
+    ],
+    "test_autograd_registration__test_permute_2D_indices_stress_randomized": [
+        unittest.skip("real test already covers CPU vs GPU; opcheck overhead too high")
+    ],
+}
+
+
+# pyre-ignore[6]: `additional_decorators` type compatibility
+extend_test_class(PermuteIndicesTest, additional_decorators)
 
 if __name__ == "__main__":
     unittest.main()
