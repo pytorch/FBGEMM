@@ -27,10 +27,17 @@ namespace fbgemm_gpu {
 // flat-grid launches with grid = total_B (or num_unique).
 static constexpr int32_t kFlatBlockSize = 256;
 
-// Linearzie the index with the cumsum of hash size so that linearized indices
-// can be sorted together.
+// Linearize the index with the cumsum of hash size so that linearized indices
+// can be sorted together. Flat-grid: one block per (t, b) sample.
+//
+// Replaces the prior warp-cooperative kernel which was launched as
+//   grid = ceil(total_B / kMaxThreads)
+// On production shapes total_B is in the low thousands and kMaxThreads = 1024,
+// so the prior launch consumed only ~5 SMs out of 132 on H100 with each warp
+// shuffling work between lanes. The flat grid uses one block per sample,
+// dispatching all SMs and removing the intra-warp shuffle dance.
 template <typename index_t>
-__global__ __launch_bounds__(kMaxThreads) void linearize_index_wo_infos_kernel(
+__global__ __launch_bounds__(kFlatBlockSize) void linearize_index_flat_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
@@ -40,27 +47,21 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_wo_infos_kernel(
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices,
     FixedDivisor fd) {
-  const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto b_t = blockIdx.x;
   int32_t b;
   int32_t t;
-  const auto total_B = offsets.size(0) - 1;
-  const auto valid = b_t < total_B;
+  fd.DivMod(static_cast<int32_t>(b_t), &t, &b);
 
-  fd.DivMod(b_t, &t, &b);
+  const auto indices_start = offsets[b_t];
+  const auto L = offsets[b_t + 1] - indices_start;
+  if (L == 0) {
+    return;
+  }
+  const auto hash_offset = hash_size_cumsum[t];
 
-  const auto hash_offset = valid ? hash_size_cumsum[t] : -1;
-  const auto indices_start = valid ? offsets[b_t] : -1;
-  const int32_t L = valid ? offsets[b_t + 1] - indices_start : 0;
-  const auto lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
-
-  for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-    const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-    const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
-    const auto hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-    for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
-      const auto idx = __ldg(&indices[indices_start_warp + i]);
-      linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
-    }
+  for (auto i = threadIdx.x; i < L; i += blockDim.x) {
+    const auto idx = __ldg(&indices[indices_start + i]);
+    linear_indices[indices_start + i] = hash_offset + idx;
   }
 }
 
@@ -170,7 +171,7 @@ __global__ __launch_bounds__(kFlatBlockSize) void unique_indices_length_kernel(
 
 // Pipeline (cross-kernel data flow that ties the four steps together):
 //
-//   1. linearize_index_wo_infos_kernel writes
+//   1. linearize_index_flat_kernel writes
 //        linear_indices[i] = hash_size_cumsum[t] + indices[i]
 //      so feature t's linearized values lie in
 //        [hash_size_cumsum[t], hash_size_cumsum[t+1]).
@@ -204,9 +205,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "linearize_index", ([&] {
                             FBGEMM_LAUNCH_KERNEL(
-                                (linearize_index_wo_infos_kernel<index_t>),
-                                div_round_up(total_B, kMaxThreads),
-                                kMaxThreads,
+                                (linearize_index_flat_kernel<index_t>),
+                                total_B,
+                                kFlatBlockSize,
                                 0,
                                 at::cuda::getCurrentCUDAStream(),
                                 PTA_B(hash_size_cumsum, index_t, 1, 32),
