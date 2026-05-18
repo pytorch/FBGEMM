@@ -297,8 +297,16 @@ def permute_1D_sparse_data_meta(
     permuted_indices = indices.new_empty(permuted_indices_size)
     permuted_weights = None
     if weights is not None:
-        # pyre-fixme
-        permuted_weights = weights.new_empty(permuted_indices_size)
+        # Preserve trailing dimensions for N-D weights so the meta function
+        # matches the concrete kernel's output shape (e.g. [total, W] for
+        # 2D weights consumed by the vec kernel). Previously this always
+        # returned a 1D tensor, which broke the faketensor opcheck on the
+        # 2D-weights tests.
+        permuted_weights = (
+            weights.new_empty(permuted_indices_size)
+            if weights.dim() <= 1
+            else weights.new_empty([permuted_indices_size, *weights.shape[1:]])
+        )
     return permuted_lengths, permuted_indices, permuted_weights
 
 

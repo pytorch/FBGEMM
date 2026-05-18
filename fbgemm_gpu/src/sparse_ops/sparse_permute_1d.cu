@@ -233,8 +233,19 @@ permute_1D_sparse_data_cuda(
   permuted_lengths = at::empty({permuted_lengths_size}, lengths.options());
 
   constexpr int32_t threads_1 = kMaxThreads;
-  const auto blocks_1 =
+  const auto blocks_1_uncapped =
       cuda_calc_xblock_count(permuted_lengths_size, threads_1);
+#ifdef USE_ROCM
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). Cap the grid unconditionally on ROCm;
+  // permute_1D_lengths_kernel uses CUDA_KERNEL_LOOP, which already
+  // grid-strides, so capping is correctness-preserving.
+  const auto blocks_1 = std::min<uint32_t>(
+      blocks_1_uncapped,
+      utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
+#else
+  const auto blocks_1 = blocks_1_uncapped;
+#endif
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
         FBGEMM_LAUNCH_KERNEL(
@@ -262,8 +273,19 @@ permute_1D_sparse_data_cuda(
 
   constexpr int32_t BT_blocks = 16;
   dim3 threads_2(64, BT_blocks);
-  const auto blocks_2 =
+  const auto blocks_2_uncapped =
       cuda_calc_xblock_count(permuted_lengths_size, BT_blocks);
+#ifdef USE_ROCM
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). Cap the grid unconditionally on ROCm; the
+  // kernel's grid-striding loop over b_t handles the overflow, so capping is
+  // correctness-preserving.
+  const auto blocks_2 = std::min<uint32_t>(
+      blocks_2_uncapped,
+      utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
+#else
+  const auto blocks_2 = blocks_2_uncapped;
+#endif
   permuted_indices = at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(

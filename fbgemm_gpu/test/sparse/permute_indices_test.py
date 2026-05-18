@@ -27,10 +27,20 @@ from .common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, on_oss_clang
+    from test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        on_oss_clang,
+    )
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, on_oss_clang
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        on_oss_clang,
+    )
 
 
 class PermuteIndicesTest(unittest.TestCase):
@@ -785,6 +795,77 @@ class PermuteIndicesTest(unittest.TestCase):
             torch.testing.assert_close(permuted_weights_gpu.cpu(), permuted_weights_cpu)
         else:
             self.assertIsNone(permuted_weights_gpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # Skip on GPUs with insufficient HBM (need a few hundred MB for the
+    # int32 N-element tensors).
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_permute_1D_sparse_data_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in permute_1D_sparse_data_cuda
+        and verifies output correctness at the same scale.
+
+        With BT_blocks=16 and dim3(64, 16) (block size 1024), the launch grid
+        is cuda_calc_xblock_count(N, 16). For N > 2**26, total threads exceed
+        the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm pre-fix. With the production fix in place, this test additionally
+        validates output correctness against the CPU dispatch of the same op
+        — the GPU output must match the CPU reference element-for-element.
+
+        ``lengths`` is sparse: all zero except for three known non-zero
+        positions (start / middle / end of the logical range), so HBM usage
+        stays bounded (~few hundred MB int32) while the permutation logic is
+        still exercised. ``permute`` is a deterministic non-identity circular
+        shift (``perm[i] != i`` everywhere), so any "kernel computed identity
+        instead of permutation" bug surfaces in the assertion below.
+        """
+
+        # Choose N so that total threads strictly exceeds 2**32:
+        # cuda_calc_xblock_count(N, 16) * 1024 ~= N * 64; need N > 2**26.
+        N = (1 << 26) + 1
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Deterministic non-identity permute: circular shift by +1.
+        # perm_cpu[0] == N - 1 and perm_cpu[i] == i - 1 for i >= 1, so
+        # perm_cpu[i] != i for every i.
+        perm_cpu = torch.roll(torch.arange(N, dtype=torch.int32), 1)
+        permute = perm_cpu.to(device)
+
+        # Sparse non-zero lengths at start / middle / end. Total = 10.
+        lengths_cpu = torch.zeros(N, dtype=torch.int32)
+        lengths_cpu[0] = 3
+        lengths_cpu[N // 2] = 5
+        lengths_cpu[N - 1] = 2
+        lengths = lengths_cpu.to(device)
+
+        # Distinct indices per segment so the permutation is fully observable.
+        indices_cpu = torch.arange(10, dtype=torch.int32)
+        indices = indices_cpu.to(device)
+
+        # CPU reference oracle — same op, different dispatch.
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            _permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_1D_sparse_data(
+            perm_cpu, lengths_cpu, indices_cpu, None, None
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_1D_sparse_data(
+            permute, lengths, indices, None, None
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        self.assertIsNone(permuted_weights_gpu)
 
 
 extend_test_class(PermuteIndicesTest)
