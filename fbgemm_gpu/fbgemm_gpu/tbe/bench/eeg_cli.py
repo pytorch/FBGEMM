@@ -35,7 +35,7 @@ def estimate(indices: str) -> None:
         estimate --indices="indices.pt"
     """
 
-    indices = torch.load(indices)
+    indices = torch.load(indices, weights_only=True)
     heavy_hitters, q, s, max_index, num_indices = (
         torch.ops.fbgemm.tbe_estimate_indices_distribution(indices)
     )
