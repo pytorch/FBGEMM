@@ -431,7 +431,7 @@ class IndexSelectTest(unittest.TestCase):
         device: torch.device = (
             torch.device("cpu")
             if use_cpu
-            else torch.device(torch.accelerator.current_accelerator())
+            else torch.device(torch.accelerator.current_accelerator() or "cuda")
         )
         input_rows = torch.randint(
             low=1, high=max_input_rows, size=(num_inputs,)
@@ -496,7 +496,7 @@ class IndexSelectTest(unittest.TestCase):
     ) -> None:
         assume(max_rl < num_indices)
         device: torch.device = (
-            torch.device(torch.accelerator.current_accelerator())
+            torch.device(torch.accelerator.current_accelerator() or "cuda")
             if torch.accelerator.is_available()
             else torch.device("cpu")
         )
