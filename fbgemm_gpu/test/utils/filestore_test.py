@@ -46,7 +46,9 @@ class FileStoreTest(unittest.TestCase):
         assert store.exists(path), f"{path} does not exist"
 
         if isinstance(input, torch.Tensor):
-            assert torch.load(store.read(path)).equal(input), "tensors do not match"
+            assert torch.load(store.read(path), weights_only=True).equal(
+                input
+            ), "tensors do not match"
 
         elif isinstance(input, io.BytesIO) or isinstance(input, BinaryIO):
             input.seek(0)
