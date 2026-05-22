@@ -225,7 +225,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
                 f"mean: {errors.abs().mean() * 100:.1f}%"
             )
 
-        torch.testing.assert_allclose(dqcat, qref, rtol=0.1, atol=0.05)
+        torch.testing.assert_close(dqcat, qref, rtol=0.1, atol=0.05)
 
     @unittest.skipIf(*gpu_unavailable)
     def test_padded_fp8_rowwise_input_validation(self) -> None:

@@ -77,13 +77,15 @@ def generate_requests_from_data_file(
     ), "If requests_data_file is provided, indices_file and offsets_file cannot be provided."
 
     if requests_data_file:
-        indices_tensor, offsets_tensor, *rest = torch.load(requests_data_file)
+        indices_tensor, offsets_tensor, *rest = torch.load(
+            requests_data_file, weights_only=True
+        )
     else:
         assert (
             indices_file and offsets_file
         ), "Both indices_file and offsets_file must be provided if either is provided."
-        indices_tensor = torch.load(indices_file)
-        offsets_tensor = torch.load(offsets_file)
+        indices_tensor = torch.load(indices_file, weights_only=True)
+        offsets_tensor = torch.load(offsets_file, weights_only=True)
 
     average_L = 0
     if tables is not None:

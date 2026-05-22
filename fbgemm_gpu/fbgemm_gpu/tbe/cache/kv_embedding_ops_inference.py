@@ -270,7 +270,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             embedding_dim = rounded_row_size_in_bytes(
                 embedding_dim, weight_ty, self.row_alignment
             )
-            indices = torch.range(0, num_embeddings - 1, dtype=torch.int64)
+            indices = torch.arange(num_embeddings, dtype=torch.int64)
             weights = random_quant_scaled_tensor(
                 shape=torch.Size([num_embeddings, embedding_dim]),
                 device=self.current_device,
