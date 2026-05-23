@@ -9,6 +9,8 @@
 
 # pyre-ignore-all-errors[56]
 
+from __future__ import annotations
+
 import random
 import unittest
 from typing import Any, cast, Optional
@@ -834,7 +836,7 @@ class CacheTest(unittest.TestCase):
             count2: Optional[torch.Tensor] = None,
             positions1: Optional[torch.Tensor] = None,
             positions2: Optional[torch.Tensor] = None,
-        ):
+        ) -> None:
             self.assertEqual(
                 length1,
                 length2,
