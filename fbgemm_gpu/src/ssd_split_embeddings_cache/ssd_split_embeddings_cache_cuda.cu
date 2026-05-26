@@ -74,6 +74,17 @@ vec4_copy(uint8_t* dst, const uint8_t* src, const int32_t D) {
   }
 }
 
+template <>
+DEVICE_INLINE void vec4_copy(int8_t* dst, const int8_t* src, const int32_t D) {
+  // each row is padded with row_alignment (16 bytes on GPUs), so each row will
+  // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
+  const uint4* __restrict__ src_ = reinterpret_cast<const uint4*>(src);
+  uint4* __restrict__ dst_ = reinterpret_cast<uint4*>(dst);
+  for (auto d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
+    dst_[d] = src_[d];
+  }
+}
+
 template <typename value_t, typename index_t, bool is_index_put>
 __global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
     pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits> self,
@@ -144,7 +155,9 @@ Tensor masked_index_impl(
       is_index_put ? "masked_index_put" : "masked_index_select",
       [&] {
         using value_t = scalar_t;
-        if constexpr (std::is_same_v<value_t, uint8_t>) {
+        if constexpr (
+            std::is_same_v<value_t, uint8_t> ||
+            std::is_same_v<value_t, int8_t>) {
           TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16");
         }
         FBGEMM_DISPATCH_INTEGRAL_TYPES(

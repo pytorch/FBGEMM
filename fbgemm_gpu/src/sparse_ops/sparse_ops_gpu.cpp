@@ -653,21 +653,62 @@ std::tuple<Tensor, std::optional<Tensor>> pack_segments_cuda_v2(
       t_in, lengths, max_length, pad_minf, return_presence_mask);
 }
 
+namespace {
+
+// Helper to prepare indices for index_select operation.
+// Returns a tuple of (indices_to_use, orig_indices, indices_sorted).
+// If skip_indices_sorting_fwd is true and not in inference mode, returns the
+// original indices with empty orig_indices and indices_sorted=false.
+// Otherwise, sorts indices and returns (sorted_indices, orig_indices, true).
+std::tuple<Tensor, Tensor, bool> prepare_index_select_indices(
+    const Tensor& indices,
+    std::optional<bool> skip_indices_sorting_fwd) {
+  const bool skip_sort = skip_indices_sorting_fwd.value_or(false) &&
+      !c10::InferenceMode::is_enabled();
+
+  if (skip_sort) {
+    return {indices, at::empty({0}, indices.options().dtype(at::kLong)), false};
+  }
+  Tensor sorted_indices, orig_indices;
+  std::tie(sorted_indices, orig_indices) = indices.sort();
+  return {sorted_indices, orig_indices, true};
+}
+
+} // namespace
+
 Tensor index_select_dim0_gpu(
     const Tensor& input,
     const Tensor& indices,
     std::optional<int64_t> consecutive_range_start,
     std::optional<int64_t> consecutive_range_length,
     std::optional<bool> skip_indices_sorting_fwd) {
-  bool user_skip_indices_sorting_fwd =
-      skip_indices_sorting_fwd ? *skip_indices_sorting_fwd : false;
+  // 8-bit integer dtypes (uint8/Byte and int8/Char) are inference-only and do
+  // not support autograd, so we bypass IndexSelectDim0GPUOp::apply (which
+  // wires up the autograd Function) and call index_select_cuda directly.
+  // consecutive_range_start and consecutive_range_length are intentionally
+  // ignored on this path — they optimize the backward pass for consecutive
+  // indices, but integer dtypes have no backward pass (no gradients).
+  if (input.scalar_type() == at::kByte || input.scalar_type() == at::kChar) {
+    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input, indices);
+    TORCH_CHECK_VALUE(
+        indices.dim() == 1, "Index tensor must be 1D, but got ", indices.dim());
+
+    auto [indices_to_use, orig_indices, indices_sorted] =
+        prepare_index_select_indices(indices, skip_indices_sorting_fwd);
+    return index_select_cuda(
+        input, indices_to_use, orig_indices, indices_sorted);
+  }
+
   return IndexSelectDim0GPUOp::apply(
       input,
       indices,
-      consecutive_range_start ? *consecutive_range_start : 0,
-      consecutive_range_length ? *consecutive_range_length : 0,
-      // Always skip indices sorting if doing forward only
-      user_skip_indices_sorting_fwd && !c10::InferenceMode::is_enabled())[0];
+      consecutive_range_start.value_or(0),
+      consecutive_range_length.value_or(0),
+      // Sorting is skipped only when the user requested it AND we are NOT in
+      // inference mode. In inference mode we always sort for cache-friendlier
+      // gathers.
+      skip_indices_sorting_fwd.value_or(false) &&
+          !c10::InferenceMode::is_enabled())[0];
 }
 
 } // namespace fbgemm_gpu

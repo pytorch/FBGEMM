@@ -38,7 +38,7 @@ class IndexSelectTest(unittest.TestCase):
             st.lists(st.integers(1, 128), max_size=1),
             st.lists(st.integers(1, 16), min_size=2, max_size=2),
         ),
-        dtype=st.sampled_from([torch.float, torch.half]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.uint8, torch.int8]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         consecutive_indices=st.booleans(),
         skip_indices_sorting_fwd=st.booleans(),
@@ -76,15 +76,25 @@ class IndexSelectTest(unittest.TestCase):
 
         kwargs["skip_indices_sorting_fwd"] = skip_indices_sorting_fwd
 
-        input = torch.rand((U,) + tuple(shape), dtype=dtype, device=device)
+        if dtype.is_floating_point:
+            input = torch.rand((U,) + tuple(shape), dtype=dtype, device=device)
+        else:
+            iinfo = torch.iinfo(dtype)
+            input = torch.randint(
+                iinfo.min,
+                iinfo.max + 1,
+                (U,) + tuple(shape),
+                dtype=dtype,
+                device=device,
+            )
 
         with torch.inference_mode() if use_inference_mode else contextlib.nullcontext():
             output_ref = torch.ops.fbgemm.index_select_dim0(input, indices, **kwargs)
             output = torch.index_select(input, 0, indices)
 
-            torch.testing.assert_close(output, output_ref)
+            torch.testing.assert_close(output, output_ref, atol=0, rtol=0)
 
-        if not use_inference_mode:
+        if not use_inference_mode and dtype.is_floating_point:
             gradcheck_args = [
                 input.clone().detach().float().requires_grad_(True),
                 indices,

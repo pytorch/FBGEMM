@@ -329,12 +329,13 @@
   AT_DISPATCH_SWITCH(                                   \
       TYPE, NAME, FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__))
 
-#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(TYPE, NAME, ...) \
-  AT_DISPATCH_SWITCH(                                        \
-      TYPE,                                                  \
-      NAME,                                                  \
-      FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__)       \
-          AT_DISPATCH_CASE(at::ScalarType::Byte, __VA_ARGS__))
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(TYPE, NAME, ...)  \
+  AT_DISPATCH_SWITCH(                                         \
+      TYPE,                                                   \
+      NAME,                                                   \
+      FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__)        \
+          AT_DISPATCH_CASE(at::ScalarType::Byte, __VA_ARGS__) \
+              AT_DISPATCH_CASE(at::ScalarType::Char, __VA_ARGS__))
 
 #define FBGEMM_DISPATCH_FLOAT_HALF_FP8_AND_BYTE(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                            \
