@@ -170,6 +170,8 @@ def device(  # noqa C901
             embedding_specs=[(tbeconfig.E, d) for d in Ds],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
+            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
+            # and canonical package; resolves once D103477971 unifies the classes via re-export.
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
             **common_split_args,
@@ -551,6 +553,8 @@ def device_with_speclist(  # noqa C901
             embedding_specs=[(e, d) for e, d in zip(_Es, _Ds)],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
+            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
+            # and canonical package; resolves once D103477971 unifies the classes via re-export.
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
             **common_split_args,

@@ -64,6 +64,8 @@ class KVEmbeddingTest(TestCase):
                 )
 
         kv_emb_cpu = KVEmbeddingInference(
+            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
+            # and canonical package; resolves once D103477971 unifies the classes via re-export.
             [
                 (
                     "",

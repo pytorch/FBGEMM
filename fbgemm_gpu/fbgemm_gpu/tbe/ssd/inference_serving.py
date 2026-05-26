@@ -25,10 +25,10 @@ import logging
 
 import torch  # usort:skip
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     rounded_row_size_in_bytes,
 )
+from fbgemm_gpu.tbe.config import PoolingMode
 from torch import nn, Tensor  # usort:skip
 
 from .common import ASSOC

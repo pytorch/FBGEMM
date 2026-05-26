@@ -13,21 +13,22 @@
 import torch  # usort:skip
 from torch import Tensor  # usort:skip
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
-    CacheAlgorithm,
-    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
-    EmbeddingLocation,
-    PoolingMode,
-    RecordCacheMetrics,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     inputs_to_device,
     IntNBitTableBatchedEmbeddingBagsCodegen,
     random_quant_scaled_tensor,
     rounded_row_size_in_bytes,
 )
+from fbgemm_gpu.tbe.config import (
+    BoundsCheckMode,
+    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    EmbeddingLocation,
+    PoolingMode,
+    RecordCacheMetrics,
+)
 from fbgemm_gpu.utils.loader import load_torch_module
+
+from .cache_config import CacheAlgorithm
 
 try:
     load_torch_module(
@@ -77,21 +78,31 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         embedding_cache_mode: bool = False,  # True for zero initialization, False for randomized initialization
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super().__init__(
+            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
+            # and canonical package; resolves once D103477971 unifies the classes via re-export.
             embedding_specs=embedding_specs,
             feature_table_map=feature_table_map,
             index_remapping=index_remapping,
+            # pyre-fixme[6]: Type-identity mismatch on PoolingMode between shell and
+            # canonical package; resolves once D103477971 unifies the classes via re-export.
             pooling_mode=pooling_mode,
             device=device,
+            # pyre-fixme[6]: Type-identity mismatch on BoundsCheckMode between shell
+            # and canonical package; resolves once D103477971 unifies the classes via re-export.
             bounds_check_mode=bounds_check_mode,
             weight_lists=weight_lists,
             pruning_hash_load_factor=pruning_hash_load_factor,
             use_array_for_index_remapping=use_array_for_index_remapping,
             output_dtype=output_dtype,
+            # pyre-fixme[6]: Type-identity mismatch on CacheAlgorithm between shell
+            # and canonical package; resolves once D103477971 unifies the classes via re-export.
             cache_algorithm=cache_algorithm,
             cache_load_factor=cache_load_factor,
             cache_sets=cache_sets,
             cache_reserved_memory=cache_reserved_memory,
             enforce_hbm=enforce_hbm,
+            # pyre-fixme[6]: Type-identity mismatch on RecordCacheMetrics between shell
+            # and canonical package; resolves once D103477971 unifies the classes via re-export.
             record_cache_metrics=record_cache_metrics,
             gather_uvm_cache_stats=gather_uvm_cache_stats,
             row_alignment=row_alignment,
