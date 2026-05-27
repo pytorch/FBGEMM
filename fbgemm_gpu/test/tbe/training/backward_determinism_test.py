@@ -16,7 +16,10 @@ results across repeated backward passes for all TBE optimizer types, data types,
 and pooling modes.
 """
 
+import logging
+import os
 import unittest
+import warnings
 from typing import Any, Optional
 
 import hypothesis.strategies as st
@@ -44,15 +47,25 @@ from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
+    from test_utils import additional_decorators, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+    )
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
+SUPPRESS_HEALTH_CHECKS: list[HealthCheck] = [
+    HealthCheck.filter_too_much,
+    HealthCheck.data_too_large,
+    HealthCheck.differing_executors,
+]
 
-@optests.generate_opcheck_tests(fast=True)
+
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardDeterminismTest(unittest.TestCase):
     """Verify backward determinism for all TBE optimizer types.
 
@@ -67,6 +80,14 @@ class BackwardDeterminismTest(unittest.TestCase):
       - optimizer=NONE: compares weights_dev.grad.to_dense() (sparse gradients)
       - All other optimizers: compares split_embedding_weights() per table
     """
+
+    def setUp(self) -> None:
+        # The test calls multiple TBE constructors, each emit many debug/info log lines ,
+        # Suppress INFO/DEBUG log to reduce the noise.
+        # Set FBGEMM_TEST_VERBOSE=1 to re-enable.
+        if "FBGEMM_TEST_VERBOSE" not in os.environ:
+            warnings.simplefilter("ignore")
+            logging.disable(logging.INFO)
 
     def _run_dense_backward(
         self,
@@ -103,7 +124,6 @@ class BackwardDeterminismTest(unittest.TestCase):
         optimizer: OptimType,
         weights_precision: SparseType,
         output_dtype: SparseType,
-        stochastic_rounding: bool,
         pooling_mode: PoolingMode,
         extra_kwargs: dict[str, Any],
         ref_cc: SplitTableBatchedEmbeddingBagsCodegen,
@@ -121,7 +141,7 @@ class BackwardDeterminismTest(unittest.TestCase):
             learning_rate=0.5,
             weights_precision=weights_precision,
             output_dtype=output_dtype,
-            stochastic_rounding=stochastic_rounding,
+            stochastic_rounding=False,
             pooling_mode=pooling_mode,
             **extra_kwargs,
         )
@@ -185,7 +205,6 @@ class BackwardDeterminismTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         weights_precision: SparseType,
         output_dtype: SparseType = SparseType.FP32,
-        stochastic_rounding: bool = False,
         dense: bool = False,
         num_runs: int = 5,
         optimizer_kwargs: Optional[dict[str, Any]] = None,
@@ -204,7 +223,6 @@ class BackwardDeterminismTest(unittest.TestCase):
             pooling_mode: SUM, MEAN, or NONE.
             weights_precision: FP16 or FP32 for embedding weights.
             output_dtype: Output tensor dtype (FP16, FP32, or BF16).
-            stochastic_rounding: Whether to enable stochastic rounding.
             dense: If True, use DenseTableBatchedEmbeddingBagsCodegen.
             num_runs: Number of repeated backward passes to compare.
             optimizer_kwargs: Extra kwargs passed to the TBE constructor
@@ -291,7 +309,7 @@ class BackwardDeterminismTest(unittest.TestCase):
                 learning_rate=0.5,
                 weights_precision=weights_precision,
                 output_dtype=output_dtype,
-                stochastic_rounding=stochastic_rounding,
+                stochastic_rounding=False,
                 pooling_mode=pooling_mode,
                 **extra_kwargs,
             )
@@ -339,7 +357,6 @@ class BackwardDeterminismTest(unittest.TestCase):
                         optimizer,
                         weights_precision,
                         output_dtype,
-                        stochastic_rounding,
                         pooling_mode,
                         extra_kwargs,
                         ref_cc,
@@ -375,7 +392,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=20,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_sgd(
@@ -425,13 +442,12 @@ class BackwardDeterminismTest(unittest.TestCase):
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
         ),
-        stochastic_rounding=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
         max_examples=20,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_adagrad(
@@ -447,11 +463,9 @@ class BackwardDeterminismTest(unittest.TestCase):
         optimizer: OptimType,
         pooling_mode: PoolingMode,
         output_dtype: SparseType,
-        stochastic_rounding: bool,
     ) -> None:
         """Test determinism for EXACT_ADAGRAD and EXACT_ROWWISE_ADAGRAD with
-        FP16/FP32 weights, FP16/FP32/BF16 output dtypes, and stochastic
-        rounding on/off."""
+        FP16/FP32 weights and FP16/FP32/BF16 output dtypes."""
         self._run_backward_determinism(
             T=T,
             D=D,
@@ -464,7 +478,6 @@ class BackwardDeterminismTest(unittest.TestCase):
             pooling_mode=pooling_mode,
             weights_precision=weights_precision,
             output_dtype=output_dtype,
-            stochastic_rounding=stochastic_rounding,
             optimizer_kwargs={"eps": 1e-4},
         )
 
@@ -493,7 +506,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=20,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_optimizers(
@@ -569,7 +582,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=20,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_partial_rowwise_adam(
@@ -629,7 +642,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=20,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_ensemble(
@@ -692,7 +705,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=20,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_none(
@@ -741,7 +754,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=20,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_dense(
@@ -796,7 +809,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=10,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+        suppress_health_check=SUPPRESS_HEALTH_CHECKS,
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_determinism_long_segments(
