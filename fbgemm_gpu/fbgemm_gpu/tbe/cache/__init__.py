@@ -14,5 +14,4 @@ from .cache_config import (  # noqa: F401
     MultiPassPrefetchConfig,
     UVMCacheStatsIndex,
 )
-from .kv_embedding_ops_inference import KVEmbeddingInference  # noqa: F401
 from .split_embeddings_cache_ops import get_unique_indices_v2  # noqa: F401

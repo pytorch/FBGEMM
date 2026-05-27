@@ -20,16 +20,16 @@ from math import log2
 import torch  # usort:skip
 
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    CacheAlgorithm,
-    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
-    EmbeddingLocation,
-    PoolingMode,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     align_to_cacheline,
     rounded_row_size_in_bytes,
     unpadded_row_size_in_bytes,
+)
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config import (
+    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    EmbeddingLocation,
+    PoolingMode,
 )
 
 from torch import distributed as dist, nn, Tensor  # usort:skip

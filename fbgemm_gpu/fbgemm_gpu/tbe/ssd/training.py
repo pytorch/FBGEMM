@@ -27,17 +27,6 @@ import weakref
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BackendType,
-    BoundsCheckMode,
-    CacheAlgorithm,
-    EmbeddingLocation,
-    EvictionPolicy,
-    get_bounds_check_version_for_platform,
-    KVZCHParams,
-    PoolingMode,
-    SplitState,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     apply_split_helper,
     CounterBasedRegularizationDefinition,
@@ -51,11 +40,21 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
     is_torchdynamo_compiling,
 )
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config import (
+    BoundsCheckMode,
+    EmbeddingLocation,
+    get_bounds_check_version_for_platform,
+    PoolingMode,
+    SplitState,
+)
 from fbgemm_gpu.tbe.monitoring import (
     AsyncSeriesTimer,
     TBEStatsReporter,
     TBEStatsReporterConfig,
 )
+
+from .ssd_config import BackendType, EvictionPolicy, KVZCHParams
 from torch import distributed as dist, nn, Tensor  # usort:skip
 import sys
 from dataclasses import dataclass

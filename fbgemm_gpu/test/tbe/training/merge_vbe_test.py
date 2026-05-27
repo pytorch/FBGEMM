@@ -107,6 +107,8 @@ class EmbeddingBag:
             optimizer=optimizer,
             weights_precision=weights_precision,
             output_dtype=output_dtype,
+            # pyre-fixme[6]: Type-identity mismatch on PoolingMode between shell and
+            # canonical package; resolves once D103477971 unifies the classes via re-export.
             pooling_mode=pooling_mode,
             feature_table_map=feature_table_map,
             **kwargs,

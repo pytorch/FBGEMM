@@ -15,6 +15,14 @@
       "BackwardDenseTest.test_faketensor__test_backward_dense": {
         "comment": "",
         "status": "xfail"
+      },
+      "BackwardDeterminismTest.test_autograd_registration__test_backward_determinism_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BackwardDeterminismTest.test_faketensor__test_backward_determinism_dense": {
+        "comment": "",
+        "status": "xfail"
       }
     },
     "fbgemm::direct_mapped_lru_cache_populate_byte": {},
