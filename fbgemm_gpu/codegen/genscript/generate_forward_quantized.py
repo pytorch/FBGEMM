@@ -9,7 +9,6 @@
 
 import sys
 from dataclasses import dataclass
-from typing import Dict, List
 
 try:
     from .common import CodeTemplate
@@ -31,7 +30,7 @@ class ElemType:
     cpp_type_name: str
     primitive_type: str
     bit_width: int
-    template_params: List[TemplateParams]
+    template_params: list[TemplateParams]
 
     @property
     def enum_name(self) -> str:
@@ -122,7 +121,7 @@ ELEM_TYPES = [
     ),
 ]
 
-ELEM_TYPES_MAP: Dict[str, ElemType] = {etype.enum_name: etype for etype in ELEM_TYPES}
+ELEM_TYPES_MAP: dict[str, ElemType] = {etype.enum_name: etype for etype in ELEM_TYPES}
 
 
 class ForwardQuantizedGenerator:

@@ -11,7 +11,6 @@
 import itertools
 import sys
 from copy import deepcopy
-from typing import List
 
 try:
     # pyre-fixme[21]: Could not find name `ArgType` in
@@ -45,7 +44,7 @@ class BackwardSplitGenerator:
         template_filepath: str,
         optimizer: str,
         filename_format: str,
-        kwargs: Dict[str, Any],
+        kwargs: dict[str, Any],
         is_gwd: bool = False,
     ) -> None:
         if not kwargs.get("has_gpu_support"):
@@ -352,14 +351,14 @@ class BackwardSplitGenerator:
 
     @staticmethod
     def generate_backward_header(
-        aux_args: Dict[str, List[str]], aux_names: List[str], is_ssd: bool = False
+        aux_args: dict[str, list[str]], aux_names: list[str], is_ssd: bool = False
     ) -> None:
         """
         Generate a header file that contains enum of argument order from the dict
 
         Parameters:
-            aux_args (Dict[str, List[str]]): a dict containing a list of arguments
-            aux_names (List[str]): names of the argument types (e.g. aux_tensor, aux_int, etc.)
+            aux_args (dict[str, list[str]]): a dict containing a list of arguments
+            aux_names (list[str]): names of the argument types (e.g. aux_tensor, aux_int, etc.)
         Return:
             None
         """
@@ -372,7 +371,7 @@ class BackwardSplitGenerator:
 
     @staticmethod
     def generate_python_sources(
-        all_optimizers: List[str], ssd_optimizers: List[str]
+        all_optimizers: list[str], ssd_optimizers: list[str]
     ) -> None:
         CodeTemplate.load("training/python/__init__.template").write(
             "__init__.py", all_optimizers=all_optimizers, ssd_optimizers=ssd_optimizers
@@ -418,7 +417,7 @@ class BackwardSplitGenerator:
         # This is a dict of auxilary arguments used in TBE PT2 interface where the aux
         # arguments of a type are packed into a list for that type. This dict maintains the
         # order of the arguments of each type.
-        aux_args: Dict[str, List[str]] = {
+        aux_args: dict[str, list[str]] = {
             "aux_tensor": [
                 "B_offsets",  # 0
                 "vbe_output_offsets_feature_rank",  # 1

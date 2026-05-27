@@ -8,7 +8,6 @@
 # flake8: noqa F401
 
 import argparse
-from typing import List
 
 ################################################################################
 # Parse Codegen Scripts' Arguments
@@ -24,7 +23,7 @@ parser.add_argument("--opensource", action="store_false", dest="is_fbcode")
 parser.add_argument("--is_rocm", action="store_true")
 
 args: argparse.Namespace
-_: List[str]
+_: list[str]
 args, _ = parser.parse_known_args()
 
 print(f"[ARGS PARSE] Parsed arguments: {args}")
