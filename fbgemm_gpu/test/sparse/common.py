@@ -10,8 +10,9 @@
 
 import os
 import unittest
+from collections.abc import Callable
 from itertools import accumulate
-from typing import Callable, Optional
+from typing import Any
 
 import fbgemm_gpu
 import torch
@@ -42,10 +43,10 @@ settings.load_profile("suppress_differing_executors_check")
 def permute_indices_ref_(
     lengths: torch.Tensor,
     indices: torch.Tensor,
-    weights: Optional[torch.Tensor],
+    weights: torch.Tensor | None,
     permute: torch.LongTensor,
     is_1D: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
     T = lengths.size(0)
     B = lengths.size(1)
     if T == 0 or B == 0:
@@ -102,7 +103,7 @@ def permute_indices_ref_(
 @torch.jit.script
 def permute_scripted(
     permute: torch.Tensor, lengths: torch.Tensor, indices: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
     (
         permuted_lengths_cpu,
         permuted_indices_cpu,
@@ -120,8 +121,7 @@ def extend_test_class(
     # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
     # Please avoid putting tests here, you should put operator-specific
     # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
-    # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-    additional_decorators: Optional[dict[str, list[Callable]]] = None,
+    additional_decorators: dict[str, list[Callable[..., Any]]] | None = None,
 ) -> None:
     failures_dict_path: str = get_file_path_2(
         "", os.path.dirname(__file__), "failures_dict.json"

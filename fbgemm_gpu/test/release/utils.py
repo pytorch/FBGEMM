@@ -9,7 +9,6 @@
 import inspect
 import typing
 from collections.abc import Iterable, Sequence  # noqa: F401
-from typing import Optional, Union
 
 import torch
 from torch import device, dtype, Tensor, types
@@ -31,7 +30,7 @@ from torch._library.infer_schema import (
 # TO DO: clean up and remove this when we implement our own
 
 
-def error_fn(what: str, sig: Optional[inspect.Signature] = None):
+def error_fn(what: str, sig: inspect.Signature | None = None):
     raise ValueError(f"infer_schema(func): {what} " f"Got func with signature {sig})")
 
 
@@ -107,7 +106,7 @@ def check_param_annotation(name: str, annotation: type, sig: inspect.Signature):
 
 def get_schema_type(
     schema_type: str,
-    mutates_args: Union[str, Iterable[str]],
+    mutates_args: str | Iterable[str],
     name: str,
     sig: inspect.Signature,
     idx: int,
@@ -130,7 +129,7 @@ def get_schema_type(
 
 
 def check_mutates_args(
-    mutates_args: Union[str, Iterable[str]], sig: inspect.Signature, seen_args: set
+    mutates_args: str | Iterable[str], sig: inspect.Signature, seen_args: set
 ):
     if mutates_args != "unknown":
         mutates_args_not_seen = set(mutates_args) - seen_args
@@ -153,11 +152,11 @@ def get_return_annonation(
 
 
 def infer_schema(
-    prototype_function: typing.Callable,
+    prototype_function: typing.Callable[..., typing.Any],
     /,
     *,
     mutates_args,
-    op_name: Optional[str] = None,
+    op_name: str | None = None,
 ) -> str:
     r"""
     This is modified from torch._library.infer_schema.infer_schema.
@@ -178,7 +177,7 @@ def infer_schema(
 
     Args:
         prototype_function: The function from which to infer a schema for from its type annotations.
-        op_name (Optional[str]): The name of the operator in the schema. If ``name`` is None, then the
+        op_name (str | None): The name of the operator in the schema. If ``name`` is None, then the
             name is not included in the inferred schema. Note that the input schema to
             ``torch.library.Library.define`` requires a operator name.
         mutates_args ("unknown" | Iterable[str]): The arguments that are mutated in the function.

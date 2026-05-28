@@ -10,7 +10,6 @@
 
 import random
 import unittest
-from typing import Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -37,7 +36,7 @@ from hypothesis.strategies import composite
 
 @composite
 # pyre-ignore
-def get_nbit_weights_ty(draw) -> Optional[SparseType]:
+def get_nbit_weights_ty(draw) -> SparseType | None:
     """
     Returns None if mixed weights ty should be used, otherwise, returns specific SparseType.
     """

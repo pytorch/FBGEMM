@@ -11,7 +11,8 @@
 
 import random
 import unittest
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -50,8 +51,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-# pyre-ignore
-additional_decorators: dict[str, list[Callable]] = {}
+additional_decorators: dict[str, list[Callable[..., Any]]] = {}
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
@@ -520,8 +520,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         momentum1: list[Tensor] = [
             s for (s,) in cc.split_optimizer_states()
-        ]  # List[rows]
-        weight: list[Tensor] = cc.split_embedding_weights()  # List[(rows, dim)]
+        ]  # list[rows]
+        weight: list[Tensor] = cc.split_embedding_weights()  # list[(rows, dim)]
         for t in range(T):
             momentum1[t].fill_(1)
             weight[t].fill_(1)

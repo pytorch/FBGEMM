@@ -11,7 +11,7 @@
 
 import math
 import unittest
-from typing import Any, Optional, Union
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -107,9 +107,9 @@ class BackwardOptimizersTest(unittest.TestCase):
         use_cpu: bool,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         uvm_non_rowwise_momentum: bool = False,
-        optimizer_state_dtypes: Optional[dict[str, SparseType]] = None,
+        optimizer_state_dtypes: dict[str, SparseType] | None = None,
         use_rowwise_bias_correction: bool = False,
-        counter_weight_decay_mode: Optional[CounterWeightDecayMode] = None,
+        counter_weight_decay_mode: CounterWeightDecayMode | None = None,
         counter_halflife: int = -1,
         use_api_v1: bool = False,
     ) -> None:
@@ -476,8 +476,8 @@ class BackwardOptimizersTest(unittest.TestCase):
         if exact_adagrad:
             rowwise = optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             for t in range(T):
-                row_counter: Optional[torch.Tensor] = None
-                freq: Optional[torch.Tensor] = None
+                row_counter: torch.Tensor | None = None
+                freq: torch.Tensor | None = None
                 iter_: int = -1
 
                 if rowwise and weight_decay_mode in (
@@ -550,7 +550,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                             denom,
                             counter_based_regularization,
                             row_counter,
-                            # pyre-fixme[6]: Expected `Tensor` for 6th param but got `Optional[Tensor]`
+                            # pyre-fixme[6]: Expected `Tensor` for 6th param but got `Tensor | None`
                             freq,
                             max_counter,
                             iter_,
@@ -601,7 +601,7 @@ class BackwardOptimizersTest(unittest.TestCase):
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_ADAM
-            row_counter: Optional[torch.Tensor] = None
+            row_counter: torch.Tensor | None = None
             for t in range(T):
                 if rowwise or not use_rowwise_bias_correction:
                     m1, m2 = split_optimizer_states[t]
@@ -816,7 +816,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         self,
         dense_cpu_grad: torch.Tensor,
         weights: torch.Tensor,
-        regularization: Union[CounterBasedRegularizationDefinition, CowClipDefinition],
+        regularization: CounterBasedRegularizationDefinition | CowClipDefinition,
         row_counter: torch.Tensor,
         prev_iter: torch.Tensor,
         iter_: int,

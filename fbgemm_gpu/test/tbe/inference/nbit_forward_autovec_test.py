@@ -11,7 +11,6 @@
 import os
 import random
 import unittest
-from typing import Optional
 
 import hypothesis.strategies as st
 import torch
@@ -50,7 +49,7 @@ class NBitFowardAutovecTest(NBitFowardTestCommon):
     )
     def test_nbit_forward_cpu_autovec(
         self,
-        nbit_weights_ty: Optional[SparseType],
+        nbit_weights_ty: SparseType | None,
         pooling_mode: PoolingMode,
         indices_dtype: torch.dtype,
         output_dtype: SparseType,

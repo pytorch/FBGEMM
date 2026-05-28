@@ -6,7 +6,6 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-from typing import Optional
 
 import fbgemm_gpu
 import torch
@@ -33,8 +32,8 @@ class TBEInputPrepareReference(torch.nn.Module):
         indices_list: list[torch.Tensor],
         offsets_list: list[torch.Tensor],
         per_sample_weights_list: list[torch.Tensor],
-        batch_size: Optional[int] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        batch_size: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         size = 0
         assert len(indices_list) > 0
         assert len(indices_list) == len(offsets_list)
@@ -103,7 +102,7 @@ class TBEInputPrepareReference(torch.nn.Module):
                         indices_list[i].numel() + offsets_accs[i]
                     )
         combined_offsets[-1] = offsets_accs[-1]
-        per_sample_weights: Optional[torch.Tensor] = None
+        per_sample_weights: torch.Tensor | None = None
         for i in range(len(self.include_last_offsets)):
             if per_sample_weights_list[i].size(0) > 0:
                 per_sample_weights = torch.ones(
