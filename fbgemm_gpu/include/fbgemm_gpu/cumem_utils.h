@@ -55,6 +55,23 @@ Tensor new_host_mapped_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes);
 
+/// Allocate the `at::Tensor` with host-mapped memory using custom allocation
+/// hooks.
+///
+/// @param self The input tensor
+/// @param sizes The target tensor dimensions
+/// @param alloc_fn Custom allocator. Must be provided together with
+///                 `dealloc_fn`. If both are nullptr, malloc/free is used.
+/// @param dealloc_fn Custom deallocator. Must be provided together with
+///                   `alloc_fn`. If both are nullptr, malloc/free is used.
+///
+/// @return A new tensor backed by host-mapped memory
+Tensor new_host_mapped_tensor_with_allocator(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes,
+    void* (*alloc_fn)(size_t),
+    void (*dealloc_fn)(void*));
+
 /// @ingroup cumem-utils
 ///
 /// Allocate the `at::Tensor` with either unified managed memory (UVM) or
