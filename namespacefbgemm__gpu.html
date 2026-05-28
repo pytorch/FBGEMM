@@ -104,6 +104,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga5351c6ec3de203476cf09df330455d91"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga5663643a8ac5de83063d0ff51bb9af17" id="r_ga5663643a8ac5de83063d0ff51bb9af17"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__cumem-utils.html#ga5663643a8ac5de83063d0ff51bb9af17">new_host_mapped_tensor</a> (const Tensor &amp;self, const std::vector&lt; std::int64_t &gt; &amp;sizes)</td></tr>
 <tr class="separator:ga5663643a8ac5de83063d0ff51bb9af17"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a15114fd453f227b854e5ca81a6e4bb16" id="r_a15114fd453f227b854e5ca81a6e4bb16"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a15114fd453f227b854e5ca81a6e4bb16">new_host_mapped_tensor_with_allocator</a> (const Tensor &amp;self, const std::vector&lt; std::int64_t &gt; &amp;sizes, void *(*alloc_fn)(size_t), void(*dealloc_fn)(void *))</td></tr>
+<tr class="separator:a15114fd453f227b854e5ca81a6e4bb16"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6f8847537ea9ed13fc7e2e378bc79b1f" id="r_ga6f8847537ea9ed13fc7e2e378bc79b1f"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__cumem-utils.html#ga6f8847537ea9ed13fc7e2e378bc79b1f">new_unified_tensor</a> (const Tensor &amp;self, const std::vector&lt; std::int64_t &gt; &amp;sizes, bool is_host_mapped)</td></tr>
 <tr class="separator:ga6f8847537ea9ed13fc7e2e378bc79b1f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga8cd15c298228b5cd628ee588761dc67d" id="r_ga8cd15c298228b5cd628ee588761dc67d"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__cumem-utils.html#ga8cd15c298228b5cd628ee588761dc67d">new_unified_tensor_meta</a> (const Tensor &amp;self, const std::vector&lt; std::int64_t &gt; &amp;sizes, bool is_host_mapped)</td></tr>
@@ -1142,6 +1144,48 @@ details</h1>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>tuple of permutes, in_shapes, out_shapes and output_lengths. See the inputs of permute_multi_embedding for more details. The output vector is in int32_t</dd></dl>
 <dl class="section note"><dt>Note</dt><dd>this function is used internally for the gpu and cpu versions operators </dd></dl>
+
+</div>
+</div>
+<a id="a15114fd453f227b854e5ca81a6e4bb16" name="a15114fd453f227b854e5ca81a6e4bb16"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a15114fd453f227b854e5ca81a6e4bb16">&#9670;&#160;</a></span>new_host_mapped_tensor_with_allocator()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor new_host_mapped_tensor_with_allocator </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>self</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::vector&lt; std::int64_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>sizes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void *(*</td>          <td class="paramname"><span class="paramname"><em>alloc_fn&#160;</em></span>)(size_t), </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void(*</td>          <td class="paramname"><span class="paramname"><em>dealloc_fn&#160;</em></span>)(void *)&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Allocate the <code>at::Tensor</code> with host-mapped memory using custom allocation hooks.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">self</td><td>The input tensor </td></tr>
+    <tr><td class="paramname">sizes</td><td>The target tensor dimensions </td></tr>
+    <tr><td class="paramname">alloc_fn</td><td>Custom allocator. Must be provided together with <code>dealloc_fn</code>. If both are nullptr, malloc/free is used. </td></tr>
+    <tr><td class="paramname">dealloc_fn</td><td>Custom deallocator. Must be provided together with <code>alloc_fn</code>. If both are nullptr, malloc/free is used.</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>A new tensor backed by host-mapped memory </dd></dl>
 
 </div>
 </div>
