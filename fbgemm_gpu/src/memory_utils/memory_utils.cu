@@ -29,14 +29,20 @@ namespace {
 struct CUDAHostMappedContext {
   void* ptr_;
   int cuda_device_;
+  void (*dealloc_fn_)(void*);
 
-  CUDAHostMappedContext(void* ptr, int cuda_device)
-      : ptr_(ptr), cuda_device_(cuda_device) {};
+  CUDAHostMappedContext(
+      void* ptr,
+      int cuda_device,
+      void (*dealloc_fn)(void*) = nullptr)
+      : ptr_(ptr),
+        cuda_device_(cuda_device),
+        dealloc_fn_(dealloc_fn ? dealloc_fn : &free) {}
 
   ~CUDAHostMappedContext() {
     at::cuda::OptionalCUDAGuard device_guard(cuda_device_);
     AT_CUDA_CHECK(cudaHostUnregister(ptr_));
-    free(ptr_);
+    dealloc_fn_(ptr_);
   }
 
   static void release(void* ptr) {
@@ -247,10 +253,16 @@ Tensor new_vanilla_managed_tensor(
   return new_managed_tensor_internal(self, sizes);
 }
 
-Tensor new_host_mapped_tensor(
+Tensor new_host_mapped_tensor_with_allocator(
     const Tensor& self,
-    const std::vector<std::int64_t>& sizes) {
+    const std::vector<std::int64_t>& sizes,
+    void* (*alloc_fn)(size_t),
+    void (*dealloc_fn)(void*)) {
   CUDA_DEVICE_GUARD(self);
+  TORCH_CHECK(
+      (alloc_fn == nullptr) == (dealloc_fn == nullptr),
+      "new_host_mapped_tensor_with_allocator requires alloc_fn and dealloc_fn to both be "
+      "null or both be non-null");
 
   auto strides = defaultStrides(sizes);
   size_t size_bytes =
@@ -262,7 +274,7 @@ Tensor new_host_mapped_tensor(
   // of using this cuda API, we can do regular malloc, pre-fault the pages, and
   // then do cudaHostRegister with GPU mapping flags to lock the pages, so we
   // can minimize the cost while holding this global lock.
-  void* const ptr = malloc(size_bytes);
+  void* const ptr = alloc_fn ? alloc_fn(size_bytes) : malloc(size_bytes);
 
   // Pre-fault/map the pages by setting the first byte of the page
   // TODO: parallelize the mapping of pages with a threadpool executor
@@ -283,13 +295,19 @@ Tensor new_host_mapped_tensor(
       size_bytes,
       at::DataPtr(
           dev_ptr,
-          new CUDAHostMappedContext(ptr, self.get_device()),
+          new CUDAHostMappedContext(ptr, self.get_device(), dealloc_fn),
           &CUDAHostMappedContext::release,
           {at::DeviceType::CUDA, self.device().index()}),
       nullptr, /* allocator */
       /*resizable=*/false);
   return at::empty({0}, self.options())
       .set_(std::move(storage), 0, sizes, strides);
+}
+
+Tensor new_host_mapped_tensor(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes) {
+  return new_host_mapped_tensor_with_allocator(self, sizes, nullptr, nullptr);
 }
 
 Tensor new_unified_tensor(

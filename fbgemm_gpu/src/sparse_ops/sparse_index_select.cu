@@ -96,7 +96,7 @@ DLL_PUBLIC Tensor index_select_cuda(
   }
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "index_add_2d_kernel_1", [&] {
-    FBGEMM_DISPATCH_FLOAT_AND_HALF(
+    FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
         input_reshaped.scalar_type(), "index_add_2d_kernel_2", [&] {
           if (indices_sorted) {
             LAUNCH_INDEX_SELECT(true)

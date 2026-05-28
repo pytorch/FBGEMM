@@ -8,7 +8,7 @@
 # pyre-strict
 # flake8: noqa F401
 
-from typing import Any, Dict
+from typing import Any
 
 try:
     from .jinja_environment import generate_optimized_grad_sum_loop_access
@@ -29,7 +29,7 @@ except:
 ######################################################################
 
 
-def dense() -> Dict[str, Any]:
+def dense() -> dict[str, Any]:
     return {
         "optimizer": "dense",
         "dense": True,
@@ -49,7 +49,7 @@ def dense() -> Dict[str, Any]:
     }
 
 
-def adagrad() -> Dict[str, Any]:
+def adagrad() -> dict[str, Any]:
     split_weight_update = """
       Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
       m_t.acc.x += grad.acc.x * grad.acc.x;
@@ -117,7 +117,7 @@ def table_info_precomputation(momentum_prefix: str = "momentum1") -> str:
     return template.replace("{momentum_prefix}", momentum_prefix)
 
 
-def rowwise_adagrad() -> Dict[str, Any]:
+def rowwise_adagrad() -> dict[str, Any]:
     split_weight_update = """
         weight_new.acc.x = correction * weight_new.acc.x - multiplier * grad.acc.x;
         weight_new.acc.y = correction * weight_new.acc.y - multiplier * grad.acc.y;
@@ -286,7 +286,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
     }
 
 
-def approx_rowwise_adagrad() -> Dict[str, Any]:
+def approx_rowwise_adagrad() -> dict[str, Any]:
     rowwise_adagrad_args = rowwise_adagrad()
 
     approx_split_weight_update = """
@@ -322,7 +322,7 @@ def approx_rowwise_adagrad() -> Dict[str, Any]:
 
 
 # Deprecated, to be cleaned up
-def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
+def rowwise_adagrad_with_weight_decay() -> dict[str, Any]:
     split_weight_update = """
         weight_new.acc.x = correction * weight_new.acc.x - multiplier * grad.acc.x;
         weight_new.acc.y = correction * weight_new.acc.y - multiplier * grad.acc.y;
@@ -432,7 +432,7 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
 
 
 # Deprecated, to be cleaned up
-def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
+def approx_rowwise_adagrad_with_weight_decay() -> dict[str, Any]:
     rowwise_adagrad_with_weight_decay_args = rowwise_adagrad_with_weight_decay()
 
     approx_split_weight_update = """
@@ -471,7 +471,7 @@ def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
     }
 
 
-def rowwise_adagrad_with_counter() -> Dict[str, Any]:
+def rowwise_adagrad_with_counter() -> dict[str, Any]:
     split_weight_update = """
         weight_new.acc.x = (exp_reg_correction * weight_new.acc.x - adjusted_multiplier * grad.acc.x);
         weight_new.acc.y = (exp_reg_correction * weight_new.acc.y - adjusted_multiplier * grad.acc.y);
@@ -735,7 +735,7 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
     }
 
 
-def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
+def approx_rowwise_adagrad_with_counter() -> dict[str, Any]:
     rowwise_adagrad_with_counter_args = rowwise_adagrad_with_counter()
 
     approx_split_weight_update = """
@@ -789,7 +789,7 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
 
 
 # Deprecated, to be cleaned up
-def rowwise_weighted_adagrad() -> Dict[str, Any]:
+def rowwise_weighted_adagrad() -> dict[str, Any]:
     split_weight_update = """
       weight_new.acc.x = correction * weight_new.acc.x - multiplier * grad.acc.x;
       weight_new.acc.y = correction * weight_new.acc.y - multiplier * grad.acc.y;
@@ -870,7 +870,7 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
     }
 
 
-def sgd() -> Dict[str, Any]:
+def sgd() -> dict[str, Any]:
     split_weight_update = """
       weight_new.fma_(grad, -learning_rate);
     """
@@ -898,7 +898,7 @@ def sgd() -> Dict[str, Any]:
     }
 
 
-def approx_sgd() -> Dict[str, Any]:
+def approx_sgd() -> dict[str, Any]:
     sgd_args = sgd()
 
     approx_split_weight_update = """
@@ -926,7 +926,7 @@ def approx_sgd() -> Dict[str, Any]:
     }
 
 
-def lamb() -> Dict[str, Any]:
+def lamb() -> dict[str, Any]:
     split_precomputation = """
     at::acc_type<cache_t, true> weight_sum_sq = 0.0;
     at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
@@ -1008,7 +1008,7 @@ def lamb() -> Dict[str, Any]:
     }
 
 
-def partial_rowwise_lamb() -> Dict[str, Any]:
+def partial_rowwise_lamb() -> dict[str, Any]:
     split_precomputation = """
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     """
@@ -1105,7 +1105,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
     }
 
 
-def adam() -> Dict[str, Any]:
+def adam() -> dict[str, Any]:
     split_precomputation = """
     // Define the optimizer state (for use with optimizer offloading)
     struct OptimizerState {
@@ -1237,7 +1237,7 @@ def adam() -> Dict[str, Any]:
     }
 
 
-def partial_rowwise_adam() -> Dict[str, Any]:
+def partial_rowwise_adam() -> dict[str, Any]:
     split_precomputation = """
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     """
@@ -1371,7 +1371,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     }
 
 
-def lars_sgd() -> Dict[str, Any]:
+def lars_sgd() -> dict[str, Any]:
     split_precomputation = """
     at::acc_type<cache_t, true> weight_sum_sq = 0.0;
     at::acc_type<cache_t, true> grad_sum_sq = 0.0;
@@ -1440,7 +1440,7 @@ def lars_sgd() -> Dict[str, Any]:
     }
 
 
-def none_optimizer() -> Dict[str, Any]:
+def none_optimizer() -> dict[str, Any]:
     return {
         "optimizer": "none",
         "dense": False,
