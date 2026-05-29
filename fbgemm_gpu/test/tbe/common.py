@@ -8,7 +8,7 @@
 # pyre-strict
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import fbgemm_gpu
 import numpy as np
@@ -64,7 +64,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 def gen_mixed_B_batch_sizes(
-    B: int, T: int, num_ranks: Optional[int] = None
+    B: int, T: int, num_ranks: int | None = None
 ) -> tuple[list[list[int]], list[int]]:
     if num_ranks is None:
         num_ranks = np.random.randint(low=1, high=4)
@@ -255,8 +255,8 @@ def recompute_output_vbe_cpu(
 
 def invoke_v1_cpu(
     optimizer: OptimType,
-    common_kwargs: Dict[str, Any],
-    optim_kwargs: Dict[str, Any],
+    common_kwargs: dict[str, Any],
+    optim_kwargs: dict[str, Any],
     vbe_metadata: invokers.lookup_args.VBEMetadata,
 ) -> torch.Tensor:
     """
@@ -322,8 +322,8 @@ def invoke_v1_cpu(
 
 def invoke_v1_cuda(
     optimizer: OptimType,
-    common_kwargs: Dict[str, Any],
-    optim_kwargs: Dict[str, Any],
+    common_kwargs: dict[str, Any],
+    optim_kwargs: dict[str, Any],
     vbe_metadata: invokers.lookup_args.VBEMetadata,
 ) -> torch.Tensor:
     """
@@ -488,10 +488,10 @@ def v1_lookup(
     indices: torch.Tensor,
     offsets: torch.Tensor,
     use_cpu: bool,
-    per_sample_weights: Optional[torch.Tensor] = None,
-    batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-    feature_requires_grad: Optional[torch.Tensor] = None,
-    total_unique_indices: Optional[int] = None,
+    per_sample_weights: torch.Tensor | None = None,
+    batch_size_per_feature_per_rank: list[list[int]] | None = None,
+    feature_requires_grad: torch.Tensor | None = None,
+    total_unique_indices: int | None = None,
 ) -> torch.Tensor:
     """
     This function prepares inputs and invokes TBE V1 lookup function for the given optimizer on CPU or CUDA.
@@ -501,10 +501,10 @@ def v1_lookup(
         indices (torch.Tensor): indices tensor
         offsets (torch.Tensor): offsets tensor
         use_cpu (bool): whether to use CPU or CUDA
-        per_sample_weights (Optional[torch.Tensor]): per sample weights tensor
-        batch_size_per_feature_per_rank (Optional[List[List[int]]]): batch size per feature per rank
-        feature_requires_grad (Optional[torch.Tensor]): feature requires grad tensor
-        total_unique_indices (Optional[int]): total unique indices, this is for NONE optimizer
+        per_sample_weights (torch.Tensor | None): per sample weights tensor
+        batch_size_per_feature_per_rank (list[list[int]] | None): batch size per feature per rank
+        feature_requires_grad (torch.Tensor | None): feature requires grad tensor
+        total_unique_indices (int | None): total unique indices, this is for NONE optimizer
 
     Returns:
         output tensor (torch.Tensor)
@@ -573,7 +573,7 @@ def v1_lookup(
                 else:
                     emb_op.max_counter[0] = 1
 
-    common_kwargs: Dict[str, Any] = {
+    common_kwargs: dict[str, Any] = {
         "weights_placements": emb_op.weights_placements,
         "weights_offsets": emb_op.weights_offsets,
         "D_offsets": emb_op.D_offsets,
@@ -640,7 +640,7 @@ def v1_lookup(
         )
 
     if optimizer != OptimType.NONE:
-        optim_kwargs: Dict[str, Any] = {
+        optim_kwargs: dict[str, Any] = {
             "momentum1_dev": emb_op.momentum1_dev,
             "momentum1_host": emb_op.momentum1_host,
             "momentum1_uvm": emb_op.momentum1_uvm,
@@ -819,7 +819,7 @@ def load_tbe_configs_from_file(
     Returns:
         Tuple of (batch_size, total_ranks, common_config dict, list of TBE config dicts)
     """
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         data = json.load(f)
 
     batch_size = data.get("batch_size", 2048)

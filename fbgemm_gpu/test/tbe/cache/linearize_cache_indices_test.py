@@ -11,7 +11,6 @@
 
 import random
 import unittest
-from typing import Optional
 
 import torch
 from hypothesis import Verbosity
@@ -35,7 +34,7 @@ class LinearizeCacheIndicesTest(unittest.TestCase):
         hash_size_cumsum: torch.Tensor,
         indices: torch.Tensor,
         offsets: torch.Tensor,
-        B_offsets: Optional[torch.Tensor] = None,
+        B_offsets: torch.Tensor | None = None,
         max_B: int = -1,
     ) -> torch.Tensor:
         T = hash_size_cumsum.numel() - 1

@@ -12,7 +12,6 @@ import logging
 import math
 import random
 import unittest
-from typing import Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -163,7 +162,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         L: int,
         pooling_mode: PoolingMode,
         quantize_type: SparseType,
-        pruning_ratio: Optional[float],
+        pruning_ratio: float | None,
         use_cpu: bool,
     ) -> None:
         E = int(10**log_E)
@@ -289,11 +288,11 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         ]
 
         # Start to test.
-        logging.info("use cpu = {}".format(use_cpu))
+        logging.info(f"use cpu = {use_cpu}")
         for pruning_ratio, remapped_index, remapped_offset in zip(
             pruning_ratios, remapped_indices, remapped_offsets
         ):
-            logging.info("pruning ratio = {}.".format(pruning_ratio))
+            logging.info(f"pruning ratio = {pruning_ratio}.")
             sparse_arch = SparseArch(
                 emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu
             )
@@ -345,7 +344,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         T: int,
         D: int,
         log_E: int,
-        pruning_ratio: Optional[float],
+        pruning_ratio: float | None,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
     ) -> None:

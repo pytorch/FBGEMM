@@ -10,7 +10,8 @@
 import json
 import os
 import unittest
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import fbgemm_gpu
 import fbgemm_gpu.permute_pooled_embedding_modules
@@ -62,7 +63,7 @@ def _check_schema_compatibility(
 
 
 def check_schema_compatibility(
-    op: Callable,
+    op: Callable[..., Any],
     ref_schema: str,
 ) -> None:
     """
@@ -71,7 +72,7 @@ def check_schema_compatibility(
     For ops registered via torch.ops.fbgemm and ops with *args and **kwargs, please use check_schema_compatibility_from_op_name.
 
     Args:
-        op (Callable): The operator to check.
+        op (Callable[..., Any]): The operator to check.
         ref_schema (str): The reference schema in string format.
     Returns:
         None
@@ -99,7 +100,7 @@ def check_schema_compatibility_from_op_name(
     This function will raise an Exception error if the schema is not compatible.
 
     Args:
-        namespace (Callable): The namespace of the operator e.g., torch.ops.fbgemm.
+        namespace: The namespace of the operator e.g., torch.ops.fbgemm.
         op_name (str): The name of the operator.
         ref_schema_str (str): The reference schema in string format.
     Returns:
