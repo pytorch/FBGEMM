@@ -8,9 +8,10 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
+from __future__ import annotations
+
 import random
 import unittest
-from typing import Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -32,12 +33,11 @@ from fbgemm_gpu.tbe.utils import (
     to_device,
 )
 from hypothesis import assume
-from hypothesis.strategies import composite
+from hypothesis.strategies import composite, DrawFn
 
 
 @composite
-# pyre-ignore
-def get_nbit_weights_ty(draw) -> Optional[SparseType]:
+def get_nbit_weights_ty(draw: DrawFn) -> SparseType | None:
     """
     Returns None if mixed weights ty should be used, otherwise, returns specific SparseType.
     """
