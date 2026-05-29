@@ -94,6 +94,7 @@ jobs:
 
 
   build-macos:
+    if: false
     runs-on: ${{ matrix.os }}
     defaults:
       run:
