@@ -106,7 +106,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmFP32.h",
         "include/fbgemm/FbgemmFPCommon.h",
         "include/fbgemm/FbgemmI64.h",
-        "include/fbgemm/FbgemmI8DepthwiseAvx2.h",
+        "include/fbgemm/FbgemmI8Depthwise.h",
         "include/fbgemm/FbgemmI8DirectconvAvx2.h",
         "include/fbgemm/FbgemmI8Spmdm.h",
         "include/fbgemm/FbgemmPackMatrixB.h",
@@ -132,9 +132,9 @@ def get_fbgemm_avx2_srcs(buck = False):
     # downstream targets pull in both fbgemm_avx2 and fbgemm_sve (the
     # latter is selected by the main fbgemm target on arm64).
     depthwise_srcs = [
-        "src/FbgemmI8Depthwise3DAvx2.cc",
-        "src/FbgemmI8DepthwiseAvx2.cc",
-        "src/PackDepthwiseConvMatrixAvx2.cc",
+        "src/FbgemmI8Depthwise3D.cc",
+        "src/FbgemmI8Depthwise.cc",
+        "src/PackDepthwiseConvMatrix.cc",
     ]
 
     common_srcs = [
@@ -211,6 +211,9 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/UtilsSve.cc",
         "src/FbgemmFloat16ConvertSVE.cc",
+        "src/PackDepthwiseConvMatrix.cc",
+        "src/FbgemmI8Depthwise3D.cc",
+        "src/FbgemmI8Depthwise.cc",
     ]
 
     if buck:
