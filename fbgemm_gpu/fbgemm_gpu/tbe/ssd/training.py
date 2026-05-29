@@ -54,7 +54,7 @@ from fbgemm_gpu.tbe.monitoring import (
     TBEStatsReporterConfig,
 )
 
-from .ssd_config import BackendType, EvictionPolicy, KVZCHParams
+from .ssd_config import BackendType, EvictionPolicy, KVZCHParams  # usort:skip
 from torch import distributed as dist, nn, Tensor  # usort:skip
 import sys
 from dataclasses import dataclass

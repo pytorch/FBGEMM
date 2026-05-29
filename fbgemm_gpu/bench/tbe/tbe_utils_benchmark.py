@@ -282,7 +282,10 @@ def pruned_array_lookup(  # noqa C901
     help=f"Available modes: FATAL={BoundsCheckMode.FATAL.value}, "
     f"WARNING={BoundsCheckMode.WARNING.value}, "
     f"IGNORE={BoundsCheckMode.IGNORE.value}, "
-    f"NONE={BoundsCheckMode.NONE.value}",
+    f"NONE={BoundsCheckMode.NONE.value}, "
+    f"V2_IGNORE={BoundsCheckMode.V2_IGNORE.value}, "
+    f"V2_WARNING={BoundsCheckMode.V2_WARNING.value}, "
+    f"V2_FATAL={BoundsCheckMode.V2_FATAL.value}",
 )
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
@@ -299,6 +302,13 @@ def pruned_array_lookup(  # noqa C901
     type=str,
     default="bounds_check_indices_trace_{ospid}.json",
 )
+@click.option(
+    "--oob",
+    type=int,
+    default=0,
+    help="Percentage of indices to set out of bounds (0 to 100). "
+    "Use with WARNING or IGNORE mode (FATAL will crash).",
+)
 def bounds_check_indices(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -312,6 +322,7 @@ def bounds_check_indices(  # noqa C901
     batch_sizes: str,
     export_trace: bool,
     trace_url: str,
+    oob: int,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -358,8 +369,26 @@ def bounds_check_indices(  # noqa C901
             offset_dtype=torch.long,
         )
 
+    if oob > 0:
+        for req in requests:
+            num_indices = req.indices.numel()
+            num_oob = int(num_indices * oob / 100)
+            oob_positions = torch.randperm(num_indices)[:num_oob]
+            req.indices[oob_positions] = E
+
     warning = torch.tensor([0]).long().to(get_device())
     rows_per_table = torch.tensor([E for _ in range(T)]).long().to(get_device())
+
+    bc_mode = BoundsCheckMode(bounds_check_mode)
+    bounds_check_version = 1
+    if bc_mode.name.startswith("V2_"):
+        bounds_check_version = 2
+        if bc_mode == BoundsCheckMode.V2_IGNORE:
+            bc_mode = BoundsCheckMode.IGNORE
+        elif bc_mode == BoundsCheckMode.V2_WARNING:
+            bc_mode = BoundsCheckMode.WARNING
+        elif bc_mode == BoundsCheckMode.V2_FATAL:
+            bc_mode = BoundsCheckMode.FATAL
 
     def _kineto_trace_handler(p: profile) -> None:
         p.export_chrome_trace(trace_url.format(ospid=os.getpid()))
@@ -411,13 +440,14 @@ def bounds_check_indices(  # noqa C901
                 rows_per_table,
                 indices,
                 offsets,
-                BoundsCheckMode(bounds_check_mode),
+                bc_mode,
                 warning,
                 B_offsets=B_offsets,
                 max_B=max_B,
                 b_t_map=b_t_map,
                 info_B_num_bits=info_B_num_bits,
                 info_B_mask=info_B_mask,
+                bounds_check_version=bounds_check_version,
             ),
             num_warmups=warmup_runs,
         )
@@ -425,6 +455,7 @@ def bounds_check_indices(  # noqa C901
     logging.info(
         f"Bounds Check Indices:  Bs: {Bs}, "
         f"E: {E}, T: {T}, L: {L}, "
+        f"mode: {bc_mode.name}, v: {bounds_check_version}, "
         f"BW: {(8 * total_B * L + 8 * (total_B + 1)) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
