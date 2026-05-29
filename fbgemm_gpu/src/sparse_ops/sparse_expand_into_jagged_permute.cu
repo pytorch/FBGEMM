@@ -53,8 +53,8 @@ DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
   Tensor output_permute = at::empty({output_size}, permute.options());
 
   // number of table per block
-  constexpr int32_t T_blocks = kMaxThreads / kWarpSize;
-  dim3 threads(kWarpSize, T_blocks);
+  const int32_t T_blocks = kMaxThreads / kWarpSizeHost();
+  dim3 threads(kWarpSizeHost(), T_blocks);
   const auto blocks = cuda_calc_xblock_count(permute_size, T_blocks);
   AT_DISPATCH_INDEX_TYPES(
       permute.scalar_type(), "expand_into_jagged_permute_kernel", [&] {

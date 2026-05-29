@@ -66,7 +66,7 @@ template <
     typename {{ ph_name + "_ph_t" }},
     {%- endfor %}
     int32_t kFixedMaxVecsPerThread,
-    int32_t kThreadGroupSize,
+    int32_t kSubwarpDivisor,
     bool kUseVecBlocking>
 __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
@@ -159,7 +159,7 @@ template <
     typename {{ ph_name + "_ph_t" }},
     {%- endfor %}
     int32_t kFixedMaxVecsPerThread,
-    int32_t kThreadGroupSize,
+    int32_t kSubwarpDivisor,
     bool kUseVecBlocking>
 __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
@@ -244,7 +244,7 @@ template <
     typename cache_t,
     typename index_t,
     int32_t kFixedMaxVecsPerThread,
-    int32_t kThreadGroupSize,
+    int32_t kSubwarpDivisor,
     bool kUseVecBlocking,
     int32_t embedding_dim,
     int32_t weight_decay_mode_v>
@@ -376,15 +376,17 @@ using namespace embedding_ops;
 {%- if is_experimental_optimizer %}
 
 /*
-  For the experimental optimizers, kThreadGroupSize, kFixedMaxVecsPerThread,
-  and kUseVecBlocking are fixed to kWarpSize, {{ fixed_max_vecs_per_thread["backward"] }},
-  and true.
+  For the experimental optimizers, kSubwarpDivisor, kFixedMaxVecsPerThread,
+  and kUseVecBlocking are fixed to 1 (full warp), {{ fixed_max_vecs_per_thread["backward"] }},
+  and true. kThreadGroupSize falls out of kWarpSizeHost() on host (or kWarpSize
+  in the kernel body) and equals the full per-arch warp size.
 */
 #define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                     \
   [&] {                                                                         \
     const int max_vecs_per_thread =                                             \
       (max_D + {{ items_per_warp }} - 1) / {{ items_per_warp }};                \
-    constexpr int kThreadGroupSize = kWarpSize;                                 \
+    constexpr int kSubwarpDivisor = 1;                                          \
+    const int kThreadGroupSize = kWarpSizeHost();                                 \
     constexpr int kFixedMaxVecsPerThread =                                      \
       {{ fixed_max_vecs_per_thread["backward"] }};                              \
     constexpr bool kUseVecBlocking = true;                                      \
@@ -397,32 +399,76 @@ using namespace embedding_ops;
   For the non-experimental optimizers, we determine the kernel template
   instantiation that is best optimized for MAX_D and invoke it.
 
+  On ROCm multi-arch builds (both has_wave32 and has_wave64), the wave32
+  and wave64 bracket tables are emitted as separate _WAVE{32,64} macros and
+  the unified macro picks at runtime via kWarpSizeHost(). Single-wave builds
+  emit only the matching table.
+
   Please see dispatch_optimal_kernel in
   codegen/embedding_common_code_generator.py for more details
 */
+{%- if has_wave64 %}
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                   \
+#define DISPATCH_OPTIMAL_KERNEL_WAVE64(MAX_D, ...)                            \
   [&] {                                                                       \
     {{
        dispatch_optimal_kernel(
-           items_per_warp,
+           items_per_wave64,
            fixed_max_vecs_per_thread["backward"],
            use_subwarp_shuffle=True)
     -}}
   }()
-
 #else
-#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                   \
+#define DISPATCH_OPTIMAL_KERNEL_WAVE64(MAX_D, ...)                            \
   [&] {                                                                       \
     {{
        dispatch_optimal_kernel(
-           items_per_warp,
+           items_per_wave64,
            fixed_max_vecs_per_thread["backward"],
            use_subwarp_shuffle=False)
     -}}
   }()
-
 #endif
+{%- endif %}
+
+{%- if has_wave32 %}
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+#define DISPATCH_OPTIMAL_KERNEL_WAVE32(MAX_D, ...)                            \
+  [&] {                                                                       \
+    {{
+       dispatch_optimal_kernel(
+           items_per_warp32,
+           fixed_max_vecs_per_thread["backward"],
+           use_subwarp_shuffle=True)
+    -}}
+  }()
+#else
+#define DISPATCH_OPTIMAL_KERNEL_WAVE32(MAX_D, ...)                            \
+  [&] {                                                                       \
+    {{
+       dispatch_optimal_kernel(
+           items_per_warp32,
+           fixed_max_vecs_per_thread["backward"],
+           use_subwarp_shuffle=False)
+    -}}
+  }()
+#endif
+{%- endif %}
+
+#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                   \
+  [&] {                                                                       \
+{%- if has_wave32 and has_wave64 %}
+    if (kWarpSizeHost() == 64) {                                                \
+      return DISPATCH_OPTIMAL_KERNEL_WAVE64(MAX_D, __VA_ARGS__);              \
+    } else {                                                                  \
+      return DISPATCH_OPTIMAL_KERNEL_WAVE32(MAX_D, __VA_ARGS__);              \
+    }                                                                         \
+{%- elif has_wave64 %}
+    return DISPATCH_OPTIMAL_KERNEL_WAVE64(MAX_D, __VA_ARGS__);                \
+{%- else %}
+    return DISPATCH_OPTIMAL_KERNEL_WAVE32(MAX_D, __VA_ARGS__);                \
+{%- endif %}
+  }()
 
 {%- endif %}
 
@@ -1073,7 +1119,7 @@ Tensor {{ embedding_cuda_op }}(
                              {{ ph_name + "_ph_t" }},
                              {%- endfor %}
                              kFixedMaxVecsPerThread,
-                             kThreadGroupSize,
+                             kSubwarpDivisor,
                              kUseVecBlocking>;
 
                     // Compute shared memory size for cta_per_row
@@ -1210,7 +1256,7 @@ Tensor {{ embedding_cuda_op }}(
                              {{ ph_name + "_ph_t" }},
                              {%- endfor %}
                              kFixedMaxVecsPerThread,
-                             kThreadGroupSize,
+                             kSubwarpDivisor,
                              kUseVecBlocking>;
 
                     // Compute shared memory size for warp_per_row
@@ -1280,7 +1326,7 @@ Tensor {{ embedding_cuda_op }}(
                                     cache_t,
                                     index_t,
                                     kFixedMaxVecsPerThread,
-                                    kThreadGroupSize,
+                                    kSubwarpDivisor,
                                     kUseVecBlocking,
                                     {{ kDimSize }},
                                     {{ kWeightDecayMode }}>;

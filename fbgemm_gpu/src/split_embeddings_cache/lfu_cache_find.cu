@@ -124,9 +124,9 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (lfu_cache_find_uncached_kernel<index_t>),
             std::min(
-                div_round_up(N, kMaxThreads / kWarpSize),
+                div_round_up(N, kMaxThreads / kWarpSizeHost()),
                 get_max_thread_blocks_for_cache_kernels_()),
-            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(unique_indices, index_t, 1, 32),

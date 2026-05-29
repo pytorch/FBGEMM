@@ -27,20 +27,39 @@ from .cache_common import generate_cache_tbes, gpu_unavailable, optests
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
+# TBE cache associativity equals the device warp size (64 on CDNA, 32 on
+# RDNA and NVIDIA). DEFAULT_ASSOC is the static fallback; query the actual
+# device so these cache-layout tests are correct on warpSize 32 ROCm devices.
+if torch.cuda.is_available():
+    WARP_SIZE: int = torch.cuda.get_device_properties(
+        torch.cuda.current_device()
+    ).warp_size
+else:
+    WARP_SIZE = DEFAULT_ASSOC
+
 
 @optests.generate_opcheck_tests(fast=True)
 class LXUCacheTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        associativity=st.sampled_from([1, DEFAULT_ASSOC]),
+        associativity=st.sampled_from([1, WARP_SIZE]),
     )
     @settings(deadline=None)
     def test_lxu_cache_lookup(self, associativity: int) -> None:
         max_index: int = 8000
         # Use single cache set to avoid dealing with cache set hash algorithm.
-        lxu_cache_state_gpu = (
-            torch.arange(associativity, dtype=torch.int64).unsqueeze(0).cuda()
+        # The lookup kernel scans a full warp of ways per set, so the cache
+        # state row must be warpSize wide; `associativity` is how many ways are
+        # populated and the remainder are the empty sentinel (-1), matching how
+        # the real cache represents unpopulated ways. (A row narrower than the
+        # warp would make the kernel read past the row.)
+        lxu_cache_state_gpu = torch.full(
+            (1, WARP_SIZE), -1, dtype=torch.int64
         )
+        lxu_cache_state_gpu[0, :associativity] = torch.arange(
+            associativity, dtype=torch.int64
+        )
+        lxu_cache_state_gpu = lxu_cache_state_gpu.cuda()
 
         # Testing all miss.
         linear_cache_indices_0 = (
@@ -106,7 +125,7 @@ class LXUCacheTest(unittest.TestCase):
         self,
         cache_sets: int,
     ) -> None:
-        warp_size = DEFAULT_ASSOC
+        warp_size = WARP_SIZE
         N = cache_sets * warp_size
         lxu_cache_locking_counter = torch.randint(
             low=1,
@@ -305,7 +324,7 @@ class LXUCacheTest(unittest.TestCase):
         cache_sets = int((E * T) * 0.2)
         lxu_cache_state = torch.zeros(
             cache_sets,
-            DEFAULT_ASSOC,
+            WARP_SIZE,
             device="cuda",
             dtype=torch.int64,
         ).fill_(-1)
@@ -336,7 +355,7 @@ class LXUCacheTest(unittest.TestCase):
             if c not in slots:
                 slots[c] = 0
             slot = slots[c]
-            if slot < DEFAULT_ASSOC:
+            if slot < WARP_SIZE:
                 lxu_cache_state[c][slot] = idx
             slots[c] = slot + 1
 

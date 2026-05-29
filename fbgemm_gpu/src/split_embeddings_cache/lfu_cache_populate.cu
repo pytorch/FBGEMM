@@ -200,9 +200,9 @@ void lfu_cache_insert_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (lfu_cache_insert_kernel<emb_t, cache_t>),
             std::min(
-                div_round_up(N, kCacheMaxThreads / kWarpSize),
+                div_round_up(N, kCacheMaxThreads / kWarpSizeHost()),
                 get_max_thread_blocks_for_cache_kernels_()),
-            dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kCacheMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(weights, emb_t, 1, 64),
@@ -247,15 +247,6 @@ DLL_PUBLIC void lfu_cache_populate_cuda(
       lfu_state);
 
   CUDA_DEVICE_GUARD(weights);
-
-#ifdef USE_ROCM
-  TORCH_CHECK(
-      at::cuda::warp_size() == 64,
-      __func__,
-      ": TBE cache requires warpSize 64 on ROCm (got ",
-      at::cuda::warp_size(),
-      "); warpSize 32 devices are not yet supported");
-#endif
 
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());

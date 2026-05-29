@@ -21,7 +21,7 @@ template <
     typename {{ ph_name + "_ph_t" }},
     {%- endfor %}
     size_t kMaxVecsPerThread,
-    int32_t kThreadGroupSize = kWarpSize,
+    int32_t kSubwarpDivisor,
     int32_t VEC_WIDTH
 >
 __global__ __launch_bounds__(kMaxThreads) void
@@ -162,17 +162,21 @@ void split_embedding_{{ optimizer }}_update(
                     at::check_generator<at::CUDAGeneratorImpl>(gen)
                         ->philox_cuda_state(4);
             }
-            {%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_warp // 4) + 1) %}
+            {%- macro emit_optimizer_bracket_chain(items_per_warp_local) %}
+            {%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_warp_local // 4) + 1) %}
             {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-            if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
+            if (max_D <= {{ items_per_warp_local // 4 * kMaxElemPerThread }}) {
                 // hipcc can't use max in constexpr
                 constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
-                // If max_D is small, use fewer number of threads than kWarpSize.
+                // kSubwarpDivisor is the literal integer divider of warpSize;
+                // the kernel template's mangled name carries this, not
+                // warpSize itself, so host and per-arch device passes agree.
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-                constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
+                constexpr int kSubwarpDivisor = std::max(4 / {{ kMaxElemPerThread }}, 1);
 #else
-                constexpr int kThreadGroupSize = kWarpSize;
+                constexpr int kSubwarpDivisor = 1;
 #endif
+                const int kThreadGroupSize = kWarpSizeHost() / kSubwarpDivisor;
 
                 DISPATCH_PLACEHOLDER_TYPES(
                   {%- for ph_name in args.placeholder_tensor_names %}
@@ -188,7 +192,7 @@ void split_embedding_{{ optimizer }}_update(
                             {{ ph_name + "_ph_t" }},
                             {%- endfor %}
                             kMaxVecsPerThread,
-                            kThreadGroupSize,
+                            kSubwarpDivisor,
                             4>),
                         div_round_up(grad_dev_indices.numel(), kMaxThreads / kThreadGroupSize),
                         dim3(kThreadGroupSize, kMaxThreads / kThreadGroupSize, 1),
@@ -215,6 +219,18 @@ void split_embedding_{{ optimizer }}_update(
             }
             {%- endif %}
             {%- endfor %}
+            {%- endmacro %}
+            {%- if has_wave32 and has_wave64 %}
+            if (kWarpSizeHost() == 64) {
+                {{ emit_optimizer_bracket_chain(items_per_wave64) }}
+            } else {
+                {{ emit_optimizer_bracket_chain(items_per_warp32) }}
+            }
+            {%- elif has_wave64 %}
+            {{ emit_optimizer_bracket_chain(items_per_wave64) }}
+            {%- else %}
+            {{ emit_optimizer_bracket_chain(items_per_warp32) }}
+            {%- endif %}
         } // DISPATCH_EMB_CACHE_TYPES
     );
 }

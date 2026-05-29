@@ -237,7 +237,7 @@ void _bounds_check_indices_cuda_v2(
 
   constexpr size_t kNumThreads = 1024;
   auto grid_dim =
-      min(div_round_up(total_B, kNumThreads / fbgemm_gpu::kWarpSize),
+      min(div_round_up(total_B, kNumThreads / fbgemm_gpu::kWarpSizeHost()),
           get_max_thread_blocks_());
   if (prefetch_pipeline) {
     // Limit the grid size to PREFETCH_KERNEL_MAX_BLOCKS if running this kernel
@@ -259,7 +259,7 @@ void _bounds_check_indices_cuda_v2(
               bounds_check_kernel,                                             \
               grid_dim,                                                        \
               dim3(                                                            \
-                  fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
+                  fbgemm_gpu::kWarpSizeHost(), kNumThreads / fbgemm_gpu::kWarpSizeHost()), \
               0,                                                               \
               at::cuda::getCurrentCUDAStream(),                                \
               PTA_B(rows_per_table, int64_t, 1, 32),                           \

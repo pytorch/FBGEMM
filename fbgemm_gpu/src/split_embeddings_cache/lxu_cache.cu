@@ -223,8 +223,8 @@ void lxu_cache_locking_counter_decrement_cuda(
 
   auto count = at::zeros_like(lxu_cache_locking_counter);
   const int32_t C = lxu_cache_locking_counter.size(0);
-  TORCH_CHECK(lxu_cache_locking_counter.size(1) == kWarpSize);
-  auto fd = FixedDivisor(kWarpSize);
+  TORCH_CHECK(lxu_cache_locking_counter.size(1) == kWarpSizeHost());
+  auto fd = FixedDivisor(kWarpSizeHost());
 
   const dim3 blocks(
       std::min(
@@ -244,9 +244,9 @@ void lxu_cache_locking_counter_decrement_cuda(
   FBGEMM_LAUNCH_KERNEL(
       lxu_cache_locking_counter_decrement_kernel,
       std::min(
-          div_round_up(C, kMaxThreads / kWarpSize),
+          div_round_up(C, kMaxThreads / kWarpSizeHost()),
           get_max_thread_blocks_for_cache_kernels_()),
-      dim3(kWarpSize, kMaxThreads / kWarpSize),
+      dim3(kWarpSizeHost(), kMaxThreads / kWarpSizeHost()),
       0,
       at::cuda::getCurrentCUDAStream(),
       PTA_B(lxu_cache_locking_counter, int32_t, 2, 32),
@@ -434,19 +434,6 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
 
   CUDA_DEVICE_GUARD(linear_cache_indices);
 
-#ifdef USE_ROCM
-  // Cache kernels use kWarpSize as the stride for indexing cache rows.
-  // On warpSize 32 ROCm devices (e.g. gfx1100) this produces wrong
-  // addresses because DEFAULT_ASSOC (kWarpSize on host) is 64.
-  // D102579845 introduces kCacheAssoc to fix this; until then, guard.
-  TORCH_CHECK(
-      at::cuda::warp_size() == 64,
-      __func__,
-      ": TBE cache requires warpSize 64 on ROCm (got ",
-      at::cuda::warp_size(),
-      "); warpSize 32 devices are not yet supported");
-#endif
-
   const auto lxu_cache_locations =
       lxu_cache_locations_output.value_or(empty_like(
           linear_cache_indices,
@@ -458,7 +445,7 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
     return lxu_cache_locations;
   }
 
-  const dim3 threads(kWarpSize, kMaxThreads / kWarpSize);
+  const dim3 threads(kWarpSizeHost(), kMaxThreads / kWarpSizeHost());
   const dim3 blocks(div_round_up(N, kMaxThreads));
 
   AT_DISPATCH_INDEX_TYPES(
