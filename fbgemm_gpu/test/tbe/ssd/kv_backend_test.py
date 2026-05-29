@@ -13,7 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import patch
 
 import hypothesis.strategies as st
@@ -61,12 +61,12 @@ class SSDCheckpointTest(unittest.TestCase):
         max_D: int,
         weight_precision: SparseType,
         enable_l2: bool = True,
-        feature_dims: Optional[torch.Tensor] = None,
-        hash_size_cumsum: Optional[torch.Tensor] = None,
+        feature_dims: torch.Tensor | None = None,
+        hash_size_cumsum: torch.Tensor | None = None,
         backend_type: BackendType = BackendType.SSD,
         flushing_block_size: int = 1000,
-        ssd_directory: Optional[str] = None,
-        eviction_policy: Optional[EvictionPolicy] = None,
+        ssd_directory: str | None = None,
+        eviction_policy: EvictionPolicy | None = None,
         disable_random_init: bool = False,
         enable_blob_db: bool = False,
     ) -> object:
@@ -152,7 +152,7 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         enable_l2: bool = True,
         ssd_rocksdb_shards: int = 1,
-        kv_zch_params: Optional[KVZCHParams] = None,
+        kv_zch_params: KVZCHParams | None = None,
         backend_type: BackendType = BackendType.SSD,
         flushing_block_size: int = 1000,
     ) -> tuple[SSDTableBatchedEmbeddingBags, list[int], list[int]]:

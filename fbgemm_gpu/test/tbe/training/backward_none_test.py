@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Any, Optional, Union
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -204,7 +204,7 @@ class BackwardNoneTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: PoolingMode,
         output_dtype: SparseType,
-        optimizer: Optional[OptimType] = None,
+        optimizer: OptimType | None = None,
         use_api_v1: bool = False,
     ) -> None:
         use_cpu = False
@@ -348,7 +348,7 @@ class BackwardNoneTest(unittest.TestCase):
             # as weight
             if weights_precision != output_dtype:
                 fs = [f.to(output_dtype.as_dtype()) for f in fs]
-            gos: Union[list[Tensor], Tensor] = [torch.randn_like(f) for f in fs]
+            gos: list[Tensor] | Tensor = [torch.randn_like(f) for f in fs]
             [f.backward(go) for (f, go) in zip(fs, gos)]
         else:
             bs_ = SplitTableBatchedEmbeddingBagsCodegen(
@@ -375,7 +375,7 @@ class BackwardNoneTest(unittest.TestCase):
                     to_device(xw.contiguous().view(-1), use_cpu),
                 )
             )
-            gos: Union[list[Tensor], Tensor] = torch.rand_like(fs)
+            gos: list[Tensor] | Tensor = torch.rand_like(fs)
             fs.backward(gos)
 
         cc = SplitTableBatchedEmbeddingBagsCodegen(
@@ -430,14 +430,14 @@ class BackwardNoneTest(unittest.TestCase):
 
         if optimizer is not None:
             # pyre-fixme[6]: For 1st argument expected `Parameter` but got
-            #  `Union[Tensor, Module]`.
+            #  `Tensor | Module`.
             params = SplitEmbeddingOptimizerParams(weights_dev=cc.weights_dev)
             embedding_args = SplitEmbeddingArgs(
                 # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
+                #  `Tensor | Module`.
                 weights_placements=cc.weights_placements,
                 # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
+                #  `Tensor | Module`.
                 weights_offsets=cc.weights_offsets,
                 max_D=cc.max_D,
             )

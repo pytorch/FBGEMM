@@ -9,7 +9,7 @@
 
 import random
 import unittest
-from typing import Callable
+from collections.abc import Callable
 
 import fbgemm_gpu.tbe.ssd  # noqa F401
 import hypothesis.strategies as st

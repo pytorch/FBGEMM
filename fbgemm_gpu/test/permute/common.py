@@ -84,7 +84,7 @@ class PermutePooledEmbeddingsFwdOnly(PermutePooledEmbeddings):
 
 class Net(torch.nn.Module):
     def __init__(self, fwd_only: bool = False) -> None:
-        super(Net, self).__init__()
+        super().__init__()
         self.fc1 = torch.nn.Linear(1, 10, bias=False)
         op_cls = PermutePooledEmbeddingsFwdOnly if fwd_only else PermutePooledEmbeddings
         self.permute_pooled_embeddings: PermutePooledEmbeddings = op_cls(

@@ -10,7 +10,6 @@
 
 import struct
 from enum import Enum, IntEnum
-from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -77,7 +76,7 @@ _FORMAT_CACHE: dict[ElemFormat, tuple[int, int, int, float, float]] = {}
 
 
 def _get_format_params(  # noqa
-    fmt: Union[ElemFormat, str, None],
+    fmt: ElemFormat | str | None,
 ) -> tuple[int, int, int, float, float]:
     """Allowed formats:
     - intX:         2 <= X <= 32, assume sign-magnitude, 1.xxx representation
@@ -309,9 +308,9 @@ def check_diff_quantize(
         raise IndexError
 
     # Convert to numpy
-    # pyre-fixme[9]: x has type `Tensor`; used as `Union[ndarray, Tensor]`.
+    # pyre-fixme[9]: x has type `Tensor`; used as `ndarray | Tensor`.
     x = np.array(x) if type(x) is list else x
-    # pyre-fixme[9]: x has type `Tensor`; used as `Union[ndarray[Any, Any], Tensor]`.
+    # pyre-fixme[9]: x has type `Tensor`; used as `ndarray[Any, Any] | Tensor`.
     x = x.cpu().numpy() if type(x) is torch.Tensor else x
     y1 = y1.detach().cpu().numpy()
     y2 = y2.detach().cpu().numpy()
@@ -356,14 +355,14 @@ def check_diff_quantize(
 
 # Never explicitly compute 2**(-exp) since subnorm numbers have
 # exponents smaller than -126
-def _safe_lshift(x: torch.Tensor, bits: int, exp: Optional[int]) -> torch.Tensor:
+def _safe_lshift(x: torch.Tensor, bits: int, exp: int | None) -> torch.Tensor:
     if exp is None:
         return x * (2**bits)
     else:
         return x / (2**exp) * (2**bits)
 
 
-def _safe_rshift(x: torch.Tensor, bits: int, exp: Optional[int]) -> torch.Tensor:
+def _safe_rshift(x: torch.Tensor, bits: int, exp: int | None) -> torch.Tensor:
     if exp is None:
         return x / (2**bits)
     else:
@@ -410,7 +409,7 @@ def _shared_exponents(
     A: torch.Tensor,
     method: str = "max",
     rounding_mode: str = "even",
-    axes: Optional[list[int]] = None,
+    axes: list[int] | None = None,
     ebits: int = 0,
 ) -> torch.Tensor:
     """
@@ -538,16 +537,16 @@ def _quantize_elemwise_core(
         private_exp = None
 
     # Scale up so appropriate number of bits are in the integer portion of the number
-    # pyre-fixme[6]: For 3rd argument expected `Optional[int]` but got
-    #  `Optional[Tensor]`.
+    # pyre-fixme[6]: For 3rd argument expected `int | None` but got
+    #  `Tensor | None`.
     out = _safe_lshift(out, bits - 2, private_exp)
 
     # pyre-fixme[6]: For 3rd argument expected `RoundingMode` but got `str`.
     out = _round_mantissa(out, bits, round, clamp=False)
 
     # Undo scaling
-    # pyre-fixme[6]: For 3rd argument expected `Optional[int]` but got
-    #  `Optional[Tensor]`.
+    # pyre-fixme[6]: For 3rd argument expected `int | None` but got
+    #  `Tensor | None`.
     out = _safe_rshift(out, bits - 2, private_exp)
 
     # Set values > max_norm to Inf if desired, else clamp them
@@ -579,7 +578,7 @@ def _quantize_elemwise_core(
 
 def _quantize_elemwise(
     A: torch.Tensor,
-    elem_format: Union[ElemFormat, None],
+    elem_format: ElemFormat | None,
     round: str = "nearest",
     custom_cuda: bool = False,
     saturate_normals: bool = False,

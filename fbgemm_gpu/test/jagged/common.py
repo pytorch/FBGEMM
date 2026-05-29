@@ -9,7 +9,8 @@
 # pyre-ignore-all-errors[56]
 
 import itertools
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import fbgemm_gpu
 import fbgemm_gpu.sparse_ops
@@ -40,8 +41,7 @@ settings.load_profile("suppress_differing_executors_check")
 # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
-# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: dict[str, list[Callable]] = {}
+additional_decorators: dict[str, list[Callable[..., Any]]] = {}
 
 
 def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
@@ -120,8 +120,8 @@ def generate_jagged_tensor(
             # not 0/1 anyway (if so, they'll be recompiled)
             low=0 if not mark_dynamic else 1,
             high=max_lengths[d] * 2,
-            # pyre-fixme[6]: For 3rd param expected `Union[List[int], Size,
-            #  typing.Tuple[int, ...]]` but got `Tuple[Union[bool, float, int]]`.
+            # pyre-fixme[6]: For 3rd param expected `list[int] | Size |
+            #  tuple[int, ...]` but got `tuple[bool | float | int]`.
             size=(num_lengths,),
             device=device,
         )
@@ -132,14 +132,14 @@ def generate_jagged_tensor(
         num_lengths = x_offsets[-1][-1].item()
 
     x_values = torch.rand(
-        # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
-        #  typing.Tuple[int, ...]]` but got `Tensor`.
+        # pyre-fixme[6]: For 1st param expected `list[int] | Size |
+        #  tuple[int, ...]` but got `Tensor`.
         x_offsets[-1][-1] * inner_dense_size,
         dtype=dtype,
         device=device,
     )
     if inner_dense_size != 1 or not fold_inner_dense:
-        # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
+        # pyre-fixme[6]: For 1st param expected `int` but got `bool | float | int`.
         x_values = x_values.reshape(x_offsets[-1][-1].item(), inner_dense_size)
 
     if mark_dynamic:
@@ -176,7 +176,7 @@ def to_padded_dense(
                 # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
                 end = offsets[d][cur_offset + 1].item()
                 # pyre-fixme[6]: For 1st param expected `int` but got
-                #  `Union[bool, float, int]`.
+                #  `bool | float | int`.
                 if jagged_coord[d] >= end - begin:
                     is_zero = True
                     break
