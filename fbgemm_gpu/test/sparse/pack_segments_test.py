@@ -398,6 +398,8 @@ class PackedSegmentsTest(unittest.TestCase):
             return_presence_mask=True,
         )
 
+        # pyre-fixme[6]: For 1st argument expected `Iterable[int]` but got
+        #  `Iterable[Union[bool, float, int]]`.
         assert presence_mask.size() == torch.Size([lengths.numel(), max_length])
 
     @unittest.skipIf(*gpu_unavailable)

@@ -4009,6 +4009,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 context=self.step,
                 stream=torch.cuda.current_stream(),
             ):
+                # pyre-fixme[6]: For 1st argument expected `Union[Stream, Stream]`
+                #  but got `Optional[Stream]`.
                 torch.cuda.current_stream().wait_stream(self.prefetch_stream)
 
         torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
