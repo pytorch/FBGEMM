@@ -64,6 +64,8 @@ class PermuteEmbeddingsTest(unittest.TestCase):
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
+        # pyre-fixme[6]: For 1st argument expected `Sequence[Union[int, SymInt]]`
+        #  but got `Union[bool, float, int]`.
         embeddings = torch.rand(lengths.sum().item()).float()
         permute_list = list(range(T))
         random.shuffle(permute_list)

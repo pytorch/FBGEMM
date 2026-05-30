@@ -645,9 +645,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # The max number of rows to be evicted is limited by the number of
         # slots in the cache. Thus, we allocate `lxu_cache_evicted_weights` to
         # be the same shape as the L1 cache (lxu_cache_weights)
+        # pyre-fixme[4]: Attribute must be annotated.
         self.lxu_cache_evicted_weights_list = []
+        # pyre-fixme[4]: Attribute must be annotated.
         self.lxu_cache_evicted_indices_list = []
+        # pyre-fixme[4]: Attribute must be annotated.
         self.lxu_cache_evicted_slots_list = []
+        # pyre-fixme[4]: Attribute must be annotated.
         self.lxu_cache_evicted_count_list = []
         for buf_idx in range(2):
             evicted_weights = torch.ops.fbgemm.new_unified_tensor(
@@ -1622,6 +1626,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.current_device,
             False,  # use_cpu
             self.feature_table_map,
+            # pyre-fixme[6]: For 6th argument expected `SplitState` but got
+            #  `SplitState`.
             split,
             prefix,
             dtype,
@@ -1925,6 +1931,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         if self.prefetch_stream:
             # Ensure that prefetch is done
+            # pyre-fixme[6]: For 1st argument expected `Union[Stream, Stream]` but
+            #  got `Optional[Stream]`.
             torch.cuda.current_stream().wait_stream(self.prefetch_stream)
 
         assert self.current_iter_data is not None, "current_iter_data must be set"
@@ -2641,6 +2649,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
+            # pyre-fixme[6]: For 3rd argument expected `PoolingMode` but got
+            #  `PoolingMode`.
             self.pooling_mode,
             self.feature_dims,
             self.current_device,
@@ -3171,6 +3181,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # _fetch_offloaded_optimizer_states can still handle the
         # local_weight_counts > 0 case (filling with zeros).
         if sorted_ids is None:
+            # pyre-fixme[9]: sorted_ids has type `Tensor`; used as `List[Tensor]`.
             sorted_ids = [
                 torch.empty(0, 1, device=torch.device("cpu"), dtype=torch.int64)
                 for _ in dims_
@@ -3562,6 +3573,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             row_offset = table_offset
             metaheader_dim = 0
             if self.kv_zch_params:
+                # pyre-fixme[16]: Optional type has no attribute `__getitem__`.
                 bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[i]
                 # pyre-ignore
                 bucket_size = self.kv_zch_params.bucket_sizes[i]
@@ -4368,6 +4380,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name="l2_cache.hit_rate_pct",
+                # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                 data_bytes=hit_rate,
             )
 
@@ -4443,6 +4456,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             return
 
         # skip metrics reporting when evicting disabled
+        # pyre-fixme[16]: Optional type has no attribute `eviction_policy`.
         if self.kv_zch_params.eviction_policy.eviction_trigger_mode == 0:
             return
 
@@ -4610,6 +4624,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name="dram_kv.perf.get.dram_read_missing_load",
             enable_tb_metrics=True,
+            # pyre-fixme[6]: For 4th argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.READ_MISSING_LOAD],
         )
         stats_reporter.report_duration(
@@ -4662,6 +4677,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="dram_kv.perf.set.dram_fwd_l1_eviction_write_missing_load",
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.FWD_L1_EVICTION_WRITE_MISSING_LOAD],
             enable_tb_metrics=True,
         )
@@ -4712,6 +4728,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="dram_kv.perf.set.dram_bwd_l1_cnflct_miss_write_missing_load",
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.BWD_L1_CNFLCT_MISS_WRITE_MISSING_LOAD],
             enable_tb_metrics=True,
         )
@@ -4719,6 +4736,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="dram_kv.perf.get.dram_kv_read_counts",
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.KV_READ_COUNTS],
             enable_tb_metrics=True,
         )
@@ -4726,18 +4744,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name=self.dram_kv_allocated_bytes_stats_name,
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.KV_ALLOCATED_BYTES],
             enable_tb_metrics=True,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name=self.dram_kv_actual_used_chunk_bytes_stats_name,
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.KV_ACTUAL_USED_CHUNK_BYTES],
             enable_tb_metrics=True,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name=self.dram_kv_mem_num_rows_stats_name,
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.KV_NUM_ROWS],
             enable_tb_metrics=True,
         )
@@ -4779,6 +4800,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="dram_kv.perf.set.dram_eviction_score_write_cache_miss_avg_count",
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.METADATA_WRITE_CACHE_MISS_AVG_COUNT],
             enable_tb_metrics=True,
         )
@@ -4822,6 +4844,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="dram_kv.perf.get.dram_eviction_score_read_load_size",
+            # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
             data_bytes=stats[DramKvPerfStat.READ_METADATA_LOAD_SIZE],
             enable_tb_metrics=True,
         )
@@ -4838,12 +4861,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=self.dram_kv_hit_count_stats_name,
+                # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                 data_bytes=dram_read_hit_count,
                 enable_tb_metrics=True,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=self.dram_kv_miss_count_stats_name,
+                # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                 data_bytes=dram_read_miss_count,
                 enable_tb_metrics=True,
             )
@@ -4853,6 +4878,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 stats_reporter.report_data_amount(
                     iteration_step=self.step,
                     event_name=self.dram_kv_hit_rate_stats_name,
+                    # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                     data_bytes=hit_rate_pct,
                     enable_tb_metrics=True,
                 )
@@ -4860,6 +4886,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 stats_reporter.report_data_amount(
                     iteration_step=self.step,
                     event_name="dram_kv.hit_rate_pct",
+                    # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                     data_bytes=hit_rate_pct,
                     enable_tb_metrics=True,
                 )
@@ -4874,12 +4901,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=self.enrichment_query_count_stats_name,
+                # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                 data_bytes=enrichment_query_count,
                 enable_tb_metrics=True,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=self.enrichment_empty_count_stats_name,
+                # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                 data_bytes=enrichment_empty_count,
                 enable_tb_metrics=True,
             )
@@ -4892,6 +4921,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 stats_reporter.report_data_amount(
                     iteration_step=self.step,
                     event_name=self.enrichment_success_rate_stats_name,
+                    # pyre-fixme[6]: For 3rd argument expected `int` but got `float`.
                     data_bytes=enrichment_success_rate,
                     enable_tb_metrics=True,
                 )
