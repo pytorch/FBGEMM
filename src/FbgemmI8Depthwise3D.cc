@@ -7,7 +7,7 @@
  */
 
 #define FBGEMM_EXPORTS
-#include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/FbgemmI8Depthwise.h"
 
 #include <stdexcept> // for logic_error
 #include <string>

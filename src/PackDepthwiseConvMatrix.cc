@@ -7,17 +7,23 @@
  */
 
 #define FBGEMM_EXPORTS
-#include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/FbgemmI8Depthwise.h"
 
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#include "./MaskAvx2.h" // @manual
+#elif defined(__aarch64__)
+#include <arm_neon.h>
+#include <cstring>
 #endif
 
-#include "./MaskAvx2.h" // @manual
 #include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
+
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 
 PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     int OC,
@@ -158,6 +164,114 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     }
   }
 }
+
+#elif defined(__aarch64__)
+
+namespace {
+struct neon_256i {
+  int8x16_t lo, hi;
+};
+} // namespace
+
+PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
+    int OC,
+    int kernel_prod,
+    const int8_t* smat)
+    : OC_(OC), kernel_prod_(kernel_prod) {
+  auto smat_transposed_owner =
+      makeAlignedUniquePtr<int8_t>(64, OC * kernel_prod);
+  int8_t* smat_transposed = smat_transposed_owner.get();
+  for (int i = 0; i < kernel_prod; ++i) {
+    for (int j = 0; j < OC; ++j) {
+      smat_transposed[i * OC + j] = smat[i + j * kernel_prod];
+    }
+  }
+
+  int kernel_prod_aligned = (kernel_prod + 1) / 2 * 2;
+  pmat_ = static_cast<int8_t*>(fbgemmAlignedAlloc(
+      64, ((OC + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t)));
+
+  auto b_v_owner = makeAlignedUniquePtr<neon_256i>(64, kernel_prod);
+  auto b_v = b_v_owner.get();
+  auto b_interleaved_epi16_owner =
+      makeAlignedUniquePtr<neon_256i>(64, kernel_prod_aligned);
+  auto b_interleaved_epi16 = b_interleaved_epi16_owner.get();
+  auto b_interleaved_epi32_owner =
+      makeAlignedUniquePtr<neon_256i>(64, kernel_prod_aligned);
+  auto b_interleaved_epi32 = b_interleaved_epi32_owner.get();
+
+  for (int k1 = 0; k1 < OC; k1 += 32) {
+    int remainder = OC - k1;
+    if (remainder < 32) {
+      for (int i = 0; i < kernel_prod; ++i) {
+        alignas(16) int8_t tmp[32] = {};
+        int valid_bytes = (remainder / 4) * 4;
+        memcpy(tmp, smat_transposed + i * OC + k1, valid_bytes);
+        b_v[i].lo = vld1q_s8(tmp);
+        b_v[i].hi = vld1q_s8(tmp + 16);
+      }
+    } else {
+      for (int i = 0; i < kernel_prod; ++i) {
+        const int8_t* src = smat_transposed + i * OC + k1;
+        b_v[i].lo = vld1q_s8(src);
+        b_v[i].hi = vld1q_s8(src + 16);
+      }
+    }
+
+    neon_256i zero_v;
+    zero_v.lo = vdupq_n_s8(0);
+    zero_v.hi = vdupq_n_s8(0);
+    for (int i = 0; i < kernel_prod_aligned / 2; ++i) {
+      neon_256i a = b_v[2 * i];
+      neon_256i b_val = (2 * i + 1 >= kernel_prod) ? zero_v : b_v[2 * i + 1];
+      b_interleaved_epi16[2 * i].lo = vzip1q_s8(a.lo, b_val.lo);
+      b_interleaved_epi16[2 * i].hi = vzip1q_s8(a.hi, b_val.hi);
+      b_interleaved_epi16[2 * i + 1].lo = vzip2q_s8(a.lo, b_val.lo);
+      b_interleaved_epi16[2 * i + 1].hi = vzip2q_s8(a.hi, b_val.hi);
+    }
+
+    for (int i = 0; i < kernel_prod_aligned / 4; ++i) {
+      int16x8_t a_lo = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i].lo);
+      int16x8_t a_hi = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i].hi);
+      int16x8_t c_lo = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i + 2].lo);
+      int16x8_t c_hi = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i + 2].hi);
+
+      b_interleaved_epi32[4 * i].lo =
+          vreinterpretq_s8_s16(vzip1q_s16(a_lo, c_lo));
+      b_interleaved_epi32[4 * i].hi =
+          vreinterpretq_s8_s16(vzip1q_s16(a_hi, c_hi));
+      b_interleaved_epi32[4 * i + 1].lo =
+          vreinterpretq_s8_s16(vzip2q_s16(a_lo, c_lo));
+      b_interleaved_epi32[4 * i + 1].hi =
+          vreinterpretq_s8_s16(vzip2q_s16(a_hi, c_hi));
+
+      int16x8_t b_lo = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i + 1].lo);
+      int16x8_t b_hi = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i + 1].hi);
+      int16x8_t d_lo = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i + 3].lo);
+      int16x8_t d_hi = vreinterpretq_s16_s8(b_interleaved_epi16[4 * i + 3].hi);
+
+      b_interleaved_epi32[4 * i + 2].lo =
+          vreinterpretq_s8_s16(vzip1q_s16(b_lo, d_lo));
+      b_interleaved_epi32[4 * i + 2].hi =
+          vreinterpretq_s8_s16(vzip1q_s16(b_hi, d_hi));
+      b_interleaved_epi32[4 * i + 3].lo =
+          vreinterpretq_s8_s16(vzip2q_s16(b_lo, d_lo));
+      b_interleaved_epi32[4 * i + 3].hi =
+          vreinterpretq_s8_s16(vzip2q_s16(b_hi, d_hi));
+    }
+    for (int i = kernel_prod_aligned / 4 * 4; i < kernel_prod_aligned; ++i) {
+      b_interleaved_epi32[i] = b_interleaved_epi16[i];
+    }
+
+    for (int i = 0; i < kernel_prod_aligned; ++i) {
+      int8_t* dst = &pmat_[((k1 / 32) * kernel_prod_aligned + i) * 32];
+      vst1q_s8(dst, b_interleaved_epi32[i].lo);
+      vst1q_s8(dst + 16, b_interleaved_epi32[i].hi);
+    }
+  }
+}
+
+#endif
 
 int PackedDepthWiseConvMatrix::addr(int r, int c) {
   int kernel_prod_aligned = (kernel_prod_ + 1) / 2 * 2;

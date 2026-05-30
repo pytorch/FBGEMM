@@ -15,7 +15,7 @@
 #include "bench/AlignedVec.h" // @manual
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
-#include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/FbgemmI8Depthwise.h"
 #include "src/DirectConv.h"
 #include "src/OptimizedKernelsAvx2.h"
 #include "src/RefImplementations.h" // @manual

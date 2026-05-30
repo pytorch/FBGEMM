@@ -7,9 +7,9 @@
  */
 
 #define FBGEMM_EXPORTS
-#include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/FbgemmI8Depthwise.h"
 
-#include "./FbgemmI8Depthwise2DAvx2-inl.h" // @manual
+#include "./FbgemmI8Depthwise2D-inl.h" // @manual
 
 namespace fbgemm {
 
