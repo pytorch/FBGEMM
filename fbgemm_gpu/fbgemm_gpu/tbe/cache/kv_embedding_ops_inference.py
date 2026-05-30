@@ -28,7 +28,7 @@ from fbgemm_gpu.tbe.config import (
 )
 from fbgemm_gpu.utils.loader import load_torch_module
 
-from .cache_config import CacheAlgorithm
+from .cache_config import CacheAlgorithm  # usort:skip
 
 try:
     load_torch_module(
