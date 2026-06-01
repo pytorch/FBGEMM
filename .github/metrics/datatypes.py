@@ -79,7 +79,7 @@ class GHPullRequest:
         """
         Remove the labels that are common to the PR.
         """
-        misc = ["fb-exported", "cla signed", "ci-no-td", "Merged"]
+        misc = ["meta-exported", "fb-exported", "cla signed", "ci-no-td", "Merged"]
         new_labels = [x for x in self.labels if x not in misc]
         return dataclasses.replace(self, labels=new_labels)
 
