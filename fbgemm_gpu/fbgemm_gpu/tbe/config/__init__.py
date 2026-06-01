@@ -14,6 +14,7 @@ from fbgemm_gpu.tbe.config.embedding_config import (  # noqa: F401
     EmbeddingLocation,
     EmbeddingSpecInfo,
     get_bounds_check_version_for_platform,
+    get_new_embedding_location,
     INT8_EMB_ROW_DIM_OFFSET,
     MAX_PREFETCH_DEPTH,
     PoolingMode,

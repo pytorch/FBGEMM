@@ -13,10 +13,8 @@ from typing import Any
 import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BackendType,
-    PoolingMode,
-)
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.tbe.ssd import BackendType
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402

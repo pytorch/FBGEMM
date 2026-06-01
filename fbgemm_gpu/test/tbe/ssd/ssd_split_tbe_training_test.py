@@ -16,11 +16,10 @@ import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BackendType,
     BoundsCheckMode,
     PoolingMode,
 )
-from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
+from fbgemm_gpu.tbe.ssd import BackendType, SSDTableBatchedEmbeddingBags
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402

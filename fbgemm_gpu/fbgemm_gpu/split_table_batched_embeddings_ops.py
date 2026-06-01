@@ -18,17 +18,6 @@ import warnings
 #   fbgemm_gpu.split_table_batched_embeddings_ops_training
 
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
-    CacheAlgorithm,
-    CacheState,
-    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
-    EmbeddingLocation,
-    PoolingMode,
-    RecordCacheMetrics,
-    round_up,
-    SplitState,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     align_to_cacheline,
     IntNBitTableBatchedEmbeddingBagsCodegen,
@@ -47,6 +36,16 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
     TailIdThreshold,
     WeightDecayMode,
+)
+from fbgemm_gpu.tbe.cache import CacheAlgorithm, CacheState
+from fbgemm_gpu.tbe.config import (
+    BoundsCheckMode,
+    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    EmbeddingLocation,
+    PoolingMode,
+    RecordCacheMetrics,
+    round_up,
+    SplitState,
 )
 
 try:
