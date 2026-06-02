@@ -62,7 +62,7 @@ static ALWAYS_INLINE void requantize_(
   }
   int32x4_t A_zero_point_v = vdupq_n_s32(A_zero_point);
   int16x8_t C_zero_point_epi16_v = vdupq_n_s16(C_zero_point);
-  int8x16_t C_zero_point_epi8_v = vdupq_n_s8(C_zero_point);
+  uint8x16_t C_zero_point_epi8_v = vdupq_n_u8(C_zero_point);
 
   constexpr int VLEN = 4;
   int j = 0;
@@ -81,7 +81,7 @@ static ALWAYS_INLINE void requantize_(
         // Load row_offsets for 2 groups and broadcast by 2 times.
         row_offset_v =
             vcombine_s32(vld1_s32(row_offsets + j / 2), vdup_n_s32(0));
-        row_offset_v = vzip1q_u32(row_offset_v, row_offset_v);
+        row_offset_v = vzip1q_s32(row_offset_v, row_offset_v);
       }
       if constexpr (
           Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
@@ -91,11 +91,10 @@ static ALWAYS_INLINE void requantize_(
         static_assert(K_PER_G == 2);
         B_zero_point_v =
             vcombine_s32(vld1_s32(B_zero_point + j / 2), vdup_n_s32(0));
-        B_zero_point_v = vzip1q_u32(B_zero_point_v, B_zero_point_v);
+        B_zero_point_v = vzip1q_s32(B_zero_point_v, B_zero_point_v);
       }
       x_v = vmlsq_s32(x_v, row_offset_v, B_zero_point_v);
     }
-    int32x4_t col_off_v;
     if constexpr (!A_SYMMETRIC) {
       x_v = vmlsq_s32(x_v, A_zero_point_v, vld1q_s32(col_offsets + j));
     }
@@ -106,7 +105,7 @@ static ALWAYS_INLINE void requantize_(
       } else {
         row_offset_v =
             vcombine_s32(vld1_s32(row_offsets + (j + VLEN) / 2), vdup_n_s32(0));
-        row_offset_v = vzip1q_u32(row_offset_v, row_offset_v);
+        row_offset_v = vzip1q_s32(row_offset_v, row_offset_v);
       }
       if constexpr (
           Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
@@ -115,7 +114,7 @@ static ALWAYS_INLINE void requantize_(
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         B_zero_point_v = vcombine_s32(
             vld1_s32(B_zero_point + (j + VLEN) / 2), vdup_n_s32(0));
-        B_zero_point_v = vzip1q_u32(B_zero_point_v, B_zero_point_v);
+        B_zero_point_v = vzip1q_s32(B_zero_point_v, B_zero_point_v);
       }
       y_v = vmlsq_s32(y_v, row_offset_v, B_zero_point_v);
     }
@@ -129,7 +128,7 @@ static ALWAYS_INLINE void requantize_(
       } else {
         row_offset_v = vcombine_s32(
             vld1_s32(row_offsets + (j + 2 * VLEN) / 2), vdup_n_s32(0));
-        row_offset_v = vzip1q_u32(row_offset_v, row_offset_v);
+        row_offset_v = vzip1q_s32(row_offset_v, row_offset_v);
       }
       if constexpr (
           Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
@@ -138,7 +137,7 @@ static ALWAYS_INLINE void requantize_(
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         B_zero_point_v = vcombine_s32(
             vld1_s32(B_zero_point + (j + 2 * VLEN) / 2), vdup_n_s32(0));
-        B_zero_point_v = vzip1q_u32(B_zero_point_v, B_zero_point_v);
+        B_zero_point_v = vzip1q_s32(B_zero_point_v, B_zero_point_v);
       }
       z_v = vmlsq_s32(z_v, row_offset_v, B_zero_point_v);
     }
@@ -153,7 +152,7 @@ static ALWAYS_INLINE void requantize_(
       } else {
         row_offset_v = vcombine_s32(
             vld1_s32(row_offsets + (j + 3 * VLEN) / 2), vdup_n_s32(0));
-        row_offset_v = vzip1q_u32(row_offset_v, row_offset_v);
+        row_offset_v = vzip1q_s32(row_offset_v, row_offset_v);
       }
       if constexpr (
           Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
@@ -162,7 +161,7 @@ static ALWAYS_INLINE void requantize_(
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         B_zero_point_v = vcombine_s32(
             vld1_s32(B_zero_point + (j + 3 * VLEN) / 2), vdup_n_s32(0));
-        B_zero_point_v = vzip1q_u32(B_zero_point_v, B_zero_point_v);
+        B_zero_point_v = vzip1q_s32(B_zero_point_v, B_zero_point_v);
       }
       w_v = vmlsq_s32(w_v, row_offset_v, B_zero_point_v);
     }
@@ -256,7 +255,7 @@ static ALWAYS_INLINE void requantize_(
     } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
       multiplier_v =
           vcombine_f32(vld1_f32(C_multiplier + j / 2), vdup_n_f32(0.0f));
-      multiplier_v = vzip1q_u32(multiplier_v, multiplier_v);
+      multiplier_v = vzip1q_f32(multiplier_v, multiplier_v);
     }
     float32x4_t x_scaled_v = vmulq_f32(xf_v, multiplier_v);
     if constexpr (
@@ -266,7 +265,7 @@ static ALWAYS_INLINE void requantize_(
     } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
       multiplier_v = vcombine_f32(
           vld1_f32(C_multiplier + (j + VLEN) / 2), vdup_n_f32(0.0f));
-      multiplier_v = vzip1q_u32(multiplier_v, multiplier_v);
+      multiplier_v = vzip1q_f32(multiplier_v, multiplier_v);
     }
     float32x4_t y_scaled_v = vmulq_f32(yf_v, multiplier_v);
     if constexpr (
@@ -276,7 +275,7 @@ static ALWAYS_INLINE void requantize_(
     } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
       multiplier_v = vcombine_f32(
           vld1_f32(C_multiplier + (j + 2 * VLEN) / 2), vdup_n_f32(0.0f));
-      multiplier_v = vzip1q_u32(multiplier_v, multiplier_v);
+      multiplier_v = vzip1q_f32(multiplier_v, multiplier_v);
     }
     float32x4_t z_scaled_v = vmulq_f32(zf_v, multiplier_v);
     if constexpr (
@@ -286,7 +285,7 @@ static ALWAYS_INLINE void requantize_(
     } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
       multiplier_v = vcombine_f32(
           vld1_f32(C_multiplier + (j + 3 * VLEN) / 2), vdup_n_f32(0.0f));
-      multiplier_v = vzip1q_u32(multiplier_v, multiplier_v);
+      multiplier_v = vzip1q_f32(multiplier_v, multiplier_v);
     }
     float32x4_t w_scaled_v = vmulq_f32(wf_v, multiplier_v);
 
@@ -326,7 +325,7 @@ static ALWAYS_INLINE void requantize_(
         // Load row_offsets for 2 groups and broadcast by 2 times.
         row_offset_v =
             vcombine_s32(vld1_s32(row_offsets + j / 2), vdup_n_s32(0));
-        row_offset_v = vzip1q_u32(row_offset_v, row_offset_v);
+        row_offset_v = vzip1q_s32(row_offset_v, row_offset_v);
       }
       if constexpr (
           Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
@@ -336,7 +335,7 @@ static ALWAYS_INLINE void requantize_(
         static_assert(K_PER_G == 2);
         B_zero_point_v =
             vcombine_s32(vld1_s32(B_zero_point + j / 2), vdup_n_s32(0));
-        B_zero_point_v = vzip1q_u32(B_zero_point_v, B_zero_point_v);
+        B_zero_point_v = vzip1q_s32(B_zero_point_v, B_zero_point_v);
       }
       x_v = vmlsq_s32(x_v, row_offset_v, B_zero_point_v);
     }
@@ -379,7 +378,7 @@ static ALWAYS_INLINE void requantize_(
     } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
       multiplier_v =
           vcombine_f32(vld1_f32(C_multiplier + j / 2), vdup_n_f32(0.0f));
-      multiplier_v = vzip1q_u32(multiplier_v, multiplier_v);
+      multiplier_v = vzip1q_f32(multiplier_v, multiplier_v);
     }
     float32x4_t x_scaled_v = vmulq_f32(xf_v, multiplier_v);
     // vcvtnq_s32_f32 always rounds to nearest, which is slightly different
@@ -397,7 +396,8 @@ static ALWAYS_INLINE void requantize_(
         FUSE_RELU ? vget_low_u8(C_zero_point_epi8_v) : vget_low_u8(min_v),
         x_packed_v_u8);
 
-    vst1_lane_u32(C_uint8 + j, vreinterpret_u32_u8(x_clamped_v), 0);
+    vst1_lane_u32(
+        (uint32_t*)(C_uint8 + j), vreinterpret_u32_u8(x_clamped_v), 0);
   } // j loop vectorized
 
   // leftover handling using minimal code size
@@ -484,7 +484,7 @@ static ALWAYS_INLINE void requantize_(
         FUSE_RELU ? vget_low_u8(C_zero_point_epi8_v) : vget_low_u8(min_v),
         x_packed_v_u8);
 
-    vst1_lane_u8(C_uint8 + j, vreinterpret_u32_u8(x_clamped_v), 0);
+    vst1_lane_u8(C_uint8 + j, x_clamped_v, 0);
     j++;
   }
 }
