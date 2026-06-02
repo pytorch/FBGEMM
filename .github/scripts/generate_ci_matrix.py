@@ -296,6 +296,13 @@ class BuildConfigScheme:
             return ["gcc", "clang"]
 
     def cuda_versions(self) -> List[str]:
+        versions = self._cuda_versions()
+        if self.jobtype == JOBTYPE_INSTALL:
+            # cu129 is not exercised in the PyPI install tests
+            versions = [v for v in versions if v != "12.9.1"]
+        return versions
+
+    def _cuda_versions(self) -> List[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
             return ["12.8.1"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
