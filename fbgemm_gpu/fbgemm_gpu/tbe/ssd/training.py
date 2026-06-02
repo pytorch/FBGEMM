@@ -1233,6 +1233,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # 4: N_conflict_unique_misses, 5: N_conflict_misses
         self.last_reported_ssd_stats: list[float] = []
         self.last_reported_step = 0
+        # Stashed by _report_ssd_l1_cache_stats so _report_dram_kv_perf_stats
+        # can compute the overall L1 → DRAM hit rate against total unique
+        # indices. See T272139146.
+        self._last_l1_num_unique: float = 0.0
 
         self.register_buffer(
             "ssd_cache_stats",
@@ -1313,6 +1317,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.l1_hit_rate_stats_name: str = (
             f"ssd_tbe.prefetch.tbe_id{tbe_unique_id}.l1_hit_rate_pct"
         )
+        self.overall_hit_rate_stats_name: str = (
+            f"ssd_tbe.tbe_id{tbe_unique_id}.overall_hit_rate_pct"
+        )
 
         self.eviction_sum_evicted_counts_stats_name: str = (
             f"eviction.tbe_id.{tbe_unique_id}.sum_evicted_counts"
@@ -1366,6 +1373,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.enrichment_empty_count_stats_name)
             self.stats_reporter.register_stats(self.enrichment_success_rate_stats_name)
             self.stats_reporter.register_stats(self.l1_hit_rate_stats_name)
+            self.stats_reporter.register_stats(self.overall_hit_rate_stats_name)
             for t in self.feature_table_map:
                 self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.evicted_counts"
@@ -4185,6 +4193,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # L1 cache hit rate
         num_unique = ssd_cache_stats_delta[UVMCacheStatsIndex.num_unique_indices]
         num_misses = ssd_cache_stats_delta[UVMCacheStatsIndex.num_unique_misses]
+        self._last_l1_num_unique = num_unique
         if num_unique > 0:
             l1_hit_rate_pct = 100.0 * (num_unique - num_misses) / num_unique
             # Per-TBE L1 hit rate
@@ -4861,6 +4870,41 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     iteration_step=self.step,
                     event_name="dram_kv.hit_rate_pct",
                     data_bytes=hit_rate_pct,
+                    enable_tb_metrics=True,
+                )
+
+            # Overall hit rate across the L1 → DRAM path, normalized by total
+            # unique requests so it stays stable as l1_cache_size changes
+            # (the per-tier rates each shift mechanically with cache sizing).
+            # Assumes every L1 miss reaches DRAM, i.e.
+            #     num_misses == dram_read_hit_count + dram_read_miss_count.
+            # If a future path lets L1 misses bypass DRAM, this needs to
+            # account for the additional tier.
+            # `num_unique` (from the L1 stats tensor) and `dram_read_miss_count`
+            # (from a separate C++ atomic) are snapshotted at slightly different
+            # moments, so requests issued near the reporting boundary can make
+            # `dram_read_miss_count` momentarily exceed `num_unique`. Clamp to
+            # [0, 100] so a tiny transient drift does not surface as a negative
+            # or >100 hit rate.
+            num_unique = self._last_l1_num_unique
+            if num_unique > 0:
+                overall_hit_rate_pct = max(
+                    0.0,
+                    min(
+                        100.0,
+                        100.0 * (num_unique - dram_read_miss_count) / num_unique,
+                    ),
+                )
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name=self.overall_hit_rate_stats_name,
+                    data_bytes=overall_hit_rate_pct,
+                    enable_tb_metrics=True,
+                )
+                stats_reporter.report_data_amount(
+                    iteration_step=self.step,
+                    event_name="ssd_tbe.overall_hit_rate_pct",
+                    data_bytes=overall_hit_rate_pct,
                     enable_tb_metrics=True,
                 )
 
