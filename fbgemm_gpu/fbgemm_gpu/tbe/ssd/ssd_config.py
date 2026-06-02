@@ -7,6 +7,8 @@
 
 # pyre-strict
 
+# pyre-ignore-all-errors[35]: Pyre flags NamedTuple field annotations as
+# "Illegal annotation target"; these are intentional NamedTuple syntax.
 # pyre-ignore-all-errors[56]
 
 """
