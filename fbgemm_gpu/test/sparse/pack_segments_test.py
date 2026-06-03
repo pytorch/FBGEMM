@@ -398,6 +398,7 @@ class PackedSegmentsTest(unittest.TestCase):
             return_presence_mask=True,
         )
 
+        # pyre-fixme[6]: In call `tuple.__new__`, for 1st positional argument, expected `Iterable[int]` but got `Iterable[bool | float | int]`.
         assert presence_mask.size() == torch.Size([lengths.numel(), max_length])
 
     @unittest.skipIf(*gpu_unavailable)
