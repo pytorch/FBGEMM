@@ -10,10 +10,9 @@ import json
 import os
 import sys
 from collections import defaultdict
-from typing import Dict, List
 
 
-def parse_filters() -> List[Dict[str, List[str]]]:
+def parse_filters() -> list[dict[str, list[str]]]:
     """
     Parse filters from command line arguments into a list of dictionaries.
 
@@ -22,7 +21,7 @@ def parse_filters() -> List[Dict[str, List[str]]]:
       --filter key1:val1,val2;key2:val3 --filter key3:val4
 
     Returns:
-      List[Dict[str, List[str]]]: A list of filter groups.
+      list[dict[str, list[str]]]: A list of filter groups.
     """
     parser = argparse.ArgumentParser(
         description="Parse filters into a list of grouped dictionaries."
@@ -57,7 +56,7 @@ def parse_filters() -> List[Dict[str, List[str]]]:
     return result
 
 
-def and_match(coordinate: Dict[str, str], query: Dict[str, List[str]]) -> bool:
+def and_match(coordinate: dict[str, str], query: dict[str, list[str]]) -> bool:
     """
     Check if a build matrix coordinate matches all the query parameters.
     """
@@ -70,7 +69,7 @@ def and_match(coordinate: Dict[str, str], query: Dict[str, List[str]]) -> bool:
 
 
 def query_match(
-    coordinate: Dict[str, str], queries: List[Dict[str, List[str]]]
+    coordinate: dict[str, str], queries: list[dict[str, list[str]]]
 ) -> bool:
     """
     Check if a build matrix coordinate matches any one of the queries.
