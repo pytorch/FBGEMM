@@ -1494,13 +1494,12 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       OutType>::Type;
   KernelType kernel = nullptr;
   [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    auto try_one = [&](auto index_constant) {
-      constexpr std::size_t I = decltype(index_constant)::value;
-      if (!kernel && block_size == kBlockSizes[I] &&
-          input_stride ==
-              stride_SpMDMWithStrides<InType>(kBlockSizes[I], false)) {
+    ([&] {
+      constexpr int64_t kBlockSize = kBlockSizes[Is];
+      if (!kernel && block_size == kBlockSize &&
+          input_stride == stride_SpMDMWithStrides<InType>(kBlockSize, false)) {
         kernel = make_spmdm_fixed_block_size<
-            kBlockSizes[I],
+            kBlockSize,
             HasWeight,
             ScaleBiasLast,
             InType,
@@ -1508,8 +1507,8 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
             OffsetType,
             OutType>(output_stride, is_bf16_out, is_bf16_in);
       }
-    };
-    (try_one(std::integral_constant<std::size_t, Is>{}), ...);
+    }(),
+     ...);
   }(std::make_index_sequence<kBlockSizes.size()>{});
   return kernel;
 }
@@ -1761,21 +1760,21 @@ try_nbit_fixed_block_size(
     return kernel;
   }
   [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    auto try_one = [&](auto index_constant) {
-      constexpr std::size_t I = decltype(index_constant)::value;
-      if (!kernel && block_size == kBlockSizes[I] &&
-          input_stride == stride_SpMDMNBitWith(InputBitRate, kBlockSizes[I])) {
+    ([&] {
+      constexpr int64_t kBlockSize = kBlockSizes[Is];
+      if (!kernel && block_size == kBlockSize &&
+          input_stride == stride_SpMDMNBitWith(InputBitRate, kBlockSize)) {
         kernel = make_nbit_fixed_block_size<
             InputBitRate,
-            kBlockSizes[I],
+            kBlockSize,
             HasWeight,
             ScaleBiasLast,
             IndexType,
             OffsetType,
             OutType>(output_stride, is_bf16_out);
       }
-    };
-    (try_one(std::integral_constant<std::size_t, Is>{}), ...);
+    }(),
+     ...);
   }(std::make_index_sequence<kBlockSizes.size()>{});
   return kernel;
 }
