@@ -77,15 +77,12 @@ static bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   // padding = 0 ( non-zero padding will be supported soon)
   bool ret = std::is_same_v<ACC_T, std::int32_t> && conv_p.transposed &&
       conv_p.G == 1 && conv_p.IC % 8 == 0 && conv_p.OC % 8 == 0 &&
-      std::all_of(
-                 conv_p.stride.begin(),
-                 conv_p.stride.end(),
+      std::ranges::all_of(
+                 conv_p.stride,
                  [](int i) { return i == 1 || i == 2; }) &&
       SPATIAL_DIM == 2 && conv_p.K[SPATIAL_DIM - 2] == 2 &&
       conv_p.K[SPATIAL_DIM - 1] <= 6 &&
-      std::all_of(conv_p.dilation.begin(), conv_p.dilation.end(), [](int i) {
-               return i == 1;
-             });
+      std::ranges::all_of(conv_p.dilation, [](int i) { return i == 1; });
 
   // Check pads: zero padding
   for (int i = 0; i < SPATIAL_DIM; ++i) {
