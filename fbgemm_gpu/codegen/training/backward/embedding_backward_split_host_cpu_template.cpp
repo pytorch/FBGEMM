@@ -41,7 +41,7 @@ void split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
 namespace {
 
-{% if has_cpu_support %}
+{% if has_cpu_support and args.split_function_args_v1 is not none %}
 class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<SplitLookupFunction_{{ optimizer }}_Op> {
  public:
   static constexpr bool is_traceable = true;
@@ -196,8 +196,9 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     };
   }
 };
-{% endif %} // if has_cpu_support
+{% endif %} // if has_cpu_support and args.split_function_args_v1 is not none
 
+{%- if args.split_function_args_v1 is not none %}
 ///@ingroup embedding-cpu
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     Tensor host_weights,
@@ -220,8 +221,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   {% if has_cpu_support %}
   {%- if "learning_rate_tensor" in args.split_function_arg_names %}
-  // `learning rate` is changed to tensor to prevent recompilation. 
-  // This interface (V1) still accepts learning rate as float for backward compatibility, 
+  // `learning rate` is changed to tensor to prevent recompilation.
+  // This interface (V1) still accepts learning rate as float for backward compatibility,
   // We convert learning rate to tensor here to work with the backend
   // The unified PT2 interface already accepts learning rate as tensor.
   const auto learning_rate_tensor = at::tensor({learning_rate}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
@@ -269,6 +270,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           c10::DispatchKey::Autograd,
           TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_cpu)));
 }
+{%- endif %} {#-/* if args.split_function_args_v1 is not none */#}
 
 } // namespace
 // clang-format on
