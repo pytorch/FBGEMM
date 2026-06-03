@@ -6,8 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#ifdef __linux__
-
 #define FBGEMM_EXPORTS
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include <bit>
@@ -2357,5 +2355,3 @@ INSTANTIATE_SPMDM_NBIT_ROWWISE_SPARSE(int64_t, int64_t)
 #undef INSTANTIATE_SPMDM_NBIT_ROWWISE_SPARSE
 
 } // namespace fbgemm
-
-#endif // #ifdef __linux__

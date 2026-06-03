@@ -8,8 +8,6 @@
 
 #pragma once
 
-#ifdef __linux__
-
 #include <cstdint>
 
 #include "fbgemm/FbgemmEmbedding.h"
@@ -107,5 +105,3 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse_autovec(
     bool use_offsets);
 
 } // namespace fbgemm
-
-#endif // #ifdef __linux__
