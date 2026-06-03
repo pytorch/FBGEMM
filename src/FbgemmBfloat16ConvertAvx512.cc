@@ -17,12 +17,14 @@ namespace fbgemm {
 
 namespace {
 
+// Round to nearest, ties to even
 inline __m256i QuantizeBfloat16Avx512(const __m512& x0) {
-  // Add 2^15 and right shift 16 to do round-nearest
-  __m512i y0 = _mm512_srli_epi32(
-      _mm512_add_epi32(_mm512_castps_si512(x0), _mm512_set1_epi32(1 << 15)),
-      16);
-  return _mm512_cvtepi32_epi16(y0);
+  __m512i val = _mm512_castps_si512(x0);
+  __m512i lsb =
+      _mm512_and_si512(_mm512_srli_epi32(val, 16), _mm512_set1_epi32(1));
+  __m512i rnd =
+      _mm512_add_epi32(val, _mm512_add_epi32(lsb, _mm512_set1_epi32(0x7FFF)));
+  return _mm512_cvtepi32_epi16(_mm512_srli_epi32(rnd, 16));
 }
 
 inline void FloatToBfloat16KernelAvx512(const float* src, bfloat16* dst) {
