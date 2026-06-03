@@ -123,6 +123,17 @@ class BackendTypeFromStrTest(unittest.TestCase):
 
         self.assertEqual(BackendType.from_str("dram"), BackendType.DRAM)
 
+    def test_ps(self) -> None:
+        from fbgemm_gpu.tbe.ssd import BackendType
+
+        self.assertEqual(BackendType.from_str("ps"), BackendType.PS)
+
+    def test_dram_ssd(self) -> None:
+        from fbgemm_gpu.tbe.ssd import BackendType
+
+        self.assertEqual(BackendType.from_str("dram_ssd"), BackendType.DRAM_SSD)
+        self.assertEqual(BackendType.DRAM_SSD.value, 3)
+
     def test_invalid_raises(self) -> None:
         from fbgemm_gpu.tbe.ssd import BackendType
 
