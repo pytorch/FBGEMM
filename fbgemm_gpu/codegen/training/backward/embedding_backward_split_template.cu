@@ -1348,9 +1348,15 @@ Tensor {{ embedding_cuda_op }}(
                     // condition 'use_hip_kernel' is True and "is_optimized_hip_kernel_supported_mode" is True. If no optimization is available for current
                     // condition , it will fallback to the default kernel.
                     {%- if vbe %}
-                    if (use_hip_kernel) {
+                    // Apply the same avg_SL threshold as the non-VBE mixed_D path.
+                    if (use_hip_kernel &&
+                        total_L <= 2 * static_cast<int64_t>(sorted_linear_indices_num_runs[0].item<int32_t>())) {
                     {%- else %}
-                    if (use_hip_kernel && mixed_D) {
+                    // Use hip_mixed_d only when avg segment length <= 2
+                    // (total_L / num_unique_rows <= 2), i.e. when the momentum preload
+                    // benefit outweighs the serial inner-loop serialization cost.
+                    if (use_hip_kernel && mixed_D &&
+                        total_L <= 2 * static_cast<int64_t>(sorted_linear_indices_num_runs[0].item<int32_t>())) {
                     {%- endif %}
                         backward_warp_per_row_kernel =
                         {{ hip_mixed_d_warp_kernel }}
@@ -1377,8 +1383,12 @@ Tensor {{ embedding_cuda_op }}(
                                 1,
                                 32,
                                 false>;
-                            blockSize = dim3(32, num_warp_per_row_groups);
+                            blockSize = dim3(32, (kBackwardMaxThreads / 2) / 32);
                             // Notice that, kThreadGroupSize * kFixedMaxVecsPerThread * vec_width should >= max_D
+                            // Use (kBackwardMaxThreads/2)/32 instead of num_warp_per_row_groups to maintain
+                            // 4 AMD wavefronts per block (kThreadGroupSize=32 is half a wavefront, so we need
+                            // 8 warp groups to fill 4 physical wavefronts, matching the baseline blockDim.y=4
+                            // with kThreadGroupSize=64)
                         }
                     }
                     {%- endif %}
