@@ -12,6 +12,7 @@
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #endif
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 
@@ -99,7 +100,7 @@ void PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT(
   // int KDim = K[0] * K[1] * conv_p.IC;
 
   col_offsets.resize(MDim * NDim, 0);
-  std::fill(col_offsets.begin(), col_offsets.end(), 0);
+  std::ranges::fill(col_offsets, 0);
   std::vector<int> count(MDim * NDim, 0);
 
   for (int oc = 0; oc < OC; oc++) {

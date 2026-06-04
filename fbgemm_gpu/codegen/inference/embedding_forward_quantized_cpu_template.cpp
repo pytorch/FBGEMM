@@ -9,6 +9,7 @@
 // clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 
+#include <algorithm>
 #include <ATen/ATen.h>
 #include <ATen/Context.h>
 #include <ATen/Parallel.h>
@@ -274,9 +275,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
             for (int32_t i = 0; i < T; ++i) {
                 physical_offsets.push_back(weights_offsets_acc[i]);
             }
-            std::sort(physical_offsets.begin(), physical_offsets.end());
+            std::ranges::sort(physical_offsets);
             physical_offsets.erase(
-                std::unique(physical_offsets.begin(), physical_offsets.end()),
+                std::ranges::unique(physical_offsets).begin(),
                 physical_offsets.end());
 
             for (const auto t : c10::irange(T)) {
