@@ -28,7 +28,7 @@ void randFill(
     T high,
     std::true_type /*unused*/) {
   std::uniform_int_distribution<int> dis(low, high);
-  std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
+  std::ranges::generate(vec, [&] { return dis(eng); });
 }
 
 template <typename T>
@@ -38,7 +38,7 @@ void randFill(
     T high,
     std::false_type /*unused*/) {
   std::uniform_real_distribution<T> dis(low, high);
-  std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
+  std::ranges::generate(vec, [&] { return dis(eng); });
 }
 
 template <typename T>
@@ -58,7 +58,7 @@ template void randFill<int>(aligned_vector<int>& vec, int low, int high);
 template <>
 void randFill(aligned_vector<int64_t>& vec, int64_t low, int64_t high) {
   std::uniform_int_distribution<int64_t> dis(low, high);
-  std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
+  std::ranges::generate(vec, [&] { return dis(eng); });
 }
 
 void llc_flush(std::vector<char>& llc) {
@@ -155,7 +155,7 @@ aligned_vector<float> getRandomSparseVector(
 
   // Create exactly fractionNonZeros in result
   aligned_vector<float> sorted_res(res);
-  std::sort(sorted_res.begin(), sorted_res.end());
+  std::ranges::sort(sorted_res);
   int32_t numZeros =
       size - static_cast<int32_t>(std::round(size * fractionNonZeros));
   if (numZeros) {
