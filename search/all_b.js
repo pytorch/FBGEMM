@@ -56,10 +56,10 @@ var searchData=
   ['fmha_2ehpp_53',['fmha.hpp',['../fmha_8hpp.html',1,'']]],
   ['forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_54',['47 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
   ['fp8_2016_2032_55',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
-  ['fused8bitrowwisequantizedsbfloattofloatorhalf_56',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a16fd9b965676d778b4b6b81d55d70f20',1,'fbgemm']]],
-  ['fused8bitrowwisequantizedsbfloattofloatorhalfref_57',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a3499eced87afa89c95cc82c240a28add',1,'fbgemm']]],
+  ['fused8bitrowwisequantizedsbfloattofloatorhalf_56',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a29c9d3467c9ad265a0bdfdb92f2fbe5b',1,'fbgemm']]],
+  ['fused8bitrowwisequantizedsbfloattofloatorhalfref_57',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#ad192f921cef8a312ba917448c744268d',1,'fbgemm']]],
   ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_58',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga18fbbbcd643061657cf2575a816435cc',1,'fbgemm_gpu']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalf_59',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a512483b4cf064a2938fdaa4067a476ac',1,'fbgemm']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_60',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a4ac91c9d5806b57c70b0dc7fa6a55464',1,'fbgemm']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalf_59',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a4f5f729f7af3b048807fee3d3cac5815',1,'fbgemm']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_60',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a62b4b6b34025f42a3d2d32ac0ed0ebbb',1,'fbgemm']]],
   ['fusedquantizedequantize_61',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
 ];
