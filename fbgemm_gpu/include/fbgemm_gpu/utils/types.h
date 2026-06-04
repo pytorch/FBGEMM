@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace fbgemm_gpu {
 
 using fint32 = union fint32 {
