@@ -552,8 +552,9 @@ Tensor
     {{ args.split_function_args | join(", ") }});
 {%- endfor %} {#-/* for weighted*/#}
 
+{%- if args.split_function_args_v1 is not none %}
 ////////////////////////////////////////////////////////////////////////////////
-// Autograd Function Declarations
+// Autograd Function Declarations (V1)
 ////////////////////////////////////////////////////////////////////////////////
 
 {#- /* Generate a separate autograd function for global weight decay */ #}
@@ -1051,11 +1052,13 @@ class {{ autograd_func }} :
     {%- endif %}
   }
 };
+{%- endif %} {#-/* if args.split_function_args_v1 is not none (V1 autograd) */#}
 {%- endfor %} {#-/* for is_gwd */#}
 {%- endfor %} {#-/* for nobag */#}
 {%- endfor %} {#-/* for vbe */#}
 {%- endif %} {#-/* if has_gpu_support */#}
 
+{%- if args.split_function_args_v1 is not none %}
 ///@ingroup embedding-cuda
 Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- if dense %}
@@ -1181,12 +1184,14 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
   return Tensor();
   {%- endif %} {#-/* if has_gpu_support */#}
 }
+{%- endif %} {#-/* if args.split_function_args_v1 is not none */#}
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 {%- for lib_name in ["fb", "fbgemm"] %}
 TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
     {%- set op_name = "{}_embedding_codegen_lookup_{}_function".format(bwd_mdesc, optimizer) %}
     {%- if not dense %}
+    {%- if args.split_function_args_v1 is not none %}
     m.def("{{ op_name }}("
           "    Tensor placeholder_autograd_tensor, "
           "    Tensor(a!) dev_weights, "
@@ -1255,8 +1260,10 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
         torch::dispatch(
           c10::DispatchKey::Meta,
           TORCH_FN({{ op_name }})));
+    {%- endif %} {#-/* if args.split_function_args_v1 is not none */#}
     {%- endif %} {#/* if not dense */#}
 
+    {%- if dense or args.split_function_args_v1 is not none %}
     DISPATCH_TO_CUDA(
         {%- if not dense %}
         "{{ op_name }}",
@@ -1264,6 +1271,7 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
         "dense_embedding_codegen_lookup_function",
         {%- endif %}
         {{ op_name }});
+    {%- endif %} {#-/* if dense or args.split_function_args_v1 is not none */#}
 }
 {%- endfor %} {#-/* for lib_name */#}
     // clang-format on

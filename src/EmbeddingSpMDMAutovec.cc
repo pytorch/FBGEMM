@@ -1294,9 +1294,10 @@ namespace specialization_helper {
 /// The idea with the specialization helper is to create a copy of a given
 /// algorithm with some parameters set to fixed values (specialized) so the
 /// compiler can perform additional optimization for the specific variant.
-/// This is achieved by marking the generic functions `ALWAYS_INLINE` inline
-/// and defining a macro invoking match/specialize so you can choose between
-/// fixed and variable values for each parameter.
+/// This is achieved by marking the generic functions `constexpr` so their
+/// results can be evaluated at compile time and defining a macro invoking
+/// match/specialize so you can choose between fixed and variable values for
+/// each parameter.
 
 template <typename T>
 struct FixedParameter {
@@ -1305,26 +1306,26 @@ struct FixedParameter {
 struct VariableParameter {};
 
 template <typename T>
-ALWAYS_INLINE constexpr FixedParameter<T> fixed(T value) {
+constexpr FixedParameter<T> fixed(T value) {
   return FixedParameter<T>{value};
 }
 constexpr VariableParameter var = VariableParameter();
 
 template <typename T>
-ALWAYS_INLINE bool match(VariableParameter /*unused*/, T /*unused*/) {
+constexpr bool match(VariableParameter /*unused*/, T /*unused*/) {
   return true;
 }
 template <typename T>
-ALWAYS_INLINE bool match(FixedParameter<T> fixed_parameter, T value) {
+constexpr bool match(FixedParameter<T> fixed_parameter, T value) {
   return fixed_parameter.value == value;
 }
 
 template <typename T>
-ALWAYS_INLINE T specialize(VariableParameter /*unused*/, T value) {
+constexpr T specialize(VariableParameter /*unused*/, T value) {
   return value;
 }
 template <typename T>
-ALWAYS_INLINE T specialize(FixedParameter<T> fixed_parameter, T /*unused*/) {
+constexpr T specialize(FixedParameter<T> fixed_parameter, T /*unused*/) {
   return fixed_parameter.value;
 }
 } // namespace specialization_helper
