@@ -12,7 +12,7 @@ import logging
 import os
 import tempfile
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, cast
 from collections.abc import Callable
 
 import click
@@ -1152,10 +1152,7 @@ def cache(  # noqa C901
     NOT_FOUND = -1
     for req in requests:
         indices, offsets = req.unpack_2()
-        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
-        #  memory_format | None = ...) -> Tensor, Tensor, Module]` is not a
-        #  function.
-        old_lxu_cache_state = emb.lxu_cache_state.clone()
+        old_lxu_cache_state = cast(Tensor, emb.lxu_cache_state).clone()
         emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
             # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
