@@ -48,3 +48,12 @@ from fbgemm_gpu.tbe.ssd import (  # @manual  # noqa: F401
     KVZCHParams,
     KVZCHTBEConfig,
 )
+
+
+def construct_cache_state(
+    row_list: list[int],
+    location_list: list[EmbeddingLocation],
+    feature_table_map: list[int],
+) -> CacheState:
+    """DEPRECATED: Use CacheState.construct() directly."""
+    return CacheState.construct(row_list, location_list, feature_table_map)
