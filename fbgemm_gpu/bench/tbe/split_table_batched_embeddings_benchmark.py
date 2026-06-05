@@ -869,7 +869,9 @@ def uvm(  # noqa: C901
             emb_uvm.timesteps_prefetched.append(it)
 
     # pyre-ignore[53]
-    def run_bench(indices: Tensor, offsets: Tensor, per_sample_weights: Tensor) -> None:
+    def run_bench(
+        indices: Tensor, offsets: Tensor, per_sample_weights: Tensor | None
+    ) -> Tensor:
         if eval_conflict_misses:
             # Set uvm_cache_stats
             assert (
@@ -878,7 +880,7 @@ def uvm(  # noqa: C901
             # Use uvm_cache_stats_index::num_conflict_unique_misses
             emb_uvm.local_uvm_cache_stats[4] = 0 if no_conflict_misses else 1
 
-        emb_uvm.forward(
+        return emb_uvm.forward(
             indices,
             offsets,
             per_sample_weights,
@@ -896,9 +898,6 @@ def uvm(  # noqa: C901
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
         time_per_iter = benchmark_requests(
             requests_uvm,
-            # pyre-fixme[6]: For 2nd argument expected `(Tensor, Tensor,
-            #  Tensor | None) -> Tensor` but got `(indices: Tensor, offsets: Tensor,
-            #  per_sample_weights: Tensor) -> None`.
             run_bench,
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
             num_warmups=warmup_runs,

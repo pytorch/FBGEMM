@@ -1297,9 +1297,6 @@ def nbit_uvm(
                 indices,
                 offsets,
             ),
-            # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
-            #  Tensor | None) -> None` but got `(indices: Any, offsets: Any,
-            #  indices_weights: Any) -> Tensor`.
             lambda indices, offsets, indices_weights: emb_mixed.forward(
                 indices,
                 offsets,
@@ -1794,9 +1791,6 @@ def nbit_cache(  # noqa C901
             indices,
             offsets,
         ),
-        # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
-        #  Tensor | None) -> None` but got `(indices: Any, offsets: Any,
-        #  indices_weights: Any) -> Tensor`.
         lambda indices, offsets, indices_weights: emb.forward(
             indices,
             offsets,
