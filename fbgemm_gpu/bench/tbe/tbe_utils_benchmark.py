@@ -11,9 +11,9 @@
 import logging
 import os
 import random
+from collections.abc import Callable
 from contextlib import nullcontext
 from itertools import accumulate
-from typing import Callable, Optional
 
 import click
 import fbgemm_gpu
@@ -79,8 +79,8 @@ def pruned_hashmap_insert(  # noqa C901
     pruning_hash_load_factor: float,
     hit_rate: float,
     use_cpu: bool,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
 ) -> None:
     B = batch_size
     T = num_tables
@@ -208,8 +208,8 @@ def pruned_array_lookup(  # noqa C901
     num_tables: int,
     pruning_ratio: float,
     device: str,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
 ) -> None:
     B = batch_size
     T = num_tables
@@ -317,8 +317,8 @@ def bounds_check_indices(  # noqa C901
     num_embeddings: int,
     num_tables: int,
     bounds_check_mode: int,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
     batch_sizes: str,
     export_trace: bool,
     trace_url: str,
@@ -481,8 +481,8 @@ def emb_inplace_update(  # noqa C901
     output_dtype: SparseType,
     iters: int,
     warmup_runs: int,
-    fp8_exponent_bits: Optional[int],
-    fp8_exponent_bias: Optional[int],
+    fp8_exponent_bits: int | None,
+    fp8_exponent_bias: int | None,
 ) -> None:
     if open_source:
         logging.warning(

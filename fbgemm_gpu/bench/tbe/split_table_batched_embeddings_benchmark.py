@@ -11,8 +11,9 @@
 import logging
 import os
 import tempfile
+from collections.abc import Callable
 from contextlib import nullcontext
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, cast
 
 import click
 import numpy as np
@@ -62,7 +63,7 @@ def cli() -> None:
     pass
 
 
-def get_compute_device(d: torch.device) -> Tuple[ComputeDevice, EmbeddingLocation]:
+def get_compute_device(d: torch.device) -> tuple[ComputeDevice, EmbeddingLocation]:
     if d.type == "cuda":
         return (ComputeDevice.CUDA, EmbeddingLocation.DEVICE)
     elif d.type == "mtia":
@@ -71,7 +72,7 @@ def get_compute_device(d: torch.device) -> Tuple[ComputeDevice, EmbeddingLocatio
         return (ComputeDevice.CPU, EmbeddingLocation.HOST)
 
 
-def get_pooling(pooling: Optional[str]) -> Tuple[PoolingMode, bool]:
+def get_pooling(pooling: str | None) -> tuple[PoolingMode, bool]:
     if pooling is None or pooling == "sum":
         pooling = "sum"
         pooling_mode = PoolingMode.SUM
@@ -116,10 +117,10 @@ def compute_read_write_bytes(
 
 
 def print_comparison_summary(
-    results: Dict[str, Dict[str, float]],
+    results: dict[str, dict[str, float]],
     config_str: str,
     output_dtype: SparseType,
-    accelerator_name: Optional[str] = None,
+    accelerator_name: str | None = None,
 ) -> None:
     logging.info(f"\n{'=' * 60}")
     logging.info("COMPARISON SUMMARY")
@@ -173,14 +174,14 @@ def _move_requests_to_device(
 def _run_cpu_comparison(
     accel_fwd_time_sec: float,
     accel_bwd_time_sec: float,
-    cpu_benchmark_fn: Callable[[], Tuple[float, float]],
+    cpu_benchmark_fn: Callable[[], tuple[float, float]],
     read_write_bytes: float,
     config_str: str,
     output_dtype: SparseType,
 ) -> None:
     cpu_fwd_sec, cpu_bwd_sec = cpu_benchmark_fn()
     accel_name = get_available_compute_device().name
-    results: Dict[str, Dict[str, float]] = {
+    results: dict[str, dict[str, float]] = {
         accel_name: {
             "fwd_time_us": accel_fwd_time_sec * 1.0e6,
             "fwd_bw_gbs": (
@@ -213,11 +214,11 @@ def _run_cpu_comparison(
 
 def _benchmark_cpu_fwd_bwd(
     cpu_requests: list[TBERequest],
-    fwd_func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    fwd_func: Callable[[Tensor, Tensor, Tensor | None], Tensor],
     grad_output: Tensor,
     warmup_runs: int,
     iters: int = -1,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     cpu_grad_output = grad_output.to(torch.device("cpu"))
     fwd_time = benchmark_requests(
         cpu_requests,
@@ -324,7 +325,7 @@ def device(  # noqa C901
     batch_size: int,
     embedding_dim: int,
     weights_precision: SparseType,
-    cache_precision: Optional[SparseType],
+    cache_precision: SparseType | None,
     stoc: bool,
     iters: int,
     warmup_runs: int,
@@ -336,14 +337,14 @@ def device(  # noqa C901
     row_wise: bool,
     weighted: bool,
     pooling: str,
-    weighted_num_requires_grad: Optional[int],
+    weighted_num_requires_grad: int | None,
     bounds_check_mode: int,
     flush_gpu_cache_size_mb: int,
     dense: bool,
     output_dtype: SparseType,
     indices_dtype: str,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
     export_trace: bool,
     trace_url: str,
     uvm_host_mapped: bool,
@@ -351,8 +352,8 @@ def device(  # noqa C901
     ssd_prefix: str,
     cache_load_factor: float,
     num_requests: int,
-    indices_file: Optional[str],
-    offsets_file: Optional[str],
+    indices_file: str | None,
+    offsets_file: str | None,
     compare: bool,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
@@ -553,9 +554,7 @@ def device(  # noqa C901
     if do_pooling:
         grad_output = torch.randn(B, sum(Ds)).to(get_device())
     else:
-        # pyre-fixme[6]: For 2nd argument expected `Union[int, SymInt]` but got
-        #  `Union[floating[typing.Any], int]`.
-        grad_output = torch.randn(B * T * L, D).to(get_device())
+        grad_output = torch.randn(B * T * L, int(D)).to(get_device())
 
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
         # backward
@@ -669,8 +668,8 @@ def uvm(  # noqa: C901
     uvm_bag_size: int,
     weighted: bool,
     flush_gpu_cache_size_mb: int,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
     output_dtype: SparseType,
     use_cache: bool,
     cache_algorithm: str,
@@ -870,7 +869,9 @@ def uvm(  # noqa: C901
             emb_uvm.timesteps_prefetched.append(it)
 
     # pyre-ignore[53]
-    def run_bench(indices: Tensor, offsets: Tensor, per_sample_weights: Tensor) -> None:
+    def run_bench(
+        indices: Tensor, offsets: Tensor, per_sample_weights: Tensor | None
+    ) -> Tensor:
         if eval_conflict_misses:
             # Set uvm_cache_stats
             assert (
@@ -879,7 +880,7 @@ def uvm(  # noqa: C901
             # Use uvm_cache_stats_index::num_conflict_unique_misses
             emb_uvm.local_uvm_cache_stats[4] = 0 if no_conflict_misses else 1
 
-        emb_uvm.forward(
+        return emb_uvm.forward(
             indices,
             offsets,
             per_sample_weights,
@@ -897,9 +898,6 @@ def uvm(  # noqa: C901
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
         time_per_iter = benchmark_requests(
             requests_uvm,
-            # pyre-fixme[6]: For 2nd argument expected `(Tensor, Tensor,
-            #  Optional[Tensor]) -> Tensor` but got `(indices: Tensor, offsets: Tensor,
-            #  per_sample_weights: Tensor) -> None`.
             run_bench,
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
             num_warmups=warmup_runs,
@@ -920,7 +918,7 @@ def uvm(  # noqa: C901
         for rs_uvm, rs_gpu in zip(requests_uvm, requests_gpu):
             indices = torch.cat([rs_uvm.indices, rs_gpu.indices])
             lengths = [L_uvm] * (T_uvm * B) + [L] * (T_gpu * B)
-            offsets = torch.tensor(([0] + np.cumsum(lengths).tolist())).int().cuda()
+            offsets = torch.tensor([0] + np.cumsum(lengths).tolist()).int().cuda()
             per_sample_weights = None
             if weighted:
                 this_rs_uvm_weights = rs_uvm.per_sample_weights
@@ -1024,8 +1022,8 @@ def cache(  # noqa C901
     reuse: float,
     weighted: bool,
     flush_gpu_cache_size_mb: int,
-    requests_data_file: Optional[str],
-    tables: Optional[str],
+    requests_data_file: str | None,
+    tables: str | None,
     uvm_host_mapped: bool,
     cache_precision: SparseType,
     export_trace: bool,
@@ -1100,9 +1098,7 @@ def cache(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
-        # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `Union[np.floating[typing.Any], int]`.
-        f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
+        f"{B * T * L * D * float(param_size_multiplier) / 1.0e9: .2f} GB"
     )
 
     requests = generate_requests(
@@ -1156,10 +1152,7 @@ def cache(  # noqa C901
     NOT_FOUND = -1
     for req in requests:
         indices, offsets = req.unpack_2()
-        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
-        #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
-        #  function.
-        old_lxu_cache_state = emb.lxu_cache_state.clone()
+        old_lxu_cache_state = cast(Tensor, emb.lxu_cache_state).clone()
         emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
             # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
@@ -1253,7 +1246,7 @@ def device_with_spec(  # noqa C901
     batch_size: int,
     embedding_dim_list: str,
     weights_precision: SparseType,
-    cache_precision: Optional[SparseType],
+    cache_precision: SparseType | None,
     stoc: bool,
     iters: int,
     warmup_runs: int,
@@ -1857,9 +1850,7 @@ def vbe(  # noqa: C901
             )
         )
 
-        cpu_requests: list[
-            tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]
-        ] = [
+        cpu_requests: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]] = [
             (
                 indices.to(cpu_device),
                 offsets.to(cpu_device),
@@ -1868,7 +1859,7 @@ def vbe(  # noqa: C901
             for indices, offsets, weights in requests
         ]
 
-        def cpu_benchmark_fn() -> Tuple[float, float]:
+        def cpu_benchmark_fn() -> tuple[float, float]:
             return benchmark_vbe(
                 cpu_requests,
                 func=lambda indices, offsets, per_sample_weights: cpu_emb.forward(
@@ -1983,7 +1974,7 @@ def device_from_files(  # noqa C901
     warmup_runs: int,
     weighted: bool,
     pooling: str,
-    weighted_num_requires_grad: Optional[int],
+    weighted_num_requires_grad: int | None,
     bounds_check_mode: int,
     flush_gpu_cache_size_mb: int,
     output_dtype: SparseType,
@@ -1995,7 +1986,7 @@ def device_from_files(  # noqa C901
     offsets_file: str,
     specs_file: str,
     feature_table_map_file: str,
-    batch_size_per_feature_per_rank_file: Optional[str],
+    batch_size_per_feature_per_rank_file: str | None,
 ) -> None:
     """
     Benchmark that compares TBE performance between current accelerator (GPU/CUDA/MTIA)
@@ -2025,7 +2016,7 @@ def device_from_files(  # noqa C901
     map_location = torch.device("cpu") if compare else accelerator_device
 
     # Load specs from file
-    embedding_specs: list[Tuple[int, int, EmbeddingLocation, ComputeDevice]] = (
+    embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]] = (
         torch.load(specs_file, weights_only=False)
     )
     logging.info(f"Loaded embedding_specs: {embedding_specs}")
@@ -2076,7 +2067,7 @@ def device_from_files(  # noqa C901
     offsets_tensor: Tensor = torch.load(
         offsets_file, map_location=map_location, weights_only=True
     )
-    per_sample_weights_tensor: Optional[Tensor] = (
+    per_sample_weights_tensor: Tensor | None = (
         None if not weighted else torch.randn(indices_tensor.size())
     )
     logging.info(f"Loaded indices: {indices_tensor.shape} on {indices_tensor.device}")
@@ -2088,7 +2079,7 @@ def device_from_files(  # noqa C901
     avg_D: float = float(np.mean(Ds))
     avg_L: float = float(indices_tensor.numel() / total_B)
 
-    batch_size_per_feature_per_rank: Optional[list[list[int]]] = None
+    batch_size_per_feature_per_rank: list[list[int]] | None = None
     if batch_size_per_feature_per_rank_file is not None:
         batch_size_per_feature_per_rank = torch.load(
             batch_size_per_feature_per_rank_file, weights_only=True
@@ -2114,7 +2105,7 @@ def device_from_files(  # noqa C901
         Es, Bs, Ds, avg_L, do_pooling, output_dtype, weights_precision
     )
 
-    common_args: Dict[str, Any] = {
+    common_args: dict[str, Any] = {
         "weights_precision": weights_precision,
         "stochastic_rounding": stoc,
         "output_dtype": output_dtype,
@@ -2131,8 +2122,8 @@ def device_from_files(  # noqa C901
         indices_tensor: torch.Tensor,
         offsets_tensor: torch.Tensor,
         device: torch.device,
-        per_sample_weights_tensor: Optional[torch.Tensor],
-        batch_size_per_feature_per_rank: Optional[list[list[int]]],
+        per_sample_weights_tensor: torch.Tensor | None,
+        batch_size_per_feature_per_rank: list[list[int]] | None,
     ) -> list[TBERequest]:
         rs = []
         indices = indices_tensor.to(device)
@@ -2153,7 +2144,7 @@ def device_from_files(  # noqa C901
             )
         return rs
 
-    results: Dict[str, Dict[str, float]] = {}
+    results: dict[str, dict[str, float]] = {}
 
     def _kineto_trace_handler(p: profile, device_name: str, phase: str) -> None:
         trace_filename = trace_url.format(
@@ -2167,7 +2158,7 @@ def device_from_files(  # noqa C901
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
     # Helper function to run benchmark on a specific device
-    def run_benchmark_on_device(device: torch.device) -> Dict[str, float]:
+    def run_benchmark_on_device(device: torch.device) -> dict[str, float]:
         device_name = device.type.upper()
         use_cpu = device_name == "CPU"
 
@@ -2201,7 +2192,7 @@ def device_from_files(  # noqa C901
         )
 
         # Prepare feature_requires_grad if needed
-        feature_requires_grad: Optional[Tensor] = None
+        feature_requires_grad: Tensor | None = None
         if weighted_num_requires_grad:
             weighted_requires_grad_tables = np.random.choice(
                 T, replace=False, size=(weighted_num_requires_grad,)
@@ -2237,7 +2228,7 @@ def device_from_files(  # noqa C901
             f"T: {fwd_time_us:.0f}us"
         )
 
-        result: Dict[str, float] = {
+        result: dict[str, float] = {
             "fwd_time_us": fwd_time_us,
             "fwd_bw_gbs": fwd_bw_gbs,
         }
