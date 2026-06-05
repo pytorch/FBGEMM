@@ -587,7 +587,10 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
   } // for each row
 }
 
-// fp32→bf16; matches Bf16ConvertAvx2.h (val + 0x8000, take high 16 bits).
+// fp32->bf16; matches Bf16ConvertAvx2.h (val + 0x8000, take high 16 bits).
+// NOTE: This rounds half values away from zero, NOT round-to-nearest-even, so
+// results can differ by up to 1 ULP from the scalar cpu_float2bfloat16() (RNE).
+// See Bf16ConvertAvx2.h for the full rounding/NaN caveats.
 static inline uint16x4_t cvt_fp32x4_to_bf16x4(float32x4_t v) {
   const uint32x4_t u = vreinterpretq_u32_f32(v);
   const uint32x4_t rounded = vaddq_u32(u, vdupq_n_u32(0x8000));
