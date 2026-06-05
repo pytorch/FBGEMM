@@ -20,7 +20,8 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.tbe.ssd import EvictionPolicy, SSDTableBatchedEmbeddingBags
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import EvictionPolicy
+from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.common import pad4
 from fbgemm_gpu.tbe.ssd.training import BackendType, KVZCHParams
 from fbgemm_gpu.tbe.utils import round_up

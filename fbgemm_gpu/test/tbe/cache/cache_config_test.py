@@ -11,12 +11,77 @@
 Unit tests for fbgemm_gpu.tbe.cache.cache_config
 
 Tests cover:
+- CacheState.construct() parity with legacy construct_cache_state()
 - JIT integration (TBE with MANAGED_CACHING must still JIT-script)
 """
 
 import unittest
 
 import torch
+
+
+class CacheStateConstructTest(unittest.TestCase):
+    """Test CacheState.construct() classmethod — must match legacy function exactly."""
+
+    def test_matches_legacy_construct_cache_state(self) -> None:
+        """CRITICAL: New classmethod must produce identical results to legacy function."""
+        from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+            construct_cache_state,
+            EmbeddingLocation as LegacyEmbeddingLocation,
+        )
+        from fbgemm_gpu.tbe.cache import CacheState
+        from fbgemm_gpu.tbe.config import EmbeddingLocation
+
+        row_list = [500, 1000, 750, 250, 2000]
+        location_list: list[EmbeddingLocation] = [
+            EmbeddingLocation.MANAGED_CACHING,
+            EmbeddingLocation.MANAGED_CACHING,
+            EmbeddingLocation.DEVICE,
+            EmbeddingLocation.MANAGED_CACHING,
+            EmbeddingLocation.HOST,
+        ]
+        legacy_location_list: list[LegacyEmbeddingLocation] = [
+            LegacyEmbeddingLocation(loc.value) for loc in location_list
+        ]
+        feature_table_map = [0, 1, 2, 3, 4]
+
+        legacy = construct_cache_state(
+            row_list, legacy_location_list, feature_table_map
+        )
+        new = CacheState.construct(row_list, location_list, feature_table_map)
+
+        self.assertEqual(legacy.total_cache_hash_size, new.total_cache_hash_size)
+        self.assertEqual(legacy.cache_hash_size_cumsum, new.cache_hash_size_cumsum)
+        self.assertEqual(legacy.cache_index_table_map, new.cache_index_table_map)
+
+    def test_matches_legacy_with_feature_sharing(self) -> None:
+        """Test with feature_table_map that has multiple features per table."""
+        from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+            construct_cache_state,
+            EmbeddingLocation as LegacyEmbeddingLocation,
+        )
+        from fbgemm_gpu.tbe.cache import CacheState
+        from fbgemm_gpu.tbe.config import EmbeddingLocation
+
+        row_list = [100, 200, 300]
+        location_list: list[EmbeddingLocation] = [
+            EmbeddingLocation.MANAGED_CACHING,
+            EmbeddingLocation.DEVICE,
+            EmbeddingLocation.MANAGED_CACHING,
+        ]
+        legacy_location_list: list[LegacyEmbeddingLocation] = [
+            LegacyEmbeddingLocation(loc.value) for loc in location_list
+        ]
+        feature_table_map = [0, 0, 1, 1, 2]
+
+        legacy = construct_cache_state(
+            row_list, legacy_location_list, feature_table_map
+        )
+        new = CacheState.construct(row_list, location_list, feature_table_map)
+
+        self.assertEqual(legacy.total_cache_hash_size, new.total_cache_hash_size)
+        self.assertEqual(legacy.cache_hash_size_cumsum, new.cache_hash_size_cumsum)
+        self.assertEqual(legacy.cache_index_table_map, new.cache_index_table_map)
 
 
 class CacheConfigJITTest(unittest.TestCase):

@@ -35,6 +35,14 @@ TEST_P(FBGemmFP32Test, Test) {
   TestRun();
 }
 
+TEST_P(FBGemmFP32Test, TestAvx2) {
+  TestRunWithIsa(fbgemm::inst_set_t::avx2);
+}
+
+TEST_P(FBGemmFP32Test, TestAvx512) {
+  TestRunWithIsa(fbgemm::inst_set_t::avx512);
+}
+
 TEST_P(FBGemmFP32Test, Unpack) {
   UnpackTestRun();
 }

@@ -20,9 +20,11 @@ from torch import nn, Tensor  # usort:skip
 
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.split_embedding_configs import sparse_type_to_int, SparseType
-from fbgemm_gpu.tbe.cache import CacheAlgorithm, CacheState
-from fbgemm_gpu.tbe.config import (
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
+    CacheAlgorithm,
+    CacheState,
+    construct_cache_state,
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
     EmbeddingSpecInfo,
@@ -586,7 +588,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # Currently only support cache_precision == embedding_precision.
         # Both are represented as uint8_t
-        cache_state = CacheState.construct(rows, locations, self.feature_table_map)
+        cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
         if self.record_cache_metrics.record_tablewise_cache_miss:
             num_tables = len(cache_state.cache_hash_size_cumsum) - 1
@@ -1653,7 +1655,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for embedding_spec in self.embedding_specs
         ]
         # pyre-ignore[6]
-        cache_state = CacheState.construct(rows, locations, self.feature_table_map)
+        cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
         cached_dims = [
             rounded_row_size_in_bytes(

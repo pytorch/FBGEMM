@@ -16,7 +16,7 @@ import fbgemm_gpu  # noqa E402
 import torch
 import torch.testing
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.tbe.ssd import BackendType
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import BackendType
 from fbgemm_gpu.utils.loader import load_torch_module
 from hypothesis import given, settings, strategies as st, Verbosity
 
