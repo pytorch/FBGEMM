@@ -215,9 +215,7 @@ def nbit_cpu(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
-        # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `np.floating[typing.Any] | int`.
-        f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
+        f"{B * T * L * D * float(param_size_multiplier) / 1.0e9: .2f} GB"
     )
 
     requests = generate_requests(
@@ -430,9 +428,7 @@ def nbit_device(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
-        # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `np.floating[typing.Any] | int`.
-        f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
+        f"{B * T * L * D * float(param_size_multiplier) / 1.0e9: .2f} GB"
     )
 
     times = []
@@ -607,9 +603,7 @@ def nbit_device(  # noqa C901
                 B,
                 L,
                 E,
-                # pyre-fixme[6]: For 6th argument expected `int` but got
-                #  `floating[typing.Any] | int`.
-                D,
+                int(D),
                 pooling,
                 weighted,
                 check_median=check_median,
@@ -1687,9 +1681,7 @@ def nbit_cache(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
-        # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `np.floating[typing.Any] | int`.
-        f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
+        f"{B * T * L * D * float(param_size_multiplier) / 1.0e9: .2f} GB"
     )
 
     requests = generate_requests(

@@ -117,10 +117,10 @@ def compute_read_write_bytes(
 
 
 def print_comparison_summary(
-    results: Dict[str, Dict[str, float]],
+    results: dict[str, dict[str, float]],
     config_str: str,
     output_dtype: SparseType,
-    accelerator_name: Optional[str] = None,
+    accelerator_name: str | None = None,
 ) -> None:
     logging.info(f"\n{'=' * 60}")
     logging.info("COMPARISON SUMMARY")
@@ -174,14 +174,14 @@ def _move_requests_to_device(
 def _run_cpu_comparison(
     accel_fwd_time_sec: float,
     accel_bwd_time_sec: float,
-    cpu_benchmark_fn: Callable[[], Tuple[float, float]],
+    cpu_benchmark_fn: Callable[[], tuple[float, float]],
     read_write_bytes: float,
     config_str: str,
     output_dtype: SparseType,
 ) -> None:
     cpu_fwd_sec, cpu_bwd_sec = cpu_benchmark_fn()
     accel_name = get_available_compute_device().name
-    results: Dict[str, Dict[str, float]] = {
+    results: dict[str, dict[str, float]] = {
         accel_name: {
             "fwd_time_us": accel_fwd_time_sec * 1.0e6,
             "fwd_bw_gbs": (
@@ -214,11 +214,11 @@ def _run_cpu_comparison(
 
 def _benchmark_cpu_fwd_bwd(
     cpu_requests: list[TBERequest],
-    fwd_func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    fwd_func: Callable[[Tensor, Tensor, Tensor | None], Tensor],
     grad_output: Tensor,
     warmup_runs: int,
     iters: int = -1,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     cpu_grad_output = grad_output.to(torch.device("cpu"))
     fwd_time = benchmark_requests(
         cpu_requests,
@@ -352,8 +352,8 @@ def device(  # noqa C901
     ssd_prefix: str,
     cache_load_factor: float,
     num_requests: int,
-    indices_file: Optional[str],
-    offsets_file: Optional[str],
+    indices_file: str | None,
+    offsets_file: str | None,
     compare: bool,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
@@ -554,9 +554,7 @@ def device(  # noqa C901
     if do_pooling:
         grad_output = torch.randn(B, sum(Ds)).to(get_device())
     else:
-        # pyre-fixme[6]: For 2nd argument expected `int | SymInt` but got
-        #  `floating[typing.Any] | int`.
-        grad_output = torch.randn(B * T * L, D).to(get_device())
+        grad_output = torch.randn(B * T * L, int(D)).to(get_device())
 
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
         # backward
@@ -1101,9 +1099,7 @@ def cache(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
-        # pyre-fixme[58]: `*` is not supported for operand types `int` and
-        #  `np.floating[typing.Any] | int`.
-        f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
+        f"{B * T * L * D * float(param_size_multiplier) / 1.0e9: .2f} GB"
     )
 
     requests = generate_requests(
@@ -1859,7 +1855,7 @@ def vbe(  # noqa: C901
         )
 
         cpu_requests: list[
-            tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]
         ] = [
             (
                 indices.to(cpu_device),
@@ -1869,7 +1865,7 @@ def vbe(  # noqa: C901
             for indices, offsets, weights in requests
         ]
 
-        def cpu_benchmark_fn() -> Tuple[float, float]:
+        def cpu_benchmark_fn() -> tuple[float, float]:
             return benchmark_vbe(
                 cpu_requests,
                 func=lambda indices, offsets, per_sample_weights: cpu_emb.forward(

@@ -92,7 +92,7 @@ class JaggedTensor:
         """
         # Each row in the batch has different length
         lengths = torch.randint(max_len, size=(batch_size,))
-        total_lengths = lengths.sum().item()
+        total_lengths = int(lengths.sum())
 
         # Compute the offsets
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
@@ -104,7 +104,6 @@ class JaggedTensor:
             else torch.float32
         )
 
-        # pyre-fixme[6]: For 1st param expected `int` but got `bool | float | int`.
         values_2d = torch.rand(total_lengths, embedding_dim, dtype=dtype)
 
         if device == "cuda" and torch.cuda.is_available():
@@ -599,14 +598,13 @@ def batched_dense_vec_jagged_2d_mul(
         random.seed(42)
 
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
-    total_lengths = lengths.sum().item()
+    total_lengths = int(lengths.sum())
     offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
     dtype = (
         torch.float16
         if elem_type == "half" or elem_type == "float16"
         else torch.float32
     )
-    # pyre-fixme[6]: For 1st param expected `int` but got `bool | float | int`.
     values_2d = torch.rand(total_lengths, h_dim * embedding_dim, dtype=dtype)
     dense = torch.rand(batch_size * h_dim, max_len, dtype=dtype)
     if device == "cuda":
@@ -710,9 +708,8 @@ def jagged_1d_to_truncated_values(
         random.seed(42)
 
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
-    total_lengths = lengths.sum().item()
+    total_lengths = int(lengths.sum())
     torch_dtype = torch.float16 if dtype in ["half", "float16"] else torch.float32
-    # pyre-fixme[6]: For 1st param expected `int` but got `bool | float | int`.
     values = torch.rand(total_lengths, dtype=torch_dtype)
 
     def ref(values: torch.Tensor, lengths: torch.Tensor, max_len: int) -> torch.Tensor:
@@ -813,7 +810,7 @@ def masked_select_jagged_1d(
         random.seed(42)
 
     lengths = torch.randint(2 * max_len, size=(batch_size,), device=device)
-    total_lengths = int(lengths.sum().item())
+    total_lengths = int(lengths.sum())
     dtype = torch.long
     values = torch.randint(2**16, (total_lengths,), dtype=dtype, device=device)
     mask = torch.randint(2, (total_lengths,), device=device) > 0
