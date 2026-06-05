@@ -15,7 +15,11 @@ import torch
 
 # fmt:skip
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.tbe.config import BoundsCheckMode, EmbeddingLocation, PoolingMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    BoundsCheckMode,
+    EmbeddingLocation,
+    PoolingMode,
+)
 
 
 @dataclasses.dataclass(frozen=True)
