@@ -749,8 +749,14 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
     float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
     float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
     EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
+    // Independently verify the bf16 reference against cpu_float2bfloat16()
+    // applied to the fp32 reference, rather than asserting bf16 != fp16 bit
+    // patterns (which can spuriously fail when every value is representable
+    // identically in both formats). double->fp32->bf16 vs double->bf16
+    // double-rounding can differ by ~1 bf16 ULP, so use a tolerance.
+    float expected = cpu_bf162float(cpu_float2bfloat16(dequantOutRef[i]));
+    EXPECT_NEAR(r, expected, std::max(1e-3f, 1.6e-2f * std::abs(expected)));
   }
-  EXPECT_NE(dequantBf16Ref, dequantOutHalfRef);
 }
 
 // Scale and bias are of type float
@@ -833,8 +839,14 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
     float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
     float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
     EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
+    // Independently verify the bf16 reference against cpu_float2bfloat16()
+    // applied to the fp32 reference, rather than asserting bf16 != fp16 bit
+    // patterns (which can spuriously fail when every value is representable
+    // identically in both formats). double->fp32->bf16 vs double->bf16
+    // double-rounding can differ by ~1 bf16 ULP, so use a tolerance.
+    float expected = cpu_bf162float(cpu_float2bfloat16(dequantOutRef[i]));
+    EXPECT_NEAR(r, expected, std::max(1e-3f, 1.6e-2f * std::abs(expected)));
   }
-  EXPECT_NE(dequantBf16Ref, dequantOutHalfRef);
 }
 
 TEST_P(
