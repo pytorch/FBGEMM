@@ -920,8 +920,24 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     const bool scale_bias_last [[maybe_unused]],
     const bool quant_padding_float_type [[maybe_unused]]) {
 #if HAVE_SVE
-  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon<OutputType>(
-      input, input_rows, input_columns, output);
+  // The SVE/NEON 8-bit dequant kernel does not support bf16 output. Falling
+  // through to it would silently drop is_uint16_t_of_type_bf16 and write fp16
+  // bit patterns into a buffer the caller interprets as bf16, so route bf16
+  // output to the scalar Ref kernel instead.
+  if constexpr (is_uint16_t_of_type_bf16) {
+    Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<
+        OutputType,
+        is_uint16_t_of_type_bf16>(
+        input,
+        input_rows,
+        input_columns,
+        output,
+        scale_bias_last,
+        quant_padding_float_type);
+  } else {
+    Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon<OutputType>(
+        input, input_rows, input_columns, output);
+  }
 #else
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64

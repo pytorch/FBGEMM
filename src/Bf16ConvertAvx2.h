@@ -13,7 +13,19 @@
 
 namespace fbgemm::internal {
 
-// Round-nearest fp32→bf16: val + 0x8000, take high 16 bits.
+// fp32->bf16 conversion via the "val + 0x8000, take high 16 bits" trick.
+//
+// NOTE: This rounds half values *away from zero*, NOT round-to-nearest-even
+// (RNE). It therefore differs from:
+//   - the scalar reference cpu_float2bfloat16(), which uses RNE, and
+//   - the AVX-512 path (Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512),
+//     which uses the hardware vcvtneps2bf16 (RNE).
+// As a result, the same logical dequant can produce bf16 bit patterns that
+// differ by up to 1 ULP depending on which backend runs (AVX-512-BF16 vs AVX2
+// vs scalar Ref). Callers that need bit-exact agreement with
+// cpu_float2bfloat16() must not use these helpers. Additionally, a NaN whose
+// upper 7 mantissa bits are all 1 can carry into the exponent and become
+// +/-inf.
 inline __m256i cvt_fp32_to_bf16x8(__m256i val) {
   return _mm256_srli_epi32(
       _mm256_add_epi32(val, _mm256_set1_epi32(0x8000)), 16);

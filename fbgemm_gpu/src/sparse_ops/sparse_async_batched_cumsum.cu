@@ -11,6 +11,7 @@
 #else
 #include <cub/block/block_scan.cuh>
 #endif
+#include <algorithm>
 #include "common.cuh"
 
 static constexpr uint32_t kMaxThreads = 1024;
@@ -111,8 +112,8 @@ at::Tensor asynchronous_batched_complete_cumsum_gpu(const at::Tensor& values) {
 
   const uint32_t B = values.size(0);
   const uint32_t len = values.size(1);
-  const uint32_t nthreads_per_block =
-      min(max(next_power_of_2(len), 64), kMaxThreads);
+  const uint32_t nthreads_per_block = std::min<uint32_t>(
+      std::max<uint32_t>(next_power_of_2(len), 64), kMaxThreads);
   const uint32_t items_per_thread = div_round_up(len, nthreads_per_block);
 
   auto cumsum = at::empty({B, len + 1}, values.options());
