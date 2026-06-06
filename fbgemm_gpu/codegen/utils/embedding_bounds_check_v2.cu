@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
 #include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
 template <typename index_t, bool vbe, BoundsCheckMode bounds_check_mode>
@@ -246,7 +247,7 @@ void _bounds_check_indices_cuda_v2(
     // Limit the grid size to PREFETCH_KERNEL_MAX_BLOCKS if running this kernel
     // on the prefetch stream
     constexpr int PREFETCH_KERNEL_MAX_BLOCKS = 8;
-    grid_dim = min(grid_dim, PREFETCH_KERNEL_MAX_BLOCKS);
+    grid_dim = std::min<uint32_t>(grid_dim, PREFETCH_KERNEL_MAX_BLOCKS);
   }
 
 #define INVOKE_BOUNDS_CHECK_INDICES(MODE)                                      \
