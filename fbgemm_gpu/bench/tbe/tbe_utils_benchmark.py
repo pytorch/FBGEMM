@@ -287,6 +287,14 @@ def pruned_array_lookup(  # noqa C901
     f"V2_WARNING={BoundsCheckMode.V2_WARNING.value}, "
     f"V2_FATAL={BoundsCheckMode.V2_FATAL.value}",
 )
+@click.option(
+    "--bounds-check-version",
+    type=int,
+    default=1,
+    help="Kernel version dispatched by bounds_check_indices: 1 (default) or 2. "
+    "v2 is also gated globally by JK BOUNDS_CHECK_INDICES_V2; passing 2 here "
+    "forces v2 regardless of the JK gate.",
+)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
 @click.option(
@@ -317,6 +325,7 @@ def bounds_check_indices(  # noqa C901
     num_embeddings: int,
     num_tables: int,
     bounds_check_mode: int,
+    bounds_check_version: int,
     requests_data_file: Optional[str],
     tables: Optional[str],
     batch_sizes: str,
