@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <type_traits>
 
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
@@ -414,6 +415,15 @@ FBGEMM_API void compressed_indices_remap_ref(
     IndexType* out_indices,
     IndexType* out_offsets,
     float* out_weights);
+
+// In the embedding SpMDM kernels, both the distinct fp16 type `float16` and the
+// legacy `uint16_t` storage denote a 16-bit input/output whose fp16-vs-bf16
+// interpretation is selected at runtime via the is_bf16_in/is_bf16_out flags.
+// The distinct `bfloat16` type is intentionally excluded: it is only used by
+// the QuantUtils dequant path, which carries the format in the type itself.
+template <typename T>
+inline constexpr bool is_16bit_storage_v =
+    std::is_same_v<T, std::uint16_t> || std::is_same_v<T, float16>;
 
 template <typename T>
 float convert_to_float_ref(T src, bool is_bf16 = false) {

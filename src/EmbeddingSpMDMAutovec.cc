@@ -80,6 +80,10 @@ static inline void fill_output(
     for (int j = 0; j < block_size; ++j) {
       out[j] = cpu_float2half(src[j]);
     }
+  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = cpu_float2bfloat16(src[j]);
+    }
   }
 }
 
@@ -128,10 +132,14 @@ static constexpr EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
   if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
+  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
     return EmbeddingStatsTracker::DataType::BF16;
-  } else {
+  } else if constexpr (std::is_same_v<OutType, float16>) {
     return EmbeddingStatsTracker::DataType::FP16;
+  } else {
+    // uint16_t legacy storage: fp16 vs bf16 is selected at runtime.
+    return is_bf16_out ? EmbeddingStatsTracker::DataType::BF16
+                       : EmbeddingStatsTracker::DataType::FP16;
   }
 }
 
