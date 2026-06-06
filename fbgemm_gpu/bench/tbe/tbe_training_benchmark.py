@@ -11,8 +11,9 @@
 import logging
 import os
 import tempfile
+from collections.abc import Callable
 from contextlib import nullcontext
-from typing import Any, Callable, Optional
+from typing import Any
 
 try:
     from fbgemm_gpu.tbe.trace.fbgemm_kineto_trace_handler import (
@@ -107,7 +108,7 @@ def device(  # noqa C901
     context: click.Context,
     emb_op_type: click.Choice,
     row_wise: bool,
-    weighted_num_requires_grad: Optional[int],
+    weighted_num_requires_grad: int | None,
     cache_load_factor: float,
     # SSD params
     ssd_prefix: str,
@@ -256,7 +257,7 @@ def device(  # noqa C901
     # pyre-ignore[53]
     def _context_factory(
         on_trace_ready: Callable[[profile], None],
-    ) -> tuple[Any, Optional[profile]]:
+    ) -> tuple[Any, profile | None]:
         """
         Creates a context manager for profiling based on configuration.
 
@@ -414,11 +415,11 @@ def device_with_speclist(  # noqa C901
     context: click.Context,
     emb_op_type: click.Choice,
     row_wise: bool,
-    weighted_num_requires_grad: Optional[int],
+    weighted_num_requires_grad: int | None,
     cache_load_factor: float,
     # SSD params
     ssd_prefix: str,
-    pooling_list: Optional[str],
+    pooling_list: str | None,
     # pyre-ignore[2]
     **kwargs,
 ) -> None:

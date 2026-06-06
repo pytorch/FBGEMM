@@ -18,7 +18,6 @@ demonstrating the speedup achieved by the custom CUDA kernel.
 
 import time
 from dataclasses import dataclass
-from typing import List
 
 import click
 import torch
@@ -184,7 +183,7 @@ def cli(
     max_sources_list = [int(x) for x in max_sources.split(",")]
     max_targets_list = [int(x) for x in max_targets.split(",")]
 
-    results: List[BenchmarkResult] = []
+    results: list[BenchmarkResult] = []
 
     print(
         f"{'Batch':>6} | {'MaxSrc':>6} | {'MaxTgt':>6} | {'TotalElems':>10} | "

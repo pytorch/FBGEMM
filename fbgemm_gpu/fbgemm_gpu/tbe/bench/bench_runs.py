@@ -555,8 +555,8 @@ def benchmark_requests_refer(
 
 def benchmark_pipelined_requests(
     requests: list[TBERequest],
-    func1: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], None],
-    func2: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], None],
+    func1: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], object],
+    func2: Callable[[torch.Tensor, torch.Tensor, torch.Tensor | None], object],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
 ) -> tuple[float, float]:
