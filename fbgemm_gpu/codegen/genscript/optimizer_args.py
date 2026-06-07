@@ -904,9 +904,13 @@ class OptimizerArgs:
         # Create function args and schemas for V1 interface for backward compatibility
         # V1 interface refers to separate CPU/CUDA lookup functions
         # e.g., split_embedding_codegen_lookup_{}_funtion and split_embedding_codegen_lookup_{}_funtion_cpu)
+        # An optimizer opts out of V1 by either omitting `additional_spec` or
+        # setting an empty `v1` spec. Both are normalized to None here so the
+        # downstream templates (which gate V1 codegen on `split_function_args_v1
+        # is not none`) skip V1 entirely instead of emitting an empty arg list.
         split_function_args_v1 = None
         split_function_schemas_v1 = None
-        if additional_spec is not None:
+        if additional_spec is not None and additional_spec.get("v1"):
             if len(split_saved_tensors) > 0:
                 extended_args_str = extend_tensors_args_from_str(
                     additional_spec["v1"], split_saved_tensors[0]
