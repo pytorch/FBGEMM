@@ -383,10 +383,15 @@ using namespace embedding_ops;
 */
 #define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                     \
   [&] {                                                                         \
-    const int max_vecs_per_thread =                                             \
-      (max_D + {{ items_per_warp }} - 1) / {{ items_per_warp }};                \
     constexpr int kSubwarpDivisor = 1;                                          \
     const int kThreadGroupSize = kWarpSizeHost();                                 \
+    /* Derive max_vecs_per_thread from the runtime warp width (VEC_SIZE is the  \
+       Vec4TAcc width). A compile-time items_per_warp is baked to 256 on ROCm   \
+       and would drop dims >= 128 on wave32; this is correct on all archs. */   \
+    constexpr int VEC_SIZE = 4;                                                 \
+    const int max_vecs_per_thread =                                             \
+      (max_D + (kThreadGroupSize * VEC_SIZE) - 1)                               \
+      / (kThreadGroupSize * VEC_SIZE);                                          \
     constexpr int kFixedMaxVecsPerThread =                                      \
       {{ fixed_max_vecs_per_thread["backward"] }};                              \
     constexpr bool kUseVecBlocking = true;                                      \
