@@ -66,16 +66,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::jagged_index_select": {
-      "KeyedJaggedIndexSelectTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "KeyedJaggedIndexSelectTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xsuccess"
-      }
-    },
+    "fbgemm::jagged_index_select": {},
     "fbgemm::jagged_jagged_bmm": {},
     "fbgemm::jagged_slice": {
       "JaggedSliceTest.test_aot_dispatch_dynamic__test_jagged_slice": {
