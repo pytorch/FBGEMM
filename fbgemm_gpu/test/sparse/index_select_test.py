@@ -553,6 +553,3 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
 }
 
 extend_test_class(IndexSelectTest, additional_decorators)
-
-if __name__ == "__main__":
-    unittest.main()
