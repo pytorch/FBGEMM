@@ -340,7 +340,10 @@ class ShufflingTests(unittest.TestCase):
         num_local_experts: int = num_experts // ep_size
         num_experts_in_group: int = num_local_experts * dp_size
 
-        rank = random.randint(0, dp_size)
+        # rank is a valid index in [0, dp_size - 1]; random.randint is inclusive,
+        # so the upper bound must be dp_size - 1 to avoid expert_end exceeding
+        # num_experts_in_group (= num_local_experts * dp_size). See T191384137.
+        rank = random.randint(0, dp_size - 1)
 
         expert_start: int = num_local_experts * rank
         expert_end: int = num_local_experts * (rank + 1)
