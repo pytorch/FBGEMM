@@ -14,7 +14,6 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
 
 import setuptools
 import setuptools_git_versioning as gitversion
@@ -114,7 +113,7 @@ class FbgemmGpuBuild:
             ]
         )
 
-    def nova_flag(self) -> Optional[int]:
+    def nova_flag(self) -> int | None:
         if "BUILD_FROM_NOVA" in os.environ:
             if str(os.getenv("BUILD_FROM_NOVA")) == "0":
                 return 0
@@ -132,7 +131,7 @@ class FbgemmGpuBuild:
         # flag.  As such, we skip building in the clean and build wheel steps.
         return self.nova_flag() == 1
 
-    def target(self) -> Optional[str]:
+    def target(self) -> str | None:
         if self.args.build_target == "none":
             return None
         return self.args.build_target
@@ -425,7 +424,7 @@ class CudaUtils:
     """CUDA Utilities"""
 
     @classmethod
-    def nvcc_ok(cls, cuda_home: Optional[str], major: int, minor: int) -> bool:
+    def nvcc_ok(cls, cuda_home: str | None, major: int, minor: int) -> bool:
         if not cuda_home:
             return False
 
@@ -448,7 +447,7 @@ class CudaUtils:
         return result
 
     @classmethod
-    def find_cuda(cls, major: int, minor: int) -> Optional[str]:
+    def find_cuda(cls, major: int, minor: int) -> str | None:
         cuda_home = os.environ.get("CUDA_BIN_PATH")
         if cls.nvcc_ok(cuda_home, major, minor):
             return cuda_home

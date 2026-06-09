@@ -10,7 +10,6 @@
 import logging
 import subprocess
 from datetime import datetime
-from typing import Union
 
 import click
 import pandas as pd
@@ -34,7 +33,7 @@ class CLIOutput:
         self._timestamp = timestamp
         self._visible = visible
 
-    def to_dict(self) -> dict[str, Union[int, str]]:
+    def to_dict(self) -> dict[str, int | str]:
         return {
             "cli": self._cli,
             "stdout": self._stdout,
@@ -52,7 +51,7 @@ class CLI:
         self._cli_outputs: list[CLIOutput] = [
             CLIOutput(
                 cli="python –c “import torch; print(torch.__version__)”",
-                stdout="{}".format(torch.__version__),
+                stdout=f"{torch.__version__}",
                 stderr="",
                 returncode=0,
                 timestamp=datetime.now().isoformat(),
@@ -62,7 +61,7 @@ class CLI:
 
     def run(
         self,
-        cli: Union[str, list[str]],
+        cli: str | list[str],
         visible: bool = True,
         input: str = "",
         capture_output: bool = True,
