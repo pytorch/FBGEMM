@@ -7,6 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[16,21,53,56]
 
+import functools
 import logging
 import random
 import unittest
@@ -39,6 +40,15 @@ logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 _MAX_SAMPLES: int = 100
+
+
+@functools.lru_cache(maxsize=1)
+def _compiled_scatter_add_padded_tokens():  # pyre-ignore[3]
+    # Compile once with dynamic shapes so that the Hypothesis sweep over
+    # (num_tokens, num_experts, ep_size, k) does not trigger a fresh dynamo
+    # recompilation per example. Without this the test hits the dynamo
+    # recompile_limit and times out. See T191384137.
+    return torch.compile(scatter_add_padded_tokens, dynamic=True)
 
 
 @unittest.skipIf(open_source, "Tests currently fail in open source")
@@ -303,17 +313,7 @@ class GatherScatterTests(unittest.TestCase):
                 test_out_tokens[:num_valid_tokens], ref_out_tokens[:num_valid_tokens]
             )
 
-    @given(
-        num_tokens=st.sampled_from([64, 128, 256]),
-        num_experts=st.sampled_from([16, 80, 128]),
-        ep_size=st.sampled_from([2, 4, 8, 16]),
-        dim=st.sampled_from([5120]),
-        balanced=st.sampled_from([True, False]),
-        compiled=st.sampled_from([True, False]),
-        k=st.sampled_from([1, 2, 4]),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
-    def test_scatter_add_padded_tokens(
+    def _run_scatter_add_padded_tokens(
         self,
         num_tokens: int,
         num_experts: int,
@@ -350,7 +350,12 @@ class GatherScatterTests(unittest.TestCase):
             token_choices = torch.randint(
                 0, num_experts, (num_in_tokens,), device=device
             )
-            token_counts = torch.bincount(token_choices, minlength=num_experts)
+            # bincount returns int64; cast to int32 to match the balanced path
+            # and the kernel's expectation, and to avoid a dynamo recompile on
+            # the token_counts dtype (Long vs Int) under torch.compile.
+            token_counts = torch.bincount(token_choices, minlength=num_experts).to(
+                torch.int32
+            )
 
         token_cumsums = torch.cumsum(token_counts, dim=0)
 
@@ -364,7 +369,7 @@ class GatherScatterTests(unittest.TestCase):
         def fn() -> None:
             op = scatter_add_padded_tokens
             if compiled:
-                op = torch.compile(op)
+                op = _compiled_scatter_add_padded_tokens()
             op(
                 in_tokens,
                 token_counts,
@@ -400,6 +405,53 @@ class GatherScatterTests(unittest.TestCase):
             )
         else:
             assert torch.equal(test_out_tokens, ref_out_tokens)
+
+    @given(
+        num_tokens=st.sampled_from([64, 128, 256]),
+        num_experts=st.sampled_from([16, 80, 128]),
+        ep_size=st.sampled_from([2, 4, 8, 16]),
+        dim=st.sampled_from([5120]),
+        balanced=st.sampled_from([True, False]),
+        k=st.sampled_from([1, 2, 4]),
+    )
+    # max_examples is reduced from _MAX_SAMPLES: each example re-autotunes the
+    # triton kernel for a new (EP, E, T_BUCKET, D) key and runs an expensive
+    # Python reference over dim=5120, so the full 100-example sweep times out.
+    # See T191384137.
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_scatter_add_padded_tokens(
+        self,
+        num_tokens: int,
+        num_experts: int,
+        ep_size: int,
+        dim: int,
+        balanced: bool,
+        k: int,
+    ) -> None:
+        # Eager correctness sweep. The torch.compile path is exercised
+        # separately in test_scatter_add_padded_tokens_compiled: running the
+        # full Hypothesis sweep under torch.compile recompiles per
+        # dtype/shape/expert-count combo, blows past the dynamo recompile_limit
+        # and times out. See T191384137.
+        self._run_scatter_add_padded_tokens(
+            num_tokens, num_experts, ep_size, dim, balanced, compiled=False, k=k
+        )
+
+    def test_scatter_add_padded_tokens_compiled(self) -> None:
+        # Exercise the torch.compile path on a small fixed set of configs so the
+        # number of dynamo compilations stays bounded (one per dtype). See
+        # T191384137.
+        for balanced in (True, False):
+            for k in (1, 2):
+                self._run_scatter_add_padded_tokens(
+                    num_tokens=128,
+                    num_experts=128,
+                    ep_size=4,
+                    dim=5120,
+                    balanced=balanced,
+                    compiled=True,
+                    k=k,
+                )
 
 
 if __name__ == "__main__":
