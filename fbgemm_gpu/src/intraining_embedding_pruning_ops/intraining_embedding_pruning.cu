@@ -226,23 +226,22 @@ __global__ void get_pruning_lengths(
   int64_t segment_start = threadIdx.x * segment_length;
   int64_t segment_end = min(segment_start + segment_length, rows);
 
-  if (segment_start >= rows) {
-    return;
-  }
-
-  int64_t buffer_offset = buffer_offsets[t_i];
-  const int64_t* address_lookup = &address_lookups[buffer_offset];
   int64_t* inserted_row_length = &inserted_row_lengths[t_i * kMaxThreads];
   int64_t* pruned_row_length = &pruned_row_lengths[t_i * kMaxThreads];
 
-  // This placeholder will never be accessed.
-  int64_t INSERTED_ROW_PLACEHOLDER = rows;
+  if (segment_start < rows) {
+    int64_t buffer_offset = buffer_offsets[t_i];
+    const int64_t* address_lookup = &address_lookups[buffer_offset];
 
-  for (int64_t idx = segment_start; idx < segment_end; idx++) {
-    if (address_lookup[idx] < 0) {
-      pruned_row_length[threadIdx.x] += 1;
-    } else if (address_lookup[idx] == INSERTED_ROW_PLACEHOLDER) {
-      inserted_row_length[threadIdx.x] += 1;
+    // This placeholder will never be accessed.
+    int64_t INSERTED_ROW_PLACEHOLDER = rows;
+
+    for (int64_t idx = segment_start; idx < segment_end; idx++) {
+      if (address_lookup[idx] < 0) {
+        pruned_row_length[threadIdx.x] += 1;
+      } else if (address_lookup[idx] == INSERTED_ROW_PLACEHOLDER) {
+        inserted_row_length[threadIdx.x] += 1;
+      }
     }
   }
 
