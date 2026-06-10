@@ -10,8 +10,17 @@
 # pyre-ignore-all-errors[56]
 
 import enum
-from dataclasses import dataclass
 from typing import NamedTuple
+
+# Cache types are canonical in fbgemm_gpu.tbe.cache.cache_config; re-export here so
+# the legacy import path keeps working.
+from fbgemm_gpu.tbe.cache.cache_config import (  # noqa: F401
+    CacheAlgorithm,
+    CacheState,
+    MultiPassPrefetchConfig,
+)
+
+# Config types are canonical
 
 # Config types are canonical in fbgemm_gpu.tbe.config.embedding_config; re-export
 # them here so the legacy `from ...ops_common import <Name>` path keeps working.
@@ -327,65 +336,10 @@ class BackendType(enum.IntEnum):
             raise ValueError(f"Cannot parse value into BackendType: {key}")
 
 
-class CacheAlgorithm(enum.Enum):
-    LRU = 0
-    LFU = 1
-
-
-class MultiPassPrefetchConfig(NamedTuple):
-    # Number of passes to split indices tensor into. Actual number of passes may
-    # be less if indices tensor is too small to split.
-    num_passes: int = 12
-
-    # The minimal number of element in indices tensor to be able to split into
-    # two passes. This is useful to prevent too many prefetch kernels spamming
-    # the CUDA launch queue.
-    # The default 6M indices means 6M * 8 * 6 = approx. 300MB of memory overhead
-    # per pass.
-    min_splitable_pass_size: int = 6 * 1024 * 1024
-
-
-@dataclass
-class CacheState:
-    # T + 1 elements and cache_hash_size_cumsum[-1] == total_cache_hash_size
-    cache_hash_size_cumsum: list[int]
-    cache_index_table_map: list[int]
-    total_cache_hash_size: int
-
-
 def construct_cache_state(
     row_list: list[int],
     location_list: list[EmbeddingLocation],
     feature_table_map: list[int],
 ) -> CacheState:
-    _cache_hash_size_cumsum = [0]
-    total_cache_hash_size = 0
-    for num_embeddings, location in zip(row_list, location_list):
-        if location == EmbeddingLocation.MANAGED_CACHING:
-            total_cache_hash_size += num_embeddings
-        _cache_hash_size_cumsum.append(total_cache_hash_size)
-    # [T], -1: non-cached table
-    cache_hash_size_cumsum = []
-    # [total_cache_hash_size], linear cache index -> table index
-    cache_index_table_map = [-1] * total_cache_hash_size
-    unique_feature_table_map = {}
-    for t, t_ in enumerate(feature_table_map):
-        unique_feature_table_map[t_] = t
-    for t_, t in unique_feature_table_map.items():
-        start, end = _cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]
-        cache_index_table_map[start:end] = [t] * (end - start)
-    cache_hash_size_cumsum = [
-        (
-            _cache_hash_size_cumsum[t_]
-            if location_list[t_] == EmbeddingLocation.MANAGED_CACHING
-            else -1
-        )
-        for t_ in feature_table_map
-    ]
-    cache_hash_size_cumsum.append(total_cache_hash_size)
-    s = CacheState(
-        cache_hash_size_cumsum=cache_hash_size_cumsum,
-        cache_index_table_map=cache_index_table_map,
-        total_cache_hash_size=total_cache_hash_size,
-    )
-    return s
+    """Backward-compatible free-function form of CacheState.construct()."""
+    return CacheState.construct(row_list, location_list, feature_table_map)
