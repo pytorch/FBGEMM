@@ -575,7 +575,11 @@ def block_bucketize_sparse_features_meta(
         indices.new_empty([num_values]),
         weights.new_empty(weights.shape) if weights is not None else None,
         indices.new_empty([num_values]) if bucketize_pos else None,
-        indices.new_empty([num_values]),
+        # The real CPU/CUDA kernels only return unbucketize_permute when
+        # `sequence` is set; otherwise the output is None. Match that so the
+        # FakeTensor opcheck variant no longer sees a Tensor-vs-None mismatch.
+        # See T191384137.
+        indices.new_empty([num_values]) if sequence else None,
     )
 
 

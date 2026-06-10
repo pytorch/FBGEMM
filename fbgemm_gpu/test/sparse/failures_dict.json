@@ -211,34 +211,8 @@
         "status": "xfail"
       }
     },
-    "fbgemm::generic_histogram_binning_calibration_by_feature": {
-      "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_generic_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_generic_histogram_binning_calibration_by_feature_cpu_gpu": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "HistogramBinningCalibrationTest.test_faketensor__test_generic_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "HistogramBinningCalibrationTest.test_faketensor__test_generic_histogram_binning_calibration_by_feature_cpu_gpu": {
-        "comment": "",
-        "status": "xsuccess"
-      }
-    },
-    "fbgemm::group_index_select_dim0": {
-      "IndexSelectTest.test_autograd_registration__test_group_index_select_dim0": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "IndexSelectTest.test_faketensor__test_group_index_select_dim0": {
-        "comment": "",
-        "status": "xsuccess"
-      }
-    },
+    "fbgemm::generic_histogram_binning_calibration_by_feature": {},
+    "fbgemm::group_index_select_dim0": {},
     "fbgemm::histogram_binning_calibration": {
       "HistogramBinningCalibrationTest.test_faketensor__test_histogram_binning_calibration": {
         "comment": "",
@@ -425,15 +399,6 @@
         "status": "xfail"
       }
     },
-    "fbgemm::segment_sum_csr": {
-      "MiscOpsTest.test_aot_dispatch_dynamic__test_segment_sum_csr": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "MiscOpsTest.test_faketensor__test_segment_sum_csr": {
-        "comment": "",
-        "status": "xsuccess"
-      }
-    }
+    "fbgemm::segment_sum_csr": {}
   }
 }

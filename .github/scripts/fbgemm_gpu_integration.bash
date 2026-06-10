@@ -27,7 +27,7 @@ integration_setup_conda_environment_base () {
   #   COMPILER         - Compiler to use (gcc or clang)
   #   PYTHON_VERSION   - Python version to install (e.g., 3.12)
   #   VARIANT_TYPE     - Build variant type: cuda, rocm, or cpu
-  #   VARIANT_VERSION  - Version of the variant (e.g., 12.9.1 for CUDA, 7.0 for ROCm, "none" for CPU)
+  #   VARIANT_VERSION  - Version of the variant (e.g., 13.0.2 for CUDA, 7.0 for ROCm, "none" for CPU)
   #
   local env_name="$1"
   local compiler="$2"
@@ -37,7 +37,7 @@ integration_setup_conda_environment_base () {
   if [ "$variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION VARIANT_TYPE VARIANT_VERSION"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env gcc 3.12 cuda 12.9.1   # Setup environment for GCC + Python 3.12 + CUDA 12.9.1"
+    echo "    ${FUNCNAME[0]} build_env gcc 3.12 cuda 13.0.2   # Setup environment for GCC + Python 3.12 + CUDA 13.0.2"
     echo "    ${FUNCNAME[0]} build_env gcc 3.12 rocm 7.0      # Setup environment for GCC + Python 3.12 + ROCm 7.0"
     echo "    ${FUNCNAME[0]} build_env gcc 3.12 cpu none      # Setup environment for GCC + Python 3.12 (CPU only)"
     return 1
@@ -91,7 +91,7 @@ integration_setup_conda_environment () {
   #   COMPILER                       - Compiler to use (gcc or clang)
   #   PYTHON_VERSION                 - Python version to install (e.g., 3.12)
   #   PYTORCH_CHANNEL_VERSION        - PyTorch channel/version (e.g., nightly, test/2.1.0)
-  #   PYTORCH_VARIANT_TYPE_VERSION   - Variant type/version (e.g., cuda/12.9.1, rocm/7.0)
+  #   PYTORCH_VARIANT_TYPE_VERSION   - Variant type/version (e.g., cuda/13.0.2, rocm/7.0)
   #   PYTORCH_INSTALLER              - Installer to use: pip or conda (default: pip)
   #
   local env_name="$1"
@@ -282,7 +282,7 @@ integration_fbgemm_gpu_install_matrix_run () {
     local variant_versions=(
       12.6.3
       12.8.1
-      12.9.1
+      13.0.2
       13.0.2
     )
   elif [ "$variant_type" == "genai" ]; then
