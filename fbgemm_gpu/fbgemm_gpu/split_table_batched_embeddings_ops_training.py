@@ -3340,6 +3340,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is
             #  not a function.
             if weights.dim() == 2:
+                # pyre-fixme[29]: `Union[(self: TensorBase, start_dim: int = ...,
+                #  end_dim: int = ...) -> Tensor, Module, Tensor]` is not a function.
                 weights = weights.flatten()
             splits.append(
                 weights.detach()[offset : offset + rows * dim].view(rows, dim)
@@ -4009,6 +4011,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 context=self.step,
                 stream=torch.cuda.current_stream(),
             ):
+                # pyre-fixme[6]: For 1st argument expected `Union[Stream, Stream]`
+                #  but got `Optional[Stream]`.
                 torch.cuda.current_stream().wait_stream(self.prefetch_stream)
 
         torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
