@@ -615,7 +615,11 @@ def block_bucketize_sparse_features_inference_meta(
         indices.new_empty([num_values]),
         weights.new_empty(weights.shape) if weights is not None else None,
         indices.new_empty([num_values]) if bucketize_pos else None,
-        indices.new_empty([num_values]),
+        # The real CPU/CUDA inference kernels only return unbucketize_permute
+        # when `sequence` is set (sparse_block_bucketize_features.cu:956); match
+        # that so the FakeTensor opcheck variant no longer sees a Tensor-vs-None
+        # mismatch. See T191384137.
+        indices.new_empty([num_values]) if sequence else None,
         indices.new_empty([num_values]) if return_bucket_mapping else None,
     )
 
@@ -651,8 +655,22 @@ def block_bucketize_sparse_features_2d_weights_meta(
         indices.new_empty([num_values]),
         weights.new_empty([num_values, weights_dim]),
         indices.new_empty([num_values]) if bucketize_pos else None,
-        indices.new_empty([num_values]),
+        # Match the real kernel: unbucketize_permute is only returned when
+        # `sequence` is set (sparse_block_bucketize_features.cu:956). T191384137.
+        indices.new_empty([num_values]) if sequence else None,
     )
+
+
+def populate_bucketized_permute_meta(
+    lengths: torch.Tensor,
+    bucketized_lengths: torch.Tensor,
+    bucket_mapping: torch.Tensor,
+) -> torch.Tensor:
+    # The real CPU/CUDA kernels return native_empty_like(bucket_mapping), i.e. an
+    # output with the same shape/dtype as bucket_mapping
+    # (sparse_ops_cpu.cpp:1117). Without this meta, the op has no abstract impl
+    # and all of its FakeTensor / aot_dispatch opcheck variants fail. T191384137.
+    return torch.empty_like(bucket_mapping)
 
 
 def merge_pooled_embeddings(
@@ -1425,6 +1443,10 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::block_bucketize_sparse_features_2d_weights",
             block_bucketize_sparse_features_2d_weights_meta,
+        )
+        impl_abstract(
+            "fbgemm::populate_bucketized_permute",
+            populate_bucketized_permute_meta,
         )
         impl_abstract("fbgemm::merge_pooled_embeddings", merge_pooled_embeddings)
         impl_abstract(
