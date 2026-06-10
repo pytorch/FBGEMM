@@ -80,14 +80,10 @@ class SparseArch(nn.Module):
 
     def __init__(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
-        emb_dim,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_tables,
-        # pyre-fixme[2]: Parameter must be annotated.
-        num_rows,
-        # pyre-fixme[2]: Parameter must be annotated.
-        use_cpu,
+        emb_dim: int,
+        num_tables: int,
+        num_rows: int,
+        use_cpu: bool,
     ) -> None:
         super().__init__()
         pooling_mode = PoolingMode.SUM
@@ -117,9 +113,7 @@ class SparseArch(nn.Module):
             -EMB_WEIGHT_UNIFORM_INIT_BOUND, +EMB_WEIGHT_UNIFORM_INIT_BOUND
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
-    def forward(self, indices, offsets):
+    def forward(self, indices: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
         return self.emb_module(indices, offsets)
 
 
