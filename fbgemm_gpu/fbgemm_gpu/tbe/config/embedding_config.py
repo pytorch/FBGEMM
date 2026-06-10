@@ -196,3 +196,10 @@ def get_bounds_check_version_for_platform() -> int:
     # SMs.  Thus, its gridDim * blockDim is guaranteed to be smaller
     # than 2^32
     return 2 if (torch.cuda.is_available() and torch.version.hip) else 1
+
+
+def get_new_embedding_location(
+    device: torch.device, cache_load_factor: float
+) -> EmbeddingLocation:
+    """Backward-compatible free-function form of EmbeddingLocation.from_device_and_clf()."""
+    return EmbeddingLocation.from_device_and_clf(device, cache_load_factor)
