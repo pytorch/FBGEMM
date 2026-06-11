@@ -689,7 +689,7 @@ class FeatureEvict {
     auto* pool = kv_store_.pool_by(shard_id);
     auto mem_pool_lock = pool->acquire_lock();
 
-    std::vector<int> evicting_keys;
+    std::vector<int64_t> evicting_keys;
     evicting_keys.reserve(block_nums_snapshot_[shard_id] / 100);
     while (!should_exit_evict_loop(shard_id)) {
       auto* block =
