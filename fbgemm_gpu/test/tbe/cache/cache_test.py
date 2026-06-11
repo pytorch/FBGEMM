@@ -39,6 +39,7 @@ from ..common import MAX_EXAMPLES  # noqa E402
 from .cache_common import (
     assert_cache,
     generate_cache_tbes,
+    gpu_memory_lt_gb,
     gpu_unavailable,
     optests,
     running_on_github,
@@ -1030,6 +1031,94 @@ class CacheTest(unittest.TestCase):
                 self.assertEqual(unique_cache_miss_count, t_counter[1])
                 for i in range(len(tablewise_cache_miss)):
                     self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
+
+    @optests.dontGenerateOpCheckTests("Large grid HIP regression — uses ~4 GB HBM")
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_lru_cache_insert_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in lru_cache_insert_kernel
+        (split_embeddings_cache/lru_cache_populate.cu, lock_cache_line=False
+        branch).
+
+        Block: dim3(kWarpSize=32, kMaxThreads/kWarpSize=32) = 1024 threads.
+        Grid: div_round_up(N, kMaxThreads / kWarpSize) = ceil(N / 32).
+        Total threads ~= N * kWarpSize = 32 * N. For N >= 2**27, total
+        threads exceed the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail
+        on ROCm.
+
+        Drives torch.ops.fbgemm.lru_cache_populate with N = 2**27 + 1
+        unique linear cache indices, lock_cache_line=False, and a small
+        cache (so HBM is dominated by the linear-cache-indices and weights
+        tensors, ~1 GB + ~2 GB).
+        """
+        N = (1 << 27) + 1
+        D = 4
+        device = torch.accelerator.current_accelerator("cuda")
+
+        # T=1 table with E = N entries so all unique linear cache indices
+        # are valid hash keys. cache_hash_size_cumsum has shape (T+1,).
+        cache_hash_size_cumsum = torch.tensor([0, N], dtype=torch.int64, device=device)
+        total_cache_hash_size = N
+        # cache_index_table_map[unique_idx] -> table_id; all zeros for T=1.
+        cache_index_table_map = torch.zeros(N, dtype=torch.int32, device=device)
+        # weights_offsets[t] = start of table t in the flat weights tensor.
+        weights_offsets = torch.tensor([0, N * D], dtype=torch.int64, device=device)
+        # D_offsets[t] = embedding-dim offset for table t.
+        D_offsets = torch.tensor([0, D], dtype=torch.int32, device=device)
+        # All N indices are unique; this is what will drive the insert
+        # kernel grid size.
+        linear_cache_indices = torch.arange(N, dtype=torch.int64, device=device)
+        # Small cache -> tiny lxu_cache_state / weights / lru_state.
+        num_cache_sets = 1024
+        lxu_cache_state = torch.full(
+            (num_cache_sets, 32), -1, dtype=torch.int64, device=device
+        )
+        # Flat weights tensor for the single table.
+        weights = torch.zeros(N * D, dtype=torch.float32, device=device)
+        lxu_cache_weights = torch.zeros(
+            (num_cache_sets * 32, D), dtype=torch.float32, device=device
+        )
+        lru_state = torch.zeros((num_cache_sets, 32), dtype=torch.int64, device=device)
+
+        torch.ops.fbgemm.lru_cache_populate(
+            weights,
+            cache_hash_size_cumsum,
+            total_cache_hash_size,
+            cache_index_table_map,
+            weights_offsets,
+            D_offsets,
+            linear_cache_indices,
+            lxu_cache_state,
+            lxu_cache_weights,
+            1,  # time_stamp
+            lru_state,
+            False,  # stochastic_rounding
+            False,  # gather_uvm_cache_stats
+            None,  # uvm_cache_stats
+            False,  # lock_cache_line
+            None,  # lxu_cache_locking_counter
+        )
+        # Tier C structural invariants on the populated cache:
+        # 1. shape preserved.
+        self.assertEqual(lxu_cache_state.shape, (num_cache_sets, 32))
+        # 2. Cache is fully populated. With N >> num_cache_sets * 32 = 32K,
+        #    every cache slot should hold a valid key (not the -1 sentinel)
+        #    after the insert kernel runs. Pre-fix the kernel never runs;
+        #    post-fix it grid-strides over all N indices and populates
+        #    every slot.
+        num_filled = int((lxu_cache_state != -1).sum().item())
+        self.assertEqual(num_filled, num_cache_sets * 32)
+        # 3. Every populated slot holds a valid linear cache index in
+        #    [0, N). This catches "kernel wrote wrong key" bugs.
+        populated = lxu_cache_state[lxu_cache_state != -1]
+        self.assertTrue(int(populated.min().item()) >= 0)
+        self.assertTrue(int(populated.max().item()) < N)
+        # 4. lru_state[i, j] for populated slots equals the time_stamp=1
+        #    we passed in (kernel writes it on insert).
+        lru_populated = lru_state[lxu_cache_state != -1]
+        self.assertEqual(int((lru_populated != 1).sum().item()), 0)
 
 
 if __name__ == "__main__":
