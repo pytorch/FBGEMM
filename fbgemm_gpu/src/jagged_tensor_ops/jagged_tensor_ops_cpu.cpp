@@ -1203,6 +1203,11 @@ Tensor jagged_index_select_2d_forward_cpu(
       values.dim() == 2,
       "jagged_index_select_2d_forward_cpu supports only 2D inputs");
   auto num_cols = values.size(1);
+  TORCH_CHECK_VALUE(
+      num_dense_output_rows >= 0,
+      "jagged_index_select_2d_forward: num_dense_output_rows must be "
+      "non-negative, got ",
+      num_dense_output_rows);
   Tensor output =
       at::empty({num_dense_output_rows, num_cols}, values.options());
 
@@ -1242,6 +1247,13 @@ Tensor jagged_index_select_2d_forward_v2_impl(
   const auto num_dense_output_rows = optional_num_dense_output_rows.has_value()
       ? optional_num_dense_output_rows.value()
       : output_offsets[output_offsets.numel() - 1].item<int64_t>();
+  TORCH_CHECK_VALUE(
+      num_dense_output_rows >= 0,
+      "jagged_index_select_2d_forward_v2: num_dense_output_rows must be "
+      "non-negative, got ",
+      num_dense_output_rows,
+      ". This typically indicates corrupted output_offsets (last element is "
+      "negative).");
   static auto v1_op =
       c10::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::jagged_index_select_2d_forward", "")
