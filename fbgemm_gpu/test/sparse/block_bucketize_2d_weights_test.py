@@ -21,6 +21,7 @@ if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available
 else:
+    import fbgemm_gpu.sparse_ops  # noqa: F401, E402  (registers FakeTensor/meta impls)
     from fbgemm_gpu.test.test_utils import gpu_available
 
 
