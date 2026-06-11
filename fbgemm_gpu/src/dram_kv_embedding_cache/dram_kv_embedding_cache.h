@@ -460,10 +460,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             local_write_allocate_total_duration +=
                                 facebook::WallClockUtil::NowInUsecFast() -
                                 before_alloc_ts;
-                            if (feature_evict_config_.has_value() &&
-                                feature_evict_config_.value()->trigger_mode_ !=
-                                    EvictTriggerMode::DISABLED &&
-                                feature_evict_) {
+                            if (is_eviction_enabled()) {
                               auto* feature_score_evict = dynamic_cast<
                                   FeatureScoreBasedEvict<weight_type>*>(
                                   feature_evict_.get());
@@ -474,10 +471,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               }
                             }
                           }
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_) {
+                          if (is_eviction_enabled()) {
                             feature_evict_->update_feature_statistics(block);
                           }
                           auto before_copy_ts =
@@ -711,6 +705,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         std::vector<std::tuple<int64_t, int64_t>> miss_info;
                         hit_info.reserve(indexes.size() / 2);
                         miss_info.reserve(indexes.size() / 10);
+                        // feature evict configured and active
+                        const bool evict_enabled = is_eviction_enabled();
                         auto rlmap = kv_store_.by(shard_id).rlock();
                         for (const auto& idx : indexes) {
                           auto id = int64_t(indices_data_ptr[idx]);
@@ -736,10 +732,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               weights_data_ptr + (tensor_offset + 1) * stride,
                               data_ptr);
                           // update provided ts for existing blocks
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_ && inplace_update_ts.has_value()) {
+                          if (evict_enabled && inplace_update_ts.has_value()) {
                             FixedBlockPool::set_timestamp(
                                 block, inplace_update_ts.value());
                           }
@@ -766,10 +759,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               data_ptr);
 
                           // update provided ts for new allocated blocks
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_) {
+                          if (evict_enabled) {
                             if (inplace_update_ts.has_value()) {
                               FixedBlockPool::set_timestamp(
                                   block, inplace_update_ts.value());
@@ -1307,9 +1297,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       at::Tensor count,
       at::Tensor engege_rates) override {
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
-    if (!feature_evict_ || !feature_evict_config_.has_value() ||
-        feature_evict_config_.value()->trigger_mode_ ==
-            EvictTriggerMode::DISABLED) {
+    if (!is_eviction_enabled()) {
       // featre eviction is disabled
       auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
       metadata_write_total_duration_ += duration;
@@ -1946,6 +1934,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
  private:
+  // True when feature eviction is configured and enabled.
+  bool is_eviction_enabled() const {
+    return feature_evict_config_.has_value() &&
+        feature_evict_config_.value()->trigger_mode_ !=
+            EvictTriggerMode::DISABLED &&
+        feature_evict_;
+  }
+
   int64_t get_dim_from_index(int64_t weight_idx) const {
     if (sub_table_dims_.empty()) {
       return max_D_;
@@ -2380,10 +2376,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               block);
 
                           if (new_block) {
-                            if (feature_evict_config_.has_value() &&
-                                feature_evict_config_.value()->trigger_mode_ !=
-                                    EvictTriggerMode::DISABLED &&
-                                feature_evict_) {
+                            if (is_eviction_enabled()) {
                               auto* feature_score_evict = dynamic_cast<
                                   FeatureScoreBasedEvict<weight_type>*>(
                                   feature_evict_.get());
