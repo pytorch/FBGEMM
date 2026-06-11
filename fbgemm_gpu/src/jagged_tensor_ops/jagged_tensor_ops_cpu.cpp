@@ -467,16 +467,17 @@ Tensor dense_to_jagged_forward(
   // D is the embedding dimension
   auto D = dense.size(-1);
 
-  // If total_L is not given then compute it
-  at::SymInt total_L_computed;
+  // Realize total_L to a concrete int64 (see CUDA variant for the full
+  // explanation -- forwarding a heap SymInt to empty/zeros_symint crashes
+  // in the empty.memory_format wrapper's C10_AS_INTARRAYREF_SLOW).
+  int64_t total_L_computed;
   if (total_L.has_value()) {
-    total_L_computed = total_L.value();
+    total_L_computed = total_L.value().guard_int(__FILE__, __LINE__);
   } else {
-    total_L_computed =
-        static_cast<int64_t>(offsets.back().max().item<int64_t>());
+    total_L_computed = offsets.back().max().item<int64_t>();
   }
-  auto values = at::empty_symint({total_L_computed, D}, dense.options());
-  auto output = at::zeros_symint({total_L_computed, D}, dense.options());
+  auto values = at::empty({total_L_computed, D}, dense.options());
+  auto output = at::zeros({total_L_computed, D}, dense.options());
 
   FBGEMM_DISPATCH_ALL_TYPES(values.scalar_type(), "jagged_scalars", [&] {
     jagged_dense_elementwise_jagged_output_<scalar_t>(

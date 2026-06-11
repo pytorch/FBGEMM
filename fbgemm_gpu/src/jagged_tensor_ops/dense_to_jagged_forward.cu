@@ -19,14 +19,21 @@ Tensor dense_to_jagged_forward(
   // D is the embedding dimension
   auto D = dense.size(-1);
 
-  // If total_L is not given then compute it
-  at::SymInt total_L_computed;
+  // If total_L is not given then compute it. We realize total_L to a
+  // concrete int64 here (via guard_int) instead of forwarding the raw
+  // SymInt to at::empty_symint. The aten empty.memory_format CUDA/HIP
+  // wrapper calls C10_AS_INTARRAYREF_SLOW on its size argument, which
+  // TORCH_CHECKs that no SymInt in the array is heap-allocated -- so a
+  // heap SymInt that arrives here (e.g. an unbacked SymInt produced
+  // inside a torch.compile region) would crash with
+  //   "SymIntArrayRef expected to contain only concrete integers".
+  int64_t total_L_computed;
   if (total_L.has_value()) {
-    total_L_computed = total_L.value();
+    total_L_computed = total_L.value().guard_int(__FILE__, __LINE__);
   } else {
-    total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
+    total_L_computed = offsets.back().max().item<int64_t>();
   }
-  auto values = at::empty_symint({total_L_computed, D}, dense.options());
+  auto values = at::empty({total_L_computed, D}, dense.options());
   auto output = at::empty_like(values);
 
   CUDA_DEVICE_GUARD(dense);
