@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <limits>
+
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -16,7 +18,6 @@ namespace fbgemm_gpu {
 // See https://moderngpu.github.io/segreduce.html
 template <typename values_t, typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
-    int num_segments,
     int64_t batch_size,
     const index_t* csr_seg_data,
     const values_t* values_data,
@@ -24,8 +25,8 @@ __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
   typedef FBGEMM_GPU_CUB_NS_PREFIX cub::BlockReduce<values_t, 256> BlockReduce;
 
   __shared__ typename BlockReduce::TempStorage temp_storage;
-  int64_t seg_start = (int64_t)csr_seg_data[blockIdx.x] * batch_size;
-  int64_t seg_end = (int64_t)csr_seg_data[blockIdx.x + 1] * batch_size;
+  int64_t seg_start = csr_seg_data[blockIdx.x] * batch_size;
+  int64_t seg_end = csr_seg_data[blockIdx.x + 1] * batch_size;
   values_t sum = 0;
 
   for (int64_t i = seg_start; i < seg_end; i += blockDim.x) {
@@ -34,8 +35,11 @@ __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
       thread_data = values_data[i + threadIdx.x];
     }
 
+    // cap at blockDim.x to fit cub's int num_valid without truncation
+    const int num_valid = static_cast<int>(
+        seg_end - i < blockDim.x ? seg_end - i : blockDim.x);
     values_t aggregate =
-        BlockReduce(temp_storage).Sum(thread_data, seg_end - i);
+        BlockReduce(temp_storage).Sum(thread_data, num_valid);
 
     __syncthreads();
 
@@ -66,7 +70,13 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
   }
 
   constexpr uint32_t threads_per_block = 256;
-  const uint32_t num_blocks = csr_seg.numel() - 1;
+  const int64_t num_segments = csr_seg.numel() - 1;
+  TORCH_CHECK(
+      num_segments <= std::numeric_limits<int32_t>::max(),
+      "segment_sum_csr: number of segments (",
+      num_segments,
+      ") exceeds the maximum CUDA grid dimension");
+  const uint32_t num_blocks = static_cast<uint32_t>(num_segments);
 
   FBGEMM_DISPATCH_ALL_TYPES(
       values.scalar_type(), "_segment_sum_csr_cuda_1", [&] {
@@ -79,7 +89,6 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
                   threads_per_block,
                   0,
                   at::cuda::getCurrentCUDAStream(),
-                  csr_seg.numel() - 1,
                   batch_size,
                   csr_seg.data_ptr<index_t>(),
                   values.data_ptr<values_t>(),
