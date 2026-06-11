@@ -25,6 +25,23 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
+// Map at::Half/at::BFloat16 to the corresponding fbgemm strict types;
+// other types (e.g. float) pass through unchanged.
+template <typename T>
+struct to_fbgemm_type {
+  using type = T;
+};
+template <>
+struct to_fbgemm_type<at::Half> {
+  using type = fbgemm::float16;
+};
+template <>
+struct to_fbgemm_type<at::BFloat16> {
+  using type = fbgemm::bfloat16;
+};
+template <typename T>
+using to_fbgemm_type_t = typename to_fbgemm_type<T>::type;
+
 template <typename input_t>
 Tensor& _float_to_fused8bitrowwise_cpu_out_t(
     Tensor& output,
@@ -55,7 +72,7 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
   return output;
 }
 
-template <typename output_t, bool is_uint16_t_of_type_bf16 = false>
+template <typename output_t>
 Tensor& _fused8bitrowwise_to_float_cpu_out_t(
     Tensor& output,
     const Tensor& input,
@@ -86,9 +103,7 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
   auto output_data = static_cast<output_t*>(
       output.mutable_data_ptr()); // output.mutable_data_ptr<output_t>(); ->
                                   // Yields unresolved data_ptr symbol.
-  fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<
-      output_t,
-      is_uint16_t_of_type_bf16>(
+  fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<output_t>(
       input.const_data_ptr<uint8_t>(),
       nrows,
       ncols,
@@ -206,17 +221,12 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
         "Unsupported output dtype for _fusednbitrowwise_sbfront_to_float_or_half_cpu");
   }
 
-  using output_ty = std::
-      conditional_t<std::is_same_v<output_t, float>, float, fbgemm::float16>;
+  using output_ty = to_fbgemm_type_t<output_t>;
   output_ty* output_data = static_cast<output_ty*>(
       output.mutable_data_ptr()); // output.mutable_data_ptr<output_t>(); ->
                                   // Yields unresolved data_ptr symbol.
 
-  constexpr bool is_uint16_t_of_type_bf16 =
-      std::is_same_v<output_t, at::BFloat16>;
-  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<
-      output_ty,
-      is_uint16_t_of_type_bf16>(
+  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<output_ty>(
       bit_rate,
       input.const_data_ptr<uint8_t>(),
       nrows,
@@ -234,7 +244,7 @@ Tensor& _fused8bitrowwise_to_float_cpu_out(
     const Tensor& input,
     const bool scale_bias_last,
     const bool quant_padding_float_type) {
-  return _fused8bitrowwise_to_float_cpu_out_t<float, false>(
+  return _fused8bitrowwise_to_float_cpu_out_t<float>(
       output, input, scale_bias_last, quant_padding_float_type);
 }
 
@@ -243,7 +253,7 @@ Tensor& fused8bitrowwise_to_half_cpu_out(
     const Tensor& input,
     const bool scale_bias_last,
     const bool quant_padding_float_type) {
-  return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::float16, false>(
+  return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::float16>(
       output, input, scale_bias_last, quant_padding_float_type);
 }
 
@@ -252,7 +262,7 @@ Tensor& _fused8bitrowwise_to_bfloat16_cpu_out(
     const Tensor& input,
     const bool scale_bias_last,
     const bool quant_padding_float_type) {
-  return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::bfloat16, true>(
+  return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::bfloat16>(
       output, input, scale_bias_last, quant_padding_float_type);
 }
 

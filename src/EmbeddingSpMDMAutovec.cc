@@ -69,12 +69,20 @@ static inline void fill_output(
   } else if constexpr (std::is_same_v<OutType, uint16_t>) {
     if (is_bf16_out) {
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2bfloat16(src[j]);
+        out[j] = cpu_float2bfloat16(src[j]).val;
       }
     } else {
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2half(src[j]);
+        out[j] = cpu_float2half(src[j]).val;
       }
+    }
+  } else if constexpr (std::is_same_v<OutType, float16>) {
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = cpu_float2half(src[j]);
+    }
+  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = cpu_float2bfloat16(src[j]);
     }
   }
 }
@@ -124,10 +132,14 @@ static constexpr EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
   if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
+  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
     return EmbeddingStatsTracker::DataType::BF16;
-  } else {
+  } else if constexpr (std::is_same_v<OutType, float16>) {
     return EmbeddingStatsTracker::DataType::FP16;
+  } else {
+    // uint16_t legacy storage: fp16 vs bf16 is selected at runtime.
+    return is_bf16_out ? EmbeddingStatsTracker::DataType::BF16
+                       : EmbeddingStatsTracker::DataType::FP16;
   }
 }
 
@@ -1053,18 +1065,28 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(
-              weight,
-              std::is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
-              out[j]);
+          float in_val = 0.f;
+          if constexpr (std::is_same_v<InType, float16>) {
+            in_val = cpu_half2float(*inptr);
+          } else if constexpr (std::is_same_v<InType, uint16_t>) {
+            in_val = cpu_half2float(float16{*inptr});
+          } else {
+            in_val = *inptr;
+          }
+          out[j] = std::fma(weight, in_val, out[j]);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(
-              weight,
-              std::is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
-              out[j]);
+          float in_val = 0.f;
+          if constexpr (std::is_same_v<InType, float16>) {
+            in_val = cpu_half2float(*inptr);
+          } else if constexpr (std::is_same_v<InType, uint16_t>) {
+            in_val = cpu_half2float(float16{*inptr});
+          } else {
+            in_val = *inptr;
+          }
+          out[j] = std::fma(weight, in_val, out[j]);
         }
       }
       if (normalize_by_lengths && len) {
@@ -2124,9 +2146,10 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
   INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
+#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)    \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)    \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16)  \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, uint16_t) \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, uint8_t)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
@@ -2177,10 +2200,11 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
       bool is_bf16_out,                                                    \
       bool is_bf16_in);
 
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)         \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)         \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)       \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint16_t) \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t)  \
   INSTANTIATE_SPMDM_ROWWISE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
@@ -2193,6 +2217,7 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 
 INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
+INSTANTIATE_SPMDM_INDEX_T(std::uint16_t)
 INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 
 #undef INSTANTIATE_SPMDM_ROWWISE
