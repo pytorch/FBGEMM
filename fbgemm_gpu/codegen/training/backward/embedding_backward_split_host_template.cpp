@@ -360,7 +360,7 @@ enum SSDTensor {
           use_homogeneous_placements,
           {%- if ssd %}
           enable_optimizer_offloading,
-          {%- endif %}      
+          {%- endif %}
           {%- if is_gwd %}
           {%- if "prev_iter_dev" not in args.split_function_arg_names %}
           prev_iter_dev,
@@ -929,9 +929,9 @@ class {{ autograd_func }} :
     const auto use_homogeneous_placements =
       ctx->saved_data["use_homogeneous_placements"].toBool();
     {%- endif %}
-    
+
     {%- if ssd %}
-    const auto enable_optimizer_offloading = 
+    const auto enable_optimizer_offloading =
       ctx->saved_data["enable_optimizer_offloading"].toBool();
     {%- endif %}
 
@@ -1125,8 +1125,8 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
   {%- if has_gpu_support %}
 
     {%- if "learning_rate_tensor" in args.split_function_arg_names %}
-    // `learning rate` is changed to tensor to prevent recompilation. 
-    // This interface (V1) still accepts learning rate as float for backward compatibility, 
+    // `learning rate` is changed to tensor to prevent recompilation.
+    // This interface (V1) still accepts learning rate as float for backward compatibility,
     // We convert learning rate to tensor here to work with the backend
     // The unified PT2 interface already accepts learning rate as tensor.
     auto learning_rate_tensor = at::empty({1}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
@@ -1264,6 +1264,20 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
     {%- endif %} {#/* if not dense */#}
 
     {%- if dense or args.split_function_args_v1 is not none %}
+
+    {%- if dense %}
+    m.impl(
+        "dense_embedding_codegen_lookup_function",
+        torch::dispatch(
+          c10::DispatchKey::AutogradCUDA,
+          TORCH_FN({{ op_name }})));
+    m.impl(
+        "dense_embedding_codegen_lookup_function",
+        torch::dispatch(
+          c10::DispatchKey::Meta,
+          TORCH_FN({{ op_name }})));
+    {%- endif %}
+
     DISPATCH_TO_CUDA(
         {%- if not dense %}
         "{{ op_name }}",
