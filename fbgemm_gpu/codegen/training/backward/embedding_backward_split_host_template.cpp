@@ -361,7 +361,7 @@ enum SSDTensor {
           use_homogeneous_placements,
           {%- if ssd %}
           enable_optimizer_offloading,
-          {%- endif %}      
+          {%- endif %}
           {%- if is_gwd %}
           {%- if "prev_iter_dev" not in args.split_function_arg_names %}
           prev_iter_dev,
@@ -553,8 +553,9 @@ Tensor
     {{ args.split_function_args | join(", ") }});
 {%- endfor %} {#-/* for weighted*/#}
 
+{%- if args.split_function_args_v1 is not none %}
 ////////////////////////////////////////////////////////////////////////////////
-// Autograd Function Declarations
+// Autograd Function Declarations (V1)
 ////////////////////////////////////////////////////////////////////////////////
 
 {#- /* Generate a separate autograd function for global weight decay */ #}
@@ -929,9 +930,9 @@ class {{ autograd_func }} :
     const auto use_homogeneous_placements =
       ctx->saved_data["use_homogeneous_placements"].toBool();
     {%- endif %}
-    
+
     {%- if ssd %}
-    const auto enable_optimizer_offloading = 
+    const auto enable_optimizer_offloading =
       ctx->saved_data["enable_optimizer_offloading"].toBool();
     {%- endif %}
 
@@ -1055,11 +1056,13 @@ class {{ autograd_func }} :
     {%- endif %}
   }
 };
+{%- endif %} {#-/* if args.split_function_args_v1 is not none (V1 autograd) */#}
 {%- endfor %} {#-/* for is_gwd */#}
 {%- endfor %} {#-/* for nobag */#}
 {%- endfor %} {#-/* for vbe */#}
 {%- endif %} {#-/* if has_gpu_support */#}
 
+{%- if args.split_function_args_v1 is not none %}
 ///@ingroup embedding-cuda
 Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- if dense %}
@@ -1126,8 +1129,8 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
   {%- if has_gpu_support %}
 
     {%- if "learning_rate_tensor" in args.split_function_arg_names %}
-    // `learning rate` is changed to tensor to prevent recompilation. 
-    // This interface (V1) still accepts learning rate as float for backward compatibility, 
+    // `learning rate` is changed to tensor to prevent recompilation.
+    // This interface (V1) still accepts learning rate as float for backward compatibility,
     // We convert learning rate to tensor here to work with the backend
     // The unified PT2 interface already accepts learning rate as tensor.
     auto learning_rate_tensor = at::empty({1}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
@@ -1185,12 +1188,14 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
   return Tensor();
   {%- endif %} {#-/* if has_gpu_support */#}
 }
+{%- endif %} {#-/* if args.split_function_args_v1 is not none */#}
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 {%- for lib_name in ["fb", "fbgemm"] %}
 TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
     {%- set op_name = "{}_embedding_codegen_lookup_{}_function".format(bwd_mdesc, optimizer) %}
     {%- if not dense %}
+    {%- if args.split_function_args_v1 is not none %}
     m.def("{{ op_name }}("
           "    Tensor placeholder_autograd_tensor, "
           "    Tensor(a!) dev_weights, "
@@ -1259,7 +1264,23 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
         torch::dispatch(
           c10::DispatchKey::Meta,
           TORCH_FN({{ op_name }})));
+    {%- endif %} {#-/* if args.split_function_args_v1 is not none */#}
     {%- endif %} {#/* if not dense */#}
+
+    {%- if dense or args.split_function_args_v1 is not none %}
+
+    {%- if dense %}
+    m.impl(
+        "dense_embedding_codegen_lookup_function",
+        torch::dispatch(
+          c10::DispatchKey::AutogradCUDA,
+          TORCH_FN({{ op_name }})));
+    m.impl(
+        "dense_embedding_codegen_lookup_function",
+        torch::dispatch(
+          c10::DispatchKey::Meta,
+          TORCH_FN({{ op_name }})));
+    {%- endif %}
 
     DISPATCH_TO_CUDA(
         {%- if not dense %}
@@ -1268,6 +1289,7 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
         "dense_embedding_codegen_lookup_function",
         {%- endif %}
         {{ op_name }});
+    {%- endif %} {#-/* if dense or args.split_function_args_v1 is not none */#}
 }
 {%- endfor %} {#-/* for lib_name */#}
     // clang-format on

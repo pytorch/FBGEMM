@@ -8,12 +8,13 @@
 
 import contextlib
 import functools
+import json
 import logging
 import math
 import os
 import random
+from collections.abc import Callable
 from contextlib import nullcontext
-from typing import Callable, Optional
 
 import click
 import fbgemm_gpu
@@ -454,6 +455,103 @@ def jagged_index_select_2d_bench(
     logging.info(f"backward: fbgemm {time * 1e3:.3f} ms{ref_str}")
 
 
+def _gen_group_inputs(
+    row_size: int,
+    batch_size: int,
+    unique_batch_size: int,
+    num_groups: int,
+    dtype: torch.dtype,
+    sort_indices: bool,
+    device: str,
+) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+    """Generate homogeneous synthetic inputs for group_index_select_2d_bench.
+
+    Every group shares the same shape: a ``(batch_size, row_size)`` slice of a
+    single ``(num_groups * batch_size, row_size)`` tensor, with ``batch_size``
+    indices drawn from ``unique_batch_size`` distinct rows. Used by
+    ``group-index-select-2d-bench`` when ``--input-dims`` is NOT provided.
+    """
+
+    def gen_inverse_index(curr_size: int, final_size: int) -> np.ndarray:
+        inverse_index = list(range(curr_size))
+        np_arr = np.array(inverse_index)
+        for _ in range(final_size - curr_size):
+            inverse_index.append(np.random.randint(0, curr_size))
+            np_arr = np.array(inverse_index)
+            np.random.shuffle(np_arr)
+        return np_arr
+
+    indices_group = []
+    for _ in range(num_groups):
+        indices = torch.tensor(
+            gen_inverse_index(unique_batch_size, batch_size),
+            dtype=torch.int32,
+            device=device,
+        )
+        if sort_indices:
+            indices, _ = indices.sort()
+        indices_group.append(indices)
+
+    input = torch.rand(
+        num_groups * batch_size,
+        row_size,
+        dtype=dtype,
+        device=device,
+    )
+    input.requires_grad = True
+    input_group = list(input.split(batch_size, 0))
+    return input_group, indices_group
+
+
+def _gen_group_inputs_with_spec(
+    input_dims: str,
+    input_strides: str | None,
+    index_dim: int,
+    dtype: torch.dtype,
+    sort_indices: bool,
+    device: str,
+) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+    """Generate ragged inputs from explicit per-group shapes.
+
+    Each group gets its own ``[num_rows, row_size]`` tensor (groups may differ
+    in both row count and column width) with ``index_dim`` indices each, matching
+    real-world / production shapes. Used by ``group-index-select-2d-bench`` when
+    ``--input-dims`` is provided; ``--input-strides`` is optional and defaults to
+    contiguous strides per group.
+    """
+    dims = json.loads(input_dims)
+    if input_strides is not None and input_strides.strip() != "":
+        strides = json.loads(input_strides)
+    else:
+        strides = [[rs, 1] for (_, rs) in dims]
+    if len(strides) != len(dims):
+        raise ValueError(
+            f"--input-strides length ({len(strides)}) must match "
+            f"--input-dims length ({len(dims)})"
+        )
+
+    input_group = []
+    for dim, stride in zip(dims, strides):
+        t = torch.rand(dim, dtype=dtype, device=device).as_strided(dim, stride)
+        t.requires_grad = True
+        input_group.append(t)
+
+    indices_group = []
+    for dim in dims:
+        idx = torch.randint(
+            low=0,
+            high=dim[0],
+            size=(index_dim,),
+            dtype=torch.int32,
+            device=device,
+        )
+        if sort_indices:
+            idx, _ = idx.sort()
+        indices_group.append(idx)
+
+    return input_group, indices_group
+
+
 @cli.command()
 @click.option("--row-size", default=512)
 @click.option("--batch-size", default=4096)
@@ -509,9 +607,9 @@ def group_index_select_2d_bench(
     device: str,
     export_trace: bool,
     trace_url: str,
-    input_dims: Optional[str],
-    input_strides: Optional[str],
-    index_dim: Optional[int],
+    input_dims: str | None,
+    input_strides: str | None,
+    index_dim: int | None,
     manual_seed: bool,
 ) -> None:
     # Input validation (backported from tritonbench implementation)
@@ -526,15 +624,6 @@ def group_index_select_2d_bench(
         torch.manual_seed(42)
         np.random.seed(42)
 
-    def gen_inverse_index(curr_size: int, final_size: int) -> np.array:
-        inverse_index = list(range(curr_size))
-        np_arr = np.array(inverse_index)
-        for _ in range(final_size - curr_size):
-            inverse_index.append(np.random.randint(0, curr_size))
-            np_arr = np.array(inverse_index)
-            np.random.shuffle(np_arr)
-        return np_arr
-
     dtype = torch.float
     if input_precision == "fp32":
         dtype = torch.float
@@ -542,33 +631,6 @@ def group_index_select_2d_bench(
         dtype = torch.half
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
-
-    offset_indices_group = []
-    indices_group = []
-    for i in range(num_groups):
-        # Fixed: use torch.tensor with explicit device instead of torch.cuda.IntTensor
-        indices = torch.tensor(
-            gen_inverse_index(unique_batch_size, batch_size),
-            dtype=torch.int32,
-            device=device,
-        )
-        if sort_indices:
-            indices, _ = indices.sort()
-        indices_group.append(indices)
-        indices = torch.add(indices, batch_size * i)
-        offset_indices_group.append(indices)
-
-    offset_indices = torch.concat(offset_indices_group)
-
-    input = torch.rand(
-        num_groups * batch_size,
-        row_size,
-        dtype=dtype,
-        device=device,
-    )
-    input.requires_grad = True
-
-    num_bytes = 2 * batch_size * row_size * input.element_size() * num_groups
 
     bench_kwargs = {"num_warmups": 10, "iters": 100}
 
@@ -579,16 +641,40 @@ def group_index_select_2d_bench(
     def context_factory(on_trace_ready: Callable[[profile], None]):
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
-    # Benchmark forward
-    time_ref, output_ref = benchmark_torch_function(
-        torch.index_select,
-        (input, 0, offset_indices),
-        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
-        **bench_kwargs,
-    )
+    # An empty/whitespace --input-dims is treated as NOT provided, so it falls
+    # back to the synthetic path. Checking input_dims directly (rather than via a
+    # bool) lets the type checker narrow it to a non-None str inside the branch.
+    if input_dims is not None and input_dims.strip() != "":
+        if index_dim is None:
+            raise ValueError("--index-dim is required when --input-dims is provided")
+        input_group, indices_group = _gen_group_inputs_with_spec(
+            input_dims, input_strides, index_dim, dtype, sort_indices, device
+        )
+        logging.info(
+            f"ragged: {len(input_group)} groups, "
+            f"cols={[t.shape[1] for t in input_group]}, "
+            f"index_dim={index_dim}, sort_indices={sort_indices}"
+        )
+    else:
+        input_group, indices_group = _gen_group_inputs(
+            row_size,
+            batch_size,
+            unique_batch_size,
+            num_groups,
+            dtype,
+            sort_indices,
+            device,
+        )
+        # PyTorch single-tensor reference setup (synthetic/homogeneous path
+        # only); kept per reviewer request. Re-enable together with the
+        # reference fwd/bwd below to compare torch.index_select vs fbgemm.
+        # input = torch.cat(input_group, dim=0)
+        # offset_indices = torch.cat(
+        #     [idx + batch_size * i for i, idx in enumerate(indices_group)]
+        # )
+        # num_bytes = 2 * batch_size * row_size * input.element_size() * num_groups
 
-    input_group = input.split(batch_size, 0)
+    # Benchmark forward
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
         time, output_group = benchmark_torch_function(
             torch.ops.fbgemm.group_index_select_dim0,
@@ -597,24 +683,25 @@ def group_index_select_2d_bench(
             # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
-    logging.info(
-        f"forward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
-        f"fbgemm group {time:.5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
-    )
+    logging.info(f"forward group_index_select_dim0: {time:.5f} sec")
+    # PyTorch single-tensor reference (synthetic/homogeneous path only); kept
+    # per reviewer request. Re-enable together with the reference setup in the
+    # synthetic branch above to compare against torch.index_select.
+    # time_ref, output_ref = benchmark_torch_function(
+    #     torch.index_select,
+    #     (input, 0, offset_indices),
+    #     **bench_kwargs,
+    # )
+    # logging.info(
+    #     f"forward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
+    #     f"fbgemm group {time:.5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
+    # )
 
     # Benchmark backward
-    grad = torch.rand_like(output_ref)
-    time_ref, _ = benchmark_torch_function(
-        functools.partial(output_ref.backward, retain_graph=True),
-        (grad,),
-        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
-        **bench_kwargs,
-    )
-
-    # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
-    #  typing.Tuple[Tensor, ...]]` but got `Tensor`.
-    cat_output = torch.cat(output_group)
+    # pyre-fixme[6]: For 1st argument expected `Union[list[Tensor],
+    #  typing.tuple[Tensor, ...]]` but got `Tensor`.
+    cat_output = torch.cat(output_group, dim=1)
+    grad = torch.rand_like(cat_output)
     with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
         time, _ = benchmark_torch_function(
             functools.partial(cat_output.backward, retain_graph=True),
@@ -623,10 +710,19 @@ def group_index_select_2d_bench(
             # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
-    logging.info(
-        f"backward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
-        f"fbgemm group {time:.5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
-    )
+    logging.info(f"backward group_index_select_dim0: {time:.5f} sec")
+    # PyTorch single-tensor reference backward (synthetic/homogeneous path
+    # only); kept per reviewer request.
+    # grad_ref = torch.rand_like(output_ref)
+    # time_ref, _ = benchmark_torch_function(
+    #     functools.partial(output_ref.backward, retain_graph=True),
+    #     (grad_ref,),
+    #     **bench_kwargs,
+    # )
+    # logging.info(
+    #     f"backward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
+    #     f"fbgemm group {time:.5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
+    # )
 
 
 @cli.command()

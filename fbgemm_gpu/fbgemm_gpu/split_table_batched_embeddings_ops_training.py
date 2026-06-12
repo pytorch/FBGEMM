@@ -4203,6 +4203,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             metadata
         """
 
+        if batch_size_per_feature_per_rank is not None:
+            total_bs: int = sum([sum(b) for b in batch_size_per_feature_per_rank])
+            # Cannot use f-string here as dynamic shapes break PT2 compile
+            assert (
+                total_bs == offsets.numel() - 1
+            ), "Batch size mismatch: total batch size from batch_size_per_feature_per_rank does not match offsets"
+
         if vbe_output is not None or vbe_output_offsets is not None:
             assert (
                 not self.use_cpu

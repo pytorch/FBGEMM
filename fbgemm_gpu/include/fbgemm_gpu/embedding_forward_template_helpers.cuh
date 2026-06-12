@@ -148,6 +148,12 @@ __device__ __forceinline__ void cp_async_wait() {
 #if __CUDA_ARCH__ >= 800
 
   asm volatile("cp.async.wait_group %0;\n" ::"n"(N));
+#elif defined(USE_ROCM) &&                                   \
+    (ROCM_VERSION_MAJOR < 7 ||                               \
+     (ROCM_VERSION_MAJOR == 7 && ROCM_VERSION_MINOR < 2)) && \
+    defined(__gfx950__)
+
+  __builtin_amdgcn_s_waitcnt(0);
 #endif
 }
 
@@ -157,13 +163,42 @@ __device__ __forceinline__ void cp_async_wait<0>() {
 #if __CUDA_ARCH__ >= 800
 
   asm volatile("cp.async.wait_all;\n" ::);
+#elif defined(USE_ROCM) &&                                   \
+    (ROCM_VERSION_MAJOR < 7 ||                               \
+     (ROCM_VERSION_MAJOR == 7 && ROCM_VERSION_MINOR < 2)) && \
+    defined(__gfx950__)
+
+  __builtin_amdgcn_s_waitcnt(0);
 #endif
 }
 
+#if defined(USE_ROCM)
+template <typename T>
+__device__ __forceinline__ uint32_t hip_cvta_to_shared_address(const T* ptr) {
+  // Use clang's address-space-qualified cast (generic AS=0 → group/LDS AS=3)
+  // so the compiler emits the proper aperture subtraction. The 32-bit LDS
+  // offset is then well-defined regardless of how `SH_MEM_BASES` is
+  // configured. This is the canonical Clang/HIP idiom — analogous to
+  // `__cvta_generic_to_shared` on CUDA paths (see `cutlass_get_smem_pointer`
+  // earlier in this file).
+  //
+  // This replaces a `reinterpret_cast<size_t>(ptr) & 0xFFFFFFFF` form that
+  // relied on the undocumented invariant `flat_lo == lds_offset`. That
+  // invariant happens to hold on current CDNA hardware but is not
+  // architecturally guaranteed across firmware revisions or future
+  // generations.
+  __attribute__((address_space(3))) const T* lds_ptr =
+      (__attribute__((address_space(3))) const T*)ptr;
+  return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(lds_ptr));
+}
+#endif
+
 /// Partial specialization
 template <int SizeInBytes>
-__device__ __forceinline__ void
-cp_async_zfill_cg(void* smem_ptr, void const* global_ptr, bool pred_guard) {
+__device__ __forceinline__ void cp_async_zfill_cg(
+    __shared__ void* smem_ptr,
+    void const* global_ptr,
+    bool pred_guard) {
 #if __CUDA_ARCH__ >= 800
   static_assert(
       SizeInBytes == 16,
@@ -177,6 +212,40 @@ cp_async_zfill_cg(void* smem_ptr, void const* global_ptr, bool pred_guard) {
       "n"(SizeInBytes),
       "r"(src_in_bytes));
 
+// if ROCm version >= 7.2 and MI350
+#elif defined(USE_ROCM) &&                                    \
+    (ROCM_VERSION_MAJOR > 7 ||                                \
+     (ROCM_VERSION_MAJOR == 7 && ROCM_VERSION_MINOR >= 2)) && \
+    defined(__gfx950__)
+  static __device__ __constant__ uint4 zero_tile = {0, 0, 0, 0};
+  static_assert(
+      SizeInBytes == 16,
+      "cp_async_zfill_cg() function is implemented for 16B inputs only");
+  // Due to LLVM bug, we can't use SizeInBytes directly
+  // in __builtin_amdgcn_global_load_lds intrinsic until
+  // ROCm 7.11:
+  // https://github.com/llvm/llvm-project/pull/175767
+  //
+  // Make sure you modify this #if branch if SizeInBytes
+  // support range is extended
+  const void* src_ptr = (pred_guard) ? global_ptr : &zero_tile;
+  __builtin_amdgcn_global_load_lds(
+      const_cast<void*>(src_ptr), smem_ptr, 16, 0, 0);
+// if MI350
+#elif defined(USE_ROCM) && defined(__gfx950__)
+  static __device__ __constant__ uint4 zero_tile = {0, 0, 0, 0};
+  static_assert(
+      SizeInBytes == 16,
+      "cp_async_zfill_cg() function is implemented for 16B inputs only");
+
+  uint32_t smem =
+      __builtin_amdgcn_readfirstlane(hip_cvta_to_shared_address(smem_ptr));
+  const void* src_ptr = (pred_guard) ? global_ptr : &zero_tile;
+  asm volatile(
+      "s_mov_b32 m0, %0\n"
+      "global_load_lds_dwordx4 %1, off\n" ::"s"(smem),
+      "v"(static_cast<const uint32_t*>(src_ptr))
+      :);
 #else
   static_assert(SizeInBytes == 16, "");
   using AccessType = uint4;

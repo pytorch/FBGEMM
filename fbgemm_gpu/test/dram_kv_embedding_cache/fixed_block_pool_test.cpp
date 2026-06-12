@@ -8,6 +8,7 @@
 
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <vector>
@@ -411,13 +412,66 @@ TEST(FixedBlockPool, DataIntegrity) {
   // Allocate and write data
   auto* block = pool.allocate_t<float>();
   auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
-  std::copy(src_data.begin(), src_data.end(), data_ptr);
+  std::ranges::copy(src_data, data_ptr);
 
   // Verify data consistency
   for (int i = 0; i < dim; ++i) {
     EXPECT_FLOAT_EQ(data_ptr[i], src_data[i]);
   }
   pool.deallocate_t<float>(block);
+}
+
+TEST(FixedBlockPool, DefaultDirtyTrackingGating) {
+  // Dirty-bit tracking is opt-in (only the DRAM_SSD backend needs it).
+  constexpr int dim = 4;
+  size_t block_size = FixedBlockPool::calculate_block_size<float>(dim);
+  size_t alignment = FixedBlockPool::calculate_block_alignment<float>();
+
+  // Default pool: tracking disabled.
+  FixedBlockPool default_pool(block_size, alignment, 1024);
+  EXPECT_FALSE(default_pool.is_dirty_tracking_enabled());
+
+  // After allocation: a freshly allocated block is always clean for disabled
+  // dirty tracking.
+  auto* block = default_pool.allocate_t<float>();
+  ASSERT_NE(block, nullptr);
+  EXPECT_FALSE(default_pool.get_dirty(block));
+
+  default_pool.clear_dirty(block);
+  EXPECT_FALSE(default_pool.get_dirty(block));
+}
+
+TEST(FixedBlockPool, DirtyTrackingGating) {
+  // Dirty-bit tracking is opt-in (only the DRAM_SSD backend needs it).
+  constexpr int dim = 4;
+  size_t block_size = FixedBlockPool::calculate_block_size<float>(dim);
+  size_t alignment = FixedBlockPool::calculate_block_alignment<float>();
+
+  // Pool with tracking explicitly enabled.
+  FixedBlockPool tracked_pool(
+      block_size,
+      alignment,
+      1024,
+      std::pmr::new_delete_resource(),
+      /*enable_dirty_tracking=*/true);
+  EXPECT_TRUE(tracked_pool.is_dirty_tracking_enabled());
+
+  // After allocation: a freshly allocated block is dirty (its data has not
+  // yet been persisted to SSD).
+  auto* block = tracked_pool.allocate_t<float>();
+  ASSERT_NE(block, nullptr);
+  EXPECT_TRUE(tracked_pool.get_dirty(block));
+
+  // After operations: clearing (e.g. once flushed to SSD) marks it clean,
+  // and setting it again marks it dirty.
+  tracked_pool.clear_dirty(block);
+  EXPECT_FALSE(tracked_pool.get_dirty(block));
+  tracked_pool.set_dirty(block, true);
+  EXPECT_TRUE(tracked_pool.get_dirty(block));
+
+  // After deallocation: the block's dirty state is cleared.
+  tracked_pool.deallocate_t<float>(block);
+  EXPECT_FALSE(tracked_pool.get_dirty(block));
 }
 
 } // namespace kv_mem

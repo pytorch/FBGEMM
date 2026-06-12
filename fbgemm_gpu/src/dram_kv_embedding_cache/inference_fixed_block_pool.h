@@ -90,12 +90,14 @@ class InferenceFixedBlockPool : public FixedBlockPool {
       std::size_t block_size,
       std::size_t block_alignment,
       std::size_t blocks_per_chunk = 8192,
-      std::pmr::memory_resource* upstream = std::pmr::new_delete_resource())
+      std::pmr::memory_resource* upstream = std::pmr::new_delete_resource(),
+      bool enable_dirty_tracking = false)
       : FixedBlockPool(
             block_size,
             block_alignment,
             blocks_per_chunk,
-            upstream) {}
+            upstream,
+            enable_dirty_tracking) {}
 
   // Get block by index (used for eviction traversal)
   // Uses InferenceFixedBlockPool::get_used for 12-byte header layout

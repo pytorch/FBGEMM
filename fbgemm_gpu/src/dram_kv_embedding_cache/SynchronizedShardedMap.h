@@ -48,12 +48,17 @@ class SynchronizedShardedMap {
       std::size_t numShards,
       std::size_t block_size,
       std::size_t block_alignment,
-      std::size_t blocks_per_chunk = 8192)
+      std::size_t blocks_per_chunk = 8192,
+      bool enable_dirty_tracking = false)
       : shards_(numShards), mempools_(numShards) {
     // Init mempools_
     for (auto& pool : mempools_) {
       pool = std::make_unique<PoolType>(
-          block_size, block_alignment, blocks_per_chunk);
+          block_size,
+          block_alignment,
+          blocks_per_chunk,
+          std::pmr::new_delete_resource(),
+          enable_dirty_tracking);
     }
   }
 

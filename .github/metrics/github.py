@@ -7,7 +7,6 @@
 import logging
 import os
 from datetime import datetime
-from typing import List, Tuple
 
 import requests
 from datatypes import GHCommit, GHPullRequest
@@ -40,7 +39,7 @@ class GitHubClient:
 
     @sleep_and_retry
     @limits(calls=MAX_CALLS_PER_MINUTE, period=ONE_MINUTE)
-    def fetch_commits(self, ref: str, since_date: str | datetime) -> List[GHCommit]:
+    def fetch_commits(self, ref: str, since_date: str | datetime) -> list[GHCommit]:
         """
         Fetch commits with PR numbers (for merge commits)
 
@@ -166,7 +165,7 @@ class GitHubClient:
             pr_info["title"], pr_number, closed_at, set(labels), pr_info["base"]["ref"]
         ).cleaned()
 
-    def fetch_prs(self, ref: str, since_date: str | datetime) -> List[GHPullRequest]:
+    def fetch_prs(self, ref: str, since_date: str | datetime) -> list[GHPullRequest]:
         """
         Fetch PRs merged into a given branch within a date range.
 
@@ -185,7 +184,7 @@ class GitHubClient:
     @limits(calls=MAX_CALLS_PER_MINUTE, period=ONE_MINUTE)
     def fetch_unlabeled_commits(
         self, ref: str, since_date: str | datetime
-    ) -> List[Tuple[GHCommit, GHPullRequest]]:
+    ) -> list[tuple[GHCommit, GHPullRequest]]:
         """
         Fetch commitswith no PR labels, along with their associated PRs.
 

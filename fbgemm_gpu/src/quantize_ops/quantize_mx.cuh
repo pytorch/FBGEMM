@@ -108,14 +108,16 @@ __global__ void quantize_float_to_mx4_kernel(
     const uint32_t smem_stride) {
   const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
   const auto linear_tid = linear_group_id * group_size + threadIdx.x;
-  if (linear_tid >= total_elems)
-    return;
+  // Do NOT early-return for out-of-range threads: every thread in the block
+  // must reach the __syncthreads() barriers below, otherwise the block
+  // deadlocks on ROCm/AMD. Mask per-thread work with `active` instead.
+  const bool active = linear_tid < total_elems;
 
   // MX4 values
   constexpr int scale_bits = 8;
   constexpr int elem_emax = 2;
 
-  const T elem = input[linear_tid];
+  const T elem = active ? input[linear_tid] : T(0);
 
   extern __shared__ __align__(16) float smem[];
   const uint32_t group_offset_in_block = threadIdx.y * smem_stride;
@@ -123,7 +125,9 @@ __global__ void quantize_float_to_mx4_kernel(
   int* smem_base = reinterpret_cast<int*>(smem + group_offset_in_block);
 
   // // allreduce to get the max value in each group size
-  int shared_exp = get_biased_exponent(elem);
+  // Inactive threads contribute the minimum biased exponent (0) so they do not
+  // perturb the max reductions below.
+  int shared_exp = active ? get_biased_exponent(elem) : 0;
 
   const uint32_t half_group_size = group_size / 2;
 
@@ -200,7 +204,7 @@ __global__ void quantize_float_to_mx4_kernel(
   const auto is_even_tid = threadIdx.x % 2 == 0;
 
   // even thread work on the left side
-  if (is_even_tid) {
+  if (active && is_even_tid) {
     // the 4 bits are on the rightmost, need to shift 4 bit
     // this becomes `xxxx 0000`
     *stored_8bit = (quantized_val << 4);
@@ -208,14 +212,14 @@ __global__ void quantize_float_to_mx4_kernel(
   __syncthreads();
 
   // odd threads work on the right side (position 0-3)
-  if (!is_even_tid) {
+  if (active && !is_even_tid) {
     // 4 bits are already on the rightmost, so just `bitwise OR` to combine
     *stored_8bit |= quantized_val;
   }
   __syncthreads();
 
   // Let each thread write 1 byte of output data
-  if (threadIdx.x < half_group_size) {
+  if (active && threadIdx.x < half_group_size) {
     // write data output using uint8_t (1 bytes)
 
     uint8_t* smem_ptr = reinterpret_cast<uint8_t*>(smem_base);

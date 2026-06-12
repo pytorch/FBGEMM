@@ -10,7 +10,8 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -43,8 +44,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-# pyre-ignore
-additional_decorators: dict[str, list[Callable]] = {
+additional_decorators: dict[str, list[Callable[..., Any]]] = {
     "test_faketensor__test_nbit_uvm_cache_stats": [
         unittest.skip("very slow"),
     ],

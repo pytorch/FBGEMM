@@ -11,8 +11,44 @@
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+{%- if is_rocm %}
+template<int32_t kThreadGroupSize, typename T>
+DEVICE_INLINE __device__ T subwarp_reduce_add(T value) {
+    static_assert(kThreadGroupSize == 8 || kThreadGroupSize == 16 || kThreadGroupSize == 32 || kThreadGroupSize == 64, "Wavefront size must be 8/16/32/64");
+    if (kThreadGroupSize == 8) {
+        // Reduce across 8 groups of 8 threads
+        value += __shfl_xor(value, 1, 8);
+        value += __shfl_xor(value, 2, 8);
+        value += __shfl_xor(value, 4, 8);
+    } else if (kThreadGroupSize == 16) {
+        // Reduce across 4 groups of 16 threads
+        value += __shfl_xor(value, 1, 16);
+        value += __shfl_xor(value, 2, 16);
+        value += __shfl_xor(value, 4, 16);
+        value += __shfl_xor(value, 8, 16);
+    } else if (kThreadGroupSize == 32) {
+        // Reduce across 2 groups of 32 threads
+        value += __shfl_xor(value, 1, 32);
+        value += __shfl_xor(value, 2, 32);
+        value += __shfl_xor(value, 4, 32);
+        value += __shfl_xor(value, 8, 32);
+        value += __shfl_xor(value, 16, 32);
+    } else if (kThreadGroupSize == 64) {
+        value += __shfl_xor(value, 1, 64);
+        value += __shfl_xor(value, 2, 64);
+        value += __shfl_xor(value, 4, 64);
+        value += __shfl_xor(value, 8, 64);
+        value += __shfl_xor(value, 16, 64);
+        value += __shfl_xor(value, 32, 64);
+    }
+    return value;
+}
+
+#define GROUP_REDUCE_ALL_SUM(val, ...) subwarp_reduce_add<kThreadGroupSize>(val)
+{%- else %}
 #define GROUP_REDUCE_ALL_SUM(val, ...) \
   warpReduceAllSum<__VA_ARGS__, kThreadGroupSize>(val, shfl_sync_mask)
+{%- endif %}
 
 {%- set mdesc = "ssd" if ssd else "split" %}
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}

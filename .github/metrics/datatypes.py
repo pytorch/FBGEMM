@@ -7,7 +7,6 @@
 import dataclasses
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Set
 
 
 @dataclass(frozen=True)
@@ -32,8 +31,8 @@ class GHPullRequest:
 
     title: str
     number: int
-    closed_at: Optional[datetime]
-    labels: Set[str]
+    closed_at: datetime | None
+    labels: set[str]
     base_ref: str
 
     def category(self) -> str:
@@ -79,7 +78,7 @@ class GHPullRequest:
         """
         Remove the labels that are common to the PR.
         """
-        misc = ["fb-exported", "cla signed", "ci-no-td", "Merged"]
+        misc = ["meta-exported", "fb-exported", "cla signed", "ci-no-td", "Merged"]
         new_labels = [x for x in self.labels if x not in misc]
         return dataclasses.replace(self, labels=new_labels)
 

@@ -7,6 +7,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <type_traits>
 #include "tbe/eeg/eeg_utils.h" // @manual
 
@@ -56,10 +57,8 @@ static double klDivergence(const std::vector<T>& p, const std::vector<U>& q) {
 
   double pNorm = std::reduce(std::begin(p), std::end(p));
   double qNorm = std::reduce(std::begin(q), std::end(q));
-  std::for_each(
-      std::begin(pDist), std::end(pDist), [=](double& freq) { freq /= pNorm; });
-  std::for_each(
-      std::begin(qDist), std::end(qDist), [=](double& freq) { freq /= qNorm; });
+  std::ranges::for_each(pDist, [=](double& freq) { freq /= pNorm; });
+  std::ranges::for_each(qDist, [=](double& freq) { freq /= qNorm; });
 
   double kl = 0.0;
   for (int i = 0; i < p.size(); ++i) {
@@ -90,7 +89,7 @@ TEST(ZipfianDistTest, TestSamples) {
     for (auto q : qVals) {
       for (auto s : sVals) {
         // Setup target distribution
-        std::fill(std::begin(freqs), std::end(freqs), 0.0);
+        std::ranges::fill(freqs, 0.0);
         for (int i = 0; i < n; ++i) {
           targetFreqs[i] = std::pow(i + q, -s);
         }

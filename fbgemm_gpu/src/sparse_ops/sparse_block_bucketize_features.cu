@@ -409,8 +409,9 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
 // Uses ballot_sync + popc to count preceding elements with same bucket,
 // which preserves the original ordering within each bucket.
 // All threads execute the same instructions (no branch divergence).
-// Note: my_size is limited to kWarpSizeHost() (32) because we use warp-level ballot
-// operations and store per-bucket counts in registers.
+// Note: my_size is limited to kWarpSizeHost() (32 on CUDA warp32, 64 on ROCm
+// wavefront64) because we use warp-level ballot operations and store per-bucket
+// counts in registers.
 
 template <typename offset_t, typename index_t>
 __global__
@@ -470,13 +471,16 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
     // Compute ballot for all buckets - no branch divergence!
     // All threads execute the same loop iterations
     for (int p = 0; p < my_size; p++) {
-      const unsigned int bucket_mask =
-          __ballot_sync(kFullWarpMask, valid && (my_bucket == p));
+      // ballot_sync() returns a width-correct mask (uint64_t on ROCm
+      // wavefront64, uint32_t on CUDA warp32). Pairing it with __popcll is
+      // required: a 32-bit mask + __popc would silently truncate lanes 32-63
+      // on AMD CDNA and undercount preceding elements.
+      const auto bucket_mask = ballot_sync(valid && (my_bucket == p));
 
       // Each thread checks if this is its bucket and stores the count
       // This is a simple conditional assignment, not a divergent branch
       if (my_bucket == p) {
-        preceding_count = __popc(bucket_mask & getLaneMaskLt());
+        preceding_count = __popcll(bucket_mask & getLaneMaskLt());
       }
     }
 
@@ -494,9 +498,9 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
     // but here we need the popcount for every bucket to update all
     // cumulative_counts entries.
     for (int p = 0; p < my_size; p++) {
-      const unsigned int bucket_mask =
-          __ballot_sync(kFullWarpMask, valid && (my_bucket == p));
-      cumulative_counts[p] += __popc(bucket_mask);
+      // Width-correct ballot + __popcll, same rationale as above.
+      const auto bucket_mask = ballot_sync(valid && (my_bucket == p));
+      cumulative_counts[p] += __popcll(bucket_mask);
     }
   }
 }

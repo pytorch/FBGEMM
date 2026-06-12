@@ -10,7 +10,6 @@
 # pyre-ignore-all-errors[56]
 
 from dataclasses import dataclass
-from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -32,9 +31,16 @@ from ..common import assert_torch_equal, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, running_on_github, running_on_rocm
+    from test_utils import (
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+        running_on_github,
+        running_on_rocm,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (  # noqa: F401
+        gpu_memory_lt_gb,  # noqa: F401
         gpu_unavailable,  # noqa: F401
         optests,  # noqa: F401
         running_on_github,  # noqa: F401
@@ -48,7 +54,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 class TestingStatsReporter(TBEStatsReporter):
     def __init__(self, reporting_interval: int = 1) -> None:
         # Event -> args for that call
-        self.reported_data: dict[str, list[list[Union[int, str, float]]]] = {}
+        self.reported_data: dict[str, list[list[int | str | float]]] = {}
         self.reporting_interval = reporting_interval
 
     def should_report(self, iteration_step: int) -> bool:
@@ -89,7 +95,7 @@ class TestingStatsReporter(TBEStatsReporter):
 
 @dataclass(frozen=True)
 class TestingStatsReporterConfig(TBEStatsReporterConfig):
-    def create_reporter(self) -> Optional[TBEStatsReporter]:
+    def create_reporter(self) -> TBEStatsReporter | None:
         return TestingStatsReporter(reporting_interval=self.interval)
 
 
@@ -105,8 +111,8 @@ def generate_cache_tbes(
     weights_cache_precision: SparseType = SparseType.FP32,
     stochastic_rounding: bool = False,
     gather_uvm_cache_stats: bool = False,
-    reporter_config: Optional[TestingStatsReporterConfig] = None,
-    multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
+    reporter_config: TestingStatsReporterConfig | None = None,
+    multipass_prefetch_config: MultiPassPrefetchConfig | None = None,
 ) -> tuple[
     SplitTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,

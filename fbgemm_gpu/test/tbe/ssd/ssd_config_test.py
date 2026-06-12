@@ -123,8 +123,63 @@ class BackendTypeFromStrTest(unittest.TestCase):
 
         self.assertEqual(BackendType.from_str("dram"), BackendType.DRAM)
 
+    def test_ps(self) -> None:
+        from fbgemm_gpu.tbe.ssd import BackendType
+
+        self.assertEqual(BackendType.from_str("ps"), BackendType.PS)
+
+    def test_dram_ssd(self) -> None:
+        from fbgemm_gpu.tbe.ssd import BackendType
+
+        self.assertEqual(BackendType.from_str("dram_ssd"), BackendType.DRAM_SSD)
+        self.assertEqual(BackendType.DRAM_SSD.value, 3)
+
     def test_invalid_raises(self) -> None:
         from fbgemm_gpu.tbe.ssd import BackendType
 
         with self.assertRaises(ValueError):
             BackendType.from_str("invalid")
+
+
+class SsdImportCycleRegressionTest(unittest.TestCase):
+    """Regression test for the D107684315 import cycle: importing ops_training ->
+    ops_common used to eagerly trigger tbe.ssd.__init__ -> .training -> ops_training
+    (partial), leaving SSDTableBatchedEmbeddingBags unbound. buck build does not
+    execute imports, so only an import-time test catches this.
+    """
+
+    def test_heavy_symbols_bound_after_ops_training_import(self) -> None:
+        import importlib
+
+        # Importing ops_training first is the exact trigger of the cycle.
+        importlib.import_module(
+            "fbgemm_gpu.split_table_batched_embeddings_ops_training"
+        )
+        ssd = importlib.import_module("fbgemm_gpu.tbe.ssd")
+        for sym in ("ASSOC", "SSDTableBatchedEmbeddingBags", "DramKvPerfStat"):
+            self.assertTrue(
+                hasattr(ssd, sym),
+                f"fbgemm_gpu.tbe.ssd is missing {sym!r}: the tbe.ssd import cycle "
+                "regressed (see D107684315).",
+            )
+
+    def test_from_import_heavy_symbols(self) -> None:
+        from fbgemm_gpu.tbe.ssd import ASSOC, SSDTableBatchedEmbeddingBags  # noqa: F401
+
+        self.assertIsNotNone(ASSOC)
+        self.assertIsNotNone(SSDTableBatchedEmbeddingBags)
+
+    def test_ops_common_lazy_ssd_reexports_resolve(self) -> None:
+        # The lazy __getattr__ in ops_common must still resolve the SSD config
+        # types (legacy import path + old-pickle BC).
+        from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+            BackendType,
+            EvictionPolicy,
+            KVZCHParams,
+            KVZCHTBEConfig,
+        )
+
+        self.assertIsNotNone(BackendType)
+        self.assertIsNotNone(EvictionPolicy)
+        self.assertIsNotNone(KVZCHParams)
+        self.assertIsNotNone(KVZCHTBEConfig)

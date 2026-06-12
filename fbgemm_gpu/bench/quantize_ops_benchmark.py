@@ -11,7 +11,6 @@ import logging
 import random
 from collections.abc import Callable, Iterable
 from contextlib import nullcontext
-from typing import Optional, Union
 
 import click
 import fbgemm_gpu
@@ -291,10 +290,10 @@ def bench_mx4(
         def _create_profile(
             enable_trace_profile: bool,
             # pyre-ignore[11]
-            activities: Optional[Iterable[ProfilerActivity]],
+            activities: Iterable[ProfilerActivity] | None,
             text: str,
             input_size: int,
-        ) -> Union[profile, nullcontext[None]]:
+        ) -> profile | nullcontext[None]:
             return (
                 profile(
                     activities=activities,

@@ -393,7 +393,9 @@ bool EmbeddingSpMDM8Bit_Sve(
 
       const uint8_t* input_row_base = input + input_stride * idx;
       if constexpr (isOutput8bit) {
-        memcpy(out, input_row_base, sizeof(uint8_t) * input_stride);
+        // In edge cases input_stride can be larger than output_stride
+        const int64_t copy_width = std::min(output_stride, input_stride);
+        memcpy(out, input_row_base, sizeof(uint8_t) * copy_width);
       } else {
         svfloat32_t scale;
         svfloat32_t bias;

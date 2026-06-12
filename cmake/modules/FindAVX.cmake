@@ -11,7 +11,7 @@
 ################################################################################
 
 include(CheckCompilerFlag)
-INCLUDE(CheckSourceRuns)
+INCLUDE(CheckSourceCompiles)
 INCLUDE(CMakePushCheckState)
 
 SET(AVX_CODE "
@@ -80,7 +80,7 @@ MACRO(CHECK_SSE lang type flags)
       cmake_push_check_state(RESET)
       unset(${lang}_HAS_${type}_${__FLAG_I} CACHE)
       SET(CMAKE_REQUIRED_FLAGS ${__FLAG})
-      CHECK_SOURCE_RUNS(${lang} "${${type}_CODE}" ${lang}_HAS_${type}_${__FLAG_I})
+      CHECK_SOURCE_COMPILES(${lang} "${${type}_CODE}" ${lang}_HAS_${type}_${__FLAG_I})
       IF(${lang}_HAS_${type}_${__FLAG_I})
         SET(${lang}_${type}_FOUND TRUE CACHE BOOL "${lang} ${type} support")
         string(REPLACE " " ";" __FLAG "${__FLAG}")

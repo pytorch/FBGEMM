@@ -196,8 +196,12 @@ __global__ void gemv_quantized_fp8_fp8(
           res[row + mi * n + offset] = __float2bfloat16(sum[ni][mi]);
         }
       }
-      return;
     }
+    // All threads in a single-warp block must return together; otherwise the
+    // non-zero lanes would reach the __syncthreads() below while tid==0 has
+    // already exited, deadlocking the block on ROCm/AMD. (Matches the sibling
+    // gemv_* kernels in this file.)
+    return;
   }
 
   __syncthreads();

@@ -12,7 +12,6 @@
 import random
 import unittest
 from itertools import accumulate
-from typing import Optional
 
 import hypothesis.strategies as st
 import torch
@@ -65,7 +64,7 @@ class PermuteIndicesTest(unittest.TestCase):
         W: int,
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
-        length_splits: Optional[list[torch.Tensor]] = None
+        length_splits: list[torch.Tensor] | None = None
         if is_1D:
             if B == 0:
                 batch_sizes = [0] * W
@@ -78,14 +77,14 @@ class PermuteIndicesTest(unittest.TestCase):
             lengths = torch.cat(length_splits, dim=1)
         else:
             lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
-        # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
-        #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+        # pyre-fixme[6]: For 1st param expected `list[int] | Size |
+        #  tuple[int, ...]` but got `bool | float | int`.
         weights = torch.rand(lengths.sum().item()).float() if has_weight else None
         indices = torch.randint(
             low=1,
             high=int(1e5),
-            # pyre-fixme[6]: Expected `Union[int, typing.Tuple[int, ...]]` for 3rd
-            #  param but got `Tuple[typing.Union[float, int]]`.
+            # pyre-fixme[6]: Expected `int | tuple[int, ...]` for 3rd
+            #  param but got `tuple[float | int]`.
             size=(lengths.sum().item(),),
         ).type(index_dtype)
         if is_1D:
@@ -194,8 +193,8 @@ class PermuteIndicesTest(unittest.TestCase):
         indices = torch.randint(
             low=1,
             high=int(1e5),
-            # pyre-fixme[6]: Expected `Union[int, typing.Tuple[int, ...]]` for 3rd
-            #  param but got `Tuple[typing.Union[float, int]]`.
+            # pyre-fixme[6]: Expected `int | tuple[int, ...]` for 3rd
+            #  param but got `tuple[float | int]`.
             size=(lengths.sum().item(),),
         ).type(index_dtype)
 
@@ -254,8 +253,8 @@ class PermuteIndicesTest(unittest.TestCase):
         indices = torch.randint(
             low=1,
             high=int(1e5),
-            # pyre-fixme[6]: Expected `Union[int, typing.Tuple[int, ...]]` for 3rd
-            #  param but got `Tuple[typing.Union[float, int]]`.
+            # pyre-fixme[6]: Expected `int | tuple[int, ...]` for 3rd
+            #  param but got `tuple[float | int]`.
             size=(lengths.sum().item(),),
         ).type(index_dtype)
         permute_list = list(range(1))
@@ -293,14 +292,14 @@ class PermuteIndicesTest(unittest.TestCase):
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
-        # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
-        #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+        # pyre-fixme[6]: For 1st param expected `list[int] | Size |
+        #  tuple[int, ...]` but got `bool | float | int`.
         weights = torch.rand(lengths.sum().item()).float() if has_weight else None
         indices = torch.randint(
             low=1,
             high=int(1e5),
-            # pyre-fixme[6]: Expected `Union[int, typing.Tuple[int, ...]]` for 3rd
-            #  param but got `Tuple[typing.Union[float, int]]`.
+            # pyre-fixme[6]: Expected `int | tuple[int, ...]` for 3rd
+            #  param but got `tuple[float | int]`.
             size=(lengths.sum().item(),),
         ).type(index_dtype)
         permute_list = list(range(T))

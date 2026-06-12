@@ -8,6 +8,7 @@
 
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/feature_evict.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <iostream>
 #include <limits>
@@ -628,7 +629,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
     auto* block = pool->allocate_t<float>();
     auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
     FixedBlockPool::set_key(block, i);
-    std::copy(weight1.begin(), weight1.end(), data_ptr);
+    std::ranges::copy(weight1, data_ptr);
     FixedBlockPool::set_used(block, true);
     wlock->insert({i, block});
   }
@@ -640,7 +641,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
     auto* block = pool->allocate_t<float>();
     auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
     FixedBlockPool::set_key(block, i);
-    std::copy(weight2.begin(), weight2.end(), data_ptr);
+    std::ranges::copy(weight2, data_ptr);
     FixedBlockPool::set_used(block, true);
     wlock->insert({i, block});
   }

@@ -9,7 +9,7 @@
 
 import tempfile
 import unittest
-from typing import Any, Optional
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -205,9 +205,9 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         prefetch_pipeline: bool,
         # If True, prefetch will be invoked by the user.
         explicit_prefetch: bool,
-        prefetch_location: Optional[PrefetchLocation],
+        prefetch_location: PrefetchLocation | None,
         use_prefetch_stream: bool,
-        flush_location: Optional[FlushLocation],
+        flush_location: FlushLocation | None,
         trigger_bounds_check: bool,
         mixed_B: bool = False,
         enable_raw_embedding_streaming: bool = False,
@@ -913,8 +913,8 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
     @staticmethod
     def _record_event_mock(
         stream: torch.cuda.Stream,
-        pre_event: Optional[torch.cuda.Event],
-        post_event: Optional[torch.cuda.Event],
+        pre_event: torch.cuda.Event | None,
+        post_event: torch.cuda.Event | None,
         **kwargs_: Any,
     ) -> None:
         with torch.cuda.stream(stream):

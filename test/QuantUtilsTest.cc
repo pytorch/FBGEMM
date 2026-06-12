@@ -242,33 +242,25 @@ TEST_P(QuantizeGroupwiseTest, quantizeGTest) {
   uniform_real_distribution<float> disFP(0.1, 1.1);
 
   vector<float> inp(K * C * X);
-  generate(inp.begin(), inp.end(), [&, disFP]() mutable { return disFP(gen); });
+  std::ranges::generate(inp, [&, disFP]() mutable { return disFP(gen); });
 
   vector<float> scales(G);
-  generate(scales.begin(), scales.end(), [&, disFP]() mutable {
-    return disFP(gen);
-  });
+  std::ranges::generate(scales, [&, disFP]() mutable { return disFP(gen); });
 
   uniform_int_distribution<> disUInt8(0, 8);
   vector<int> zero_points_uint8(G);
-  generate(
-      zero_points_uint8.begin(),
-      zero_points_uint8.end(),
-      [&, disUInt8]() mutable { return disUInt8(gen); });
+  std::ranges::generate(
+      zero_points_uint8, [&, disUInt8]() mutable { return disUInt8(gen); });
 
   uniform_int_distribution<> disInt8(-64, 63);
   vector<int> zero_points_int8(G);
-  generate(
-      zero_points_int8.begin(), zero_points_int8.end(), [&, disInt8]() mutable {
-        return disInt8(gen);
-      });
+  std::ranges::generate(
+      zero_points_int8, [&, disInt8]() mutable { return disInt8(gen); });
 
   uniform_int_distribution<> disInt32(-512, 512);
   vector<int> zero_points_int32(G);
-  generate(
-      zero_points_int32.begin(),
-      zero_points_int32.end(),
-      [&, disInt32]() mutable { return disInt32(gen); });
+  std::ranges::generate(
+      zero_points_int32, [&, disInt32]() mutable { return disInt32(gen); });
 
   vector<uint8_t> dstuint8(K * C * X);
   vector<uint8_t> dstuint8_ref(K * C * X);
@@ -333,7 +325,7 @@ TEST_P(QuantizeTest, quantizeTest) {
   uniform_real_distribution<float> disFP(-1.0e6, 1.0e6);
 
   vector<float> inp(len);
-  generate(inp.begin(), inp.end(), [&, disFP]() mutable { return disFP(gen); });
+  std::ranges::generate(inp, [&, disFP]() mutable { return disFP(gen); });
 
   float scale = disFP(gen);
 
@@ -380,7 +372,7 @@ TEST(QuantizeTestSingle, vectorScalar) {
 
   // Check if all elements are equal
   EXPECT_TRUE(
-      adjacent_find(dst.begin(), dst.end(), not_equal_to<int>()) == dst.end());
+      std::ranges::adjacent_find(dst, not_equal_to<int>()) == dst.end());
 }
 
 TEST(QuantizeTest, cornerCases) {
@@ -462,7 +454,7 @@ TEST_P(FusedQuantizeDequantizeTest, fusedQuantizeDequantizeTest) {
   uniform_real_distribution<float> disFP(-1.0e6, 1.0e6);
 
   vector<float> inp(len);
-  generate(inp.begin(), inp.end(), [&, disFP]() mutable { return disFP(gen); });
+  std::ranges::generate(inp, [&, disFP]() mutable { return disFP(gen); });
 
   float scale = disFP(gen);
 
@@ -506,8 +498,7 @@ TEST(FusedQuantizeDequantizeTestSingle, vectorScalar) {
   FusedQuantizeDequantize<uint8_t>(src.data(), dst.data(), src.size(), qparams);
   // Check if all elements are equal
   EXPECT_TRUE(
-      adjacent_find(dst.begin(), dst.end(), not_equal_to<float>()) ==
-      dst.end());
+      std::ranges::adjacent_find(dst, not_equal_to<float>()) == dst.end());
 }
 
 TEST(FusedQuantizeDequantizeTest, cornerCases) {
@@ -567,9 +558,8 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
     assert(float_test_input.size() == static_cast<size_t>(row * col));
 
     float16_test_input.resize(float_test_input.size());
-    std::transform(
-        float_test_input.begin(),
-        float_test_input.end(),
+    std::ranges::transform(
+        float_test_input,
         float16_test_input.begin(),
         [](float input) { return cpu_float2half_rn(input); });
 
@@ -601,9 +591,8 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
 
     float16_test_input_rowwise_min_max.resize(
         float_test_input_rowwise_min_max.size());
-    std::transform(
-        float_test_input_rowwise_min_max.begin(),
-        float_test_input_rowwise_min_max.end(),
+    std::ranges::transform(
+        float_test_input_rowwise_min_max,
         float16_test_input_rowwise_min_max.begin(),
         [](float input) { return cpu_float2half_rn(input); });
   }
@@ -690,9 +679,7 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   vector<float> dequantOutRef(rows * cols);
   vector<float> dequantOutTest(rows * cols);
 
-  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
-    return disFP(gen);
-  });
+  std::ranges::generate(inpVec, [&, disFP]() mutable { return disFP(gen); });
 
   int elements_per_byte = 8 / bit_rate;
 
@@ -716,14 +703,13 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
       bit_rate, outVecTest.data(), rows, out_cols, dequantOutTest.data());
   EXPECT_EQ(dequantOutRef, dequantOutTest);
 
-  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
+  std::ranges::generate(inpVec, [&, disFP]() mutable {
     return cpu_half2float(cpu_float2half_rn(disFP(gen)));
   });
   vector<float16> inpHalfVec(rows * cols);
-  std::transform(
-      inpVec.begin(), inpVec.end(), inpHalfVec.begin(), [](float input) {
-        return cpu_float2half_rn(input);
-      });
+  std::ranges::transform(inpVec, inpHalfVec.begin(), [](float input) {
+    return cpu_float2half_rn(input);
+  });
   vector<uint8_t> outVecRefFromHalf(outVecSize);
   vector<uint8_t> outVecTestFromHalf(outVecSize);
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float>(
@@ -751,6 +737,26 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16>(
       bit_rate, outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
   EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
+
+  // ref (double) vs SIMD (fp32 FMA) can differ by ~1 fp32 ULP; allow ~2 bf16
+  // ULPs.
+  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float16, true>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16, true>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Test.data());
+  for (int i = 0; i < rows * cols; ++i) {
+    float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
+    float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
+    EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
+    // Independently verify the bf16 reference against cpu_float2bfloat16()
+    // applied to the fp32 reference, rather than asserting bf16 != fp16 bit
+    // patterns (which can spuriously fail when every value is representable
+    // identically in both formats). double->fp32->bf16 vs double->bf16
+    // double-rounding can differ by ~1 bf16 ULP, so use a tolerance.
+    float expected = cpu_bf162float(cpu_float2bfloat16(dequantOutRef[i]));
+    EXPECT_NEAR(r, expected, std::max(1e-3f, 1.6e-2f * std::abs(expected)));
+  }
 }
 
 // Scale and bias are of type float
@@ -766,9 +772,7 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   vector<float> dequantOutTest(rows * cols);
   vector<float> dequantOutRef(rows * cols);
 
-  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
-    return disFP(gen);
-  });
+  std::ranges::generate(inpVec, [&, disFP]() mutable { return disFP(gen); });
 
   int out_cols = cols + 2 * sizeof(float);
   int outVecSize = rows * out_cols;
@@ -790,14 +794,13 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
       outVecTest.data(), rows, out_cols, dequantOutTest.data());
   EXPECT_EQ(dequantOutRef, dequantOutTest);
 
-  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
+  std::ranges::generate(inpVec, [&, disFP]() mutable {
     return cpu_half2float(cpu_float2half_rn(disFP(gen)));
   });
   vector<float16> inpHalfVec(rows * cols);
-  std::transform(
-      inpVec.begin(), inpVec.end(), inpHalfVec.begin(), [](float input) {
-        return cpu_float2half_rn(input);
-      });
+  std::ranges::transform(inpVec, inpHalfVec.begin(), [](float input) {
+    return cpu_float2half_rn(input);
+  });
   vector<uint8_t> outVecRefFromHalf(outVecSize);
   vector<uint8_t> outVecTestFromHalf(outVecSize);
   FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float>(
@@ -824,6 +827,26 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16>(
       outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
   EXPECT_EQ(dequantOutHalfRef, dequantOutHalfTest);
+
+  // ref (double) vs SIMD (fp32 FMA) can differ by ~1 fp32 ULP; allow ~2 bf16
+  // ULPs.
+  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<float16, true>(
+      outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16, true>(
+      outVecRef.data(), rows, out_cols, dequantBf16Test.data());
+  for (int i = 0; i < rows * cols; ++i) {
+    float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
+    float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
+    EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
+    // Independently verify the bf16 reference against cpu_float2bfloat16()
+    // applied to the fp32 reference, rather than asserting bf16 != fp16 bit
+    // patterns (which can spuriously fail when every value is representable
+    // identically in both formats). double->fp32->bf16 vs double->bf16
+    // double-rounding can differ by ~1 bf16 ULP, so use a tolerance.
+    float expected = cpu_bf162float(cpu_float2bfloat16(dequantOutRef[i]));
+    EXPECT_NEAR(r, expected, std::max(1e-3f, 1.6e-2f * std::abs(expected)));
+  }
 }
 
 TEST_P(

@@ -11,7 +11,8 @@
 import os
 import random
 import unittest
-from typing import Any, Callable, Optional, Union
+from collections.abc import Callable
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -55,7 +56,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 # pyre-ignore
-additional_decorators: dict[str, list[Callable]] = {
+additional_decorators: dict[str, list[Callable[..., Any]]] = {
     "test_faketensor__test_nbit_forward_uvm_cache": [
         unittest.skip("CUDA Assert"),
     ],
@@ -69,6 +70,9 @@ additional_decorators: dict[str, list[Callable]] = {
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
     "test_faketensor__test_nbit_forward_gpu_no_cache_fp8_2048": [
+        unittest.skip("Operator not implemented for Meta tensors"),
+    ],
+    "test_faketensor__test_nbit_forward_gpu_no_cache_nobag_aligned_D": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
     "test_faketensor__test_nbit_forward_cpu_seq_int8": [
@@ -143,10 +147,10 @@ class NBitFowardTest(NBitFowardTestCommon):
         weights_ty: SparseType,
         output_dtype: SparseType,
         weighted: bool,
-        ref_module: Union[
-            IntNBitTableBatchedEmbeddingBagsCodegen,
-            SplitTableBatchedEmbeddingBagsCodegen,
-        ],
+        ref_module: (
+            IntNBitTableBatchedEmbeddingBagsCodegen
+            | SplitTableBatchedEmbeddingBagsCodegen
+        ),
     ) -> None:
         D_alignment = max(weights_ty.align_size() for t in range(T))
         D_alignment = max(D_alignment, output_dtype.align_size())
@@ -529,7 +533,7 @@ class NBitFowardTest(NBitFowardTestCommon):
     )
     def test_nbit_forward_cpu(
         self,
-        nbit_weights_ty: Optional[SparseType],
+        nbit_weights_ty: SparseType | None,
         use_array_for_index_remapping: bool,
         do_pruning: bool,
         pooling_mode: PoolingMode,
@@ -808,6 +812,65 @@ class NBitFowardTest(NBitFowardTestCommon):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
+        weights_ty=st.sampled_from([SparseType.INT2, SparseType.INT4, SparseType.INT8]),
+        D=st.sampled_from([256, 512, 1024]),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        # `optests.generate_opcheck_tests` wraps this method with multiple
+        # opcheck variants (faketensor / schema / autograd / aot_dispatch_*),
+        # which Hypothesis sees as differing executors. Suppress the resulting
+        # health check — see precedent in
+        # `fbgemm_gpu/test/tbe/training/backward_determinism_test.py`.
+        suppress_health_check=[HealthCheck.differing_executors],
+    )
+    def test_nbit_forward_gpu_no_cache_nobag_aligned_D(
+        self,
+        weights_ty: SparseType,
+        D: int,
+        output_dtype: SparseType,
+    ) -> None:
+        # Deterministic coverage for the D106106843 ROCm fast-path trigger:
+        # ``D % (kWarpSize * kOutputsPerThread) == 0`` for INT-weight nobag.
+        #
+        # On wave-64 ROCm with kOutputsPerThread = 32 // bit_width, the
+        # runtime gate fires when D is divisible by 256 (INT8), 512 (INT4),
+        # or 1024 (INT2). The pinned matrix below covers all three INT
+        # primitive types across ``D in {256, 512, 1024}`` for the
+        # float-output store branch.
+        #
+        # On master and on CUDA the fast path is not rendered (the codegen
+        # gate is false), so this test exercises the slow path. After
+        # D106106843 lands, the same divisibility-aligned cases additionally
+        # hit the fast path on ROCm — without changing the assertions.
+        if weights_ty == SparseType.INT2 and output_dtype == SparseType.FP32:
+            self.skipTest("INT2 weight + FP32 output combination is not supported")
+
+        self.execute_nbit_forward_(
+            T=1,
+            D=D,
+            B=4,
+            log_E=2,
+            L=4,
+            weighted=False,
+            mixed=False,
+            pooling_mode=PoolingMode.NONE,
+            weights_ty=weights_ty,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            use_cpu=False,
+            use_array_for_index_remapping=True,
+            do_pruning=False,
+            mixed_weights_ty=False,
+            indices_dtype=torch.int32,
+            output_dtype=output_dtype,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
         do_pruning=st.booleans(),
@@ -821,7 +884,7 @@ class NBitFowardTest(NBitFowardTestCommon):
     )
     def test_nbit_forward_gpu_no_cache(
         self,
-        nbit_weights_ty: Optional[SparseType],
+        nbit_weights_ty: SparseType | None,
         use_array_for_index_remapping: bool,
         indices_dtype: torch.dtype,
         do_pruning: bool,
@@ -1072,7 +1135,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         quant_cc.fill_random_weights()
         raw_embedding_weights = quant_cc.split_embedding_weights()
         # we mimic 1.0 scale, 0.0 bias for better results comparison
-        embedding_weights: list[tuple[torch.Tensor, Optional[torch.Tensor]]] = [
+        embedding_weights: list[tuple[torch.Tensor, torch.Tensor | None]] = [
             (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
             for table_weight, _ in raw_embedding_weights
         ]

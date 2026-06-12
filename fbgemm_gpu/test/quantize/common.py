@@ -8,7 +8,7 @@
 
 import math
 import struct
-from typing import Callable
+from collections.abc import Callable
 
 import fbgemm_gpu
 import numpy as np

@@ -779,9 +779,11 @@ batch_index_select_dim0_codegen_forward_cuda(
             // forward
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
 
-            const auto grid = min(
-              div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
-              utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
+            const auto grid = utils::cuda::cap_grid_dim_x(
+              cuda_calc_xblock_count(total_B, kForwardMaxThreads / kThreadGroupSize),
+              kForwardMaxThreads,
+              at::cuda::getCurrentCUDAStream(),
+              utils::cuda::BlockCapPolicy::Always);
 
             FBGEMM_LAUNCH_KERNEL(
               ({{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
@@ -856,18 +858,15 @@ batch_index_select_dim0_codegen_forward_cuda(
             const int num_warps_per_table = B * div_round_up(max_D, warp_size * 4);
             #ifdef USE_ROCM
               const uint32_t num_warps_per_threadblock = kForwardMaxThreads / (warp_size * 2);
-              const auto num_threadblocks =
-                  div_round_up(T * num_warps_per_table, num_warps_per_threadblock);
-              const uint64_t num_threads =
-                  static_cast<uint64_t>(num_threadblocks)
-                  * warp_size * num_warps_per_threadblock;
-              // Cap the grid only when total threads exceed uint32 limits;
-              // the kernel's grid-striding loop handles the overflow.
-              const auto grid = num_threads >= std::numeric_limits<uint32_t>::max()
-                  ? min(
-                        num_threadblocks,
-                        utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()))
-                  : num_threadblocks;
+              // HIP enforces a hard 2^32 thread-per-launch limit. Cap the grid
+              // only when the unguarded launch would exceed it; the kernel's
+              // grid-striding loop handles the overflow.
+              // See: https://github.com/ROCm/hip/issues/2253
+              const auto grid = utils::cuda::cap_grid_dim_x(
+                  cuda_calc_xblock_count(
+                      T * num_warps_per_table, num_warps_per_threadblock),
+                  warp_size * num_warps_per_threadblock,
+                  at::cuda::getCurrentCUDAStream());
             #else
               const uint32_t num_warps_per_threadblock = kForwardMaxThreads / warp_size;
               const auto grid = div_round_up(T * num_warps_per_table, num_warps_per_threadblock);

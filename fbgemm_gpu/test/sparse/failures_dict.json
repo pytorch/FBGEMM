@@ -16,170 +16,8 @@
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},
     "fbgemm::batch_index_select_dim0": {},
-    "fbgemm::block_bucketize_sparse_features": {
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_vs_original": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_vs_original": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_float64_weights": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_keep_orig_idx_per_feature": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_large": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_long_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks_raw_ids": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks_uneven": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks_uneven_raw_ids": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_with_block_bucketize_pos": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_with_variable_batch_sizes": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_float64_weights": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_keep_orig_idx_per_feature": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_large": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_long_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks_raw_ids": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks_uneven": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks_uneven_raw_ids": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_with_block_bucketize_pos": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_with_variable_batch_sizes": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
-    "fbgemm::block_bucketize_sparse_features_2d_weights": {
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_block_bucketize_pos": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_keep_orig_idx": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_keep_orig_idx_per_feature": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_pooled_vs_sequence": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_total_num_blocks": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_vs_original": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_2d_weights_with_variable_batch_sizes": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_block_bucketize_pos": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_keep_orig_idx": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_keep_orig_idx_per_feature": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_pooled_vs_sequence": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_total_num_blocks": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_vs_original": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketize2DWeightsTest.test_faketensor__test_block_bucketize_sparse_features_2d_weights_with_variable_batch_sizes": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::block_bucketize_sparse_features": {},
+    "fbgemm::block_bucketize_sparse_features_2d_weights": {},
     "fbgemm::block_bucketize_sparse_features_inference": {},
     "fbgemm::bottom_k_per_row": {
       "MiscOpsTest.test_aot_dispatch_dynamic__test_bottom_unique_k_per_row": {
@@ -211,34 +49,8 @@
         "status": "xfail"
       }
     },
-    "fbgemm::generic_histogram_binning_calibration_by_feature": {
-      "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_generic_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_generic_histogram_binning_calibration_by_feature_cpu_gpu": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "HistogramBinningCalibrationTest.test_faketensor__test_generic_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "HistogramBinningCalibrationTest.test_faketensor__test_generic_histogram_binning_calibration_by_feature_cpu_gpu": {
-        "comment": "",
-        "status": "xsuccess"
-      }
-    },
-    "fbgemm::group_index_select_dim0": {
-      "IndexSelectTest.test_autograd_registration__test_group_index_select_dim0": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "IndexSelectTest.test_faketensor__test_group_index_select_dim0": {
-        "comment": "",
-        "status": "xsuccess"
-      }
-    },
+    "fbgemm::generic_histogram_binning_calibration_by_feature": {},
+    "fbgemm::group_index_select_dim0": {},
     "fbgemm::histogram_binning_calibration": {
       "HistogramBinningCalibrationTest.test_faketensor__test_histogram_binning_calibration": {
         "comment": "",
@@ -305,16 +117,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::populate_bucketized_permute": {
-      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_populate_bucketized_permute": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BlockBucketizeTest.test_faketensor__test_populate_bucketized_permute": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::populate_bucketized_permute": {},
     "fbgemm::reorder_batched_ad_indices": {
       "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices": {
         "comment": "",
@@ -425,15 +228,6 @@
         "status": "xfail"
       }
     },
-    "fbgemm::segment_sum_csr": {
-      "MiscOpsTest.test_aot_dispatch_dynamic__test_segment_sum_csr": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "MiscOpsTest.test_faketensor__test_segment_sum_csr": {
-        "comment": "",
-        "status": "xsuccess"
-      }
-    }
+    "fbgemm::segment_sum_csr": {}
   }
 }

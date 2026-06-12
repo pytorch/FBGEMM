@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -14,7 +15,7 @@
 #include "./TestUtils.h"
 #include "bench/AlignedVec.h" // @manual
 #include "bench/BenchUtils.h" // @manual
-#include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/FbgemmI8Depthwise.h"
 #include "src/FbgemmI8DepthwiseUtils.h"
 #include "src/RefImplementations.h" // @manual
 
@@ -459,7 +460,7 @@ TEST_P(
       aligned_vector<int8_t> Bk(R * S);
       // limit min, max to int8_t range
       randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
-      copy(Bk.begin(), Bk.end(), B.begin() + k * R * S);
+      std::ranges::copy(Bk, B.begin() + k * R * S);
 
       B_zero_point[k] = 5 + k;
     }
@@ -604,7 +605,7 @@ TEST_P(
       aligned_vector<int8_t> Bk(K_T * K_H * K_W);
       // limit min, max to int8_t range
       randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
-      copy(Bk.begin(), Bk.end(), B.begin() + k * K_T * K_H * K_W);
+      std::ranges::copy(Bk, B.begin() + k * K_T * K_H * K_W);
 
       B_zero_point[k] = 5 + k;
     }
@@ -821,12 +822,8 @@ static void runRequantizeI8DepthWiseTest() {
         1,
         static_cast<uint8_t>(0));
 
-    transform(
-        act_times_w_scale.begin(),
-        act_times_w_scale.end(),
-        bias.begin(),
-        fbias.begin(),
-        multiplies<>());
+    std::ranges::transform(
+        act_times_w_scale, bias, fbias.begin(), multiplies<>());
 
     requantize_i8dw_ref_<
         true,

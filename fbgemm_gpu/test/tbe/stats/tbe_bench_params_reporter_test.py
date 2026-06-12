@@ -210,7 +210,7 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
             "torch.ops.fbgemm.check_feature_gate_key"
         ) as mock_check_feature_gate_key:
             # Mock the return value for TBE_REPORT_INPUT_PARAMS
-            def side_effect(feature_name: str) -> Optional[bool]:
+            def side_effect(feature_name: str) -> bool | None:
                 if feature_name == FeatureGateName.TBE_REPORT_INPUT_PARAMS.name:
                     return True
 

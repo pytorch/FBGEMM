@@ -14,7 +14,8 @@ import functools
 import logging
 import random
 import unittest
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -542,8 +543,7 @@ class IndexSelectTest(unittest.TestCase):
 # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
-# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: dict[str, list[Callable]] = {
+additional_decorators: dict[str, list[Callable[..., Any]]] = {
     "test_aot_dispatch_dynamic__test_index_select_dim0": [unittest.skip("hangs")],
     "test_aot_dispatch_static__test_index_select_dim0": [unittest.skip("hangs")],
     "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],

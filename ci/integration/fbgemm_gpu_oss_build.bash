@@ -16,7 +16,7 @@
 #   PYTHON_VERSION        - Python version (e.g., 3.14)
 #   PYTORCH_VERSION       - PyTorch version or git SHA (e.g., nightly, 2.1.0, abc123def)
 #   BUILD_VARIANT         - Build variant: cuda, rocm, or cpu
-#   BUILD_VARIANT_VERSION - Version for the variant (e.g., 12.9.1 for CUDA)
+#   BUILD_VARIANT_VERSION - Version for the variant (e.g., 13.0.2 for CUDA)
 #
 # Returns:
 #   Prints the generated environment name to stdout
@@ -50,7 +50,7 @@ PYTHON_VERSION="${PYTHON_VERSION:-3.14}"
 PYTORCH_VERSION="${PYTORCH_VERSION:-nightly}"
 PYTORCH_VERSION="${PYTORCH_VERSION/#\~/$HOME}"  # Expand ~ to $HOME
 BUILD_VARIANT="${BUILD_VARIANT:-cuda}"
-BUILD_CUDA_VERSION="${BUILD_CUDA_VERSION:-12.9.1}"
+BUILD_CUDA_VERSION="${BUILD_CUDA_VERSION:-13.0.2}"
 BUILD_ROCM_VERSION="${BUILD_ROCM_VERSION:-7.0}"
 BUILD_TARGET="${BUILD_TARGET:-default}"
 BUILD_SCRIPTS_INIT="${BUILD_SCRIPTS_INIT:-${REPO_ROOT}/.github/scripts/setup_env.bash}"
