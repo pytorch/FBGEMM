@@ -24,7 +24,8 @@
       PRIVATE_CASE_TYPE_CACHE(at::ScalarType::Float, float, __VA_ARGS__)   \
       PRIVATE_CASE_TYPE_CACHE(at::ScalarType::Half, at::Half, __VA_ARGS__) \
       default:                                                             \
-        AT_ERROR(                                                          \
+        TORCH_CHECK(                                                       \
+            false,                                                         \
             #NAME,                                                         \
             " not implemented for cache_t '",                              \
             toString(enum_type2),                                          \
@@ -48,7 +49,8 @@
         NAME,                                                                 \
         __VA_ARGS__)                                                          \
     default:                                                                  \
-      AT_ERROR(#NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+      TORCH_CHECK(                                                            \
+          false, #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
   }
 
 #else
@@ -68,7 +70,8 @@
         NAME,                                                                 \
         __VA_ARGS__)                                                          \
     default:                                                                  \
-      AT_ERROR(#NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+      TORCH_CHECK(                                                            \
+          false, #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
   }
 
 #endif
@@ -122,7 +125,8 @@
           NAME,                                                    \
           __VA_ARGS__)                                             \
       default:                                                     \
-        AT_ERROR(                                                  \
+        TORCH_CHECK(                                               \
+            false,                                                 \
             #NAME,                                                 \
             " not implemented for output_t '",                     \
             toString(_output_t),                                   \
@@ -150,7 +154,8 @@
       PRIVATE_CASE_TYPE_OUTPUT2(                                             \
           at::ScalarType::QUInt4x2, uint8_t, __VA_ARGS__)                    \
       default:                                                               \
-        AT_ERROR(                                                            \
+        TORCH_CHECK(                                                         \
+            false,                                                           \
             #NAME,                                                           \
             " not implemented for output_t '",                               \
             toString(_output_t),                                             \
@@ -168,7 +173,8 @@
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Byte, uint8_t, __VA_ARGS__)  \
       default:                                                               \
-        AT_ERROR(                                                            \
+        TORCH_CHECK(                                                         \
+            false,                                                           \
             #NAME,                                                           \
             " not implemented for output_t '",                               \
             toString(_output_t),                                             \
@@ -196,7 +202,8 @@
           Name,                                                            \
           __VA_ARGS__)                                                     \
       default:                                                             \
-        AT_ERROR(                                                          \
+        TORCH_CHECK(                                                       \
+            false,                                                         \
             #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
     }                                                                      \
   }
@@ -219,7 +226,8 @@
           Name,                                                            \
           __VA_ARGS__)                                                     \
       default:                                                             \
-        AT_ERROR(                                                          \
+        TORCH_CHECK(                                                       \
+            false,                                                         \
             #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
     }                                                                      \
   }
@@ -248,7 +256,8 @@
           NAME,                                                                \
           __VA_ARGS__)                                                         \
       default:                                                                 \
-        AT_ERROR(                                                              \
+        TORCH_CHECK(                                                           \
+            false,                                                             \
             #NAME, " not implemented for grad_t '", toString(_grad_t), "'");   \
     }                                                                          \
   }()

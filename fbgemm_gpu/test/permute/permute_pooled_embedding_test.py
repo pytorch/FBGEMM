@@ -71,7 +71,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
     def test_permutation(self, fwd_only: bool) -> None:
         net = Net(fwd_only=fwd_only).to(self.device)
 
-        input = torch.Tensor([range(10)]).to(self.device)
+        input = torch.tensor([list(range(10))], dtype=torch.float).to(self.device)
         self.assertEqual(
             net.permute_pooled_embeddings(input).view(10).tolist(),
             [6, 7, 8, 9, 0, 1, 5, 2, 3, 4],
