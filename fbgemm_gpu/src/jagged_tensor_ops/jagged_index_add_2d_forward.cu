@@ -84,6 +84,11 @@ Tensor jagged_index_add_2d_forward_cuda(
 
   auto num_cols = values.size(1);
 
+  TORCH_CHECK_VALUE(
+      num_output_rows >= 0,
+      "jagged_index_add_2d_forward: num_output_rows must be non-negative, got ",
+      num_output_rows);
+
   const int64_t max_num_blocks = 1024; // Arbitrarily set to this number of now
   const int64_t num_blocks = std::min(max_num_blocks, num_dense_input_rows);
   Tensor output = at::zeros({num_output_rows, num_cols}, values.options());
