@@ -7,17 +7,24 @@
  */
 
 #ifdef FBGEMM_FBCODE
+#include <folly/String.h>
+#include <folly/container/F14Set.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/stop_watch.h>
+#include <folly/synchronization/CallOnce.h>
 #include <utility>
 #include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
 #include "caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h"
+#include "fb303/ServiceData.h"
+#include "rfe/scubadata/ScubaData.h"
 #include "servicerouter/client/cpp2/ClientParams.h"
 #include "servicerouter/client/cpp2/ServiceRouter.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 #include "torch/types.h"
 
 #endif
+
+#include <set>
 
 #include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
@@ -164,6 +171,23 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     XLOG(INFO) << "[TBE_ID" << unique_id_
                << "] Raw embedding streaming enabled with res_server_port at"
                << res_server_port_;
+
+    static folly::once_flag resOdsExportFlag;
+    folly::call_once(resOdsExportFlag, [] {
+      if (facebook::fb303::fbData) {
+        facebook::fb303::fbData->addStatExportType(
+            "res.streamed_fqn_count", facebook::fb303::SUM);
+      }
+    });
+
+    try {
+      scuba_table_ =
+          std::make_shared<facebook::rfe::ScubaData>("raw_embedding_streaming");
+    } catch (const std::exception& e) {
+      XLOG(WARNING) << "[TBE_ID" << unique_id_
+                    << "] Failed to initialize scuba table: " << e.what();
+    }
+
     // The first call to get the client is expensive, so eagerly get it here
     auto _eager_client = get_res_client(res_server_port_);
 
@@ -380,6 +404,9 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
   stop_watch.reset();
 
   auto res_client = get_res_client(res_server_port_);
+  // Tracks FQNs from shards that were actually dispatched (excludes shards
+  // skipped via the size-mismatch guard below).
+  folly::F14FastSet<std::string> streamed_fqns;
   // 2. Split by shards
   for (int i = 0; i < res_store_shards_; ++i) {
     auto shard_mask = shard_indices_tensor.eq(i).nonzero().squeeze();
@@ -421,7 +448,39 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
           torch::distributed::wireDumpTensor(runtime_meta_masked);
     }
     co_await res_client->co_setEmbeddings(req);
+    auto tb_ac_masked = table_indices_masked.accessor<int8_t, 1>();
+    for (int j = 0; j < tb_ac_masked.size(0); ++j) {
+      streamed_fqns.insert(table_names_[tb_ac_masked[j]]);
+    }
   }
+
+  const auto fqn_count = static_cast<int64_t>(streamed_fqns.size());
+
+  XLOG_EVERY_MS(INFO, 60000)
+      << "[TBE_ID" << unique_id_ << "][RES] streamed FQNs: ["
+      << folly::join(",", streamed_fqns) << "], count: " << fqn_count
+      << ", total_rows: " << total_rows
+      << " in: " << stop_watch.elapsed().count() << "ms";
+
+  // ODS counter, per-call and unsampled (fb303 SUM is cheap to aggregate).
+  if (facebook::fb303::fbData) {
+    facebook::fb303::fbData->addStatValue("res.streamed_fqn_count", fqn_count);
+  }
+
+  // Scuba write at kScubaSampleRate. streamed_fqns is a Scuba Tagsets column
+  // so analysts can query `WHERE streamed_fqns ANY_CONTAINS 'viewer_rid'`
+  // (or any/all/none ops) instead of substring-matching a delimited string.
+  // Records sample_rate so Scuba weighted aggregations scale correctly.
+  if (scuba_table_ && facebook::rfe::ScubaData::shouldLog(kScubaSampleRate)) {
+    facebook::rfe::ScubaDataSample sample;
+    sample.addNormalValue("tbe_id", unique_id_);
+    sample.addTagsetValue("streamed_fqns", streamed_fqns);
+    sample.addIntValue("fqn_count", fqn_count);
+    sample.addIntValue("total_rows", total_rows);
+    sample.addIntValue("sample_rate", kScubaSampleRate);
+    scuba_table_->addSample(sample);
+  }
+
   co_return;
 }
 

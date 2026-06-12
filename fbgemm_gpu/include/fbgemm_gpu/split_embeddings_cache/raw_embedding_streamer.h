@@ -10,6 +10,7 @@
 #include <ATen/ATen.h>
 #ifdef FBGEMM_FBCODE
 #include <folly/coro/Task.h>
+#include "rfe/scubadata/ScubaData.h"
 #endif
 
 #include <utility>
@@ -37,6 +38,14 @@ struct StreamQueueItem {
 
 class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
  public:
+#ifdef FBGEMM_FBCODE
+  // Sample rate for the per-interval Scuba row written from tensor_stream().
+  // The row is small (tbe_id + fqn list + a few ints), so we keep a generous
+  // 1-in-10 rate for visibility. Colocated here per Joey's D104075436:795
+  // feedback (config knobs in the header, not buried inline).
+  static constexpr uint32_t kScubaSampleRate = 10;
+#endif
+
   explicit RawEmbeddingStreamer(
       std::string unique_id,
       bool enable_raw_embedding_streaming,
@@ -125,6 +134,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   std::unique_ptr<std::thread> weights_stream_thread_;
   folly::UMPSCQueue<StreamQueueItem, true> weights_to_stream_queue_;
   std::unique_ptr<std::thread> stream_tensor_copy_thread_;
+  std::shared_ptr<facebook::rfe::ScubaData> scuba_table_;
 #endif
 };
 
