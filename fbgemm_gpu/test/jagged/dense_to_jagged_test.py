@@ -165,6 +165,23 @@ class DenseToJaggedTest(unittest.TestCase):
             precompute_total_L,
         )
 
+    @optests.dontGenerateOpCheckTests("regression test for negative-size guard")
+    def test_dense_to_jagged_negative_total_L_errors(self) -> None:
+        """Regression: corrupted offsets must fail fast, not allocate a tensor
+        with a negative dimension.
+
+        total_L is derived from offsets.back().max(); a negative value there
+        used to flow straight into at::empty({total_L, D}) and produce the
+        opaque "Trying to create tensor with negative dimension" error. The
+        TORCH_CHECK_VALUE guard in dense_to_jagged_forward now rejects it.
+        """
+        device = torch.device("cpu")
+        dense = torch.zeros((1, 4), dtype=torch.float, device=device)
+        # Last (and only) offsets tensor has a negative max -> negative total_L.
+        offsets = [torch.tensor([-5, -1], dtype=torch.long, device=device)]
+        with self.assertRaisesRegex(ValueError, "total_L must be non-negative"):
+            torch.ops.fbgemm.dense_to_jagged(dense, offsets)
+
     @optests.dontGenerateOpCheckTests("regression test, not an op-shape check")
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(16))
