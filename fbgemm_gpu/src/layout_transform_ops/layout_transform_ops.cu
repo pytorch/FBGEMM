@@ -138,11 +138,11 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
   const auto dim_sum = grad_output.size(1);
 
   const dim3 threads(
-      fbgemm_gpu::kWarpSize, fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize);
+      fbgemm_gpu::kWarpSizeHost(), fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost());
   const dim3 blocks(
       fbgemm_gpu::div_round_up(
           (B_local * dim_num),
-          fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize));
+          fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost()));
 
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {

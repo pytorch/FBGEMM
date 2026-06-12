@@ -668,7 +668,7 @@ _block_bucketize_sparse_features_2d_weights_cuda(
         block_bucketize_pos_concat.device(), true);
   }
   static_assert(kMaxThreads % kWarpSize == 0);
-  dim3 block_dims(kWarpSize, kMaxThreads / kWarpSize);
+  dim3 block_dims(kWarpSizeHost(), kMaxThreads / kWarpSizeHost());
   dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
   const auto smem_adjust_threshold =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;

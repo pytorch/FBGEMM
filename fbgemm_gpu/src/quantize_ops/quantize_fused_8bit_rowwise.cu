@@ -599,7 +599,7 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     return output;
   }
   constexpr int threads_per_block = 256;
-  const dim3 blockDim(kWarpSize, threads_per_block / kWarpSize);
+  const dim3 blockDim(kWarpSizeHost(), threads_per_block / kWarpSizeHost());
   const dim3 gridDim(
       cuda_calc_xblock_count(num_tables * batch_size, blockDim.y));
   FBGEMM_DISPATCH_FLOAT_AND_HALF(

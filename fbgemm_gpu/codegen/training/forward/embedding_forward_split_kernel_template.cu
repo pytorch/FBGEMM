@@ -552,7 +552,7 @@ template <
     {%- if not nobag %}
     size_t kMaxVecsPerThread,
     {%- endif %}
-    size_t kThreadGroupSize>
+    size_t kSubwarpDivisor>
 __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
@@ -619,6 +619,9 @@ batch_index_select_dim0_codegen_forward_kernel(
     // If 2D, shape is [B][total_D]
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     ) {
+// kThreadGroupSize derived per-arch from the device-pass kWarpSize.
+// The template's mangled name carries kSubwarpDivisor, not kThreadGroupSize.
+constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
 // shfl_sync_mask is implicitly used by SHFL_SYNC
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
     const unsigned int shfl_sync_mask =
@@ -844,7 +847,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     index_type,
     use_cache,
     kMaxVecsPerThread,
-    kThreadGroupSize)
+    kSubwarpDivisor)
 %}
 template __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
@@ -863,7 +866,7 @@ batch_index_select_dim0_codegen_forward_kernel
     {%- if not nobag %}
     {{ kMaxVecsPerThread }},
     {%- endif %}
-    {{ kThreadGroupSize }}
+    {{ kSubwarpDivisor }}
 > (
     const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -916,7 +919,7 @@ batch_index_select_dim0_codegen_forward_kernel
     pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
 {%- endmacro %}
 
-{%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
+{%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kSubwarpDivisor) %}
     {%- set max_vecs_per_thread = kMaxVecsPerThread %}
     {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
@@ -929,7 +932,7 @@ batch_index_select_dim0_codegen_forward_kernel
             index_type,
             use_cache,
             max_vecs_per_thread,
-            kThreadGroupSize)
+            kSubwarpDivisor)
         }}
     {%- endfor %}
     {%- endfor %}
@@ -945,10 +948,9 @@ batch_index_select_dim0_codegen_forward_kernel
       legacy_max_embedding_dim if has_experimental else max_embedding_dim
 %}
 {%- for use_cache in (["true", "false"] if not dense else ["NULL"]) %}
-{%- for (kMaxVecsPerThread, kThreadGroupSize, use_blocking)
-    in get_max_vecs_template_configs(
-        items_per_warp,
-        fixed_max_vecs_per_thread=max_forward_embedding_dim // items_per_warp,
+{%- for (kMaxVecsPerThread, kSubwarpDivisor, use_blocking)
+    in get_max_vecs_template_configs_union_forward(
+        max_forward_embedding_dim,
         use_subwarp_shuffle=use_subwarp_shuffle,
         use_vec_blocking=False,
     )
@@ -959,7 +961,7 @@ batch_index_select_dim0_codegen_forward_kernel
            bulk_template_instantiations(
                use_cache,
                kMaxVecsPerThread,
-               kThreadGroupSize
+               kSubwarpDivisor
            )
         }}
     {%- endif %}

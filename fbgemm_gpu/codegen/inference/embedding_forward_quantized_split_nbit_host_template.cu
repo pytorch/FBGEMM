@@ -72,7 +72,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
       FBGEMM_LAUNCH_KERNEL( \
         ({{ func_name }}<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly, PackedMode>), \
         nbit::div_round_up(T * nbit::div_round_up(B, num_packed_bags * OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(kWarpSize, kWarpsPerBlock), \
+        dim3(kWarpSizeHost(), kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream(), \
         PTA_B(dev_weights, uint8_t, 1, 64), \
@@ -247,6 +247,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         constexpr int32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4); \
         /* Number of bags that might be fitted to shared memory. */                   \
         num_packed_bags = NumUint4LoadsPerRow > num_uint4_loads_per_row && !std::is_same_v<output_t, uint8_t> && sparse_type != SparseType::FP32 ? NumUint4LoadsPerRow / num_uint4_loads_per_row : 1; \
+        /* Cap by what the accumulate/store stage can address: it maps */ \
+        /* packed_bag_*_idx = threadIdx.x / uints_per_row, so we need */ \
+        /* num_packed_bags * uints_per_row <= kWarpSize. Without this cap, */ \
+        /* on warpSize=32 (RDNA) the trailing bags are never written. */ \
+        const int32_t uints_per_row_host = 4 /* uints per uint4 */ * num_uint4_loads_per_row; \
+        const int32_t max_bags_by_warp = uints_per_row_host > 0 ? kWarpSizeHost() / uints_per_row_host : 1; \
+        num_packed_bags = std::min(num_packed_bags, std::max(1, max_bags_by_warp)); \
       } \
       {%- endif %}
       if (num_packed_bags > 1) {              \

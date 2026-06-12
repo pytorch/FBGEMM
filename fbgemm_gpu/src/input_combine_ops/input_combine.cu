@@ -141,16 +141,16 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cuda(
 #else
   constexpr uint32_t VEC_WIDTH = 8;
 #endif
-  constexpr uint32_t NUM_WARPS_PER_BLOCK = kMaxThreads / kWarpSize;
+  const uint32_t NUM_WARPS_PER_BLOCK = kMaxThreads / kWarpSizeHost();
   const auto num_warps_per_list =
-      div_round_up(max_list_size, kWarpSize * VEC_WIDTH);
+      div_round_up(max_list_size, kWarpSizeHost() * VEC_WIDTH);
   const auto num_blocks =
       div_round_up(num_warps_per_list * num_lists, NUM_WARPS_PER_BLOCK);
 
   FBGEMM_LAUNCH_KERNEL(
       (tbe_input_combine_with_length_kernel<VEC_WIDTH, IS_LONG_NUM_BITS>),
       num_blocks,
-      dim3(kWarpSize, NUM_WARPS_PER_BLOCK),
+      dim3(kWarpSizeHost(), NUM_WARPS_PER_BLOCK),
       0,
       at::cuda::getCurrentCUDAStream(),
       combined_indices.data_ptr<int32_t>(),

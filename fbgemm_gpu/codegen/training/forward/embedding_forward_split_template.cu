@@ -153,7 +153,7 @@ template <
     {%- if not nobag %}
     size_t kMaxVecsPerThread,
     {%- endif %}
-    size_t kThreadGroupSize = kWarpSize
+    size_t kSubwarpDivisor
     >
 __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
@@ -232,32 +232,73 @@ batch_index_select_dim0_codegen_forward_kernel(
     max_forward_embedding_dim
   )
 %}
-  {%- set fixed_max_vecs_per_thread = max_forward_embedding_dim // items_per_warp%}
+  {%- set fixed_max_vecs_per_thread_wave32 = max_forward_embedding_dim // items_per_warp32 %}
+  {%- set fixed_max_vecs_per_thread_wave64 = max_forward_embedding_dim // items_per_wave64 %}
+{%- if has_wave64 %}
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-#define {{ dispatch_macro_name }}(MAX_D, ...) \
-  [&] {                                        \
+#define {{ dispatch_macro_name }}_WAVE64(MAX_D, ...) \
+  [&] {                                              \
     {{
        dispatch_non_vec_blocking_kernel(
-           items_per_warp,
-           fixed_max_vecs_per_thread,
+           items_per_wave64,
+           fixed_max_vecs_per_thread_wave64,
            use_subwarp_shuffle=True)
     -}}
-    return;                                    \
+    return;                                          \
   }()
-
 #else
-#define {{ dispatch_macro_name }}(MAX_D, ...) \
-  [&] {                                        \
+#define {{ dispatch_macro_name }}_WAVE64(MAX_D, ...) \
+  [&] {                                              \
     {{
        dispatch_non_vec_blocking_kernel(
-           items_per_warp,
-           fixed_max_vecs_per_thread,
+           items_per_wave64,
+           fixed_max_vecs_per_thread_wave64,
            use_subwarp_shuffle=False)
     -}}
-    return;                                    \
+    return;                                          \
   }()
-
 #endif
+{%- endif %}
+{%- if has_wave32 %}
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+#define {{ dispatch_macro_name }}_WAVE32(MAX_D, ...) \
+  [&] {                                              \
+    {{
+       dispatch_non_vec_blocking_kernel(
+           items_per_warp32,
+           fixed_max_vecs_per_thread_wave32,
+           use_subwarp_shuffle=True)
+    -}}
+    return;                                          \
+  }()
+#else
+#define {{ dispatch_macro_name }}_WAVE32(MAX_D, ...) \
+  [&] {                                              \
+    {{
+       dispatch_non_vec_blocking_kernel(
+           items_per_warp32,
+           fixed_max_vecs_per_thread_wave32,
+           use_subwarp_shuffle=False)
+    -}}
+    return;                                          \
+  }()
+#endif
+{%- endif %}
+#define {{ dispatch_macro_name }}(MAX_D, ...) \
+  [&] {                                       \
+{%- if has_wave32 and has_wave64 %}
+    if (kWarpSizeHost() == 64) {                                              \
+      {{ dispatch_macro_name }}_WAVE64(MAX_D, __VA_ARGS__);                 \
+    } else {                                                                \
+      {{ dispatch_macro_name }}_WAVE32(MAX_D, __VA_ARGS__);                 \
+    }                                                                       \
+{%- elif has_wave64 %}
+    {{ dispatch_macro_name }}_WAVE64(MAX_D, __VA_ARGS__);                   \
+{%- else %}
+    {{ dispatch_macro_name }}_WAVE32(MAX_D, __VA_ARGS__);                   \
+{%- endif %}
+    return;                                   \
+  }()
 {% endmacro %}
 
 {#-
@@ -632,8 +673,8 @@ batch_index_select_dim0_codegen_forward_cuda(
               output_t,
               index_t,
               kEmbeddingSize / 4>),
-            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            div_round_up(total_B, kForwardMaxThreads / kWarpSizeHost()),
+            dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(dev_weights, emb_t, 1, 64),
@@ -677,13 +718,13 @@ batch_index_select_dim0_codegen_forward_cuda(
           FBGEMM_LAUNCH_KERNEL(
             ({{ nobag_kernel }}
               {%- if dense or is_index_select %}
-              <emb_t, cache_t, output_t, index_t>
+              <emb_t, cache_t, output_t, index_t, /*kSubwarpDivisor=*/1>
               {%- else %}
-              <emb_t, cache_t, output_t, use_cache_t, index_t>
+              <emb_t, cache_t, output_t, use_cache_t, index_t, /*kSubwarpDivisor=*/1>
               {%- endif %}
             ),
-            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            div_round_up(total_B, kForwardMaxThreads / kWarpSizeHost()),
+            dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(dev_weights, emb_t, 1, 64),
@@ -754,7 +795,7 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- endif %}
                 index_t,
                 kMaxVecsPerThread,
-                kThreadGroupSize>),
+                kSubwarpDivisor>),
               grid,
               dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
               0,

@@ -106,7 +106,7 @@ Tensor permute_pooled_embs_gpu_impl(
   // We are launching ( div_round_up(T, warp_per_block), B ) blocks.
   // The grid z dimension is also used by B in case it's greater than 65535.
   const int32_t warp_per_block =
-      fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize;
+      fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost();
   const int32_t max_grid_dim_y =
       32768; // The CUDA maximum is 65535, not a power of 2.
   const dim3 threads(fbgemm_gpu::kMaxThreads);

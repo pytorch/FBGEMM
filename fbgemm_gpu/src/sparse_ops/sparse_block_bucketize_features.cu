@@ -409,7 +409,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
 // Uses ballot_sync + popc to count preceding elements with same bucket,
 // which preserves the original ordering within each bucket.
 // All threads execute the same instructions (no branch divergence).
-// Note: my_size is limited to kWarpSize (32 on CUDA warp32, 64 on ROCm
+// Note: my_size is limited to kWarpSizeHost() (32 on CUDA warp32, 64 on ROCm
 // wavefront64) because we use warp-level ballot operations and store per-bucket
 // counts in registers.
 
@@ -903,7 +903,7 @@ _block_bucketize_sparse_features_cuda(
         block_bucketize_pos_concat.device(), true);
   }
   static_assert(kMaxThreads % kWarpSize == 0);
-  dim3 block_dims(kWarpSize, kMaxThreads / kWarpSize);
+  dim3 block_dims(kWarpSizeHost(), kMaxThreads / kWarpSizeHost());
   dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
   const auto smem_adjust_threshold =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
@@ -1175,8 +1175,8 @@ DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
               const static bool warp_kernel_enabled =
                   config::is_feature_enabled(
                       config::FeatureGateName::BUCKETIZED_PERMUTE_WARP_KERNEL);
-              if (my_size <= kWarpSize && warp_kernel_enabled) {
-                const auto warps_per_block = kMaxThreads / kWarpSize;
+              if (my_size <= kWarpSizeHost() && warp_kernel_enabled) {
+                const auto warps_per_block = kMaxThreads / kWarpSizeHost();
                 const auto num_blocks =
                     cuda_calc_xblock_count(lengths_size, warps_per_block);
                 FBGEMM_LAUNCH_KERNEL(

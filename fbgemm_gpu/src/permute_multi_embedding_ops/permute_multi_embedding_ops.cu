@@ -272,9 +272,9 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
   // blocks. The grid z dimension is also used by batch_size in case it's
   // greater than 65535.
   const int32_t warp_per_block =
-      fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize;
+      fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost();
   const int32_t max_grid_dim = 32768; // The CUDA maximum is 65535, not 1<<N.
-  const dim3 block_dim(fbgemm_gpu::kWarpSize, warp_per_block);
+  const dim3 block_dim(fbgemm_gpu::kWarpSizeHost(), warp_per_block);
   const dim3 grid_dim(
       fbgemm_gpu::div_round_up(permute_size, warp_per_block),
       std::min(static_cast<int32_t>(batch_size), max_grid_dim),

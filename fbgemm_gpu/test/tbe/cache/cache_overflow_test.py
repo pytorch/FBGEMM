@@ -22,6 +22,16 @@ from hypothesis import given, settings
 from ..common import assert_torch_equal, MAX_EXAMPLES
 from .cache_common import assert_cache, generate_cache_tbes, gpu_unavailable, VERBOSITY
 
+# TBE cache associativity equals the device warp size (64 on CDNA, 32 on RDNA
+# and NVIDIA). DEFAULT_ASSOC is the static fallback; query the actual device
+# so the cache-sizing math is correct on warpSize 32 ROCm devices.
+if torch.cuda.is_available():
+    WARP_SIZE: int = torch.cuda.get_device_properties(
+        torch.cuda.current_device()
+    ).warp_size
+else:
+    WARP_SIZE = DEFAULT_ASSOC
+
 
 class CacheOverflowTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
@@ -45,7 +55,7 @@ class CacheOverflowTest(unittest.TestCase):
         # Weight and cache precisions are fixed to FP16
         element_size = 2
         # Adjust cache_sets based on free memory
-        while cache_sets * DEFAULT_ASSOC * D * element_size > free_memory:
+        while cache_sets * WARP_SIZE * D * element_size > free_memory:
             cache_sets = cache_sets // 10
 
         # Generate TBEs
@@ -62,7 +72,7 @@ class CacheOverflowTest(unittest.TestCase):
 
         # Accessing the last cache slot
         last_cache_set = cache_sets - 1
-        cache_idx = last_cache_set * DEFAULT_ASSOC + (DEFAULT_ASSOC - 1)
+        cache_idx = last_cache_set * WARP_SIZE + (WARP_SIZE - 1)
         if cache_idx * D < (2**31) - 1:
             logging.warning("test_cache_int32_overflow does not test int32 overflowing")
         else:
