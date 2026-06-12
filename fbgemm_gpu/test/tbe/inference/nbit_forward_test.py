@@ -40,7 +40,7 @@ from fbgemm_gpu.tbe.utils import (
     quantize_embs,
     round_up,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 from .common import get_nbit_weights_ty, NBitFowardTestCommon
@@ -356,7 +356,6 @@ class NBitFowardTest(NBitFowardTestCommon):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
     )
     def test_nbit_forward_fused_pooled_emb_quant_against_ref(
         self,
@@ -498,7 +497,6 @@ class NBitFowardTest(NBitFowardTestCommon):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
     )
     def test_nbit_forward_fused_pooled_emb_quant(
         self,
@@ -821,11 +819,6 @@ class NBitFowardTest(NBitFowardTestCommon):
         max_examples=MAX_EXAMPLES,
         deadline=None,
         # `optests.generate_opcheck_tests` wraps this method with multiple
-        # opcheck variants (faketensor / schema / autograd / aot_dispatch_*),
-        # which Hypothesis sees as differing executors. Suppress the resulting
-        # health check — see precedent in
-        # `fbgemm_gpu/test/tbe/training/backward_determinism_test.py`.
-        suppress_health_check=[HealthCheck.differing_executors],
     )
     def test_nbit_forward_gpu_no_cache_nobag_aligned_D(
         self,

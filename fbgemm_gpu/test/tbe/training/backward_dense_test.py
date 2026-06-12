@@ -25,7 +25,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -78,7 +78,6 @@ class BackwardDenseTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=10,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_dense(  # noqa C901
         self,
