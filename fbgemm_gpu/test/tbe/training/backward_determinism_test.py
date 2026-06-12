@@ -47,13 +47,9 @@ from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import additional_decorators, gpu_unavailable, optests
+    from test_utils import gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        additional_decorators,
-        gpu_unavailable,
-        optests,
-    )
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -65,7 +61,7 @@ SUPPRESS_HEALTH_CHECKS: list[HealthCheck] = [
 ]
 
 
-@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
+@optests.generate_opcheck_tests(fast=True)
 class BackwardDeterminismTest(unittest.TestCase):
     """Verify backward determinism for all TBE optimizer types.
 

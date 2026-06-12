@@ -475,6 +475,12 @@ Tensor dense_to_jagged_forward(
     total_L_computed =
         static_cast<int64_t>(offsets.back().max().item<int64_t>());
   }
+  TORCH_CHECK_VALUE(
+      total_L_computed >= 0,
+      "dense_to_jagged_forward: total_L must be non-negative but got ",
+      total_L_computed,
+      ". This typically indicates corrupted offsets (offsets.back() contains a "
+      "garbage/negative value).");
   auto values = at::empty_symint({total_L_computed, D}, dense.options());
   auto output = at::zeros_symint({total_L_computed, D}, dense.options());
 
