@@ -466,21 +466,30 @@ Tensor dense_to_jagged_forward(
     std::optional<at::SymInt> total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
+  TORCH_CHECK(D >= 0, "D must be >= 0, but got ", D);
 
   // If total_L is not given then compute it
   at::SymInt total_L_computed;
   if (total_L.has_value()) {
     total_L_computed = total_L.value();
+    TORCH_CHECK_VALUE(
+        total_L_computed >= 0,
+        "total_L passed to dense_to_jagged_forward must be >= 0, but got ",
+        total_L_computed);
   } else {
     total_L_computed =
         static_cast<int64_t>(offsets.back().max().item<int64_t>());
+    TORCH_CHECK_VALUE(
+        total_L_computed >= 0,
+        "total_L must be >= 0, but got ",
+        total_L_computed,
+        " offsets.size() = ",
+        offsets.size(),
+        " offsets.back().size(-1) = ",
+        offsets.back().size(-1),
+        " offsets.back()[-1] = ",
+        offsets.back()[offsets.back().size(-1) - 1].item<int64_t>());
   }
-  TORCH_CHECK_VALUE(
-      total_L_computed >= 0,
-      "dense_to_jagged_forward: total_L must be non-negative but got ",
-      total_L_computed,
-      ". This typically indicates corrupted offsets (offsets.back() contains a "
-      "garbage/negative value).");
   auto values = at::empty_symint({total_L_computed, D}, dense.options());
   auto output = at::zeros_symint({total_L_computed, D}, dense.options());
 

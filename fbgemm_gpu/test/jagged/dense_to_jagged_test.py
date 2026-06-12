@@ -175,12 +175,17 @@ class DenseToJaggedTest(unittest.TestCase):
         opaque "Trying to create tensor with negative dimension" error. The
         TORCH_CHECK_VALUE guard in dense_to_jagged_forward now rejects it.
         """
-        device = torch.device("cpu")
+        device: torch.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
         dense = torch.zeros((1, 4), dtype=torch.float, device=device)
         # Last (and only) offsets tensor has a negative max -> negative total_L.
         offsets = [torch.tensor([-5, -1], dtype=torch.long, device=device)]
-        with self.assertRaisesRegex(ValueError, "total_L must be non-negative"):
+        with self.assertRaisesRegex(ValueError, "must be >= 0"):
             torch.ops.fbgemm.dense_to_jagged(dense, offsets)
+        offsets = [torch.tensor([0, 2], dtype=torch.long, device=device)]
+        with self.assertRaisesRegex(ValueError, "must be >= 0"):
+            torch.ops.fbgemm.dense_to_jagged(dense, offsets, total_L=-1)
 
     @optests.dontGenerateOpCheckTests("regression test, not an op-shape check")
     @unittest.skipIf(*gpu_unavailable)
