@@ -247,6 +247,20 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
             )
             assert torch.equal(output, output_ref)
 
+    @optests.dontGenerateOpCheckTests("regression test for negative-size guard")
+    def test_jagged_index_add_2d_forward_negative_rows_errors(self) -> None:
+        """Regression: a negative num_output_rows must fail fast instead of
+        allocating a tensor with a negative dimension."""
+        device = torch.device("cpu")
+        values = torch.zeros((2, 3), dtype=torch.float, device=device)
+        indices = torch.tensor([0], dtype=torch.long, device=device)
+        input_offsets = torch.tensor([0, 1, 2], dtype=torch.long, device=device)
+        output_offsets = torch.tensor([0, 1], dtype=torch.long, device=device)
+        with self.assertRaisesRegex(ValueError, "num_output_rows must be non-negative"):
+            torch.ops.fbgemm.jagged_index_add_2d_forward(
+                values, indices, input_offsets, output_offsets, 1, -1
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
