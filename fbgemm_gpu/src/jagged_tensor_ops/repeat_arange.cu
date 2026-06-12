@@ -89,6 +89,13 @@ Tensor repeat_arange_cuda(const Tensor& lengths) {
         output_size = static_cast<int64_t>(last_offset);
       }));
 
+  TORCH_CHECK_VALUE(
+      output_size >= 0,
+      "repeat_arange: output_size (cumsum of lengths) must be non-negative, "
+      "got ",
+      output_size,
+      ". This typically indicates corrupted/negative lengths.");
+
   if (output_size == 0) {
     return at::empty({0}, lengths.options());
   }
