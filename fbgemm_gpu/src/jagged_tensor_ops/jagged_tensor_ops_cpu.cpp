@@ -1767,6 +1767,12 @@ static Tensor repeat_arange_cpu(const Tensor& lengths) {
     }
   });
 
+  TORCH_CHECK_VALUE(
+      output_size >= 0,
+      "repeat_arange: output_size (sum of lengths) must be non-negative, got ",
+      output_size,
+      ". This typically indicates corrupted/negative lengths.");
+
   if (output_size == 0) {
     return at::empty({0}, lengths.options());
   }
