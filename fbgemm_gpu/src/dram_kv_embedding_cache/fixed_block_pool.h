@@ -95,7 +95,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     auto& stripe =
         dirty_tracker_stripes_[get_dirty_tracker_stripe_index(block)];
     std::lock_guard<std::mutex> lock(stripe.mutex);
-    return stripe.dirty_blocks.find(block) != stripe.dirty_blocks.end();
+    return stripe.dirty_blocks.contains(block);
   }
   void set_dirty(const void* block, bool dirty) {
     if (!enable_dirty_tracking_) {
