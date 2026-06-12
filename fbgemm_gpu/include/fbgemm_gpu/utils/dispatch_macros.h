@@ -199,7 +199,7 @@
           at::ScalarType::Float8_e4m3fnuz,                                 \
           _cache_t,                                                        \
           at::Float8_e4m3fnuz,                                             \
-          Name,                                                            \
+          NAME,                                                            \
           __VA_ARGS__)                                                     \
       default:                                                             \
         TORCH_CHECK(                                                       \
@@ -223,7 +223,7 @@
           at::ScalarType::Float8_e4m3fn,                                   \
           _cache_t,                                                        \
           at::Float8_e4m3fn,                                               \
-          Name,                                                            \
+          NAME,                                                            \
           __VA_ARGS__)                                                     \
       default:                                                             \
         TORCH_CHECK(                                                       \
