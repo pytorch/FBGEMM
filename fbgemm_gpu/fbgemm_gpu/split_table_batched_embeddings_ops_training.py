@@ -29,24 +29,25 @@ from torch.autograd.profiler import record_function  # usort:skip
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
-    CacheAlgorithm,
-    CacheState,
-    ComputeDevice,
-    construct_cache_state,
-    EmbeddingLocation,
-    get_bounds_check_version_for_platform,
-    MAX_PREFETCH_DEPTH,
-    MultiPassPrefetchConfig,
-    PoolingMode,
-    RecordCacheMetrics,
-    SplitState,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     check_allocated_vbe_output,
     generate_vbe_metadata,
     is_torchdynamo_compiling,
+)
+from fbgemm_gpu.tbe.cache.cache_config import (
+    CacheAlgorithm,
+    CacheState,
+    MultiPassPrefetchConfig,
+)
+from fbgemm_gpu.tbe.config.embedding_config import (
+    BoundsCheckMode,
+    ComputeDevice,
+    EmbeddingLocation,
+    get_bounds_check_version_for_platform,
+    MAX_PREFETCH_DEPTH,
+    PoolingMode,
+    RecordCacheMetrics,
+    SplitState,
 )
 from fbgemm_gpu.tbe.monitoring import (
     AsyncSeriesTimer,
@@ -1481,7 +1482,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.iter_cpu: torch.Tensor = torch.zeros(1, dtype=torch.int64, device="cpu")
 
-        cache_state = construct_cache_state(rows, locations, self.feature_table_map)
+        cache_state = CacheState.construct(rows, locations, self.feature_table_map)
 
         # Add table-wise cache miss counter
         if self.record_cache_metrics.record_tablewise_cache_miss:
