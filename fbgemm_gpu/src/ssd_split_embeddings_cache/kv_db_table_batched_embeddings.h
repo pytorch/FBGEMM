@@ -209,12 +209,41 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& weights,
       const at::Tensor& count) = 0;
 
+  /// Read only the weight portion from storage, skipping the first
+  /// width_offset elements of each stored row. Output weights has shape
+  /// {N, stride} where stride = weights.size(1).
+  virtual folly::SemiFuture<std::vector<folly::Unit>>
+  get_kv_db_weights_only_async(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count) {
+    return folly::makeSemiFuture(std::vector<folly::Unit>());
+  }
+
+  /// Read only the metadata portion from storage (first metaheader_dim
+  /// elements of each stored row). Output metadata has shape
+  /// {N, metaheader_dim}.
+  virtual folly::SemiFuture<std::vector<folly::Unit>>
+  get_kv_db_metadata_only_async(
+      const at::Tensor& indices,
+      const at::Tensor& metadata,
+      const at::Tensor& count) {
+    return folly::makeSemiFuture(std::vector<folly::Unit>());
+  }
+
   /// storage tier counterpart of function set()
   virtual folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
       const RocksdbWriteMode w_mode = RocksdbWriteMode::FWD_ROCKSDB_READ) = 0;
+
+  virtual folly::SemiFuture<std::vector<folly::Unit>> set_kv_metadata_async(
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*metadata*/,
+      const at::Tensor& /*count*/) {
+    return folly::makeSemiFuture(std::vector<folly::Unit>());
+  }
 
   virtual folly::SemiFuture<std::vector<folly::Unit>>
   set_kv_zch_eviction_metadata_async(
@@ -422,6 +451,18 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   virtual int64_t get_metaheader_width_in_front() {
     // will return non-zero if DRAM enables backend_return_whole_row
+    return 0;
+  }
+
+  /// Get estimated number of keys stored in the backend.
+  /// Override in subclasses that support this (e.g. RocksDB).
+  virtual int64_t get_estimated_num_keys() {
+    return 0;
+  }
+
+  /// Get cumulative total rows actually written to the backend.
+  /// Override in subclasses that track this (e.g. RocksDB).
+  virtual int64_t get_total_rows_written() const {
     return 0;
   }
 
