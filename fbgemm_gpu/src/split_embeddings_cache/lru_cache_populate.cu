@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -223,9 +224,18 @@ void lru_cache_insert_cuda(
         // since it is not SM bound. It leaves SMs for main stream to overlap
         constexpr int ALL_TO_PREFETCH_SM_RATIO = 8;
 
-        auto grid_size = lock_cache_line
+        const auto grid_size_uncapped = lock_cache_line
             ? div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO)
             : div_round_up(N, kMaxThreads / kWarpSize);
+        // HIP enforces a hard limit of 2^32 total threads per launch.
+        // lru_cache_insert_kernel grid-strides over n, so capping is
+        // correctness-preserving. The lock_cache_line=true branch is already
+        // SM-bounded by div_round_up(SM_cnt, 8), so this cap is a no-op for it.
+        // See: https://github.com/ROCm/hip/issues/2253
+        const auto grid_size = utils::cuda::cap_grid_dim_x(
+            static_cast<uint32_t>(grid_size_uncapped),
+            kMaxThreads,
+            at::cuda::getCurrentCUDAStream());
 
         FBGEMM_LAUNCH_KERNEL(
             (lru_cache_insert_kernel<emb_t, cache_t>),
