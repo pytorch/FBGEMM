@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -508,7 +509,13 @@ DLL_PUBLIC Tensor direct_mapped_lxu_cache_lookup_cuda(
     return lxu_cache_locations;
   }
 
-  const dim3 blocks(div_round_up(N, kMaxThreads));
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // direct_mapped_lxu_cache_lookup_kernel uses CUDA_KERNEL_LOOP, which
+  // already grid-strides over n, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const dim3 blocks(
+      utils::cuda::cap_grid_dim_x_from_workload(
+          N, kMaxThreads, at::cuda::getCurrentCUDAStream()));
 
   AT_DISPATCH_INDEX_TYPES(
       linear_cache_indices.scalar_type(),
