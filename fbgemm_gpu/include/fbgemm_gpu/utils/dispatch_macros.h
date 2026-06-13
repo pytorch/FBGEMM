@@ -24,7 +24,8 @@
       PRIVATE_CASE_TYPE_CACHE(at::ScalarType::Float, float, __VA_ARGS__)   \
       PRIVATE_CASE_TYPE_CACHE(at::ScalarType::Half, at::Half, __VA_ARGS__) \
       default:                                                             \
-        AT_ERROR(                                                          \
+        TORCH_CHECK(                                                       \
+            false,                                                         \
             #NAME,                                                         \
             " not implemented for cache_t '",                              \
             toString(enum_type2),                                          \
@@ -33,42 +34,52 @@
   }
 #if defined(USE_ROCM)
 
-#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...)  \
-  at::ScalarType _emb_t = emb_enum_type;                                      \
-  at::ScalarType _cache_t = cache_enum_type;                                  \
-  switch (_emb_t) {                                                           \
-    PRIVATE_CASE_TYPE_EMB(                                                    \
-        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
-    PRIVATE_CASE_TYPE_EMB(                                                    \
-        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)          \
-    PRIVATE_CASE_TYPE_EMB(                                                    \
-        at::ScalarType::Float8_e4m3fnuz,                                      \
-        _cache_t,                                                             \
-        at::Float8_e4m3fnuz,                                                  \
-        NAME,                                                                 \
-        __VA_ARGS__)                                                          \
-    default:                                                                  \
-      AT_ERROR(#NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...) \
+  at::ScalarType _emb_t = emb_enum_type;                                     \
+  at::ScalarType _cache_t = cache_enum_type;                                 \
+  switch (_emb_t) {                                                          \
+    PRIVATE_CASE_TYPE_EMB(                                                   \
+        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)           \
+    PRIVATE_CASE_TYPE_EMB(                                                   \
+        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)         \
+    PRIVATE_CASE_TYPE_EMB(                                                   \
+        at::ScalarType::Float8_e4m3fnuz,                                     \
+        _cache_t,                                                            \
+        at::Float8_e4m3fnuz,                                                 \
+        NAME,                                                                \
+        __VA_ARGS__)                                                         \
+    default:                                                                 \
+      TORCH_CHECK(                                                           \
+          false,                                                             \
+          #NAME,                                                             \
+          " not implemented for emb_t '",                                    \
+          toString(_emb_t),                                                  \
+          "'");                                                              \
   }
 
 #else
 
-#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...)  \
-  at::ScalarType _emb_t = emb_enum_type;                                      \
-  at::ScalarType _cache_t = cache_enum_type;                                  \
-  switch (_emb_t) {                                                           \
-    PRIVATE_CASE_TYPE_EMB(                                                    \
-        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
-    PRIVATE_CASE_TYPE_EMB(                                                    \
-        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)          \
-    PRIVATE_CASE_TYPE_EMB(                                                    \
-        at::ScalarType::Float8_e4m3fn,                                        \
-        _cache_t,                                                             \
-        at::Float8_e4m3fn,                                                    \
-        NAME,                                                                 \
-        __VA_ARGS__)                                                          \
-    default:                                                                  \
-      AT_ERROR(#NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...) \
+  at::ScalarType _emb_t = emb_enum_type;                                     \
+  at::ScalarType _cache_t = cache_enum_type;                                 \
+  switch (_emb_t) {                                                          \
+    PRIVATE_CASE_TYPE_EMB(                                                   \
+        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)           \
+    PRIVATE_CASE_TYPE_EMB(                                                   \
+        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)         \
+    PRIVATE_CASE_TYPE_EMB(                                                   \
+        at::ScalarType::Float8_e4m3fn,                                       \
+        _cache_t,                                                            \
+        at::Float8_e4m3fn,                                                   \
+        NAME,                                                                \
+        __VA_ARGS__)                                                         \
+    default:                                                                 \
+      TORCH_CHECK(                                                           \
+          false,                                                             \
+          #NAME,                                                             \
+          " not implemented for emb_t '",                                    \
+          toString(_emb_t),                                                  \
+          "'");                                                              \
   }
 
 #endif
@@ -122,7 +133,8 @@
           NAME,                                                    \
           __VA_ARGS__)                                             \
       default:                                                     \
-        AT_ERROR(                                                  \
+        TORCH_CHECK(                                               \
+            false,                                                 \
             #NAME,                                                 \
             " not implemented for output_t '",                     \
             toString(_output_t),                                   \
@@ -150,7 +162,8 @@
       PRIVATE_CASE_TYPE_OUTPUT2(                                             \
           at::ScalarType::QUInt4x2, uint8_t, __VA_ARGS__)                    \
       default:                                                               \
-        AT_ERROR(                                                            \
+        TORCH_CHECK(                                                         \
+            false,                                                           \
             #NAME,                                                           \
             " not implemented for output_t '",                               \
             toString(_output_t),                                             \
@@ -168,7 +181,8 @@
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Byte, uint8_t, __VA_ARGS__)  \
       default:                                                               \
-        AT_ERROR(                                                            \
+        TORCH_CHECK(                                                         \
+            false,                                                           \
             #NAME,                                                           \
             " not implemented for output_t '",                               \
             toString(_output_t),                                             \
@@ -180,48 +194,56 @@
 
 #if defined(USE_ROCM)
 
-#define PRIVATE_CASE_TYPE_CACHE_EMB(                                       \
-    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)            \
-  case grad_enum_type: {                                                   \
-    using grad_t = grad_cxx_type;                                          \
-    switch (_emb_t) {                                                      \
-      PRIVATE_CASE_TYPE_EMB(                                               \
-          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)       \
-      PRIVATE_CASE_TYPE_EMB(                                               \
-          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)     \
-      PRIVATE_CASE_TYPE_EMB(                                               \
-          at::ScalarType::Float8_e4m3fnuz,                                 \
-          _cache_t,                                                        \
-          at::Float8_e4m3fnuz,                                             \
-          Name,                                                            \
-          __VA_ARGS__)                                                     \
-      default:                                                             \
-        AT_ERROR(                                                          \
-            #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
-    }                                                                      \
+#define PRIVATE_CASE_TYPE_CACHE_EMB(                                   \
+    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)        \
+  case grad_enum_type: {                                               \
+    using grad_t = grad_cxx_type;                                      \
+    switch (_emb_t) {                                                  \
+      PRIVATE_CASE_TYPE_EMB(                                           \
+          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)   \
+      PRIVATE_CASE_TYPE_EMB(                                           \
+          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__) \
+      PRIVATE_CASE_TYPE_EMB(                                           \
+          at::ScalarType::Float8_e4m3fnuz,                             \
+          _cache_t,                                                    \
+          at::Float8_e4m3fnuz,                                         \
+          NAME,                                                        \
+          __VA_ARGS__)                                                 \
+      default:                                                         \
+        TORCH_CHECK(                                                   \
+            false,                                                     \
+            #NAME,                                                     \
+            " not implemented for emb_t '",                            \
+            toString(_emb_t),                                          \
+            "'");                                                      \
+    }                                                                  \
   }
 
 #else
 
-#define PRIVATE_CASE_TYPE_CACHE_EMB(                                       \
-    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)            \
-  case grad_enum_type: {                                                   \
-    using grad_t = grad_cxx_type;                                          \
-    switch (_emb_t) {                                                      \
-      PRIVATE_CASE_TYPE_EMB(                                               \
-          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)       \
-      PRIVATE_CASE_TYPE_EMB(                                               \
-          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)     \
-      PRIVATE_CASE_TYPE_EMB(                                               \
-          at::ScalarType::Float8_e4m3fn,                                   \
-          _cache_t,                                                        \
-          at::Float8_e4m3fn,                                               \
-          Name,                                                            \
-          __VA_ARGS__)                                                     \
-      default:                                                             \
-        AT_ERROR(                                                          \
-            #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
-    }                                                                      \
+#define PRIVATE_CASE_TYPE_CACHE_EMB(                                   \
+    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)        \
+  case grad_enum_type: {                                               \
+    using grad_t = grad_cxx_type;                                      \
+    switch (_emb_t) {                                                  \
+      PRIVATE_CASE_TYPE_EMB(                                           \
+          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)   \
+      PRIVATE_CASE_TYPE_EMB(                                           \
+          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__) \
+      PRIVATE_CASE_TYPE_EMB(                                           \
+          at::ScalarType::Float8_e4m3fn,                               \
+          _cache_t,                                                    \
+          at::Float8_e4m3fn,                                           \
+          NAME,                                                        \
+          __VA_ARGS__)                                                 \
+      default:                                                         \
+        TORCH_CHECK(                                                   \
+            false,                                                     \
+            #NAME,                                                     \
+            " not implemented for emb_t '",                            \
+            toString(_emb_t),                                          \
+            "'");                                                      \
+    }                                                                  \
   }
 
 #endif
@@ -248,8 +270,12 @@
           NAME,                                                                \
           __VA_ARGS__)                                                         \
       default:                                                                 \
-        AT_ERROR(                                                              \
-            #NAME, " not implemented for grad_t '", toString(_grad_t), "'");   \
+        TORCH_CHECK(                                                           \
+            false,                                                             \
+            #NAME,                                                             \
+            " not implemented for grad_t '",                                   \
+            toString(_grad_t),                                                 \
+            "'");                                                              \
     }                                                                          \
   }()
 
