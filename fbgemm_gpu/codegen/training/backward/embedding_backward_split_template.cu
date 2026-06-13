@@ -457,7 +457,8 @@ using namespace embedding_ops;
   }                                                                     \
   {%- endfor %}
   else {                                                                \
-    AT_ERROR(                                                           \
+    TORCH_CHECK(                                                        \
+        false, \
         #NAME, \
         " not implemented for ",                                        \
         {%- for ph_name in args.placeholder_tensor_names %}
