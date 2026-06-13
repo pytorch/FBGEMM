@@ -1955,12 +1955,15 @@ __global__ void compute_amax_and_quantize_kernel(
   const auto warp_id = threadIdx.y;
   const int64_t idx = (block_idx + warp_id) * blocksize + thread_id;
 
-  if (idx >= n)
-    return;
+  // Do NOT early-return for out-of-range threads: compute_max() below uses a
+  // block-wide cub::BlockReduce + __syncthreads() that every thread must reach,
+  // otherwise the block deadlocks on ROCm/AMD. Mask the work with `active`.
+  const bool active = idx < n;
 
   float scale = 1.f, unscale = 1.f;
 
-  float thread_val = x[idx];
+  // Inactive lanes feed 0 into the fabsf-max reduction (neutral).
+  float thread_val = active ? static_cast<float>(x[idx]) : 0.0f;
   float block_amax = compute_max<THREAD_X, THREAD_Y>(thread_val, blocksize);
 
   if (global_amax) {
@@ -1970,7 +1973,9 @@ __global__ void compute_amax_and_quantize_kernel(
     compute_scale(scale, unscale, block_amax);
   }
 
-  y[idx] = quantize(thread_val, scale, unscale);
+  if (active) {
+    y[idx] = quantize(thread_val, scale, unscale);
+  }
 }
 
 int ceil_div(const int a, const int b) {
