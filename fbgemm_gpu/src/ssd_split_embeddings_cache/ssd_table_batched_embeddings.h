@@ -9,6 +9,8 @@
 #pragma once
 
 #include <algorithm>
+#include <cstring>
+#include <ctime>
 #include <iostream>
 #include <memory>
 
@@ -1376,11 +1378,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   friend class CheckpointHandle;
 
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
+  std::vector<rocksdb::ColumnFamilyHandle*> metadata_cf_handles_;
   std::vector<std::unique_ptr<Initializer>> initializers_;
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
   rocksdb::ReadOptions ro_{};
   rocksdb::WriteOptions wo_{};
   std::shared_ptr<rocksdb::RateLimiter> rate_limiter_;
+  rocksdb::ColumnFamilyOptions cf_options_;
   std::vector<int64_t> shard_flush_compaction_deadlines_;
   bool done_staggered_flushes_;
   int64_t memtable_flush_offset_;
@@ -1396,10 +1400,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> fwd_l1_eviction_dur_{0};
   std::atomic<int64_t> bwd_l1_cnflct_miss_write_back_dur_{0};
   std::atomic<int64_t> flush_write_dur_{0};
+  std::atomic<int64_t> total_rows_written_{0}; // cumulative actual rows written
 
   std::unordered_map<const SnapshotHandle*, std::unique_ptr<SnapshotHandle>>
       snapshots_;
   int64_t max_D_;
+  int64_t metadata_dim_;
   int64_t elem_size_;
   std::vector<int64_t> sub_table_dims_;
   std::vector<int64_t> sub_table_hash_cumsum_;
