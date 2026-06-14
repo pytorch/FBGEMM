@@ -25,18 +25,6 @@ namespace fbgemm_gpu::utils::cuda {
 /// kernels: `max_blocks = MAX_THREAD_BLOCKS_FACTOR * #SMs`.
 constexpr int32_t MAX_THREAD_BLOCKS_FACTOR = 64;
 
-/// Returns `MAX_THREAD_BLOCKS_FACTOR * #SMs` for the device backing
-/// `stream`. Legacy helper retained until all direct callers have migrated
-/// to `cap_grid_dim_x{,_from_workload}` below.
-///
-/// @param stream  Stream whose device supplies `#SMs`.
-/// @return  Grid-size cap to apply at kernel launch.
-inline auto get_max_thread_blocks(const c10::cuda::CUDAStream& stream) {
-  const auto device = stream.device_index();
-  return MAX_THREAD_BLOCKS_FACTOR *
-      at::cuda::getDeviceProperties(device)->multiProcessorCount;
-}
-
 /// Selects how `cap_grid_dim_x{,_from_workload}` clamps the requested grid.
 ///
 /// - `Always`: cap on both CUDA and ROCm at `MAX_THREAD_BLOCKS_FACTOR * #SMs`.
@@ -82,7 +70,10 @@ inline uint32_t cap_grid_dim_x(
     return blocks_uncapped;
   }
 
-  const auto max_blocks = static_cast<uint32_t>(get_max_thread_blocks(stream));
+  const auto max_blocks = static_cast<uint32_t>(
+      MAX_THREAD_BLOCKS_FACTOR *
+      at::cuda::getDeviceProperties(stream.device_index())
+          ->multiProcessorCount);
 
   if (policy == BlockCapPolicy::Always) {
     return std::min<uint32_t>(blocks_uncapped, max_blocks);
