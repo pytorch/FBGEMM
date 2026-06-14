@@ -42,7 +42,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -1009,7 +1009,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_adam(  # noqa C901
@@ -1070,7 +1069,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_adam_rowwise_bias_correction(  # noqa C901
@@ -1139,7 +1137,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_partial_rowwise_adam_bf16_momentum(  # noqa C901
@@ -1222,7 +1219,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_adagrad(  # noqa C901
         self,
@@ -1304,7 +1300,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_adagrad_with_counter_cpu(  # noqa C901
         self,
@@ -1373,7 +1368,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     @skipIfNotRocm("Test only evaluates ROCm optimized kernels")
@@ -1447,7 +1441,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_ensemble_rowwise_adagrad(  # noqa C901
@@ -1508,7 +1501,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_emainplace_rowwise_adagrad(  # noqa C901
@@ -1570,7 +1562,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_lamb(  # noqa C901
@@ -1625,7 +1616,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_lars(  # noqa C901
@@ -1688,7 +1678,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_v1(  # noqa C901
         self,
@@ -1754,7 +1743,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_v1_vbe(  # noqa C901
         self,
@@ -1834,7 +1822,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_in_oss)
