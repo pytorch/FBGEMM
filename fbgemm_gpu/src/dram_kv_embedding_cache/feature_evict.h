@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <memory_resource>
 #include <stdexcept>
 #include <vector>
@@ -28,6 +29,11 @@
 #include "SynchronizedShardedMap.h"
 
 namespace kv_mem {
+
+// Callback for writing evicted dirty blocks to SSD.
+// Parameters: vector of (key, serialized_block_data) pairs.
+using EvictionWritebackCallback =
+    std::function<void(std::vector<std::pair<int64_t, std::string>>)>;
 
 enum class EvictTriggerMode {
   DISABLED, // Do not use feature evict
@@ -119,7 +125,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
       std::optional<int64_t> threshold_calculation_bucket_num = 1000000, // 1M
       int64_t interval_for_insufficient_eviction_s = 600, // 10 min
       int64_t interval_for_sufficient_eviction_s = 60, // 1 min
-      int64_t interval_for_feature_statistics_decay_s = 24 * 3600) // 1 day
+      int64_t interval_for_feature_statistics_decay_s = 24 * 3600, // 1 day
+      bool enable_ssd_writeback = false)
       : trigger_mode_(static_cast<EvictTriggerMode>(trigger_mode)),
         trigger_strategy_(static_cast<EvictTriggerStrategy>(trigger_strategy)),
         trigger_step_interval_(trigger_step_interval),
@@ -143,7 +150,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
             interval_for_insufficient_eviction_s),
         interval_for_sufficient_eviction_s_(interval_for_sufficient_eviction_s),
         interval_for_feature_statistics_decay_s_(
-            interval_for_feature_statistics_decay_s) {
+            interval_for_feature_statistics_decay_s),
+        enable_ssd_writeback_(enable_ssd_writeback) {
     // verification
     if (trigger_mode_ == EvictTriggerMode::DISABLED) {
       LOG(INFO) << "eviction config, trigger mode is disabled";
@@ -214,7 +222,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
                   << ", counter_thresholds: " << counter_thresholds_.value()
-                  << ", counter_decay_rates: " << counter_decay_rates_.value();
+                  << ", counter_decay_rates: " << counter_decay_rates_.value()
+                  << ", enable_ssd_writeback: " << enable_ssd_writeback_;
         return;
       }
 
@@ -238,7 +247,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << ", feature_score_counter_decay_rates: "
                   << feature_score_counter_decay_rates_.value()
                   << ", enable_eviction_for_feature_score_eviction_policy: "
-                  << enable_eviction_for_feature_score_eviction_policy_.value();
+                  << enable_eviction_for_feature_score_eviction_policy_.value()
+                  << ", enable_ssd_writeback: " << enable_ssd_writeback_;
         return;
       }
 
@@ -247,7 +257,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         LOG(INFO) << "eviction config, trigger mode:"
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
-                  << ", ttls_in_mins: " << ttls_in_mins_.value();
+                  << ", ttls_in_mins: " << ttls_in_mins_.value()
+                  << ", enable_ssd_writeback: " << enable_ssd_writeback_;
         return;
       }
 
@@ -260,7 +271,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << ", strategy: " << to_string(trigger_strategy_)
                   << ", counter_thresholds: " << counter_thresholds_.value()
                   << ", counter_decay_rates: " << counter_decay_rates_.value()
-                  << ", ttls_in_mins: " << ttls_in_mins_.value();
+                  << ", ttls_in_mins: " << ttls_in_mins_.value()
+                  << ", enable_ssd_writeback: " << enable_ssd_writeback_;
         return;
       }
 
@@ -271,14 +283,16 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
                   << ", l2_weight_thresholds: " << l2_weight_thresholds_.value()
-                  << ", embedding_dims: " << embedding_dims_.value();
+                  << ", embedding_dims: " << embedding_dims_.value()
+                  << ", enable_ssd_writeback: " << enable_ssd_writeback_;
         return;
       }
 
       case EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD: {
         LOG(INFO) << "eviction config, trigger mode:"
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
-                  << ", strategy: " << to_string(trigger_strategy_);
+                  << ", strategy: " << to_string(trigger_strategy_)
+                  << ", enable_ssd_writeback: " << enable_ssd_writeback_;
         break;
       }
 
@@ -306,6 +320,7 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
   int64_t interval_for_insufficient_eviction_s_;
   int64_t interval_for_sufficient_eviction_s_;
   int64_t interval_for_feature_statistics_decay_s_;
+  bool enable_ssd_writeback_;
 };
 
 struct FeatureEvictMetrics {
@@ -415,6 +430,7 @@ class FeatureEvict {
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
       bool is_training = true,
+      bool enable_ssd_writeback = false,
       TestMode test_mode = TestMode::DISABLED)
       : kv_store_(kv_store),
         evict_state_(EvictState::Idle),
@@ -430,7 +446,8 @@ class FeatureEvict {
         interval_for_feature_statistics_decay_s_(
             interval_for_feature_statistics_decay_s),
         is_training_(is_training),
-        test_mode_(test_mode) {
+        test_mode_(test_mode),
+        enable_ssd_writeback_(enable_ssd_writeback) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards_);
 
     init_shard_status();
@@ -554,6 +571,35 @@ class FeatureEvict {
     futures_.clear();
   }
 
+  // Set the writeback callback for eviction-to-SSD writeback.
+  // Must be public so the composite backend (DramSsdKVEmbeddingCache)
+  // can wire this callback.
+  // Precondition: must be called once during setup, before any eviction
+  // is triggered. `writeback_callback_` is read without synchronization
+  // from worker threads in the eviction loops, so concurrent mutation
+  // would be a data race (`std::function` is not safe for concurrent
+  // read/write).
+  void set_writeback_callback(kv_mem::EvictionWritebackCallback cb) {
+    CHECK(!is_evicting())
+        << "set_writeback_callback must be called before any eviction is triggered";
+    writeback_callback_ = std::move(cb);
+  }
+
+  // Set whether SSD writeback is enabled for evicted dirty blocks.
+  // When false, eviction simply deletes blocks without invoking callback,
+  // even if callback is set. When true, dirty evicted blocks are serialized
+  // and passed to writeback_callback_.
+  // Must be called before any eviction is triggered.
+  void set_enable_ssd_writeback(bool enable) {
+    CHECK(!is_evicting())
+        << "set_enable_ssd_writeback must be called before any eviction is triggered";
+    enable_ssd_writeback_.store(enable);
+  }
+
+  bool get_enable_ssd_writeback() const {
+    return enable_ssd_writeback_.load();
+  }
+
  protected:
   void sanity_check_before_new_round() {
     CHECK_EQ(num_waiting_evicts_.load(), 0)
@@ -648,36 +694,69 @@ class FeatureEvict {
       int shard_id,
       std::vector<int64_t>& evicted_counts,
       std::vector<int64_t>& processed_counts) {
-    auto wlock = kv_store_.by(shard_id).wlock();
-    auto* pool = kv_store_.pool_by(shard_id);
+    // Capture the callback and SSD flag once into locals.
+    // `set_writeback_callback` and `set_enable_ssd_writeback` are required to
+    // be called before any eviction is triggered, but capturing locally also
+    // avoids any TOCTOU between the truthiness check and the post-lock
+    // invocation below.
+    auto writeback_callback = writeback_callback_;
+    bool enable_ssd_writeback = enable_ssd_writeback_.load();
 
-    while (!should_exit_evict_loop(shard_id)) {
-      auto* block =
-          pool->template get_block<weight_type>(block_cursors_[shard_id]++);
-      if (block == nullptr) {
-        continue;
-      }
-      int64_t key = FixedBlockPool::get_key(block);
-      int sub_table_id = get_sub_table_id(key);
-      processed_counts[sub_table_id]++;
-      if (evict_block(block, sub_table_id, shard_id)) {
-        auto it = wlock->find(key);
-        if (it != wlock->end() && block == it->second) {
-          auto time_elapsed = FixedBlockPool::current_timestamp() -
-              FixedBlockPool::get_timestamp(block);
-          if (time_elapsed < 1800) { // 30 mins
-            LOG_EVERY_N(WARNING, 1000)
-                << "Evicting key:" << key << " with " << time_elapsed
-                << " seconds, less than 30 mins elapsed since first seen,"
-                << " make sure this is expected";
-          }
-          wlock->erase(key);
-          pool->template deallocate_t<weight_type>(block);
-          evicted_counts[sub_table_id]++;
+    // Collect dirty evicted blocks for writeback to SSD.
+    // Collection happens while holding wlock (to access block data),
+    // but the callback is invoked after releasing wlock to avoid
+    // holding DRAM locks during SSD I/O.
+    std::vector<std::pair<int64_t, std::string>> writeback_batch;
+
+    {
+      auto wlock = kv_store_.by(shard_id).wlock();
+      auto* pool = kv_store_.pool_by(shard_id);
+
+      while (!should_exit_evict_loop(shard_id)) {
+        auto* block =
+            pool->template get_block<weight_type>(block_cursors_[shard_id]++);
+        if (block == nullptr) {
+          continue;
         }
-      } else {
-        rebuild_block_histogram(block, sub_table_id, shard_id);
+        int64_t key = FixedBlockPool::get_key(block);
+        int sub_table_id = get_sub_table_id(key);
+        processed_counts[sub_table_id]++;
+        if (evict_block(block, sub_table_id, shard_id)) {
+          auto it = wlock->find(key);
+          if (it != wlock->end() && block == it->second) {
+            auto time_elapsed = FixedBlockPool::current_timestamp() -
+                FixedBlockPool::get_timestamp(block);
+            if (time_elapsed < 1800) { // 30 mins
+              LOG_EVERY_N(WARNING, 1000)
+                  << "Evicting key:" << key << " with " << time_elapsed
+                  << " seconds, less than 30 mins elapsed since first seen,"
+                  << " make sure this is expected";
+            }
+            // Serialize dirty block data before erase+deallocate
+            if (pool->get_dirty(block) && enable_ssd_writeback &&
+                writeback_callback) {
+              size_t block_size = pool->get_block_size();
+              std::string block_data(
+                  reinterpret_cast<const char*>(block), block_size);
+              writeback_batch.emplace_back(key, std::move(block_data));
+            }
+            wlock->erase(key);
+            pool->template deallocate_t<weight_type>(block);
+            evicted_counts[sub_table_id]++;
+          }
+        } else {
+          rebuild_block_histogram(block, sub_table_id, shard_id);
+        }
       }
+    } // wlock released here
+
+    // Invoke writeback callback after releasing wlock
+    if (enable_ssd_writeback && writeback_callback &&
+        !writeback_batch.empty()) {
+      LOG(INFO) << "[FeatureEvict] training eviction shard " << shard_id << ": "
+                << writeback_batch.size()
+                << " dirty blocks sent to SSD writeback";
+      writeback_callback(std::move(writeback_batch));
     }
   }
 
@@ -688,6 +767,14 @@ class FeatureEvict {
       std::vector<int64_t>& processed_counts) {
     auto* pool = kv_store_.pool_by(shard_id);
     auto mem_pool_lock = pool->acquire_lock();
+
+    // Capture the callback and SSD flag once into locals; see comment in
+    // start_training_eviction_loop.
+    auto writeback_callback = writeback_callback_;
+    bool enable_ssd_writeback = enable_ssd_writeback_.load();
+
+    // Collect dirty evicted blocks for writeback to SSD.
+    std::vector<std::pair<int64_t, std::string>> writeback_batch;
 
     std::vector<int> evicting_keys;
     evicting_keys.reserve(block_nums_snapshot_[shard_id] / 100);
@@ -701,6 +788,14 @@ class FeatureEvict {
       int sub_table_id = get_sub_table_id(key);
       processed_counts[sub_table_id]++;
       if (evict_block(block, sub_table_id, shard_id)) {
+        // Serialize dirty block data before deallocate
+        if (pool->get_dirty(block) && enable_ssd_writeback &&
+            writeback_callback) {
+          size_t block_size = pool->get_block_size();
+          std::string block_data(
+              reinterpret_cast<const char*>(block), block_size);
+          writeback_batch.emplace_back(key, std::move(block_data));
+        }
         pool->template deallocate_t<weight_type>(block);
         evicted_counts[sub_table_id]++;
         evicting_keys.push_back(key);
@@ -714,6 +809,13 @@ class FeatureEvict {
     auto shard_map_wlock = kv_store_.by(shard_id).wlock();
     for (auto& key : evicting_keys) {
       shard_map_wlock->erase(key);
+    }
+    shard_map_wlock.unlock();
+
+    // Invoke writeback callback after releasing all locks
+    if (enable_ssd_writeback && writeback_callback &&
+        !writeback_batch.empty()) {
+      writeback_callback(std::move(writeback_batch));
     }
   }
 
@@ -957,9 +1059,20 @@ class FeatureEvict {
   std::atomic<bool> should_call_ = false;
   std::vector<std::unique_ptr<std::atomic<bool>>> last_iter_shards_;
 
+  // Flag to control SSD writeback behavior for evicted dirty blocks.
+  // When true, dirty blocks are serialized and passed to writeback_callback_.
+  // When false, eviction deletes blocks directly without SSD interaction.
+  std::atomic<bool> enable_ssd_writeback_{false};
+
+  // Callback for writing dirty evicted blocks to SSD.
+  EvictionWritebackCallback writeback_callback_;
+
   FRIEND_TEST(FeatureEvictTest, DupAPINoOpCheck);
   FRIEND_TEST(FeatureEvictTest, EdgeCase_NoPause);
   FRIEND_TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter);
+  FRIEND_TEST(FeatureEvictTest, WritebackCallbackDirtyBlocks);
+  FRIEND_TEST(FeatureEvictTest, WritebackCallbackNonDirtyBlocks);
+  FRIEND_TEST(FeatureEvictTest, WritebackCallbackInferenceEviction);
 };
 
 template <typename weight_type>
@@ -974,6 +1087,7 @@ class CounterBasedEvict : public FeatureEvict<weight_type> {
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
       bool is_training,
+      bool enable_ssd_writeback = false,
       TestMode test_mode = TestMode::DISABLED)
       : FeatureEvict<weight_type>(
             kv_store,
@@ -982,6 +1096,7 @@ class CounterBasedEvict : public FeatureEvict<weight_type> {
             interval_for_sufficient_eviction_s,
             interval_for_feature_statistics_decay_s,
             is_training,
+            enable_ssd_writeback,
             test_mode),
         decay_rates_(decay_rates),
         thresholds_(thresholds) {
@@ -1029,6 +1144,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
       bool is_training,
+      bool enable_ssd_writeback = false,
       TestMode test_mode = TestMode::DISABLED)
       : FeatureEvict<weight_type>(
             kv_store,
@@ -1037,6 +1153,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
             interval_for_sufficient_eviction_s,
             interval_for_feature_statistics_decay_s,
             is_training,
+            enable_ssd_writeback,
             test_mode),
         decay_rates_(decay_rates),
         training_id_eviction_trigger_count_(training_id_eviction_trigger_count),
@@ -1338,14 +1455,16 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
       int64_t interval_for_insufficient_eviction_s,
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
-      bool is_training)
+      bool is_training,
+      bool enable_ssd_writeback = false)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
             interval_for_sufficient_eviction_s,
             interval_for_feature_statistics_decay_s,
-            is_training),
+            is_training,
+            enable_ssd_writeback),
         ttls_in_mins_(ttls_in_mins) {}
 
   void update_feature_statistics(weight_type* block) override {
@@ -1377,14 +1496,16 @@ class TimeThresholdBasedEvict : public FeatureEvict<weight_type> {
       int64_t interval_for_insufficient_eviction_s,
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
-      bool is_training)
+      bool is_training,
+      bool enable_ssd_writeback = false)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
             interval_for_sufficient_eviction_s,
             interval_for_feature_statistics_decay_s,
-            is_training) {}
+            is_training,
+            enable_ssd_writeback) {}
 
   void update_feature_statistics(weight_type* block) override {
     FixedBlockPool::update_timestamp(block);
@@ -1415,14 +1536,16 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
       int64_t interval_for_insufficient_eviction_s,
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
-      bool is_training)
+      bool is_training,
+      bool enable_ssd_writeback = false)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
             interval_for_sufficient_eviction_s,
             interval_for_feature_statistics_decay_s,
-            is_training),
+            is_training,
+            enable_ssd_writeback),
         ttls_in_mins_(ttls_in_mins),
         decay_rates_(decay_rates),
         thresholds_(thresholds) {}
@@ -1473,14 +1596,16 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
       int64_t interval_for_insufficient_eviction_s,
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
-      bool is_training)
+      bool is_training,
+      bool enable_ssd_writeback = false)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
             interval_for_sufficient_eviction_s,
             interval_for_feature_statistics_decay_s,
-            is_training),
+            is_training,
+            enable_ssd_writeback),
         thresholds_(thresholds),
         sub_table_dims_(sub_table_dims) {}
 
@@ -1521,7 +1646,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->interval_for_insufficient_eviction_s_,
           config->interval_for_sufficient_eviction_s_,
           config->interval_for_feature_statistics_decay_s_,
-          is_training);
+          is_training,
+          config->enable_ssd_writeback_);
     }
 
     case EvictTriggerStrategy::BY_COUNTER: {
@@ -1540,6 +1666,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->interval_for_sufficient_eviction_s_,
           config->interval_for_feature_statistics_decay_s_,
           is_training,
+          config->enable_ssd_writeback_,
           test_mode);
     }
 
@@ -1565,6 +1692,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->interval_for_sufficient_eviction_s_,
           config->interval_for_feature_statistics_decay_s_,
           is_training,
+          config->enable_ssd_writeback_,
           test_mode);
     }
 
@@ -1584,7 +1712,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->interval_for_insufficient_eviction_s_,
           config->interval_for_sufficient_eviction_s_,
           config->interval_for_feature_statistics_decay_s_,
-          is_training);
+          is_training,
+          config->enable_ssd_writeback_);
     }
 
     case EvictTriggerStrategy::BY_L2WEIGHT: {
@@ -1607,7 +1736,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->interval_for_insufficient_eviction_s_,
           config->interval_for_sufficient_eviction_s_,
           config->interval_for_feature_statistics_decay_s_,
-          is_training);
+          is_training,
+          config->enable_ssd_writeback_);
     }
 
     case EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD: {
@@ -1617,7 +1747,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->interval_for_insufficient_eviction_s_,
           config->interval_for_sufficient_eviction_s_,
           config->interval_for_feature_statistics_decay_s_,
-          is_training);
+          is_training,
+          config->enable_ssd_writeback_);
     }
 
     default:
