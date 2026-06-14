@@ -1250,7 +1250,7 @@ def index_select_bench(
         input_num_indices: list[int],
         input_rows: list[int],
         input_columns: list[int],
-    ) -> torch.autograd.Variable:
+    ) -> torch.Tensor:
         optim_batch.zero_grad()
         return torch.ops.fbgemm.batch_index_select_dim0(
             concat_inputs, concat_indices, input_num_indices, input_rows, input_columns
@@ -1258,15 +1258,15 @@ def index_select_bench(
 
     def group_index_select_fwd(
         gis_inputs: list[torch.Tensor], indices: list[int]
-    ) -> torch.autograd.Variable:
+    ) -> torch.Tensor:
         optim_group.zero_grad()
         return torch.ops.fbgemm.group_index_select_dim0(gis_inputs, indices)
 
     def batch_group_index_select_bwd(
-        output: torch.autograd.Variable,
+        output: torch.Tensor,
         grads: list[torch.Tensor],
         optim: torch.optim.Optimizer,
-    ) -> torch.autograd.Variable:
+    ) -> None:
         optim.zero_grad()
         return output.backward(grads, retain_graph=True)
 
