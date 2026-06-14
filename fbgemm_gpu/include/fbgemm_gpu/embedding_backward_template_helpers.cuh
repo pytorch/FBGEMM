@@ -24,6 +24,7 @@
 #include <mutex>
 
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/find_qparams.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
@@ -50,17 +51,3 @@ DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
       static_cast<unsigned long long int>(1)));
 #endif
 }
-
-namespace fbgemm_gpu {
-namespace {
-
-// Based on the empirical study, max grid size that is 64x larger than the
-// number of SMs gives good performance across the board
-constexpr int MAX_THREAD_BLOCKS_FACTOR = 64;
-
-inline int get_max_thread_blocks_() {
-  return MAX_THREAD_BLOCKS_FACTOR *
-      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-}
-} // namespace
-} // namespace fbgemm_gpu
