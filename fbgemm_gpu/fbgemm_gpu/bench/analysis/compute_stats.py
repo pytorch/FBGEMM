@@ -154,6 +154,7 @@ def main() -> int:
                         "label": label,
                         "n": 0,
                         "mean_us": None,
+                        "median_us": None,
                         "stdev_us": None,
                         "dispatched": False,
                     }
@@ -161,12 +162,14 @@ def main() -> int:
                 continue
             n = int(found.get("count", 0) or 0)
             mean_us = found.get("mean_us")
+            median_us = found.get("median_us")
             stdev_us = found.get("stdev_us")
             per_commit_entries.append(
                 {
                     "label": label,
                     "n": n,
                     "mean_us": mean_us if n > 0 else None,
+                    "median_us": median_us if n > 0 else None,
                     "stdev_us": stdev_us if n > 0 else None,
                     "dispatched": n > 0,
                 }
