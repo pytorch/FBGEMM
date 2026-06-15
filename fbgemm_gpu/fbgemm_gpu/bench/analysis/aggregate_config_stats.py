@@ -55,6 +55,7 @@ import argparse
 import json
 import os
 import sys
+from collections import Counter
 from typing import Any
 
 from fbgemm_gpu.bench.analysis.kernel_grouping import base_name_of
@@ -64,6 +65,41 @@ from fbgemm_gpu.bench.analysis.types import KernelStats, write_config_stats_csv
 
 def _config_tuple(cfg: dict[str, Any], columns: list[str]) -> tuple:
     return tuple(cfg[c] for c in columns)
+
+
+def per_iteration_totals(
+    durations_by_kernel: dict[str, list[float]],
+) -> list[float] | None:
+    """Reconstruct the per-iteration TOTAL GPU time series from per-launch
+    durations.
+
+    Each kernel's ``durations_us`` must be in execution (iteration) order and
+    come from a SINGLE trace file. ``n_iter`` is the minimum launch count over
+    dispatched kernels (the primary op fires once per iteration; the rocprim
+    sort pre-pass kernels fire an integer multiple per iteration). Each kernel
+    is split into ``n_iter`` contiguous chunks, summed within each iteration,
+    then summed across kernels.
+
+    Returns the length-``n_iter`` per-iteration total series, or ``None`` when
+    there are no dispatched kernels or any kernel's launch count is not a
+    multiple of ``n_iter`` (the caller should warn and skip the total for that
+    config). The returned series feeds ``KernelStats`` so the ``(total)`` row
+    gets a REAL mean/median/stdev/min/max instead of a placeholder.
+    """
+    active = {k: d for k, d in durations_by_kernel.items() if d}
+    if not active:
+        return None
+    n_iter = min(len(d) for d in active.values())
+    if n_iter == 0:
+        return None
+    totals = [0.0] * n_iter
+    for durs in active.values():
+        if len(durs) % n_iter != 0:
+            return None
+        per_iter = len(durs) // n_iter
+        for i in range(n_iter):
+            totals[i] += sum(durs[i * per_iter : (i + 1) * per_iter])
+    return totals
 
 
 def _parse_pattern_spec(spec: str) -> tuple[str, str, str]:
@@ -111,6 +147,7 @@ def _collect_kernel_stats(
     config_map: list[dict[str, Any]],
     config_columns: list[str],
     patterns: list[tuple[str, str, str]],
+    emit_total: bool = False,
 ) -> list[tuple[dict[str, Any], str, str, KernelStats]]:
     """Extract durations and bucket by ``(config_tuple, kernel_name)``.
 
@@ -118,17 +155,25 @@ def _collect_kernel_stats(
     tuples, one per ``(config, kernel_name)`` combination. Includes
     explicit ``count=0`` rows when a config did not dispatch a kernel
     that other configs did.
+
+    When ``emit_total`` is set, an additional ``(total)`` row is appended
+    after each config's per-kernel rows, carrying the REAL per-iteration total
+    time series (see :func:`per_iteration_totals`). The total is skipped (with
+    a warning) for a config whose kernels span more than one trace file, or
+    whose launch counts are not integer multiples of ``n_iter``.
     """
     # bucket[cfg_tuple][kernel_name] -> list[float]
     bucket: dict[tuple, dict[str, list[float]]] = {}
     config_for: dict[tuple, dict[str, Any]] = {}
     all_kernels: set[str] = set()
+    entries_per_cfg: Counter[tuple] = Counter()
 
     for entry in config_map:
         cfg = entry["config"]
         cfg_tuple = _config_tuple(cfg, config_columns)
         config_for[cfg_tuple] = {c: cfg[c] for c in config_columns}
         bucket.setdefault(cfg_tuple, {})
+        entries_per_cfg[cfg_tuple] += 1
 
         trace_path = os.path.join(trace_dir, entry["trace_file"])
         if not os.path.exists(trace_path):
@@ -157,6 +202,32 @@ def _collect_kernel_stats(
             durs = kernel_durs.get(kname, [])
             stats = KernelStats(name=kname, durations_us=list(durs))
             rows.append((cfg_dict, base_name_of(kname), kname, stats))
+        if emit_total:
+            if entries_per_cfg[cfg_tuple] > 1:
+                print(
+                    f"warning: --emit-total skipped for config {cfg_tuple}: "
+                    f"{entries_per_cfg[cfg_tuple]} trace files (per-iteration "
+                    "order is not reconstructable across files)",
+                    file=sys.stderr,
+                )
+                continue
+            totals = per_iteration_totals(kernel_durs)
+            if totals is None:
+                print(
+                    f"warning: --emit-total could not build a (total) for config "
+                    f"{cfg_tuple} (no dispatched kernels, or launch counts are "
+                    "not integer multiples of n_iter)",
+                    file=sys.stderr,
+                )
+                continue
+            rows.append(
+                (
+                    cfg_dict,
+                    "(total)",
+                    "(total)",
+                    KernelStats(name="(total)", durations_us=totals),
+                )
+            )
     return rows
 
 
@@ -175,6 +246,13 @@ def main() -> int:
         "with :regex, :exact, or :startswith; default is contains.",
     )
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--emit-total",
+        action="store_true",
+        help="Append a per-config '(total)' row carrying the REAL per-iteration "
+        "total time series (mean/median/stdev/min/max) reconstructed from the "
+        "per-launch durations. Supersedes the rollup_per_config.py placeholder.",
+    )
     args = parser.parse_args()
 
     try:
@@ -184,7 +262,13 @@ def main() -> int:
         return 2
 
     patterns = [_parse_pattern_spec(s) for s in args.kernel_pattern]
-    rows = _collect_kernel_stats(args.trace_dir, entries, config_columns, patterns)
+    rows = _collect_kernel_stats(
+        args.trace_dir,
+        entries,
+        config_columns,
+        patterns,
+        emit_total=args.emit_total,
+    )
 
     if not rows:
         print(
