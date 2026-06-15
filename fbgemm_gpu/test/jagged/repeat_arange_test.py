@@ -91,6 +91,15 @@ class RepeatArangeTest(unittest.TestCase):
         expected = torch.tensor([0, 1, 2, 0, 1, 2, 3, 4, 0, 1])
         torch.testing.assert_close(result, expected)
 
+    @optests.dontGenerateOpCheckTests("regression test for negative-size guard")
+    def test_repeat_arange_negative_length_errors(self) -> None:
+        """Regression: negative/corrupted lengths make the summed output_size
+        negative; the guard must reject it instead of allocating a tensor with
+        a negative dimension."""
+        lengths = torch.tensor([-5], dtype=torch.int64)
+        with self.assertRaisesRegex(ValueError, "output_size .* must be non-negative"):
+            torch.ops.fbgemm.repeat_arange(lengths)
+
     @given(
         batch_size=st.integers(1, 20),
         dtype=st.sampled_from([torch.int32, torch.int64]),

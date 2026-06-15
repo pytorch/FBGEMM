@@ -508,7 +508,8 @@ using namespace embedding_ops;
   }                                                                     \
   {%- endfor %}
   else {                                                                \
-    AT_ERROR(                                                           \
+    TORCH_CHECK(                                                        \
+        false, \
         #NAME, \
         " not implemented for ",                                        \
         {%- for ph_name in args.placeholder_tensor_names %}
@@ -1155,9 +1156,11 @@ Tensor {{ embedding_cuda_op }}(
                         used_shared_bytes
                     );
 
-                    const int32_t cta_per_row_grid_size = std::min(
-                        div_round_up(total_unique_indices, work_group_size),
-                        get_max_thread_blocks_());
+                    const auto cta_per_row_grid_size = utils::cuda::cap_grid_dim_x(
+                            cuda_calc_xblock_count(total_unique_indices, work_group_size),
+                            kThreadGroupSize * num_cta_per_row_groups, // block size
+                            at::cuda::getCurrentCUDAStream(),
+                            utils::cuda::BlockCapPolicy::Always);
 
                     FBGEMM_LAUNCH_KERNEL(
                         backward_cta_per_row_kernel,
@@ -1293,9 +1296,11 @@ Tensor {{ embedding_cuda_op }}(
 
                     auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
 
-                    int32_t warp_per_row_grid_size = std::min(
-                        div_round_up(total_unique_indices, num_warp_per_row_groups),
-                        get_max_thread_blocks_());
+                    auto warp_per_row_grid_size = utils::cuda::cap_grid_dim_x(
+                        cuda_calc_xblock_count(total_unique_indices, num_warp_per_row_groups),
+                        kThreadGroupSize * num_warp_per_row_groups, // block size
+                        at::cuda::getCurrentCUDAStream(),
+                        utils::cuda::BlockCapPolicy::Always);
 
 #ifdef USE_ROCM
                     {%- if is_optimized_hip_kernel_supported_mode %}
@@ -1320,7 +1325,16 @@ Tensor {{ embedding_cuda_op }}(
                         {%- for kWeightDecayMode in [0, 1, 2] %}
                         if (max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
                         {
-                            warp_per_row_grid_size = div_round_up(sorted_linear_indices_num_runs[0].item<int32_t>(), segments_per_workgroup);
+                            // HIP kernel: Use OverflowOnly to match original behavior (no cap on CUDA,
+                            // cap only on ROCm when exceeding HIP 2^32 thread limit). The original code
+                            // did not apply get_max_thread_blocks_() cap.
+                            warp_per_row_grid_size = utils::cuda::cap_grid_dim_x(
+                                cuda_calc_xblock_count(
+                                    sorted_linear_indices_num_runs[0].item<int32_t>(),
+                                    segments_per_workgroup),
+                                256, // blockSize = dim3(256) = 256 threads
+                                at::cuda::getCurrentCUDAStream(),
+                                utils::cuda::BlockCapPolicy::OverflowOnly);
                             blockSize = dim3(256);
                             warp_per_row_smem_bytes = 0;
 

@@ -466,21 +466,30 @@ Tensor dense_to_jagged_forward(
     std::optional<at::SymInt> total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
+  TORCH_CHECK(D >= 0, "D must be >= 0, but got ", D);
 
   // If total_L is not given then compute it
   at::SymInt total_L_computed;
   if (total_L.has_value()) {
     total_L_computed = total_L.value();
+    TORCH_CHECK_VALUE(
+        total_L_computed >= 0,
+        "total_L passed to dense_to_jagged_forward must be >= 0, but got ",
+        total_L_computed);
   } else {
     total_L_computed =
         static_cast<int64_t>(offsets.back().max().item<int64_t>());
+    TORCH_CHECK_VALUE(
+        total_L_computed >= 0,
+        "total_L must be >= 0, but got ",
+        total_L_computed,
+        " offsets.size() = ",
+        offsets.size(),
+        " offsets.back().size(-1) = ",
+        offsets.back().size(-1),
+        " offsets.back()[-1] = ",
+        offsets.back()[offsets.back().size(-1) - 1].item<int64_t>());
   }
-  TORCH_CHECK_VALUE(
-      total_L_computed >= 0,
-      "dense_to_jagged_forward: total_L must be non-negative but got ",
-      total_L_computed,
-      ". This typically indicates corrupted offsets (offsets.back() contains a "
-      "garbage/negative value).");
   auto values = at::empty_symint({total_L_computed, D}, dense.options());
   auto output = at::zeros_symint({total_L_computed, D}, dense.options());
 
@@ -1203,6 +1212,11 @@ Tensor jagged_index_select_2d_forward_cpu(
       values.dim() == 2,
       "jagged_index_select_2d_forward_cpu supports only 2D inputs");
   auto num_cols = values.size(1);
+  TORCH_CHECK_VALUE(
+      num_dense_output_rows >= 0,
+      "jagged_index_select_2d_forward: num_dense_output_rows must be "
+      "non-negative, got ",
+      num_dense_output_rows);
   Tensor output =
       at::empty({num_dense_output_rows, num_cols}, values.options());
 
@@ -1242,6 +1256,13 @@ Tensor jagged_index_select_2d_forward_v2_impl(
   const auto num_dense_output_rows = optional_num_dense_output_rows.has_value()
       ? optional_num_dense_output_rows.value()
       : output_offsets[output_offsets.numel() - 1].item<int64_t>();
+  TORCH_CHECK_VALUE(
+      num_dense_output_rows >= 0,
+      "jagged_index_select_2d_forward_v2: num_dense_output_rows must be "
+      "non-negative, got ",
+      num_dense_output_rows,
+      ". This typically indicates corrupted output_offsets (last element is "
+      "negative).");
   static auto v1_op =
       c10::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::jagged_index_select_2d_forward", "")
@@ -1352,6 +1373,10 @@ Tensor jagged_index_add_2d_forward_cpu(
       values.dim() == 2,
       "jagged_index_add_2d_forward_cpu supports only 2D inputs");
   auto num_cols = values.size(1);
+  TORCH_CHECK_VALUE(
+      num_output_rows >= 0,
+      "jagged_index_add_2d_forward: num_output_rows must be non-negative, got ",
+      num_output_rows);
   Tensor output = at::zeros({num_output_rows, num_cols}, values.options());
   FBGEMM_DISPATCH_ALL_TYPES(
       values.scalar_type(), "jagged_index_add_2d_kernel_wrapper_1", [&] {
@@ -1750,6 +1775,12 @@ static Tensor repeat_arange_cpu(const Tensor& lengths) {
       output_size += static_cast<int64_t>(lengths_data[i]);
     }
   });
+
+  TORCH_CHECK_VALUE(
+      output_size >= 0,
+      "repeat_arange: output_size (sum of lengths) must be non-negative, got ",
+      output_size,
+      ". This typically indicates corrupted/negative lengths.");
 
   if (output_size == 0) {
     return at::empty({0}, lengths.options());

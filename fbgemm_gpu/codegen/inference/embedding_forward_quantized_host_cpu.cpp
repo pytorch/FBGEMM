@@ -109,7 +109,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
     std::optional<int64_t> fp8_exponent_bias,
     std::optional<bool> scale_bias_last) {
   if (offsets.scalar_type() != indices.scalar_type()) {
-    offsets = offsets.toType(indices.scalar_type());
+    offsets = offsets.to(indices.scalar_type());
   }
   auto scale_bias_last_val = scale_bias_last ? *scale_bias_last : true;
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {

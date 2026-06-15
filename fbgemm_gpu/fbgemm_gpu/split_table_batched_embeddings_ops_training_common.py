@@ -9,6 +9,7 @@
 
 
 import torch  # usort:skip
+from typing import cast
 from torch import Tensor  # usort:skip
 from torch.compiler import is_compiling as is_torchdynamo_compiling  # usort:skip
 
@@ -56,7 +57,7 @@ def generate_vbe_metadata(
 
         max_B = total_batch_size_per_feature.max().item()
         if not torch.jit.is_scripting() and is_torchdynamo_compiling():
-            torch._check_is_size(max_B)
+            torch._check_is_size(cast(int, max_B))
             torch._check(max_B < offsets.numel())
 
         Bs = torch.concat([zero_tensor, total_batch_size_per_feature])
@@ -70,7 +71,7 @@ def generate_vbe_metadata(
         )
         max_B_feature_rank = B_feature_rank.max().item()
         if not torch.jit.is_scripting() and is_torchdynamo_compiling():
-            torch._check_is_size(max_B_feature_rank)
+            torch._check_is_size(cast(int, max_B_feature_rank))
             torch._check(max_B_feature_rank <= offsets.size(0))
         output_sizes_feature_rank = B_feature_rank.transpose(
             0, 1
@@ -83,7 +84,7 @@ def generate_vbe_metadata(
         )
         output_size = output_offsets_feature_rank[-1].item()
         if not torch.jit.is_scripting() and is_torchdynamo_compiling():
-            torch._check_is_size(output_size)
+            torch._check_is_size(cast(int, output_size))
 
         # TODO: Support INT8 output
         # B_offsets_rank_per_feature is for rank and (b, t) mapping

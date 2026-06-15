@@ -88,7 +88,7 @@ void bounds_check_indices_cpu(
     const int8_t /*bounds_check_version*/,
     const bool /*prefetch_pipeline*/) {
   if (offsets.scalar_type() != indices.scalar_type()) {
-    offsets = offsets.toType(indices.scalar_type());
+    offsets = offsets.to(indices.scalar_type());
   }
   const auto vbe = B_offsets.has_value();
   if (vbe) {

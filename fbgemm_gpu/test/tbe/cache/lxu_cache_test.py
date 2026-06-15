@@ -23,7 +23,12 @@ from hypothesis import given, settings, Verbosity
 from torch import Tensor
 
 from ..common import MAX_EXAMPLES  # noqa E402
-from .cache_common import generate_cache_tbes, gpu_unavailable, optests
+from .cache_common import (
+    generate_cache_tbes,
+    gpu_memory_lt_gb,
+    gpu_unavailable,
+    optests,
+)
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
@@ -131,7 +136,7 @@ class LXUCacheTest(unittest.TestCase):
             low=1,
             high=3,
             size=[cache_sets, warp_size],
-            device="cuda",
+            device=torch.accelerator.current_accelerator(),
             dtype=torch.int32,
         )
         counter_ref = lxu_cache_locking_counter.tolist()
@@ -147,9 +152,15 @@ class LXUCacheTest(unittest.TestCase):
                 q, r = idx // warp_size, idx % warp_size
                 counter_ref[q][r] -= 1
 
-        counter_ref = torch.tensor(counter_ref, device="cuda", dtype=torch.int32)
+        counter_ref = torch.tensor(
+            counter_ref,
+            device=torch.accelerator.current_accelerator(),
+            dtype=torch.int32,
+        )
         lxu_cache_locations = torch.tensor(
-            lxu_cache_locations_list, device="cuda", dtype=torch.int32
+            lxu_cache_locations_list,
+            device=torch.accelerator.current_accelerator(),
+            dtype=torch.int32,
         )
         torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
             lxu_cache_locking_counter, lxu_cache_locations
@@ -325,11 +336,13 @@ class LXUCacheTest(unittest.TestCase):
         lxu_cache_state = torch.zeros(
             cache_sets,
             WARP_SIZE,
-            device="cuda",
+            device=torch.accelerator.current_accelerator(),
             dtype=torch.int64,
         ).fill_(-1)
 
-        hash_sizes = torch.tensor([E] * T, dtype=torch.long, device="cuda")
+        hash_sizes = torch.tensor(
+            [E] * T, dtype=torch.long, device=torch.accelerator.current_accelerator()
+        )
         cache_hash_size_cumsum = torch.ops.fbgemm.asynchronous_complete_cumsum(
             hash_sizes
         )
@@ -457,6 +470,53 @@ class LXUCacheTest(unittest.TestCase):
             # Reaching this line means all three guards passed on CDNA.
             self.assertIsInstance(output, torch.Tensor)
             self.assertGreater(output.numel(), 0)
+
+    @optests.dontGenerateOpCheckTests("Large grid HIP regression — uses ~32 GB HBM")
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(40))
+    def test_direct_mapped_lxu_cache_lookup_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        direct_mapped_lxu_cache_lookup_kernel
+        (split_embeddings_cache/lxu_cache.cu line ~511).
+
+        Block: kMaxThreads = 1024. Grid: div_round_up(N, kMaxThreads) =
+        ceil(N / 1024). Total threads ~= N. For N >= 2**32, total threads
+        meet HIP's 2**32 hard limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail
+        on ROCm.
+
+        Drives torch.ops.fbgemm.direct_mapped_lxu_cache_lookup with N
+        linear cache indices. HBM ~= N * 8 B = 32 GiB for the int64
+        linear_cache_indices tensor; gate at gpu_memory_lt_gb(40).
+        """
+        N = (1 << 32) + 1
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # All-zero linear cache indices keep the kernel work cheap; the
+        # test exercises only the host-side launch grid bound.
+        linear_cache_indices = torch.zeros(N, dtype=torch.int64, device=device)
+        # Tiny direct-mapped cache: shape (num_cache_lines, 1).
+        num_cache_lines = 1024
+        lxu_cache_state = torch.full(
+            (num_cache_lines, 1), -1, dtype=torch.int64, device=device
+        )
+        invalid_index = -1
+
+        lxu_cache_locations = torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
+            linear_cache_indices,
+            lxu_cache_state,
+            invalid_index,
+        )
+        # Tier C structural invariants on the lookup result:
+        # 1. Output shape matches input.
+        self.assertEqual(lxu_cache_locations.numel(), N)
+        # 2. With an empty cache (all -1) and key 0 looked up N times,
+        #    every result must equal `invalid_index`. Pre-fix the kernel
+        #    never runs (TORCH_CHECK fires); post-fix it grid-strides
+        #    over all N indices and writes invalid_index to each slot.
+        all_invalid = (lxu_cache_locations == invalid_index).all().item()
+        self.assertTrue(bool(all_invalid))
 
 
 if __name__ == "__main__":

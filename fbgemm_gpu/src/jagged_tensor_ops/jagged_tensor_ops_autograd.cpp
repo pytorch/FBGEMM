@@ -659,6 +659,13 @@ class JaggedSliceOp : public torch::autograd::Function<JaggedSliceOp> {
     // D2H sync here
     const int64_t num_output_rows = output_lengths.sum().item<int64_t>();
     const int64_t num_input_rows = lengths.sum().item<int64_t>();
+    TORCH_CHECK_VALUE(
+        num_output_rows >= 0 && num_input_rows >= 0,
+        "jagged_slice: row counts must be non-negative, got num_output_rows=",
+        num_output_rows,
+        ", num_input_rows=",
+        num_input_rows,
+        ". This typically indicates corrupted/negative lengths.");
 
     Tensor tgt_start = at::zeros_like(lengths);
 

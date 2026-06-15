@@ -866,6 +866,156 @@ class PermuteIndicesTest(unittest.TestCase):
         torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
         self.assertIsNone(permuted_weights_gpu)
 
+    @unittest.skipIf(*gpu_unavailable)
+    # Skip on GPUs with insufficient HBM (need ~512 MB for the int32
+    # lengths tensor at the chosen B).
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_permute_2D_sparse_data_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in permute_2D_sparse_data_cuda
+        and verifies output correctness at the same scale.
+
+        With BT_blocks=32 and dim3(32, 32) (block size 1024), the
+        permute_2D_data_kernel_vec launch grid is
+        cuda_calc_block_count(B*T, 32). For B*T > 2**27, total threads
+        exceed the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm pre-fix. With the production fix in place, this test
+        additionally validates output correctness against the CPU dispatch
+        of the same op — the GPU output must match the CPU reference
+        element-for-element.
+
+        Uses ``T=2, B=2**26+1`` so ``B*T = 2**27 + 2`` strictly trips the
+        threshold. ``lengths`` is sparse: all zero except for four known
+        non-zero positions (one per row, plus one mid-row), so HBM usage
+        stays bounded (~537 MB int32) while the permutation logic is
+        still exercised. ``permute = [1, 0]`` is a deterministic row swap
+        on the T axis with ``perm[i] != i`` for every i, so any
+        "kernel computed identity instead of permutation" or wrong-``b_t``
+        decoding bug surfaces in the assertion below.
+        """
+
+        # Choose B*T so that total threads strictly exceeds 2**32:
+        # cuda_calc_block_count(B*T, 32) * 1024 ~= B*T * 32; need B*T > 2**27.
+        T = 2
+        B = (1 << 26) + 1
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Deterministic non-identity permute: row swap on the T axis.
+        # perm[0] == 1 and perm[1] == 0, so perm[i] != i for every i.
+        perm_cpu = torch.tensor([1, 0], dtype=torch.int32)
+        permute = perm_cpu.to(device)
+
+        # Sparse non-zero lengths at four known positions. Total = 11.
+        lengths_cpu = torch.zeros((T, B), dtype=torch.int32)
+        lengths_cpu[0, 0] = 3
+        lengths_cpu[0, B // 2] = 5
+        lengths_cpu[1, 0] = 2
+        lengths_cpu[1, B - 1] = 1
+        lengths = lengths_cpu.to(device)
+
+        # Distinct indices per segment so the permutation is fully observable.
+        indices_cpu = torch.arange(11, dtype=torch.int32)
+        indices = indices_cpu.to(device)
+
+        # CPU reference oracle — same op, different dispatch.
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            _permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            perm_cpu, lengths_cpu, indices_cpu, None, None
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            permute, lengths, indices, None, None
+        )
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        self.assertIsNone(permuted_weights_gpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # Skip on GPUs with insufficient HBM (need ~512 MB for the int32
+    # lengths tensor at the chosen B).
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_permute_sparse_features_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in permute_sparse_features_cuda
+        and verifies output correctness at the same scale.
+
+        With BT_blocks=32 and dim3(32, 32) (block size 1024), the
+        permute_indices_weights_kernel launch grid is
+        cuda_calc_block_count(B*T, 32). For B*T > 2**27, total threads
+        exceed the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm pre-fix. With the production fix in place, this test
+        additionally validates output correctness against the CPU dispatch
+        of the same op — the GPU output must match the CPU reference
+        element-for-element.
+
+        Uses ``T=2, B=2**26+1`` so ``B*T = 2**27 + 2`` strictly trips the
+        threshold. ``lengths`` is sparse: all zero except for four known
+        non-zero positions (one per row, plus one mid-row), so HBM usage
+        stays bounded (~537 MB int32) while the permutation logic is
+        still exercised. ``permute = [1, 0]`` is a deterministic row swap
+        on the T axis with ``perm[i] != i`` for every i, so any
+        "kernel computed identity instead of permutation" or wrong-``b_t``
+        decoding bug surfaces in the assertion below.
+        """
+
+        # Choose B*T so that total threads strictly exceeds 2**32:
+        # cuda_calc_block_count(B*T, 32) * 1024 ~= B*T * 32; need B*T > 2**27.
+        T = 2
+        B = (1 << 26) + 1
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Deterministic non-identity permute: row swap on the T axis.
+        # perm[0] == 1 and perm[1] == 0, so perm[i] != i for every i.
+        perm_cpu = torch.tensor([1, 0], dtype=torch.int32)
+        permute = perm_cpu.to(device)
+
+        # Sparse non-zero lengths at four known positions. Total = 11.
+        lengths_cpu = torch.zeros((T, B), dtype=torch.int32)
+        lengths_cpu[0, 0] = 3
+        lengths_cpu[0, B // 2] = 5
+        lengths_cpu[1, 0] = 2
+        lengths_cpu[1, B - 1] = 1
+        lengths = lengths_cpu.to(device)
+
+        # Distinct indices per segment so the permutation is fully observable.
+        indices_cpu = torch.arange(11, dtype=torch.int32)
+        indices = indices_cpu.to(device)
+
+        # CPU reference oracle — same op, different dispatch.
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            _permuted_weights_cpu,
+        ) = torch.ops.fbgemm.permute_sparse_features(
+            perm_cpu, lengths_cpu, indices_cpu, None
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        (
+            permuted_lengths_gpu,
+            permuted_indices_gpu,
+            permuted_weights_gpu,
+        ) = torch.ops.fbgemm.permute_sparse_features(permute, lengths, indices, None)
+
+        torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+        torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+        self.assertIsNone(permuted_weights_gpu)
+
 
 extend_test_class(PermuteIndicesTest)
 
