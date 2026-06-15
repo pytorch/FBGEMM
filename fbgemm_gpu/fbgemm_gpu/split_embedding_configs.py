@@ -14,10 +14,7 @@ from typing import Any
 import torch
 
 # fmt:skip
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    EmbeddingLocation,
-    SplitState,
-)
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, SplitState
 
 
 def pad4(value: int) -> int:
