@@ -221,7 +221,12 @@ permute_2D_sparse_data_cuda(
   permuted_lengths = at::empty({T, B}, lengths.options());
 
   constexpr int32_t threads_1 = 256;
-  const auto blocks_1 = cuda_calc_block_count(B * T, threads_1);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). permute_2D_lengths_kernel uses CUDA_KERNEL_LOOP,
+  // which already grid-strides, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_1 = utils::cuda::cap_grid_dim_x_from_workload(
+      B * T, threads_1, at::cuda::getCurrentCUDAStream());
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "permute_2D_lengths_kernel", [&] {
         FBGEMM_LAUNCH_KERNEL(
@@ -250,7 +255,15 @@ permute_2D_sparse_data_cuda(
 
   constexpr int32_t BT_blocks = 32;
   dim3 threads_2(32, BT_blocks);
-  const auto blocks_2 = cuda_calc_block_count(B * T, BT_blocks);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). Both permute_2D_data_kernel and
+  // permute_2D_data_kernel_vec grid-stride over b_t, so capping is
+  // correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_2 = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(B * T, BT_blocks),
+      BT_blocks * 32,
+      at::cuda::getCurrentCUDAStream());
   permuted_indices = at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(
@@ -415,8 +428,12 @@ permute_sparse_features_cuda(
   permuted_lengths = at::empty({num_output_features, B}, lengths.options());
 
   constexpr int32_t threads_1 = 256;
-  const auto blocks_1 =
-      cuda_calc_block_count(B * num_output_features, threads_1);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). permute_2D_lengths_kernel uses CUDA_KERNEL_LOOP,
+  // which already grid-strides, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_1 = utils::cuda::cap_grid_dim_x_from_workload(
+      B * num_output_features, threads_1, at::cuda::getCurrentCUDAStream());
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "permute_2D_lengths_kernel", [&] {
         FBGEMM_LAUNCH_KERNEL(
@@ -452,8 +469,14 @@ permute_sparse_features_cuda(
 
   constexpr int32_t BT_blocks = 32;
   dim3 threads_2(32, BT_blocks);
-  const auto blocks_2 =
-      cuda_calc_block_count(B * num_output_features, BT_blocks);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). permute_indices_weights_kernel grid-strides over
+  // b_t, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_2 = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(B * num_output_features, BT_blocks),
+      BT_blocks * 32,
+      at::cuda::getCurrentCUDAStream());
   permuted_indices = at::empty(permuted_lengths_sum, indices.options());
   if (weights.has_value()) {
     const Tensor weights_value = weights.value();
