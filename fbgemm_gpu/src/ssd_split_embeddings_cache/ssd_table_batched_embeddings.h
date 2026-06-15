@@ -9,6 +9,8 @@
 #pragma once
 
 #include <algorithm>
+#include <cstring>
+#include <ctime>
 #include <iostream>
 #include <memory>
 
@@ -1376,11 +1378,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   friend class CheckpointHandle;
 
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
+  std::vector<rocksdb::ColumnFamilyHandle*> metadata_cf_handles_;
   std::vector<std::unique_ptr<Initializer>> initializers_;
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
   rocksdb::ReadOptions ro_{};
   rocksdb::WriteOptions wo_{};
   std::shared_ptr<rocksdb::RateLimiter> rate_limiter_;
+  rocksdb::ColumnFamilyOptions cf_options_;
   std::vector<int64_t> shard_flush_compaction_deadlines_;
   bool done_staggered_flushes_;
   int64_t memtable_flush_offset_;
