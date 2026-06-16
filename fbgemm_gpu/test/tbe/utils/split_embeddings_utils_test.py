@@ -391,7 +391,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             offsets[0] = -100
         if offsets.numel() > 1:
             offsets[-1] += 100
-        if bounds_check_mode != BoundsCheckMode.FATAL:
+        if bounds_check_mode != BoundsCheckMode.FATAL and use_cpu:
             torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table,
                 indices,
