@@ -100,9 +100,16 @@ zipf_cuda(const double a, const int64_t n, const int64_t seed) {
       at::TensorOptions().dtype(at::kLong).device(
           at::kCUDA, at::cuda::current_device()));
 
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). zipf_kernel already grid-strides over the output
+  // index, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks = utils::cuda::cap_grid_dim_x_from_workload(
+      n, kMaxThreads, at::cuda::getCurrentCUDAStream());
+
   FBGEMM_LAUNCH_KERNEL(
       (zipf_kernel),
-      cuda_calc_xblock_count(n, kMaxThreads),
+      blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream(),
