@@ -851,7 +851,8 @@ static auto feature_evict_config =
                 std::optional<int64_t>,
                 int64_t,
                 int64_t,
-                int64_t>(),
+                int64_t,
+                bool>(),
             "",
             {
                 torch::arg("trigger_mode"),
@@ -875,6 +876,7 @@ static auto feature_evict_config =
                 torch::arg("interval_for_sufficient_eviction_s") = 60,
                 torch::arg("interval_for_feature_statistics_decay_s") =
                     24 * 3600,
+                torch::arg("enable_ssd_writeback") = false,
             });
 
 static auto embedding_snapshot_handle_wrapper =

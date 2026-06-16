@@ -83,6 +83,9 @@ class EvictionPolicy(NamedTuple):
     enable_eviction_for_feature_score_eviction_policy: list[bool] | None = (
         None  # enable eviction if eviction policy is feature score, false means no eviction
     )
+    enable_ssd_writeback: bool = (
+        False  # when True, evicted dirty blocks are written back to SSD via callback; when False, eviction deletes blocks directly
+    )
 
     def validate(self) -> None:
         assert self.eviction_trigger_mode in [0, 1, 2, 3, 4, 5], (
