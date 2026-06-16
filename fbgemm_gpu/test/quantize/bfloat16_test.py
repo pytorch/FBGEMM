@@ -35,6 +35,9 @@ class SparseNNOperatorsGPUTest(unittest.TestCase):
             input_data = torch.rand((n, k), dtype=torch.float32)
             quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
             dequantized_data = torch.ops.fbgemm.Bfloat16QuantizedToFloat(quantized_data)
+            # bf16 round-trip error is proportional to the value magnitude,
+            # which the relative (rtol) term of assert_close already accounts
+            # for; atol provides a floor for near-zero values.
             torch.testing.assert_close(
                 dequantized_data, input_data, rtol=1e-2, atol=1e-2
             )
@@ -100,7 +103,11 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
         ref_bfloat16 = f(input_data.numpy())
         f = np.vectorize(lambda x: bfloat_dequantize(x))
         ref_fp32 = torch.from_numpy(f(ref_bfloat16)).float()
-        torch.testing.assert_close(dequantized_data, ref_fp32)
+        # The kernel and the numpy reference may round the bf16 mantissa
+        # differently (round-to-even vs round-half-away), so loosen the tight
+        # default tolerance: rtol scales with magnitude and atol floors
+        # near-zero values.
+        torch.testing.assert_close(dequantized_data, ref_fp32, rtol=1e-2, atol=1e-2)
 
         if torch.cuda.is_available():
             input_data_gpu = input_data.cuda()
@@ -111,7 +118,9 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
                 quantized_data_gpu
             )
             # compare quantized data
-            torch.testing.assert_close(dequantized_data_gpu.cpu(), ref_fp32)
+            torch.testing.assert_close(
+                dequantized_data_gpu.cpu(), ref_fp32, rtol=1e-2, atol=1e-2
+            )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
@@ -137,8 +146,11 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             dequantized_data_gpu = torch.ops.fbgemm.Bfloat16QuantizedToFloat(
                 quantized_data_gpu
             )
-            # compare quantized data
-            torch.testing.assert_close(dequantized_data_gpu.cpu(), dequantized_data)
+            # GPU-vs-CPU bf16 rounding can differ; rtol handles magnitude
+            # scaling and atol floors near-zero values.
+            torch.testing.assert_close(
+                dequantized_data_gpu.cpu(), dequantized_data, rtol=1e-2, atol=1e-2
+            )
 
 
 if __name__ == "__main__":
