@@ -77,7 +77,9 @@ except Exception:
     pass
 
 
-DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
+# Default cache associativity. Overridden to 64 in each module's
+# __init__ on AMD devices that have 64-lane waves.
+DEFAULT_ASSOC = 32
 INT8_EMB_ROW_DIM_OFFSET = 8
 
 
