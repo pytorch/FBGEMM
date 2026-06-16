@@ -409,6 +409,8 @@ def jagged_index_select_2d_forward_v2_abstract(
     torch._check(values.device == output_offsets.device)
     torch._check(values.dim() == 2)
     dynamic_num_dense_output_rows = torch.library.get_ctx().new_dynamic_size()
+    # Size-oblivious guard resolution for the data-dependent output rows.
+    torch._check_is_size(dynamic_num_dense_output_rows)
     num_cols = values.size(1)
     return values.new_empty([dynamic_num_dense_output_rows, num_cols])
 
@@ -741,6 +743,10 @@ def dense_to_jagged_forward(
 ) -> torch.Tensor:
     if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
+    # Mark the data-dependent output size as a size (>= 0) so downstream
+    # dynamic-shape guards (e.g. total_L * inner_dim) resolve size-obliviously
+    # under test_aot_dispatch_dynamic instead of raising on the unbacked SymInt.
+    torch._check_is_size(total_L)
     return dense.new_zeros(
         [total_L, dense.size()[-1]],
         dtype=dense.dtype,
@@ -1295,6 +1301,77 @@ def fused_8_bit_rowwise_quantized_to_half(
     return torch.empty(output_shape, dtype=torch.float16, device=input_t.device)
 
 
+def fused_8_bit_rowwise_quantized_to_bfloat16(
+    input_t: Tensor,
+) -> Tensor:
+    torch._check(input_t.dim() >= 2)
+    last_dim = input_t.dim() - 1
+    output_shape = list(input_t.shape)
+    ncols = input_t.size(last_dim)
+    # Op schema takes only `input`; the kernel uses float (4-byte) scale/bias
+    # padding, matching quant_padding_float_type=True in the sibling ops.
+    quant_padding_size = 4
+    ncols_aligned = (
+        (ncols + quant_padding_size - 1) // quant_padding_size * quant_padding_size
+    )
+    output_columns = ncols_aligned - 2 * quant_padding_size
+    output_shape[last_dim] = output_columns
+    return torch.empty(output_shape, dtype=torch.bfloat16, device=input_t.device)
+
+
+def float_to_padded_fp8_rowwise_quantized(
+    input_t: Tensor,
+    forward: bool,
+    row_dim: int,
+) -> Tensor:
+    torch._check(row_dim > 0 and row_dim % 4 == 0)
+    torch._check(input_t.dim() >= 1)
+    last_dim = input_t.dim() - 1
+    output_shape = list(input_t.shape)
+    ncols = input_t.size(last_dim)
+    # Per-bucket layout adds 8 bytes (float scale + int32 pad) per row_dim chunk.
+    # See src/quantize_ops/quantize_padded_fp8_rowwise.cu.
+    output_columns = (ncols + row_dim - 1) // row_dim * (row_dim + 8)
+    output_shape[last_dim] = output_columns
+    return torch.empty(output_shape, dtype=torch.uint8, device=input_t.device)
+
+
+def padded_fp8_rowwise_quantized_to_float(
+    input_t: Tensor,
+    forward: bool,
+    row_dim: int,
+    output_last_dim: int = -1,
+    output_dtype: int = 0,
+) -> Tensor:
+    torch._check(row_dim > 0 and row_dim % 4 == 0)
+    torch._check(
+        output_dtype
+        in [
+            SparseType.FP32.as_int(),
+            SparseType.FP16.as_int(),
+            SparseType.BF16.as_int(),
+        ]
+    )
+    torch._check(input_t.dim() >= 1)
+    last_dim = input_t.dim() - 1
+    output_columns: int | torch.SymInt
+    if output_last_dim >= 0:
+        output_columns = output_last_dim
+    else:
+        # When output_last_dim is not supplied the kernel reads per-row pad
+        # values, making the output column count data-dependent.
+        output_columns = torch.library.get_ctx().new_dynamic_size()
+    output_shape: list[int | torch.SymInt] = [*input_t.shape]
+    output_shape[last_dim] = output_columns
+    if output_dtype == SparseType.FP32.as_int():
+        dtype = torch.float32
+    elif output_dtype == SparseType.FP16.as_int():
+        dtype = torch.float16
+    else:
+        dtype = torch.bfloat16
+    return torch.empty(output_shape, dtype=dtype, device=input_t.device)
+
+
 def generic_histogram_binning_calibration_by_feature(
     logit: Tensor,
     segment_value: Tensor,
@@ -1570,6 +1647,18 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::Fused8BitRowwiseQuantizedToHalf",
             fused_8_bit_rowwise_quantized_to_half,
+        )
+        impl_abstract(
+            "fbgemm::Fused8BitRowwiseQuantizedToBfloat16",
+            fused_8_bit_rowwise_quantized_to_bfloat16,
+        )
+        impl_abstract(
+            "fbgemm::FloatToPaddedFP8RowwiseQuantized",
+            float_to_padded_fp8_rowwise_quantized,
+        )
+        impl_abstract(
+            "fbgemm::PaddedFP8RowwiseQuantizedToFloat",
+            padded_fp8_rowwise_quantized_to_float,
         )
         _setup.done = True
 
