@@ -394,6 +394,11 @@ class BackwardOptimizersTest(unittest.TestCase):
             OptimType.EXACT_ROWWISE_ADAGRAD,
             OptimType.EXACT_ADAGRAD,
         )
+        # Capture the pre-update `prev_iter` per table. The counter kernel reads
+        # `prev_iter` *before* overwriting it with the current iteration, so the
+        # reference needs the initial value (not the post-update state) to
+        # reconstruct the AdagradW `lazy_multiplier`.
+        prev_iter_init: dict[int, torch.Tensor] = {}
         if exact_adagrad:
             split_optimizer_states = cc.split_optimizer_states()
             rowwise = optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
@@ -405,6 +410,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     m1, prev_iter, row_counter = split_optimizer_states[t]
                     prev_iter.fill_(100.0 * t)
                     row_counter.fill_(10.0 * t)
+                    prev_iter_init[t] = prev_iter.detach().clone().cpu()
                 else:
                     (m1,) = split_optimizer_states[t]
                 m1.fill_(1.0 * t)
@@ -491,6 +497,12 @@ class BackwardOptimizersTest(unittest.TestCase):
                 # coalescing and floating point non-associativity.
                 # pyre-fixme[16]: `Optional` has no attribute `cpu`.
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                # The kernel computes momentum (g_avg_square) from the
+                # L2-modified gradient, but uses the raw gradient for the
+                # weight update (applying weight decay via exp_reg_correction
+                # instead). Keep a copy of the raw gradient for the weight
+                # update in COUNTER/COWCLIP modes.
+                raw_grad = dense_cpu_grad.clone()
                 if rowwise:
                     # We need to skip when using cpu because use_fbgemm (https://fburl.com/code/12131iub)
                     # is true and the template code (https://fburl.com/code/1kctlup3) is not executed.
@@ -545,7 +557,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     elif weight_decay_mode == WeightDecayMode.COUNTER:
                         max_counter = cc.max_counter.item()
                         weights_ref = self._get_wts_from_counter_adagrad_using_counter(
-                            dense_cpu_grad,
+                            raw_grad,
                             bs[t].weight.cpu(),
                             denom,
                             counter_based_regularization,
@@ -557,10 +569,11 @@ class BackwardOptimizersTest(unittest.TestCase):
                             eps,
                             lr,
                             weight_decay,
+                            prev_iter_init[t],
                         )
                     elif weight_decay_mode == WeightDecayMode.COWCLIP:
                         weights_ref = self._get_wts_from_counter_adagrad_using_cowclip(
-                            dense_cpu_grad,
+                            raw_grad,
                             bs[t].weight.cpu(),
                             denom,
                             cowclip_regularization,
@@ -839,7 +852,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         dense_cpu_grad += l2_wd * weight_decay * weights
         return dense_cpu_grad, row_counter, freq
 
-    def _get_wts_from_counter_adagrad_using_counter(
+    def _get_wts_from_counter_adagrad_using_counter(  # noqa C901
         self,
         dense_cpu_grad: torch.Tensor,
         weights: torch.Tensor,
@@ -852,6 +865,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         eps: float,
         learning_rate: float,
         weight_decay: float,
+        prev_iter: torch.Tensor,
     ) -> torch.Tensor:
         counter_weight_decay_mode = (
             counter_based_regularization.counter_weight_decay_mode
@@ -942,6 +956,27 @@ class BackwardOptimizersTest(unittest.TestCase):
                         1.0 - weight_decay * learning_rate,
                         torch.Tensor([1.0]),
                     )
+                    # The kernel applies a `lazy_multiplier` that compensates for
+                    # the weight-decay steps skipped since the row was last seen
+                    # (`prev_iter`), scaling both the adjusted multiplier and the
+                    # weight-decay correction by `(1 - wd * lr) ** (delta - 1)`.
+                    prev_iter = prev_iter.view(prev_iter.numel(), 1)
+                    base = 1.0 - weight_decay * learning_rate
+                    lazy_delta = torch.where(
+                        prev_iter == 0,
+                        torch.tensor([1.0]),
+                        iter_ - prev_iter,
+                    )
+                    lazy_multiplier = torch.pow(
+                        torch.tensor([base]),
+                        torch.minimum(
+                            lazy_delta,
+                            torch.tensor([float(iter_ - adjustment_iter)]),
+                        )
+                        - 1.0,
+                    )
+                    adjusted_multiplier = adjusted_multiplier * lazy_multiplier
+                    exp_reg_correction = exp_reg_correction * lazy_multiplier
 
         weights = exp_reg_correction * weights - adjusted_multiplier * dense_cpu_grad
         return weights
