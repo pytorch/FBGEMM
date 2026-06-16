@@ -143,13 +143,34 @@ def permute_2D_sparse_data_meta(
     weights: Tensor | None = None,
     permuted_lengths_sum: int | None = None,
 ) -> tuple[Tensor, Tensor, Tensor | None]:
+    # Functional (allocating) entry point; delegates to the shared
+    # implementation with no pre-allocated output buffers.
+    return permute_2D_sparse_preallocated_out_meta(
+        permute, lengths, values, weights, permuted_lengths_sum
+    )
+
+
+def permute_2D_sparse_preallocated_out_meta(
+    permute: Tensor,
+    lengths: Tensor,
+    values: Tensor,
+    weights: Tensor | None = None,
+    permuted_lengths_sum: int | None = None,
+    permuted_lengths_out: Tensor | None = None,
+    permuted_indices_out: Tensor | None = None,
+    permuted_weights_out: Tensor | None = None,
+) -> tuple[Tensor, Tensor, Tensor | None]:
     torch._check(
         lengths.dim() == 2, lambda: f"expected lengths.dim() == 2, got {lengths.dim()}"
     )
     T = permute.numel()
     B = lengths.size(1)
     indices = values
-    permuted_lengths = lengths.new_empty([T, B])
+    permuted_lengths = (
+        permuted_lengths_out
+        if permuted_lengths_out is not None
+        else lengths.new_empty([T, B])
+    )
     permuted_indices_size = 0
     if permuted_lengths_sum is not None:
         permuted_indices_size = permuted_lengths_sum
@@ -157,11 +178,19 @@ def permute_2D_sparse_data_meta(
         ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
     # pyre-fixme
-    permuted_indices = indices.new_empty(permuted_indices_size)
+    permuted_indices = (
+        permuted_indices_out
+        if permuted_indices_out is not None
+        else indices.new_empty(permuted_indices_size)
+    )
     permuted_weights = None
     if weights is not None:
         # pyre-fixme
-        permuted_weights = weights.new_empty(permuted_indices_size)
+        permuted_weights = (
+            permuted_weights_out
+            if permuted_weights_out is not None
+            else weights.new_empty(permuted_indices_size)
+        )
     return permuted_lengths, permuted_indices, permuted_weights
 
 
@@ -1479,6 +1508,13 @@ def _setup() -> None:
         )
 
         impl_abstract("fbgemm::permute_2D_sparse_data", permute_2D_sparse_data_meta)
+        # No autograd formula: the pre-allocated output buffers alias the
+        # returned tensors, so this op is intentionally non-functional and
+        # non-differentiable (the buffers are write-only outputs).
+        impl_abstract(
+            "fbgemm::permute_2D_sparse_preallocated_out",
+            permute_2D_sparse_preallocated_out_meta,
+        )
         impl_abstract("fbgemm::get_source_mask", get_source_mask_meta)
         impl_abstract("fbgemm::repeat_arange", repeat_arange_meta)
         impl_abstract(
