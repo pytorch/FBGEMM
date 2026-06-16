@@ -13,6 +13,30 @@ Optimizer-specific enums and frozen dataclasses for TBE.
 These types configure the optimizer behavior of Split Table Batched Embeddings.
 They are used exclusively at init-time — the __init__() method decomposes them
 into primitive scalar self.* attributes before JIT scripting.
+
+These types MUST stay ``@dataclass``: they are used as field types in OmegaConf /
+Hydra structured configs (e.g. APS ``RowwiseAdagradConfig`` in apf/optim/configs.py,
+plus MVAI and torchrec optimizer configs), and OmegaConf only accepts dataclass /
+attrs classes as nested config nodes — a ``NamedTuple`` field type raises
+``omegaconf.errors.ValidationError: Unexpected type annotation`` and breaks every
+APS config build + in-trainer publish.
+
+torch.package safety (SEV S669532 / S672649): DO NOT ADD
+``from __future__ import annotations`` TO THIS MODULE, and do not give the
+``@dataclass`` types below string annotations. These dataclasses are eagerly
+re-exported from ``fbgemm_gpu/tbe/config/__init__.py`` (and from
+``split_table_batched_embeddings_ops_training``), so their source is interned into
+every publisher's torch.package archive and re-executed under the
+``<torch_package_N>`` sandbox when an already-published model is re-loaded /
+re-published. With *string* annotations (which ``from __future__ import
+annotations`` forces), ``@dataclass`` decoration calls ``dataclasses._is_type`` ->
+``sys.modules.get(cls.__module__).__dict__``; the mangled sandbox module is not
+registered in ``sys.modules``, so that is ``None.__dict__`` -> ``AttributeError``
+at decoration time (the model republish crashes). With *eager* (non-string)
+annotations — the current state — that path is never taken, so these dataclasses
+are torch.package-safe. Keeping annotations eager is load-bearing; note this
+conflicts with the general repo guidance to add ``from __future__ import
+annotations`` for lazy imports.
 """
 
 import enum
