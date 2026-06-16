@@ -16,7 +16,7 @@ from torch.compiler import is_compiling as is_torchdynamo_compiling  # usort:ski
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.split_embedding_configs import sparse_type_int_to_dtype
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.tbe.config.embedding_config import PoolingMode
 
 
 def generate_vbe_metadata(

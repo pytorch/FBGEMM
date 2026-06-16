@@ -455,10 +455,11 @@ def jagged_index_select_2d_bench(
     logging.info(f"backward: fbgemm {time * 1e3:.3f} ms{ref_str}")
 
 
-def _gen_group_inputs(
-    row_size: int,
-    batch_size: int,
-    unique_batch_size: int,
+def _gen_group_inputs_uniform(
+    num_cols: int,
+    num_rows: int,
+    num_indices: int,
+    num_unique_indices: int,
     num_groups: int,
     dtype: torch.dtype,
     sort_indices: bool,
@@ -466,17 +467,17 @@ def _gen_group_inputs(
 ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
     """Generate homogeneous synthetic inputs for group_index_select_2d_bench.
 
-    Every group shares the same shape: a ``(batch_size, row_size)`` slice of a
-    single ``(num_groups * batch_size, row_size)`` tensor, with ``batch_size``
-    indices drawn from ``unique_batch_size`` distinct rows. Used by
+    Every group shares the same shape: a ``(num_rows, num_cols)`` slice of a
+    single ``(num_groups * num_rows, num_cols)`` tensor, with ``num_indices``
+    indices drawn from ``num_unique_indices`` distinct rows. Used by
     ``group-index-select-2d-bench`` when ``--input-dims`` is NOT provided.
     """
 
-    def gen_inverse_index(curr_size: int, final_size: int) -> np.ndarray:
-        inverse_index = list(range(curr_size))
+    def gen_inverse_index(num_unique: int, num_indices: int) -> np.ndarray:
+        inverse_index = list(range(num_unique))
         np_arr = np.array(inverse_index)
-        for _ in range(final_size - curr_size):
-            inverse_index.append(np.random.randint(0, curr_size))
+        for _ in range(num_indices - num_unique):
+            inverse_index.append(np.random.randint(0, num_unique))
             np_arr = np.array(inverse_index)
             np.random.shuffle(np_arr)
         return np_arr
@@ -484,7 +485,7 @@ def _gen_group_inputs(
     indices_group = []
     for _ in range(num_groups):
         indices = torch.tensor(
-            gen_inverse_index(unique_batch_size, batch_size),
+            gen_inverse_index(num_unique_indices, num_indices),
             dtype=torch.int32,
             device=device,
         )
@@ -493,28 +494,28 @@ def _gen_group_inputs(
         indices_group.append(indices)
 
     input = torch.rand(
-        num_groups * batch_size,
-        row_size,
+        num_groups * num_rows,
+        num_cols,
         dtype=dtype,
         device=device,
     )
     input.requires_grad = True
-    input_group = list(input.split(batch_size, 0))
+    input_group = list(input.split(num_rows, 0))
     return input_group, indices_group
 
 
-def _gen_group_inputs_with_spec(
+def _gen_group_inputs_jagged(
     input_dims: str,
     input_strides: str | None,
-    index_dim: int,
+    num_indices: int,
     dtype: torch.dtype,
     sort_indices: bool,
     device: str,
 ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
-    """Generate ragged inputs from explicit per-group shapes.
+    """Generate jagged inputs from explicit per-group shapes.
 
-    Each group gets its own ``[num_rows, row_size]`` tensor (groups may differ
-    in both row count and column width) with ``index_dim`` indices each, matching
+    Each group gets its own ``[num_rows, num_cols]`` tensor (groups may differ
+    in both row count and column width) with ``num_indices`` indices each, matching
     real-world / production shapes. Used by ``group-index-select-2d-bench`` when
     ``--input-dims`` is provided; ``--input-strides`` is optional and defaults to
     contiguous strides per group.
@@ -523,7 +524,7 @@ def _gen_group_inputs_with_spec(
     if input_strides is not None and input_strides.strip() != "":
         strides = json.loads(input_strides)
     else:
-        strides = [[rs, 1] for (_, rs) in dims]
+        strides = [[num_cols, 1] for (_, num_cols) in dims]
     if len(strides) != len(dims):
         raise ValueError(
             f"--input-strides length ({len(strides)}) must match "
@@ -541,7 +542,7 @@ def _gen_group_inputs_with_spec(
         idx = torch.randint(
             low=0,
             high=dim[0],
-            size=(index_dim,),
+            size=(num_indices,),
             dtype=torch.int32,
             device=device,
         )
@@ -553,12 +554,12 @@ def _gen_group_inputs_with_spec(
 
 
 @cli.command()
-@click.option("--row-size", default=512)
-@click.option("--batch-size", default=4096)
-@click.option("--unique-batch-size", default=1024)
+@click.option("--num-cols", type=int, default=None)
+@click.option("--num-rows", type=int, default=None)
+@click.option("--num-unique-indices", type=int, default=None)
 @click.option("--input-precision", type=str, default="fp32")
 @click.option("--sort-indices", type=bool, default=True)
-@click.option("--num-groups", default=32)
+@click.option("--num-groups", type=int, default=None)
 @click.option(
     "--device",
     type=str,
@@ -580,8 +581,8 @@ def _gen_group_inputs_with_spec(
     "--input-dims",
     type=str,
     default=None,
-    help="JSON list of [num_rows, row_size] per group, e.g. '[[27330,96],[4914,96]]'. "
-    "When provided, --row-size, --batch-size, --unique-batch-size, and --num-groups are ignored.",
+    help="JSON list of [num_rows, num_cols] per group, e.g. '[[27330,96],[4914,96]]'. "
+    "When provided, --num-cols, --num-rows, --num-unique-indices, and --num-groups are ignored.",
 )
 @click.option(
     "--input-strides",
@@ -590,7 +591,10 @@ def _gen_group_inputs_with_spec(
     help="JSON list of [stride0, stride1] per group. Defaults to contiguous strides if not provided.",
 )
 @click.option(
-    "--index-dim", type=int, default=None, help="Number of indices per group."
+    "--num-indices",
+    type=int,
+    default=None,
+    help="Number of indices per group (= output rows / effective batch L).",
 )
 @click.option(
     "--manual-seed/--skip-manual-seed",
@@ -598,27 +602,20 @@ def _gen_group_inputs_with_spec(
     help="Use manual seed for reproduction.",
 )
 def group_index_select_2d_bench(
-    row_size: int,
-    batch_size: int,
-    unique_batch_size: int,
+    num_cols: int | None,
+    num_rows: int | None,
+    num_unique_indices: int | None,
     input_precision: str,
     sort_indices: bool,
-    num_groups: int,
+    num_groups: int | None,
     device: str,
     export_trace: bool,
     trace_url: str,
     input_dims: str | None,
     input_strides: str | None,
-    index_dim: int | None,
+    num_indices: int | None,
     manual_seed: bool,
 ) -> None:
-    # Input validation (backported from tritonbench implementation)
-    if unique_batch_size > batch_size:
-        raise ValueError(
-            f"unique_batch_size ({unique_batch_size}) must be <= batch_size "
-            f"({batch_size})"
-        )
-
     # set manual seed for reproducibility
     if manual_seed:
         torch.manual_seed(42)
@@ -632,34 +629,56 @@ def group_index_select_2d_bench(
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
 
-    bench_kwargs = {"num_warmups": 10, "iters": 100}
-
-    def _kineto_trace_handler(p: profile, phase: str) -> None:
-        p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
-
-    # pyre-ignore[3]
-    def context_factory(on_trace_ready: Callable[[profile], None]):
-        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
-
-    # An empty/whitespace --input-dims is treated as NOT provided, so it falls
-    # back to the synthetic path. Checking input_dims directly (rather than via a
-    # bool) lets the type checker narrow it to a non-None str inside the branch.
+    # Two mutually-exclusive shape-specification modes:
+    #   uniform (synthetic): --num-groups + --num-rows + --num-cols
+    #   jagged  (prod/real): --input-dims + --input-strides
+    # --num-indices / --num-unique-indices / --input-precision / --sort-indices
+    # apply to both. The uniform scalar flags default to None so we can detect
+    # which mode the user selected and reject mixing the two. Checking input_dims
+    # directly (rather than via a bool) lets the type checker narrow it.
     if input_dims is not None and input_dims.strip() != "":
-        if index_dim is None:
-            raise ValueError("--index-dim is required when --input-dims is provided")
-        input_group, indices_group = _gen_group_inputs_with_spec(
-            input_dims, input_strides, index_dim, dtype, sort_indices, device
+        for name, val in [
+            ("--num-groups", num_groups),
+            ("--num-rows", num_rows),
+            ("--num-cols", num_cols),
+            ("--num-unique-indices", num_unique_indices),
+        ]:
+            if val is not None:
+                raise ValueError(
+                    f"{name} cannot be combined with --input-dims (jagged mode)"
+                )
+        if num_indices is None:
+            raise ValueError(
+                "--num-indices is required with --input-dims (jagged mode)"
+            )
+        input_group, indices_group = _gen_group_inputs_jagged(
+            input_dims, input_strides, num_indices, dtype, sort_indices, device
         )
         logging.info(
-            f"ragged: {len(input_group)} groups, "
+            f"jagged: {len(input_group)} groups, "
             f"cols={[t.shape[1] for t in input_group]}, "
-            f"index_dim={index_dim}, sort_indices={sort_indices}"
+            f"num_indices={num_indices}, sort_indices={sort_indices}"
         )
     else:
-        input_group, indices_group = _gen_group_inputs(
-            row_size,
-            batch_size,
-            unique_batch_size,
+        if input_strides is not None and input_strides.strip() != "":
+            raise ValueError("--input-strides requires --input-dims (jagged mode)")
+        # Apply uniform-mode effective defaults (preserve today's numbers).
+        num_groups = 32 if num_groups is None else num_groups
+        num_rows = 4096 if num_rows is None else num_rows
+        num_cols = 512 if num_cols is None else num_cols
+        num_unique_indices = 1024 if num_unique_indices is None else num_unique_indices
+        # Decoupled default: indices count falls back to the row count.
+        num_indices = num_rows if num_indices is None else num_indices
+        if num_unique_indices > min(num_rows, num_indices):
+            raise ValueError(
+                f"num_unique_indices ({num_unique_indices}) must be <= "
+                f"min(num_rows={num_rows}, num_indices={num_indices})"
+            )
+        input_group, indices_group = _gen_group_inputs_uniform(
+            num_cols,
+            num_rows,
+            num_indices,
+            num_unique_indices,
             num_groups,
             dtype,
             sort_indices,
@@ -670,9 +689,18 @@ def group_index_select_2d_bench(
         # reference fwd/bwd below to compare torch.index_select vs fbgemm.
         # input = torch.cat(input_group, dim=0)
         # offset_indices = torch.cat(
-        #     [idx + batch_size * i for i, idx in enumerate(indices_group)]
+        #     [idx + num_rows * i for i, idx in enumerate(indices_group)]
         # )
-        # num_bytes = 2 * batch_size * row_size * input.element_size() * num_groups
+        # num_bytes = 2 * num_rows * num_cols * input.element_size() * num_groups
+
+    bench_kwargs = {"num_warmups": 10, "iters": 100}
+
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
     # Benchmark forward
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
