@@ -36,7 +36,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 from torch import Tensor
 
 from .. import common  # noqa E402
@@ -114,7 +114,6 @@ class BackwardNoneTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_none(self, **kwargs: Any) -> None:
         self.execute_backward_none_(**kwargs)
@@ -144,7 +143,6 @@ class BackwardNoneTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_none_with_rowwise_adagrad(self, **kwargs: Any) -> None:
         self.execute_backward_none_(optimizer=OptimType.EXACT_ROWWISE_ADAGRAD, **kwargs)
@@ -177,7 +175,6 @@ class BackwardNoneTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_none_v1(  # noqa C901
         self,

@@ -35,7 +35,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -644,7 +644,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_gpu_no_cache_fp16(
         self,
@@ -665,7 +664,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_gpu_no_cache_fp16_large(
         self,
@@ -890,7 +888,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_gpu_no_cache_fp32(
         self,
@@ -956,7 +953,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_gpu_uvm_cache_int8(
         self,
@@ -1022,7 +1018,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_gpu_uvm_cache_fp8(
         self,
@@ -1092,7 +1087,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_gpu_uvm_cache_fp16(
         self,
@@ -1162,7 +1156,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_gpu_uvm_cache_fp32(
         self,
@@ -1236,7 +1229,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
     )
     def test_forward_fused_pooled_emb_quant(
         self,
@@ -1373,7 +1365,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_raw_embedding_streaming(
         self,
@@ -1443,7 +1434,6 @@ class ForwardTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_mixed_cache_non_cache_tables_w_raw_embedding_streaming(
         self,
