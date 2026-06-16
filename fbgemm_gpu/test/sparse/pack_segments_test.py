@@ -21,9 +21,13 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable
+    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+    )
 
 
 def get_n_rand_num_summing_to_k(n: int, k: int) -> npt.NDArray:
@@ -622,6 +626,102 @@ class PackedSegmentsTest(unittest.TestCase):
                         ),
                     )
             cumsum += L
+
+    @unittest.skipIf(*gpu_unavailable)
+    # Skip on GPUs with insufficient HBM. The test allocates the packed
+    # output of shape (num_seq, max_length) at fp16, ~8 GiB at the chosen
+    # max_length.
+    @unittest.skipIf(*gpu_memory_lt_gb(12))
+    def test_pack_segments_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in pack_segments_cuda{,_v2}
+        and verifies output correctness via a downsampled CPU oracle.
+
+        With block size 128, the launch grid is
+        cuda_calc_xblock_count(num_seq * max_length * cell_size, 128).
+        For num_seq * max_length * cell_size > 2**32, total threads
+        exceed the HIP 2**32 limit, causing
+        FBGEMM_LAUNCH_DSA_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail
+        on ROCm pre-fix. Both pack_segments_cuda_kernel (uses
+        CUDA_KERNEL_LOOP) and pack_segments_cuda_v2_kernel (uses
+        CUDA_KERNEL_LOOP_TYPE) already grid-stride, so capping the grid
+        is correctness-preserving for the launcher.
+
+        Verification strategy (per master plan's downsampled-oracle
+        guidance for ops where the full-scale CPU oracle is impractical):
+
+        1. Full-scale invocation of v1 and v2 to verify the launch
+           survives the production cap. Only shape is asserted because
+           v1 uses ``CUDA_KERNEL_LOOP`` with an int32 loop index, which
+           overflows for output linear indices >= 2**31; element-wise
+           comparison would surface this pre-existing kernel bug, which
+           is out of scope for this diff (the diff only caps the grid).
+        2. Small-scale invocation of v1 and v2 vs CPU dispatch to
+           validate kernel correctness end-to-end at a scale where the
+           int32 loop index does not overflow. This catches kernel
+           correctness regressions introduced by the cap fix.
+        """
+
+        # Choose num_seq * max_length so that total threads strictly
+        # exceeds 2**32. With cell_size=1: total threads ~= num_seq *
+        # max_length; need product > 2**32.
+        num_seq = 2
+        max_length = (1 << 31) + 1
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: full-scale launch survival (cap-trip detection). ----
+        # Sparse non-zero lengths: only the last segment is non-empty.
+        # t_in has a single sentinel value.
+        lengths_large = torch.zeros(num_seq, dtype=torch.int32, device=device)
+        lengths_large[-1] = 1
+        t_in_large = torch.tensor([3.5], dtype=torch.float16, device=device)
+
+        # Pre-fix, this launch trips KernelLauncher::checkThreadCountNotExceeded.
+        packed_v1 = torch.ops.fbgemm.pack_segments(
+            t_in_large, lengths_large, max_length
+        )
+        self.assertEqual(packed_v1.shape, (num_seq, max_length))
+        del packed_v1
+
+        packed_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            t_in_large, lengths_large, max_length
+        )
+        self.assertEqual(packed_v2.shape, (num_seq, max_length))
+        del packed_v2
+
+        # ---- Step 2: downsampled CPU-oracle correctness check. ----
+        # Same kernel code path, smaller scale to keep the int32 loop
+        # index of v1 in range and the CPU oracle cheap.
+        small_max_length = 16
+        small_lengths_cpu = torch.tensor([0, 3, 0, 2], dtype=torch.int32)
+        # Total non-zero lengths = 5; t_in is a sequence of distinct
+        # values so any "wrong row/col" bug surfaces.
+        small_t_in_cpu = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float16)
+
+        # CPU oracles.
+        small_packed_cpu = torch.ops.fbgemm.pack_segments(
+            small_t_in_cpu, small_lengths_cpu, small_max_length
+        )
+        small_packed_cpu_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            small_t_in_cpu, small_lengths_cpu, small_max_length
+        )
+
+        # GPU under test.
+        small_packed_gpu = torch.ops.fbgemm.pack_segments(
+            small_t_in_cpu.to(device),
+            small_lengths_cpu.to(device),
+            small_max_length,
+        )
+        small_packed_gpu_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            small_t_in_cpu.to(device),
+            small_lengths_cpu.to(device),
+            small_max_length,
+        )
+
+        torch.testing.assert_close(small_packed_gpu.cpu(), small_packed_cpu)
+        torch.testing.assert_close(small_packed_gpu_v2.cpu(), small_packed_cpu_v2)
 
 
 extend_test_class(PackedSegmentsTest)
