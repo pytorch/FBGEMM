@@ -32,7 +32,14 @@ VERBOSITY: Verbosity = Verbosity.verbose
 class LXUCacheTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        associativity=st.sampled_from([1, DEFAULT_ASSOC]),
+        # lxu_cache_lookup is a set-associative lookup whose kernel reads
+        # exactly kWarpSize (== DEFAULT_ASSOC) ways per set. Any other
+        # associativity makes the kernel read past the cache state row
+        # (out of bounds), which on ROCm wavefront64 yields spurious hits.
+        # The direct-mapped (associativity 1) path is a separate op,
+        # direct_mapped_lxu_cache_lookup, exercised end-to-end (cache_assoc=1)
+        # by nbit_cache_test.test_nbit_direct_mapped_uvm_cache_stats.
+        associativity=st.sampled_from([DEFAULT_ASSOC]),
     )
     @settings(deadline=None)
     def test_lxu_cache_lookup(self, associativity: int) -> None:
