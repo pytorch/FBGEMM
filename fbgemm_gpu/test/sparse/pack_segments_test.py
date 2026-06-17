@@ -10,6 +10,8 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
+from collections.abc import Callable
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -724,7 +726,25 @@ class PackedSegmentsTest(unittest.TestCase):
         torch.testing.assert_close(small_packed_gpu_v2.cpu(), small_packed_cpu_v2)
 
 
-extend_test_class(PackedSegmentsTest)
+# The opcheck harness (generate_opcheck_tests) re-executes the op for each
+# generated variant. test_pack_segments_large_grid deliberately drives
+# max_length = 2**31 + 1 (an ~8 GiB fp16 output) to exercise the HIP grid cap,
+# and intentionally asserts shape only at full scale because v1's
+# CUDA_KERNEL_LOOP uses an int32 index that overflows past 2**31. Re-running the
+# op in the generated variants hits that overflow -> illegal memory access ->
+# FATAL crash (not catchable by xfail), so skip opcheck for this stress test.
+# T191384137
+_LARGE_GRID_SKIP: list[Callable[..., Any]] = [
+    unittest.skip("large-grid stress test is incompatible with opcheck re-execution")
+]
+additional_decorators: dict[str, list[Callable[..., Any]]] = {
+    "test_schema__test_pack_segments_large_grid": _LARGE_GRID_SKIP,
+    "test_autograd_registration__test_pack_segments_large_grid": _LARGE_GRID_SKIP,
+    "test_faketensor__test_pack_segments_large_grid": _LARGE_GRID_SKIP,
+    "test_aot_dispatch_dynamic__test_pack_segments_large_grid": _LARGE_GRID_SKIP,
+}
+
+extend_test_class(PackedSegmentsTest, additional_decorators)
 
 
 if __name__ == "__main__":
