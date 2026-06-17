@@ -1037,6 +1037,22 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return mem_usages;
   }
 
+  int64_t get_estimated_num_keys() override {
+    int64_t total = 0;
+    for (auto& db : dbs_) {
+      std::string val;
+      db->GetProperty("rocksdb.estimate-num-keys", &val);
+      if (!val.empty()) {
+        total += folly::to<int64_t>(val);
+      }
+    }
+    return total;
+  }
+
+  int64_t get_total_rows_written() const override {
+    return total_rows_written_.load(std::memory_order_relaxed);
+  }
+
   std::vector<double> get_rocksdb_io_duration(
       const int64_t step,
       const int64_t interval) {
