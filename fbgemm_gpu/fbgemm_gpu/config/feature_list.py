@@ -69,6 +69,9 @@ class FeatureGateName(Enum):
     # Enable warp-parallel kernel for populate_bucketized_permute
     BUCKETIZED_PERMUTE_WARP_KERNEL = auto()
 
+    # Gate the bounds_check_indices offsets-adjustment assertions
+    DISABLE_OFFSETS_ADJUSTMENT = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
