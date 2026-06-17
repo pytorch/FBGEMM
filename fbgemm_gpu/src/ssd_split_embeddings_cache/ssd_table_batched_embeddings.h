@@ -476,6 +476,30 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 #endif
   }
 
+  /// Create the metadata column family on shards that don't have it yet.
+  /// Called by DRAM_SSD composite backend only — pure SSD tables don't need
+  /// CF2.
+  void ensure_metadata_cf() {
+    for (size_t i = 0; i < dbs_.size(); ++i) {
+      if (metadata_cf_handles_[i] == nullptr) {
+        rocksdb::ColumnFamilyHandle* md_handle = nullptr;
+        auto s =
+            dbs_[i]->CreateColumnFamily(cf_options_, "metadata", &md_handle);
+        CHECK(s.ok()) << "Failed to create metadata CF: " << s.ToString();
+        metadata_cf_handles_[i] = md_handle;
+      }
+    }
+  }
+
+  void set_metadata_dim(int64_t dim) {
+    metadata_dim_ = dim;
+    LOG(INFO) << "EmbeddingRocksDB::set_metadata_dim=" << metadata_dim_;
+  }
+
+  int64_t get_metadata_dim() const {
+    return metadata_dim_;
+  }
+
   void initialize_initializers(
       int64_t num_shards,
       int64_t max_D,
@@ -525,6 +549,76 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     // no op for now
     return folly::makeSemiFuture<std::vector<folly::Unit>>(
         std::vector<folly::Unit>{});
+  }
+
+  folly::SemiFuture<std::vector<folly::Unit>> set_kv_metadata_async(
+      const at::Tensor& indices,
+      const at::Tensor& metadata,
+      const at::Tensor& count) override {
+    auto count_ = count.scalar_type() == at::ScalarType::Long
+        ? *(count.data_ptr<int64_t>())
+        : *(count.data_ptr<int32_t>());
+    if (count_ <= 0 || metadata_dim_ <= 0) {
+      return folly::makeSemiFuture(std::vector<folly::Unit>());
+    }
+
+    ensure_metadata_cf();
+    CHECK(indices.is_contiguous());
+    CHECK(metadata.is_contiguous());
+    CHECK_EQ(indices.size(0), metadata.size(0));
+    CHECK_EQ(metadata.size(1), metadata_dim_);
+
+    std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(dbs_.size());
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([=, this, &indices, &metadata](folly::Unit) {
+                FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
+                    metadata.scalar_type(), "ssd_set_metadata", [&] {
+                      using value_t = scalar_t;
+                      FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                          indices.scalar_type(), "ssd_set_metadata", [&] {
+                            using index_t = scalar_t;
+                            CHECK(indices.is_contiguous());
+                            CHECK(metadata.is_contiguous());
+                            auto indices_acc = indices.accessor<index_t, 1>();
+                            auto D = metadata.size(1);
+                            rocksdb::WriteBatch batch(
+                                ((count_ + dbs_.size() - 1) / dbs_.size()) *
+                                (sizeof(index_t) + sizeof(value_t) * D));
+                            int64_t metadata_write_count = 0;
+                            for (auto i = 0; i < count_; ++i) {
+                              if (indices_acc[i] < 0) {
+                                continue;
+                              }
+                              if (kv_db_utils::hash_shard(
+                                      indices_acc[i], dbs_.size()) != shard) {
+                                continue;
+                              }
+                              batch.Put(
+                                  metadata_cf_handles_[shard],
+                                  rocksdb::Slice(
+                                      reinterpret_cast<const char*>(
+                                          &(indices.data_ptr<index_t>()[i])),
+                                      sizeof(index_t)),
+                                  rocksdb::Slice(
+                                      reinterpret_cast<const char*>(&(
+                                          metadata.data_ptr<value_t>()[i * D])),
+                                      D * sizeof(value_t)));
+                              ++metadata_write_count;
+                            }
+                            if (metadata_write_count > 0) {
+                              auto s = dbs_[shard]->Write(wo_, &batch);
+                              CHECK(s.ok()) << "Metadata CF write failed: "
+                                            << s.ToString();
+                            }
+                          });
+                    });
+              });
+      futures.emplace_back(std::move(f));
+    }
+    return folly::collect(std::move(futures));
   }
 
   void set_embedding_cache_enrich_query_id_async(
