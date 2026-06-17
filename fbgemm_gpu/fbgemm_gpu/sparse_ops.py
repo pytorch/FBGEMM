@@ -1191,7 +1191,11 @@ def histogram_binning_calibration_abstract(
     bin_ctr_in_use_after: int,
     bin_ctr_weight_value: float,
 ) -> tuple[Tensor, Tensor]:
-    return torch.empty_like(logit), torch.empty([logit.numel()], dtype=torch.int64)
+    # bin_ids must be allocated on logit's device to match the real kernel,
+    # otherwise the faketensor opcheck fails with a device mismatch on GPU.
+    return torch.empty_like(logit), torch.empty(
+        [logit.numel()], dtype=torch.int64, device=logit.device
+    )
 
 
 def float_to_hfp8_quantized(
