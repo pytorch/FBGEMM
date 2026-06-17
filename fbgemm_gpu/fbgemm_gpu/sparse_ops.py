@@ -252,6 +252,9 @@ def repeat_arange_meta(lengths: Tensor) -> Tensor:
         # FakeTensor context: use dynamic sizing for proper shape tracking
         ctx = torch.library.get_ctx()
         output_size = ctx.new_dynamic_size()
+        # Size-oblivious guard resolution for the data-dependent output size,
+        # so test_aot_dispatch_dynamic does not fail on the unbacked SymInt.
+        torch._check_is_size(output_size)
         return torch.empty([output_size], dtype=lengths.dtype, device=lengths.device)
 
 
@@ -835,6 +838,8 @@ def batch_index_select_dim0_tensor_abstract(
     torch._check(input_num_indices.size(0) == input_rows.size(0))
     torch._check(input_num_indices.size(0) == input_columns.size(0))
     output_numel = torch.library.get_ctx().new_dynamic_size()
+    # Size-oblivious guard resolution for the data-dependent output numel.
+    torch._check_is_size(output_numel)
     return inputs.new_empty([output_numel])
 
 
@@ -1246,6 +1251,24 @@ def fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
         )
 
 
+def fused_nbit_rowwise_quantized_sb_half_to_float(
+    input_t: Tensor,
+    bit_rate: int,
+) -> Tensor:
+    return fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
+        input_t, bit_rate, SparseType.FP32.as_int()
+    )
+
+
+def fused_nbit_rowwise_quantized_sb_half_to_half(
+    input_t: Tensor,
+    bit_rate: int,
+) -> Tensor:
+    return fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
+        input_t, bit_rate, SparseType.FP16.as_int()
+    )
+
+
 def fused_8_bit_rowwise_quantized_to_float_or_half(
     input_t: Tensor,
     output_dtype: int = 0,
@@ -1390,6 +1413,8 @@ def padded_fp8_rowwise_quantized_to_float(
         # When output_last_dim is not supplied the kernel reads per-row pad
         # values, making the output column count data-dependent.
         output_columns = torch.library.get_ctx().new_dynamic_size()
+        # Size-oblivious guard resolution for the data-dependent output cols.
+        torch._check_is_size(output_columns)
     output_shape: list[int | torch.SymInt] = [*input_t.shape]
     output_shape[last_dim] = output_columns
     if output_dtype == SparseType.FP32.as_int():
@@ -1659,6 +1684,22 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
             fused_nbit_rowwise_quantized_sb_half_to_float_or_half,
+        )
+        impl_abstract(
+            "fbgemm::FloatToFusedNBitRowwiseQuantizedSBHalf",
+            float_or_half_to_fused_nbit_rowwise_quantized_sbhalf,
+        )
+        impl_abstract(
+            "fbgemm::HalfToFusedNBitRowwiseQuantizedSBHalf",
+            float_or_half_to_fused_nbit_rowwise_quantized_sbhalf,
+        )
+        impl_abstract(
+            "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloat",
+            fused_nbit_rowwise_quantized_sb_half_to_float,
+        )
+        impl_abstract(
+            "fbgemm::FusedNBitRowwiseQuantizedSBHalfToHalf",
+            fused_nbit_rowwise_quantized_sb_half_to_half,
         )
         impl_abstract(
             "fbgemm::Fused8BitRowwiseQuantizedToFloatOrHalf",

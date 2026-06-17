@@ -12,6 +12,12 @@
         "status": "xfail"
       }
     },
+    "fbgemm::asynchronous_batched_complete_cumsum": {
+      "CumSumTest.test_aot_dispatch_dynamic__test_batched_complete_cumsum": {
+        "comment": "Test builds output via a dynamic Python loop + torch.stack; incompatible with aot_dispatch_dynamic. C++ symbolic meta is correct. T191384137",
+        "status": "xfail"
+      }
+    },
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},
