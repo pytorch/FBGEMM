@@ -391,7 +391,9 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             offsets[0] = -100
         if offsets.numel() > 1:
             offsets[-1] += 100
-        if bounds_check_mode != BoundsCheckMode.FATAL:
+        # CUDA asserts on bad offsets in all modes (kills context); only CPU
+        # silently corrects, so only exercise the silent-correction path on CPU.
+        if bounds_check_mode != BoundsCheckMode.FATAL and use_cpu:
             torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table,
                 indices,

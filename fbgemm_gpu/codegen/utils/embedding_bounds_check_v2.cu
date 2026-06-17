@@ -39,34 +39,11 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   const uint32_t active_threads = blockDim.x * blockDim.y * blockDim.z;
 #endif
 
-  // Check the last element
+  // Last-element check; one thread only.
   if (b_t_start == 0 && threadIdx.x == 0) {
-    if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      CUDA_KERNEL_ASSERT(
-          num_indices == offsets[total_B] &&
-          "num_indices must match the last element in offsets");
-    } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-      if (num_indices != offsets[total_B]) {
-        if (gpuAtomicIncrement(&warning[0]) == 0) {
-          printf(
-              "EmbeddingBoundsCheck (VBE %s): the last element in offsets is incorrect for "
-              "total batch size %s: %d, total table num T: %d, "
-              " last element in offsets: %lld, indices size: %lld. "
-              " Setting the last element in offsets to be indices size.\n",
-              vbe ? "true" : "false",
-              vbe ? "total_B" : "B",
-              vbe ? total_B : B,
-              T,
-              static_cast<int64_t>(offsets[total_B]),
-              static_cast<int64_t>(num_indices));
-        }
-        offsets[total_B] = num_indices;
-      }
-    } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-      if (num_indices != offsets[total_B]) {
-        offsets[total_B] = num_indices;
-      }
-    }
+    CUDA_KERNEL_ASSERT(
+        num_indices == offsets[total_B] &&
+        "num_indices must match the last element in offsets");
   }
 
   for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B;
@@ -83,44 +60,20 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     }
 
     const auto num_rows = rows_per_table[t];
-    auto indices_start = offsets[b_t];
-    auto indices_end = offsets[b_t + 1];
+    const auto indices_start = offsets[b_t];
+    const auto indices_end = offsets[b_t + 1];
 
-    // Condition first, then branch on mode.
-    if (indices_start < 0 || indices_start > indices_end ||
-        indices_end > num_indices) {
-      if (bounds_check_mode == BoundsCheckMode::FATAL) {
-        CUDA_KERNEL_ASSERT(
-            indices_start >= 0 && "indices_start must be non-negative");
-        CUDA_KERNEL_ASSERT(
-            indices_start <= indices_end &&
-            "indices_start must not exceed indices_end");
-        CUDA_KERNEL_ASSERT(
-            indices_end <= num_indices &&
-            "indices_end must not exceed num_indices");
-      } else {
-        if (bounds_check_mode == BoundsCheckMode::WARNING) {
-          if (threadIdx.x == 0 && gpuAtomicIncrement(&warning[0]) == 0) {
-            printf(
-                "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
-                "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
-                " num_indices: %lld. Setting indices_start and indices_end within "
-                "the range.\n",
-                vbe ? "true" : "false",
-                b,
-                t,
-                static_cast<int64_t>(indices_start),
-                static_cast<int64_t>(indices_end),
-                static_cast<int64_t>(num_indices));
-          }
-        }
-        adjust_offset_kernel(
-            indices_start,
-            indices_end,
-            num_indices,
-            &offsets[b_t],
-            &offsets[b_t + 1]);
-      }
+    // Always throw assertion for bad offsets
+    // Only lane 0 asserts to avoid 32x assertions
+    if (threadIdx.x == 0) {
+      CUDA_KERNEL_ASSERT(
+          indices_start >= 0 && "indices_start must be non-negative");
+      CUDA_KERNEL_ASSERT(
+          indices_start <= indices_end &&
+          "indices_start must not exceed indices_end");
+      CUDA_KERNEL_ASSERT(
+          indices_end <= num_indices &&
+          "indices_end must not exceed num_indices");
     }
 
     const auto L = indices_end - indices_start;
