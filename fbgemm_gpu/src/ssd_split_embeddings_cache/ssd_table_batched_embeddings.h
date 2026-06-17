@@ -126,7 +126,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
       int64_t flushing_block_size = 2000000000 /*2GB*/,
       bool disable_random_init = false,
-      bool enable_blob_db = false)
+      bool enable_blob_db = false,
+      bool enable_metadata_cf = false,
+      int64_t metadata_dim = 0)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -141,8 +143,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             std::move(table_offsets),
             table_sizes,
             flushing_block_size),
-        auto_compaction_enabled_(true),
+        enable_metadata_cf_(enable_metadata_cf),
         max_D_(max_D),
+        metadata_dim_(metadata_dim),
         elem_size_(row_storage_bitwidth / 8) {
     class Int64Comparator : public rocksdb::Comparator {
      public:
@@ -277,6 +280,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         std::max<int64_t>(num_threads / 4, 1), rocksdb::Env::LOW);
     options.max_open_files = -1;
 
+    cf_options_ = rocksdb::ColumnFamilyOptions(options);
     initialize_dbs(num_shards, path, options, use_passed_in_path);
     initialize_initializers(
         num_shards,
@@ -344,6 +348,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
     snapshots_.clear();
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      if (shard < metadata_cf_handles_.size() && metadata_cf_handles_[shard]) {
+        dbs_[shard]->DestroyColumnFamilyHandle(metadata_cf_handles_[shard]);
+        LOG(INFO) << "deleting metadata column family handle";
+      }
       dbs_[shard]->Close();
       kv_db_utils::remove_dir(db_paths_[shard]);
       LOG(INFO) << "deleting rocksdb shard path:" << db_paths_[shard];
@@ -417,6 +425,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     db_paths_.reserve(num_shards);
     std::string all_shards_path;
 #endif
+    metadata_cf_handles_.resize(num_shards, nullptr);
     for (auto i = 0; i < num_shards; ++i) {
       path_ = paths_[i % paths_.size()];
 #ifdef FBGEMM_FBCODE
@@ -430,30 +439,45 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       auto shard_path = path + std::string("/shard_") + std::to_string(i);
 #endif
       rocksdb::DB* db;
+      rocksdb::Status s;
 
-#ifdef FBGEMM_FBCODE
-      auto s = facebook::fb_rocksdb::openRocksDB(
-          options,
-          shard_path,
-          &db,
-          serviceInfo,
-          facebook::fb_rocksdb::getDefaultProfileOptions(),
-          db_monitor_options);
-#else
-      std::unique_ptr<rocksdb::DB> db_ptr;
-      auto s = rocksdb::DB::Open(options, shard_path, &db_ptr);
-      db = db_ptr.release();
-#endif
-      if (!s.ok() && s.code() == rocksdb::Status::kInvalidArgument &&
-          (options.use_direct_reads ||
-           options.use_direct_io_for_flush_and_compaction)) {
-        LOG(WARNING)
-            << "Warning, Requested DirectIO, but not supported on destination: "
-            << shard_path;
-        options.use_direct_reads = false;
-        options.use_direct_io_for_flush_and_compaction = false;
-        LOG(WARNING)
-            << "Trying again, any subsequent failures will be fatal...";
+      // The metadata column family is controlled solely by
+      // enable_metadata_cf_. When enabled, open the metadata CF (creating it if
+      // missing) alongside the default CF; otherwise open the default CF only.
+      if (enable_metadata_cf_) {
+        CHECK_GT(metadata_dim_, 0)
+            << "enable_metadata_cf_ is true but metadata_dim_ is not positive: " +
+                std::to_string(metadata_dim_);
+
+        std::vector<rocksdb::ColumnFamilyDescriptor> cf_descs;
+        cf_descs.emplace_back(
+            rocksdb::kDefaultColumnFamilyName,
+            rocksdb::ColumnFamilyOptions(options));
+        cf_descs.emplace_back(
+            "metadata", rocksdb::ColumnFamilyOptions(options));
+        std::vector<rocksdb::ColumnFamilyHandle*> cf_handles;
+        std::unique_ptr<rocksdb::DB> db_ptr;
+        rocksdb::DBOptions db_options(options);
+        db_options.create_missing_column_families = true;
+        s = rocksdb::DB::Open(
+            db_options, shard_path, cf_descs, &cf_handles, &db_ptr);
+        if (!s.ok() && s.code() == rocksdb::Status::kInvalidArgument &&
+            (options.use_direct_reads ||
+             options.use_direct_io_for_flush_and_compaction)) {
+          options.use_direct_reads = false;
+          options.use_direct_io_for_flush_and_compaction = false;
+          rocksdb::DBOptions retry_db_options(options);
+          retry_db_options.create_missing_column_families = true;
+          s = rocksdb::DB::Open(
+              retry_db_options, shard_path, cf_descs, &cf_handles, &db_ptr);
+        }
+        CHECK(s.ok()) << s.ToString();
+        db = db_ptr.release();
+        LOG(INFO) << "Opened RocksDB shard " << i << " at " << shard_path
+                  << " with metadata CF via unique_ptr, db=" << db;
+        db->DestroyColumnFamilyHandle(cf_handles[0]);
+        metadata_cf_handles_[i] = cf_handles[1];
+      } else {
 #ifdef FBGEMM_FBCODE
         s = facebook::fb_rocksdb::openRocksDB(
             options,
@@ -463,11 +487,35 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             facebook::fb_rocksdb::getDefaultProfileOptions(),
             db_monitor_options);
 #else
+        std::unique_ptr<rocksdb::DB> db_ptr;
         s = rocksdb::DB::Open(options, shard_path, &db_ptr);
         db = db_ptr.release();
 #endif
+        if (!s.ok() && s.code() == rocksdb::Status::kInvalidArgument &&
+            (options.use_direct_reads ||
+             options.use_direct_io_for_flush_and_compaction)) {
+          LOG(WARNING)
+              << "Warning, Requested DirectIO, but not supported on destination: "
+              << shard_path;
+          options.use_direct_reads = false;
+          options.use_direct_io_for_flush_and_compaction = false;
+          LOG(WARNING)
+              << "Trying again, any subsequent failures will be fatal...";
+#ifdef FBGEMM_FBCODE
+          s = facebook::fb_rocksdb::openRocksDB(
+              options,
+              shard_path,
+              &db,
+              serviceInfo,
+              facebook::fb_rocksdb::getDefaultProfileOptions(),
+              db_monitor_options);
+#else
+          s = rocksdb::DB::Open(options, shard_path, &db_ptr);
+          db = db_ptr.release();
+#endif
+        }
+        CHECK(s.ok()) << s.ToString();
       }
-      CHECK(s.ok()) << s.ToString();
       dbs_.emplace_back(db);
     }
 #ifdef FBGEMM_FBCODE
@@ -476,28 +524,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 #endif
   }
 
-  /// Create the metadata column family on shards that don't have it yet.
-  /// Called by DRAM_SSD composite backend only — pure SSD tables don't need
-  /// CF2.
-  void ensure_metadata_cf() {
-    for (size_t i = 0; i < dbs_.size(); ++i) {
-      if (metadata_cf_handles_[i] == nullptr) {
-        rocksdb::ColumnFamilyHandle* md_handle = nullptr;
-        auto s =
-            dbs_[i]->CreateColumnFamily(cf_options_, "metadata", &md_handle);
-        CHECK(s.ok()) << "Failed to create metadata CF: " << s.ToString();
-        metadata_cf_handles_[i] = md_handle;
-      }
-    }
-  }
-
-  void set_metadata_dim(int64_t dim) {
-    metadata_dim_ = dim;
-    LOG(INFO) << "EmbeddingRocksDB::set_metadata_dim=" << metadata_dim_;
-  }
-
   int64_t get_metadata_dim() const {
     return metadata_dim_;
+  }
+
+  bool is_metadata_cf_initialized(int64_t shard) const {
+    return shard >= 0 && shard < std::ssize(metadata_cf_handles_) &&
+        metadata_cf_handles_[shard] != nullptr;
   }
 
   void initialize_initializers(
@@ -558,11 +591,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto count_ = count.scalar_type() == at::ScalarType::Long
         ? *(count.data_ptr<int64_t>())
         : *(count.data_ptr<int32_t>());
-    if (count_ <= 0 || metadata_dim_ <= 0) {
+    if (!enable_metadata_cf_ || count_ <= 0 || metadata_dim_ <= 0) {
       return folly::makeSemiFuture(std::vector<folly::Unit>());
     }
 
-    ensure_metadata_cf();
     CHECK(indices.is_contiguous());
     CHECK(metadata.is_contiguous());
     CHECK_EQ(indices.size(0), metadata.size(0));
@@ -651,7 +683,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& metadata,
       const at::Tensor& count) override {
-    if (metadata_dim_ <= 0) {
+    if (!enable_metadata_cf_ || metadata_dim_ <= 0) {
       return folly::makeSemiFuture(std::vector<folly::Unit>());
     }
     return get_kv_db_single_cf_async(
@@ -798,12 +830,21 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             CHECK(weights.is_contiguous());
                             auto indices_acc = indices.accessor<index_t, 1>();
                             auto D = weights.size(1);
+                            auto payload_D = D;
+                            auto payload_offset = 0;
+                            if (enable_metadata_cf_) {
+                              CHECK_GE(D, metadata_dim_);
+                              payload_offset = metadata_dim_;
+                              payload_D = D - metadata_dim_;
+                            }
+                            CHECK_EQ(payload_D + payload_offset, D);
                             CHECK_EQ(indices.size(0), weights.size(0));
                             {
                               rocksdb::WriteBatch batch(
                                   (2 * (count_ + dbs_.size() - 1) /
                                    dbs_.size()) *
                                   (sizeof(index_t) + sizeof(value_t) * D));
+                              int64_t shard_rows_written = 0;
                               for (auto i = 0; i < count_; ++i) {
                                 if (indices_acc[i] < 0) {
                                   continue;
@@ -812,21 +853,49 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                                         indices_acc[i], dbs_.size()) != shard) {
                                   continue;
                                 }
-                                batch.Put(
-                                    rocksdb::Slice(
-                                        reinterpret_cast<const char*>(
-                                            &(indices.data_ptr<index_t>()[i])),
-                                        sizeof(index_t)),
-                                    rocksdb::Slice(
-                                        reinterpret_cast<const char*>(
-                                            &(weights
+                                ++shard_rows_written;
+                                if (!enable_metadata_cf_) {
+                                  batch.Put(
+                                      rocksdb::Slice(
+                                          reinterpret_cast<const char*>(&(
+                                              indices.data_ptr<index_t>()[i])),
+                                          sizeof(index_t)),
+                                      rocksdb::Slice(
+                                          reinterpret_cast<const char*>(&(
+                                              weights
                                                   .data_ptr<value_t>()[i * D])),
-                                        D * sizeof(value_t)));
+                                          D * sizeof(value_t)));
+                                } else {
+                                  batch.Put(
+                                      rocksdb::Slice(
+                                          reinterpret_cast<const char*>(&(
+                                              indices.data_ptr<index_t>()[i])),
+                                          sizeof(index_t)),
+                                      rocksdb::Slice(
+                                          reinterpret_cast<const char*>(
+                                              &(weights.data_ptr<value_t>()
+                                                    [i * D + payload_offset])),
+                                          payload_D * sizeof(value_t)));
+                                  batch.Put(
+                                      metadata_cf_handles_[shard],
+                                      rocksdb::Slice(
+                                          reinterpret_cast<const char*>(&(
+                                              indices.data_ptr<index_t>()[i])),
+                                          sizeof(index_t)),
+                                      rocksdb::Slice(
+                                          reinterpret_cast<const char*>(&(
+                                              weights
+                                                  .data_ptr<value_t>()[i * D])),
+                                          payload_offset * sizeof(value_t)));
+                                }
                               }
                               auto s = dbs_[shard]->Write(wo_, &batch);
                               CHECK(s.ok())
                                   << "Failed to write batch to db, error: "
                                   << s.ToString();
+                              total_rows_written_.fetch_add(
+                                  shard_rows_written,
+                                  std::memory_order_relaxed);
                             }
                           });
                     });
@@ -1053,8 +1122,89 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& count,
       const SnapshotHandle* snapshot_handle) {
-    // no op for ssd embedding now, default value is 0
-    return at::zeros_like(indices, at::kLong);
+    if (!enable_metadata_cf_) {
+      // no op for the case when metadata cf is not enable, i.e. non DRAM_SSD
+      // ZCH
+      return at::zeros_like(indices, at::kLong);
+    }
+    auto count_ = count.scalar_type() == at::ScalarType::Long
+        ? *(count.data_ptr<int64_t>())
+        : *(count.data_ptr<int32_t>());
+    auto numel = indices.size(0);
+    auto metadata = at::zeros({numel}, at::kLong);
+    if (count_ <= 0 || metadata_dim_ <= 0) {
+      LOG(INFO) << "get_kv_zch_eviction_metadata_by_snapshot: early return,"
+                << " count=" << count_ << ", metadata_dim_=" << metadata_dim_
+                << ", max_D_=" << max_D_;
+      return metadata;
+    }
+    auto* idx_ptr = indices.data_ptr<int64_t>();
+    auto* md_ptr = metadata.mutable_data_ptr<int64_t>();
+
+    std::vector<folly::Future<folly::Unit>> futures;
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      snapshot_ptr_t snapshot = snapshot_handle == nullptr
+          ? nullptr
+          : snapshot_handle->get_snapshot_for_shard(shard);
+      auto local_ro = ro_;
+      local_ro.snapshot = snapshot;
+      auto f = folly::via(executor_.get()).thenValue([=, this](folly::Unit) {
+        std::vector<rocksdb::Slice> keys;
+        std::vector<int32_t> key_pos;
+        for (int64_t i = 0; i < count_; ++i) {
+          if (idx_ptr[i] < 0) {
+            continue;
+          }
+          if (kv_db_utils::hash_shard(idx_ptr[i], dbs_.size()) != shard) {
+            continue;
+          }
+          key_pos.push_back(i);
+        }
+        if (key_pos.empty()) {
+          return;
+        }
+        std::ranges::sort(key_pos, [&](int32_t lhs, int32_t rhs) {
+          return idx_ptr[lhs] < idx_ptr[rhs];
+        });
+        keys.reserve(key_pos.size());
+        for (const auto& i : key_pos) {
+          keys.emplace_back(
+              reinterpret_cast<const char*>(&idx_ptr[i]), sizeof(int64_t));
+        }
+        std::vector<rocksdb::ColumnFamilyHandle*> cfs(
+            keys.size(), metadata_cf_handles_[shard]);
+        std::vector<rocksdb::PinnableSlice> values(keys.size());
+        std::vector<rocksdb::Status> statuses(keys.size());
+        dbs_[shard]->MultiGet(
+            local_ro,
+            keys.size(),
+            cfs.data(),
+            keys.data(),
+            values.data(),
+            statuses.data(),
+            /*sorted_input=*/true);
+        int64_t metadata_read_found = 0;
+        int64_t metadata_read_missing = 0;
+        for (size_t j = 0; j < keys.size(); ++j) {
+          if (statuses[j].ok() && values[j].size() >= 16) {
+            memcpy(
+                &md_ptr[key_pos[j]],
+                values[j].data() + sizeof(int64_t),
+                sizeof(int64_t));
+            ++metadata_read_found;
+          } else {
+            ++metadata_read_missing;
+          }
+        }
+        LOG(INFO) << "Metadata CF read: shard=" << shard
+                  << ", keys_queried=" << keys.size()
+                  << ", found=" << metadata_read_found
+                  << ", missing=" << metadata_read_missing;
+      });
+      futures.emplace_back(std::move(f));
+    }
+    folly::collect(futures).wait();
+    return metadata;
   }
 
   void get_range_from_snapshot(
@@ -1081,6 +1231,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
     const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
     set_kv_db_async(ids, weights, count).wait();
+  }
+
+  int64_t get_metaheader_width_in_front() override {
+    return metadata_dim_;
   }
 
   void get_kv_from_storage_by_snapshot(
@@ -1344,6 +1498,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       VALUE_T* row_storage_data_ptr,
       int64_t width_offset,
       int64_t row_width) {
+    CHECK(metadata_cf_handles_[shard_id] != nullptr)
+        << "Metadata CF handle is null for shard: " + std::to_string(shard_id);
+
+    if (metadata_dim_ <= 0) {
+      return;
+    }
+
     FOLLY_DECLARE_REUSED(payload_values, std::vector<rocksdb::PinnableSlice>);
     FOLLY_DECLARE_REUSED(payload_statuses, std::vector<rocksdb::Status>);
     payload_values.resize(keys.size());
@@ -1361,22 +1522,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
     FOLLY_DECLARE_REUSED(metadata_values, std::vector<rocksdb::PinnableSlice>);
     FOLLY_DECLARE_REUSED(metadata_statuses, std::vector<rocksdb::Status>);
-    bool has_metadata_cf =
-        metadata_dim_ > 0 && metadata_cf_handles_[shard_id] != nullptr;
-    if (has_metadata_cf) {
-      metadata_values.resize(keys.size());
-      metadata_statuses.resize(keys.size());
-      std::vector<rocksdb::ColumnFamilyHandle*> metadata_cfs(
-          keys.size(), metadata_cf_handles_[shard_id]);
-      dbs_[shard_id]->MultiGet(
-          local_ro,
-          keys.size(),
-          metadata_cfs.data(),
-          keys.data(),
-          metadata_values.data(),
-          metadata_statuses.data(),
-          /*sorted_input=*/true);
-    }
+
+    metadata_values.resize(keys.size());
+    metadata_statuses.resize(keys.size());
+    std::vector<rocksdb::ColumnFamilyHandle*> metadata_cfs(
+        keys.size(), metadata_cf_handles_[shard_id]);
+    dbs_[shard_id]->MultiGet(
+        local_ro,
+        keys.size(),
+        metadata_cfs.data(),
+        keys.data(),
+        metadata_values.data(),
+        metadata_statuses.data(),
+        /*sorted_input=*/true);
 
     for (auto j = 0; j < keys.size(); ++j) {
       auto row_index = key_indices[j];
@@ -1404,10 +1562,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         continue;
       }
 
-      if (has_metadata_cf && metadata_statuses[j].ok()) {
+      if (metadata_statuses[j].ok()) {
         copy_logical_row_slice<VALUE_T>(
             metadata_values[j], 0, row_ptr, width_offset, row_width);
-      } else if (has_metadata_cf && payload_status.ok()) {
+      } else if (payload_status.ok()) {
         LOG_IF(
             WARNING,
             !metadata_statuses[j].ok() && !metadata_statuses[j].IsNotFound())
@@ -1604,7 +1762,11 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
     auto D = weights.size(1);
     auto copy_width = width_length.value_or(D);
-    CHECK_LE(D, max_D_);
+    if (!enable_metadata_cf_) {
+      CHECK_LE(D, max_D_);
+    } else {
+      CHECK_LE(D, max_D_ + metadata_dim_);
+    }
     CHECK_EQ(copy_width, D);
 
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
@@ -1690,7 +1852,17 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                               row_storage_data_ptr =
                                   init_storage.data_ptr<value_t>();
                             }
-                            if (use_iterator) {
+                            if (enable_metadata_cf_) {
+                              ssd_get_weights_with_metadata_multi_get(
+                                  keys,
+                                  key_indices,
+                                  weights_data_ptr,
+                                  shard,
+                                  local_ro,
+                                  row_storage_data_ptr,
+                                  width_offset,
+                                  D);
+                            } else if (use_iterator) {
                               ssd_get_weights_iterator(
                                   keys,
                                   key_indices,
@@ -1742,7 +1914,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t memtable_flush_period_;
   int64_t compaction_period_;
   int64_t l0_files_per_compact_;
-  bool auto_compaction_enabled_;
+  bool auto_compaction_enabled_{true};
+  bool enable_metadata_cf_{false};
 
   // break down on rocksdb write duration for details checkout
   // RocksdbWriteMode
@@ -1756,7 +1929,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::unordered_map<const SnapshotHandle*, std::unique_ptr<SnapshotHandle>>
       snapshots_;
   int64_t max_D_;
-  int64_t metadata_dim_;
+  int64_t metadata_dim_{0};
   int64_t elem_size_;
   std::vector<int64_t> sub_table_dims_;
   std::vector<int64_t> sub_table_hash_cumsum_;
