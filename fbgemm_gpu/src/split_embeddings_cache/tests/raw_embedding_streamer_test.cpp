@@ -237,6 +237,61 @@ TEST(RawEmbeddingStreamerTest, TestStreamE2E) {
   streamer->join_weights_stream_thread();
 }
 
+TEST(RawEmbeddingStreamerTest, TestCoSetEmbeddingsThrowPropagates) {
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_set_embeddings_throw",
+      true,
+      table_names,
+      table_offsets,
+      table_sizes);
+
+  auto mock_service = std::make_shared<MockTrainingParameterServerService>();
+  auto mock_server =
+      std::make_shared<apache::thrift::ScopedServerInterfaceThread>(
+          mock_service,
+          "::1",
+          0,
+          facebook::services::TLSConfig::applyDefaultsToThriftServer);
+  auto& mock_client_factory =
+      facebook::servicerouter::getMockSRClientFactory(false /* strict */);
+  mock_client_factory.registerMockService(
+      "realtime.delta.publish.esr", mock_server);
+
+  EXPECT_CALL(*mock_service, co_setEmbeddings(_))
+      .WillRepeatedly(
+          folly::coro::gmock_helpers::CoInvoke(
+              [](std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
+                                     SetEmbeddingsRequest>)
+                  -> folly::coro::Task<
+                      std::unique_ptr<aiplatform::gmpp::experimental::
+                                          training_ps::SetEmbeddingsResponse>> {
+                throw std::runtime_error("simulated RPC failure");
+                co_return std::make_unique<
+                    aiplatform::gmpp::experimental::training_ps::
+                        SetEmbeddingsResponse>();
+              }));
+
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+
+  // Thrift repackages server-side exceptions into TApplicationException, so
+  // assert that the exception still propagates (preserved contract). The
+  // catch block bumps set_embeddings_rpc via the OBC logger before
+  // rethrowing; OBC counters are not in-process readable, so the bump itself
+  // is not unit-asserted here (the logger has no in-test sink).
+  EXPECT_ANY_THROW(
+      folly::coro::blockingWait(streamer->tensor_stream(
+          indices, weights, std::nullopt, std::nullopt)));
+}
+
 TEST(RawEmbeddingStreamerTest, TestMismatchedIndicesWeights) {
   std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
   std::vector<int64_t> table_offsets = {0, 100, 300};
@@ -258,7 +313,10 @@ TEST(RawEmbeddingStreamerTest, TestMismatchedIndicesWeights) {
   mock_client_factory.registerMockService(
       "realtime.delta.publish.esr", mock_server);
 
-  // Test with mismatched sizes - should not call service
+  // Test with mismatched sizes - should not call service. The
+  // shard_size_mismatch counter is bumped in this path, but OBC
+  // counters are not in-process readable, so we verify the behavior (no RPC)
+  // rather than the counter value.
   auto indices = at::tensor(
       {10, 2, 1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
   auto weights = at::randn(

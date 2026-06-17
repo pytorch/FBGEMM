@@ -14,6 +14,12 @@
 
 #include <utility>
 
+#ifdef FBGEMM_FBCODE
+namespace facebook::aiplatform::gmpp::experimental::training_ps {
+class TrainingPsOdsLogger;
+} // namespace facebook::aiplatform::gmpp::experimental::training_ps
+#endif
+
 namespace fbgemm_gpu {
 
 struct StreamQueueItem {
@@ -125,6 +131,12 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   std::unique_ptr<std::thread> weights_stream_thread_;
   folly::UMPSCQueue<StreamQueueItem, true> weights_to_stream_queue_;
   std::unique_ptr<std::thread> stream_tensor_copy_thread_;
+  // OBC logger for RES silent-failure counters (res.fail.*). Emits to the
+  // host-level OBC agent, so it reaches ODS from the trainer process without
+  // per-process fb303 scrape config. Only constructed when streaming is on.
+  std::unique_ptr<facebook::aiplatform::gmpp::experimental::training_ps::
+                      TrainingPsOdsLogger>
+      ods_logger_;
 #endif
 };
 
