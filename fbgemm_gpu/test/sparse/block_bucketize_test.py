@@ -20,10 +20,14 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402  (registers FakeTensor/meta impls)
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+    )
 
 
 def unbucketize_indices_value(
@@ -2143,6 +2147,134 @@ class BlockBucketizeTest(unittest.TestCase):
                 None,
                 total_num_blocks=torch.tensor([7, 6, 6], dtype=torch.int),
             )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_block_bucketize_sparse_features_populate_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        _populate_length_to_feature_id_inplace_kernel for the variable-batch-size
+        code path of block_bucketize_sparse_features_cuda.
+
+        With threads_per_block=256, the launch grid is
+        cuda_calc_xblock_count(max_B*T, 256). For max_B*T > 2**32, total
+        threads exceed the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm post-fix.
+
+        Verification strategy: this test exercises launch-survival and
+        non-trivial post-launch shape/sum invariants at the cap-trip
+        scale. Variable-batch-size element-wise correctness is covered by
+        ``test_block_bucketize_sparse_features_with_variable_batch_sizes``
+        in this file at small max_B (where the input layout invariants
+        are known to match between CPU and GPU dispatch).
+
+        ``batch_size_per_feature`` is sparse: only features 0 and 2 have
+        a single batch instance each; features 1 and 3 have zero. This
+        keeps HBM usage bounded while still exercising the kernel's
+        non-trivial path (writing length_to_feature_idx[0]=0 and
+        length_to_feature_idx[1]=2).
+        """
+
+        T = 4
+        max_B = (1 << 30) + 1  # max_B * T = 2**32 + 4
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse batch_size_per_feature: only features 0 and 2 have one
+        # batch instance each. total_B = 2.
+        batch_size_per_feature = torch.zeros(T, dtype=torch.int32, device=device)
+        batch_size_per_feature[0] = 1
+        batch_size_per_feature[2] = 1
+        # total_B = 2 batch instances. lengths and indices sized
+        # accordingly.
+        lengths = torch.tensor([2, 1], dtype=torch.int32, device=device)
+        indices = torch.tensor([3, 7, 11], dtype=torch.int32, device=device)
+        # Distinct block_sizes per feature surface any wrong feature_id
+        # mapping in length_to_feature_idx.
+        block_sizes = torch.tensor([10, 20, 30, 40], dtype=torch.int32, device=device)
+        my_size = 2
+
+        new_lengths, new_indices, new_weights, _new_pos, _unbucketize_permute = (
+            torch.ops.fbgemm.block_bucketize_sparse_features(
+                lengths,
+                indices,
+                False,  # bucketize_pos
+                True,  # sequence
+                block_sizes,
+                my_size,
+                None,  # weights
+                batch_size_per_feature=batch_size_per_feature,
+                max_B=max_B,
+            )
+        )
+
+        # Output shape invariants.
+        total_B = int(batch_size_per_feature.sum().item())
+        self.assertEqual(new_lengths.shape, (my_size * total_B,))
+        self.assertEqual(new_indices.shape, (indices.numel(),))
+        self.assertIsNone(new_weights)
+        # Per-bucket lengths sum to total input length.
+        self.assertEqual(int(new_lengths.sum().item()), int(lengths.sum().item()))
+
+    @unittest.skipIf(*gpu_unavailable)
+    # bucketized_lengths is int32[lengths_size * my_size] (~2.1 GiB at
+    # the chosen lengths_size); the output permutation is tiny.
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_populate_bucketized_permute_warp_parallel_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        _populate_bucketized_permute_warp_parallel_kernel and verifies
+        output correctness against the CPU dispatch at the same scale.
+
+        With block size kMaxThreads=1024 (32 warps/block), the launch grid is
+        cuda_calc_xblock_count(lengths_size, warps_per_block=32). Total threads
+        ~= lengths_size * 32. For lengths_size > 2**27, total threads exceed
+        the HIP 2**32 limit. With the production fix in place, the kernel uses
+        a warp-stride loop so the capped grid still covers all rows.
+
+        ``lengths`` is sparse: zero everywhere except two sentinel rows
+        (start and end of the logical range). ``bucket_mapping`` is
+        constructed to be self-consistent with ``lengths`` and
+        ``bucketized_lengths``. The CPU dispatch produces the same
+        permutation; the GPU output must match it element-for-element.
+        """
+
+        # cuda_calc_xblock_count(N, 32) * 1024 ~= N * 32; need N > 2**27.
+        lengths_size = (1 << 27) + 1
+        my_size = 4  # <= kWarpSize so warp-parallel branch is taken
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse non-zero lengths at start and end. Total = 3.
+        lengths_cpu = torch.zeros(lengths_size, dtype=torch.int32)
+        lengths_cpu[0] = 2
+        lengths_cpu[lengths_size - 1] = 1
+
+        # bucketized_lengths: row r, bucket b is at index `b*lengths_size + r`.
+        # Place all of row 0's 2 indices in bucket 0, row last's 1 index in
+        # bucket 2. Other entries are zero.
+        bucketized_lengths_cpu = torch.zeros(lengths_size * my_size, dtype=torch.int32)
+        bucketized_lengths_cpu[0] = 2  # bucket 0, row 0
+        bucketized_lengths_cpu[2 * lengths_size + (lengths_size - 1)] = 1
+        # bucket_mapping: per-input-index, which bucket it goes to. Total
+        # input index count = sum(lengths) = 3.
+        bucket_mapping_cpu = torch.tensor([0, 0, 2], dtype=torch.int32)
+
+        # CPU reference oracle — same op, different dispatch.
+        bucketized_permute_cpu = torch.ops.fbgemm.populate_bucketized_permute(
+            lengths_cpu, bucketized_lengths_cpu, bucket_mapping_cpu
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        bucketized_permute_gpu = torch.ops.fbgemm.populate_bucketized_permute(
+            lengths_cpu.to(device),
+            bucketized_lengths_cpu.to(device),
+            bucket_mapping_cpu.to(device),
+        )
+
+        torch.testing.assert_close(bucketized_permute_gpu.cpu(), bucketized_permute_cpu)
 
 
 extend_test_class(BlockBucketizeTest)
