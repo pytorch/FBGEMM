@@ -15,25 +15,15 @@ import hypothesis.strategies as st
 import torch
 import torch.nn as nn
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
-from hypothesis import given, HealthCheck, settings
+from hypothesis import given, settings
 
 from .common import Net, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, on_arm_platform, optests
+    from test_utils import on_arm_platform, optests
 else:
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, on_arm_platform, optests
-
-suppressed_list: list[HealthCheck] = (
-    [HealthCheck.not_a_test_method]
-    if getattr(HealthCheck, "not_a_test_method", False)
-    else []
-) + (
-    [HealthCheck.differing_executors]
-    if getattr(HealthCheck, "differing_executors", False)
-    else []
-)
+    from fbgemm_gpu.test.test_utils import on_arm_platform, optests
 
 INTERN_MODULE = "fbgemm_gpu.permute_pooled_embedding_modules"
 FIXED_EXTERN_API = {
@@ -61,10 +51,12 @@ FWD_COMPAT_MSG = (
 
 @optests.generate_opcheck_tests()
 class PooledEmbeddingModulesTest(unittest.TestCase):
-    @settings(deadline=10000, suppress_health_check=suppressed_list)
-    @given(device_type=cpu_and_maybe_gpu())
-    def setUp(self, device_type: torch.device) -> None:
-        self.device = device_type
+    def setUp(self) -> None:
+        # Use a deterministic device. Previously setUp was decorated with a
+        # hypothesis @given that randomized the device per example, which made
+        # the generated opcheck tests intermittently exercise CPU vs GPU
+        # registration (flaky). T191384137
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     @settings(deadline=10000)
     @given(fwd_only=st.booleans())
