@@ -7,6 +7,8 @@
 
 # pyre-strict
 
+# pyre-ignore-all-errors[56]
+
 
 import random
 import unittest
@@ -21,10 +23,10 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable
 
 except Exception:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
@@ -235,6 +237,108 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
 
     def test_cpu(self) -> None:
         self._test_main(gpu_infer=False)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # This test exercises the HIP launch-side limit and requires a large
+    # output tensor (~17 GiB) plus offsets (~4 GiB) — total ~22 GiB GPU
+    # peak. Most CI machines without 24+ GiB of HBM will skip this. ROCm
+    # developer machines (MI300/MI350, 192/256 GiB HBM) run it.
+    @unittest.skipIf(*gpu_memory_lt_gb(24))
+    def test_batched_unary_embeddings_forward_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        batched_unary_embeddings_forward_kernel and verifies output
+        correctness via a downsampled CPU oracle.
+
+        With block size up to 512 and grid (cuda_calc_xblock_count(B, 512),
+        T, N), total threads ~= B * T * N. For B*T*N > 2**32, total threads
+        exceed the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm pre-fix.
+
+        Verification strategy (per master plan's downsampled-oracle
+        guidance for ops where the full-scale CPU oracle is impractical):
+
+        1. Full-scale invocation to verify launch survival at the
+           cap-trip scale. Uses zero-length offsets so the kernel does no
+           per-segment work; output shape and zero-fill are asserted.
+        2. Small-scale invocation vs CPU dispatch to validate kernel
+           correctness end-to-end at a scale where the CPU oracle output
+           (~MB range) is cheap to compute and compare element-wise.
+        """
+
+        # The production cap is `blocks_x_capped = min(blocks_x_uncapped,
+        # get_max_thread_blocks(stream))` where `get_max_thread_blocks =
+        # 64 * #SMs ~= 16384` on MI300/MI350. For the cap to actually help,
+        # we need:
+        #   (a) blocks_x_uncapped > 16384 (so cap applies) -> B > 16384*512.
+        #   (b) blocks_x_uncapped * T * N * 512 > 2**32 (pre-fix trips).
+        #   (c) 16384 * T * N * 512 < 2**32 (post-fix passes), i.e. T*N < 512.
+        # Choose T=4, N=8 (T*N=32) and B = (1<<27)+1 = 2**27+1 so blocks_x =
+        # ceil(B/512) = 2**18 + 1 (>> 16384), pre-fix total ~= 2**32 + 2**14
+        # (trips), post-fix total = 16384*32*512 = 2**28 (well under 2**32).
+        B = (1 << 27) + 1
+        T = 4
+        N = 8
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: full-scale launch survival (cap-trip detection). ----
+        # weight[N, sum_E] where sum_E = T (each table has E=1). ~16 MB.
+        weight_large = torch.zeros((N, T), dtype=torch.float32, device=device)
+        table_offsets_large = torch.arange(T + 1, dtype=torch.int64, device=device)
+        # offsets[T*B+1] = all-zero so each (t,b) has L=0; no per-segment work.
+        offsets_large = torch.zeros(T * B + 1, dtype=torch.int64, device=device)
+        indices_large = torch.empty(0, dtype=torch.int64, device=device)
+
+        output_large = torch.ops.fbgemm.batched_unary_embeddings(
+            weight_large, table_offsets_large, offsets_large, indices_large
+        )
+
+        self.assertEqual(output_large.shape, (N, B, T))
+        self.assertTrue(torch.all(output_large == 0).item())
+        del output_large
+
+        # ---- Step 2: downsampled CPU-oracle correctness check. ----
+        # Same kernel code path, smaller scale to keep the CPU oracle cheap.
+        small_B = 4
+        small_T = 3
+
+        # Two embedding tables, each with E=2 rows. sum_E = 2*small_T = 6.
+        # N=2 (rows of weight). Distinct values per (n, row) so any "kernel
+        # addressed wrong row" bug surfaces.
+        small_weight_cpu = torch.tensor(
+            [
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            ],
+            dtype=torch.float32,
+        )
+        # table_offsets[t]: start row of table t in weight columns.
+        small_table_offsets_cpu = torch.tensor([0, 2, 4, 6], dtype=torch.int64)
+        # offsets[t*B+b+1] - offsets[t*B+b] = length of (t,b) segment.
+        # Use 1 index per (t,b) cell. Total indices = T*B = 12.
+        small_offsets_cpu = torch.arange(small_T * small_B + 1, dtype=torch.int64)
+        # Each (t,b) picks row 0 of its table.
+        small_indices_cpu = torch.zeros(small_T * small_B, dtype=torch.int64)
+
+        # CPU reference oracle — same op, different dispatch.
+        small_output_cpu = torch.ops.fbgemm.batched_unary_embeddings(
+            small_weight_cpu,
+            small_table_offsets_cpu,
+            small_offsets_cpu,
+            small_indices_cpu,
+        )
+
+        # GPU under test.
+        small_output_gpu = torch.ops.fbgemm.batched_unary_embeddings(
+            small_weight_cpu.to(device),
+            small_table_offsets_cpu.to(device),
+            small_offsets_cpu.to(device),
+            small_indices_cpu.to(device),
+        )
+
+        torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
 
 
 if __name__ == "__main__":
