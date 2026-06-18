@@ -158,6 +158,20 @@ permute_2D_sparse_data_cuda(
     const std::optional<at::Tensor>& weights,
     const std::optional<int64_t>& permuted_lengths_sum);
 
+// Variant of permute_2D_sparse_data_cuda that writes into optional
+// pre-allocated output buffers; the returned tensors alias those buffers when
+// provided. Not differentiable (no autograd formula registered).
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_preallocated_out_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum,
+    const std::optional<at::Tensor>& permuted_lengths_out,
+    const std::optional<at::Tensor>& permuted_indices_out,
+    const std::optional<at::Tensor>& permuted_weights_out);
+
 std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_1D_sparse_data_cuda(
     const at::Tensor& permute,
@@ -390,6 +404,20 @@ permute_2D_sparse_data_cpu(
     const at::Tensor& indices,
     const std::optional<at::Tensor>& weights,
     const std::optional<int64_t>& permuted_lengths_sum);
+
+// Variant of permute_2D_sparse_data_cpu that writes into optional pre-allocated
+// output buffers; the returned tensors alias those buffers when provided. Not
+// differentiable (no autograd formula registered).
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_preallocated_out_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum,
+    const std::optional<at::Tensor>& permuted_lengths_out,
+    const std::optional<at::Tensor>& permuted_indices_out,
+    const std::optional<at::Tensor>& permuted_weights_out);
 
 ///@ingroup sparse-data-cpu
 std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>

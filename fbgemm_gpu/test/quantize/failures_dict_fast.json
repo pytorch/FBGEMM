@@ -35,24 +35,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::FloatToFusedNBitRowwiseQuantizedSBHalf": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_fused_pooled_emb_quant": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op_cuda_large_nrows": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_op": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::FloatToFusedNBitRowwiseQuantizedSBHalf": {},
     "fbgemm::FloatToHFP8Quantized": {},
     "fbgemm::Fused8BitRowwiseQuantizedToFloat": {
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_forward_cpu_int8": {
@@ -82,16 +65,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloat": {
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op_cuda_large_nrows": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloat": {},
     "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf": {
       "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op": {
         "comment": "",
@@ -102,12 +76,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::FusedNBitRowwiseQuantizedSBHalfToHalf": {
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::FusedNBitRowwiseQuantizedSBHalfToHalf": {},
     "fbgemm::HFP8QuantizedToFloat": {},
     "fbgemm::HalfToFused8BitRowwiseQuantized": {
       "TestFused8BitRowwiseQuantizationConversion.test_faketensor__test_quantize_op": {
@@ -115,15 +84,6 @@
         "status": "xfail"
       }
     },
-    "fbgemm::HalfToFusedNBitRowwiseQuantizedSBHalf": {
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_op": {
-        "comment": "",
-        "status": "xfail"
-      }
-    }
+    "fbgemm::HalfToFusedNBitRowwiseQuantizedSBHalf": {}
   }
 }
