@@ -24,16 +24,27 @@ __launch_bounds__(kMaxThreads) void _populate_length_to_feature_id_inplace_kerne
     const offset_t* const __restrict__ batch_size_per_feature,
     const offset_t* const __restrict__ batch_size_offsets,
     offset_t* const __restrict__ length_to_feature_idx) {
-  const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  // Explicit int64_t grid-stride loop (instead of CUDA_KERNEL_LOOP_TYPE) so
+  // that the workload bound and the per-iteration thread stride are computed
+  // in 64-bit. CUDA_KERNEL_LOOP_TYPE increments by the 32-bit unsigned
+  // `blockDim.x * gridDim.x` product, which is implicitly widened to int64_t
+  // and trips facebook-security-vulnerable-integer-implicit-cast. Casting the
+  // first operand to int64_t keeps the multiply in 64-bit.
+  const int64_t b_t_total = static_cast<int64_t>(max_B) * T;
+  const int64_t b_t_stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
+  for (int64_t b_t =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       b_t < b_t_total;
+       b_t += b_t_stride) {
+    const auto t = b_t / max_B;
+    const auto b = b_t % max_B;
 
-  const auto t = b_t / max_B;
-  const auto b = b_t % max_B;
+    if (b >= batch_size_per_feature[t]) {
+      continue;
+    }
 
-  if (t >= T || b >= batch_size_per_feature[t]) {
-    return;
+    length_to_feature_idx[batch_size_offsets[t] + b] = t;
   }
-
-  length_to_feature_idx[batch_size_offsets[t] + b] = t;
 }
 
 void adjust_block_bucketize_sparse_features_kernel_launch_configs_based_on_smem(
@@ -428,79 +439,93 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
       my_size <= kWarpSize &&
       "my_size exceeds kWarpSize for warp-parallel kernel");
 
-  // Each warp processes one sequence
-  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+  // Each warp processes one sequence. Use a warp-stride loop so that a
+  // capped grid (used on ROCm to avoid the 2^32 launch-side limit) still
+  // covers all `lengths_size` rows. All lanes within a warp share the same
+  // warp_id, so __ballot_sync / __popc semantics are preserved across
+  // iterations.
+  //
+  // The init/stride are computed in int64_t: on CUDA the grid is not capped,
+  // so `gridDim.x * blockDim.x` overflows uint32_t once total threads reach
+  // 2^32. A 32-bit stride would wrap to a small value (redundant work) or to
+  // exactly 0 (infinite loop) when the product is a multiple of 2^32.
+  const int64_t warp_id_init =
+      (static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) / kWarpSize;
+  const int64_t warp_stride =
+      (static_cast<int64_t>(gridDim.x) * blockDim.x) / kWarpSize;
 
-  if (warp_id >= lengths_size) {
-    return;
-  }
+  for (int64_t warp_id = warp_id_init; warp_id < lengths_size;
+       warp_id += warp_stride) {
+    const auto b_t = warp_id;
+    const auto length = length_data[b_t];
+    const auto row_offset = offset_data[b_t];
 
-  const auto b_t = warp_id;
-  const auto length = length_data[b_t];
-  const auto row_offset = offset_data[b_t];
+    // Early-skip for zero-length sequences (must be `continue`, not
+    // `return`, to keep all warps in lockstep across the outer stride loop).
+    if (length == 0) {
+      continue;
+    }
 
-  // Early exit for zero-length sequences
-  if (length == 0) {
-    return;
-  }
+    // RESET per-warp register state at the top of each iteration.
+    // Use registers for cumulative bucket counts (works for small my_size).
+    // Each thread tracks counts for all buckets across chunks.
+    offset_t cumulative_counts[kWarpSize] = {0};
 
-  // Use registers for cumulative bucket counts (works for small my_size)
-  // Each thread tracks counts for all buckets across chunks
-  offset_t cumulative_counts[kWarpSize] = {0};
+    // Load base offsets for each bucket
+    offset_t base_offsets[kWarpSize];
+    for (auto p = 0; p < my_size; p++) {
+      CUDA_KERNEL_ASSERT(
+          p * lengths_size + b_t >= 0 &&
+          "bucketized_offsets index out of bounds");
+      base_offsets[p] = bucketized_offsets_data[p * lengths_size + b_t];
+    }
 
-  // Load base offsets for each bucket
-  offset_t base_offsets[kWarpSize];
-  for (auto p = 0; p < my_size; p++) {
-    CUDA_KERNEL_ASSERT(
-        p * lengths_size + b_t >= 0 &&
-        "bucketized_offsets index out of bounds");
-    base_offsets[p] = bucketized_offsets_data[p * lengths_size + b_t];
-  }
+    // Process in warp-sized chunks
+    for (offset_t chunk_start = 0; chunk_start < length;
+         chunk_start += kWarpSize) {
+      const auto i = chunk_start + getLaneId();
+      const bool valid = (i < length);
 
-  // Process in warp-sized chunks
-  for (offset_t chunk_start = 0; chunk_start < length;
-       chunk_start += kWarpSize) {
-    const auto i = chunk_start + getLaneId();
-    const bool valid = (i < length);
+      // Load bucket for this element (-1 for invalid lanes)
+      const index_t my_bucket =
+          valid ? bucket_mapping_data[row_offset + i] : -1;
 
-    // Load bucket for this element (-1 for invalid lanes)
-    const index_t my_bucket = valid ? bucket_mapping_data[row_offset + i] : -1;
+      int preceding_count = 0;
 
-    int preceding_count = 0;
+      // Compute ballot for all buckets - no branch divergence!
+      // All threads execute the same loop iterations
+      for (int p = 0; p < my_size; p++) {
+        // ballot_sync() returns a width-correct mask (uint64_t on ROCm
+        // wavefront64, uint32_t on CUDA warp32). Pairing it with __popcll is
+        // required: a 32-bit mask + __popc would silently truncate lanes 32-63
+        // on AMD CDNA and undercount preceding elements.
+        const auto bucket_mask = ballot_sync(valid && (my_bucket == p));
 
-    // Compute ballot for all buckets - no branch divergence!
-    // All threads execute the same loop iterations
-    for (int p = 0; p < my_size; p++) {
-      // ballot_sync() returns a width-correct mask (uint64_t on ROCm
-      // wavefront64, uint32_t on CUDA warp32). Pairing it with __popcll is
-      // required: a 32-bit mask + __popc would silently truncate lanes 32-63
-      // on AMD CDNA and undercount preceding elements.
-      const auto bucket_mask = ballot_sync(valid && (my_bucket == p));
-
-      // Each thread checks if this is its bucket and stores the count
-      // This is a simple conditional assignment, not a divergent branch
-      if (my_bucket == p) {
-        preceding_count = __popcll(bucket_mask & getLaneMaskLt());
+        // Each thread checks if this is its bucket and stores the count
+        // This is a simple conditional assignment, not a divergent branch
+        if (my_bucket == p) {
+          preceding_count = __popcll(bucket_mask & getLaneMaskLt());
+        }
       }
-    }
 
-    // Write output for valid lanes
-    if (valid) {
-      bucketized_permute_data_out[row_offset + i] = base_offsets[my_bucket] +
-          cumulative_counts[my_bucket] + preceding_count;
-    }
+      // Write output for valid lanes
+      if (valid) {
+        bucketized_permute_data_out[row_offset + i] = base_offsets[my_bucket] +
+            cumulative_counts[my_bucket] + preceding_count;
+      }
 
-    // Update cumulative counts for all buckets for the next chunk.
-    // We call __ballot_sync again here instead of reusing the result from
-    // the preceding_count loop above because that result was consumed inside
-    // a per-bucket conditional (my_bucket == p) and not stored for all
-    // buckets. Each thread only captured the ballot for its own bucket,
-    // but here we need the popcount for every bucket to update all
-    // cumulative_counts entries.
-    for (int p = 0; p < my_size; p++) {
-      // Width-correct ballot + __popcll, same rationale as above.
-      const auto bucket_mask = ballot_sync(valid && (my_bucket == p));
-      cumulative_counts[p] += __popcll(bucket_mask);
+      // Update cumulative counts for all buckets for the next chunk.
+      // We call __ballot_sync again here instead of reusing the result from
+      // the preceding_count loop above because that result was consumed inside
+      // a per-bucket conditional (my_bucket == p) and not stored for all
+      // buckets. Each thread only captured the ballot for its own bucket,
+      // but here we need the popcount for every bucket to update all
+      // cumulative_counts entries.
+      for (int p = 0; p < my_size; p++) {
+        // Width-correct ballot + __popcll, same rationale as above.
+        const auto bucket_mask = ballot_sync(valid && (my_bucket == p));
+        cumulative_counts[p] += __popcll(bucket_mask);
+      }
     }
   }
 }
@@ -844,8 +869,13 @@ _block_bucketize_sparse_features_cuda(
   auto indices_to_lb = at::empty_like(indices);
   if (batch_size_per_feature.has_value()) {
     constexpr auto threads_per_block = 256;
-    const auto num_blocks =
-        cuda_calc_xblock_count(max_B * T, threads_per_block);
+    // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+    // which silently wraps). _populate_length_to_feature_id_inplace_kernel
+    // uses CUDA_KERNEL_LOOP, which already grid-strides, so capping is
+    // correctness-preserving.
+    // See: https://github.com/ROCm/hip/issues/2253
+    const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+        max_B * T, threads_per_block, at::cuda::getCurrentCUDAStream());
 
     AT_DISPATCH_INDEX_TYPES(
         offsets_contig.scalar_type(),
@@ -1177,8 +1207,16 @@ DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
                       config::FeatureGateName::BUCKETIZED_PERMUTE_WARP_KERNEL);
               if (my_size <= kWarpSize && warp_kernel_enabled) {
                 const auto warps_per_block = kMaxThreads / kWarpSize;
-                const auto num_blocks =
-                    cuda_calc_xblock_count(lengths_size, warps_per_block);
+                // HIP enforces a hard limit of 2^32 total threads per launch
+                // (unlike CUDA, which silently wraps).
+                // _populate_bucketized_permute_warp_parallel_kernel
+                // grid-strides over warp_id, so capping is
+                // correctness-preserving. See:
+                // https://github.com/ROCm/hip/issues/2253
+                const auto num_blocks = utils::cuda::cap_grid_dim_x(
+                    cuda_calc_xblock_count(lengths_size, warps_per_block),
+                    kMaxThreads,
+                    stream);
                 FBGEMM_LAUNCH_KERNEL(
                     (_populate_bucketized_permute_warp_parallel_kernel<
                         offset_t,
