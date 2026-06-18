@@ -733,12 +733,13 @@ class FeatureEvict {
                   << " make sure this is expected";
             }
             // Serialize dirty block data before erase+deallocate
-            if (pool->get_dirty(block) && enable_ssd_writeback &&
-                writeback_callback) {
-              size_t block_size = pool->get_block_size();
-              std::string block_data(
-                  reinterpret_cast<const char*>(block), block_size);
-              writeback_batch.emplace_back(key, std::move(block_data));
+            if (enable_ssd_writeback) {
+              if (writeback_callback && pool->get_dirty(block)) {
+                size_t block_size = pool->get_block_size();
+                std::string block_data(
+                    reinterpret_cast<const char*>(block), block_size);
+                writeback_batch.emplace_back(key, std::move(block_data));
+              }
             }
             wlock->erase(key);
             pool->template deallocate_t<weight_type>(block);
@@ -751,12 +752,13 @@ class FeatureEvict {
     } // wlock released here
 
     // Invoke writeback callback after releasing wlock
-    if (enable_ssd_writeback && writeback_callback &&
-        !writeback_batch.empty()) {
-      LOG(INFO) << "[FeatureEvict] training eviction shard " << shard_id << ": "
-                << writeback_batch.size()
-                << " dirty blocks sent to SSD writeback";
-      writeback_callback(std::move(writeback_batch));
+    if (enable_ssd_writeback) {
+      if (writeback_callback && !writeback_batch.empty()) {
+        LOG(INFO) << "[FeatureEvict] training eviction shard " << shard_id
+                  << ": " << writeback_batch.size()
+                  << " dirty blocks sent to SSD writeback";
+        writeback_callback(std::move(writeback_batch));
+      }
     }
   }
 
@@ -789,12 +791,13 @@ class FeatureEvict {
       processed_counts[sub_table_id]++;
       if (evict_block(block, sub_table_id, shard_id)) {
         // Serialize dirty block data before deallocate
-        if (pool->get_dirty(block) && enable_ssd_writeback &&
-            writeback_callback) {
-          size_t block_size = pool->get_block_size();
-          std::string block_data(
-              reinterpret_cast<const char*>(block), block_size);
-          writeback_batch.emplace_back(key, std::move(block_data));
+        if (enable_ssd_writeback) {
+          if (writeback_callback && pool->get_dirty(block)) {
+            size_t block_size = pool->get_block_size();
+            std::string block_data(
+                reinterpret_cast<const char*>(block), block_size);
+            writeback_batch.emplace_back(key, std::move(block_data));
+          }
         }
         pool->template deallocate_t<weight_type>(block);
         evicted_counts[sub_table_id]++;
@@ -813,9 +816,10 @@ class FeatureEvict {
     shard_map_wlock.unlock();
 
     // Invoke writeback callback after releasing all locks
-    if (enable_ssd_writeback && writeback_callback &&
-        !writeback_batch.empty()) {
-      writeback_callback(std::move(writeback_batch));
+    if (enable_ssd_writeback) {
+      if (writeback_callback && !writeback_batch.empty()) {
+        writeback_callback(std::move(writeback_batch));
+      }
     }
   }
 
