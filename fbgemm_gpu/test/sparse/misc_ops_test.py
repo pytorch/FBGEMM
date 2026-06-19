@@ -24,10 +24,14 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+    )
 
 
 class MiscOpsTest(unittest.TestCase):
@@ -194,6 +198,61 @@ class MiscOpsTest(unittest.TestCase):
             torch.testing.assert_close(
                 segment_sum_cuda.cpu().numel(), 0, rtol=0, atol=0
             )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_segment_sum_csr_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in _segment_sum_csr_cuda_kernel
+        and verifies output correctness against the CPU dispatch at the same
+        scale.
+
+        With threads_per_block=256, the launch grid is num_segments. Total
+        threads = num_segments * 256. For num_segments > 2**24, total threads
+        exceed the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm pre-fix. With the production fix in place, the kernel
+        grid-strides over segments so the capped grid still covers all
+        ``num_segments`` rows.
+
+        ``csr_seg`` is sparse: most segments have length zero; sentinel
+        non-zero lengths at start / middle / end produce non-trivial,
+        position-dependent output that any "kernel addressed wrong row"
+        bug would surface.
+        """
+
+        # num_segments * 256 > 2**32 requires num_segments > 2**24.
+        num_segments = (1 << 24) + 1
+        mid = num_segments // 2
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # csr_seg[i+1] - csr_seg[i] = length of segment i. Non-zero
+        # lengths at sentinel positions only.
+        csr_seg_cpu = torch.empty(num_segments + 1, dtype=torch.int32)
+        csr_seg_cpu[0] = 0
+        csr_seg_cpu[1] = 2
+        csr_seg_cpu[2 : mid + 1] = 2
+        csr_seg_cpu[mid + 1] = 4
+        csr_seg_cpu[mid + 2 : num_segments] = 4
+        csr_seg_cpu[num_segments] = 5
+
+        # Distinct non-zero values so any bucket-misroute surfaces.
+        values_cpu = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float32)
+        batch_size = 1
+
+        # CPU reference oracle — same op, different dispatch.
+        output_cpu = torch.ops.fbgemm.segment_sum_csr(
+            batch_size, csr_seg_cpu, values_cpu
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        output_gpu = torch.ops.fbgemm.segment_sum_csr(
+            batch_size, csr_seg_cpu.to(device), values_cpu.to(device)
+        )
+
+        torch.testing.assert_close(output_gpu.cpu(), output_cpu)
 
     @given(
         batch_size=st.just(2),

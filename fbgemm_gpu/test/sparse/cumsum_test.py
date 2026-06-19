@@ -19,10 +19,14 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu
+    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+    )
 
 
 class CumSumTest(unittest.TestCase):
@@ -49,7 +53,10 @@ class CumSumTest(unittest.TestCase):
         # The CPU variants of asynchronous_*_cumsum support floats, since some
         # downstream tests appear to be relying on this behavior.  As such, the
         # test is disabled for GPU + float test cases.
-        if device == torch.device("cuda") and pt_index_dtype is torch.float32:
+        if (
+            device == torch.accelerator.current_accelerator()
+            and pt_index_dtype is torch.float32
+        ):
             return
 
         # pyre-ignore-errors[16]
@@ -113,7 +120,10 @@ class CumSumTest(unittest.TestCase):
         # The CPU variants of asynchronous_*_cumsum support floats, since some
         # downstream tests appear to be relying on this behavior.  As such, the
         # test is disabled for GPU + float test cases.
-        if device == torch.device("cuda") and pt_index_dtype is torch.float32:
+        if (
+            device == torch.accelerator.current_accelerator()
+            and pt_index_dtype is torch.float32
+        ):
             return
 
         # pyre-ignore-errors[16]
@@ -161,6 +171,48 @@ class CumSumTest(unittest.TestCase):
         out = torch.ops.fbgemm.asynchronous_batched_complete_cumsum(values)
         out2 = cumsum_base(values)
         torch.testing.assert_close(out, out2)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_asynchronous_batched_complete_cumsum_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in _batched_complete_cumsum_kernel
+        and verifies output correctness against the CPU dispatch at the same
+        scale.
+
+        With len=1, nthreads_per_block = max(next_power_of_2(1), 64) = 64.
+        Total threads = B * 64. For B > 2**26, total threads exceed the HIP
+        2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm pre-fix. With the production fix, the kernel grid-strides
+        over batches so the capped grid still covers all B rows.
+
+        ``values`` is sparse: zero everywhere except sentinel non-zero
+        entries at start / middle / end of the batch axis. Any "kernel
+        addressed wrong row" bug surfaces in the assertion below.
+        """
+
+        # B * 64 > 2**32 requires B > 2**26.
+        B = (1 << 26) + 1
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse non-zero values at sentinel positions.
+        values_cpu = torch.zeros((B, 1), dtype=torch.int32)
+        values_cpu[0, 0] = 1
+        values_cpu[B // 2, 0] = 2
+        values_cpu[B - 1, 0] = 3
+
+        # CPU reference oracle — same op, different dispatch.
+        cumsum_cpu = torch.ops.fbgemm.asynchronous_batched_complete_cumsum(values_cpu)
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        cumsum_gpu = torch.ops.fbgemm.asynchronous_batched_complete_cumsum(
+            values_cpu.to(device)
+        )
+
+        torch.testing.assert_close(cumsum_gpu.cpu(), cumsum_cpu)
 
 
 extend_test_class(CumSumTest)

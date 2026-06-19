@@ -26,23 +26,25 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
     const index_t* __restrict__ indices,
     scalar_t* __restrict__ output // N * B * T
 ) {
-  index_t sum_E = table_offsets[T];
-  auto b = blockIdx.x * blockDim.x + threadIdx.x;
-  if (b >= B) {
-    return;
+  const index_t sum_E = table_offsets[T];
+  const auto t = blockIdx.y;
+  const auto n = blockIdx.z;
+  const index_t table_offset = table_offsets[t];
+  // Grid-stride over the b dimension so a capped grid (used on ROCm to avoid
+  // the 2^32 launch-side limit) still covers all B elements. blockIdx.y/z are
+  // already bounded by T/N <= 65535.
+  for (auto b = blockIdx.x * blockDim.x + threadIdx.x; b < B;
+       b += gridDim.x * blockDim.x) {
+    index_t indices_start = offsets[t * B + b];
+    index_t indices_end = offsets[t * B + b + 1];
+    int32_t L = indices_end - indices_start;
+    at::acc_type<scalar_t, true> sum = 0.0;
+    for (int32_t l = 0; l < L; ++l) {
+      auto idx = LDG(&indices[indices_start + l]);
+      sum += weight[n * sum_E + table_offset + idx + 0];
+    }
+    output[(n * B + b) * T + t] = sum;
   }
-  auto t = blockIdx.y;
-  auto n = blockIdx.z;
-  index_t table_offset = table_offsets[t];
-  index_t indices_start = offsets[t * B + b];
-  index_t indices_end = offsets[t * B + b + 1];
-  int32_t L = indices_end - indices_start;
-  at::acc_type<scalar_t, true> sum = 0.0;
-  for (int32_t l = 0; l < L; ++l) {
-    auto idx = LDG(&indices[indices_start + l]);
-    sum += weight[n * sum_E + table_offset + idx + 0];
-  }
-  output[(n * B + b) * T + t] = sum;
 }
 
 Tensor batched_unary_embeddings_forward_cuda(
@@ -66,7 +68,14 @@ Tensor batched_unary_embeddings_forward_cuda(
   TORCH_CHECK(T <= 65535);
   TORCH_CHECK(N <= 65535);
   int32_t threads = std::min<int32_t>(B, 512);
-  dim3 blocks(cuda_calc_xblock_count(B, threads), T, N);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). The forward kernel grid-strides over b, so capping
+  // is correctness-preserving. y/z dims are bounded by T/N <= 65535 and need
+  // no cap.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_x = utils::cuda::cap_grid_dim_x_from_workload(
+      B, threads, at::cuda::getCurrentCUDAStream());
+  dim3 blocks(blocks_x, T, N);
   auto output = at::empty({N, B, T}, weight.options());
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_forward_kernel", [&] {
@@ -127,45 +136,49 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     const int32_t* __restrict__ sorted_linear_indices_num_runs,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask) {
-  auto run_id = blockIdx.x * blockDim.x + threadIdx.x;
-  auto n = blockIdx.y;
+  const auto n = blockIdx.y;
   if (n >= N) {
     return;
   }
-  if (run_id >= sorted_linear_indices_run.size(0)) {
-    return;
-  }
-  if (run_id >= sorted_linear_indices_num_runs[0]) {
-    return;
-  }
-  int64_t linear_index = sorted_linear_indices_run[run_id];
-  int32_t segment_start = sorted_linear_indices_cumulative_run_lengths[run_id];
-  int32_t segment_end =
-      sorted_linear_indices_cumulative_run_lengths[run_id + 1];
-  int32_t SL = segment_end - segment_start;
+  // Hoist single-element device tensor read out of the stride loop.
+  const auto num_runs_actual = sorted_linear_indices_num_runs[0];
+  const auto num_runs_size_0 = sorted_linear_indices_run.size(0);
+  const auto num_runs = ::min(num_runs_size_0, num_runs_actual);
+  // Grid-stride over run_id so a capped grid (used on ROCm to avoid the
+  // 2^32 launch-side limit) still covers all runs. blockIdx.y is bounded
+  // by N <= 65535 (enforced by the host).
+  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs;
+       run_id += gridDim.x * blockDim.x) {
+    int64_t linear_index = sorted_linear_indices_run[run_id];
+    int32_t segment_start =
+        sorted_linear_indices_cumulative_run_lengths[run_id];
+    int32_t segment_end =
+        sorted_linear_indices_cumulative_run_lengths[run_id + 1];
+    int32_t SL = segment_end - segment_start;
 
-  if (SL == 0) {
-    return;
+    if (SL == 0) {
+      continue;
+    }
+
+    // now, each segment corresponds to exactly one table `t` and row in
+    // that table (`idx`). Thus, we can hoist out some of the book-keeping.
+    const auto info =
+        reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start];
+    int t = info >> info_B_num_bits;
+
+    at::acc_type<scalar_t, true> grad_sum = 0.0;
+    for (int32_t sl = 0; sl < SL; ++sl) {
+      const auto b =
+          reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start + sl] &
+          info_B_mask;
+      grad_sum += grad_output[(n * B + b) * T + t];
+    }
+
+    index_t table_offset = table_offsets[t];
+    index_t sum_E = table_offsets[T];
+    int64_t idx = linear_index - table_offset;
+    grad_weight[n * sum_E + table_offset + idx] = grad_sum;
   }
-
-  // now, each segment corresponds to exactly one table `t` and row in
-  // that table (`idx`). Thus, we can hoist out some of the book-keeping.
-  const auto info =
-      reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start];
-  int t = info >> info_B_num_bits;
-
-  at::acc_type<scalar_t, true> grad_sum = 0.0;
-  for (int32_t sl = 0; sl < SL; ++sl) {
-    const auto b =
-        reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start + sl] &
-        info_B_mask;
-    grad_sum += grad_output[(n * B + b) * T + t];
-  }
-
-  index_t table_offset = table_offsets[t];
-  index_t sum_E = table_offsets[T];
-  int64_t idx = linear_index - table_offset;
-  grad_weight[n * sum_E + table_offset + idx] = grad_sum;
 }
 
 DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
@@ -219,8 +232,16 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
           info_B_mask);
 
   int threads = std::min<int32_t>(sorted_linear_indices_run.numel(), 512);
-  dim3 blocks(
-      cuda_calc_xblock_count(sorted_linear_indices_run.numel(), threads), N);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). The backward kernel grid-strides over run_id, so
+  // capping is correctness-preserving. y dim is bounded by N <= 65535 and
+  // needs no cap.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_x = utils::cuda::cap_grid_dim_x_from_workload(
+      sorted_linear_indices_run.numel(),
+      threads,
+      at::cuda::getCurrentCUDAStream());
+  dim3 blocks(blocks_x, N);
   auto grad_weight = at::zeros_like(weight);
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_backward_kernel", [&] {
