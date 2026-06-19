@@ -79,6 +79,74 @@ struct CUDAManagedIndirectContext {
   }
 };
 
+// Same as CUDAManagedIndirectContext but for host-mapped (cudaHostRegister)
+// tensors. Prevents the underlying CUDAHostMappedContext from being freed
+// while a CPU-view or device-view tensor is still alive.
+struct CUDAHostMappedIndirectContext {
+  Storage storage_;
+
+  CUDAHostMappedIndirectContext(Storage storage)
+      : storage_(std::move(storage)) {};
+
+  static void release(void* ptr) {
+    delete static_cast<CUDAHostMappedIndirectContext*>(ptr);
+  }
+};
+
+// Build a new tensor view over a host-mapped storage with the requested
+// device tag, keeping `host_mapped_storage` (the Storage owning the
+// CUDAHostMappedContext) alive via CUDAHostMappedIndirectContext. Used by both
+// uvm_to_cpu (target_device=CPU, ptr=host pointer) and uvm_to_device_d
+// (target_device=CUDA, ptr=device pointer from cudaHostGetDevicePointer).
+// Passing the unwrapped direct-host-mapped Storage on chained calls keeps the
+// indirect chain flat instead of nesting one indirect inside another.
+Tensor make_host_mapped_view(
+    const Tensor& t,
+    Storage host_mapped_storage,
+    void* ptr,
+    const at::Device& target_device) {
+  auto storage = Storage(
+      Storage::use_byte_size_t(),
+      t.storage().nbytes(),
+      at::DataPtr(
+          ptr,
+          new CUDAHostMappedIndirectContext(std::move(host_mapped_storage)),
+          &CUDAHostMappedIndirectContext::release,
+          target_device),
+      nullptr, /* allocator */
+      /*resizable=*/false);
+  return at::empty({0}, t.options().device(target_device))
+      .set_(std::move(storage), t.storage_offset(), t.sizes(), t.strides());
+}
+
+// Resolve a tensor whose storage is either a direct CUDAHostMappedContext or
+// a CUDAHostMappedIndirectContext (the result of a previous uvm_to_cpu /
+// uvm_to_device_d call) back to the underlying host-mapped Storage and its
+// CUDAHostMappedContext. Returns {Storage(), nullptr} if `t` is not a
+// host-mapped tensor.
+std::pair<Storage, CUDAHostMappedContext*> resolve_host_mapped(
+    const Tensor& t) {
+  const auto deleter = t.storage().data_ptr().get_deleter();
+  if (deleter == &CUDAHostMappedContext::release) {
+    auto* hcontext = t.storage().data_ptr().cast_context<CUDAHostMappedContext>(
+        &CUDAHostMappedContext::release);
+    TORCH_CHECK(hcontext != nullptr);
+    return {t.storage(), hcontext};
+  }
+  if (deleter == &CUDAHostMappedIndirectContext::release) {
+    auto* hictx =
+        t.storage().data_ptr().cast_context<CUDAHostMappedIndirectContext>(
+            &CUDAHostMappedIndirectContext::release);
+    TORCH_CHECK(hictx != nullptr);
+    auto* hcontext =
+        hictx->storage_.data_ptr().cast_context<CUDAHostMappedContext>(
+            &CUDAHostMappedContext::release);
+    TORCH_CHECK(hcontext != nullptr);
+    return {hictx->storage_, hcontext};
+  }
+  return {Storage(), nullptr};
+}
+
 // Get the default strides from the input Tensor dimensions
 std::vector<int64_t> defaultStrides(IntArrayRef sizes) {
   std::vector<int64_t> strides(sizes.size());
@@ -326,7 +394,18 @@ Tensor new_unified_tensor(
 bool uvm_storage_cuda(const Tensor& t) {
   auto deleter = t.storage().data_ptr().get_deleter();
   return deleter == &CUDAManagedIndirectContext::release ||
-      deleter == &CUDAHostMappedContext::release;
+      deleter == &CUDAHostMappedContext::release ||
+      deleter == &CUDAHostMappedIndirectContext::release;
+}
+
+// True for tensors backed by malloc + cudaHostRegister (i.e. allocated via
+// new_host_mapped_tensor or new_unified_tensor(is_host_mapped=True)).
+// cudaMemAdvise / cudaMemPrefetchAsync only support cudaMallocManaged memory;
+// invoking them on host-mapped pointers returns cudaErrorInvalidValue.
+bool is_host_mapped_uvm(const Tensor& t) {
+  const auto deleter = t.storage().data_ptr().get_deleter();
+  return deleter == &CUDAHostMappedContext::release ||
+      deleter == &CUDAHostMappedIndirectContext::release;
 }
 
 bool is_uvm_tensor_cuda(const Tensor& t) {
@@ -338,11 +417,21 @@ bool is_uvm_tensor_cuda(const Tensor& t) {
 
 Tensor uvm_to_cpu_cuda(const Tensor& t) {
   TORCH_CHECK(is_uvm_tensor_cuda(t));
-  // Don't copy the storage - just keep a reference to the original storage
+
+  if (auto [host_mapped_storage, hcontext] = resolve_host_mapped(t);
+      hcontext != nullptr) {
+    return make_host_mapped_view(
+        t,
+        std::move(host_mapped_storage),
+        hcontext->ptr_,
+        {at::DeviceType::CPU});
+  }
+
+  // Managed memory path (original)
   auto* tcontext =
       t.storage().data_ptr().cast_context<CUDAManagedIndirectContext>(
           &CUDAManagedIndirectContext::release);
-  TORCH_CHECK(tcontext != nullptr)
+  TORCH_CHECK(tcontext != nullptr);
   auto* ocontext =
       tcontext->storage_.data_ptr().cast_context<CUDAManagedContext>(
           &CUDAManagedContext::release);
@@ -367,12 +456,23 @@ Tensor uvm_to_device(const Tensor& self, const Tensor& prototype) {
 
 Tensor uvm_to_device_d(const Tensor& t, const at::Device& device) {
   TORCH_CHECK(is_uvm_tensor_cuda(t));
-  // Don't copy the storage - just keep a reference to the original storage
+
+  if (auto [host_mapped_storage, hcontext] = resolve_host_mapped(t);
+      hcontext != nullptr) {
+    // Re-derive the device pointer from the host pointer rather than reusing
+    // t.storage().data_ptr().get(): for a tensor produced by a previous
+    // uvm_to_cpu call, that pointer is the *host* pointer, not the device one.
+    void* dev_ptr;
+    AT_CUDA_CHECK(cudaHostGetDevicePointer(&dev_ptr, hcontext->ptr_, 0));
+    return make_host_mapped_view(
+        t, std::move(host_mapped_storage), dev_ptr, device);
+  }
+
+  // Managed memory path (original)
   auto* tcontext =
       t.storage().data_ptr().cast_context<CUDAManagedIndirectContext>(
           &CUDAManagedIndirectContext::release);
-  TORCH_CHECK(tcontext != nullptr)
-
+  TORCH_CHECK(tcontext != nullptr);
   auto* ocontext =
       tcontext->storage_.data_ptr().cast_context<CUDAManagedContext>(
           &CUDAManagedContext::release);
@@ -395,14 +495,18 @@ int64_t uvm_get_guard_index(const Tensor& t) {
   TORCH_CHECK(uvm_storage_cuda(t));
   int cuda_device_index;
   if (t.is_cpu()) {
+    // Host-mapped CPU views never reach this function: both
+    // uvm_cuda_mem_advise and uvm_cuda_mem_prefetch_async early-return on
+    // is_host_mapped_uvm(t) above. The only CPU-tensor path that reaches
+    // uvm_get_guard_index is the managed-memory CPU view.
     auto* tcontext =
         t.storage().data_ptr().cast_context<CUDAManagedIndirectContext>(
             &CUDAManagedIndirectContext::release);
-    TORCH_CHECK(tcontext != nullptr)
+    TORCH_CHECK(tcontext != nullptr);
     auto* ocontext =
         tcontext->storage_.data_ptr().cast_context<CUDAManagedContext>(
             &CUDAManagedContext::release);
-    TORCH_CHECK(ocontext != nullptr)
+    TORCH_CHECK(ocontext != nullptr);
     cuda_device_index = static_cast<int64_t>(ocontext->cuda_device_);
   } else {
     TORCH_CHECK(t.is_cuda());
@@ -413,6 +517,13 @@ int64_t uvm_get_guard_index(const Tensor& t) {
 } // namespace
 
 void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
+  // cudaMemAdvise only applies to cudaMallocManaged memory. Host-mapped UVM
+  // tensors (malloc + cudaHostRegister) are statically PCIe-mapped, with no
+  // migration to advise on; the CUDA API returns cudaErrorInvalidValue. Treat
+  // this as a no-op so callers don't need to special-case the allocator.
+  if (is_host_mapped_uvm(t)) {
+    return;
+  }
   at::cuda::OptionalCUDAGuard device_guard;
   int64_t cuda_device_index = uvm_get_guard_index(t);
   int hint_device;
@@ -435,7 +546,12 @@ void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
       size_bytes,
       static_cast<enum cudaMemoryAdvise>(cuda_memory_advise),
 #if CUDART_VERSION >= 13000 || ROCM_VERSION >= 70100
-      new_mem_location_from_device(hint_device)
+      // Starting with CUDA 13, the deviceId arg (int) is replaced with a
+      // cudaMemLocation (struct). CPU advice targets must use a host location;
+      // wrapping cudaCpuDeviceId in a device-type location is invalid and the
+      // API returns cudaErrorInvalidValue.
+      t.is_cpu() ? new_mem_location_cpu()
+                 : new_mem_location_from_device(hint_device)
 #else
       hint_device
 #endif
@@ -446,6 +562,11 @@ void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
 void uvm_cuda_mem_prefetch_async(
     const Tensor& t,
     std::optional<Tensor> device_t) {
+  // cudaMemPrefetchAsync only applies to cudaMallocManaged memory; host-mapped
+  // tensors have no migration to prefetch. See uvm_cuda_mem_advise note above.
+  if (is_host_mapped_uvm(t)) {
+    return;
+  }
   // Call cudaMemPrefetchAsync on Tensor
   at::cuda::OptionalCUDAGuard device_guard;
   TORCH_CHECK(uvm_storage_cuda(t));
