@@ -22,16 +22,27 @@ __launch_bounds__(kMaxThreads) void _populate_length_to_feature_id_inplace_kerne
     const offset_t* const __restrict__ batch_size_per_feature,
     const offset_t* const __restrict__ batch_size_offsets,
     offset_t* const __restrict__ length_to_feature_idx) {
-  const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  // Use explicit int64_t arithmetic for the grid-stride loop so that
+  // max_B * T (which may exceed INT_MAX) and the per-iteration thread stride
+  // are computed in 64-bit. Casting the first operand avoids the 32-bit
+  // unsigned `blockDim.x * gridDim.x` product that CUDA_KERNEL_LOOP_TYPE would
+  // overflow before widening
+  // (facebook-security-vulnerable-integer-implicit-cast).
+  const int64_t b_t_total = static_cast<int64_t>(max_B) * T;
+  const int64_t b_t_stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
+  for (int64_t b_t =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       b_t < b_t_total;
+       b_t += b_t_stride) {
+    const auto t = b_t / max_B;
+    const auto b = b_t % max_B;
 
-  const auto t = b_t / max_B;
-  const auto b = b_t % max_B;
+    if (b >= batch_size_per_feature[t]) {
+      continue;
+    }
 
-  if (t >= T || b >= batch_size_per_feature[t]) {
-    return;
+    length_to_feature_idx[batch_size_offsets[t] + b] = t;
   }
-
-  length_to_feature_idx[batch_size_offsets[t] + b] = t;
 }
 
 void adjust_block_bucketize_sparse_features_2d_weights_kernel_launch_configs_based_on_smem(
@@ -316,7 +327,17 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_2d
     const bool* const __restrict__ keep_orig_idx_per_feature) {
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
-  CUDA_KERNEL_LOOP(b_t, lengths_size) {
+  // Explicit grid-stride loop replicating CUDA_KERNEL_LOOP, whose internal
+  // int64_t counter is incremented by the 32-bit `blockDim.x * gridDim.x`
+  // product and trips facebook-security-vulnerable-integer-implicit-cast.
+  // Cast the stride to int64_t; b_t stays int so the index arithmetic below
+  // is unchanged.
+  const int64_t b_t_stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
+  for (int64_t b_t_idx =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       b_t_idx < lengths_size;
+       b_t_idx += b_t_stride) {
+    const int b_t = static_cast<int>(b_t_idx);
     const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
     index_t blk_size = block_sizes_data[t];
     const index_t local_num_blks =
@@ -400,7 +421,15 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
     const index_t* const bucket_mapping_data,
     index_t* const bucketized_permute_data_out,
     int32_t lengths_size) {
-  CUDA_KERNEL_LOOP(b_t, lengths_size) {
+  // Explicit grid-stride loop (see note above): cast the stride to int64_t to
+  // avoid the implicit-cast security lint in CUDA_KERNEL_LOOP; b_t stays int
+  // so the index arithmetic below is unchanged.
+  const int64_t b_t_stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
+  for (int64_t b_t_idx =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       b_t_idx < lengths_size;
+       b_t_idx += b_t_stride) {
+    const int b_t = static_cast<int>(b_t_idx);
     const auto length = length_data[b_t];
     const auto offset = offset_data[b_t];
     for (size_t i = 0; i < length; i++) {
@@ -623,25 +652,30 @@ _block_bucketize_sparse_features_2d_weights_cuda(
   auto indices_to_lb = at::empty_like(indices);
   if (batch_size_per_feature.has_value()) {
     constexpr auto threads_per_block = 256;
-    const auto num_blocks =
-        cuda_calc_xblock_count(max_B * T, threads_per_block);
+    // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+    // which silently wraps). _populate_length_to_feature_id_inplace_kernel
+    // uses an explicit int64_t grid-stride loop, so capping the grid dimension
+    // is correctness-preserving (the loop iterates over all work items).
+    // See: https://github.com/ROCm/hip/issues/2253
+    const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+        max_B * T, threads_per_block, at::cuda::getCurrentCUDAStream());
 
     AT_DISPATCH_INDEX_TYPES(
         offsets_contig.scalar_type(),
         "_populate_length_to_feature_id_inplace_kernel",
         [&] {
           using offset_t = index_t;
-          _populate_length_to_feature_id_inplace_kernel<<<
+          FBGEMM_LAUNCH_KERNEL(
+              (_populate_length_to_feature_id_inplace_kernel<offset_t>),
               num_blocks,
               threads_per_block,
               0,
-              at::cuda::getCurrentCUDAStream()>>>(
+              at::cuda::getCurrentCUDAStream(),
               max_B,
               T,
               batch_sizes_contig.data_ptr<offset_t>(),
               batch_sizes_offsets_contig.data_ptr<offset_t>(),
               length_to_feature_idx.data_ptr<offset_t>());
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
   }
 

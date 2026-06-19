@@ -19,13 +19,26 @@ from typing import Any
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
-from hypothesis import settings
+from hypothesis import HealthCheck, settings
 
-settings.register_profile("derandomize", derandomize=True)
+_suppressed_health_checks: list[HealthCheck] = [
+    HealthCheck.filter_too_much,
+    HealthCheck.data_too_large,
+] + (
+    [HealthCheck.differing_executors]
+    if getattr(HealthCheck, "differing_executors", False)
+    else []
+)
+
+settings.register_profile(
+    "derandomize", derandomize=True, suppress_health_check=_suppressed_health_checks
+)
 settings.load_profile("derandomize")
 
 
-TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1"
+TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1" or (
+    torch.version.hip is not None and torch.cuda.is_available()
+)
 
 # Skip pt2 compliant tag test for certain operators
 # TODO: remove this once the operators are pt2 compliant

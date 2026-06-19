@@ -730,12 +730,16 @@ permute_2D_sparse_data_input1D_cpu(
   return {permuted_lengths.view(-1), permuted_indices, permuted_weights};
 }
 
-std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
+std::tuple<Tensor, Tensor, std::optional<Tensor>>
+permute_2D_sparse_preallocated_out_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
     const std::optional<Tensor>& weights,
-    const std::optional<int64_t>& permuted_lengths_sum) {
+    const std::optional<int64_t>& permuted_lengths_sum,
+    const std::optional<Tensor>& permuted_lengths_out,
+    const std::optional<Tensor>& permuted_indices_out,
+    const std::optional<Tensor>& permuted_weights_out) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
@@ -756,7 +760,9 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
   Tensor permuted_indices;
   std::optional<Tensor> permuted_weights;
 
-  permuted_lengths = at::empty({T, B}, lengths.options());
+  permuted_lengths = permuted_lengths_out.has_value()
+      ? permuted_lengths_out.value()
+      : at::empty({T, B}, lengths.options());
 
   const auto lengths_size = lengths.numel();
   auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
@@ -785,7 +791,9 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
     permuted_indices_size =
         output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
   }
-  permuted_indices = at::empty(permuted_indices_size, indices.options());
+  permuted_indices = permuted_indices_out.has_value()
+      ? permuted_indices_out.value()
+      : at::empty(permuted_indices_size, indices.options());
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_2D_indices_weights_kernel_1", [&] {
         using offsets_t = index_t;
@@ -801,8 +809,11 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
                     if (weights.has_value()) {
                       const auto weights_value_contig =
                           weights.value().expect_contiguous();
-                      permuted_weights = at::empty(
-                          permuted_indices_size, weights.value().options());
+                      permuted_weights = permuted_weights_out.has_value()
+                          ? permuted_weights_out.value()
+                          : at::empty(
+                                permuted_indices_size,
+                                weights.value().options());
                       _permute_2D_indices_weights_kernel_cpu<
                           true,
                           index_t,
@@ -839,6 +850,25 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
             }); // for each indices_t
       }); // for each offsets_t
   return {permuted_lengths, permuted_indices, permuted_weights};
+}
+
+// Functional (allocating) entry point. Delegates to the shared implementation
+// with no pre-allocated output buffers.
+std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& indices,
+    const std::optional<Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum) {
+  return permute_2D_sparse_preallocated_out_cpu(
+      permute,
+      lengths,
+      indices,
+      weights,
+      permuted_lengths_sum,
+      std::nullopt,
+      std::nullopt,
+      std::nullopt);
 }
 
 // specialization for variable B and T,
@@ -3807,6 +3837,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
       {PT2_COMPLIANT_TAG});
+  // Non-differentiable variant that writes into optional pre-allocated output
+  // buffers. The output tensors alias the corresponding buffers when provided,
+  // which is declared via the (a!)/(b!)/(c!) annotations. This cannot live on
+  // permute_2D_sparse_data because that op has a registered autograd formula
+  // and register_autograd requires a functional (non-aliasing) operator.
+  m.def(
+      "permute_2D_sparse_preallocated_out(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None, Tensor(a!)? permuted_lengths_out=None, Tensor(b!)? permuted_indices_out=None, Tensor(c!)? permuted_weights_out=None) -> (Tensor(a!), Tensor(b!), Tensor(c!)?)");
   m.def(
       "permute_2D_sparse_data_input1D(Tensor permute, Tensor lengths, Tensor values, SymInt stride, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
@@ -3915,6 +3952,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   DISPATCH_TO_CPU(
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
+  DISPATCH_TO_CPU(
+      "permute_2D_sparse_preallocated_out",
+      fbgemm_gpu::permute_2D_sparse_preallocated_out_cpu);
   DISPATCH_TO_CPU(
       "permute_2D_sparse_data_input1D",
       fbgemm_gpu::permute_2D_sparse_data_input1D_cpu);

@@ -31,7 +31,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import given, HealthCheck, settings, Verbosity
+from hypothesis import given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -412,7 +412,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd(  # noqa C901
         self,
@@ -461,7 +460,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd_fp32_pmNONE_cpu(
         self,
@@ -513,7 +511,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd_vbe_cpu(  # noqa C901
         self,
@@ -567,7 +564,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
     def test_backward_sgd_really_long_segments(  # noqa C901
@@ -622,7 +618,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd_writeback(  # noqa C901
         self,
@@ -691,7 +686,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd_writeback_first_feature_only(  # noqa C901
         self,
@@ -763,7 +757,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd_v1(  # noqa C901
         self,
@@ -823,7 +816,6 @@ class BackwardSGDTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd_writeback_nobag(  # noqa C901
         self,

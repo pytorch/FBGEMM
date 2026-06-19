@@ -268,6 +268,12 @@ void jagged_dense_elementwise_dense_output_(
   StackArray<int64_t> jagged_dims_tensor;
   std::tie(threads, blocks, jagged_dims_tensor) =
       check_shape_and_partition_(x_values, x_offsets, y);
+#ifdef USE_ROCM
+  // AMD: ~256-thread blocks improve wavefront packing for common D=1 shapes.
+  constexpr int kDenseOutputTargetBlockThreads = 256;
+  threads.y = kDenseOutputTargetBlockThreads / threads.x;
+  blocks.x = div_round_up(y.numel() / y.size(-1), threads.y);
+#endif
 
   // Canonicalize y and output to 3D, collapsing jagged dimensions.
   const Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});

@@ -136,9 +136,19 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
           const auto num_seq = lengths_c.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
 
+          // HIP enforces a hard limit of 2^32 total threads per launch
+          // (unlike CUDA, which silently wraps). pack_segments_cuda_kernel
+          // uses CUDA_KERNEL_LOOP, which already grid-strides, so capping is
+          // correctness-preserving.
+          // See: https://github.com/ROCm/hip/issues/2253
+          const auto blocks = utils::cuda::cap_grid_dim_x_from_workload(
+              num_seq * max_length * cell_size,
+              128,
+              at::cuda::getCurrentCUDAStream());
+
           FBGEMM_LAUNCH_DSA_KERNEL(
               (pack_segments_cuda_kernel<index_t, scalar_t>),
-              cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+              blocks,
               128,
               0,
               at::cuda::getCurrentCUDAStream(),
@@ -233,9 +243,19 @@ pack_segments_forward_cuda_v2(
           const auto num_seq = lengths_c.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
 
+          // HIP enforces a hard limit of 2^32 total threads per launch
+          // (unlike CUDA, which silently wraps). pack_segments_cuda_v2_kernel
+          // uses CUDA_KERNEL_LOOP_TYPE, which already grid-strides, so capping
+          // is correctness-preserving.
+          // See: https://github.com/ROCm/hip/issues/2253
+          const auto blocks = utils::cuda::cap_grid_dim_x_from_workload(
+              num_seq * max_length * cell_size,
+              128,
+              at::cuda::getCurrentCUDAStream());
+
           FBGEMM_LAUNCH_DSA_KERNEL(
               (pack_segments_cuda_v2_kernel<index_t, scalar_t>),
-              cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+              blocks,
               128,
               0,
               at::cuda::getCurrentCUDAStream(),

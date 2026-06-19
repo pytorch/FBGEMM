@@ -38,7 +38,8 @@ void _bounds_check_indices_cuda_v1(
     int64_t B,
     int64_t total_B,
     bool vbe,
-    bool prefetch_pipeline);
+    bool prefetch_pipeline,
+    bool disable_offsets_adjustment);
 
 void _bounds_check_indices_cuda_v2(
     Tensor& rows_per_table,
@@ -56,7 +57,8 @@ void _bounds_check_indices_cuda_v2(
     int64_t B,
     int64_t total_B,
     bool vbe,
-    bool prefetch_pipeline);
+    bool prefetch_pipeline,
+    bool disable_offsets_adjustment);
 
 ///@ingroup embedding-cuda
 void bounds_check_indices_cuda(
@@ -76,6 +78,9 @@ void bounds_check_indices_cuda(
   TORCH_CHECK(bounds_check_version == 1 || bounds_check_version == 2);
   const static bool use_v2_jk = fbgemm_gpu::config::is_feature_enabled(
       fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_INDICES_V2);
+  const static bool disable_offsets_adjustment =
+      fbgemm_gpu::config::is_feature_enabled(
+          fbgemm_gpu::config::FeatureGateName::DISABLE_OFFSETS_ADJUSTMENT);
   const auto bounds_check_indices_fn = (use_v2_jk || bounds_check_version == 2)
       ? _bounds_check_indices_cuda_v2
       : _bounds_check_indices_cuda_v1;
@@ -140,7 +145,8 @@ void bounds_check_indices_cuda(
       B,
       total_B,
       vbe,
-      prefetch_pipeline);
+      prefetch_pipeline,
+      disable_offsets_adjustment);
 }
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {

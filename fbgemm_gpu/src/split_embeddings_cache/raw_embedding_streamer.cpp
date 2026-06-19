@@ -10,6 +10,7 @@
 #include <folly/coro/BlockingWait.h>
 #include <folly/stop_watch.h>
 #include <utility>
+#include "aiplatform/gmpp/experimental/training_ps/TrainingPsOdsLogger.h"
 #include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
 #include "caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h"
 #include "servicerouter/client/cpp2/ClientParams.h"
@@ -49,6 +50,7 @@ get_res_client(int64_t res_server_port) {
                                  TrainingParameterServerService>>(
       "realtime.delta.publish.esr", params);
 }
+
 #endif
 
 /// Read a scalar value from a tensor that is maybe a UVM tensor
@@ -166,6 +168,9 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
                << res_server_port_;
     // The first call to get the client is expensive, so eagerly get it here
     auto _eager_client = get_res_client(res_server_port_);
+
+    ods_logger_ = std::make_unique<facebook::aiplatform::gmpp::experimental::
+                                       training_ps::TrainingPsOdsLogger>();
 
     weights_stream_thread_ = std::make_unique<std::thread>([this] {
       while (!stop_) {
@@ -319,6 +324,9 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
     XLOG(ERR) << "[TBE_ID" << unique_id_
               << "] Indices and weights size mismatched " << indices.size(0)
               << " " << weights.size(0);
+    if (ods_logger_) {
+      ods_logger_->bumpKey("shard_size_mismatch", 1);
+    }
     co_return;
   }
   folly::stop_watch<std::chrono::milliseconds> stop_watch;
@@ -399,6 +407,9 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
           << "] don't send the request for size mismatched tensors table: "
           << rows_in_shard << " weights: " << weights_masked.size(0)
           << " global_indices: " << global_indices_masked.numel();
+      if (ods_logger_) {
+        ods_logger_->bumpKey("shard_size_mismatch", 1);
+      }
       continue;
     }
     SetEmbeddingsRequest req;
@@ -420,7 +431,17 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
       req.runtimeMeta() =
           torch::distributed::wireDumpTensor(runtime_meta_masked);
     }
-    co_await res_client->co_setEmbeddings(req);
+    try {
+      co_await res_client->co_setEmbeddings(req);
+    } catch (const std::exception& e) {
+      if (ods_logger_) {
+        ods_logger_->bumpKey("set_embeddings_rpc", 1);
+      }
+      XLOG(ERR) << "[TBE_ID" << unique_id_
+                << "] co_setEmbeddings threw on shard " << i << ": "
+                << e.what();
+      throw;
+    }
   }
   co_return;
 }

@@ -40,21 +40,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
         else:
             return permute_fn(*args)
 
-    @unittest.skipIf(*on_oss_clang)
-    @given(
-        B=st.integers(min_value=0, max_value=20),
-        T=st.integers(min_value=0, max_value=20),
-        L=st.integers(min_value=2, max_value=20),
-        long_index=st.booleans(),
-        permute_fn=st.sampled_from(
-            [
-                torch.ops.fbgemm.permute_2D_sparse_data,
-                torch.ops.fbgemm.permute_sequence_embeddings,
-            ]
-        ),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    def test_permute_embeddings(
+    def _run_permute_embeddings(
         self,
         B: int,
         T: int,
@@ -94,6 +80,55 @@ class PermuteEmbeddingsTest(unittest.TestCase):
                 permuted_embeddings_gpu.cpu(), permuted_embeddings_cpu
             )
             torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
+
+    # NOTE: test_permute_embeddings was previously a single test that drew
+    # permute_fn via st.sampled_from(...). Because the generated opcheck variants
+    # (e.g. test_faketensor__*) are keyed per-op in failures_dict.json, a draw
+    # that never exercised the xfail'd op (permute_sequence_embeddings) made the
+    # opcheck pass vacuously -> XPASS -> strict-xfail failure (draw-dependent
+    # flakiness). Split per-op so each generated variant deterministically
+    # exercises a single op. T191384137
+    @unittest.skipIf(*on_oss_clang)
+    @given(
+        B=st.integers(min_value=0, max_value=20),
+        T=st.integers(min_value=0, max_value=20),
+        L=st.integers(min_value=2, max_value=20),
+        long_index=st.booleans(),
+        # st.just keeps a single, deterministic op (the point of the split) while
+        # routing it through the Callable-typed param so pyre accepts the op.
+        permute_fn=st.just(torch.ops.fbgemm.permute_2D_sparse_data),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_permute_embeddings_2d(
+        self,
+        B: int,
+        T: int,
+        L: int,
+        long_index: bool,
+        permute_fn: Callable[..., tuple[torch.Tensor, ...]],
+    ) -> None:
+        self._run_permute_embeddings(B, T, L, long_index, permute_fn)
+
+    @unittest.skipIf(*on_oss_clang)
+    @given(
+        B=st.integers(min_value=0, max_value=20),
+        T=st.integers(min_value=0, max_value=20),
+        L=st.integers(min_value=2, max_value=20),
+        long_index=st.booleans(),
+        # st.just keeps a single, deterministic op (the point of the split) while
+        # routing it through the Callable-typed param so pyre accepts the op.
+        permute_fn=st.just(torch.ops.fbgemm.permute_sequence_embeddings),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_permute_embeddings_seq(
+        self,
+        B: int,
+        T: int,
+        L: int,
+        long_index: bool,
+        permute_fn: Callable[..., tuple[torch.Tensor, ...]],
+    ) -> None:
+        self._run_permute_embeddings(B, T, L, long_index, permute_fn)
 
     @given(
         weights_dtype=st.sampled_from([torch.float, torch.double, torch.half]),

@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <iostream>
 #include <limits>
+#include <set>
 
 #include <fmt/format.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
@@ -748,6 +749,7 @@ TEST(FeatureEvictTest, PerformanceTest) {
         0,
         0,
         true, // is training
+        false, // enable_ssd_writeback
         TestMode::NORMAL);
 
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -1166,4 +1168,352 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
   // for executors to finish
   std::this_thread::sleep_for(std::chrono::milliseconds(5));
 }
+// Test that dirty blocks trigger the writeback callback during training
+// eviction
+TEST(FeatureEvictTest, WritebackCallbackDirtyBlocks) {
+  static constexpr int NUM_SHARDS = 8;
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS,
+      BLOCK_SIZE,
+      BLOCK_ALIGNMENT,
+      /*blocks_per_chunk=*/8192,
+      /*enable_dirty_tracking=*/true);
+
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+
+  // Insert blocks: keys 0-399 with count=1 (will be evicted, threshold=1),
+  // keys 400-999 with count=2 (will NOT be evicted).
+  // Mark keys 0-199 as dirty, keys 200-399 as not dirty.
+  for (int i = 0; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_count(block, i < 400 ? 1 : 2);
+    FixedBlockPool::set_used(block, true);
+    if (i < 200) {
+      pool->set_dirty(block, true);
+    } else {
+      pool->set_dirty(block, false);
+    }
+    wlock->insert({i, block});
+  }
+
+  // Track writeback callback invocations
+  std::mutex cb_mutex;
+  std::vector<std::pair<int64_t, std::string>> all_writeback_pairs;
+
+  std::vector<int64_t> counter_thresholds = {1};
+  std::vector<double> counter_decay_rates = {0.5};
+  c10::intrusive_ptr<FeatureEvictConfig> feature_evict_config =
+      c10::make_intrusive<FeatureEvictConfig>(
+          2,
+          1,
+          std::nullopt,
+          2,
+          std::nullopt,
+          counter_thresholds,
+          counter_decay_rates,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          0,
+          0,
+          0,
+          true);
+
+  auto feature_evict = create_feature_evict(
+      feature_evict_config,
+      *kv_store_.get(),
+      sub_table_hash_cumsum,
+      true,
+      TestMode::NORMAL);
+
+  // Set writeback callback
+  feature_evict->set_writeback_callback(
+      [&](std::vector<std::pair<int64_t, std::string>> batch) {
+        std::lock_guard<std::mutex> lock(cb_mutex);
+        for (auto& pair : batch) {
+          all_writeback_pairs.push_back(std::move(pair));
+        }
+      });
+
+  // Trigger and run eviction
+  feature_evict->trigger_evict();
+  feature_evict->resume();
+  feature_evict->wait_until_eviction_done();
+
+  // Verify: only dirty evicted blocks (keys 0-199) should be in writeback
+  std::set<int64_t> writeback_keys;
+  {
+    std::lock_guard<std::mutex> lock(cb_mutex);
+    for (const auto& [key, data] : all_writeback_pairs) {
+      writeback_keys.insert(key);
+      // Verify block data size matches expected block size
+      EXPECT_EQ(data.size(), BLOCK_SIZE);
+    }
+  }
+
+  // Only dirty evicted keys (0-199) should be written back; non-dirty
+  // evicted keys (200-399) and non-evicted keys (400-999) should not.
+  std::set<int64_t> expected_writeback_keys;
+  for (int i = 0; i < 200; ++i) {
+    expected_writeback_keys.insert(i);
+  }
+  EXPECT_EQ(writeback_keys, expected_writeback_keys);
+}
+
+// Test that non-dirty blocks do NOT trigger writeback callback
+TEST(FeatureEvictTest, WritebackCallbackNonDirtyBlocks) {
+  static constexpr int NUM_SHARDS = 8;
+  // Dirty tracking must be enabled so that set_dirty/get_dirty are honored;
+  // otherwise get_dirty always returns false and the test would pass even if
+  // the dirty-gating logic were broken.
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS,
+      BLOCK_SIZE,
+      BLOCK_ALIGNMENT,
+      /*blocks_per_chunk=*/8192,
+      /*enable_dirty_tracking=*/true);
+
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+
+  // Insert blocks: all with count=1 (will be evicted), none dirty
+  for (int i = 0; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_count(block, 1);
+    FixedBlockPool::set_used(block, true);
+    pool->set_dirty(block, false);
+    wlock->insert({i, block});
+  }
+
+  bool callback_invoked = false;
+
+  std::vector<int64_t> counter_thresholds = {1};
+  std::vector<double> counter_decay_rates = {0.5};
+  c10::intrusive_ptr<FeatureEvictConfig> feature_evict_config =
+      c10::make_intrusive<FeatureEvictConfig>(
+          2,
+          1,
+          std::nullopt,
+          2,
+          std::nullopt,
+          counter_thresholds,
+          counter_decay_rates,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          0,
+          0,
+          0,
+          true);
+
+  auto feature_evict = create_feature_evict(
+      feature_evict_config,
+      *kv_store_.get(),
+      sub_table_hash_cumsum,
+      true,
+      TestMode::NORMAL);
+
+  // Set writeback callback — should never be called
+  feature_evict->set_writeback_callback(
+      [&](std::vector<std::pair<int64_t, std::string>> batch) {
+        callback_invoked = true;
+      });
+
+  feature_evict->trigger_evict();
+  feature_evict->resume();
+  feature_evict->wait_until_eviction_done();
+
+  // No dirty blocks means callback should never be invoked
+  EXPECT_FALSE(callback_invoked);
+}
+
+// Test writeback callback for inference eviction path
+TEST(FeatureEvictTest, WritebackCallbackInferenceEviction) {
+  static constexpr int NUM_SHARDS = 8;
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS,
+      BLOCK_SIZE,
+      BLOCK_ALIGNMENT,
+      /*blocks_per_chunk=*/8192,
+      /*enable_dirty_tracking=*/true);
+
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+
+  // Insert blocks: keys 0-399 with count=1 (will be evicted),
+  // keys 400-999 with count=2 (will NOT be evicted).
+  // Mark keys 0-99 as dirty.
+  for (int i = 0; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_count(block, i < 400 ? 1 : 2);
+    FixedBlockPool::set_used(block, true);
+    if (i < 100) {
+      pool->set_dirty(block, true);
+    } else {
+      pool->set_dirty(block, false);
+    }
+    wlock->insert({i, block});
+  }
+
+  std::mutex cb_mutex;
+  std::vector<std::pair<int64_t, std::string>> all_writeback_pairs;
+
+  std::vector<int64_t> counter_thresholds = {1};
+  std::vector<double> counter_decay_rates = {0.5};
+  c10::intrusive_ptr<FeatureEvictConfig> feature_evict_config =
+      c10::make_intrusive<FeatureEvictConfig>(
+          2,
+          1,
+          std::nullopt,
+          2,
+          std::nullopt,
+          counter_thresholds,
+          counter_decay_rates,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          0,
+          0,
+          0,
+          true);
+
+  // Create with is_training=false to use inference eviction path
+  auto feature_evict = create_feature_evict(
+      feature_evict_config,
+      *kv_store_.get(),
+      sub_table_hash_cumsum,
+      false,
+      TestMode::NORMAL);
+
+  feature_evict->set_writeback_callback(
+      [&](std::vector<std::pair<int64_t, std::string>> batch) {
+        std::lock_guard<std::mutex> lock(cb_mutex);
+        for (auto& pair : batch) {
+          all_writeback_pairs.push_back(std::move(pair));
+        }
+      });
+
+  feature_evict->trigger_evict();
+  feature_evict->resume();
+  feature_evict->wait_until_eviction_done();
+
+  // Verify: only dirty evicted blocks (keys 0-99) should be in writeback
+  std::set<int64_t> writeback_keys;
+  {
+    std::lock_guard<std::mutex> lock(cb_mutex);
+    for (const auto& [key, data] : all_writeback_pairs) {
+      writeback_keys.insert(key);
+      EXPECT_EQ(data.size(), BLOCK_SIZE);
+    }
+  }
+
+  // Only dirty evicted keys (0-99) should be written back.
+  std::set<int64_t> expected_writeback_keys;
+  for (int i = 0; i < 100; ++i) {
+    expected_writeback_keys.insert(i);
+  }
+  EXPECT_EQ(writeback_keys, expected_writeback_keys);
+}
+
+// Test that when enable_ssd_writeback flag is false, callback is not invoked
+// even if dirty blocks are evicted and callback is set.
+TEST(FeatureEvictTest, WritebackDisabledByFlag) {
+  static constexpr int NUM_SHARDS = 8;
+  // Dirty tracking must be enabled so the inserted blocks are actually marked
+  // dirty. Without it, get_dirty always returns false and the eviction
+  // predicate short-circuits before the enable_ssd_writeback flag is checked,
+  // so the test would pass even if the flag were ignored.
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS,
+      BLOCK_SIZE,
+      BLOCK_ALIGNMENT,
+      /*blocks_per_chunk=*/8192,
+      /*enable_dirty_tracking=*/true);
+
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+
+  // Insert dirty blocks that will be evicted
+  for (int i = 0; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_count(block, 1);
+    FixedBlockPool::set_used(block, true);
+    pool->set_dirty(block, true);
+    wlock->insert({i, block});
+  }
+
+  bool callback_invoked = false;
+
+  std::vector<int64_t> counter_thresholds = {1};
+  std::vector<double> counter_decay_rates = {0.5};
+  c10::intrusive_ptr<FeatureEvictConfig> feature_evict_config =
+      c10::make_intrusive<FeatureEvictConfig>(
+          2,
+          1,
+          std::nullopt,
+          2,
+          std::nullopt,
+          counter_thresholds,
+          counter_decay_rates,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          0,
+          0,
+          0,
+          false); // SSD writeback disabled
+
+  auto feature_evict = create_feature_evict(
+      feature_evict_config,
+      *kv_store_.get(),
+      sub_table_hash_cumsum,
+      true,
+      TestMode::NORMAL);
+
+  // Set writeback callback — should never be called because flag is false
+  feature_evict->set_writeback_callback(
+      [&](std::vector<std::pair<int64_t, std::string>> batch) {
+        callback_invoked = true;
+      });
+
+  feature_evict->trigger_evict();
+  feature_evict->resume();
+  feature_evict->wait_until_eviction_done();
+
+  EXPECT_FALSE(callback_invoked);
+}
+
 } // namespace kv_mem

@@ -29,7 +29,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, HealthCheck, Verbosity
+from hypothesis import assume, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (  # noqa E402
@@ -95,7 +95,6 @@ common_settings: dict[str, Any] = {
     "verbosity": VERBOSITY,
     "max_examples": MAX_EXAMPLES_LONG_RUNNING,
     "deadline": None,
-    "suppress_health_check": [HealthCheck.filter_too_much, HealthCheck.data_too_large],
 }
 
 fp8_dtype: torch.dtype = (

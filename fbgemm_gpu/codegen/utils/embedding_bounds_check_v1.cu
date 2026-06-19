@@ -19,6 +19,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     BoundsCheckMode bounds_check_mode,
     pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
     FixedDivisor fd,
+    const bool disable_offsets_adjustment,
     TORCH_DSA_KERNEL_ARGS) {
   int32_t T = rows_per_table.size(0);
   auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -55,40 +56,42 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
   auto indices_end = offsets[b_t + 1];
   const index_t num_indices = indices.size(0);
 
-  // Condition first, then branch on mode.
-  if (indices_start < 0 || indices_start > indices_end ||
+  if (disable_offsets_adjustment ||
+      bounds_check_mode == BoundsCheckMode::FATAL) {
+    CUDA_KERNEL_ASSERT(
+        indices_start >= 0 && "indices_start must be non-negative");
+    CUDA_KERNEL_ASSERT(
+        indices_start <= indices_end &&
+        "indices_start must not exceed indices_end");
+    CUDA_KERNEL_ASSERT(
+        indices_end <= num_indices &&
+        "indices_end must not exceed num_indices");
+  } else if (
+      indices_start < 0 || indices_start > indices_end ||
       indices_end > num_indices) {
-    if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      CUDA_KERNEL_ASSERT(
-          indices_start >= 0 && "indices_start must be non-negative");
-      CUDA_KERNEL_ASSERT(
-          indices_start <= indices_end &&
-          "indices_start must not exceed indices_end");
-      CUDA_KERNEL_ASSERT(
-          indices_end <= num_indices &&
-          "indices_end must not exceed num_indices");
-    } else {
-      if (bounds_check_mode == BoundsCheckMode::WARNING) {
-        if (gpuAtomicIncrement(&warning[0]) == 0) {
-          printf(
-              "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
-              "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
-              " num_indices: %lld. Setting indices_start and indices_end within "
-              "the range.\n",
-              vbe ? "true" : "false",
-              b,
-              t,
-              static_cast<int64_t>(indices_start),
-              static_cast<int64_t>(indices_end),
-              static_cast<int64_t>(num_indices));
-        }
+    if (bounds_check_mode == BoundsCheckMode::WARNING) {
+      if (threadIdx.x == 0 && gpuAtomicIncrement(&warning[0]) == 0) {
+        printf(
+            "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
+            "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
+            " num_indices: %lld. Setting indices_start and indices_end within "
+            "the range.\n",
+            vbe ? "true" : "false",
+            b,
+            t,
+            static_cast<int64_t>(indices_start),
+            static_cast<int64_t>(indices_end),
+            static_cast<int64_t>(num_indices));
       }
-      adjust_offset_kernel(
-          indices_start,
-          indices_end,
-          num_indices,
-          &offsets[b_t],
-          &offsets[b_t + 1]);
+    }
+    indices_start =
+        std::max(static_cast<index_t>(0), std::min(indices_start, num_indices));
+    indices_end = std::max(indices_start, std::min(indices_end, num_indices));
+    // Only thread 0 writes back the adjusted offsets to avoid the intra-warp
+    // race; no sync needed since offsets are not re-read in this kernel.
+    if (threadIdx.x == 0) {
+      offsets[b_t] = indices_start;
+      offsets[b_t + 1] = indices_end;
     }
   }
 
@@ -130,29 +133,32 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     }
   }
 
-  if (bounds_check_mode == BoundsCheckMode::FATAL) {
-    CUDA_KERNEL_ASSERT(
-        num_indices == offsets[total_B] &&
-        "num_indices must match the last element in offsets");
-  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-    if (num_indices != offsets[total_B]) {
-      if (gpuAtomicIncrement(&warning[0]) == 0) {
-        printf(
-            "EmbeddingBoundsCheck (VBE %s): the last element in offsets is incorrect for "
-            "total batch size %s: %d, total table num T: %d, "
-            " last element in offsets: %lld, indices size: %lld. "
-            " Setting the last element in offsets to be indices size.\n",
-            vbe ? "true" : "false",
-            vbe ? "total_B" : "B",
-            vbe ? total_B : B,
-            T,
-            static_cast<int64_t>(offsets[total_B]),
-            static_cast<int64_t>(num_indices));
-      }
-      offsets[total_B] = num_indices;
+  if (disable_offsets_adjustment ||
+      bounds_check_mode == BoundsCheckMode::FATAL) {
+    if (b_t == 0 && threadIdx.x == 0) {
+      CUDA_KERNEL_ASSERT(
+          num_indices == offsets[total_B] &&
+          "num_indices must match the last element in offsets");
     }
-  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-    if (num_indices != offsets[total_B]) {
+  } else if (num_indices != offsets[total_B]) {
+    // The last-element check is a single global condition; one thread handles
+    // the warning and the correction (for both WARNING and IGNORE).
+    if (b_t == 0 && threadIdx.x == 0) {
+      if (bounds_check_mode == BoundsCheckMode::WARNING) {
+        if (gpuAtomicIncrement(&warning[0]) == 0) {
+          printf(
+              "EmbeddingBoundsCheck (VBE %s): the last element in offsets is incorrect for "
+              "total batch size %s: %d, total table num T: %d, "
+              " last element in offsets: %lld, indices size: %lld. "
+              " Setting the last element in offsets to be indices size.\n",
+              vbe ? "true" : "false",
+              vbe ? "total_B" : "B",
+              vbe ? total_B : B,
+              T,
+              static_cast<int64_t>(offsets[total_B]),
+              static_cast<int64_t>(num_indices));
+        }
+      }
       offsets[total_B] = num_indices;
     }
   }
@@ -174,7 +180,8 @@ void _bounds_check_indices_cuda_v1(
     int64_t B,
     int64_t /*total_B*/,
     bool vbe,
-    bool prefetch_pipeline) {
+    bool prefetch_pipeline,
+    bool disable_offsets_adjustment) {
   TORCH_CHECK(
       !prefetch_pipeline,
       "bounds_check_indices_v1 does not support prefetch_pipeline=true")
@@ -205,6 +212,7 @@ void _bounds_check_indices_cuda_v1(
             vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,
             bounds_check_mode,
             PTA_B(warning, int64_t, 1, 32),
-            FixedDivisor(max_B_));
+            FixedDivisor(max_B_),
+            disable_offsets_adjustment);
       });
 }

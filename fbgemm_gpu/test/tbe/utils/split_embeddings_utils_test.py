@@ -24,7 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     PoolingMode,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import MAX_EXAMPLES, open_source
@@ -137,7 +137,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         T=st.integers(min_value=5, max_value=20),
         E=st.integers(min_value=10, max_value=50),
     )
-    @settings(deadline=30000, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=30000)
     def test_transpose(self, B: int, T: int, E: int) -> None:
         hash_sizes = [random.randint(E, 2 * E) for _ in range(T)]
         batch_size = B
@@ -391,7 +391,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             offsets[0] = -100
         if offsets.numel() > 1:
             offsets[-1] += 100
-        if bounds_check_mode != BoundsCheckMode.FATAL:
+        if bounds_check_mode != BoundsCheckMode.FATAL and use_cpu:
             torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table,
                 indices,

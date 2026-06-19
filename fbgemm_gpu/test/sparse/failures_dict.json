@@ -12,6 +12,12 @@
         "status": "xfail"
       }
     },
+    "fbgemm::asynchronous_batched_complete_cumsum": {
+      "CumSumTest.test_aot_dispatch_dynamic__test_batched_complete_cumsum": {
+        "comment": "Test builds output via a dynamic Python loop + torch.stack; incompatible with aot_dispatch_dynamic. C++ symbolic meta is correct. T191384137",
+        "status": "xfail"
+      }
+    },
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},
@@ -51,12 +57,7 @@
     },
     "fbgemm::generic_histogram_binning_calibration_by_feature": {},
     "fbgemm::group_index_select_dim0": {},
-    "fbgemm::histogram_binning_calibration": {
-      "HistogramBinningCalibrationTest.test_faketensor__test_histogram_binning_calibration": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::histogram_binning_calibration": {},
     "fbgemm::histogram_binning_calibration_by_feature": {
       "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_histogram_binning_calibration_by_feature": {
         "comment": "",
@@ -106,13 +107,24 @@
       }
     },
     "fbgemm::permute_1D_sparse_data": {},
-    "fbgemm::permute_2D_sparse_data": {},
+    "fbgemm::permute_2D_sparse_data": {
+      "PermuteIndicesTest.test_aot_dispatch_dynamic__test_permute_indices_backward": {
+        "comment": "Not an op bug. The aot_autograd_check harness builds its test loss as `sm = 0; for o in outputs: sm += o.sum().abs()`. This op returns (int64 lengths, int64 indices, float weights) in that order, so sm becomes an int64 tensor from the integer outputs and the final `sm += weights.sum()` raises 'result type Float can't be cast to Long'. The op's backward is never reached, and real torch.compile/autograd (which sums only the user's float loss) is unaffected. Marked skip (not xfail) so it does not falsely flag the forward-PT2-compliant op via test_pt2_compliant_tag. Eager backward correctness is covered by test_permute_indices_backward.",
+        "status": "skip"
+      }
+    },
+    "fbgemm::permute_2D_sparse_preallocated_out": {
+      "PermuteIndicesTest.test_aot_dispatch_dynamic__test_permute_indices_with_preallocated_output": {
+        "comment": "Functionalization (AOTAutograd / torch.compile) does not support custom ops whose outputs carry alias annotations; here the returned tensors alias the pre-allocated input buffers (Tensor(a!)/(b!)/(c!)). This op targets the eager input-distribution path, not torch.compile, consistent with other fbgemm ops that xfail test_aot_dispatch_dynamic.",
+        "status": "xfail"
+      }
+    },
     "fbgemm::permute_sequence_embeddings": {
-      "PermuteEmbeddingsTest.test_aot_dispatch_dynamic__test_permute_embeddings": {
+      "PermuteEmbeddingsTest.test_aot_dispatch_dynamic__test_permute_embeddings_seq": {
         "comment": "",
         "status": "xfail"
       },
-      "PermuteEmbeddingsTest.test_faketensor__test_permute_embeddings": {
+      "PermuteEmbeddingsTest.test_faketensor__test_permute_embeddings_seq": {
         "comment": "",
         "status": "xfail"
       }

@@ -25,7 +25,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     is_torchdynamo_compiling,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-from hypothesis import settings, Verbosity
+from hypothesis import HealthCheck, settings, Verbosity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -49,7 +49,19 @@ else:
 
 
 torch.ops.import_module("fbgemm_gpu.sparse_ops")
-settings.register_profile("derandomize", derandomize=True)
+
+suppressed_list: list[HealthCheck] = [
+    HealthCheck.filter_too_much,
+    HealthCheck.data_too_large,
+] + (
+    [HealthCheck.differing_executors]
+    if getattr(HealthCheck, "differing_executors", False)
+    else []
+)
+
+settings.register_profile(
+    "derandomize", derandomize=True, suppress_health_check=suppressed_list
+)
 settings.load_profile("derandomize")
 
 

@@ -956,6 +956,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     eviction_policy.interval_for_insufficient_eviction_s,
                     eviction_policy.interval_for_sufficient_eviction_s,
                     eviction_policy.interval_for_feature_statistics_decay_s,
+                    eviction_policy.enable_ssd_writeback,
                 )
             enrichment_config = None
             if (

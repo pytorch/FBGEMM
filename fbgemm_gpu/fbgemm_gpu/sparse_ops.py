@@ -14,7 +14,7 @@ import torch
 
 # fmt:skip
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.tbe.config.embedding_config import PoolingMode
 from fbgemm_gpu.utils.loader import load_torch_module
 
 try:
@@ -143,13 +143,34 @@ def permute_2D_sparse_data_meta(
     weights: Tensor | None = None,
     permuted_lengths_sum: int | None = None,
 ) -> tuple[Tensor, Tensor, Tensor | None]:
+    # Functional (allocating) entry point; delegates to the shared
+    # implementation with no pre-allocated output buffers.
+    return permute_2D_sparse_preallocated_out_meta(
+        permute, lengths, values, weights, permuted_lengths_sum
+    )
+
+
+def permute_2D_sparse_preallocated_out_meta(
+    permute: Tensor,
+    lengths: Tensor,
+    values: Tensor,
+    weights: Tensor | None = None,
+    permuted_lengths_sum: int | None = None,
+    permuted_lengths_out: Tensor | None = None,
+    permuted_indices_out: Tensor | None = None,
+    permuted_weights_out: Tensor | None = None,
+) -> tuple[Tensor, Tensor, Tensor | None]:
     torch._check(
         lengths.dim() == 2, lambda: f"expected lengths.dim() == 2, got {lengths.dim()}"
     )
     T = permute.numel()
     B = lengths.size(1)
     indices = values
-    permuted_lengths = lengths.new_empty([T, B])
+    permuted_lengths = (
+        permuted_lengths_out
+        if permuted_lengths_out is not None
+        else lengths.new_empty([T, B])
+    )
     permuted_indices_size = 0
     if permuted_lengths_sum is not None:
         permuted_indices_size = permuted_lengths_sum
@@ -157,11 +178,19 @@ def permute_2D_sparse_data_meta(
         ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
     # pyre-fixme
-    permuted_indices = indices.new_empty(permuted_indices_size)
+    permuted_indices = (
+        permuted_indices_out
+        if permuted_indices_out is not None
+        else indices.new_empty(permuted_indices_size)
+    )
     permuted_weights = None
     if weights is not None:
         # pyre-fixme
-        permuted_weights = weights.new_empty(permuted_indices_size)
+        permuted_weights = (
+            permuted_weights_out
+            if permuted_weights_out is not None
+            else weights.new_empty(permuted_indices_size)
+        )
     return permuted_lengths, permuted_indices, permuted_weights
 
 
@@ -223,6 +252,9 @@ def repeat_arange_meta(lengths: Tensor) -> Tensor:
         # FakeTensor context: use dynamic sizing for proper shape tracking
         ctx = torch.library.get_ctx()
         output_size = ctx.new_dynamic_size()
+        # Size-oblivious guard resolution for the data-dependent output size,
+        # so test_aot_dispatch_dynamic does not fail on the unbacked SymInt.
+        torch._check_is_size(output_size)
         return torch.empty([output_size], dtype=lengths.dtype, device=lengths.device)
 
 
@@ -409,6 +441,8 @@ def jagged_index_select_2d_forward_v2_abstract(
     torch._check(values.device == output_offsets.device)
     torch._check(values.dim() == 2)
     dynamic_num_dense_output_rows = torch.library.get_ctx().new_dynamic_size()
+    # Size-oblivious guard resolution for the data-dependent output rows.
+    torch._check_is_size(dynamic_num_dense_output_rows)
     num_cols = values.size(1)
     return values.new_empty([dynamic_num_dense_output_rows, num_cols])
 
@@ -741,6 +775,10 @@ def dense_to_jagged_forward(
 ) -> torch.Tensor:
     if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
+    # Mark the data-dependent output size as a size (>= 0) so downstream
+    # dynamic-shape guards (e.g. total_L * inner_dim) resolve size-obliviously
+    # under test_aot_dispatch_dynamic instead of raising on the unbacked SymInt.
+    torch._check_is_size(total_L)
     return dense.new_zeros(
         [total_L, dense.size()[-1]],
         dtype=dense.dtype,
@@ -800,6 +838,8 @@ def batch_index_select_dim0_tensor_abstract(
     torch._check(input_num_indices.size(0) == input_rows.size(0))
     torch._check(input_num_indices.size(0) == input_columns.size(0))
     output_numel = torch.library.get_ctx().new_dynamic_size()
+    # Size-oblivious guard resolution for the data-dependent output numel.
+    torch._check_is_size(output_numel)
     return inputs.new_empty([output_numel])
 
 
@@ -1156,7 +1196,11 @@ def histogram_binning_calibration_abstract(
     bin_ctr_in_use_after: int,
     bin_ctr_weight_value: float,
 ) -> tuple[Tensor, Tensor]:
-    return torch.empty_like(logit), torch.empty([logit.numel()], dtype=torch.int64)
+    # bin_ids must be allocated on logit's device to match the real kernel,
+    # otherwise the faketensor opcheck fails with a device mismatch on GPU.
+    return torch.empty_like(logit), torch.empty(
+        [logit.numel()], dtype=torch.int64, device=logit.device
+    )
 
 
 def float_to_hfp8_quantized(
@@ -1209,6 +1253,24 @@ def fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
         return torch.empty(
             (nrows, output_columns), dtype=torch.float16, device=input_t.device
         )
+
+
+def fused_nbit_rowwise_quantized_sb_half_to_float(
+    input_t: Tensor,
+    bit_rate: int,
+) -> Tensor:
+    return fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
+        input_t, bit_rate, SparseType.FP32.as_int()
+    )
+
+
+def fused_nbit_rowwise_quantized_sb_half_to_half(
+    input_t: Tensor,
+    bit_rate: int,
+) -> Tensor:
+    return fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
+        input_t, bit_rate, SparseType.FP16.as_int()
+    )
 
 
 def fused_8_bit_rowwise_quantized_to_float_or_half(
@@ -1293,6 +1355,79 @@ def fused_8_bit_rowwise_quantized_to_half(
     output_columns = ncols_aligned - 2 * quant_padding_size
     output_shape[last_dim] = output_columns
     return torch.empty(output_shape, dtype=torch.float16, device=input_t.device)
+
+
+def fused_8_bit_rowwise_quantized_to_bfloat16(
+    input_t: Tensor,
+) -> Tensor:
+    torch._check(input_t.dim() >= 2)
+    last_dim = input_t.dim() - 1
+    output_shape = list(input_t.shape)
+    ncols = input_t.size(last_dim)
+    # Op schema takes only `input`; the kernel uses float (4-byte) scale/bias
+    # padding, matching quant_padding_float_type=True in the sibling ops.
+    quant_padding_size = 4
+    ncols_aligned = (
+        (ncols + quant_padding_size - 1) // quant_padding_size * quant_padding_size
+    )
+    output_columns = ncols_aligned - 2 * quant_padding_size
+    output_shape[last_dim] = output_columns
+    return torch.empty(output_shape, dtype=torch.bfloat16, device=input_t.device)
+
+
+def float_to_padded_fp8_rowwise_quantized(
+    input_t: Tensor,
+    forward: bool,
+    row_dim: int,
+) -> Tensor:
+    torch._check(row_dim > 0 and row_dim % 4 == 0)
+    torch._check(input_t.dim() >= 1)
+    last_dim = input_t.dim() - 1
+    output_shape = list(input_t.shape)
+    ncols = input_t.size(last_dim)
+    # Per-bucket layout adds 8 bytes (float scale + int32 pad) per row_dim chunk.
+    # See src/quantize_ops/quantize_padded_fp8_rowwise.cu.
+    output_columns = (ncols + row_dim - 1) // row_dim * (row_dim + 8)
+    output_shape[last_dim] = output_columns
+    return torch.empty(output_shape, dtype=torch.uint8, device=input_t.device)
+
+
+def padded_fp8_rowwise_quantized_to_float(
+    input_t: Tensor,
+    forward: bool,
+    row_dim: int,
+    output_last_dim: int = -1,
+    output_dtype: int = 0,
+) -> Tensor:
+    torch._check(row_dim > 0 and row_dim % 4 == 0)
+    torch._check(
+        output_dtype
+        in [
+            SparseType.FP32.as_int(),
+            SparseType.FP16.as_int(),
+            SparseType.BF16.as_int(),
+        ]
+    )
+    torch._check(input_t.dim() >= 1)
+    last_dim = input_t.dim() - 1
+    output_columns: int | torch.SymInt
+    if output_last_dim >= 0:
+        output_columns = output_last_dim
+    else:
+        # When output_last_dim is not supplied the kernel reads per-row pad
+        # values, making the output column count data-dependent.
+        output_columns = torch.library.get_ctx().new_dynamic_size()
+        # Size-oblivious guard resolution for the data-dependent output cols.
+        torch._check_is_size(output_columns)
+    output_shape: list[int | torch.SymInt] = [*input_t.shape]
+    output_shape[last_dim] = output_columns
+    if output_dtype == SparseType.FP32.as_int():
+        dtype = torch.float32
+    elif output_dtype == SparseType.FP16.as_int():
+        dtype = torch.float16
+    else:
+        dtype = torch.bfloat16
+    return torch.empty(output_shape, dtype=dtype, device=input_t.device)
 
 
 def generic_histogram_binning_calibration_by_feature(
@@ -1402,6 +1537,13 @@ def _setup() -> None:
         )
 
         impl_abstract("fbgemm::permute_2D_sparse_data", permute_2D_sparse_data_meta)
+        # No autograd formula: the pre-allocated output buffers alias the
+        # returned tensors, so this op is intentionally non-functional and
+        # non-differentiable (the buffers are write-only outputs).
+        impl_abstract(
+            "fbgemm::permute_2D_sparse_preallocated_out",
+            permute_2D_sparse_preallocated_out_meta,
+        )
         impl_abstract("fbgemm::get_source_mask", get_source_mask_meta)
         impl_abstract("fbgemm::repeat_arange", repeat_arange_meta)
         impl_abstract(
@@ -1548,6 +1690,22 @@ def _setup() -> None:
             fused_nbit_rowwise_quantized_sb_half_to_float_or_half,
         )
         impl_abstract(
+            "fbgemm::FloatToFusedNBitRowwiseQuantizedSBHalf",
+            float_or_half_to_fused_nbit_rowwise_quantized_sbhalf,
+        )
+        impl_abstract(
+            "fbgemm::HalfToFusedNBitRowwiseQuantizedSBHalf",
+            float_or_half_to_fused_nbit_rowwise_quantized_sbhalf,
+        )
+        impl_abstract(
+            "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloat",
+            fused_nbit_rowwise_quantized_sb_half_to_float,
+        )
+        impl_abstract(
+            "fbgemm::FusedNBitRowwiseQuantizedSBHalfToHalf",
+            fused_nbit_rowwise_quantized_sb_half_to_half,
+        )
+        impl_abstract(
             "fbgemm::Fused8BitRowwiseQuantizedToFloatOrHalf",
             fused_8_bit_rowwise_quantized_to_float_or_half,
         )
@@ -1570,6 +1728,18 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::Fused8BitRowwiseQuantizedToHalf",
             fused_8_bit_rowwise_quantized_to_half,
+        )
+        impl_abstract(
+            "fbgemm::Fused8BitRowwiseQuantizedToBfloat16",
+            fused_8_bit_rowwise_quantized_to_bfloat16,
+        )
+        impl_abstract(
+            "fbgemm::FloatToPaddedFP8RowwiseQuantized",
+            float_to_padded_fp8_rowwise_quantized,
+        )
+        impl_abstract(
+            "fbgemm::PaddedFP8RowwiseQuantizedToFloat",
+            padded_fp8_rowwise_quantized_to_float,
         )
         _setup.done = True
 

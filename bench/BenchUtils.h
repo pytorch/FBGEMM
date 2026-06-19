@@ -33,7 +33,13 @@
 #endif
 
 #ifdef USE_MKL
+#if !defined(FBGEMM_FBCODE) || defined(__x86_64__)
 #include <mkl.h>
+#else
+#include <armpl_int.h>
+#include <cblas.h> // @manual=third-party//Arm-Performance-Libraries:armpl_lp64_mp
+#include <openrng.h>
+#endif
 #endif
 
 #include "./AlignedVec.h" // @manual
@@ -219,7 +225,7 @@ void performance_test(
     bool flush,
     int repetitions,
     bool is_mkl [[maybe_unused]]) {
-#ifdef USE_MKL
+#if defined(USE_MKL) && (!defined(FBGEMM_FBCODE) || defined(__x86_64__))
   mkl_set_xerbla((XerblaEntry)test_xerbla);
 #endif
 

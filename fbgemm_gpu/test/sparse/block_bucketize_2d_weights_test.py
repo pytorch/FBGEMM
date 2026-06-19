@@ -19,10 +19,14 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402  (registers FakeTensor/meta impls)
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+    )
 
 
 class BlockBucketize2DWeightsTest(unittest.TestCase):
@@ -1014,6 +1018,103 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                 torch.rand(indices.numel(), 3),
                 total_num_blocks=torch.tensor([7, 6, 6], dtype=torch.int),
             )
+
+    @unittest.skipIf(*gpu_unavailable)
+    # Skip on GPUs with insufficient HBM (this test requires only small
+    # tensors, but the kernel launch itself triggers the check).
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_populate_length_to_feature_id_inplace_2d_weights_large_grid(
+        self,
+    ) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        _populate_length_to_feature_id_inplace_kernel for the 2D-weights
+        variable-batch-size code path of
+        block_bucketize_sparse_features_2d_weights_cuda.
+
+        With threads_per_block=256, the launch grid is
+        cuda_calc_xblock_count(max_B*T, 256). For max_B*T > 2**32, total
+        threads exceed the HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm. _populate_length_to_feature_id_inplace_kernel uses
+        CUDA_KERNEL_LOOP_TYPE with int64_t after the fix, so capping the
+        grid is correctness-preserving.
+
+        Verification strategy: this test exercises launch-survival and a
+        non-trivial post-launch shape invariant at the cap-trip scale.
+        Variable-batch-size correctness (CPU vs GPU element-wise
+        comparison) is covered by the hypothesis-parameterized
+        ``test_block_bucketize_sparse_features_2d_weights_with_variable_batch_sizes``
+        test in this file at small max_B (where the input layout
+        invariants are known to match between CPU and GPU dispatch).
+
+        ``batch_size_per_feature`` is sparse: only features 0 and 2 have
+        a single batch instance each; features 1 and 3 have zero. This
+        keeps HBM usage bounded while still exercising the kernel's
+        non-trivial path (writing length_to_feature_idx[0]=0 and
+        length_to_feature_idx[1]=2).
+
+        Note: The kernel also safely handles the edge case where all
+        features have batch_size=0 (total_B=0). In this case, the kernel
+        launches but all threads hit the `continue` early-exit (since
+        b >= 0 is always true when batch_size_per_feature[t]=0), resulting
+        in no writes to length_to_feature_idx. This is safe and correct.
+        """
+
+        # Choose max_B*T so that total threads strictly exceeds 2**32:
+        # cuda_calc_xblock_count(max_B*T, 256) * 256 >= max_B*T; need
+        # max_B*T > 2**32.
+        T = 4
+        max_B = (1 << 30) + 1  # max_B * T = 2**32 + 4
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse batch_size_per_feature: only features 0 and 2 have
+        # one batch instance each. total_B = 2.
+        batch_size_per_feature = torch.zeros(T, dtype=torch.int32, device=device)
+        batch_size_per_feature[0] = 1
+        batch_size_per_feature[2] = 1
+        # total_B = 2 batch instances. lengths and indices sized
+        # accordingly.
+        lengths = torch.tensor([2, 1], dtype=torch.int32, device=device)
+        indices = torch.tensor([3, 7, 11], dtype=torch.int32, device=device)
+        block_sizes = torch.tensor([10, 20, 30, 40], dtype=torch.int32, device=device)
+        my_size = 2
+        weights_dim = 1
+        weights = torch.tensor(
+            [[0.1], [0.2], [0.3]], dtype=torch.float32, device=device
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        (
+            new_lengths,
+            new_indices,
+            new_weights,
+            _new_pos,
+            _unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features_2d_weights(
+            lengths,
+            indices,
+            False,  # bucketize_pos
+            True,  # sequence
+            block_sizes,
+            my_size,
+            weights,
+            weights_dim,
+            batch_size_per_feature=batch_size_per_feature,
+            max_B=max_B,
+        )
+
+        # Output shape invariants: every input index lands in exactly
+        # one bucket, so total new_indices == indices.numel().
+        total_B = int(batch_size_per_feature.sum().item())
+        self.assertEqual(new_lengths.shape, (my_size * total_B,))
+        self.assertEqual(new_indices.shape, (indices.numel(),))
+        self.assertEqual(new_weights.shape, (indices.numel(), weights_dim))
+        # Per-bucket lengths sum to per-feature input length: total
+        # output length == total input length.
+        self.assertEqual(int(new_lengths.sum().item()), int(lengths.sum().item()))
 
 
 extend_test_class(BlockBucketize2DWeightsTest)

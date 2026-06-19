@@ -55,7 +55,14 @@ DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
   // number of table per block
   const int32_t T_blocks = kMaxThreads / kWarpSizeHost();
   dim3 threads(kWarpSizeHost(), T_blocks);
-  const auto blocks = cuda_calc_xblock_count(permute_size, T_blocks);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). expand_into_jagged_permute_kernel grid-strides
+  // over t (line 27), so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(permute_size, T_blocks),
+      kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
   AT_DISPATCH_INDEX_TYPES(
       permute.scalar_type(), "expand_into_jagged_permute_kernel", [&] {
         using offsets_t = index_t;
