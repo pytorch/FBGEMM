@@ -92,7 +92,12 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
             exponent_bias,
             max_pos[exponent_bias],
             rtol=(2 ** (-mbits - 1)),
-            atol=0,
+            # rtol is exactly the half-ULP relative bound; with atol=0 there is
+            # zero absolute slack, so inputs landing on a representable-value
+            # boundary can round-trip a hair past the bound (flaky across
+            # hypothesis seeds). Use the denormal ULP as an absolute floor,
+            # matching the denormal-range branches below (T191384137).
+            atol=(2 ** (1 - exponent_bias - mbits)),
         )
 
         # test positive denormal range
@@ -120,7 +125,10 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
             exponent_bias,
             max_pos[exponent_bias],
             rtol=(2 ** (-mbits - 1)),
-            atol=0,
+            # See the positive-normal branch: add an absolute ULP floor so the
+            # half-ULP relative bound is not flaky on boundary inputs
+            # (T191384137).
+            atol=(2 ** (1 - exponent_bias - mbits)),
         )
 
         # test negative denormal range
