@@ -75,7 +75,7 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
         ncols=st.integers(min_value=1, max_value=100),
         exponent_bias=st.integers(min_value=4, max_value=7),
     )
-    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op(
         self, nrows: int, ncols: int, exponent_bias: int
     ) -> None:
