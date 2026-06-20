@@ -22,6 +22,7 @@
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},
     "fbgemm::batch_index_select_dim0": {},
+    "fbgemm::batch_index_select_dim0_tensor": {},
     "fbgemm::block_bucketize_sparse_features": {},
     "fbgemm::block_bucketize_sparse_features_2d_weights": {},
     "fbgemm::block_bucketize_sparse_features_inference": {},
@@ -108,6 +109,10 @@
     },
     "fbgemm::permute_1D_sparse_data": {},
     "fbgemm::permute_2D_sparse_data": {
+      "PermuteEmbeddingsTest.test_aot_dispatch_dynamic__test_permute_2D_sparse_data_weights_dtype": {
+        "comment": "Not an op bug. Same aot_autograd_check int64+float loss-cast issue as test_permute_indices_backward: this op returns (int64 lengths, int64 indices, float weights), so the harness loss `sm += o.sum().abs()` raises 'result type Float can't be cast to Long'. Real torch.compile/autograd is unaffected. T191384137",
+        "status": "skip"
+      },
       "PermuteIndicesTest.test_aot_dispatch_dynamic__test_permute_indices_backward": {
         "comment": "Not an op bug. The aot_autograd_check harness builds its test loss as `sm = 0; for o in outputs: sm += o.sum().abs()`. This op returns (int64 lengths, int64 indices, float weights) in that order, so sm becomes an int64 tensor from the integer outputs and the final `sm += weights.sum()` raises 'result type Float can't be cast to Long'. The op's backward is never reached, and real torch.compile/autograd (which sums only the user's float loss) is unaffected. Marked skip (not xfail) so it does not falsely flag the forward-PT2-compliant op via test_pt2_compliant_tag. Eager backward correctness is covered by test_permute_indices_backward.",
         "status": "skip"
