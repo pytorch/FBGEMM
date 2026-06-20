@@ -31,6 +31,7 @@ if open_source:
         gpu_memory_lt_gb,
         gpu_unavailable,
         on_oss_clang,
+        optests,
     )
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
@@ -39,6 +40,7 @@ else:
         gpu_memory_lt_gb,
         gpu_unavailable,
         on_oss_clang,
+        optests,
     )
 
 
@@ -799,6 +801,12 @@ class PermuteIndicesTest(unittest.TestCase):
     # Skip on GPUs with insufficient HBM (need a few hundred MB for the
     # int32 N-element tensors).
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    # GPU-memory-gated ROCm grid-overflow stress repro: the generated opcheck
+    # variants add no op-schema coverage and only produce SKIPPING test-health
+    # records on CPU/small-GPU runs (T191384137).
+    @optests.dontGenerateOpCheckTests(
+        "large-grid ROCm overflow stress repro; opcheck variants add no coverage"
+    )
     def test_permute_1D_sparse_data_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in permute_1D_sparse_data_cuda
@@ -870,6 +878,9 @@ class PermuteIndicesTest(unittest.TestCase):
     # Skip on GPUs with insufficient HBM (need ~512 MB for the int32
     # lengths tensor at the chosen B).
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @optests.dontGenerateOpCheckTests(
+        "large-grid ROCm overflow stress repro; opcheck variants add no coverage (T191384137)"
+    )
     def test_permute_2D_sparse_data_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in permute_2D_sparse_data_cuda
@@ -946,6 +957,9 @@ class PermuteIndicesTest(unittest.TestCase):
     # Skip on GPUs with insufficient HBM (need ~512 MB for the int32
     # lengths tensor at the chosen B).
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @optests.dontGenerateOpCheckTests(
+        "large-grid ROCm overflow stress repro; opcheck variants add no coverage (T191384137)"
+    )
     def test_permute_sparse_features_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in permute_sparse_features_cuda

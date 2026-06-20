@@ -3039,7 +3039,10 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_sparse_features_cpu(
   permuted_indices = at::empty(permuted_lengths_sum, indices.options());
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_data_kernel_1", ([&] {
-        FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(
+        // Include Half to match permute_2D_sparse_data_cuda
+        // (FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE), so half weights are supported
+        // on CPU as well and CPU/CUDA stay at dtype parity. T191384137
+        FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(
             weights.has_value() ? weights.value().scalar_type()
                                 : at::ScalarType::Float,
             "permute_data_kernel_2",
