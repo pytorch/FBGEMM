@@ -17,9 +17,9 @@
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
-#else
-#include <omp.h>
 #endif
+
+#include <ATen/Parallel.h>
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
@@ -444,28 +444,29 @@ void csr2csc_template_(
        feature < table_to_feature_offset[1];
        ++feature) {
     const auto FBs = (feature - table_to_feature_offset[0]) * B;
-#pragma omp parallel for
-    for (int b = 0; b < B; ++b) {
-      const auto FBb = feature * B + b;
-      const auto pool_begin = csr_offsets[FBb];
-      const auto pool_end = csr_offsets[FBb + 1];
-      const auto L = pool_end - pool_begin;
-      // MEAN pooling will not work with indice_weights!
-      double scale_factor =
-          (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN &&
-           !has_weights && L > 0)
-          ? 1.0 / L
-          : 1.0;
-      for (const auto p : c10::irange(pool_begin, pool_end)) {
-        tmpBufKeys[p - FBo] = csr_indices[p];
-        if constexpr (IS_VALUE_PAIR) {
-          tmpBufValues[p - FBo] = std::pair{
-              FBs + b, scale_factor * (has_weights ? csr_weights[p] : 1.0f)};
-        } else {
-          tmpBufValues[p - FBo] = FBs + b;
+    at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
+      for (int b = b_begin; b < b_end; ++b) {
+        const auto FBb = feature * B + b;
+        const auto pool_begin = csr_offsets[FBb];
+        const auto pool_end = csr_offsets[FBb + 1];
+        const auto L = pool_end - pool_begin;
+        // MEAN pooling will not work with indice_weights!
+        double scale_factor =
+            (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN &&
+             !has_weights && L > 0)
+            ? 1.0 / L
+            : 1.0;
+        for (const auto p : c10::irange(pool_begin, pool_end)) {
+          tmpBufKeys[p - FBo] = csr_indices[p];
+          if constexpr (IS_VALUE_PAIR) {
+            tmpBufValues[p - FBo] = std::pair{
+                FBs + b, scale_factor * (has_weights ? csr_weights[p] : 1.0f)};
+          } else {
+            tmpBufValues[p - FBo] = FBs + b;
+          }
         }
       }
-    }
+    });
   }
 
   int* sorted_col_row_index_keys;
@@ -479,32 +480,29 @@ void csr2csc_template_(
           NS,
           num_embeddings);
 
-  int max_thds = omp_get_max_threads();
-  int num_uniq[max_thds][64];
-  for (const auto i : c10::irange(max_thds)) {
-    num_uniq[i][0] = 0;
-  }
+  int num_chunks = at::get_num_threads();
+  std::vector<int> chunk_uniq_counts(num_chunks, 0);
+  std::vector<int> chunk_uniq_offsets(num_chunks + 1, 0);
 
-  int U = 0;
-  if (at::get_num_threads() > 1) {
-    // This block is not needed for single thread
-#pragma omp parallel
-    {
-      int tid = omp_get_thread_num();
-      num_uniq[tid][0] = 0;
-#pragma omp for schedule(static)
-      for (int i = 1; i < NS; i++) {
+  at::parallel_for(0, num_chunks, 1, [&](int64_t chunk_begin, int64_t chunk_end) {
+    for (int64_t c = chunk_begin; c < chunk_end; ++c) {
+      int64_t begin = 1 + c * (NS - 1) / num_chunks;
+      int64_t end = 1 + (c + 1) * (NS - 1) / num_chunks;
+      int local_count = 0;
+      for (int i = begin; i < end; i++) {
         if (sorted_col_row_index_keys[i] != sorted_col_row_index_keys[i - 1]) {
-          num_uniq[tid][0]++;
+          local_count++;
         }
       }
+      chunk_uniq_counts[c] = local_count;
     }
-    num_uniq[0][0] += 1;
-    for (const auto i : c10::irange(1, max_thds)) {
-      num_uniq[i][0] += num_uniq[i - 1][0];
-    }
-    U = num_uniq[max_thds - 1][0];
+  });
+
+  chunk_uniq_offsets[0] = 0;
+  for (int c = 0; c < num_chunks; ++c) {
+    chunk_uniq_offsets[c + 1] = chunk_uniq_offsets[c] + chunk_uniq_counts[c];
   }
+  int U = chunk_uniq_offsets[num_chunks] + 1;
 
   csc.column_segment_ptr = fbgemm::makeAlignedUniquePtr<int>(64, NS + 1);
   csc.column_segment_indices = fbgemm::makeAlignedUniquePtr<int>(64, NS);
@@ -526,35 +524,21 @@ void csr2csc_template_(
   int* col_seg_indices = csc.column_segment_indices.get();
   int* col_seg_ptr = csc.column_segment_ptr.get();
 
-#pragma omp parallel
-  {
-    int tid = omp_get_thread_num();
-    int* tstart =
-        (tid == 0 ? col_seg_indices + 1
-                  : col_seg_indices + num_uniq[tid - 1][0]);
-
-    int* t_offs =
-        (tid == 0 ? col_seg_ptr + 1 : col_seg_ptr + num_uniq[tid - 1][0]);
-
-    if (!IS_VALUE_PAIR && !is_shared_table) {
-      // For non shared table, no need for computing modulo.
-      // As an optimization, pointer swap instead of copying.
-#pragma omp master
-      {
-        auto& buf = sorted_col_row_index_values == tmpBufValues.get()
-            ? tmpBufValues
-            : tmpBuf1Values;
-        int* tmp = csc.row_indices.release();
-        csc.row_indices.reset(reinterpret_cast<int*>(buf.release()));
-        buf.reset(reinterpret_cast<value_t*>(tmp));
-      }
-    } else {
+  if (!IS_VALUE_PAIR && !is_shared_table) {
+    // For non shared table, no need for computing modulo.
+    // As an optimization, pointer swap instead of copying.
+    auto& buf = sorted_col_row_index_values == tmpBufValues.get()
+        ? tmpBufValues
+        : tmpBuf1Values;
+    int* tmp = csc.row_indices.release();
+    csc.row_indices.reset(reinterpret_cast<int*>(buf.release()));
+    buf.reset(reinterpret_cast<value_t*>(tmp));
+  } else {
 #ifdef FBCODE_CAFFE2
-      libdivide::divider<int> divisor(B);
+    libdivide::divider<int> divisor(B);
 #endif
-
-#pragma omp for schedule(static)
-      for (int i = 1; i < NS; ++i) {
+    at::parallel_for(1, NS, 0, [&](int64_t begin, int64_t end) {
+      for (int i = begin; i < end; ++i) {
         int v = IS_VALUE_PAIR ? sorted_col_row_index_values_pair[i].first
                               : sorted_col_row_index_values_int[i];
 #ifdef FBCODE_CAFFE2
@@ -568,24 +552,27 @@ void csr2csc_template_(
           csc.weights[i] = sorted_col_row_index_values_pair[i].second;
         }
       }
-    }
+    });
+  }
 
-#pragma omp for schedule(static)
-    for (int i = 1; i < NS; ++i) {
-      if (sorted_col_row_index_keys[i] != sorted_col_row_index_keys[i - 1]) {
-        *tstart = sorted_col_row_index_keys[i];
-        *t_offs = i;
-        tstart++;
-        t_offs++;
+  at::parallel_for(0, num_chunks, 1, [&](int64_t chunk_begin, int64_t chunk_end) {
+    for (int64_t c = chunk_begin; c < chunk_end; ++c) {
+      int64_t begin = 1 + c * (NS - 1) / num_chunks;
+      int64_t end = 1 + (c + 1) * (NS - 1) / num_chunks;
+
+      int* tstart = col_seg_indices + 1 + chunk_uniq_offsets[c];
+      int* t_offs = col_seg_ptr + 1 + chunk_uniq_offsets[c];
+
+      for (int i = begin; i < end; ++i) {
+        if (sorted_col_row_index_keys[i] != sorted_col_row_index_keys[i - 1]) {
+          *tstart = sorted_col_row_index_keys[i];
+          *t_offs = i;
+          tstart++;
+          t_offs++;
+        }
       }
     }
-
-    if (at::get_num_threads() == 1 && tid == 0) {
-      // Special handling of single thread case
-      U = t_offs - csc.column_segment_ptr.get();
-    }
-
-  } // omp parallel
+  });
 
   csc.num_non_zero_columns = U;
   csc.column_segment_ptr[U] = NS;
