@@ -182,6 +182,9 @@ class PermuteIndicesTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_permute_indices_non_contiguous(
         self,
         B: int,
@@ -246,6 +249,9 @@ class PermuteIndicesTest(unittest.TestCase):
     # models returned. So we need to add a unittest to ensure the op return
     # real None, not an undefined tensor.
     @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_permute_indices_scripted_with_none_weights(
         self,
     ) -> None:
@@ -362,6 +368,9 @@ class PermuteIndicesTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=100, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_permute_1D_sparse_data_vec(
         self,
         num_segments: int,
@@ -511,6 +520,9 @@ class PermuteIndicesTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=50, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_permute_1D_sparse_data_vec_2d_weights(
         self,
         num_segments: int,
@@ -650,6 +662,9 @@ class PermuteIndicesTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_permute_2D_indices_vec_remainder(
         self,
         long_index: bool,
@@ -726,6 +741,9 @@ class PermuteIndicesTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_permute_2D_indices_large_segments(
         self,
         index_dtype: torch.dtype,

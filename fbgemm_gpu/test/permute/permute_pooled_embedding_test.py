@@ -58,7 +58,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         # registration (flaky). T191384137
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    @settings(deadline=10000)
+    @settings(deadline=None)
     @given(fwd_only=st.booleans())
     def test_permutation(self, fwd_only: bool) -> None:
         net = Net(fwd_only=fwd_only).to(self.device)

@@ -20,10 +20,10 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, skipIfRocm
+    from test_utils import gpu_unavailable, optests, skipIfRocm
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, skipIfRocm
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, skipIfRocm
 
 
 class ReorderBatchedTest(unittest.TestCase):
@@ -37,6 +37,9 @@ class ReorderBatchedTest(unittest.TestCase):
         broadcast_lengths=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples; op covered by *_cpu twin (T191384137)"
+    )
     def test_reorder_batched_ad_lengths(
         self,
         B: int,
@@ -135,6 +138,9 @@ class ReorderBatchedTest(unittest.TestCase):
         broadcast_indices=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples; op covered by *_cpu twin (T191384137)"
+    )
     def test_reorder_batched_ad_indices(
         self,
         B: int,
@@ -511,6 +517,9 @@ class ReorderBatchedTest(unittest.TestCase):
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples; op covered by *_cpu twin (T191384137)"
+    )
     def test_reorder_batched_sequence_embeddings(
         self,
         B: int,

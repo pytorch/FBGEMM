@@ -23,12 +23,13 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable
+    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_memory_lt_gb,
         gpu_unavailable,
+        optests,
     )
 
 
@@ -423,6 +424,9 @@ class PackedSegmentsTest(unittest.TestCase):
         use_cpu=st.booleans(),
     )
     @settings(deadline=None)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples; op covered by test_pack_segments (T191384137)"
+    )
     def test_pack_segments_noncontig(
         self,
         n: int,
@@ -569,6 +573,9 @@ class PackedSegmentsTest(unittest.TestCase):
         ),
     )
     @settings(deadline=None)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples; op covered by test_pack_segments (T191384137)"
+    )
     def test_pack_segments_backward_truncated(self, dtype: torch.dtype) -> None:
         """
         Regression test: when lengths[seq] > max_length, the backward kernel
@@ -634,6 +641,9 @@ class PackedSegmentsTest(unittest.TestCase):
     # output of shape (num_seq, max_length) at fp16, ~8 GiB at the chosen
     # max_length.
     @unittest.skipIf(*gpu_memory_lt_gb(12))
+    @optests.dontGenerateOpCheckTests(
+        "large-grid GPU-memory-gated stress repro; opcheck variants add no coverage (T191384137)"
+    )
     def test_pack_segments_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in pack_segments_cuda{,_v2}

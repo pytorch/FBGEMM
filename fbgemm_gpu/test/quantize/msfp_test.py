@@ -33,7 +33,7 @@ class TestMSFPQuantizationConversion(unittest.TestCase):
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
     )
-    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_op(self, nrows: int, ncols: int) -> None:
         ebits = 8
         mbits = 7

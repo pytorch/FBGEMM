@@ -26,10 +26,10 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, optests
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, optests
 
 
 class IndexSelectTest(unittest.TestCase):
@@ -251,6 +251,9 @@ class IndexSelectTest(unittest.TestCase):
         )
 
     @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_group_index_select_dim0_mixed_input_dtype(self) -> None:
         # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
         # CUDA specifically required: testing GPU-only FBGEMM sparse op validation
@@ -268,6 +271,9 @@ class IndexSelectTest(unittest.TestCase):
             )
 
     @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
+    )
     def test_group_index_select_dim0_mixed_indices_dtype(self) -> None:
         # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
         # CUDA specifically required: testing GPU-only FBGEMM sparse op validation
@@ -498,6 +504,9 @@ class IndexSelectTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=20,
         deadline=None,
+    )
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
     def test_batch_index_select_dim0_long_runs(
         self,
