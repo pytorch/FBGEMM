@@ -15,6 +15,9 @@ import torch
 # Based on the FBGEMM-PyTorch compatibility table at
 # https://docs.pytorch.org/FBGEMM/general/Releases.html#fbgemm-releases-compatibility
 _fbgemm_torch_compat_table = {
+    "1.8": "2.13",
+    "1.7": "2.12",
+    "1.6": "2.11",
     "1.5": "2.10",
     "1.4": "2.9",
     "1.3": "2.8",
