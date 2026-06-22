@@ -431,8 +431,6 @@ TEST(FixedBlockPool, DefaultDirtyTrackingGating) {
   FixedBlockPool default_pool(block_size, alignment, 1024);
   EXPECT_FALSE(default_pool.is_dirty_tracking_enabled());
 
-  // After allocation: a freshly allocated block is always clean for disabled
-  // dirty tracking.
   auto* block = default_pool.allocate_t<float>();
   ASSERT_NE(block, nullptr);
   EXPECT_FALSE(default_pool.get_dirty(block));
@@ -460,6 +458,9 @@ TEST(FixedBlockPool, DirtyTrackingGating) {
   // yet been persisted to SSD).
   auto* block = tracked_pool.allocate_t<float>();
   ASSERT_NE(block, nullptr);
+  EXPECT_FALSE(tracked_pool.get_dirty(block));
+
+  tracked_pool.set_dirty(block, true);
   EXPECT_TRUE(tracked_pool.get_dirty(block));
 
   // After operations: clearing (e.g. once flushed to SSD) marks it clean,

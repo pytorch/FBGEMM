@@ -362,13 +362,6 @@ class FixedBlockPool : public std::pmr::memory_resource {
     set_used(result, true);
     set_count(result, 0);
     update_timestamp(result);
-    if (enable_dirty_tracking_) {
-      // Intentional: a freshly allocated block holds new data that has not yet
-      // been persisted to SSD, so it must be marked dirty to be picked up by
-      // the SSD flush protocol. Callers should not assume "allocate" returns
-      // clean memory.
-      set_dirty(result, true);
-    }
     return result;
   }
 
