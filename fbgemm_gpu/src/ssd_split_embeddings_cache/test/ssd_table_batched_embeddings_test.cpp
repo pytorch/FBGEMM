@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 #include <cstring>
 #include <filesystem>
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/ssd_table_batched_embeddings.h"
 
 using namespace ::testing;
@@ -640,4 +641,53 @@ TEST(
     EXPECT_EQ(mock->get_metadata_dim(), kMetadataDimFp32);
     EXPECT_TRUE(mock->is_metadata_cf_initialized(0));
   }
+}
+
+TEST(SSDTableBatchedEmbeddingsTest, MetaHeaderParityWithDRAM) {
+  // Verify the SSD read path (get_kv_zch_eviction_metadata_by_snapshot)
+  // produces the same packed eviction-metadata word as the DRAM
+  // FixedBlockPool helper for identical MetaHeader bytes. Ensures cross-backend
+  // compatibility.
+  kv_mem::FixedBlockPool::MetaHeader dram_hdr{};
+  dram_hdr.key = 0x1122334455667788LL;
+  dram_hdr.timestamp = 0xAABBCCDD;
+  dram_hdr.count = 0x1234567;
+  dram_hdr.used = true;
+
+  uint64_t dram_out = kv_mem::FixedBlockPool::get_metaheader_raw(&dram_hdr);
+
+  // SSD side: store the identical MetaHeader bytes into the metadata column
+  // family, then read them back through the production accessor.
+  auto mock_embedding_rocks = getMockEmbeddingRocksDB(
+      /*num_shards=*/1,
+      "metaHeaderParity",
+      /*enable_raw_embedding_streaming=*/false,
+      /*table_names=*/{},
+      /*table_offsets=*/{},
+      /*table_sizes=*/{},
+      /*enable_metadata_cf=*/true,
+      /*metadata_dim=*/kMetadataDimFp32);
+
+  auto indices =
+      at::tensor({dram_hdr.key}, at::TensorOptions().dtype(at::kLong));
+  auto metadata =
+      at::zeros({1, kMetadataDimFp32}, at::TensorOptions().dtype(at::kFloat));
+  std::memcpy(metadata.data_ptr<float>(), &dram_hdr, sizeof(dram_hdr));
+  auto count = at::tensor({1L}, at::TensorOptions().dtype(at::kLong));
+  mock_embedding_rocks->set_kv_metadata_async(indices, metadata, count).wait();
+
+  auto metadata_out =
+      mock_embedding_rocks->get_kv_zch_eviction_metadata_by_snapshot(
+          indices, count, /*snapshot_handle=*/nullptr);
+  ASSERT_EQ(metadata_out.numel(), 1);
+  uint64_t ssd_out = static_cast<uint64_t>(metadata_out.data_ptr<int64_t>()[0]);
+
+  EXPECT_EQ(dram_out, ssd_out);
+
+  // unpack matches Python test expectation
+  uint32_t ts = static_cast<uint32_t>(dram_out & 0xFFFFFFFFu);
+  uint32_t count_used = static_cast<uint32_t>(dram_out >> 32);
+  EXPECT_EQ(ts, 0xAABBCCDDu);
+  EXPECT_EQ(count_used & 0x7FFFFFFFu, 0x1234567u);
+  EXPECT_EQ(count_used >> 31, 1u);
 }
