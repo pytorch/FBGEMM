@@ -29,52 +29,58 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
     const int rounded_D,
     const int remaining_D,
     const bool consecutive_indices,
-    const int consecutive_range_start) {
-  const auto start_offset = blockIdx.x == 0 ? 0 : offsets[blockIdx.x - 1];
-  const int end_offset = offsets[blockIdx.x];
-  index_t dst_idx = consecutive_indices ? blockIdx.x + consecutive_range_start
-                                        : unique_indices[blockIdx.x];
+    const int consecutive_range_start,
+    const int num_unique_indices) {
+  // Each thread block processes max of stride_D elements
+  const int start_D = (blockIdx.y * stride_D) + (threadIdx.x * UNROLL_FACTOR);
   const bool has_remainder = blockIdx.y == blockDim.y - 1 && remaining_D > 0 &&
       threadIdx.x < remaining_D;
 
-  // Buffer for storing temporary results
-  scalar_t sum[MAX_ELEMENTS_PER_THREAD];
-  for (int i = 0; i < MAX_ELEMENTS_PER_THREAD; i++) {
-    sum[i] = 0;
-  }
+  // Grid-stride over unique indices (the saturating x dim) so a capped grid
+  // (used on ROCm to avoid the 2^32 launch-side limit) still covers all
+  // unique indices. blockIdx.y is bounded by D/stride_D and needs no cap.
+  for (auto u = blockIdx.x; u < num_unique_indices; u += gridDim.x) {
+    const auto start_offset = u == 0 ? 0 : offsets[u - 1];
+    const int end_offset = offsets[u];
+    index_t dst_idx =
+        consecutive_indices ? u + consecutive_range_start : unique_indices[u];
 
-  scalar_t sum_remainder = 0;
+    // RESET per-iteration register state.
+    scalar_t sum[MAX_ELEMENTS_PER_THREAD];
+    for (int i = 0; i < MAX_ELEMENTS_PER_THREAD; i++) {
+      sum[i] = 0;
+    }
 
-  // Each thread block processes max of stride_D elements
-  int start_D = (blockIdx.y * stride_D) + (threadIdx.x * UNROLL_FACTOR);
+    scalar_t sum_remainder = 0;
 
-  // For each row
-  for (int row = start_offset; row < end_offset; row++) {
-    int64_t src_idx = orig_indices[row];
+    // For each row
+    for (int row = start_offset; row < end_offset; row++) {
+      int64_t src_idx = orig_indices[row];
+      int col, i;
+      for (col = start_D, i = 0; col < start_D + stride_D && col < rounded_D;
+           col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
+#pragma unroll
+        for (int j = 0; j < UNROLL_FACTOR; j++) {
+          sum[i + j] += LDG(&out_grad[src_idx][col + j]);
+        }
+      }
+      if (has_remainder) {
+        sum_remainder += LDG(&out_grad[src_idx][rounded_D + threadIdx.x]);
+      }
+    } // for each row
+
+    // Write results to global memory
     int col, i;
     for (col = start_D, i = 0; col < start_D + stride_D && col < rounded_D;
          col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
 #pragma unroll
       for (int j = 0; j < UNROLL_FACTOR; j++) {
-        sum[i + j] += LDG(&out_grad[src_idx][col + j]);
+        in_deduped_grad[dst_idx][col + j] = sum[i + j];
       }
     }
     if (has_remainder) {
-      sum_remainder += LDG(&out_grad[src_idx][rounded_D + threadIdx.x]);
+      in_deduped_grad[dst_idx][rounded_D + threadIdx.x] += sum_remainder;
     }
-  } // for each row
-
-  // Write results to global memory
-  int col, i;
-  for (col = start_D, i = 0; col < start_D + stride_D && col < rounded_D;
-       col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
-#pragma unroll
-    for (int j = 0; j < UNROLL_FACTOR; j++) {
-      in_deduped_grad[dst_idx][col + j] = sum[i + j];
-    }
-  }
-  if (has_remainder) {
-    in_deduped_grad[dst_idx][rounded_D + threadIdx.x] += sum_remainder;
   }
 }
 
@@ -146,10 +152,21 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
                 offsets = unique_count.cumsum(0);
               }
 
-              const dim3 grid_size(
+              const int num_y_blocks = (D + stride_D - 1) / stride_D;
+              // HIP enforces a hard limit of 2^32 total threads per launch
+              // (unlike CUDA, which silently wraps).
+              // index_add_2d_with_unique_indices_kernel grid-strides over the
+              // unique index (x) dim, so capping x is correctness-preserving.
+              // The y dim is not grid-strided, so fold num_y_blocks into the
+              // per-launch thread count used for the overflow check, keeping
+              // the cap accounting consistent with the launcher's total-thread
+              // check (grid.x * grid.y * block_size). See:
+              // https://github.com/ROCm/hip/issues/2253
+              const auto blocks_x = utils::cuda::cap_grid_dim_x(
                   cuda_calc_xblock_count(num_unique_indices, 1),
-                  (D + stride_D - 1) / stride_D,
-                  1);
+                  static_cast<int64_t>(block_size) * num_y_blocks,
+                  at::cuda::getCurrentCUDAStream());
+              const dim3 grid_size(blocks_x, num_y_blocks, 1);
 
               const auto unique_indices_ = consecutive_indices
                   ? at::empty(
@@ -177,7 +194,8 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
                   rounded_D,
                   remaining_D,
                   consecutive_indices,
-                  consecutive_range_start);
+                  consecutive_range_start,
+                  num_unique_indices);
             });
       });
   return input_grad.reshape(input_shape);
