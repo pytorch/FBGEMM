@@ -181,9 +181,12 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         ? reinterpret_cast<int64_t*>(reverse_indices_ptrs[member_id])
         : nullptr;
 
-    int64_t logical_row = 0;
+    // logical_row is only used as an index subscript (<= num_work_rows) and
+    // col_offset is bounded by num_cols, so int32 is sufficient for both. Only
+    // row stays 64-bit because it feeds the row * num_cols address arithmetic.
+    int32_t logical_row = 0;
     int64_t row = 0;
-    int64_t col_offset = 0;
+    int32_t col_offset = 0;
     bool handled_small_dim_path = false;
 
     if constexpr (USE_PACKED_ROWS) {
@@ -191,12 +194,12 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         // Optimized path for small embedding dimensions
         // Each warp processes 'rows_per_warp' rows
         const int rows_per_warp = rows_per_warp_small;
-        const int64_t start_row = member_warp_id * rows_per_warp;
+        const int32_t start_row = member_warp_id * rows_per_warp;
         // Since we are processing multiple rows within the warp, we need to
         // map each lane to a specific row, in addition to the column
-        const int local_row = (threadIdx.x * UNROLL_FACTOR) / 
+        const int local_row = (threadIdx.x * UNROLL_FACTOR) /
             num_cols; // the row ID within the set of rows handled by this warp
-        const int64_t current_row = start_row + 
+        const int32_t current_row = start_row +
             local_row; // the actual row within the table processed by this lane
         const int col_offset_small = (threadIdx.x * UNROLL_FACTOR) % num_cols;
         // local_row may be out of bounds for the last few lanes in the warp if
@@ -215,8 +218,8 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     }
 
     if (!handled_small_dim_path) {
-      int64_t row_in_member = 0;
-      int64_t col_tile = 0;
+      int32_t row_in_member = 0;
+      int32_t col_tile = 0;
       if constexpr (USE_CONTIGUOUS_WARPS) {
         // Contiguous warp traversal: iterate rows sequentially while column tiles
         // remain strided so each warp processes a different tile for successive rows.
@@ -231,7 +234,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       logical_row = row_in_member;
       row = USE_SORTED_INDICES ? reverse_indices[row_in_member] : row_in_member;
       col_offset =
-          (static_cast<int64_t>(col_tile) << LOG_COLS_PER_WARP) +
+          (col_tile << LOG_COLS_PER_WARP) +
           (threadIdx.x * UNROLL_FACTOR);
     }
     scalar_t* input =
