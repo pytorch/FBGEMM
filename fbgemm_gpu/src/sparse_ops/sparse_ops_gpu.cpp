@@ -432,20 +432,29 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   // Sorting only pays off when there are enough indices to amortize
   // the sorting cost, and the crossover point depends on the dtype.
   constexpr size_t kSortIndicesLowerThresholdLowPrec = 1'000'000;
-  constexpr size_t kSortIndicesLowerThresholdFullPrec = 2'000'000;
+  constexpr size_t kSortIndicesLowerThresholdFullPrec = 5'000'000;
 
   const bool is_low_precision = first_input.dtype().itemsize() <= 2;
   const size_t kSortIndicesLowerThreshold = is_low_precision
       ? kSortIndicesLowerThresholdLowPrec
       : kSortIndicesLowerThresholdFullPrec;
+
+  // Caching and contiguous warp dispatch only pay off when a warp can fill its
+  // column tile; for narrow columns (num_cols < cols_per_warp) they regress, so
+  // gate on column width in addition to the index-count heuristic (fp32 needs
+  // enough indices; fp16 is otherwise always on).
+  const bool wide_enough_for_cache = num_cols >= cols_per_warp;
+  const bool enable_cache_and_contig_for_bwd =
+      wide_enough_for_cache &&
+      (is_low_precision || (num_total_indices >= kSortIndicesLowerThreshold));
+
+  // The sort pre-pass only exists to feed the cache (it groups equal indices so
+  // the accumulator can collapse atomics). If caching is disabled, sorting is
+  // pure overhead, so gate sorting on the cache decision as well.
   const bool use_sorted_indices_for_bwd =
+      enable_cache_and_contig_for_bwd &&
       (num_total_indices >= kSortIndicesLowerThreshold) &&
       (num_total_indices < kSortIndicesUpperThreshold);
-
-  // Only use caching and contiguous warp dispatch when there are sufficiently many
-  // indices (for fp32). Always on for fp16
-  const bool enable_cache_and_contig_for_bwd =
-      is_low_precision || (num_total_indices >= kSortIndicesLowerThreshold);
 #else
   const bool use_sorted_indices_for_bwd = false;
   const bool enable_cache_and_contig_for_bwd = false;
