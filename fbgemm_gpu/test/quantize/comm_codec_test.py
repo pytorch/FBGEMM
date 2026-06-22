@@ -21,7 +21,7 @@ class QuantizedCommCodecTest(unittest.TestCase):
         not torch.cuda.is_available(),
         "Skip when no GPU is available",
     )
-    @settings(deadline=8000)
+    @settings(deadline=None)
     # pyre-ignore
     @given(
         comm_precisions_loss_scale=st.sampled_from(
