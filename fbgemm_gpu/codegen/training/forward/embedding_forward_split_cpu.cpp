@@ -19,10 +19,9 @@
 #include <libdivide.h>
 #endif
 
-#include <ATen/Parallel.h>
-
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/Parallel.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
@@ -480,7 +479,7 @@ void csr2csc_template_(
           NS,
           num_embeddings);
 
-  int num_chunks = at::get_num_threads();
+  int num_chunks = std::min<int>(at::get_num_threads(), std::max<int>(1, NS - 1));
   std::vector<int> chunk_uniq_counts(num_chunks, 0);
   std::vector<int> chunk_uniq_offsets(num_chunks + 1, 0);
 
