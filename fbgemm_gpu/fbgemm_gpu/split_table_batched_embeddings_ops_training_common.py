@@ -33,7 +33,7 @@ except ImportError:
         return SparseType.from_int(ty).as_dtype()
 
 
-from fbgemm_gpu.tbe.config.embedding_config import PoolingMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 
 
 def generate_vbe_metadata(

@@ -20,6 +20,7 @@ from fbgemm_gpu.split_embedding_configs import (
     QuantizationConfig,
     SparseType,
 )
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
@@ -27,7 +28,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation
 from fbgemm_gpu.tbe.utils import quantize_embs
 from torch import Tensor  # usort:skip
 
