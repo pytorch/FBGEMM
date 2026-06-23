@@ -109,8 +109,8 @@ Inheritance diagram for DramKVEmbeddingCache&lt; weight_type &gt;:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:ac9db2b8665f362eb6109cbff9a51b425" id="r_ac9db2b8665f362eb6109cbff9a51b425"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac9db2b8665f362eb6109cbff9a51b425">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt; feature_evict_config, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool backend_return_whole_row=false, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt, bool is_training=true, bool disable_random_init=false, bool enable_raw_embedding_streaming=false, int64_t res_store_shards=0, int64_t res_server_port=0, std::vector&lt; std::string &gt; table_names={}, std::vector&lt; int64_t &gt; table_offsets={}, std::vector&lt; int64_t &gt; table_sizes={}, std::optional&lt; c10::intrusive_ptr&lt; <a class="el" href="structkv__mem_1_1_enrichment_config.html">kv_mem::EnrichmentConfig</a> &gt; &gt; enrichment_config=std::nullopt)</td></tr>
-<tr class="separator:ac9db2b8665f362eb6109cbff9a51b425"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a59b88797ba6d36c6a0382360084b8589" id="r_a59b88797ba6d36c6a0382360084b8589"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a59b88797ba6d36c6a0382360084b8589">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt; feature_evict_config, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool backend_return_whole_row=false, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt, bool is_training=true, bool disable_random_init=false, bool enable_raw_embedding_streaming=false, int64_t res_store_shards=0, int64_t res_server_port=0, std::vector&lt; std::string &gt; table_names={}, std::vector&lt; int64_t &gt; table_offsets={}, std::vector&lt; int64_t &gt; table_sizes={}, std::optional&lt; c10::intrusive_ptr&lt; <a class="el" href="structkv__mem_1_1_enrichment_config.html">kv_mem::EnrichmentConfig</a> &gt; &gt; enrichment_config=std::nullopt, bool enable_ssd_backend=false)</td></tr>
+<tr class="separator:a59b88797ba6d36c6a0382360084b8589"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3ec3ec693cdf42996def471797fcbba9" id="r_a3ec3ec693cdf42996def471797fcbba9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ec3ec693cdf42996def471797fcbba9">get_keys_in_range_impl</a> (int64_t start, int64_t end, std::optional&lt; int64_t &gt; offset=std::nullopt) override</td></tr>
 <tr class="separator:a3ec3ec693cdf42996def471797fcbba9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab197c34bb53bdad19a2521898a341ffc" id="r_ab197c34bb53bdad19a2521898a341ffc"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab197c34bb53bdad19a2521898a341ffc">set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const <a class="el" href="group__embedding-ssd.html#gaf1ce371b1e598c817791f840612cc1a3">kv_db::RocksdbWriteMode</a> w_mode=kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override</td></tr>
@@ -130,6 +130,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:ab046b99f3345b44e6ff583b776c4a3d1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a21a0f0c644433c7e4af4f1182eca1549" id="r_a21a0f0c644433c7e4af4f1182eca1549"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a21a0f0c644433c7e4af4f1182eca1549">wait_until_laser_write_resume</a> ()</td></tr>
 <tr class="separator:a21a0f0c644433c7e4af4f1182eca1549"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a882b3d3ba64e812e22bc8bdb3c78d2b9" id="r_a882b3d3ba64e812e22bc8bdb3c78d2b9"><td class="memItemLeft" align="right" valign="top">FeatureEvict&lt; weight_type &gt; *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a882b3d3ba64e812e22bc8bdb3c78d2b9">get_feature_evict</a> ()</td></tr>
+<tr class="separator:a882b3d3ba64e812e22bc8bdb3c78d2b9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="inherit_header pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td colspan="2" onclick="javascript:dynsection.toggleInherit('pub_methods_classkv__db_1_1_embedding_k_v_d_b')"><img src="closed.png" alt="-"/>&#160;Public Member Functions inherited from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -154,8 +156,8 @@ Static Public Member Functions</h2></td></tr>
 <tr class="separator:a21d97149087ad4be6db4e31a99d2a727"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="ac9db2b8665f362eb6109cbff9a51b425" name="ac9db2b8665f362eb6109cbff9a51b425"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac9db2b8665f362eb6109cbff9a51b425">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
+<a id="a59b88797ba6d36c6a0382360084b8589" name="a59b88797ba6d36c6a0382360084b8589"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a59b88797ba6d36c6a0382360084b8589">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -263,7 +265,12 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::optional&lt; c10::intrusive_ptr&lt; <a class="el" href="structkv__mem_1_1_enrichment_config.html">kv_mem::EnrichmentConfig</a> &gt; &gt;</td>          <td class="paramname"><span class="paramname"><em>enrichment_config</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
+          <td class="paramtype">std::optional&lt; c10::intrusive_ptr&lt; <a class="el" href="structkv__mem_1_1_enrichment_config.html">kv_mem::EnrichmentConfig</a> &gt; &gt;</td>          <td class="paramname"><span class="paramname"><em>enrichment_config</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>enable_ssd_backend</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -292,6 +299,7 @@ template&lt;typename weight_type&gt; </div>
     <tr><td class="paramname">enable_async_update</td><td>whether to enable async update for the cache </td></tr>
     <tr><td class="paramname">table_dims</td><td>the table dimension for each table </td></tr>
     <tr><td class="paramname">hash_size_cumsum</td><td>the hash size cumulative sum for each table </td></tr>
+    <tr><td class="paramname">enable_ssd_backend</td><td>whether an SSD backend is wired up, enabling dirty-bit tracking so dirty DRAM blocks can be written back to SSD. The dirty bit denotes a change to the embedding value itself, as opposed to its metadata; in the embedding-cache use case this only happens when a new embedding is inserted, since the cache never updates an existing embedding's value. Defaults to false. </td></tr>
   </table>
   </dd>
 </dl>
@@ -413,6 +421,34 @@ template&lt;typename weight_type&gt; </div>
 <p>Sync fetch SIDs for publish (OneFlow). Cache-first: reads SIDs from kv_store if available, only calls remote (FeatureStore/OpenTab) for cache misses. No CAS/drop mechanism, blocks until complete. </p><dl class="section return"><dt>Returns</dt><dd>(vids_tensor, sids_tensor) both int64 </dd></dl>
 
 <p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a3e79091a317b3bcfe821d075ff442879">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="a882b3d3ba64e812e22bc8bdb3c78d2b9" name="a882b3d3ba64e812e22bc8bdb3c78d2b9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a882b3d3ba64e812e22bc8bdb3c78d2b9">&#9670;&#160;</a></span>get_feature_evict()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">FeatureEvict&lt; weight_type &gt; * get_feature_evict </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Get the feature evict object for callback wiring. Returns nullptr if feature eviction is disabled. </p>
 
 </div>
 </div>
