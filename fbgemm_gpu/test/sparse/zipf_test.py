@@ -17,10 +17,10 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_memory_lt_gb, gpu_unavailable
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 
 
 class ZipfTest(unittest.TestCase):
@@ -28,6 +28,12 @@ class ZipfTest(unittest.TestCase):
     # Skip on GPUs with insufficient HBM. The test allocates int64[n] for
     # n = 2**32 + 1 (~32 GiB) so we need a GPU with ~36 GiB of free HBM.
     @unittest.skipIf(*gpu_memory_lt_gb(36))
+    # large-grid CUDA-only stress repro (allocates ~32 GiB); the generated
+    # opcheck variants add no op-schema coverage and only produce FAILURE/
+    # SKIPPING test-health records on CPU/small-GPU runs (T191384137).
+    @optests.dontGenerateOpCheckTests(
+        "large-grid CUDA-only stress repro; opcheck variants add no coverage (T191384137)"
+    )
     def test_zipf_large_n_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in zipf_cuda and validates

@@ -15,7 +15,24 @@ from torch.compiler import is_compiling as is_torchdynamo_compiling  # usort:ski
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-from fbgemm_gpu.split_embedding_configs import sparse_type_int_to_dtype
+
+try:
+    from fbgemm_gpu.split_embedding_configs import sparse_type_int_to_dtype
+except ImportError:
+    # Forward-compat shim for frozen torch.package depots whose stale, co-packaged
+    # copy of split_embedding_configs.py predates D79869613 and therefore does not
+    # export sparse_type_int_to_dtype. The leaf import above is the primary path on
+    # trunk (post-D107684316); this fallback only triggers when this module is
+    # captured fresh alongside a stale split_embedding_configs.py inside a frozen
+    # package, keeping module load from failing with an ImportError. It simply
+    # delegates to SparseType (which the stale module does export), so it stays
+    # correct without re-encoding the SparseType -> dtype mapping.
+    from fbgemm_gpu.split_embedding_configs import SparseType
+
+    def sparse_type_int_to_dtype(ty: int) -> torch.dtype:
+        return SparseType.from_int(ty).as_dtype()
+
+
 from fbgemm_gpu.tbe.config.embedding_config import PoolingMode
 
 

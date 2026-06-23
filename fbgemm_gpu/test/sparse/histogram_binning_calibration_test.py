@@ -20,10 +20,10 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, optests
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
 
 
 class HistogramBinningCalibrationTest(unittest.TestCase):
@@ -327,6 +327,9 @@ class HistogramBinningCalibrationTest(unittest.TestCase):
         data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
     )
     @settings(verbosity=Verbosity.verbose, deadline=None)
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only CPU/GPU parity test; op covered by test_generic_histogram_binning_calibration_by_feature (T191384137)"
+    )
     def test_generic_histogram_binning_calibration_by_feature_cpu_gpu(
         self,
         data_type: torch.dtype,
