@@ -224,6 +224,10 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
             use_selected_lengths_sum,
         )
 
+    @optests.dontGenerateOpCheckTests(
+        "int32-overflow GPU-memory-gated stress repro; opcheck variants only skip "
+        "on CPU samples and add no op coverage (T191384137)"
+    )
     @given(
         index_dtype=st.sampled_from([torch.int, torch.long]),
         jagged_tensor_dtype=st.sampled_from(
