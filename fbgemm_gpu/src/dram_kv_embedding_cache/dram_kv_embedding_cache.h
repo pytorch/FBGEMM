@@ -527,10 +527,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             local_write_allocate_total_duration +=
                                 facebook::WallClockUtil::NowInUsecFast() -
                                 before_alloc_ts;
-                            if (feature_evict_config_.has_value() &&
-                                feature_evict_config_.value()->trigger_mode_ !=
-                                    EvictTriggerMode::DISABLED &&
-                                feature_evict_) {
+                            if (is_eviction_enabled()) {
                               auto* feature_score_evict = dynamic_cast<
                                   FeatureScoreBasedEvict<weight_type>*>(
                                   feature_evict_.get());
@@ -541,10 +538,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               }
                             }
                           }
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_) {
+                          if (is_eviction_enabled()) {
                             feature_evict_->update_feature_statistics(block);
                           }
                           auto before_copy_ts =
@@ -785,6 +779,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         std::vector<std::tuple<int64_t, int64_t>> miss_info;
                         hit_info.reserve(indexes.size() / 2);
                         miss_info.reserve(indexes.size() / 10);
+                        // feature evict configured and active
+                        const bool evict_enabled = is_eviction_enabled();
                         auto rlmap = kv_store_.by(shard_id).rlock();
                         for (const auto& idx : indexes) {
                           auto id = int64_t(indices_data_ptr[idx]);
@@ -811,10 +807,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               data_ptr);
 
                           // update provided ts for existing blocks
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_ && inplace_update_ts.has_value()) {
+                          if (evict_enabled && inplace_update_ts.has_value()) {
                             FixedBlockPool::set_timestamp(
                                 block, inplace_update_ts.value());
                           }
@@ -846,10 +839,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           // marking dirty would trigger a redundant flush.
 
                           // update provided ts for new allocated blocks
-                          if (feature_evict_config_.has_value() &&
-                              feature_evict_config_.value()->trigger_mode_ !=
-                                  EvictTriggerMode::DISABLED &&
-                              feature_evict_) {
+                          if (evict_enabled) {
                             if (inplace_update_ts.has_value()) {
                               FixedBlockPool::set_timestamp(
                                   block, inplace_update_ts.value());
@@ -1387,9 +1377,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       at::Tensor count,
       at::Tensor engege_rates) override {
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
-    if (!feature_evict_ || !feature_evict_config_.has_value() ||
-        feature_evict_config_.value()->trigger_mode_ ==
-            EvictTriggerMode::DISABLED) {
+    if (!is_eviction_enabled()) {
       // featre eviction is disabled
       auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
       metadata_write_total_duration_ += duration;
@@ -2045,6 +2033,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
  private:
+  // True when feature eviction is configured and enabled.
+  bool is_eviction_enabled() const {
+    return feature_evict_config_.has_value() &&
+        feature_evict_config_.value()->trigger_mode_ !=
+        EvictTriggerMode::DISABLED &&
+        feature_evict_;
+  }
+
   int64_t get_dim_from_index(int64_t weight_idx) const {
     if (sub_table_dims_.empty()) {
       return max_D_;
@@ -2426,80 +2422,76 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
-              .thenValue([this,
-                          shard_id,
-                          indexes,
-                          &indices,
-                          &weights_with_metaheader](folly::Unit) {
-                FBGEMM_DISPATCH_INTEGRAL_TYPES(
-                    indices.scalar_type(),
-                    "dram_kv_set_with_metaheader",
-                    [this,
-                     shard_id,
-                     indexes,
-                     &indices,
-                     &weights_with_metaheader] {
-                      using index_t = scalar_t;
-                      CHECK(indices.is_contiguous());
-                      CHECK(weights_with_metaheader.is_contiguous());
-                      CHECK_EQ(
-                          indices.size(0), weights_with_metaheader.size(0));
-                      {
-                        auto wlmap = kv_store_.by(shard_id).wlock();
-                        auto* pool = kv_store_.pool_by(shard_id);
-                        int64_t stride = weights_with_metaheader.size(1);
-                        auto indices_data_ptr = indices.data_ptr<index_t>();
-                        auto weights_data_ptr =
-                            weights_with_metaheader.data_ptr<weight_type>();
-                        for (const auto& id_index : indexes) {
-                          auto id = int64_t(indices_data_ptr[id_index]);
-                          // Defensive programming
-                          // used is false shouldn't occur under normal
-                          // circumstances
-                          FixedBlockPool::set_used(
-                              weights_data_ptr + id_index * stride, true);
+              .thenValue(
+                  [this, shard_id, indexes, &indices, &weights_with_metaheader](
+                      folly::Unit) {
+                    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                        indices.scalar_type(),
+                        "dram_kv_set_with_metaheader",
+                        [this,
+                         shard_id,
+                         indexes,
+                         &indices,
+                         &weights_with_metaheader] {
+                          using index_t = scalar_t;
+                          CHECK(indices.is_contiguous());
+                          CHECK(weights_with_metaheader.is_contiguous());
+                          CHECK_EQ(
+                              indices.size(0), weights_with_metaheader.size(0));
+                          {
+                            auto wlmap = kv_store_.by(shard_id).wlock();
+                            auto* pool = kv_store_.pool_by(shard_id);
+                            int64_t stride = weights_with_metaheader.size(1);
+                            auto indices_data_ptr = indices.data_ptr<index_t>();
+                            auto weights_data_ptr =
+                                weights_with_metaheader.data_ptr<weight_type>();
+                            for (const auto& id_index : indexes) {
+                              auto id = int64_t(indices_data_ptr[id_index]);
+                              // Defensive programming
+                              // used is false shouldn't occur under normal
+                              // circumstances
+                              FixedBlockPool::set_used(
+                                  weights_data_ptr + id_index * stride, true);
 
-                          // use mempool
-                          weight_type* block = nullptr;
-                          // First check if the key already exists
-                          auto it = wlmap->find(id);
-                          bool new_block = false;
-                          if (it != wlmap->end()) {
-                            block = it->second;
-                          } else {
-                            // Key doesn't exist, allocate new block and
-                            // insert.
-                            block = pool->template allocate_t<weight_type>();
-                            wlmap->insert({id, block});
-                            new_block = true;
-                          }
-                          std::copy(
-                              weights_data_ptr + id_index * stride,
-                              weights_data_ptr + (id_index + 1) * stride,
-                              block);
-                          if (enable_ssd_backend_) {
-                            pool->set_dirty(block, true);
-                          }
+                              // use mempool
+                              weight_type* block = nullptr;
+                              // First check if the key already exists
+                              auto it = wlmap->find(id);
+                              bool new_block = false;
+                              if (it != wlmap->end()) {
+                                block = it->second;
+                              } else {
+                                // Key doesn't exist, allocate new block and
+                                // insert.
+                                block =
+                                    pool->template allocate_t<weight_type>();
+                                wlmap->insert({id, block});
+                                new_block = true;
+                              }
+                              std::copy(
+                                  weights_data_ptr + id_index * stride,
+                                  weights_data_ptr + (id_index + 1) * stride,
+                                  block);
+                              if (enable_ssd_backend_) {
+                                pool->set_dirty(block, true);
+                              }
 
-                          if (new_block) {
-                            if (feature_evict_config_.has_value() &&
-                                feature_evict_config_.value()->trigger_mode_ !=
-                                    EvictTriggerMode::DISABLED &&
-                                feature_evict_) {
-                              auto* feature_score_evict = dynamic_cast<
-                                  FeatureScoreBasedEvict<weight_type>*>(
-                                  feature_evict_.get());
-                              if (feature_score_evict) {
-                                feature_score_evict
-                                    ->update_feature_score_statistics(
-                                        block, 0, shard_id, true);
+                              if (new_block) {
+                                if (is_eviction_enabled()) {
+                                  auto* feature_score_evict = dynamic_cast<
+                                      FeatureScoreBasedEvict<weight_type>*>(
+                                      feature_evict_.get());
+                                  if (feature_score_evict) {
+                                    feature_score_evict
+                                        ->update_feature_score_statistics(
+                                            block, 0, shard_id, true);
+                                  }
+                                }
                               }
                             }
                           }
-                        }
-                      }
-                    });
-              });
+                        });
+                  });
       futures.emplace_back(std::move(f));
     }
     return folly::collect(futures);
