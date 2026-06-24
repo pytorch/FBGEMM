@@ -237,7 +237,7 @@ void embedding_inplace_update_cuda(
   }
   TORCH_CHECK_EQ(N, update_table_idx.numel());
 
-  const int32_t warpsPerBlock = kMaxThreads / kWarpSize;
+  const int32_t warpsPerBlock = kMaxThreads / kWarpSizeHost();
 
   auto lxu_cache_weights_value = lxu_cache_weights.value_or(
       at::empty({0, 0}, dev_weights.options().dtype(at::kByte)));
@@ -250,7 +250,7 @@ void embedding_inplace_update_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (embedding_inplace_update_kernel_1<index_t>),
             nbit::div_round_up(N, warpsPerBlock), // number of blocks needed
-            dim3(kWarpSize, warpsPerBlock), // shape of each block
+            dim3(kWarpSizeHost(), warpsPerBlock), // shape of each block
             0,
             at::cuda::getCurrentCUDAStream(),
 
@@ -305,7 +305,7 @@ void embedding_inplace_update_single_placement_cuda(
   }
   TORCH_CHECK_EQ(N, update_table_idx.numel());
 
-  const int32_t warpsPerBlock = kMaxThreads / kWarpSize;
+  const int32_t warpsPerBlock = kMaxThreads / kWarpSizeHost();
 
   auto lxu_cache_weights_value = lxu_cache_weights.value_or(
       at::empty({0, 0}, dev_weights.options().dtype(at::kByte)));
@@ -318,7 +318,7 @@ void embedding_inplace_update_single_placement_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (embedding_inplace_update_kernel_2<index_t>),
             nbit::div_round_up(N, warpsPerBlock), // number of blocks needed
-            dim3(kWarpSize, warpsPerBlock), // shape of each block
+            dim3(kWarpSizeHost(), warpsPerBlock), // shape of each block
             0,
             at::cuda::getCurrentCUDAStream(),
 

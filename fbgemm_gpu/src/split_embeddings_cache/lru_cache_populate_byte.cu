@@ -397,9 +397,9 @@ void lru_cache_insert_byte_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (lru_cache_insert_byte_kernel<index_t>),
             std::min(
-                div_round_up(N, kMaxThreads / kWarpSize),
+                div_round_up(N, kMaxThreads / kWarpSizeHost()),
                 get_max_thread_blocks_for_cache_kernels_()),
-            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(weights, uint8_t, 1, 64),
@@ -462,9 +462,9 @@ void direct_mapped_lru_cache_insert_byte_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (direct_mapped_lru_cache_insert_byte_kernel<index_t>),
             std::min(
-                div_round_up(N, kMaxThreads / kWarpSize),
+                div_round_up(N, kMaxThreads / kWarpSizeHost()),
                 get_max_thread_blocks_for_cache_kernels_()),
-            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(weights, uint8_t, 1, 64),

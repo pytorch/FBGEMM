@@ -390,7 +390,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     if (B == 1) {
       // for B = 1 broadcast case
       constexpr auto NUM_WARPS = 16;
-      const dim3 threads(NUM_WARPS * kWarpSize); //  16 x 32
+      const dim3 threads(NUM_WARPS * kWarpSizeHost()); //  16 x 32
       const dim3 blocks(cuda_calc_xblock_count(
           reordered_cat_ad_offsets.numel() - 1,
           NUM_WARPS)); // one warp per sample
@@ -419,7 +419,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     } else {
       // for B > 1 and B < 64 broadcast case
       constexpr auto NUM_WARPS = 16;
-      const dim3 threads(NUM_WARPS * kWarpSize); //  16 x 32
+      const dim3 threads(NUM_WARPS * kWarpSizeHost()); //  16 x 32
       const dim3 blocks(cuda_calc_xblock_count(
           T * num_ads_in_batch,
           NUM_WARPS)); // num_ads_in_batch warps for all Bs
@@ -469,7 +469,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
               auto maxWarpSize = kMaxThreads / NUM_WARPS;
               const dim3 threads(
                   NUM_WARPS,
-                  maxWarpSize < kWarpSize ? maxWarpSize : kWarpSize); // 32 x 32
+                  maxWarpSize < kWarpSizeHost() ? maxWarpSize : kWarpSizeHost()); // 32 x 32
               const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
 #endif
               FBGEMM_LAUNCH_KERNEL(

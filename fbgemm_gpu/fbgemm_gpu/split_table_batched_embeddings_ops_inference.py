@@ -382,10 +382,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
         )
 
-        # 64 for AMD
-        if cache_assoc == 32 and torch.version.hip is not None:
-            cache_assoc = 64
-
         if device is None:
             self.current_device: torch.device = torch.device(
                 torch.cuda.current_device()
@@ -395,6 +391,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
+
+        if cache_assoc == 32 and not self.use_cpu:
+            cache_assoc = torch.cuda.get_device_properties(
+                self.current_device
+            ).warp_size
 
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
         self.pooling_mode = pooling_mode

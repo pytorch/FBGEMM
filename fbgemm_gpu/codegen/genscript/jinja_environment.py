@@ -64,8 +64,13 @@ env.globals["max_embedding_dim"] = 2048
 # larger max embedding dimension.
 env.globals["legacy_max_embedding_dim"] = 1024
 
-# An optimization for ROCm
+# An optimization for ROCm: wave64 archs (CDNA) want a larger items-per-warp.
 env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
+
+# Per-wave-size items_per_warp values; used by codegen helpers that emit
+# kernel instantiations and host dispatch tables that adapt per-wave.
+env.globals["items_per_warp32"] = 128
+env.globals["items_per_wave64"] = 256
 
 # The fixed max vectors per thread for different kernels.  The numbers were
 # derived from empirical studies
@@ -73,6 +78,20 @@ env.globals["fixed_max_vecs_per_thread"] = {"backward": 2, "backward_indice_weig
 
 env.globals["dense"] = False
 env.globals["is_rocm"] = args.is_rocm
+
+# Wave-size set in scope for this build. CUDA is always wave32. On ROCm the
+# values come from cmake/Hip.cmake parsing PYTORCH_ROCM_ARCH. The host
+# dispatcher emits a runtime warp_size branch only when both are present.
+# If a ROCm build has neither flag set (older CMake / direct codegen invoke),
+# fall back to wave64 only to preserve pre-port behavior.
+if args.is_rocm:
+    env.globals["has_wave32"] = args.has_wave32
+    env.globals["has_wave64"] = args.has_wave64 or (
+        not args.has_wave32 and not args.has_wave64
+    )
+else:
+    env.globals["has_wave32"] = True
+    env.globals["has_wave64"] = False
 
 
 ################################################################################
@@ -189,7 +208,16 @@ def dispatch_non_vec_blocking_kernel(
     Generate code for kernel dispatching for kernels that do not use vector
     blocking (i.e., an entire embedding row can fit in the allocated Vec4T
     buffer)
+
+    Each branch emits a constexpr ``kSubwarpDivisor`` literal (the divisor
+    that, applied to the per-arch ``kWarpSize`` in device code or to
+    ``kWarpSizeHost`` on host, yields the kernel's thread-group size) and a
+    matching ``kThreadGroupSize`` (constexpr on CUDA, runtime on ROCm). The
+    consumer uses ``kSubwarpDivisor`` as the kernel template argument so the
+    mangled name is warpSize-free; ``kThreadGroupSize`` is the value to set
+    block dims with.
     """
+    warp_size = items_per_warp // 4
     blob = ""
     for (
         kFixedMaxVecsPerThread,
@@ -201,18 +229,21 @@ def dispatch_non_vec_blocking_kernel(
         use_subwarp_shuffle,
         use_vec_blocking=False,
     ):
+        kSubwarpDivisor = warp_size // kThreadGroupSize
         formats = {
             "max_D_val": kFixedMaxVecsPerThread * kThreadGroupSize * 4,
             "kFixedMaxVecsPerThread": kFixedMaxVecsPerThread,
-            "kThreadGroupSize": kThreadGroupSize,
+            "kSubwarpDivisor": kSubwarpDivisor,
             "kUseVecBlocking": kUseVecBlocking,
         }
         d_blob = """if (MAX_D <= {max_D_val}) {                               \\
              [[ maybe_unused ]] const int max_vecs_per_thread =               \\
                {kFixedMaxVecsPerThread};                                      \\
              constexpr int kFixedMaxVecsPerThread = {kFixedMaxVecsPerThread}; \\
-             [[ maybe_unused ]] constexpr int kThreadGroupSize =              \\
-               {kThreadGroupSize};                                            \\
+             [[ maybe_unused ]] constexpr int kSubwarpDivisor =               \\
+               {kSubwarpDivisor};                                             \\
+             [[ maybe_unused ]] const int kThreadGroupSize =                  \\
+               kWarpSizeHost() / kSubwarpDivisor;                               \\
              [[ maybe_unused ]] constexpr bool kUseVecBlocking =              \\
                {kUseVecBlocking};                                             \\
              return __VA_ARGS__();                                            \\
@@ -230,6 +261,8 @@ def dispatch_vec_blocking_kernel(
     """
     Generate code for kernel dispatching for kernels that use vector blocking
     (i.e., an entire embedding row cannot fit in the allocated Vec4T buffer)
+
+    Vec blocking always uses the full warp, so ``kSubwarpDivisor = 1``.
     """
     formats = {
         "max_D_val": fixed_max_vecs_per_thread * items_per_warp,
@@ -240,7 +273,8 @@ def dispatch_vec_blocking_kernel(
          [[ maybe_unused ]] const int max_vecs_per_thread =                  \\
            (MAX_D + {items_per_warp} - 1) / {items_per_warp};                \\
          constexpr int kFixedMaxVecsPerThread = {fixed_max_vecs_per_thread}; \\
-         [[ maybe_unused ]] constexpr int kThreadGroupSize = kWarpSize;      \\
+         [[ maybe_unused ]] constexpr int kSubwarpDivisor = 1;                \\
+         [[ maybe_unused ]] const int kThreadGroupSize = kWarpSizeHost();       \\
          [[ maybe_unused ]] constexpr bool kUseVecBlocking = true;           \\
          return __VA_ARGS__();                                               \\
        }                                                                     \\
@@ -268,6 +302,79 @@ def dispatch_optimal_kernel(
         fixed_max_vecs_per_thread,
     )
     return blob
+
+
+def _enabled_waves() -> list[tuple[int, int]]:
+    """Return (items_per_warp, warp_size) pairs for each enabled wave size."""
+    waves: list[tuple[int, int]] = []
+    if env.globals["has_wave64"]:
+        waves.append((env.globals["items_per_wave64"], 64))
+    if env.globals["has_wave32"]:
+        waves.append((env.globals["items_per_warp32"], 32))
+    if not waves:
+        # Defensive fallback: codegen invoked without --has_wave* on ROCm.
+        waves.append((env.globals["items_per_warp"], env.globals["items_per_warp"] // 4))
+    return waves
+
+
+def get_max_vecs_template_configs_union(
+    fixed_max_vecs_per_thread: int,
+    use_subwarp_shuffle: bool,
+    use_vec_blocking: bool,
+) -> list[tuple[int, int, str]]:
+    """
+    Returns the union of (kFixedMaxVecsPerThread, kSubwarpDivisor,
+    kUseVecBlocking) tuples needed by every wave size in scope for this build
+    (driven by ``has_wave32`` / ``has_wave64``). Templates use the result to
+    emit explicit instantiations: one kernel symbol per tuple, which serves
+    every enabled wave size because ``kSubwarpDivisor`` (not warpSize) is the
+    template parameter — the per-arch ``kThreadGroupSize`` falls out of
+    ``kWarpSize / kSubwarpDivisor`` in the device pass.
+    """
+    seen: set[tuple[int, int, str]] = set()
+    configs: list[tuple[int, int, str]] = []
+    for items_per_warp_local, warp_size in _enabled_waves():
+        for kFixedMaxVecs, kThreadGroupSize, kUseVecBlocking in get_max_vecs_template_configs(
+            items_per_warp_local,
+            fixed_max_vecs_per_thread,
+            use_subwarp_shuffle,
+            use_vec_blocking,
+        ):
+            kSubwarpDivisor = warp_size // kThreadGroupSize
+            key = (kFixedMaxVecs, kSubwarpDivisor, kUseVecBlocking)
+            if key not in seen:
+                seen.add(key)
+                configs.append(key)
+    return configs
+
+
+def get_max_vecs_template_configs_union_forward(
+    max_forward_embedding_dim: int,
+    use_subwarp_shuffle: bool,
+    use_vec_blocking: bool,
+) -> list[tuple[int, int, str]]:
+    """
+    Like :func:`get_max_vecs_template_configs_union`, but the
+    ``fixed_max_vecs_per_thread`` value depends on wave size: forward kernels
+    use ``max_forward_embedding_dim // items_per_warp``, which differs between
+    wave32 and wave64 because they have different ``items_per_warp`` values.
+    """
+    seen: set[tuple[int, int, str]] = set()
+    configs: list[tuple[int, int, str]] = []
+    for items_per_warp_local, warp_size in _enabled_waves():
+        fixed_max_vecs = max_forward_embedding_dim // items_per_warp_local
+        for kFixedMaxVecs, kThreadGroupSize, kUseVecBlocking in get_max_vecs_template_configs(
+            items_per_warp_local,
+            fixed_max_vecs,
+            use_subwarp_shuffle,
+            use_vec_blocking,
+        ):
+            kSubwarpDivisor = warp_size // kThreadGroupSize
+            key = (kFixedMaxVecs, kSubwarpDivisor, kUseVecBlocking)
+            if key not in seen:
+                seen.add(key)
+                configs.append(key)
+    return configs
 
 
 def is_valid_forward_config(
@@ -346,6 +453,10 @@ env.globals["generate_optimized_grad_sum_loop_access"] = (
     generate_optimized_grad_sum_loop_access
 )
 env.globals["get_max_vecs_template_configs"] = get_max_vecs_template_configs
+env.globals["get_max_vecs_template_configs_union"] = get_max_vecs_template_configs_union
+env.globals["get_max_vecs_template_configs_union_forward"] = (
+    get_max_vecs_template_configs_union_forward
+)
 env.globals["dispatch_optimal_kernel"] = dispatch_optimal_kernel
 env.globals["dispatch_non_vec_blocking_kernel"] = dispatch_non_vec_blocking_kernel
 env.globals["dispatch_vec_blocking_kernel"] = dispatch_vec_blocking_kernel

@@ -176,8 +176,8 @@ Tensor pruned_hashmap_lookup_cuda(
                   (int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<
                       index_t,
                       hash_t>),
-                  nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
-                  dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                  nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSizeHost()),
+                  dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
                   0,
                   at::cuda::getCurrentCUDAStream(),
                   PTA_B(indices, index_t, 1, 32),
@@ -238,8 +238,8 @@ Tensor pruned_array_lookup_cuda(
                       index_t,
                       remap_t>),
                   nbit::div_round_up(
-                      offsets.size(0), kForwardMaxThreads / kWarpSize),
-                  dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                      offsets.size(0), kForwardMaxThreads / kWarpSizeHost()),
+                  dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
                   0,
                   at::cuda::getCurrentCUDAStream(),
                   PTA_B(indices, index_t, 1, 32),

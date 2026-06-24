@@ -202,8 +202,8 @@ void _bounds_check_indices_cuda_v1(
                  : bounds_check_indices_kernel_v1<index_t, false>);
         FBGEMM_LAUNCH_DSA_KERNEL(
             bounds_check_kernel,
-            div_round_up(max_B_ * T, kNumThreads / fbgemm_gpu::kWarpSize),
-            dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),
+            div_round_up(max_B_ * T, kNumThreads / fbgemm_gpu::kWarpSizeHost()),
+            dim3(fbgemm_gpu::kWarpSizeHost(), kNumThreads / fbgemm_gpu::kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(rows_per_table, int64_t, 1, 32),
