@@ -26,8 +26,9 @@ else:
 class ZipfTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     # Skip on GPUs with insufficient HBM. The test allocates int64[n] for
-    # n = 2**32 + 1 (~32 GiB) so we need a GPU with ~36 GiB of free HBM.
-    @unittest.skipIf(*gpu_memory_lt_gb(36))
+    # n = 2**32 + 1 (~32 GiB), so it needs a large-HBM GPU. Gate at 64 GiB to
+    # avoid OOM/timeouts on 36-42 GiB CI GPUs (it only needs to run somewhere).
+    @unittest.skipIf(*gpu_memory_lt_gb(64))
     # large-grid CUDA-only stress repro (allocates ~32 GiB); the generated
     # opcheck variants add no op-schema coverage and only produce FAILURE/
     # SKIPPING test-health records on CPU/small-GPU runs (T191384137).

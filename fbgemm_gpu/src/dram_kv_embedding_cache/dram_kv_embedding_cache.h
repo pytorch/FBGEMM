@@ -23,8 +23,10 @@
 #include <thrift/lib/cpp2/protocol/Serializer.h>
 #include <torch/script.h>
 #include <cmath>
+#include <cstring>
 #include <random>
 #include <string_view>
+#include <unordered_set>
 #include "common/time/Time.h"
 
 #include "../ssd_split_embeddings_cache/initializer.h"
@@ -103,6 +105,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// @param enable_async_update whether to enable async update for the cache
   /// @param table_dims the table dimension for each table
   /// @param hash_size_cumsum the hash size cumulative sum for each table
+  /// @param enable_ssd_backend whether an SSD backend is wired up, enabling
+  /// dirty-bit tracking so dirty DRAM blocks can be written back to SSD. The
+  /// dirty bit denotes a change to the embedding value itself, as opposed to
+  /// its metadata; in the embedding-cache use case this only happens when a new
+  /// embedding is inserted, since the cache never updates an existing
+  /// embedding's value. Defaults to false.
   /// @return None
   explicit DramKVEmbeddingCache(
       int64_t max_D,
@@ -126,7 +134,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       std::vector<int64_t> table_offsets = {},
       std::vector<int64_t> table_sizes = {},
       std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>
-          enrichment_config = std::nullopt)
+          enrichment_config = std::nullopt,
+      bool enable_ssd_backend = false)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -150,12 +159,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                 num_shards_,
                 block_size_,
                 block_alignment_,
-                /*blocks_per_chunk=*/8192)),
+                /*blocks_per_chunk=*/8192,
+                /*enable_dirty_tracking=*/enable_ssd_backend)),
         elem_size_(row_storage_bitwidth / 8),
         backend_return_whole_row_(backend_return_whole_row),
         feature_evict_config_(std::move(feature_evict_config)),
         is_training_(is_training),
-        enable_raw_embedding_streaming_(enable_raw_embedding_streaming) {
+        enable_raw_embedding_streaming_(enable_raw_embedding_streaming),
+        enable_ssd_backend_(enable_ssd_backend) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(std::max<size_t>(
         num_threads, facebook::Proc::getCpuInfo().numCpuCores));
     // Dedicated executor for enrichment (low priority, won't affect
@@ -369,6 +380,62 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return metadata_tensor;
   }
 
+  at::Tensor get_kv_metadata_rows(
+      const at::Tensor& indices,
+      const at::Tensor& count) {
+    auto numel = indices.size(0);
+    const int64_t metadata_dim =
+        static_cast<int64_t>(FixedBlockPool::get_metaheader_dim<weight_type>());
+    auto metadata_tensor = at::zeros(
+        {numel, metadata_dim},
+        at::TensorOptions().dtype(
+            c10::CppTypeToScalarType<weight_type>::value));
+    auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<folly::Unit>> futures;
+    futures.reserve(shardid_to_indexes.size());
+    const size_t metadata_bytes = metadata_dim * sizeof(weight_type);
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
+      futures.emplace_back(
+          folly::via(executor_.get())
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          &indices,
+                          &metadata_tensor,
+                          metadata_bytes](folly::Unit) {
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(),
+                    "dram_kv_metadata_rows",
+                    [this,
+                     shard_id,
+                     indexes,
+                     &indices,
+                     &metadata_tensor,
+                     metadata_bytes] {
+                      using index_t = scalar_t;
+                      CHECK(indices.is_contiguous());
+                      auto* idx_ptr = indices.const_data_ptr<index_t>();
+                      auto* md_ptr =
+                          metadata_tensor
+                              .template mutable_data_ptr<weight_type>();
+                      const int64_t md_stride = metadata_tensor.size(1);
+                      auto rlmap = kv_store_.by(shard_id).rlock();
+                      for (const auto& id_index : indexes) {
+                        auto id = int64_t(idx_ptr[id_index]);
+                        auto it = rlmap->find(id);
+                        CHECK(it != rlmap->end());
+                        std::memcpy(
+                            md_ptr + id_index * md_stride,
+                            reinterpret_cast<const char*>(it->second),
+                            metadata_bytes);
+                      }
+                    });
+              }));
+    }
+    folly::collect(futures).wait();
+    return metadata_tensor;
+  }
+
   /// insert embeddings into kvstore.
   /// current underlying memory management is done through F14FastMap
   /// key value pair will be sharded into multiple shards to increase
@@ -488,6 +555,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               weights_data_ptr + id_index * stride,
                               weights_data_ptr + (id_index + 1) * stride,
                               data_ptr);
+                          // TODO: skip FixedBlockPool set_dirty here. This
+                          // DRAM_SSD embedding cache path only handles
+                          // backfill, where data already exists in SSD, so
+                          // marking dirty would trigger a redundant flush.
                           local_write_cache_copy_total_duration +=
                               facebook::WallClockUtil::NowInUsecFast() -
                               before_copy_ts;
@@ -635,6 +706,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 weights_data_ptr + id_index * stride,
                                 weights_data_ptr + (id_index + 1) * stride,
                                 data_ptr);
+                            if (enable_ssd_backend_) {
+                              pool->set_dirty(block, true);
+                            }
                             cursor++;
                             // Check if we should pause and yield lock
                             if (is_laser_write_interrupted()) {
@@ -735,6 +809,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               weights_data_ptr + tensor_offset * stride,
                               weights_data_ptr + (tensor_offset + 1) * stride,
                               data_ptr);
+
                           // update provided ts for existing blocks
                           if (feature_evict_config_.has_value() &&
                               feature_evict_config_.value()->trigger_mode_ !=
@@ -764,6 +839,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               weights_data_ptr + tensor_offset * stride,
                               weights_data_ptr + (tensor_offset + 1) * stride,
                               data_ptr);
+
+                          // TODO: skip FixedBlockPool set_dirty here. This
+                          // DRAM_SSD embedding cache path only handles
+                          // backfill, where data already exists in SSD, so
+                          // marking dirty would trigger a redundant flush.
 
                           // update provided ts for new allocated blocks
                           if (feature_evict_config_.has_value() &&
@@ -1945,6 +2025,25 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     backend_return_whole_row_ = backend_return_whole_row;
   }
 
+  /// Get the feature evict object for callback wiring.
+  /// Returns nullptr if feature eviction is disabled.
+  FeatureEvict<weight_type>* get_feature_evict() {
+    return feature_evict_.get();
+  }
+
+  /// Access the internal kv_store for flush iteration.
+  auto& get_kv_store() {
+    return kv_store_;
+  }
+
+  int64_t get_num_shards() const {
+    return num_shards_;
+  }
+
+  int64_t get_block_size() const {
+    return block_size_;
+  }
+
  private:
   int64_t get_dim_from_index(int64_t weight_idx) const {
     if (sub_table_dims_.empty()) {
@@ -2378,6 +2477,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               weights_data_ptr + id_index * stride,
                               weights_data_ptr + (id_index + 1) * stride,
                               block);
+                          if (enable_ssd_backend_) {
+                            pool->set_dirty(block, true);
+                          }
 
                           if (new_block) {
                             if (feature_evict_config_.has_value() &&
@@ -2501,6 +2603,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   // OpenTab/Maple reader for ONEFLOW_OPENTAB_SID enrichment (type-erased)
   oneflow_enrichment::ReaderPtr open_tab_reader_;
+
+  // Optional SSD backend for existence checks during enrichment.
+  // When set, enrichment will skip IDs that already exist in SSD,
+  // avoiding unnecessary calls to external data sources.
+  std::atomic<bool> enable_ssd_backend_{false};
 }; // class DramKVEmbeddingCache
 
 } // namespace kv_mem

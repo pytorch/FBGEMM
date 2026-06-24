@@ -85,7 +85,12 @@
         "status": "xfail"
       }
     },
-    "fbgemm::jagged_index_select": {},
+    "fbgemm::jagged_index_select": {
+      "JaggedIndexSelect2DTest.test_aot_dispatch_dynamic__test_jagged_index_select_2d": {
+        "comment": "Not an op bug: fails in AOT-autograd setup, where a real empty tensor is detached under FakeTensorMode (aten.detach.default(tensor([]))). The meta/_check_is_size is correct and faketensor passes. Skip (not xfail) so it does not flag the PT2-compliant op. T191384137",
+        "status": "skip"
+      }
+    },
     "fbgemm::jagged_jagged_bmm": {},
     "fbgemm::jagged_slice": {
       "JaggedSliceTest.test_aot_dispatch_dynamic__test_jagged_slice": {

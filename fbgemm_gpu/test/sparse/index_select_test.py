@@ -33,6 +33,10 @@ else:
 
 
 class IndexSelectTest(unittest.TestCase):
+    @optests.dontGenerateOpCheckTests(
+        "opcheck variants of index_select_dim0 hang under the harness; the base "
+        "test covers the op on CPU+GPU (T191384137)"
+    )
     @given(
         N=st.integers(1, 32),
         shape=st.one_of(
@@ -553,11 +557,6 @@ class IndexSelectTest(unittest.TestCase):
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
 additional_decorators: dict[str, list[Callable[..., Any]]] = {
-    "test_aot_dispatch_dynamic__test_index_select_dim0": [unittest.skip("hangs")],
-    "test_aot_dispatch_static__test_index_select_dim0": [unittest.skip("hangs")],
-    "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],
-    "test_autograd_registration__test_index_select_dim0": [unittest.skip("hangs")],
-    "test_schema__test_index_select_dim0": [unittest.skip("hangs")],
     "test_faketensor__test_group_index_select_dim0": [unittest.skip("hangs")],
 }
 
