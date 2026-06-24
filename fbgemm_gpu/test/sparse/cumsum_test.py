@@ -19,13 +19,14 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable
+    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable, optests
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
         gpu_memory_lt_gb,
         gpu_unavailable,
+        optests,
     )
 
 
@@ -174,6 +175,10 @@ class CumSumTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @optests.dontGenerateOpCheckTests(
+        "large-grid GPU-memory-gated stress repro; opcheck variants only skip on "
+        "CPU samples and add no op coverage (T191384137)"
+    )
     def test_asynchronous_batched_complete_cumsum_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in _batched_complete_cumsum_kernel
