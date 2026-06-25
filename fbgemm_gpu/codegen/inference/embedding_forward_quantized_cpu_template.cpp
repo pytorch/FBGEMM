@@ -15,6 +15,7 @@
 #include <ATen/Parallel.h>
 
 #include "fbgemm_gpu/utils/cpu_utils.h"
+#include "fbgemm_gpu/utils/embedding_cpu_threading.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm/FbgemmEmbedding.h"
@@ -25,7 +26,9 @@
 #include <immintrin.h>
 #include <emmintrin.h>
 #endif
-#include <cstring>
+#include <cstring>    // std::memcpy (pruned_array_lookup_cpu)
+#include <exception>  // std::exception_ptr / current_exception (parallel_for_table_threads)
+#include <ATen/ThreadLocalState.h>
 
 using namespace fbgemm_gpu;
 
@@ -35,6 +38,85 @@ using Tensor = at::Tensor;
 
 C10_NOINLINE void check_fp8_params(int64_t fp8_exponent_bits, int64_t fp8_exponent_bias) {
   TORCH_CHECK(fp8_exponent_bits > 0 && fp8_exponent_bias > 0, "FP8 requires fp8_exponent_bits > 0 (got ", fp8_exponent_bits, ") and fp8_exponent_bias > 0 (got ", fp8_exponent_bias, ")");
+}
+
+// Table-threading helpers (get_tbe_table_threads / get_tbe_tables_per_thread /
+// choose_table_threads + the pure, unit-tested choose_table_threads_impl) live in
+// fbgemm_gpu/utils/embedding_cpu_threading.h and are pulled in via the
+// `using namespace fbgemm_gpu;` above.
+
+template <typename F>
+inline void parallel_for_table_threads(
+    int64_t begin,
+    int64_t end,
+    const F& f) {
+  // Adaptive per-call thread count from the work size: small calls run serial,
+  // large calls use up to TBE_TABLE_THREADS (see choose_table_threads).
+  const int num_threads = (begin >= end) ? 1 : choose_table_threads(end - begin);
+  if (begin >= end || num_threads <= 1) {
+    f(begin, end);
+    return;
+  }
+  // Don't spawn more threads than there are tables.
+  // [[maybe_unused]]: only consumed by `#pragma omp parallel num_threads(...)`
+  // below. In OSS builds OpenMP is not enabled for this target, so the pragma is
+  // ignored and the variable is otherwise unused — without this attribute that
+  // trips -Werror=unused-variable (gcc) / -Werror,-Wunused-variable (clang) and
+  // fails the OSS FBGEMM_GPU CPU/CUDA build_artifact CI. (fbcode enables OpenMP,
+  // so the pragma consumes it there.)
+  [[maybe_unused]] const int effective_threads =
+      static_cast<int>(std::min<int64_t>(num_threads, end - begin));
+  // Raw OpenMP does not carry the caller's ThreadLocalState (dispatch keys,
+  // grad/inference mode, autocast, ...) to worker threads the way
+  // at::parallel_for does. Capture it here and restore it on each worker,
+  // otherwise ATen calls inside `f` (e.g. at::arange in the nobag path) run
+  // with the wrong thread-local context.
+  const at::ThreadLocalState tls;
+  bool have_err = false;
+  std::exception_ptr eptr;
+  // Capture the first exception thrown by any worker. Both the `have_err` check
+  // and the (non-atomic) `eptr` write are done inside an OpenMP critical section
+  // so they are serialized across threads — std::exception_ptr is not atomic, so
+  // the assignment must not race. The critical section is only ever entered on
+  // the (rare) exception path, so it adds no cost to the normal gather. The
+  // implicit barrier at the end of the parallel region then synchronizes the
+  // capture with the rethrow below.
+  #pragma omp parallel num_threads(effective_threads)
+  {
+    try {
+        const at::ThreadLocalStateGuard tls_guard(tls);
+        #pragma omp for schedule(dynamic) nowait
+        for (int64_t t = begin; t < end; ++t) {
+            try {
+                f(t, t + 1);
+            } catch (...) {
+                // Record the first exception only; do NOT break out of the omp
+                // for. Unlike the sequential path (which aborts at the first
+                // throw), in-flight/remaining tables still complete here — their
+                // work is harmless and discarded once eptr is rethrown after the
+                // join (each table is independent and writes a disjoint slice).
+                #pragma omp critical(tbe_table_threads_err)
+                {
+                    if (!have_err) {
+                        have_err = true;
+                        eptr = std::current_exception();
+                    }
+                }
+            }
+        }
+    } catch (...) {
+        #pragma omp critical(tbe_table_threads_err)
+        {
+            if (!have_err) {
+                have_err = true;
+                eptr = std::current_exception();
+            }
+        }
+    }
+  }
+  if (eptr) {
+    std::rethrow_exception(eptr);
+  }
 }
 
 inline uint32_t pruned_hash_function(uint32_t h) {
@@ -240,8 +322,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }
 
     const int32_t* weights_placements_ptr = weights_placements.const_data_ptr<int32_t>();
-    const uint8_t* weights_acc;
-
     const auto* weights_tys_acc = weights_tys.const_data_ptr<uint8_t>();
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "intn_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", [&] {
@@ -280,7 +360,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 std::ranges::unique(physical_offsets).begin(),
                 physical_offsets.end());
 
-            for (const auto t : c10::irange(T)) {
+            parallel_for_table_threads(0, T, [&](int64_t begin, int64_t end) {
+              for (int64_t t = begin; t < end; ++t) {
                 {% if not nobag %}
                 const auto* D_offsets_acc = D_offsets.const_data_ptr<int32_t>();
                 const int32_t D_start = D_offsets_acc[t];
@@ -294,8 +375,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
                 TORCH_CHECK(placement != PlacementType::DEVICE);
                 const auto& weight_tensor = (placement == PlacementType::HOST) ? dev_weights : uvm_weights;
-                weights_acc = weight_tensor.const_data_ptr<uint8_t>();
-                const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
+                const uint8_t* weights = weight_tensor.const_data_ptr<uint8_t>() + weights_offsets_acc[t];
                 const auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
                 if (output_is_int8) {
                     TORCH_CHECK(weight_ty == SparseType::INT8, "int8 output are only supported for int8 weights");
@@ -451,7 +531,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                         num_rows,
                         /*allow_minus_one=*/true);
                 }
-            }
+              }
+            });
             return;
         });
     });
