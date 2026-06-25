@@ -22,7 +22,7 @@ var searchData=
   ['fbgemmpartition1d_19',['fbgemmPartition1D',['../namespacefbgemm.html#abf9cb71c5c3a79935f7146f05510bb19',1,'fbgemm']]],
   ['fbgemmpartition1dblocked_20',['fbgemmPartition1DBlocked',['../namespacefbgemm.html#ae6d6321b283eaa5a8ddaaa96ea22c62f',1,'fbgemm']]],
   ['fbgemmsupportedcpu_21',['fbgemmSupportedCPU',['../namespacefbgemm.html#a713e97500428aba767f6fcaf39aac4b9',1,'fbgemm']]],
-  ['fetch_5fsids_5fsync_22',['fetch_sids_sync',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#aa8c1bbe2a7ab1e8e1d54118019abca60',1,'kv_mem::DramKVEmbeddingCache::fetch_sids_sync()'],['../classkv__db_1_1_embedding_k_v_d_b.html#a3e79091a317b3bcfe821d075ff442879',1,'kv_db::EmbeddingKVDB::fetch_sids_sync()']]],
+  ['fetch_5fsids_5fsync_22',['fetch_sids_sync',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#aa8c1bbe2a7ab1e8e1d54118019abca60',1,'kv_mem::DramKVEmbeddingCache::fetch_sids_sync()'],['../classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#aa8c1bbe2a7ab1e8e1d54118019abca60',1,'kv_db::DramSsdKVEmbeddingCache::fetch_sids_sync()'],['../classkv__db_1_1_embedding_k_v_d_b.html#a3e79091a317b3bcfe821d075ff442879',1,'kv_db::EmbeddingKVDB::fetch_sids_sync()']]],
   ['findminmax_23',['FindMinMax',['../group__fbgemm-quant-utils-avx2.html#ga38920438e5d25d4092a1b695f3420b8e',1,'fbgemm']]],
   ['float16tofloat_5favx2_24',['Float16ToFloat_avx2',['../namespacefbgemm.html#ae0cba6562b792a67eb376841005a907b',1,'fbgemm']]],
   ['float16tofloat_5favx512_25',['Float16ToFloat_avx512',['../namespacefbgemm.html#a5d28283194eed8d19ebc5634fd78913f',1,'fbgemm']]],
