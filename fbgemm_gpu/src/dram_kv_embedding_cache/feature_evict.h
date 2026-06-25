@@ -14,7 +14,9 @@
 #include <cstddef>
 #include <functional>
 #include <memory_resource>
+#include <ranges>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include <ATen/ATen.h>
@@ -768,7 +770,6 @@ class FeatureEvict {
       std::vector<int64_t>& evicted_counts,
       std::vector<int64_t>& processed_counts) {
     auto* pool = kv_store_.pool_by(shard_id);
-    auto mem_pool_lock = pool->acquire_lock();
 
     // Capture the callback and SSD flag once into locals; see comment in
     // start_training_eviction_loop.
@@ -778,18 +779,41 @@ class FeatureEvict {
     // Collect dirty evicted blocks for writeback to SSD.
     std::vector<std::pair<int64_t, std::string>> writeback_batch;
 
-    std::vector<int64_t> evicting_keys;
-    evicting_keys.reserve(block_nums_snapshot_[shard_id] / 100);
-    while (!should_exit_evict_loop(shard_id)) {
-      auto* block =
-          pool->template get_block<weight_type>(block_cursors_[shard_id]++);
-      if (block == nullptr) {
-        continue;
+    // Erase keys from the map before freeing blocks; freeing first would leave
+    // the map pointing at freed memory a reader (holding rlock) could write to.
+    std::vector<std::pair<int64_t, weight_type*>> evicting_blocks;
+    {
+      // 1st step: pick victims under mempool lock, don't free yet.
+      auto mem_pool_lock = pool->acquire_lock();
+      evicting_blocks.reserve(block_nums_snapshot_[shard_id] / 100);
+      while (!should_exit_evict_loop(shard_id)) {
+        auto* block =
+            pool->template get_block<weight_type>(block_cursors_[shard_id]++);
+        if (block == nullptr) {
+          continue;
+        }
+        int64_t key = FixedBlockPool::get_key(block);
+        int sub_table_id = get_sub_table_id(key);
+        processed_counts[sub_table_id]++;
+        if (evict_block(block, sub_table_id, shard_id)) {
+          evicting_blocks.emplace_back(key, block);
+          evicted_counts[sub_table_id]++;
+        }
       }
-      int64_t key = FixedBlockPool::get_key(block);
-      int sub_table_id = get_sub_table_id(key);
-      processed_counts[sub_table_id]++;
-      if (evict_block(block, sub_table_id, shard_id)) {
+    }
+
+    // 2nd step: drop keys from the map under wlock (excludes readers).
+    {
+      auto shard_map_wlock = kv_store_.by(shard_id).wlock();
+      for (int64_t key : evicting_blocks | std::views::keys) {
+        shard_map_wlock->erase(key);
+      }
+    }
+
+    // 3rd step: keys unreachable and readers drained, now free the blocks.
+    {
+      auto mem_pool_lock = pool->acquire_lock();
+      for (auto& [key, block] : evicting_blocks) {
         // Serialize dirty block data before deallocate
         if (enable_ssd_writeback) {
           if (writeback_callback && pool->get_dirty(block)) {
@@ -800,20 +824,8 @@ class FeatureEvict {
           }
         }
         pool->template deallocate_t<weight_type>(block);
-        evicted_counts[sub_table_id]++;
-        evicting_keys.push_back(key);
       }
     }
-    mem_pool_lock.unlock();
-
-    // lock dram kv shard hash map to remove evicted blocks in the map
-    // dedicate map update in a wlock to reduce the blocking time for
-    // inference read
-    auto shard_map_wlock = kv_store_.by(shard_id).wlock();
-    for (auto& key : evicting_keys) {
-      shard_map_wlock->erase(key);
-    }
-    shard_map_wlock.unlock();
 
     // Invoke writeback callback after releasing all locks
     if (enable_ssd_writeback) {
