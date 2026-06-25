@@ -1,0 +1,250 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#pragma once
+
+#include <ATen/ATen.h>
+#include <fmt/format.h>
+#include "../ssd_split_embeddings_cache/kv_tensor_wrapper.h"
+#include "dram_kv_embedding_cache.h"
+#include "dram_ssd_kv_embedding_cache.h"
+
+namespace ssd {
+struct EmbeddingSnapshotHandleWrapper;
+}
+
+namespace kv_mem {
+
+/// @brief TorchScript wrapper for DramSsdKVEmbeddingCache composite backend.
+///
+/// Forwarding skeleton: constructs the DRAM cache, wraps it in a
+/// DramSsdKVEmbeddingCache, and forwards all calls to it. The SSD (L3) backend
+/// wiring is added in a follow-up.
+class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
+ public:
+  DramSsdKVEmbeddingCacheWrapper(
+      int64_t max_D,
+      double uniform_init_lower,
+      double uniform_init_upper,
+      std::optional<c10::intrusive_ptr<kv_mem::FeatureEvictConfig>>
+          feature_evict_config,
+      int64_t num_shards = 8,
+      int64_t num_threads = 32,
+      int64_t row_storage_bitwidth = 32,
+      const std::optional<at::Tensor>& table_dims = std::nullopt,
+      const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
+      bool backend_return_whole_row = false,
+      bool enable_async_update = false,
+      bool disable_random_init = false,
+      bool enable_raw_embedding_streaming = false,
+      int64_t res_store_shards = 0,
+      int64_t res_server_port = 0,
+      std::vector<std::string> table_names = {},
+      std::vector<int64_t> table_offsets = {},
+      std::vector<int64_t> table_sizes = {},
+      std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>
+          enrichment_config = std::nullopt) {
+    if (row_storage_bitwidth == 16) {
+      auto dram_cache =
+          std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
+              max_D,
+              uniform_init_lower,
+              uniform_init_upper,
+              feature_evict_config,
+              num_shards,
+              num_threads,
+              row_storage_bitwidth,
+              backend_return_whole_row,
+              enable_async_update,
+              table_dims,
+              hash_size_cumsum,
+              true, // is_training
+              disable_random_init,
+              enable_raw_embedding_streaming,
+              res_store_shards,
+              res_server_port,
+              std::move(table_names),
+              std::move(table_offsets),
+              std::move(table_sizes),
+              enrichment_config,
+              /*enable_ssd_backend=*/true);
+      impl_ = std::make_shared<kv_db::DramSsdKVEmbeddingCache<at::Half>>(
+          std::move(dram_cache));
+    } else if (row_storage_bitwidth == 32) {
+      auto dram_cache = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
+          max_D,
+          uniform_init_lower,
+          uniform_init_upper,
+          feature_evict_config,
+          num_shards,
+          num_threads,
+          row_storage_bitwidth,
+          backend_return_whole_row,
+          enable_async_update,
+          table_dims,
+          hash_size_cumsum,
+          true, // is_training
+          disable_random_init,
+          enable_raw_embedding_streaming,
+          res_store_shards,
+          res_server_port,
+          std::move(table_names),
+          std::move(table_offsets),
+          std::move(table_sizes),
+          enrichment_config,
+          /*enable_ssd_backend=*/true);
+      impl_ = std::make_shared<kv_db::DramSsdKVEmbeddingCache<float>>(
+          std::move(dram_cache));
+    } else {
+      throw std::runtime_error(
+          fmt::format(
+              "Unsupported row_storage_bitwidth={}; expected 16 or 32",
+              row_storage_bitwidth));
+    }
+  }
+
+  // --- Core methods (forwarded to composite backend) ---
+
+  void set_cuda(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count,
+      int64_t timestep,
+      bool is_bwd) {
+    impl_->set_cuda(indices, weights, count, timestep, is_bwd);
+  }
+
+  void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
+    impl_->get_cuda(indices, weights, count);
+  }
+
+  void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
+    impl_->set(indices, weights, count);
+  }
+
+  void flush() {
+    impl_->flush();
+  }
+
+  void set_range_to_storage(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length) {
+    impl_->set_range_to_storage(weights, start, length);
+  }
+
+  at::Tensor get_keys_in_range_by_snapshot(
+      int64_t start_id,
+      int64_t end_id,
+      int64_t id_offset,
+      const std::optional<
+          c10::intrusive_ptr<ssd::EmbeddingSnapshotHandleWrapper>>&
+      /*snapshot_handle*/) {
+    return impl_->get_keys_in_range_impl(start_id, end_id, id_offset);
+  }
+
+  at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const std::optional<
+          c10::intrusive_ptr<ssd::EmbeddingSnapshotHandleWrapper>>&
+      /*snapshot_handle*/) {
+    return impl_->get_kv_zch_eviction_metadata_impl(indices, count);
+  }
+
+  void get(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count,
+      int64_t sleep_ms) {
+    impl_->get(indices, weights, count, sleep_ms);
+  }
+
+  void wait_util_filling_work_done() {
+    impl_->wait_util_filling_work_done();
+  }
+
+  at::Tensor get_keys_in_range(int64_t start, int64_t end) {
+    return impl_->get_keys_in_range_impl(start, end, std::nullopt);
+  }
+
+  size_t get_map_used_memsize_in_bytes() const {
+    return impl_->get_map_used_memsize_in_bytes();
+  }
+
+  std::vector<double> get_dram_kv_perf(
+      const int64_t step,
+      const int64_t interval) {
+    return impl_->get_dram_kv_perf(step, interval);
+  }
+
+  void get_feature_evict_metric(
+      at::Tensor evicted_counts,
+      at::Tensor processed_counts,
+      at::Tensor eviction_threshold_with_dry_run,
+      at::Tensor full_duration_ms,
+      at::Tensor exec_duration_ms) {
+    auto metrics = impl_->get_feature_evict_metric();
+    if (metrics.has_value()) {
+      evicted_counts.copy_(metrics.value().evicted_counts);
+      processed_counts.copy_(metrics.value().processed_counts);
+      eviction_threshold_with_dry_run.copy_(
+          metrics.value().eviction_threshold_with_dry_run);
+      full_duration_ms.copy_(metrics.value().full_duration_ms);
+      exec_duration_ms.copy_(metrics.value().exec_duration_ms);
+    }
+  }
+
+  void wait_until_eviction_done() {
+    impl_->wait_until_eviction_done();
+  }
+
+  void set_backend_return_whole_row(bool backend_return_whole_row) {
+    impl_->set_backend_return_whole_row(backend_return_whole_row);
+  }
+
+  void trigger_feature_evict() {
+    impl_->trigger_feature_evict();
+  }
+
+  bool is_evicting() {
+    return impl_->is_evicting();
+  }
+
+  void set_feature_score_metadata_cuda(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor engage_show_count) {
+    impl_->set_feature_score_metadata_cuda(indices, count, engage_show_count);
+  }
+
+  void set_embedding_cache_enrich_query_id_cuda(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) {
+    impl_->set_embedding_cache_enrich_query_id_cuda(
+        hashed_indices, unhashed_indices, count);
+  }
+
+  std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
+      at::Tensor hashed_indices,
+      at::Tensor unhashed_indices,
+      at::Tensor count) {
+    return impl_->fetch_sids_sync(
+        std::move(hashed_indices),
+        std::move(unhashed_indices),
+        std::move(count));
+  }
+
+ private:
+  friend class ssd::KVTensorWrapper;
+
+  std::shared_ptr<kv_db::EmbeddingKVDB> impl_;
+};
+
+} // namespace kv_mem
