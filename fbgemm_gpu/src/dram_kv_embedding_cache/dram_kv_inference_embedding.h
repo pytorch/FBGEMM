@@ -303,6 +303,7 @@ class DramKVInferenceEmbedding
                         // the blocking time for inference read
 
                         std::unordered_map<int64_t, weight_type*> temp_kv;
+                        temp_kv.reserve(miss_info.size());
                         auto* pool = kv_store_.pool_by(shard_id);
                         auto mem_pool_lock = pool->acquire_lock();
                         for (auto& [id, tensor_offset] : miss_info) {
