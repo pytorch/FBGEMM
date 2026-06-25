@@ -269,7 +269,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     {{- define_kernel_invocation("INT2") }}
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "int2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    fbgemm_gpu::dispatch_output_types(output.scalar_type(), "int2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&]<typename output_t>() {
       if (max_int2_D > 0) {
         const auto max_D = max_int2_D;
         constexpr auto sparse_type = SparseType::INT2;
@@ -298,7 +298,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     {{- define_kernel_invocation("INT4") }}
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "int4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    fbgemm_gpu::dispatch_output_types(output.scalar_type(), "int4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&]<typename output_t>() {
       if (max_int4_D > 0) {
         const auto max_D = max_int4_D;
         constexpr auto sparse_type = SparseType::INT4;
@@ -344,7 +344,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     {{- define_kernel_invocation("INT8") }}
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "int8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    fbgemm_gpu::dispatch_output_types(output.scalar_type(), "int8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&]<typename output_t>() {
       if (max_int8_D > 0) {
         const auto max_D = max_int8_D;
         constexpr auto sparse_type = SparseType::INT8;
@@ -401,7 +401,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     {{- define_kernel_invocation("FP8") }}
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    fbgemm_gpu::dispatch_output_types(output.scalar_type(), "fp8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&]<typename output_t>() {
       if (max_float8_D > 0) {
         const auto max_D = max_float8_D;
         constexpr auto sparse_type = SparseType::FP8;
@@ -436,7 +436,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     {{- define_kernel_invocation("FP16") }}
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    fbgemm_gpu::dispatch_output_types(output.scalar_type(), "fp16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&]<typename output_t>() {
       if (max_float16_D > 0) {
         const auto max_D = max_float16_D;
         constexpr auto sparse_type = SparseType::FP16;
@@ -471,7 +471,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     {{- define_kernel_invocation("FP32") }}
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    fbgemm_gpu::dispatch_output_types(output.scalar_type(), "fp32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&]<typename output_t>() {
       if (max_float32_D > 0) {
         const auto max_D = max_float32_D;
         constexpr auto sparse_type = SparseType::FP32;

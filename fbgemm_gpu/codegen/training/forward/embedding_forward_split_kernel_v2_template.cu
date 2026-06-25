@@ -1033,7 +1033,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 
 /*
     Explicitly instantiate the kernel function template.  The instantiations are
-    based on the types enumerated by DISPATCH_EMB_CACHE_TYPES macro used in
+    based on the types enumerated by dispatch_emb_cache_types function used in
     embedding_forward_split_template.cu
 */
 

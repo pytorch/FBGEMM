@@ -179,11 +179,11 @@ void lfu_cache_insert_cuda(
 
   const int32_t N = cache_set_sorted_unique_indices.numel();
 
-  DISPATCH_EMB_CACHE_TYPES(
+  fbgemm_gpu::dispatch_emb_cache_types(
       weights.scalar_type(),
       lxu_cache_weights.scalar_type(),
       "lfu_cache_insert_kernel_2",
-      ([&] {
+      ([&]<typename emb_t, typename cache_t>() {
         // Stochastic rounding is required only when emb_t and cache_t are
         // not the same type and emb_t is not float
         const bool stochastic_rounding_ = stochastic_rounding &&
