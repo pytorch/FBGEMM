@@ -148,11 +148,11 @@ void split_embedding_{{ optimizer }}_update(
     const auto& flatten_grad_dev_weights = grad_dev_weights.flatten();
     const auto& flatten_grad_dev_indices = grad_dev_indices.flatten();
 
-    DISPATCH_EMB_CACHE_TYPES(
+    fbgemm_gpu::dispatch_emb_cache_types(
         dev_weights.scalar_type(),
         lxu_cache_weights.scalar_type(),
         "split_embedding_{{ optimizer }}_update_kernel",
-        [&] {
+        [&]<typename emb_t, typename cache_t>() {
             TORCH_CHECK(!(std::is_same_v<emb_t, uint8_t>));
 
             at::PhiloxCudaState rng_engine_inputs;
@@ -216,6 +216,6 @@ void split_embedding_{{ optimizer }}_update(
             }
             {%- endif %}
             {%- endfor %}
-        } // DISPATCH_EMB_CACHE_TYPES
+        } // dispatch_emb_cache_types
     );
 }
