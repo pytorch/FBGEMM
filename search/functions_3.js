@@ -11,6 +11,8 @@ var searchData=
   ['conv_5fparam_5ft_8',['conv_param_t',['../structfbgemm_1_1conv__param__t.html#a83c3bcec46e9ccb35eef9b36c016a4f0',1,'fbgemm::conv_param_t']]],
   ['convfastpath_9',['ConvFastPath',['../namespacefbgemm.html#ad5bda89769bca9a01ddf81591f20ef02',1,'fbgemm']]],
   ['copy_5fto_5fshared_10',['copy_to_shared',['../group__cumem-utils.html#ga5fffe2dc08b30ada0d71581d880220ad',1,'fbgemm_gpu']]],
-  ['create_5fzch_5fbuffer_5fcpu_11',['create_zch_buffer_cpu',['../group__faster-hash-ops-cpu.html#gabd2d0b5ab04c31b247d9faa23d6f4de7',1,'fbgemm_gpu']]],
-  ['cuda_5fhost_5ffunc_12',['cuda_host_func',['../group__embedding-ssd.html#ga460c4bada57c3fd0efcefeecce1e6d61',1,'kv_db_utils']]]
+  ['create_5frocksdb_5fhard_5flink_5fsnapshot_11',['create_rocksdb_hard_link_snapshot',['../classkv__mem_1_1_dram_ssd_k_v_embedding_cache_wrapper.html#ad130e44740aa152b1efe468452f949ef',1,'kv_mem::DramSsdKVEmbeddingCacheWrapper']]],
+  ['create_5fsnapshot_12',['create_snapshot',['../classkv__mem_1_1_dram_ssd_k_v_embedding_cache_wrapper.html#aec77973201751fbb37cfdf8f80ddc513',1,'kv_mem::DramSsdKVEmbeddingCacheWrapper']]],
+  ['create_5fzch_5fbuffer_5fcpu_13',['create_zch_buffer_cpu',['../group__faster-hash-ops-cpu.html#gabd2d0b5ab04c31b247d9faa23d6f4de7',1,'fbgemm_gpu']]],
+  ['cuda_5fhost_5ffunc_14',['cuda_host_func',['../group__embedding-ssd.html#ga460c4bada57c3fd0efcefeecce1e6d61',1,'kv_db_utils']]]
 ];

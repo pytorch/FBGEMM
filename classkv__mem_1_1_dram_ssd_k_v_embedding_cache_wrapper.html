@@ -89,15 +89,105 @@ $(function(){ initResizable(false); });
 <div id="doc-content">
 <div class="header">
   <div class="summary">
+<a href="#pub-methods">Public Member Functions</a> &#124;
 <a href="classkv__mem_1_1_dram_ssd_k_v_embedding_cache_wrapper-members.html">List of all members</a>  </div>
   <div class="headertitle"><div class="title">DramSsdKVEmbeddingCacheWrapper Class Reference</div></div>
 </div><!--header-->
 <div class="contents">
 
 <p><code>#include &lt;dram_ssd_kv_embedding_cache_wrapper.h&gt;</code></p>
+<table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
+Public Member Functions</h2></td></tr>
+<tr class="memitem:aec77973201751fbb37cfdf8f80ddc513" id="r_aec77973201751fbb37cfdf8f80ddc513"><td class="memItemLeft" align="right" valign="top">c10::intrusive_ptr&lt; ssd::EmbeddingSnapshotHandleWrapper &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aec77973201751fbb37cfdf8f80ddc513">create_snapshot</a> ()</td></tr>
+<tr class="separator:aec77973201751fbb37cfdf8f80ddc513"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad130e44740aa152b1efe468452f949ef" id="r_ad130e44740aa152b1efe468452f949ef"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad130e44740aa152b1efe468452f949ef">create_rocksdb_hard_link_snapshot</a> (int64_t global_step)</td></tr>
+<tr class="separator:ad130e44740aa152b1efe468452f949ef"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a94acaf41309a17ff9da1411e64f81b2d" id="r_a94acaf41309a17ff9da1411e64f81b2d"><td class="memItemLeft" align="right" valign="top">std::optional&lt; c10::intrusive_ptr&lt; ssd::RocksdbCheckpointHandleWrapper &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a94acaf41309a17ff9da1411e64f81b2d">get_active_checkpoint_uuid</a> (int64_t global_step)</td></tr>
+<tr class="separator:a94acaf41309a17ff9da1411e64f81b2d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>Forwarding skeleton: constructs the DRAM cache, wraps it in a DramSsdKVEmbeddingCache, and forwards all calls to it. The SSD (L3) backend wiring is added in a follow-up. </p>
-</div><hr/>The documentation for this class was generated from the following file:<ul>
+<div class="textblock"><p>This wrapper is the sole initializer of the DRAM+SSD backend: it builds the DRAM (L2) cache, constructs the SSD (L3) RocksDB tier internally, and assembles the composite DramSsdKVEmbeddingCache from both. The wrapper layer keeps a single DRAM-backed composite (impl_) and a single RocksDB storage (rocksdb_impl_); the weight-type (Half/float) selection is confined to the templated init_composite() helper. Because RocksDB is always created in the constructor, rocksdb_impl_ is guaranteed non-null for all checkpoint/snapshot code paths. </p>
+</div><h2 class="groupheader">Member Function Documentation</h2>
+<a id="ad130e44740aa152b1efe468452f949ef" name="ad130e44740aa152b1efe468452f949ef"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad130e44740aa152b1efe468452f949ef">&#9670;&#160;</a></span>create_rocksdb_hard_link_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void create_rocksdb_hard_link_snapshot </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>global_step</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Create a RocksDB hard-link checkpoint for cross-process access. Delegates to the underlying RocksDB backend. </p>
+
+</div>
+</div>
+<a id="aec77973201751fbb37cfdf8f80ddc513" name="aec77973201751fbb37cfdf8f80ddc513"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aec77973201751fbb37cfdf8f80ddc513">&#9670;&#160;</a></span>create_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">c10::intrusive_ptr&lt; ssd::EmbeddingSnapshotHandleWrapper &gt; create_snapshot </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Create a RocksDB snapshot for consistent checkpoint reads. Must be called AFTER flush() so SSD has all data. </p>
+
+</div>
+</div>
+<a id="a94acaf41309a17ff9da1411e64f81b2d" name="a94acaf41309a17ff9da1411e64f81b2d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a94acaf41309a17ff9da1411e64f81b2d">&#9670;&#160;</a></span>get_active_checkpoint_uuid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::optional&lt; c10::intrusive_ptr&lt; ssd::RocksdbCheckpointHandleWrapper &gt; &gt; get_active_checkpoint_uuid </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>global_step</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Get the active checkpoint UUID for cross-process checkpoint reading. Returns nullopt if no checkpoint is available for the given step. </p>
+
+</div>
+</div>
+<hr/>The documentation for this class was generated from the following file:<ul>
 <li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/dram_kv_embedding_cache/<b>dram_ssd_kv_embedding_cache_wrapper.h</b></li>
 </ul>
 </div><!-- contents -->

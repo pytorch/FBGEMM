@@ -43,7 +43,7 @@ var searchData=
   ['floattofloat16_5fsimd_40',['FloatToFloat16_simd',['../namespacefbgemm.html#a53a50b113345c09b89b45834f31d52df',1,'fbgemm']]],
   ['floattofloat16_5fsve2_41',['FloatToFloat16_sve2',['../namespacefbgemm.html#a150beacb26a913c4a012ec1d4a092eaf',1,'fbgemm']]],
   ['floattofloat8_5fref_42',['FloatToFloat8_ref',['../namespacefbgemm.html#a8f285102b347c914bcaefe51e1186f06',1,'fbgemm']]],
-  ['flush_43',['flush',['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB']]],
+  ['flush_43',['flush',['../classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::DramSsdKVEmbeddingCache::flush()'],['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB::flush()']]],
   ['flush_5for_5fcompact_44',['flush_or_compact',['../classkv__mem_1_1_k_v_inference_embedding_interface.html#a3dd24f09ec79e799cb3efdba544d339e',1,'kv_mem::KVInferenceEmbeddingInterface']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalf_45',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a29c9d3467c9ad265a0bdfdb92f2fbe5b',1,'fbgemm']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalfref_46',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#ad192f921cef8a312ba917448c744268d',1,'fbgemm']]],

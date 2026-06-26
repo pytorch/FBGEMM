@@ -108,8 +108,14 @@ Inheritance diagram for DramSsdKVEmbeddingCache&lt; weight_type &gt;:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:afc020a250ceada418fce8ae2db0c2560" id="r_afc020a250ceada418fce8ae2db0c2560"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afc020a250ceada418fce8ae2db0c2560">DramSsdKVEmbeddingCache</a> (std::shared_ptr&lt; <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html">kv_mem::DramKVEmbeddingCache</a>&lt; weight_type &gt; &gt; dram_cache)</td></tr>
-<tr class="separator:afc020a250ceada418fce8ae2db0c2560"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aee9a4fc42fd72ba2edd1cd7fff641373" id="r_aee9a4fc42fd72ba2edd1cd7fff641373"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aee9a4fc42fd72ba2edd1cd7fff641373">DramSsdKVEmbeddingCache</a> (std::shared_ptr&lt; <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html">kv_mem::DramKVEmbeddingCache</a>&lt; weight_type &gt; &gt; dram_cache, std::shared_ptr&lt; <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a> &gt; rocksdb_backend, int64_t writeback_queue_size=1024, int64_t writeback_batch_size=1024)</td></tr>
+<tr class="separator:aee9a4fc42fd72ba2edd1cd7fff641373"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a21db5ba27d58aedfbc4dbd8997975135" id="r_a21db5ba27d58aedfbc4dbd8997975135"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a21db5ba27d58aedfbc4dbd8997975135">get_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count) override</td></tr>
+<tr class="separator:a21db5ba27d58aedfbc4dbd8997975135"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7f58b6a0a8681abb35835ff5aa21d500" id="r_a7f58b6a0a8681abb35835ff5aa21d500"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f58b6a0a8681abb35835ff5aa21d500">set_range_to_storage</a> (const at::Tensor &amp;weights_with_metaheader, const int64_t start, const int64_t length) override</td></tr>
+<tr class="separator:a7f58b6a0a8681abb35835ff5aa21d500"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4713eaf659931b4173b94ae71633facd" id="r_a4713eaf659931b4173b94ae71633facd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4713eaf659931b4173b94ae71633facd">set_embedding_cache_enrich_query_id_async</a> (at::Tensor hashed_indices, at::Tensor unhashed_indices, at::Tensor count) override</td></tr>
+<tr class="separator:a4713eaf659931b4173b94ae71633facd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa8c1bbe2a7ab1e8e1d54118019abca60" id="r_aa8c1bbe2a7ab1e8e1d54118019abca60"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa8c1bbe2a7ab1e8e1d54118019abca60">fetch_sids_sync</a> (at::Tensor hashed_indices, at::Tensor unhashed_indices, at::Tensor count) override</td></tr>
 <tr class="separator:aa8c1bbe2a7ab1e8e1d54118019abca60"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a089b321f90b6319a7c99cf01406cbd76" id="r_a089b321f90b6319a7c99cf01406cbd76"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a089b321f90b6319a7c99cf01406cbd76">maybe_evict</a> () override</td></tr>
@@ -118,6 +124,12 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:ab046b99f3345b44e6ff583b776c4a3d1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:abb378d263344dcbb5503538a0bcf1a4d" id="r_abb378d263344dcbb5503538a0bcf1a4d"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abb378d263344dcbb5503538a0bcf1a4d">get_backend_return_whole_row</a> () override</td></tr>
 <tr class="separator:abb378d263344dcbb5503538a0bcf1a4d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac0b1c78ca6654c816aa9084241ee3e69" id="r_ac0b1c78ca6654c816aa9084241ee3e69"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac0b1c78ca6654c816aa9084241ee3e69">get_range_from_snapshot</a> (const at::Tensor &amp;weights, const int64_t start, const int64_t length, const ssd::SnapshotHandle *snapshot_handle, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt) override</td></tr>
+<tr class="separator:ac0b1c78ca6654c816aa9084241ee3e69"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3ec3ec693cdf42996def471797fcbba9" id="r_a3ec3ec693cdf42996def471797fcbba9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ec3ec693cdf42996def471797fcbba9">get_keys_in_range_impl</a> (int64_t start, int64_t end, std::optional&lt; int64_t &gt; offset=std::nullopt) override</td></tr>
+<tr class="separator:a3ec3ec693cdf42996def471797fcbba9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
+<tr class="separator:adac116554b543b7c4228c018a85882f5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="inherit_header pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td colspan="2" onclick="javascript:dynsection.toggleInherit('pub_methods_classkv__db_1_1_embedding_k_v_d_b')"><img src="closed.png" alt="-"/>&#160;Public Member Functions inherited from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -138,10 +150,11 @@ Public Member Functions</h2></td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><div class="compoundTemplParams">template&lt;typename weight_type&gt;<br />
-class kv_db::DramSsdKVEmbeddingCache&lt; weight_type &gt;</div><p>This is the forwarding skeleton: every <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html" title="A class for interacting with different cache layers and storage layers, public calls are executed on ...">EmbeddingKVDB</a> method delegates to the wrapped DRAM cache. The SSD (L3) tier and its orchestration (two-phase lookup, async backfill, eviction writeback, flush-to-SSD, and checkpoint reads) are layered on top in a follow-up. </p>
+class kv_db::DramSsdKVEmbeddingCache&lt; weight_type &gt;</div><p>Lookup path: DRAM first -&gt; SSD for misses -&gt; backfill DRAM on SSD hits. Write path: Write to DRAM only (dirty bit marks for eventual SSD writeback). Eviction path: Dirty blocks evicted from DRAM are enqueued to a writeback queue and asynchronously flushed to SSD by a background thread.</p>
+<p>Checkpoint: <a class="el" href="#adac116554b543b7c4228c018a85882f5">flush()</a> drains all dirty DRAM blocks to SSD, then the caller can create a RocksDB snapshot for consistent reads. </p>
 </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="afc020a250ceada418fce8ae2db0c2560" name="afc020a250ceada418fce8ae2db0c2560"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afc020a250ceada418fce8ae2db0c2560">&#9670;&#160;</a></span>DramSsdKVEmbeddingCache()</h2>
+<a id="aee9a4fc42fd72ba2edd1cd7fff641373" name="aee9a4fc42fd72ba2edd1cd7fff641373"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aee9a4fc42fd72ba2edd1cd7fff641373">&#9670;&#160;</a></span>DramSsdKVEmbeddingCache()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -154,20 +167,37 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="memname"><a class="el" href="classkv__db_1_1_dram_ssd_k_v_embedding_cache.html">DramSsdKVEmbeddingCache</a> </td>
           <td>(</td>
-          <td class="paramtype">std::shared_ptr&lt; <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html">kv_mem::DramKVEmbeddingCache</a>&lt; weight_type &gt; &gt;</td>          <td class="paramname"><span class="paramname"><em>dram_cache</em></span></td><td>)</td>
+          <td class="paramtype">std::shared_ptr&lt; <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html">kv_mem::DramKVEmbeddingCache</a>&lt; weight_type &gt; &gt;</td>          <td class="paramname"><span class="paramname"><em>dram_cache</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">std::shared_ptr&lt; <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>rocksdb_backend</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>writeback_queue_size</em></span><span class="paramdefsep"> = </span><span class="paramdefval">1024</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>writeback_batch_size</em></span><span class="paramdefsep"> = </span><span class="paramdefval">1024</span>&#160;)</td>
         </tr>
       </table>
   </td>
   <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel explicit">explicit</span></span>  </td>
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
-<p>Construct the composite backend over the DRAM tier (L2).</p>
+<p>Construct the composite backend.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">dram_cache</td><td>The DRAM tier (L2) </td></tr>
+    <tr><td class="paramname">rocksdb_backend</td><td>The SSD tier (L3), an <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html" title="A class for interacting with different cache layers and storage layers, public calls are executed on ...">EmbeddingKVDB</a> implementation </td></tr>
+    <tr><td class="paramname">writeback_queue_size</td><td>Capacity of the writeback queue </td></tr>
+    <tr><td class="paramname">writeback_batch_size</td><td>Max items to batch-write to SSD per iteration </td></tr>
   </table>
   </dd>
 </dl>
@@ -214,6 +244,42 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
+<a id="adac116554b543b7c4228c018a85882f5" name="adac116554b543b7c4228c018a85882f5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adac116554b543b7c4228c018a85882f5">&#9670;&#160;</a></span>flush()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void flush </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Flush dirty DRAM blocks to SSD for checkpoint consistency.</p>
+<p>Steps:</p><ol type="1">
+<li>Iterate all DRAM shards under rlock</li>
+<li>Collect dirty blocks (key + serialized data)</li>
+<li>Clear dirty bits</li>
+<li>Batch write collected blocks to SSD</li>
+<li>Drain any pending writeback queue items</li>
+</ol>
+<p>Only dirty blocks are written. All DRAM write paths that produce new data (enrichment, checkpoint load, metadata updates) set the dirty bit. SSD backfill paths skip set_dirty since SSD already has the data. </p>
+
+</div>
+</div>
 <a id="abb378d263344dcbb5503538a0bcf1a4d" name="abb378d263344dcbb5503538a0bcf1a4d"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#abb378d263344dcbb5503538a0bcf1a4d">&#9670;&#160;</a></span>get_backend_return_whole_row()</h2>
 
@@ -238,9 +304,90 @@ template&lt;typename weight_type&gt; </div>
   </tr>
 </table>
 </div><div class="memdoc">
-<p>Delegate to the DRAM cache via base-class pointer to dispatch through the virtual interface (the override is private in DramKVEmbeddingCache). </p>
+<p>DRAM_SSD stores the full DRAM block in SSD (MetaHeader + weight + optimizer) so that checkpoint can read the complete row including eviction metadata. Delegate to the DRAM cache via base-class pointer to dispatch through the virtual interface (the override is private in DramKVEmbeddingCache). </p>
 
 <p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="a3ec3ec693cdf42996def471797fcbba9" name="a3ec3ec693cdf42996def471797fcbba9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3ec3ec693cdf42996def471797fcbba9">&#9670;&#160;</a></span>get_keys_in_range_impl()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">at::Tensor get_keys_in_range_impl </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>start</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>end</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>offset</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Get keys in range. For checkpoint use, the wrapper routes directly to EmbeddingRocksDB::get_keys_in_range_by_snapshot() which is the proper SSD key iteration method. This fallback delegates to DRAM cache for non-checkpoint use cases (e.g. get_keys_in_range without snapshot). </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="a21db5ba27d58aedfbc4dbd8997975135" name="a21db5ba27d58aedfbc4dbd8997975135"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a21db5ba27d58aedfbc4dbd8997975135">&#9670;&#160;</a></span>get_kv_db_async()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt; get_kv_db_async </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Two-phase lookup: DRAM first, then SSD for misses, backfill DRAM on hits.</p>
+<p>Phase 1: Call dram_cache_-&gt;get_kv_db_async(indices, weights, count) DRAM hits fill weights directly. Misses remain as zero rows.</p>
+<p>Phase 2: For zero rows (DRAM misses), batch-lookup in SSD. SSD hits fill the weights.</p>
+<p>Phase 3: Backfill DRAM with SSD hits so future lookups are fast. This marks them dirty — feature score eviction handles thrash. </p>
+
+<p>Implements <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#ac346e4fb361109aa7b64c7ee70582704">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>
@@ -276,6 +423,60 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
+<a id="ac0b1c78ca6654c816aa9084241ee3e69" name="ac0b1c78ca6654c816aa9084241ee3e69"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac0b1c78ca6654c816aa9084241ee3e69">&#9670;&#160;</a></span>get_range_from_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void get_range_from_snapshot </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>start</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>length</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const ssd::SnapshotHandle *</td>          <td class="paramname"><span class="paramname"><em>snapshot_handle</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>width_offset</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>width_length</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Checkpoint: read weights from SSD after flush-then-snapshot. After <a class="el" href="#adac116554b543b7c4228c018a85882f5">flush()</a>, SSD has all data — read only from SSD for consistency. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
 <a id="a089b321f90b6319a7c99cf01406cbd76" name="a089b321f90b6319a7c99cf01406cbd76"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a089b321f90b6319a7c99cf01406cbd76">&#9670;&#160;</a></span>maybe_evict()</h2>
 
@@ -308,7 +509,86 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
-<hr/>The documentation for this class was generated from the following file:<ul>
+<a id="a4713eaf659931b4173b94ae71633facd" name="a4713eaf659931b4173b94ae71633facd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4713eaf659931b4173b94ae71633facd">&#9670;&#160;</a></span>set_embedding_cache_enrich_query_id_async()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void set_embedding_cache_enrich_query_id_async </td>
+          <td>(</td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>hashed_indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>unhashed_indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Delegate enrichment query ID processing to DRAM cache. The DRAM cache already has SSD existence check wired (Step 3). </p>
+
+<p>Implements <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="a7f58b6a0a8681abb35835ff5aa21d500" name="a7f58b6a0a8681abb35835ff5aa21d500"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7f58b6a0a8681abb35835ff5aa21d500">&#9670;&#160;</a></span>set_range_to_storage()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void set_range_to_storage </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>weights_with_metaheader</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>start</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>length</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Checkpoint restore writes directly to SSD, bypassing DRAM allocation. For KVZCH (backend_return_whole_row), the correct linearized IDs are already embedded in the first 8 bytes of each weight row by KVTensorWrapper::set_range() via replace_weights_id(). We extract them here rather than using the <code>start</code> parameter, which is PMT_offset + row_offset_ and can be very negative for later shards. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<hr/>The documentation for this class was generated from the following files:<ul>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/dram_kv_embedding_cache/<b>dram_kv_embedding_cache.h</b></li>
 <li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/dram_kv_embedding_cache/<b>dram_ssd_kv_embedding_cache.h</b></li>
 </ul>
 </div><!-- contents -->

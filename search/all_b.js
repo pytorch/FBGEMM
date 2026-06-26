@@ -51,7 +51,7 @@ var searchData=
   ['floattofloat16_5fsimd_48',['FloatToFloat16_simd',['../namespacefbgemm.html#a53a50b113345c09b89b45834f31d52df',1,'fbgemm']]],
   ['floattofloat16_5fsve2_49',['FloatToFloat16_sve2',['../namespacefbgemm.html#a150beacb26a913c4a012ec1d4a092eaf',1,'fbgemm']]],
   ['floattofloat8_5fref_50',['FloatToFloat8_ref',['../namespacefbgemm.html#a8f285102b347c914bcaefe51e1186f06',1,'fbgemm']]],
-  ['flush_51',['flush',['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB']]],
+  ['flush_51',['flush',['../classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::DramSsdKVEmbeddingCache::flush()'],['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB::flush()']]],
   ['flush_5for_5fcompact_52',['flush_or_compact',['../classkv__mem_1_1_k_v_inference_embedding_interface.html#a3dd24f09ec79e799cb3efdba544d339e',1,'kv_mem::KVInferenceEmbeddingInterface']]],
   ['fmha_2ehpp_53',['fmha.hpp',['../fmha_8hpp.html',1,'']]],
   ['forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_54',['47 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
