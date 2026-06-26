@@ -41,6 +41,11 @@
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
 
+namespace kv_db {
+template <typename W>
+class DramSsdKVEmbeddingCache;
+} // namespace kv_db
+
 namespace kv_mem {
 
 #define TORCH_CHECK_TENSOR_PROPERTIES(tensor, scalar_type) \
@@ -75,6 +80,9 @@ namespace kv_mem {
 ///
 template <typename weight_type>
 class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
+  template <typename W>
+  friend class kv_db::DramSsdKVEmbeddingCache;
+
  public:
   /// DramKVEmbeddingCache constructor
   ///

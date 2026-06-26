@@ -14,7 +14,8 @@
 
 namespace kv_mem {
 class DramKVEmbeddingCacheWrapper;
-}
+class DramSsdKVEmbeddingCacheWrapper;
+} // namespace kv_mem
 
 namespace kv_db {
 class EmbeddingKVDB;
@@ -90,6 +91,14 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   void set_dram_db_wrapper(
       c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db);
 
+  /// @brief if the backend storage is DramSsdKV (composite DRAM+SSD), use this
+  /// function to set db_ inside KVTensorWrapper
+  /// this function should be called right after KVTensorWrapper
+  /// initialization
+  /// @param db: the DB wrapper
+  void set_dram_ssd_db_wrapper(
+      c10::intrusive_ptr<kv_mem::DramSsdKVEmbeddingCacheWrapper> db);
+
   void set_range(
       int64_t dim,
       const int64_t start,
@@ -127,8 +136,19 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   friend void to_json(json& j, const KVTensorWrapper& kvt);
   friend void from_json(const json& j, KVTensorWrapper& kvt);
 
+  // Test-only: allow setting db_ directly for unit tests
+  friend void setKVTensorWrapperDb(
+      const c10::intrusive_ptr<KVTensorWrapper>& kvt,
+      std::shared_ptr<kv_db::EmbeddingKVDB> db);
+
  private:
   std::shared_ptr<kv_db::EmbeddingKVDB> db_;
+  // For DRAM_SSD backend: stores the underlying EmbeddingRocksDB separately
+  // because db_ holds the composite DramSsdKVEmbeddingCache (inherits
+  // EmbeddingKVDB, not EmbeddingRocksDB). to_json() and
+  // delete_rocksdb_checkpoint_dir() need EmbeddingRocksDB for serialization
+  // and checkpoint cleanup.
+  std::shared_ptr<EmbeddingRocksDB> rocksdb_for_serialization_;
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
   at::TensorOptions options_;
   std::vector<int64_t> shape_;

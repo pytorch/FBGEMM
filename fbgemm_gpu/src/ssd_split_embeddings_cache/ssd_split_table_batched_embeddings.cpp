@@ -14,6 +14,7 @@
 #include <torch/library.h>
 #include <mutex>
 #include "../dram_kv_embedding_cache/dram_kv_embedding_cache_wrapper.h"
+#include "../dram_kv_embedding_cache/dram_ssd_kv_embedding_cache_wrapper.h"
 #include "./ssd_table_batched_embeddings.h"
 #include "embedding_rocksdb_wrapper.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
@@ -422,6 +423,9 @@ void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
     if (db != nullptr) {
       LOG(INFO) << "embedding delete";
       db->delete_rocksdb_checkpoint_dir();
+    } else if (rocksdb_for_serialization_ != nullptr) {
+      LOG(INFO) << "DRAM_SSD embedding delete via rocksdb_for_serialization_";
+      rocksdb_for_serialization_->delete_rocksdb_checkpoint_dir();
     } else {
       LOG(INFO) << "Skipping delete_rocksdb_checkpoint_dir: "
                 << "db_ is not EmbeddingRocksDB (likely DRAM backend)";
@@ -541,6 +545,15 @@ void KVTensorWrapper::set_dram_db_wrapper(
     c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
   db_ = db->impl_;
 }
+
+void KVTensorWrapper::set_dram_ssd_db_wrapper(
+    c10::intrusive_ptr<kv_mem::DramSsdKVEmbeddingCacheWrapper> db) {
+  db_ = db->impl_;
+  rocksdb_for_serialization_ = db->rocksdb_impl_;
+  LOG(INFO) << "[DRAM_SSD] set_dram_ssd_db_wrapper: db_=" << db_.get()
+            << ", rocksdb_for_serialization_="
+            << rocksdb_for_serialization_.get();
+}
 void KVTensorWrapper::logss() {
   if (snapshot_handle_) {
     XLOG(INFO) << "snapshot_handle_ is valid";
@@ -578,15 +591,32 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
       CHECK(t.is_contiguous());
       return t;
     } else {
+      auto narrow_start_us = facebook::WallClockUtil::NowInUsecFast();
+      XLOG(INFO) << "[KVTensorWrapper::narrow] sorted_indices path, "
+                 << "num_ids=" << sorted_indices_.value().size(0)
+                 << ", start=" << start << ", length=" << length
+                 << ", backend_return_whole_row="
+                 << db_->get_backend_return_whole_row()
+                 << ", width_offset=" << width_offset_;
       at::Tensor sliced_ids =
           sorted_indices_.value().slice(0, start, start + length);
+      auto get_weights_start_us = facebook::WallClockUtil::NowInUsecFast();
       auto weights = get_weights_by_ids(sliced_ids);
+      auto get_weights_us =
+          facebook::WallClockUtil::NowInUsecFast() - get_weights_start_us;
 
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
         // backend returns whole row, so we need to replace the first 8 bytes
         // with the sliced_ids
         replace_weights_id(weights, sliced_ids);
       }
+      XLOG(INFO) << "[KVTensorWrapper::narrow] sorted_indices done, start="
+                 << start << " length=" << length
+                 << " get_weights_ms=" << get_weights_us / 1000.0
+                 << " total_elapsed_ms="
+                 << (facebook::WallClockUtil::NowInUsecFast() -
+                     narrow_start_us) /
+              1000.0;
       return weights;
     }
   } else {
@@ -1253,6 +1283,192 @@ static auto dram_kv_embedding_cache_wrapper =
         .def(
             "get_dram_kv_perf",
             &DramKVEmbeddingCacheWrapper::get_dram_kv_perf);
+auto dram_ssd_kv_embedding_cache_wrapper =
+    torch::class_<DramSsdKVEmbeddingCacheWrapper>(
+        "fbgemm",
+        "DramSsdKVEmbeddingCacheWrapper")
+        .def(
+            torch::init<
+                int64_t,
+                double,
+                double,
+                std::optional<c10::intrusive_ptr<kv_mem::FeatureEvictConfig>>,
+                int64_t,
+                int64_t,
+                int64_t,
+                std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
+                bool,
+                bool,
+                bool,
+                bool,
+                int64_t,
+                int64_t,
+                std::vector<std::string>,
+                std::vector<int64_t>,
+                std::vector<int64_t>,
+                int64_t,
+                int64_t,
+                std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>,
+                std::string,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                bool,
+                int64_t,
+                int64_t,
+                bool,
+                int64_t,
+                bool>(),
+            "",
+            {
+                torch::arg("max_D"),
+                torch::arg("uniform_init_lower"),
+                torch::arg("uniform_init_upper"),
+                torch::arg("feature_evict_config") = std::nullopt,
+                torch::arg("num_shards") = 8,
+                torch::arg("num_threads") = 32,
+                torch::arg("row_storage_bitwidth") = 32,
+                torch::arg("table_dims") = std::nullopt,
+                torch::arg("hash_size_cumsum") = std::nullopt,
+                torch::arg("backend_return_whole_row") = false,
+                torch::arg("enable_async_update") = false,
+                torch::arg("disable_random_init") = false,
+                torch::arg("enable_raw_embedding_streaming") = false,
+                torch::arg("res_store_shards") = 0,
+                torch::arg("res_server_port") = 0,
+                torch::arg("table_names") = std::vector<std::string>{},
+                torch::arg("table_offsets") = std::vector<int64_t>{},
+                torch::arg("table_sizes") = std::vector<int64_t>{},
+                torch::arg("writeback_queue_size") = 1024,
+                torch::arg("writeback_batch_size") = 1024,
+                torch::arg("enrichment_config") = std::nullopt,
+                torch::arg("ssd_path") = std::string(""),
+                torch::arg("memtable_flush_period") = 0,
+                torch::arg("memtable_flush_offset") = 0,
+                torch::arg("l0_files_per_compact") = 0,
+                torch::arg("rate_limit_mbps") = 0,
+                torch::arg("size_ratio") = 10,
+                torch::arg("compaction_ratio") = 0,
+                torch::arg("write_buffer_size") = 0,
+                torch::arg("max_write_buffer_num") = 0,
+                torch::arg("block_cache_size") = 0,
+                torch::arg("use_passed_in_path") = true,
+                torch::arg("tbe_unique_id") = 0,
+                torch::arg("l2_cache_size_gb") = 0,
+                torch::arg("ssd_enable_async_update") = false,
+                torch::arg("flushing_block_size") = 2000000000,
+                torch::arg("enable_blob_db") = false,
+            })
+        .def(
+            "set_cuda",
+            &DramSsdKVEmbeddingCacheWrapper::set_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("timestep"),
+                torch::arg("is_bwd") = false,
+            })
+        .def("get_cuda", &DramSsdKVEmbeddingCacheWrapper::get_cuda)
+        .def(
+            "set_backend_return_whole_row",
+            &DramSsdKVEmbeddingCacheWrapper::set_backend_return_whole_row,
+            "",
+            {
+                torch::arg("backend_return_whole_row"),
+            })
+        .def(
+            "trigger_feature_evict",
+            &DramSsdKVEmbeddingCacheWrapper::trigger_feature_evict)
+        .def("is_evicting", &DramSsdKVEmbeddingCacheWrapper::is_evicting)
+        .def("set", &DramSsdKVEmbeddingCacheWrapper::set)
+        .def(
+            "set_range_to_storage",
+            &DramSsdKVEmbeddingCacheWrapper::set_range_to_storage)
+        .def(
+            "get",
+            &DramSsdKVEmbeddingCacheWrapper::get,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("sleep_ms") = 0,
+            })
+        .def(
+            "wait_util_filling_work_done",
+            &DramSsdKVEmbeddingCacheWrapper::wait_util_filling_work_done)
+        .def(
+            "wait_until_eviction_done",
+            &DramSsdKVEmbeddingCacheWrapper::wait_until_eviction_done)
+        .def(
+            "get_keys_in_range",
+            &DramSsdKVEmbeddingCacheWrapper::get_keys_in_range,
+            "",
+            {
+                torch::arg("start"),
+                torch::arg("end"),
+            })
+        .def(
+            "set_feature_score_metadata_cuda",
+            &DramSsdKVEmbeddingCacheWrapper::set_feature_score_metadata_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("count"),
+                torch::arg("engage_rates"),
+            })
+        .def("flush", &DramSsdKVEmbeddingCacheWrapper::flush)
+        .def(
+            "get_keys_in_range_by_snapshot",
+            &DramSsdKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot)
+        .def(
+            "get_kv_zch_eviction_metadata_by_snapshot",
+            &DramSsdKVEmbeddingCacheWrapper::
+                get_kv_zch_eviction_metadata_by_snapshot)
+        .def(
+            "get_feature_evict_metric",
+            &DramSsdKVEmbeddingCacheWrapper::get_feature_evict_metric)
+        .def(
+            "get_dram_kv_perf",
+            &DramSsdKVEmbeddingCacheWrapper::get_dram_kv_perf)
+        .def(
+            "set_embedding_cache_enrich_query_id_cuda",
+            &DramSsdKVEmbeddingCacheWrapper::
+                set_embedding_cache_enrich_query_id_cuda,
+            "",
+            {
+                torch::arg("hashed_indices"),
+                torch::arg("unhashed_indices"),
+                torch::arg("count"),
+            })
+        .def(
+            "create_snapshot",
+            &DramSsdKVEmbeddingCacheWrapper::create_snapshot)
+        .def(
+            "get_snapshot_count",
+            &DramSsdKVEmbeddingCacheWrapper::get_snapshot_count)
+        .def(
+            "create_rocksdb_hard_link_snapshot",
+            &DramSsdKVEmbeddingCacheWrapper::create_rocksdb_hard_link_snapshot,
+            "",
+            {
+                torch::arg("global_step"),
+            })
+        .def(
+            "get_active_checkpoint_uuid",
+            &DramSsdKVEmbeddingCacheWrapper::get_active_checkpoint_uuid)
+        .def(
+            "delete_rocksdb_checkpoint_dir",
+            &DramSsdKVEmbeddingCacheWrapper::delete_rocksdb_checkpoint_dir);
 static auto embedding_rocks_db_read_only_wrapper =
     torch::class_<ReadOnlyEmbeddingKVDB>("fbgemm", "ReadOnlyEmbeddingKVDB")
         .def(
@@ -1312,6 +1528,11 @@ static auto kv_tensor_wrapper =
         .def(
             "set_dram_db_wrapper",
             &KVTensorWrapper::set_dram_db_wrapper,
+            "",
+            {torch::arg("db")})
+        .def(
+            "set_dram_ssd_db_wrapper",
+            &KVTensorWrapper::set_dram_ssd_db_wrapper,
             "",
             {torch::arg("db")})
         .def(
