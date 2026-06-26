@@ -191,9 +191,14 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
             tensor_stream(indices, weights, identities, runtime_meta));
 
         weights_to_stream_queue_.dequeue();
+        auto post_dequeue_depth = weights_to_stream_queue_.size();
+        if (ods_logger_) {
+          ods_logger_->bumpKeyGauge(
+              "stream_mpsc_depth", static_cast<double>(post_dequeue_depth));
+        }
         XLOG_EVERY_MS(INFO, 60000)
             << "[TBE_ID" << unique_id_
-            << "] end stream queue size: " << weights_to_stream_queue_.size()
+            << "] end stream queue size: " << post_dequeue_depth
             << " stream takes " << stop_watch.elapsed().count() << "ms";
       }
     });
