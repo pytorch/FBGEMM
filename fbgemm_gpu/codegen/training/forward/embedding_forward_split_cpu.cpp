@@ -408,8 +408,8 @@ void csr2csc_template_(
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
   csc.num_non_zero_columns = 0;
-  const auto nnz = csr_offsets[table_to_feature_offset[1] * B] -
-      csr_offsets[table_to_feature_offset[0] * B];
+  const auto nnz = csr_offsets[(size_t)table_to_feature_offset[1] * B] -
+      csr_offsets[(size_t)table_to_feature_offset[0] * B];
   if (nnz == 0) {
     return;
   }
@@ -423,7 +423,7 @@ void csr2csc_template_(
   bool is_shared_table =
       table_to_feature_offset[1] > table_to_feature_offset[0] + 1;
   const auto NS = csr_offsets[(size_t)table_to_feature_offset[1] * B] -
-      csr_offsets[table_to_feature_offset[0] * B];
+      csr_offsets[(size_t)table_to_feature_offset[0] * B];
 
   using pair_t = std::pair<int, scalar_t>;
   using value_t = std::conditional_t<IS_VALUE_PAIR, pair_t, int>;
@@ -438,14 +438,14 @@ void csr2csc_template_(
       static_cast<value_t*>(
           fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t))));
 
-  const auto FBo = csr_offsets[table_to_feature_offset[0] * B];
+  const auto FBo = csr_offsets[(size_t)table_to_feature_offset[0] * B];
   for (int feature = table_to_feature_offset[0];
        feature < table_to_feature_offset[1];
        ++feature) {
     const auto FBs = (feature - table_to_feature_offset[0]) * B;
     at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
       for (int b = b_begin; b < b_end; ++b) {
-        const auto FBb = feature * B + b;
+        const auto FBb = (size_t)feature * B + b;
         const auto pool_begin = csr_offsets[FBb];
         const auto pool_end = csr_offsets[FBb + 1];
         const auto L = pool_end - pool_begin;
@@ -458,8 +458,11 @@ void csr2csc_template_(
         for (const auto p : c10::irange(pool_begin, pool_end)) {
           tmpBufKeys[p - FBo] = csr_indices[p];
           if constexpr (IS_VALUE_PAIR) {
-            tmpBufValues[p - FBo] = std::pair{
-                FBs + b, scale_factor * (has_weights ? csr_weights[p] : 1.0f)};
+            tmpBufValues[p - FBo] = pair_t{
+                FBs + b,
+                static_cast<scalar_t>(
+                    scale_factor *
+                    (has_weights ? static_cast<double>(csr_weights[p]) : 1.0))};
           } else {
             tmpBufValues[p - FBo] = FBs + b;
           }
