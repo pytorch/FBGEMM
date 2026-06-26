@@ -85,7 +85,7 @@ DLL_PUBLIC Tensor index_select_cuda(
             scalar_t,                                          \
             UNROLL_FACTOR,                                     \
             INDICES_SORTED>),                                  \
-        cuda_calc_xblock_count(N, 1),                          \
+        blocks_x,                                              \
         std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads), \
         0,                                                     \
         at::cuda::getCurrentCUDAStream(),                      \
@@ -94,6 +94,15 @@ DLL_PUBLIC Tensor index_select_cuda(
         PTA_B(orig_indices_, int64_t, 1, 64),                  \
         PTA_B(output, scalar_t, 2, 64));                       \
   }
+
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike
+  // CUDA, which silently wraps). index_select_2d_kernel grid-strides over
+  // `row`, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_x = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(N, 1),
+      std::min<int64_t>(div_round_up(D, UNROLL_FACTOR), kMaxThreads),
+      at::cuda::getCurrentCUDAStream());
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "index_add_2d_kernel_1", [&] {
     FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
