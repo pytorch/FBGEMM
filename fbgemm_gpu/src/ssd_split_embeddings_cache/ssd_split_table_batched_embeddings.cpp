@@ -423,6 +423,9 @@ void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
     if (db != nullptr) {
       LOG(INFO) << "embedding delete";
       db->delete_rocksdb_checkpoint_dir();
+    } else if (rocksdb_for_serialization_ != nullptr) {
+      LOG(INFO) << "DRAM_SSD embedding delete via rocksdb_for_serialization_";
+      rocksdb_for_serialization_->delete_rocksdb_checkpoint_dir();
     } else {
       LOG(INFO) << "Skipping delete_rocksdb_checkpoint_dir: "
                 << "db_ is not EmbeddingRocksDB (likely DRAM backend)";
@@ -542,6 +545,15 @@ void KVTensorWrapper::set_dram_db_wrapper(
     c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
   db_ = db->impl_;
 }
+
+void KVTensorWrapper::set_dram_ssd_db_wrapper(
+    c10::intrusive_ptr<kv_mem::DramSsdKVEmbeddingCacheWrapper> db) {
+  db_ = db->impl_;
+  rocksdb_for_serialization_ = db->rocksdb_impl_;
+  LOG(INFO) << "[DRAM_SSD] set_dram_ssd_db_wrapper: db_=" << db_.get()
+            << ", rocksdb_for_serialization_="
+            << rocksdb_for_serialization_.get();
+}
 void KVTensorWrapper::logss() {
   if (snapshot_handle_) {
     XLOG(INFO) << "snapshot_handle_ is valid";
@@ -579,15 +591,32 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
       CHECK(t.is_contiguous());
       return t;
     } else {
+      auto narrow_start_us = facebook::WallClockUtil::NowInUsecFast();
+      XLOG(INFO) << "[KVTensorWrapper::narrow] sorted_indices path, "
+                 << "num_ids=" << sorted_indices_.value().size(0)
+                 << ", start=" << start << ", length=" << length
+                 << ", backend_return_whole_row="
+                 << db_->get_backend_return_whole_row()
+                 << ", width_offset=" << width_offset_;
       at::Tensor sliced_ids =
           sorted_indices_.value().slice(0, start, start + length);
+      auto get_weights_start_us = facebook::WallClockUtil::NowInUsecFast();
       auto weights = get_weights_by_ids(sliced_ids);
+      auto get_weights_us =
+          facebook::WallClockUtil::NowInUsecFast() - get_weights_start_us;
 
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
         // backend returns whole row, so we need to replace the first 8 bytes
         // with the sliced_ids
         replace_weights_id(weights, sliced_ids);
       }
+      XLOG(INFO) << "[KVTensorWrapper::narrow] sorted_indices done, start="
+                 << start << " length=" << length
+                 << " get_weights_ms=" << get_weights_us / 1000.0
+                 << " total_elapsed_ms="
+                 << (facebook::WallClockUtil::NowInUsecFast() -
+                     narrow_start_us) /
+              1000.0;
       return weights;
     }
   } else {
@@ -1499,6 +1528,11 @@ static auto kv_tensor_wrapper =
         .def(
             "set_dram_db_wrapper",
             &KVTensorWrapper::set_dram_db_wrapper,
+            "",
+            {torch::arg("db")})
+        .def(
+            "set_dram_ssd_db_wrapper",
+            &KVTensorWrapper::set_dram_ssd_db_wrapper,
             "",
             {torch::arg("db")})
         .def(

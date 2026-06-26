@@ -11,6 +11,10 @@
 #include "kv_tensor_wrapper.h"
 #include "ssd_table_batched_embeddings.h"
 
+namespace kv_mem {
+class DramSsdKVEmbeddingCacheWrapper;
+} // namespace kv_mem
+
 namespace ssd {
 
 class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
@@ -266,6 +270,7 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
  private:
   friend class KVTensorWrapper;
+  friend class kv_mem::DramSsdKVEmbeddingCacheWrapper;
 
   // shared pointer since we use shared_from_this() in callbacks.
   std::shared_ptr<ssd::EmbeddingRocksDB> impl_;
