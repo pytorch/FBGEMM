@@ -379,9 +379,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self.enable_optimizer_offloading:
                 logging.info("Optimizer state offloading is enabled")
             if self.backend_return_whole_row:
-                assert (
-                    self.backend_type == BackendType.DRAM
-                ), f"Only DRAM backend supports backend_return_whole_row, but got {self.backend_type}"
+                assert self.backend_type in (
+                    BackendType.DRAM,
+                    BackendType.DRAM_SSD,
+                ), f"Only DRAM and DRAM_SSD backends support backend_return_whole_row, but got {self.backend_type}"
                 logging.info(
                     "Backend will return whole row including metaheader, weight and optimizer for checkpoint"
                 )
@@ -1017,6 +1018,142 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.res_params.table_sizes,
                 enrichment_config,  # enrichment_config
             )
+        elif self.backend_type == BackendType.DRAM_SSD:
+            logging.info(
+                f"Logging DRAM_SSD offloading setup, tbe_unique_id:{tbe_unique_id}, "
+                f"num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
+                f"max_D={self.max_D},"
+                f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
+                f"row_storage_bitwidth={weights_precision.bit_rate()},"
+                f"self.cache_row_dim={self.cache_row_dim},"
+                f"enable_optimizer_offloading={self.enable_optimizer_offloading},"
+                f"feature_dims={self.feature_dims},"
+                f"hash_size_cumsum={self.hash_size_cumsum},"
+                f"backend_return_whole_row={self.backend_return_whole_row},"
+                f"ssd_directory={ssd_directory}"
+            )
+            table_dims = (
+                tensor_pad4(self.table_dims)
+                if self.enable_optimizer_offloading
+                else None
+            )  # table_dims
+            eviction_config = None
+            if self.kv_zch_params and self.kv_zch_params.eviction_policy:
+                eviction_mem_threshold_gb = (
+                    self.kv_zch_params.eviction_policy.eviction_mem_threshold_gb
+                    if self.kv_zch_params.eviction_policy.eviction_mem_threshold_gb
+                    else self.l2_cache_size
+                )
+                kv_zch_params = self.kv_zch_params
+                eviction_policy = self.kv_zch_params.eviction_policy
+                if eviction_policy.eviction_trigger_mode == 5:
+                    self.set_free_mem_eviction_trigger_config(eviction_policy)
+
+                enable_eviction_for_feature_score_eviction_policy = (
+                    [
+                        int(x)
+                        for x in eviction_policy.enable_eviction_for_feature_score_eviction_policy
+                    ]
+                    if eviction_policy.enable_eviction_for_feature_score_eviction_policy
+                    is not None
+                    else None
+                )
+                eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
+                    eviction_policy.eviction_trigger_mode,
+                    eviction_policy.eviction_strategy,
+                    eviction_policy.eviction_step_intervals,
+                    eviction_mem_threshold_gb,
+                    eviction_policy.ttls_in_mins,
+                    eviction_policy.counter_thresholds,
+                    eviction_policy.counter_decay_rates,
+                    eviction_policy.feature_score_counter_decay_rates,
+                    eviction_policy.training_id_eviction_trigger_count,
+                    eviction_policy.training_id_keep_count,
+                    enable_eviction_for_feature_score_eviction_policy,
+                    eviction_policy.l2_weight_thresholds,
+                    table_dims.tolist() if table_dims is not None else None,
+                    eviction_policy.threshold_calculation_bucket_stride,
+                    eviction_policy.threshold_calculation_bucket_num,
+                    eviction_policy.interval_for_insufficient_eviction_s,
+                    eviction_policy.interval_for_sufficient_eviction_s,
+                    eviction_policy.interval_for_feature_statistics_decay_s,
+                )
+            enrichment_config = None
+            if self.kv_zch_params and self.kv_zch_params.enrichment_policy is not None:
+                ep = self.kv_zch_params.enrichment_policy
+                if ep.enrichment_type is None:
+                    raise ValueError(
+                        "enrichment_policy is set but enrichment_type is None. "
+                        "Please specify a valid EnrichmentType."
+                    )
+                enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
+                    ep.enrichment_type.value,
+                    ep.provider_name,
+                    ep.client_id,
+                    ep.enrichment_dim,
+                    ep.response_format.value,
+                    ep.opentab_tier_name,
+                    ep.opentab_payload_ids,
+                    ep.opentab_payload_types,
+                    ep.opentab_column_group_ids,
+                    ep.opentab_vec_payload_indexes,
+                    ep.opentab_timeout_ms,
+                    ep.opentab_batch_size,
+                    ep.fs_tier,
+                    ep.fs_caller_id,
+                    ep.fs_timeout_ms,
+                    ep.fs_batch_size,
+                    ep.fs_feature_group_id,
+                    ep.fs_feature_group_name,
+                    ep.fs_feature_name,
+                    ep.laser_batch_size,
+                )
+            # Create the composite DRAM+SSD wrapper. The wrapper is the sole
+            # initializer of the DRAM+SSD backend: it builds the RocksDB (L3)
+            # tier internally (including the MetaHeader-adjusted max_D /
+            # table_dims) and assembles the composite, so rocksdb_impl_ is
+            # always set for checkpoint/snapshot paths.
+            self._ssd_db = torch.classes.fbgemm.DramSsdKVEmbeddingCacheWrapper(
+                self.cache_row_dim,
+                ssd_uniform_init_lower,
+                ssd_uniform_init_upper,
+                eviction_config,
+                ssd_rocksdb_shards,  # num_shards
+                ssd_rocksdb_shards,  # num_threads
+                weights_precision.bit_rate(),  # row_storage_bitwidth
+                table_dims,
+                (
+                    self.table_hash_size_cumsum.cpu()
+                    if self.enable_optimizer_offloading
+                    else None
+                ),  # hash_size_cumsum
+                self.backend_return_whole_row,  # backend_return_whole_row
+                False,  # enable_async_update (DRAM L2 cache)
+                self._embedding_cache_mode,  # disable_random_init
+                self.enable_raw_embedding_streaming,
+                self.res_params.res_store_shards,
+                self.res_params.res_server_port,
+                self.res_params.table_names,
+                self.res_params.table_offsets,
+                self.res_params.table_sizes,
+                enrichment_config=enrichment_config,
+                # SSD (RocksDB L3 tier) construction params
+                ssd_path=ssd_directory,
+                memtable_flush_period=ssd_memtable_flush_period,
+                memtable_flush_offset=ssd_memtable_flush_offset,
+                l0_files_per_compact=ssd_l0_files_per_compact,
+                rate_limit_mbps=ssd_rate_limit_mbps,
+                size_ratio=ssd_size_ratio,
+                compaction_ratio=ssd_compaction_trigger,
+                write_buffer_size=ssd_rocksdb_write_buffer_size,
+                max_write_buffer_num=ssd_max_write_buffer_num,
+                block_cache_size=ssd_block_cache_size_per_tbe,
+                use_passed_in_path=use_passed_in_path,
+                tbe_unique_id=tbe_unique_id,
+                l2_cache_size_gb=l2_cache_size,
+                ssd_enable_async_update=enable_async_update,
+                flushing_block_size=flushing_block_size,
+            )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
 
@@ -1332,6 +1469,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"eviction.tbe_id.{tbe_unique_id}.evict_rate"
         )
 
+        self.dram_ssd_kv_ssd_num_lookups_stats_name: str = (
+            f"dram_ssd_kv.perf.tbe_id{tbe_unique_id}.ssd_num_lookups"
+        )
+        self.dram_ssd_kv_ssd_num_hits_stats_name: str = (
+            f"dram_ssd_kv.perf.tbe_id{tbe_unique_id}.ssd_num_hits"
+        )
+        self.dram_ssd_kv_ssd_num_writes_stats_name: str = (
+            f"dram_ssd_kv.perf.tbe_id{tbe_unique_id}.ssd_num_writes"
+        )
+        self.dram_ssd_kv_ssd_num_ids_stats_name: str = (
+            f"dram_ssd_kv.perf.tbe_id{tbe_unique_id}.ssd_num_ids"
+        )
+        self.dram_ssd_kv_ssd_total_rows_written_stats_name: str = (
+            f"dram_ssd_kv.perf.tbe_id{tbe_unique_id}.ssd_total_rows_written"
+        )
+        self.dram_ssd_kv_ssd_hit_rate_stats_name: str = (
+            f"dram_ssd_kv.perf.tbe_id{tbe_unique_id}.ssd_hit_rate"
+        )
+
         if self.stats_reporter:
             self.ssd_prefetch_read_timer = AsyncSeriesTimer(
                 functools.partial(
@@ -1375,6 +1531,18 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.enrichment_success_rate_stats_name)
             self.stats_reporter.register_stats(self.l1_hit_rate_stats_name)
             self.stats_reporter.register_stats(self.overall_hit_rate_stats_name)
+            self.stats_reporter.register_stats(
+                self.dram_ssd_kv_ssd_num_lookups_stats_name
+            )
+            self.stats_reporter.register_stats(self.dram_ssd_kv_ssd_num_hits_stats_name)
+            self.stats_reporter.register_stats(
+                self.dram_ssd_kv_ssd_num_writes_stats_name
+            )
+            self.stats_reporter.register_stats(self.dram_ssd_kv_ssd_num_ids_stats_name)
+            self.stats_reporter.register_stats(
+                self.dram_ssd_kv_ssd_total_rows_written_stats_name
+            )
+            self.stats_reporter.register_stats(self.dram_ssd_kv_ssd_hit_rate_stats_name)
             for t in self.feature_table_map:
                 self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.evicted_counts"
@@ -2510,7 +2678,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         is_bwd=False,
                     )
                 if (
-                    self.backend_type == BackendType.DRAM
+                    self.backend_type in (BackendType.DRAM, BackendType.DRAM_SSD)
                     and weights is not None
                     and linear_cache_indices.numel() > 0
                 ):
@@ -3083,11 +3251,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 sorted_indices=sorted_ids[t],
                 width_offset=pad4(d),
             )
-            (
+            if self.backend_type == BackendType.SSD:
                 tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
-                if self.backend_type == BackendType.SSD
-                else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
-            )
+            elif self.backend_type == BackendType.DRAM_SSD:
+                tensor_wrapper.set_dram_ssd_db_wrapper(self.ssd_db)
+            else:
+                tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
 
             # Fetch the state size table for the given weights domension
             state_size_table = self.optimizer.state_size_table(d)
@@ -3286,11 +3455,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     # Optimizer written to DB with weights, so skip write here
                     read_only=True,
                 )
-                (
+                if self.backend_type == BackendType.SSD:
                     tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
-                    if self.backend_type == BackendType.SSD
-                    else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
-                )
+                elif self.backend_type == BackendType.DRAM_SSD:
+                    tensor_wrapper.set_dram_ssd_db_wrapper(self.ssd_db)
+                else:
+                    tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
 
                 optimizer_states.append(
                     PartiallyMaterializedTensor(tensor_wrapper, True)
@@ -3473,6 +3643,62 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"state_dict wait for ongoing eviction: {time.time() - evict_wait_start_time} s"
             )
             self.flush(force=should_flush)
+        elif self.backend_type == BackendType.DRAM_SSD:
+            # Flush is unconditional: checkpoint reads come from SSD only, so an
+            # unflushed SSD would produce 0-byte weights.
+            evict_wait_start_time = time.time()
+            self.ssd_db.wait_until_eviction_done()
+            evict_wait_ms = (time.time() - evict_wait_start_time) * 1000
+
+            # Flush L1 GPU cache (may return early when enrichment is enabled).
+            l1_flush_start = time.time()
+            self.flush(force=should_flush)
+            l1_flush_ms = (time.time() - l1_flush_start) * 1000
+
+            # Explicitly flush L2 DRAM -> SSD, since self.flush() skips it when
+            # enrichment is enabled. Double-flush is a safe no-op.
+            l2_flush_start = time.time()
+            self.ssd_db.flush()
+            l2_flush_ms = (time.time() - l2_flush_start) * 1000
+
+            logging.info(
+                f"DRAM_SSD flush total latency for weight states: "
+                f"{(time.time() - start_time) * 1000:.1f} ms "
+                f"(evict_wait={evict_wait_ms:.1f}ms, "
+                f"l1_flush={l1_flush_ms:.1f}ms, "
+                f"l2_flush={l2_flush_ms:.1f}ms)"
+            )
+            if not no_snapshot:
+                with record_function(
+                    f"## DRAM_SSD_create_snapshot_{self.step}_{self.tbe_unique_id} ##"
+                ):
+                    # Release previous snapshot; stale ones pin SST files.
+                    prev_snapshot = getattr(self, "_prev_dram_ssd_snapshot", None)
+                    if prev_snapshot is not None:
+                        logging.info(
+                            "DRAM_SSD: releasing previous snapshot reference "
+                            f"(snapshot_count={self.ssd_db.get_snapshot_count()})"
+                        )
+                        self._prev_dram_ssd_snapshot = None  # type: ignore[assignment]
+                        del prev_snapshot
+                        logging.info(
+                            "DRAM_SSD: after release, "
+                            f"snapshot_count={self.ssd_db.get_snapshot_count()}"
+                        )
+
+                    # Create RocksDB snapshot for consistent checkpoint reads
+                    snapshot_handle = self.ssd_db.create_snapshot()
+                    # Store reference so we can release it next checkpoint
+                    self._prev_dram_ssd_snapshot = snapshot_handle
+                    # TODO: enable checkpoint_handle for DRAM_SSD via
+                    # self.ssd_db.get_active_checkpoint_uuid(self.step).
+                    checkpoint_handle = None
+                    logging.info(
+                        f"DRAM_SSD created snapshot: {snapshot_handle}, "
+                        f"checkpoint_handle: {checkpoint_handle}, "
+                        f"snapshot_count={self.ssd_db.get_snapshot_count()}, "
+                        f"latency: {(time.time() - start_time) * 1000} ms"
+                    )
         return snapshot_handle, checkpoint_handle
 
     def get_embedding_dim_for_kvt(
@@ -3674,11 +3900,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     else False
                 ),
             )
-            (
+            if self.backend_type == BackendType.SSD:
                 tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
-                if self.backend_type == BackendType.SSD
-                else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
-            )
+            elif self.backend_type == BackendType.DRAM_SSD:
+                tensor_wrapper.set_dram_ssd_db_wrapper(self.ssd_db)
+            else:
+                tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
 
             # When rocksdb snapshot and checkpoint handle are available, serialize and
             # deserialize the KVTensor to create a ReadOnlyEmbeddingKVDB-backed
@@ -3873,11 +4100,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             snapshot_handle=None,
             sorted_indices=id_tensor,
         )
-        (
+        if self.backend_type == BackendType.SSD:
             kvt.set_embedding_rocks_dp_wrapper(self.ssd_db)
-            if self.backend_type == BackendType.SSD
-            else kvt.set_dram_db_wrapper(self.ssd_db)
-        )
+        elif self.backend_type == BackendType.DRAM_SSD:
+            kvt.set_dram_ssd_db_wrapper(self.ssd_db)
+        else:
+            kvt.set_dram_db_wrapper(self.ssd_db)
 
         # TODO: make chunk_size configurable or dynamic
         chunk_size = 10000
@@ -4081,11 +4309,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         Create a rocksdb hard link snapshot to provide cross procs access to the underlying data
         """
-        if self.backend_type == BackendType.SSD:
+        if self.backend_type in (BackendType.SSD, BackendType.DRAM_SSD):
             self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
         else:
             logging.warning(
-                "create_rocksdb_hard_link_snapshot is only supported for SSD backend"
+                "create_rocksdb_hard_link_snapshot is only supported for SSD and DRAM_SSD backends"
             )
 
     def prepare_inputs(
@@ -4143,7 +4371,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self._report_ssd_io_stats()
             self._report_ssd_mem_usage()
             self._report_l2_cache_perf_stats()
-        if self.backend_type == BackendType.DRAM:
+        if self.backend_type in (BackendType.DRAM, BackendType.DRAM_SSD):
             self._report_dram_kv_perf_stats()
             if self.kv_zch_params and self.kv_zch_params.eviction_policy:
                 self._report_eviction_stats()
