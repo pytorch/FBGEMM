@@ -11,6 +11,7 @@
 
 import random
 import unittest
+from typing import Any, Callable
 
 import hypothesis.strategies as st
 import torch
@@ -20,10 +21,15 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, skipIfRocm
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests, skipIfRocm
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, skipIfRocm
+    from fbgemm_gpu.test.test_utils import (
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+        skipIfRocm,
+    )
 
 
 class ReorderBatchedTest(unittest.TestCase):
@@ -531,7 +537,7 @@ class ReorderBatchedTest(unittest.TestCase):
     ) -> None:
         MAX_H = 1000
         DIM = 32
-        device = torch.device("cuda")
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
         ref_embeddings = torch.rand(MAX_H, DIM, dtype=emb_dtype, device=device)
         feature_lengths = [
             torch.randint(
@@ -605,8 +611,189 @@ class ReorderBatchedTest(unittest.TestCase):
             reordered_sequence_embedding_from_indices, reordered_cat_sequence_embeddings
         )
 
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_reorder_batched_ad_lengths_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in reorder_batched_ad_lengths_kernel
+        and verifies output correctness against the CPU dispatch.
 
-extend_test_class(ReorderBatchedTest)
+        With block dim3(32, 32) (1024 threads per block), grid = (B*T+31)/32.
+        Total threads ~= B*T * 32. For B*T > 2**27, total threads exceed the
+        HIP 2**32 limit, causing FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded to TORCH_CHECK-fail on
+        ROCm pre-fix.
+
+        ``cat_ad_lengths`` is sparse: zero everywhere except sentinel
+        non-zero entries at start / middle / end so any "kernel
+        addressed wrong row" bug surfaces in the assertion below.
+        """
+        T = 1
+        B = (1 << 27) + 1  # B*T > 2**27
+        num_ads_in_batch = B
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse non-zero lengths at sentinel positions.
+        cat_ad_lengths_cpu = torch.zeros(T * B, dtype=torch.int32)
+        cat_ad_lengths_cpu[0] = 1
+        cat_ad_lengths_cpu[(T * B) // 2] = 2
+        cat_ad_lengths_cpu[T * B - 1] = 3
+        batch_offsets_cpu = torch.arange(B + 1, dtype=torch.int32)
+
+        # CPU reference oracle.
+        reordered_cpu = torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_ad_lengths_cpu, batch_offsets_cpu, num_ads_in_batch, False, -1
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        reordered_gpu = torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_ad_lengths_cpu.to(device),
+            batch_offsets_cpu.to(device),
+            num_ads_in_batch,
+            False,
+            -1,
+        )
+
+        torch.testing.assert_close(reordered_gpu.cpu(), reordered_cpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_reorder_batched_ad_indices_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        reorder_batched_ad_indices_kernel_vec and verifies output
+        correctness against the CPU dispatch. AMD branch uses
+        dim3(32, NUM_WARPS=4) blocks; total threads ~= B*T * 32.
+
+        ``cat_ad_offsets`` is sparse: most segments have length zero with
+        sentinel non-zero entries at start / middle / end, so the kernel
+        actually reorders a small number of indices while the launch
+        grid still trips the cap pre-fix.
+        """
+        T = 1
+        B = (1 << 27) + 1
+        num_ads_in_batch = B
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse non-zero lengths at sentinel positions, total = 6.
+        lengths_cpu = torch.zeros(T * B, dtype=torch.int32)
+        lengths_cpu[0] = 1
+        lengths_cpu[(T * B) // 2] = 2
+        lengths_cpu[T * B - 1] = 3
+        # Cumulative offsets.
+        cat_ad_offsets_cpu = torch.zeros(T * B + 1, dtype=torch.int32)
+        cat_ad_offsets_cpu[1:] = torch.cumsum(lengths_cpu, dim=0).to(torch.int32)
+        # Distinct indices so any out-of-order copy bug surfaces.
+        cat_ad_indices_cpu = torch.tensor([10, 20, 21, 30, 31, 32], dtype=torch.int32)
+        batch_offsets_cpu = torch.arange(B + 1, dtype=torch.int32)
+        # reordered_cat_ad_offsets matches cat_ad_offsets when num_ads_in_batch == B.
+        reordered_cat_ad_offsets_cpu = cat_ad_offsets_cpu.clone()
+
+        # CPU reference oracle.
+        reordered_cpu = torch.ops.fbgemm.reorder_batched_ad_indices(
+            cat_ad_offsets_cpu,
+            cat_ad_indices_cpu,
+            reordered_cat_ad_offsets_cpu,
+            batch_offsets_cpu,
+            num_ads_in_batch,
+            False,  # broadcast_indices
+            int(cat_ad_indices_cpu.numel()),
+        )
+
+        # GPU op under test.
+        reordered_gpu = torch.ops.fbgemm.reorder_batched_ad_indices(
+            cat_ad_offsets_cpu.to(device),
+            cat_ad_indices_cpu.to(device),
+            reordered_cat_ad_offsets_cpu.to(device),
+            batch_offsets_cpu.to(device),
+            num_ads_in_batch,
+            False,
+            int(cat_ad_indices_cpu.numel()),
+        )
+
+        torch.testing.assert_close(reordered_gpu.cpu(), reordered_cpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_reorder_batched_sequence_embeddings_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        reorder_batched_sequence_embeddings_kernel and verifies output
+        correctness against the CPU dispatch.
+
+        ``cat_sequence_embeddings_offsets`` is sparse with sentinel
+        non-zero segments at start / middle / end; the embedding values
+        are distinct per row so any "kernel addressed wrong row" bug
+        surfaces.
+        """
+        T = 1
+        B = (1 << 27) + 1
+        num_items_in_batch = B
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse non-zero lengths, total = 6.
+        lengths_cpu = torch.zeros(T * B, dtype=torch.int32)
+        lengths_cpu[0] = 1
+        lengths_cpu[(T * B) // 2] = 2
+        lengths_cpu[T * B - 1] = 3
+        cat_seq_offsets_cpu = torch.zeros(T * B + 1, dtype=torch.int32)
+        cat_seq_offsets_cpu[1:] = torch.cumsum(lengths_cpu, dim=0).to(torch.int32)
+        # Distinct embedding values, shape (6, D).
+        cat_seq_emb_cpu = torch.tensor(
+            [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]], dtype=torch.float32
+        )
+        reordered_cat_seq_offsets_cpu = cat_seq_offsets_cpu.clone()
+        batch_offsets_cpu = torch.arange(B + 1, dtype=torch.int32)
+
+        # CPU reference oracle.
+        reordered_cpu = torch.ops.fbgemm.reorder_batched_sequence_embeddings(
+            cat_seq_offsets_cpu,
+            cat_seq_emb_cpu,
+            reordered_cat_seq_offsets_cpu,
+            batch_offsets_cpu,
+            num_items_in_batch,
+        )
+
+        # GPU op under test.
+        reordered_gpu = torch.ops.fbgemm.reorder_batched_sequence_embeddings(
+            cat_seq_offsets_cpu.to(device),
+            cat_seq_emb_cpu.to(device),
+            reordered_cat_seq_offsets_cpu.to(device),
+            batch_offsets_cpu.to(device),
+            num_items_in_batch,
+        )
+
+        torch.testing.assert_close(reordered_gpu.cpu(), reordered_cpu)
+
+
+# Large-grid tests allocate B = 2^27 elements, which causes OOM/timeout
+# during opcheck tracing (faketensor, aot_dispatch_dynamic).  Skip them.
+additional_decorators: dict[str, list[Callable[..., Any]]] = {
+    "test_faketensor__test_reorder_batched_ad_lengths_large_grid": [
+        unittest.skip("large-grid test OOMs under faketensor tracing")
+    ],
+    "test_aot_dispatch_dynamic__test_reorder_batched_ad_lengths_large_grid": [
+        unittest.skip("large-grid test OOMs under aot_dispatch tracing")
+    ],
+    "test_faketensor__test_reorder_batched_ad_indices_large_grid": [
+        unittest.skip("large-grid test OOMs under faketensor tracing")
+    ],
+    "test_aot_dispatch_dynamic__test_reorder_batched_ad_indices_large_grid": [
+        unittest.skip("large-grid test OOMs under aot_dispatch tracing")
+    ],
+    "test_faketensor__test_reorder_batched_sequence_embeddings_large_grid": [
+        unittest.skip("large-grid test OOMs under faketensor tracing")
+    ],
+    "test_aot_dispatch_dynamic__test_reorder_batched_sequence_embeddings_large_grid": [
+        unittest.skip("large-grid test OOMs under aot_dispatch tracing")
+    ],
+}
+
+extend_test_class(ReorderBatchedTest, additional_decorators)
 
 if __name__ == "__main__":
     unittest.main()
