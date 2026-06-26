@@ -400,6 +400,7 @@ class BackwardSplitGenerator:
             approx_rowwise_adagrad_with_weight_decay(),
             rowwise_adagrad_with_counter(),
             approx_rowwise_adagrad_with_counter(),
+            rowwise_rmsprop_ar(),
             rowwise_weighted_adagrad(),
             sgd(),
             approx_sgd(),

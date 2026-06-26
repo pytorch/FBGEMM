@@ -788,6 +788,139 @@ def approx_rowwise_adagrad_with_counter() -> dict[str, Any]:
     }
 
 
+def rowwise_rmsprop_ar() -> dict[str, Any]:
+    """
+    Rowwise RMSprop with Adaptive Regularization (RMSpropAR).
+
+    A staleness-aware, lazily-applied weight decay on top of rowwise RMSprop.
+    The decay for a row is scaled by how many steps elapsed since it was last
+    touched, and is paid only on the step the row is touched.
+
+    Per-row update:
+        I       = step − prev_iter[idx]                         # elapsed steps incl. current
+        lambda  = min(1, learning_rate · ar_alpha · I)
+        v[idx]  = ema_beta · v[idx] + (1 − ema_beta) · mean(g²)
+        mult    = learning_rate / (sqrt(v[idx]) + eps)
+        weight  = max(min_shrinkage, 1 − lambda) · weight − mult · grad
+        prev_iter[idx] = step                                   # only on touched rows
+
+    Per-row state: momentum1 (EMA of g²) + prev_iter. 2 floats/row.
+
+    User-facing knobs:
+      ar_alpha      — adaptive decay coefficient. 0 disables AR (plain RMSprop).
+                      Named `ar_alpha` (not `alpha`) to avoid colliding with the
+                      dper3 convention where `alpha` means learning rate.
+      ema_beta      — EMA decay for momentum1 (typical 0.9–0.999).
+      min_shrinkage — Floor on the decay multiplier. Default 0.1; set to 0.0
+                      for a full soft-reset of cold rows.
+
+    Sparse adaptations:
+      1. Scale lambda by learning_rate so tail rows don't collapse at moderate ar_alpha.
+      2. I includes the current step, and decay is applied only on touch —
+         mirrors lazy_delta in rowwise_adagrad_with_counter (AdagradW).
+    """
+    split_weight_update = """
+        weight_new.acc.x = exp_reg_correction * weight_new.acc.x - multiplier * grad.acc.x;
+        weight_new.acc.y = exp_reg_correction * weight_new.acc.y - multiplier * grad.acc.y;
+        weight_new.acc.z = exp_reg_correction * weight_new.acc.z - multiplier * grad.acc.z;
+        weight_new.acc.w = exp_reg_correction * weight_new.acc.w - multiplier * grad.acc.w;
+    """
+    split_precomputation = """
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
+    """
+    split_precomputation += generate_optimized_grad_sum_loop_access(
+        """
+        const float4* grad = &{grad_vec}.acc;
+        g_local_sum_square += grad->x * grad->x + grad->y * grad->y + grad->z * grad->z + grad->w * grad->w;
+        """
+    )
+    split_precomputation += """
+    const at::acc_type<cache_t, true> g_avg_square =
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
+
+    at::acc_type<cache_t, true> multiplier = 0.0;
+    at::acc_type<cache_t, true> exp_reg_correction = 1.0;
+
+    if (threadIdx.x == 0) {
+        // EMA accumulator (RMSprop): v ← ema_beta·v + (1−ema_beta)·mean(g²).
+        const at::acc_type<cache_t, true> new_sum_square_grads =
+            ema_beta * momentum1[idx]
+            + ((at::acc_type<cache_t, true>)1.0 - ema_beta) * g_avg_square;
+        momentum1[idx] = new_sum_square_grads;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+
+        // First-touch sentinel: prev_iter==0 → step_gap=1.
+        const auto step_gap = prev_iter[idx] == 0 ? 1.0
+                                                  : (iter * 1.0 - prev_iter[idx]);
+        const auto lambda =
+            fmaxf(0.0f, fminf(1.0f, learning_rate * ar_alpha * step_gap));
+        exp_reg_correction = fmaxf(min_shrinkage, 1.0f - lambda);
+
+        // Lazy update on touched rows only.
+        prev_iter[idx] = iter * 1.0;
+    }
+    multiplier = SHFL_SYNC(multiplier, 0);
+    exp_reg_correction = SHFL_SYNC(exp_reg_correction, 0);
+    """
+    split_weight_update_cpu = """
+        at::acc_type<grad_t, true> g_local_sum_square = 0.0;
+        for (int64_t d = 0; d < D; ++d) {
+            auto grad = grad_buffer[d];
+            g_local_sum_square += grad * grad;
+        }
+        const auto g_avg_square = g_local_sum_square / D;
+
+        const at::acc_type<grad_t, true> new_sum_square_grads =
+            (at::acc_type<grad_t, true>)ema_beta * momentum1[idx]
+            + ((at::acc_type<grad_t, true>)1.0
+               - (at::acc_type<grad_t, true>)ema_beta) * g_avg_square;
+        momentum1[idx] = new_sum_square_grads;
+        const auto multiplier =
+            learning_rate / (sqrtf(new_sum_square_grads) + eps);
+
+        const auto step_gap = prev_iter[idx] == 0 ? 1.0
+                                                  : (iter * 1.0 - prev_iter[idx]);
+        const auto lambda = fmaxf(
+            0.0f, fminf(1.0f, (float)(learning_rate * ar_alpha * step_gap)));
+        const auto exp_reg_correction = fmaxf((float)min_shrinkage, 1.0f - lambda);
+        prev_iter[idx] = iter * 1.0;
+
+        for (int64_t d = 0; d < D; ++d) {
+            weights[d] = exp_reg_correction * weights[d] - multiplier * grad_buffer[d];
+        }
+    """
+
+    return {
+        "optimizer": "rowwise_rmsprop_ar",
+        "args": OptimizerArgsSet.create(
+            [
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "prev_iter"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                # Adaptive decay coefficient.
+                # to avoid colliding with dper3's `alpha`=learning_rate convention.
+                OptimItem(ArgType.FLOAT, "ar_alpha", 0.0),
+                OptimItem(ArgType.INT, "iter"),
+                # EMA decay for momentum1 (g²).
+                OptimItem(ArgType.FLOAT, "ema_beta", 0.99),
+                # Floor on the decay multiplier; 0.0 = full soft-reset of cold rows.
+                OptimItem(ArgType.FLOAT, "min_shrinkage", 0.1),
+            ],
+        ),
+        "split_precomputation": split_precomputation,
+        "split_weight_update": split_weight_update,
+        "split_post_update": "",
+        "split_weight_update_cpu": split_weight_update_cpu,
+        "has_cpu_support": True,
+        "has_gpu_support": True,
+        "has_vbe_support": True,
+        # ar does NOT support global weight decay, and this must always stay False.
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
+    }
+
+
 # Deprecated, to be cleaned up
 def rowwise_weighted_adagrad() -> dict[str, Any]:
     split_weight_update = """
