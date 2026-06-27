@@ -36,8 +36,8 @@ def map_dtype_to_triton(dtype: torch.dtype) -> tl.dtype:
         raise ValueError(f"Unsupported dtype {dtype}")
 
 
-# check if we have the TMA version in Triton PR #4498 (https://github.com/triton-lang/triton/pull/4498).
-HAS_TMA_DESC = "nv_tma_desc_type" in dir(tl)
+# `nv_tma_desc_type` (Triton PR #4498) was removed in Triton 3.x.
+HAS_TMA_DESC = hasattr(tl, "make_tensor_descriptor")
 
 if HAS_TMA_DESC:
     print(
