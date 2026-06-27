@@ -26,10 +26,15 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, optests
+    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available, optests
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+    )
 
 
 class IndexSelectTest(unittest.TestCase):
@@ -550,6 +555,118 @@ class IndexSelectTest(unittest.TestCase):
             dtype=torch.float,
             device=device,
             op=torch.ops.fbgemm.batch_index_select_dim0,
+        )
+
+    @optests.dontGenerateOpCheckTests(
+        "opcheck variants of index_select_dim0 hang under the harness; this "
+        "repro test drives the same op as test_index_select_dim0 (which also "
+        "opts out) and does its own CPU-oracle correctness check (T191384137)"
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    # This test exercises the HIP launch-side limit on the
+    # index_select_dim0 forward path, which calls index_select_2d_kernel.
+    # Forward materializes input + output tensors at ~16 GiB each. Most CI
+    # machines without 36+ GiB of HBM will skip. ROCm developer machines
+    # (MI300/MI350, 192/256 GiB HBM) and large-HBM NVIDIA parts run it.
+    @unittest.skipIf(*gpu_memory_lt_gb(36))
+    def test_index_select_dim0_forward_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in index_select_2d_kernel
+        (the forward kernel for fbgemm.index_select_dim0) and verifies
+        output correctness against the CPU dispatch via a downsampled
+        oracle.
+
+        With block_size = min(div_round_up(D, UNROLL_FACTOR=2), 1024),
+        for D = 1024, fp16, block_size = 512. Grid is
+        (cuda_calc_xblock_count(N, 1), 1, 1). With N = (1 << 23) + 1,
+        total threads = N * 512 ~= 2**32 + 512, exceeding the HIP
+        launch-side limit. Pre-fix on ROCm, FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded TORCH_CHECK-fails.
+
+        Verification strategy (per master plan's downsampled-oracle
+        guidance for ops where the full-scale CPU oracle is impractical
+        due to ~16 GiB CPU memory pressure):
+
+        1. Full-scale forward to verify launch survival at the cap-trip
+           scale, plus a sentinel value check on the produced output.
+           Backward is not exercised at full scale because the autograd
+           buffers (~64 GiB combined) exhaust the HIP caching allocator
+           even on 256 GiB MI350; backward correctness is validated at
+           small scale below. The backward kernel
+           (index_add_2d_with_unique_indices_kernel) is fixed in a
+           separate diff in the same stack.
+        2. Small-scale invocation vs CPU dispatch with sentinel non-zero
+           values to validate kernel correctness end-to-end (forward
+           and backward).
+        """
+
+        N = (1 << 23) + 1
+        D = 1024
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: full-scale forward launch survival + sentinel check. ----
+        # fp16 keeps each (N, D) tensor at ~16 GiB. Wrap in no_grad to
+        # avoid autograd graph creation (keeps memory pressure bounded).
+        with torch.no_grad():
+            input_t = torch.zeros((N, D), dtype=torch.float16, device=device)
+            # Place sentinel non-zero values at start / middle / end rows so
+            # any "kernel addressed wrong row" bug surfaces.
+            input_t[0, 0] = 1.0
+            input_t[N // 2, D // 2] = 2.0
+            input_t[N - 1, D - 1] = 3.0
+            # Identity selection: every input row is selected exactly once.
+            indices = torch.arange(N, dtype=torch.int32, device=device)
+
+            output = torch.ops.fbgemm.index_select_dim0(input_t, indices)
+            self.assertEqual(output.shape, (N, D))
+            # Spot-check sentinel positions; identity permute means
+            # output[i, j] == input[i, j].
+            self.assertEqual(output[0, 0].item(), 1.0)
+            self.assertEqual(output[N // 2, D // 2].item(), 2.0)
+            self.assertEqual(output[N - 1, D - 1].item(), 3.0)
+            del input_t, indices, output
+
+        # Release HIP caching allocator pool before small-scale step so
+        # backward autograd buffers can allocate freely.
+        torch.cuda.empty_cache()
+
+        # ---- Step 2: downsampled CPU-oracle correctness check (forward+backward). ----
+        # Same kernel code path, smaller scale to keep the CPU oracle
+        # cheap. Uses sentinel non-zero values + a non-identity permute
+        # so any "kernel addressed wrong row" bug surfaces.
+        small_N = 8
+        small_D = 4
+        small_input_cpu = torch.zeros(
+            (small_N, small_D), dtype=torch.float16, requires_grad=True
+        )
+        with torch.no_grad():
+            small_input_cpu[0, 0] = 1.0
+            small_input_cpu[small_N // 2, 1] = 2.0
+            small_input_cpu[small_N - 1, small_D - 1] = 3.0
+        # Non-identity permute: circular shift by +1.
+        small_indices = torch.roll(torch.arange(small_N, dtype=torch.int32), 1)
+
+        # CPU forward + backward.
+        small_input_cpu_clone = small_input_cpu.detach().clone()
+        small_input_cpu_clone.requires_grad_(True)
+        small_output_cpu = torch.ops.fbgemm.index_select_dim0(
+            small_input_cpu_clone, small_indices
+        )
+        small_output_cpu.sum().backward()
+
+        # GPU forward + backward.
+        small_input_gpu = small_input_cpu.detach().clone().to(device)
+        small_input_gpu.requires_grad_(True)
+        small_output_gpu = torch.ops.fbgemm.index_select_dim0(
+            small_input_gpu, small_indices.to(device)
+        )
+        small_output_gpu.sum().backward()
+
+        torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
+        # pyre-ignore[16]
+        torch.testing.assert_close(
+            small_input_gpu.grad.cpu(), small_input_cpu_clone.grad
         )
 
 

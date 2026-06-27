@@ -13,6 +13,7 @@ COMMON_OPTIMIZERS = [
     "rowwise_adagrad",
     "sgd",
     "rowwise_adagrad_with_counter",
+    "rowwise_rmsprop_ar",
 ]
 
 # To be populated in the subsequent diffs
@@ -63,6 +64,7 @@ VBE_OPTIMIZERS = [
     "sgd",
     "dense",
     "adam",
+    "rowwise_rmsprop_ar",
 ]
 
 # Individual optimizers (not fused with SplitTBE backward)

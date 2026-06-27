@@ -28,23 +28,25 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
   const int32_t B = batch_offsets.size(0) - 1;
 
   const int32_t num_ads_in_batch = batch_offsets[B];
-  // warp-per-segment.
-  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  const int32_t b = b_t % B;
-  const int32_t t = b_t / B;
-  if (t >= T) {
-    return;
-  }
+  // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
+  // avoid the 2^32 launch-side limit) still covers all B*T segments.
+  const auto b_t_init = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
+  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+    const int32_t b = b_t % B;
+    const int32_t t = b_t / B;
 
-  const int32_t num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
-  const int32_t input_segment_start =
-      broadcast_lengths ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
-  const int32_t output_segment_start = t * num_ads_in_batch + batch_offsets[b];
+    const int32_t num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
+    const int32_t input_segment_start =
+        broadcast_lengths ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
+    const int32_t output_segment_start =
+        t * num_ads_in_batch + batch_offsets[b];
 
-  for (auto i = threadIdx.x; i < num_ads_b; i += blockDim.x) {
-    reordered_cat_ad_lengths[output_segment_start + i] = broadcast_lengths
-        ? cat_ad_lengths[input_segment_start]
-        : cat_ad_lengths[input_segment_start + i];
+    for (auto i = threadIdx.x; i < num_ads_b; i += blockDim.x) {
+      reordered_cat_ad_lengths[output_segment_start + i] = broadcast_lengths
+          ? cat_ad_lengths[input_segment_start]
+          : cat_ad_lengths[input_segment_start + i];
+    }
   }
 }
 
@@ -68,18 +70,26 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
       ? at::empty({T * num_ads_in_batch}, cat_ad_lengths.options())
       : at::empty_like(cat_ad_lengths);
 
-  const int64_t grid_size = (B * T + 32 - 1) / 32;
+  const int64_t grid_size_uncapped = (B * T + 32 - 1) / 32;
   TORCH_CHECK(
-      grid_size >= 0,
+      grid_size_uncapped >= 0,
       "grid_size must be positive, got ",
-      grid_size,
+      grid_size_uncapped,
       " where B =",
       B,
       " and T =",
       T);
 
   const dim3 threads(32, 32);
-  const dim3 blocks(grid_size);
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). reorder_batched_ad_lengths_kernel grid-strides
+  // over b_t, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const dim3 blocks(
+      utils::cuda::cap_grid_dim_x(
+          grid_size_uncapped,
+          static_cast<int64_t>(threads.x) * static_cast<int64_t>(threads.y),
+          at::cuda::getCurrentCUDAStream()));
 
   FBGEMM_DISPATCH_ALL_TYPES(
       cat_ad_lengths.scalar_type(),
@@ -200,41 +210,43 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
     const bool broadcast_indices) {
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_ads_in_batch = batch_offsets[B];
-  // warp-per-segment.
-  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  const int32_t b = b_t % B;
-  const int32_t t = b_t / B;
-  if (t >= T) {
-    return;
-  }
+  // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
+  // avoid the 2^32 launch-side limit) still covers all B*T segments.
+  const auto b_t_init = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
+  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+    const int32_t b = b_t % B;
+    const int32_t t = b_t / B;
 
-  const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
-  const auto output_segment_offset_start =
-      t * num_ads_in_batch + batch_offsets[b];
-  const auto output_segment_start =
-      reordered_cat_ad_offsets[output_segment_offset_start];
-  const int32_t input_segment_offset_start =
-      broadcast_indices ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
-  const int32_t input_segment_offset_end = broadcast_indices
-      ? input_segment_offset_start + 1
-      : input_segment_offset_start + num_ads_b;
-  const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
-  const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
-  const auto num_elements = input_segment_end - input_segment_start;
+    const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
+    const auto output_segment_offset_start =
+        t * num_ads_in_batch + batch_offsets[b];
+    const auto output_segment_start =
+        reordered_cat_ad_offsets[output_segment_offset_start];
+    const int32_t input_segment_offset_start =
+        broadcast_indices ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
+    const int32_t input_segment_offset_end = broadcast_indices
+        ? input_segment_offset_start + 1
+        : input_segment_offset_start + num_ads_b;
+    const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
+    const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
+    const auto num_elements = input_segment_end - input_segment_start;
 
-  if (broadcast_indices) {
-    for (auto i = threadIdx.x; i < num_ads_b * num_elements; i += blockDim.x) {
-      reordered_cat_ad_indices[output_segment_start + i] =
-          cat_ad_indices[input_segment_start + i % num_elements];
-    }
-  } else {
-    // Idea: we want to copy the entire segment of size sum_a(length_{b, t, a})
-    // from starting point (given by cat_ad_offsets[b, t])
-    // to end point (given by reordered_cat_ad_indices[t][b])
-    for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
-         i += blockDim.x) {
-      reordered_cat_ad_indices[output_segment_start + i] =
-          cat_ad_indices[input_segment_start + i];
+    if (broadcast_indices) {
+      for (auto i = threadIdx.x; i < num_ads_b * num_elements;
+           i += blockDim.x) {
+        reordered_cat_ad_indices[output_segment_start + i] =
+            cat_ad_indices[input_segment_start + i % num_elements];
+      }
+    } else {
+      // Idea: we want to copy the entire segment of size sum_a(length_{b, t,
+      // a}) from starting point (given by cat_ad_offsets[b, t]) to end point
+      // (given by reordered_cat_ad_indices[t][b])
+      for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
+           i += blockDim.x) {
+        reordered_cat_ad_indices[output_segment_start + i] =
+            cat_ad_indices[input_segment_start + i];
+      }
     }
   }
 }
@@ -267,95 +279,97 @@ __launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kerne
       typename std::conditional<sizeof(Dtype) == 8, long4, float4>::type;
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_ads_in_batch = batch_offsets[B];
-  // warp-per-segment.
-  const auto b_t = blockIdx.x * blockDim.y +
+  // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
+  // avoid the 2^32 launch-side limit) still covers all B*T segments.
+  const auto b_t_init = blockIdx.x * blockDim.y +
       threadIdx.y; // can be more efficient through bitwise op
-  const int32_t b = b_t % B;
-  const int32_t t = b_t / B;
-  if (t >= T) {
-    return;
-  }
+  const auto stride = gridDim.x * blockDim.y;
+  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+    const int32_t b = b_t % B;
+    const int32_t t = b_t / B;
 
-  const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
-  const auto output_segment_offset_start =
-      t * num_ads_in_batch + batch_offsets[b];
-  const auto output_segment_start =
-      reordered_cat_ad_offsets[output_segment_offset_start];
-  const int32_t input_segment_offset_start =
-      broadcast_indices ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
-  const int32_t input_segment_offset_end = broadcast_indices
-      ? input_segment_offset_start + 1
-      : input_segment_offset_start + num_ads_b;
-  const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
-  const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
-  const auto num_elements = input_segment_end - input_segment_start;
+    const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
+    const auto output_segment_offset_start =
+        t * num_ads_in_batch + batch_offsets[b];
+    const auto output_segment_start =
+        reordered_cat_ad_offsets[output_segment_offset_start];
+    const int32_t input_segment_offset_start =
+        broadcast_indices ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
+    const int32_t input_segment_offset_end = broadcast_indices
+        ? input_segment_offset_start + 1
+        : input_segment_offset_start + num_ads_b;
+    const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
+    const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
+    const auto num_elements = input_segment_end - input_segment_start;
 
-  Dtype* dst_ptr = reordered_cat_ad_indices.data() + output_segment_start;
-  Dtype* src_ptr = cat_ad_indices.data() + input_segment_start;
-  if (broadcast_indices) {
-    for (auto i = threadIdx.x; i < num_ads_b * num_elements; i += blockDim.x) {
-      reordered_cat_ad_indices[output_segment_start + i] =
-          cat_ad_indices[input_segment_start + i % num_elements];
-    }
-  } else {
-    // Idea: we want to copy the entire segment of size sum_a(length_{b, t, a})
-    // from starting point (given by cat_ad_offsets[b, t])
-    // to end point (given by reordered_cat_ad_indices[t][b])
-    if (num_elements <= 64 || !(sizeof(Dtype) == 4 || sizeof(Dtype) == 8)) {
-      for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
+    Dtype* dst_ptr = reordered_cat_ad_indices.data() + output_segment_start;
+    Dtype* src_ptr = cat_ad_indices.data() + input_segment_start;
+    if (broadcast_indices) {
+      for (auto i = threadIdx.x; i < num_ads_b * num_elements;
            i += blockDim.x) {
-        // coalesced global memory access, can be optimzed through ILP with the
-        // help of shared memory or vector load/store (if num_ads_b>=64)
         reordered_cat_ad_indices[output_segment_start + i] =
-            cat_ad_indices[input_segment_start + i];
+            cat_ad_indices[input_segment_start + i % num_elements];
       }
-    } else if (num_elements > 64 && num_elements <= 128) {
-      // Check alignment for vec2_t (8-byte alignment required)
-      bool vec2_t_aligned =
-          reinterpret_cast<uintptr_t>(dst_ptr) % alignof(vec2_t) == 0 &&
-          reinterpret_cast<uintptr_t>(src_ptr) % alignof(vec2_t) == 0;
-      if (vec2_t_aligned) {
-        // Use vectorized loads if properly aligned
-        auto dst = (vec2_t*)dst_ptr;
-        auto src = (vec2_t*)src_ptr;
-        for (auto i = threadIdx.x; i < num_elements / 2; i += blockDim.x) {
-          dst[i] = src[i];
-        }
-        if ((num_elements % 2) && threadIdx.x == 31) {
-          reordered_cat_ad_indices[output_segment_start + num_elements - 1] =
-              cat_ad_indices[input_segment_start + num_elements - 1];
-        }
-      } else {
-        // Fall back to scalar loads if misaligned
-        for (auto i = threadIdx.x; i < num_elements; i += blockDim.x) {
+    } else {
+      // Idea: we want to copy the entire segment of size sum_a(length_{b, t,
+      // a}) from starting point (given by cat_ad_offsets[b, t]) to end point
+      // (given by reordered_cat_ad_indices[t][b])
+      if (num_elements <= 64 || !(sizeof(Dtype) == 4 || sizeof(Dtype) == 8)) {
+        for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
+             i += blockDim.x) {
+          // coalesced global memory access, can be optimzed through ILP with
+          // the help of shared memory or vector load/store (if num_ads_b>=64)
           reordered_cat_ad_indices[output_segment_start + i] =
               cat_ad_indices[input_segment_start + i];
         }
-      }
-    } else if (num_elements > 128) {
-      // Check alignment for vec4_t (16-byte alignment required)
-      bool vec4_t_aligned =
-          reinterpret_cast<uintptr_t>(dst_ptr) % alignof(vec4_t) == 0 &&
-          reinterpret_cast<uintptr_t>(src_ptr) % alignof(vec4_t) == 0;
-      if (vec4_t_aligned) {
-        // Use vectorized loads if properly aligned
-        auto dst = (vec4_t*)dst_ptr;
-        auto src = (vec4_t*)src_ptr;
-        for (auto i = threadIdx.x; i < num_elements / 4; i += blockDim.x) {
-          dst[i] = src[i];
+      } else if (num_elements > 64 && num_elements <= 128) {
+        // Check alignment for vec2_t (8-byte alignment required)
+        bool vec2_t_aligned =
+            reinterpret_cast<uintptr_t>(dst_ptr) % alignof(vec2_t) == 0 &&
+            reinterpret_cast<uintptr_t>(src_ptr) % alignof(vec2_t) == 0;
+        if (vec2_t_aligned) {
+          // Use vectorized loads if properly aligned
+          auto dst = (vec2_t*)dst_ptr;
+          auto src = (vec2_t*)src_ptr;
+          for (auto i = threadIdx.x; i < num_elements / 2; i += blockDim.x) {
+            dst[i] = src[i];
+          }
+          if ((num_elements % 2) && threadIdx.x == 31) {
+            reordered_cat_ad_indices[output_segment_start + num_elements - 1] =
+                cat_ad_indices[input_segment_start + num_elements - 1];
+          }
+        } else {
+          // Fall back to scalar loads if misaligned
+          for (auto i = threadIdx.x; i < num_elements; i += blockDim.x) {
+            reordered_cat_ad_indices[output_segment_start + i] =
+                cat_ad_indices[input_segment_start + i];
+          }
         }
-        int remainder = num_elements % 4;
-        if (remainder && threadIdx.x < remainder) {
-          reordered_cat_ad_indices
-              [output_segment_start + num_elements - threadIdx.x - 1] =
-                  cat_ad_indices
-                      [input_segment_start + num_elements - threadIdx.x - 1];
-        }
-      } else {
-        // Fall back to scalar loads if misaligned
-        for (auto i = threadIdx.x; i < num_elements; i += blockDim.x) {
-          reordered_cat_ad_indices[output_segment_start + i] =
-              cat_ad_indices[input_segment_start + i];
+      } else if (num_elements > 128) {
+        // Check alignment for vec4_t (16-byte alignment required)
+        bool vec4_t_aligned =
+            reinterpret_cast<uintptr_t>(dst_ptr) % alignof(vec4_t) == 0 &&
+            reinterpret_cast<uintptr_t>(src_ptr) % alignof(vec4_t) == 0;
+        if (vec4_t_aligned) {
+          // Use vectorized loads if properly aligned
+          auto dst = (vec4_t*)dst_ptr;
+          auto src = (vec4_t*)src_ptr;
+          for (auto i = threadIdx.x; i < num_elements / 4; i += blockDim.x) {
+            dst[i] = src[i];
+          }
+          int remainder = num_elements % 4;
+          if (remainder && threadIdx.x < remainder) {
+            reordered_cat_ad_indices
+                [output_segment_start + num_elements - threadIdx.x - 1] =
+                    cat_ad_indices
+                        [input_segment_start + num_elements - threadIdx.x - 1];
+          }
+        } else {
+          // Fall back to scalar loads if misaligned
+          for (auto i = threadIdx.x; i < num_elements; i += blockDim.x) {
+            reordered_cat_ad_indices[output_segment_start + i] =
+                cat_ad_indices[input_segment_start + i];
+          }
         }
       }
     }
@@ -463,15 +477,24 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
 #if defined __HIP_PLATFORM_AMD__
               constexpr auto NUM_WARPS = 4;
               const dim3 threads(32, NUM_WARPS); // 32 x 4
-              const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
 #else
               constexpr auto NUM_WARPS = 32;
               auto maxWarpSize = kMaxThreads / NUM_WARPS;
               const dim3 threads(
                   NUM_WARPS,
                   maxWarpSize < kWarpSize ? maxWarpSize : kWarpSize); // 32 x 32
-              const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
 #endif
+              // HIP enforces a hard limit of 2^32 total threads per launch
+              // (unlike CUDA, which silently wraps).
+              // reorder_batched_ad_indices_kernel_vec grid-strides over b_t,
+              // so capping is correctness-preserving.
+              // See: https://github.com/ROCm/hip/issues/2253
+              const dim3 blocks(
+                  utils::cuda::cap_grid_dim_x(
+                      cuda_calc_xblock_count(B * T, NUM_WARPS),
+                      static_cast<int64_t>(threads.x) *
+                          static_cast<int64_t>(threads.y),
+                      at::cuda::getCurrentCUDAStream()));
               FBGEMM_LAUNCH_KERNEL(
                   (reorder_batched_ad_indices_kernel_name),
                   blocks,
@@ -511,34 +534,35 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
     const int32_t D) {
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_items_in_batch = batch_offsets[B];
-  // warp-per-segment.
-  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  const int32_t b = b_t % B;
-  const int32_t t = b_t / B;
-  if (t >= T) {
-    return;
-  }
+  // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
+  // avoid the 2^32 launch-side limit) still covers all B*T segments.
+  const auto b_t_init = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
+  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+    const int32_t b = b_t % B;
+    const int32_t t = b_t / B;
 
-  const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
-  const auto output_segment_offset_start =
-      t * num_items_in_batch + batch_offsets[b];
-  const auto output_segment_start =
-      reordered_cat_sequence_embeddings_offsets[output_segment_offset_start];
-  const int32_t input_segment_offset_start =
-      T * batch_offsets[b] + t * num_ads_b;
-  const int32_t input_segment_offset_end =
-      input_segment_offset_start + num_ads_b;
-  const auto input_segment_start =
-      cat_sequence_embeddings_offsets[input_segment_offset_start];
-  const auto input_segment_end =
-      cat_sequence_embeddings_offsets[input_segment_offset_end];
+    const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
+    const auto output_segment_offset_start =
+        t * num_items_in_batch + batch_offsets[b];
+    const auto output_segment_start =
+        reordered_cat_sequence_embeddings_offsets[output_segment_offset_start];
+    const int32_t input_segment_offset_start =
+        T * batch_offsets[b] + t * num_ads_b;
+    const int32_t input_segment_offset_end =
+        input_segment_offset_start + num_ads_b;
+    const auto input_segment_start =
+        cat_sequence_embeddings_offsets[input_segment_offset_start];
+    const auto input_segment_end =
+        cat_sequence_embeddings_offsets[input_segment_offset_end];
 
-  for (size_t i = 0; i < input_segment_end - input_segment_start; i++) {
-    const auto output_offset = output_segment_start + i;
-    const auto input_offset = input_segment_start + i;
-    for (auto d = threadIdx.x; d < D; d += blockDim.x) {
-      reordered_cat_sequence_embeddings[output_offset][d] =
-          cat_sequence_embeddings[input_offset][d];
+    for (size_t i = 0; i < input_segment_end - input_segment_start; i++) {
+      const auto output_offset = output_segment_start + i;
+      const auto input_offset = input_segment_start + i;
+      for (auto d = threadIdx.x; d < D; d += blockDim.x) {
+        reordered_cat_sequence_embeddings[output_offset][d] =
+            cat_sequence_embeddings[input_offset][d];
+      }
     }
   }
 }
@@ -568,7 +592,16 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
       at::empty_like(cat_sequence_embeddings);
 
   const dim3 threads(32, 32);
-  const dim3 blocks((B * T + 32 - 1) / 32);
+  const auto grid_size_uncapped = (B * T + 32 - 1) / 32;
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). reorder_batched_sequence_embeddings_kernel
+  // grid-strides over b_t, so capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const dim3 blocks(
+      utils::cuda::cap_grid_dim_x(
+          grid_size_uncapped,
+          static_cast<int64_t>(threads.x) * static_cast<int64_t>(threads.y),
+          at::cuda::getCurrentCUDAStream()));
 
   FBGEMM_DISPATCH_FLOATING_TYPES_AND(
       at::ScalarType::Byte,
