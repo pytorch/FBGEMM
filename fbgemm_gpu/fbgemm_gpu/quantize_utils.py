@@ -32,10 +32,19 @@ except NotImplementedError:
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 if not open_source:
-    from mtia.kernels.triton.mx4.quantize import (
-        triton_dequantize_mx4 as mtia_dequantize_mx4,
-        triton_quantize_mx4 as mtia_quantize_mx4,
-    )
+    # The MTIA mx4 kernels dep is gated to MTIA builds (see BUCK), so on
+    # non-MTIA builds the module is entirely absent and the import raises
+    # ModuleNotFoundError. `except ImportError` guards it (ModuleNotFoundError
+    # is an ImportError subclass); the symbols are only ever called under
+    # `tensor.is_mtia` runtime checks, which never fire on non-MTIA builds.
+    try:
+        # pyre-ignore[21]: dep gated to MTIA builds, absent under DEFAULT config
+        from mtia.kernels.triton.mx4.quantize import (
+            triton_dequantize_mx4 as mtia_dequantize_mx4,
+            triton_quantize_mx4 as mtia_quantize_mx4,
+        )
+    except ImportError:
+        pass
 
 logger: logging.Logger = logging.getLogger()
 
