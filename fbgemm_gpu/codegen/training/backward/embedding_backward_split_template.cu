@@ -1251,7 +1251,7 @@ Tensor {{ embedding_cuda_op }}(
                              32,
                              false>;
 
-                        cta_blockSize = dim3(32, num_cta_per_row_groups);
+                        cta_blockSize = dim3(32, num_cta_per_row_groups * 2);
                         // Notice that, kThreadGroupSize * kFixedMaxVecsPerThread * vec_width should >= max_D
                     }
                     {%- endif %}
