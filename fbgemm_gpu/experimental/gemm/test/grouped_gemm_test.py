@@ -35,7 +35,7 @@ class TestGroupedGEMM(unittest.TestCase):
         G=st.sampled_from([1, 4, 16, 128]),
         M=st.sampled_from([0, 128, 2048, 16384]),
         N=st.sampled_from([256]),
-        K=st.sampled_from([256]),
+        K=st.sampled_from([64, 128, 256]),
         fast_accumulation=st.sampled_from([True, False]),
         warp_specialization=st.sampled_from(
             [False]
