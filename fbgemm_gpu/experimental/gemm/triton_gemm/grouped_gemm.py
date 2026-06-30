@@ -290,8 +290,8 @@ def early_config_prune_ws(configs, named_args, dtsize=None, dtype=None, **kwargs
 )
 @triton.jit
 def _fbgemm_grouped_gemm(
-    a_desc_ptr,
-    b_desc_ptr,
+    a_ptr,
+    b_ptr,
     c_ptr,
     scatter_add_indices,
     m_sizes,
@@ -317,8 +317,6 @@ def _fbgemm_grouped_gemm(
     )
 
     tidx = tl.program_id(0)
-
-    dtype: tl.dtype = c_ptr.dtype.element_ty
 
     M_end_offset = 0
     M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
@@ -346,6 +344,24 @@ def _fbgemm_grouped_gemm(
                     block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
                 )
 
+            if USE_TMA_LOAD:
+                tl.static_assert(K % BLOCK_SIZE_K == 0)
+                a_desc_ptr = tl.make_tensor_descriptor(
+                    a_ptr + M_start_offset * K,
+                    shape=[m_size, K],
+                    # pyre-ignore
+                    strides=[K, 1],
+                    block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_K],
+                )
+                b_desc_ptr = tl.make_tensor_descriptor(
+                    b_ptr + N_start_offset * K,
+                    # pyre-ignore
+                    shape=[n_size, K],
+                    # pyre-ignore
+                    strides=[K, 1],
+                    block_shape=[BLOCK_SIZE_N, BLOCK_SIZE_K],
+                )
+
             # Move across tiles
             while tidx >= iterated_tiles and tidx < iterated_tiles + num_tiles:
                 gidx = tidx - iterated_tiles
@@ -356,22 +372,11 @@ def _fbgemm_grouped_gemm(
                 accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
 
                 if USE_TMA_LOAD:
-                    tl.static_assert(K % BLOCK_SIZE_K == 0)
-                    m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                    n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                    m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                    n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
                     for k_offset in range(0, K, BLOCK_SIZE_K):
-                        a = tl._experimental_descriptor_load(
-                            a_desc_ptr,
-                            [m_offset, k_offset],
-                            [BLOCK_SIZE_M, BLOCK_SIZE_K],
-                            dtype,
-                        )
-                        b = tl._experimental_descriptor_load(
-                            b_desc_ptr,
-                            [n_offset, k_offset],
-                            [BLOCK_SIZE_N, BLOCK_SIZE_K],
-                            dtype,
-                        )
+                        a = a_desc_ptr.load([m_offset, k_offset])
+                        b = b_desc_ptr.load([n_offset, k_offset])
                         if USE_FAST_ACCUM:
                             accumulator = tl.dot(a, b.T, accumulator)
                         else:
@@ -381,12 +386,12 @@ def _fbgemm_grouped_gemm(
                     offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
                     offs_k = tl.arange(0, BLOCK_SIZE_K)
                     a_ptrs = (
-                        a_desc_ptr
+                        a_ptr
                         + (M_start_offset + offs_am[:, None]) * K
                         + offs_k[None, :]
                     )
                     b_ptrs = (
-                        b_desc_ptr
+                        b_ptr
                         + (N_start_offset + offs_bn[:, None]) * K
                         + offs_k[None, :]
                     )
@@ -604,9 +609,9 @@ TT_FP8_DTYPE = tl.float8e4b8 if torch.version.hip else tl.float8e4nv
 )
 @triton.jit
 def _fbgemm_grouped_gemm_fp8_rowwise(
-    a_desc_ptr,
+    a_ptr,
     a_scale_ptr,
-    b_desc_ptr,
+    b_ptr,
     b_scale_ptr,
     b_scale_desc_ptr,
     c_ptr,
@@ -635,8 +640,6 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
 
     tidx = tl.program_id(0)
 
-    dtype = TT_FP8_DTYPE
-
     M_end_offset = 0
     M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
     iterated_tiles = 0
@@ -663,6 +666,23 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                     block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
                 )
 
+            if USE_TMA_LOAD:
+                a_desc_ptr = tl.make_tensor_descriptor(
+                    a_ptr + M_start_offset * K,
+                    shape=[m_size, K],
+                    # pyre-ignore
+                    strides=[K, 1],
+                    block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_K],
+                )
+                b_desc_ptr = tl.make_tensor_descriptor(
+                    b_ptr + N_start_offset * K,
+                    # pyre-ignore
+                    shape=[n_size, K],
+                    # pyre-ignore
+                    strides=[K, 1],
+                    block_shape=[BLOCK_SIZE_N, BLOCK_SIZE_K],
+                )
+
             # Move across tiles
             while tidx >= iterated_tiles and tidx < iterated_tiles + num_tiles:
                 gidx = tidx - iterated_tiles
@@ -673,21 +693,11 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                 accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
                 tl.static_assert(K % BLOCK_SIZE_K == 0)
                 if USE_TMA_LOAD:
-                    m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                    n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                    m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                    n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
                     for k_offset in range(0, K, BLOCK_SIZE_K):
-                        a = tl._experimental_descriptor_load(
-                            a_desc_ptr,
-                            [m_offset, k_offset],
-                            [BLOCK_SIZE_M, BLOCK_SIZE_K],
-                            dtype,
-                        )
-                        b = tl._experimental_descriptor_load(
-                            b_desc_ptr,
-                            [n_offset, k_offset],
-                            [BLOCK_SIZE_N, BLOCK_SIZE_K],
-                            dtype,
-                        )
+                        a = a_desc_ptr.load([m_offset, k_offset])
+                        b = b_desc_ptr.load([n_offset, k_offset])
                         if USE_FAST_ACCUM:
                             accumulator = tl.dot(a, b.T, accumulator)
                         else:
@@ -697,12 +707,12 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                     offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
                     offs_k = tl.arange(0, BLOCK_SIZE_K)
                     a_ptrs = (
-                        a_desc_ptr
+                        a_ptr
                         + (M_start_offset + offs_am[:, None]) * K
                         + offs_k[None, :]
                     )
                     b_ptrs = (
-                        b_desc_ptr
+                        b_ptr
                         + (N_start_offset + offs_bn[:, None]) * K
                         + offs_k[None, :]
                     )
@@ -1009,6 +1019,7 @@ def _grouped_gemm(
             output_tensor is None
         ), f"Fused scatter add has large rounding error when K or N is not a multiple of 8: {K=}, {N=}."
 
+    # No fp8 K%16 gate needed: K % BLOCK_SIZE_K == 0 and every BLOCK_SIZE_K % 16 == 0.
     if output_tensor is None:
         FUSE_SCATTER_ADD = False
         assert scatter_add_indices is None
@@ -1024,22 +1035,20 @@ def _grouped_gemm(
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
 
+    # WS kernels still consume host-built descriptors; non-WS build them device-side.
+    desc_x, desc_w, desc_ws = x, w, w_scale
     desc_helper = None
-    desc_x = x
-    desc_w = w
-    desc_ws = w_scale
-
-    if USE_TMA_LOAD:
+    if USE_TMA_LOAD and use_warp_specialization:
         desc_helper = utils.TmaAutoTuneHelper()
         desc_helper.init_tma_descriptor("x")
         desc_helper.init_tma_descriptor("w")
         desc_x = desc_helper.get_tma_descriptor_kernel_param("x")
         desc_w = desc_helper.get_tma_descriptor_kernel_param("w")
-        if use_warp_specialization and w_scale is not None:
+        if w_scale is not None:
             desc_helper.init_tma_descriptor("ws")
             desc_ws = desc_helper.get_tma_descriptor_kernel_param("ws")
 
-    if USE_TMA_STORE:
+    if USE_TMA_LOAD or USE_TMA_STORE:
 
         def alloc_fn(size: int, alignment: int, stream: Optional[int]):
             return torch.empty(size, device="cuda", dtype=torch.int8)
@@ -1047,8 +1056,7 @@ def _grouped_gemm(
         triton.set_allocator(alloc_fn)
 
     def grid(META):
-        if USE_TMA_LOAD:
-            nonlocal desc_helper  # noqa: F824
+        if desc_helper is not None:
             desc_helper.fill_2d_tma_descriptor(
                 "x",
                 x.data_ptr(),
@@ -1058,7 +1066,6 @@ def _grouped_gemm(
                 META["BLOCK_SIZE_K"],
                 x.element_size(),
             )
-
             desc_helper.fill_2d_tma_descriptor(
                 "w",
                 w.data_ptr(),
@@ -1068,7 +1075,6 @@ def _grouped_gemm(
                 META["BLOCK_SIZE_K"],
                 w.element_size(),
             )
-
             if META.get("USE_TMA_LOAD_ON_SCALES", False):
                 desc_helper.fill_1d_tma_descriptor(
                     "ws",
@@ -1077,7 +1083,6 @@ def _grouped_gemm(
                     META["BLOCK_SIZE_N"],
                     w_scale.element_size(),
                 )
-
         return (NUM_SMS,)
 
     M_BUCKET_CAP = 16384

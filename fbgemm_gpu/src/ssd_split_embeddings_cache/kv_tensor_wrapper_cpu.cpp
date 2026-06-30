@@ -55,6 +55,11 @@ void KVTensorWrapper::set_dram_db_wrapper(
   FBEXCEPTION("Not implemented");
 }
 
+void KVTensorWrapper::set_dram_ssd_db_wrapper(
+    c10::intrusive_ptr<kv_mem::DramSsdKVEmbeddingCacheWrapper> db) {
+  FBEXCEPTION("Not implemented");
+}
+
 at::Tensor KVTensorWrapper::narrow(
     int64_t dim [[maybe_unused]],
     int64_t start [[maybe_unused]],
