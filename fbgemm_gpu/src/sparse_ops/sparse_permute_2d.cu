@@ -56,8 +56,56 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
   }
 }
 
-// Vectorized kernel for permuting 2D indices and weights. Uses vec4 loads for
-// improved memory bandwidth when data is aligned.
+// Copy `n` elements from `src` to `dst` across the x-dimension threads of the
+// thread block (one warp-row handles one segment) using 16-byte uint4
+// loads/stores. The caller guarantees `dst` and `src` are 16-byte aligned. `E`
+// elements pack into each uint4 (8/4/2 for 2/4/8-byte elements), with a scalar
+// tail handling the (< E) leftover. uint4 vectorizes any element size dividing
+// 16, including 2-byte (bf16/fp16) data.
+template <typename elem_t>
+__device__ __forceinline__ void vec4_copy_segment(
+    elem_t* __restrict__ dst,
+    const elem_t* __restrict__ src,
+    const int32_t n) {
+  constexpr int32_t E = 16 / static_cast<int32_t>(sizeof(elem_t));
+  const int32_t nvec = n / E;
+  auto* __restrict__ dst_vec = reinterpret_cast<uint4*>(dst);
+  const auto* __restrict__ src_vec = reinterpret_cast<const uint4*>(src);
+#pragma unroll
+  for (auto i = threadIdx.x; i < nvec; i += blockDim.x) {
+    dst_vec[i] = src_vec[i];
+  }
+  const int32_t remainder = n - nvec * E;
+  if (threadIdx.x < remainder) {
+    const auto offset = nvec * E + threadIdx.x;
+    dst[offset] = src[offset];
+  }
+}
+
+// Copy one segment, using 16-byte uint4 loads/stores when both pointers are
+// 16-byte aligned and a scalar loop otherwise. Used for the indices and weights
+// streams when they have different element sizes (e.g. int64 indices + fp32
+// weights), where the fused two-stream path does not apply.
+template <typename elem_t>
+__device__ __forceinline__ void copy_segment_maybe_vec(
+    elem_t* __restrict__ dst,
+    const elem_t* __restrict__ src,
+    const int32_t n) {
+  const uintptr_t coalign =
+      reinterpret_cast<uintptr_t>(dst) | reinterpret_cast<uintptr_t>(src);
+  if ((coalign & 0xF) == 0) {
+    vec4_copy_segment(dst, src, n);
+  } else {
+#pragma unroll 4
+    for (auto i = threadIdx.x; i < n; i += blockDim.x) {
+      dst[i] = src[i];
+    }
+  }
+}
+
+// Vectorized kernel for permuting 2D indices and weights. Uses 128-bit (uint4)
+// loads/stores for 16-byte-aligned segments (fusing the indices+weights streams
+// when present) and falls back to scalar copies otherwise.
 template <
     bool has_weight,
     typename offsets_t,
@@ -74,12 +122,6 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
     const offsets_t* __restrict__ output_offsets,
     indices_t* __restrict__ permuted_indices,
     weights_t* __restrict__ permuted_weights) {
-  // Select vector types based on element size (vec4 for 4x bandwidth)
-  using indices_vec4_t =
-      typename std::conditional<sizeof(indices_t) == 8, long4, float4>::type;
-  using weights_vec4_t =
-      typename std::conditional<sizeof(weights_t) == 8, long4, float4>::type;
-
   const auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
   const auto stride = gridDim.x * blockDim.y;
   const int32_t BT = B * T;
@@ -95,75 +137,60 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
         static_cast<int32_t>(output_end - output_start);
     const offsets_t input_start = input_offsets[permute[t] * B + b];
 
-    // Compute pointers
-    indices_t* __restrict__ indices_dst_ptr = permuted_indices + output_start;
-    const indices_t* __restrict__ indices_src_ptr = indices + input_start;
-    weights_t* __restrict__ weights_dst_ptr =
-        has_weight ? permuted_weights + output_start : nullptr;
-    const weights_t* __restrict__ weights_src_ptr =
-        has_weight ? weights + input_start : nullptr;
+    indices_t* __restrict__ indices_dst = permuted_indices + output_start;
+    const indices_t* __restrict__ indices_src = indices + input_start;
 
-    // Check alignment once per segment
-    const bool indices_vec4_aligned =
-        (sizeof(indices_t) == 4 || sizeof(indices_t) == 8) &&
-        (reinterpret_cast<uintptr_t>(indices_dst_ptr) &
-         (alignof(indices_vec4_t) - 1)) == 0 &&
-        (reinterpret_cast<uintptr_t>(indices_src_ptr) &
-         (alignof(indices_vec4_t) - 1)) == 0;
+    if constexpr (has_weight) {
+      weights_t* __restrict__ weights_dst = permuted_weights + output_start;
+      const weights_t* __restrict__ weights_src = weights + input_start;
 
-    const bool weights_vec4_aligned = !has_weight ||
-        ((reinterpret_cast<uintptr_t>(weights_dst_ptr) &
-          (alignof(weights_vec4_t) - 1)) == 0 &&
-         (reinterpret_cast<uintptr_t>(weights_src_ptr) &
-          (alignof(weights_vec4_t) - 1)) == 0);
-
-    if (indices_vec4_aligned && weights_vec4_aligned) {
-      // Vectorized path - process 4 elements at a time
-      const int32_t vec4_count = segment_length / 4;
-      const int32_t remainder = segment_length & 3; // segment_length % 4
-
-      auto indices_dst = reinterpret_cast<indices_vec4_t*>(indices_dst_ptr);
-      auto indices_src =
-          reinterpret_cast<const indices_vec4_t*>(indices_src_ptr);
-
-      if (has_weight) {
-        auto weights_dst = reinterpret_cast<weights_vec4_t*>(weights_dst_ptr);
-        auto weights_src =
-            reinterpret_cast<const weights_vec4_t*>(weights_src_ptr);
-
-// Copy both indices and weights with vec4
+      if constexpr (sizeof(indices_t) == sizeof(weights_t)) {
+        // Equal element sizes: when all four pointers are 16-byte aligned (the
+        // common case, segment offsets are emb_dim-aligned), copy both as fused
+        // uint4 streams to reach peak bandwidth. uint4 also vectorizes 2-byte
+        // (bf16/fp16) data, which the previous kernel left scalar. Keeping this
+        // instantiation lean (fused + scalar) is what lets it hit peak HBM.
+        const uintptr_t coalign = reinterpret_cast<uintptr_t>(indices_dst) |
+            reinterpret_cast<uintptr_t>(indices_src) |
+            reinterpret_cast<uintptr_t>(weights_dst) |
+            reinterpret_cast<uintptr_t>(weights_src);
+        if ((coalign & 0xF) == 0) {
+          // Inlined (not a helper call): the fused two-stream loop must be
+          // emitted directly in the kernel body to reach peak bandwidth -- the
+          // same loop behind a __forceinline__ helper measures ~13% slower.
+          constexpr int32_t E = 16 / static_cast<int32_t>(sizeof(indices_t));
+          const int32_t nvec = segment_length / E;
+          auto* id = reinterpret_cast<uint4*>(indices_dst);
+          const auto* is = reinterpret_cast<const uint4*>(indices_src);
+          auto* wd = reinterpret_cast<uint4*>(weights_dst);
+          const auto* ws = reinterpret_cast<const uint4*>(weights_src);
 #pragma unroll
-        for (auto i = threadIdx.x; i < vec4_count; i += blockDim.x) {
+          for (auto i = threadIdx.x; i < nvec; i += blockDim.x) {
+            id[i] = is[i];
+            wd[i] = ws[i];
+          }
+          const int32_t remainder = segment_length - nvec * E;
+          if (threadIdx.x < remainder) {
+            const auto offset = nvec * E + threadIdx.x;
+            indices_dst[offset] = indices_src[offset];
+            weights_dst[offset] = weights_src[offset];
+          }
+          continue;
+        }
+        // Equal size but not 16-byte aligned (rare, odd emb_dim): scalar.
+#pragma unroll 4
+        for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
           indices_dst[i] = indices_src[i];
           weights_dst[i] = weights_src[i];
         }
-        // Handle remainder elements (0-3 elements)
-        if (threadIdx.x < remainder) {
-          const auto offset = vec4_count * 4 + threadIdx.x;
-          indices_dst_ptr[offset] = indices_src_ptr[offset];
-          weights_dst_ptr[offset] = weights_src_ptr[offset];
-        }
       } else {
-// Copy only indices with vec4
-#pragma unroll
-        for (auto i = threadIdx.x; i < vec4_count; i += blockDim.x) {
-          indices_dst[i] = indices_src[i];
-        }
-        // Handle remainder elements (0-3 elements)
-        if (threadIdx.x < remainder) {
-          const auto offset = vec4_count * 4 + threadIdx.x;
-          indices_dst_ptr[offset] = indices_src_ptr[offset];
-        }
+        // Mixed element sizes (e.g. int64 indices + fp32 weights): the fused
+        // two-stream path does not apply, so vectorize each stream on its own.
+        copy_segment_maybe_vec(indices_dst, indices_src, segment_length);
+        copy_segment_maybe_vec(weights_dst, weights_src, segment_length);
       }
     } else {
-      // Scalar fallback path with loop unrolling
-#pragma unroll 4
-      for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
-        indices_dst_ptr[i] = indices_src_ptr[i];
-        if constexpr (has_weight) {
-          weights_dst_ptr[i] = weights_src_ptr[i];
-        }
-      }
+      copy_segment_maybe_vec(indices_dst, indices_src, segment_length);
     }
   }
 }
