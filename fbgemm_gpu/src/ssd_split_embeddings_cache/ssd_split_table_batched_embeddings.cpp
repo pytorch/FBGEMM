@@ -423,6 +423,9 @@ void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
     if (db != nullptr) {
       LOG(INFO) << "embedding delete";
       db->delete_rocksdb_checkpoint_dir();
+    } else if (rocksdb_for_serialization_ != nullptr) {
+      LOG(INFO) << "DRAM_SSD embedding delete via rocksdb_for_serialization_";
+      rocksdb_for_serialization_->delete_rocksdb_checkpoint_dir();
     } else {
       LOG(INFO) << "Skipping delete_rocksdb_checkpoint_dir: "
                 << "db_ is not EmbeddingRocksDB (likely DRAM backend)";
@@ -541,6 +544,15 @@ void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
 void KVTensorWrapper::set_dram_db_wrapper(
     c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
   db_ = db->impl_;
+}
+
+void KVTensorWrapper::set_dram_ssd_db_wrapper(
+    c10::intrusive_ptr<kv_mem::DramSsdKVEmbeddingCacheWrapper> db) {
+  db_ = db->impl_;
+  rocksdb_for_serialization_ = db->rocksdb_impl_;
+  LOG(INFO) << "[DRAM_SSD] set_dram_ssd_db_wrapper: db_=" << db_.get()
+            << ", rocksdb_for_serialization_="
+            << rocksdb_for_serialization_.get();
 }
 void KVTensorWrapper::logss() {
   if (snapshot_handle_) {
@@ -1499,6 +1511,11 @@ static auto kv_tensor_wrapper =
         .def(
             "set_dram_db_wrapper",
             &KVTensorWrapper::set_dram_db_wrapper,
+            "",
+            {torch::arg("db")})
+        .def(
+            "set_dram_ssd_db_wrapper",
+            &KVTensorWrapper::set_dram_ssd_db_wrapper,
             "",
             {torch::arg("db")})
         .def(
