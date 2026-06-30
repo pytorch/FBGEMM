@@ -597,15 +597,17 @@ static inline uint16x4_t cvt_fp32x4_to_bf16x4(float32x4_t v) {
   return vshrn_n_u32(rounded, 16);
 }
 
-template <typename OutputType, int BIT_RATE, bool IS_BF16_OUT>
+template <typename OutputType, int BIT_RATE>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
     const std::uint8_t* input,
     size_t input_rows,
     int input_columns,
     OutputType* output) {
   static_assert(
-      !IS_BF16_OUT || std::is_same_v<OutputType, float16>,
-      "IS_BF16_OUT requires float16 output type (bf16 is stored as uint16_t).");
+      std::is_same_v<OutputType, float> ||
+          std::is_same_v<OutputType, float16> ||
+          std::is_same_v<OutputType, bfloat16>,
+      "Only float, float16 and bfloat16 types are allowed.");
   svbool_t allTruePred = svptrue_b8();
   constexpr size_t kNumElemsPerIter = 8;
   constexpr size_t kNumBytesPerIter = BIT_RATE;
@@ -681,7 +683,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
       if constexpr (std::is_same_v<OutputType, float>) {
         vst1q_f32(output, svget_neonq(in_v_0_f));
         vst1q_f32(output + 4, svget_neonq(in_v_1_f));
-      } else if constexpr (IS_BF16_OUT) {
+      } else if constexpr (std::is_same_v<OutputType, bfloat16>) {
         const uint16x4_t bf_lo = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_0_f));
         const uint16x4_t bf_hi = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_1_f));
         vst1q_u16(
@@ -734,7 +736,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
       if constexpr (std::is_same_v<OutputType, float>) {
         svst1_f32(lastPredA, output, in_v_0_f);
         svst1_f32(lastPredB, output + 4, in_v_1_f);
-      } else if constexpr (IS_BF16_OUT) {
+      } else if constexpr (std::is_same_v<OutputType, bfloat16>) {
         const uint16x4_t bf_lo = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_0_f));
         const uint16x4_t bf_hi = cvt_fp32x4_to_bf16x4(svget_neonq(in_v_1_f));
         svst1_u16(
@@ -801,13 +803,13 @@ INSTANTIATE_QuantizationNeonFunctionsNBits(float16, 8)
 // clang-format on
 #undef INSTANTIATE_QuantizationNeonFunctionsNBits
 
-#define INSTANTIATE_DequantNBitBf16Neon(bit_rate)                            \
-  template void                                                              \
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<float16, bit_rate, true>( \
-      const std::uint8_t* input,                                             \
-      size_t input_rows,                                                     \
-      int input_columns,                                                     \
-      float16* output);
+#define INSTANTIATE_DequantNBitBf16Neon(bit_rate)                       \
+  template void                                                         \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<bfloat16, bit_rate>( \
+      const std::uint8_t* input,                                        \
+      size_t input_rows,                                                \
+      int input_columns,                                                \
+      bfloat16* output);
 
     // clang-format off
 INSTANTIATE_DequantNBitBf16Neon(2)

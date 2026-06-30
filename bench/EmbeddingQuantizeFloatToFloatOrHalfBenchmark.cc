@@ -93,7 +93,7 @@ static void performance_test_bf16() {
       randFill<uint8_t>(inpVec, 0, 20);
 
       int output_columns = colSize - 2 * sizeof(float);
-      aligned_vector<float16> outVec(rowSize * output_columns);
+      aligned_vector<fbgemm::bfloat16> outVec(rowSize * output_columns);
 
       double duration = 0.0f;
 
@@ -102,7 +102,7 @@ static void performance_test_bf16() {
       duration = measureWithWarmup(
           [&]() {
             for (int i = 0; i < kNumRepeats; ++i) {
-              Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16, true>(
+              Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<fbgemm::bfloat16>(
                   inpVec.data(), rowSize, colSize, outVec.data());
             }
           },
