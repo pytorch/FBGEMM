@@ -511,7 +511,7 @@ TEST_F(DramSsdKVEmbeddingCacheTest, FlushDirtyBlocksToSsd) {
       << "Second flush should not re-write already-flushed (clean) blocks";
 }
 
-// Test: get_dram_kv_perf appends composite SSD metrics (indices 38-42).
+// Test: get_dram_kv_perf appends the SSD metrics as the last 5 entries.
 TEST_F(DramSsdKVEmbeddingCacheTest, GetDramKvPerfReportsSsdMetrics) {
   createComposite();
 
@@ -535,14 +535,16 @@ TEST_F(DramSsdKVEmbeddingCacheTest, GetDramKvPerfReportsSsdMetrics) {
   dram_cache_->set_kv_with_metaheader_to_storage(rows);
   composite_->flush();
 
-  // interval=1 so per-interval values equal the raw counts. step%interval==0
-  // and step>0 so the SSD metrics block runs.
+  // interval=1 so per-interval values equal the raw counts. SSD metrics are
+  // the trailing kNumSsdMetrics entries, after the DRAM block.
+  constexpr size_t kNumSsdMetrics = 5;
   auto perf = composite_->get_dram_kv_perf(/*step=*/1, /*interval=*/1);
-  ASSERT_EQ(perf.size(), 43u);
-  EXPECT_DOUBLE_EQ(perf[38], 1.0); // ssd lookups
-  EXPECT_DOUBLE_EQ(perf[39], 1.0); // ssd hits
-  EXPECT_DOUBLE_EQ(perf[40], 2.0); // ssd writes (2 flushed blocks)
-  EXPECT_GT(perf[42], 0.0); // cumulative rows written to SSD
+  ASSERT_GE(perf.size(), kNumSsdMetrics);
+  const size_t ssd_offset = perf.size() - kNumSsdMetrics;
+  EXPECT_DOUBLE_EQ(perf[ssd_offset + 0], 1.0); // ssd lookups
+  EXPECT_DOUBLE_EQ(perf[ssd_offset + 1], 1.0); // ssd hits
+  EXPECT_DOUBLE_EQ(perf[ssd_offset + 2], 2.0); // ssd writes (2 flushed blocks)
+  EXPECT_GT(perf[ssd_offset + 4], 0.0); // cumulative rows written to SSD
 }
 
 // Test: set_range_to_storage (checkpoint restore) writes whole rows to SSD.

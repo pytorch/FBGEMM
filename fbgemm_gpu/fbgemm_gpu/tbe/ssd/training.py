@@ -222,6 +222,23 @@ _OPTIONAL_DRAM_KV_PERF_KEYS: frozenset[DramKvPerfStat] = frozenset(
         DramKvPerfStat.ENRICHMENT_EMPTY_COUNT,
     }
 )
+
+
+class DramSsdPerfStat(str, Enum):
+    """SSD-tier stats appended by DramSsdKVEmbeddingCache::get_dram_kv_perf
+    after the DRAM block, starting at _DRAM_SSD_PERF_OFFSET. DRAM_SSD only.
+    """
+
+    SSD_NUM_LOOKUPS = "ssd_num_lookups"
+    SSD_NUM_HITS = "ssd_num_hits"
+    SSD_NUM_WRITES = "ssd_num_writes"
+    SSD_NUM_IDS = "ssd_num_ids"
+    SSD_TOTAL_ROWS_WRITTEN = "ssd_total_rows_written"
+
+
+# Offset in the raw stats vector where DRAM_SSD SSD-tier metrics begin.
+_DRAM_SSD_PERF_OFFSET: int = len(DramKvPerfStat)
+_DRAM_SSD_PERF_COUNT: int = len(DramSsdPerfStat)
 _REQUIRED_DRAM_KV_PERF_COUNT: int = len(DramKvPerfStat) - len(
     _OPTIONAL_DRAM_KV_PERF_KEYS
 )
@@ -4377,7 +4394,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if self.stats_reporter is None:
             return
 
-        if not self.stats_reporter.should_report(self.step):
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if not stats_reporter.should_report(self.step):
             return
         self._report_ssd_l1_cache_stats()
 
@@ -4386,9 +4404,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self._report_ssd_mem_usage()
             self._report_l2_cache_perf_stats()
         if self.backend_type in (BackendType.DRAM, BackendType.DRAM_SSD):
-            self._report_dram_kv_perf_stats()
+            raw_dram_kv_perf_stats = self.ssd_db.get_dram_kv_perf(
+                self.step, stats_reporter.report_interval  # pyre-ignore
+            )
+            self._report_dram_kv_perf_stats(raw_dram_kv_perf_stats)
             if self.kv_zch_params and self.kv_zch_params.eviction_policy:
                 self._report_eviction_stats()
+            if self.backend_type == BackendType.DRAM_SSD:
+                self._report_dram_ssd_perf_stats(raw_dram_kv_perf_stats)
 
     @torch.jit.ignore
     def _report_ssd_l1_cache_stats(self) -> None:
@@ -4790,7 +4813,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return {key: raw_stats[i] for i, key in enumerate(keys) if i < len(raw_stats)}
 
     @torch.jit.ignore
-    def _report_dram_kv_perf_stats(self) -> None:
+    def _report_dram_kv_perf_stats(self, raw_stats: list[float]) -> None:
         """
         EmbeddingKVDB will hold stats for DRAM cache performance in fwd/bwd
         this function fetch the stats from EmbeddingKVDB and report it with stats_reporter
@@ -4801,10 +4824,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stats_reporter: TBEStatsReporter = self.stats_reporter
         if not stats_reporter.should_report(self.step):
             return
-
-        raw_stats = self.ssd_db.get_dram_kv_perf(
-            self.step, stats_reporter.report_interval  # pyre-ignore
-        )
 
         if len(raw_stats) < _REQUIRED_DRAM_KV_PERF_COUNT:
             logging.error(
@@ -5182,6 +5201,82 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     data_bytes=enrichment_success_rate,
                     enable_tb_metrics=True,
                 )
+
+    @torch.jit.ignore
+    def _report_dram_ssd_perf_stats(self, raw_stats: list[float]) -> None:
+        """
+        Report SSD-tier metrics for the DRAM_SSD composite backend, appended by
+        the C++ get_dram_kv_perf() after the DRAM block. The perf vector is
+        fetched once by the caller and shared.
+        """
+        if self.stats_reporter is None:
+            return
+
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if not stats_reporter.should_report(self.step):
+            return
+
+        # If the C++ layout drifts from the enums the vector is too short; log
+        # and skip rather than misreport DRAM metrics as SSD or raise.
+        expected_len = _DRAM_SSD_PERF_OFFSET + _DRAM_SSD_PERF_COUNT
+        if len(raw_stats) < expected_len:
+            logging.error(
+                "DRAM_SSD perf stats vector too short: expected at least %d, "
+                "got %d; skipping SSD metric reporting.",
+                expected_len,
+                len(raw_stats),
+            )
+            return
+
+        keys = list(DramSsdPerfStat.__members__.values())
+        stats = {
+            key: raw_stats[_DRAM_SSD_PERF_OFFSET + i] for i, key in enumerate(keys)
+        }
+
+        ssd_lookups = stats[DramSsdPerfStat.SSD_NUM_LOOKUPS]
+        ssd_hits = stats[DramSsdPerfStat.SSD_NUM_HITS]
+        ssd_writes = stats[DramSsdPerfStat.SSD_NUM_WRITES]
+        ssd_num_ids = stats[DramSsdPerfStat.SSD_NUM_IDS]
+        ssd_total_rows_written = stats[DramSsdPerfStat.SSD_TOTAL_ROWS_WRITTEN]
+
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="dram_ssd_kv.perf.ssd_num_lookups",
+            data_bytes=ssd_lookups,
+            enable_tb_metrics=True,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="dram_ssd_kv.perf.ssd_num_hits",
+            data_bytes=ssd_hits,
+            enable_tb_metrics=True,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="dram_ssd_kv.perf.ssd_num_writes",
+            data_bytes=ssd_writes,
+            enable_tb_metrics=True,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="dram_ssd_kv.perf.ssd_num_ids",
+            data_bytes=ssd_num_ids,
+            enable_tb_metrics=True,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="dram_ssd_kv.perf.ssd_total_rows_written",
+            data_bytes=ssd_total_rows_written,
+            enable_tb_metrics=True,
+        )
+        if ssd_lookups > 0:
+            ssd_hit_rate = 100.0 * ssd_hits / ssd_lookups
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="dram_ssd_kv.perf.ssd_hit_rate",
+                data_bytes=ssd_hit_rate,
+                enable_tb_metrics=True,
+            )
 
     def _recording_to_timer(self, timer: AsyncSeriesTimer | None, **kwargs: Any) -> Any:
         """
