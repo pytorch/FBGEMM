@@ -316,7 +316,7 @@ def apply_split_helper(
             torch.empty(0, device=current_device, dtype=dtype),
         )
     if split.uvm_size > 0:
-        assert not use_cpu
+        assert not use_cpu or current_device.type == "mtia"
         if enforce_hbm:
             logging.info("Enforce hbm for the cache location")
             persistent_state_fn(
@@ -330,19 +330,26 @@ def apply_split_helper(
                 ),
             )
         else:
+            device_tensor = torch.ops.fbgemm.new_unified_tensor(
+                # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
+                #  for 3rd param but got `Type[Type[torch._dtype]]`.
+                torch.zeros(1, device=current_device, dtype=dtype),
+                [split.uvm_size],
+                is_host_mapped=uvm_host_mapped,
+            )
+
+            if current_device.type == "mtia":
+                # Store the original MTIA UVM tensor (IOVA data_ptr) for TBE ops
+                assert (
+                    prefix == "weights"
+                ), "MTIA only supports weights UVM tensor at the moment"
+                set_attr_fn(f"_{prefix}_uvm_mtia", device_tensor)
+                # Convert to CPU view (pHost data_ptr) so standard ops work natively
+                device_tensor = torch.ops.fbgemm.uvm_to_cpu(device_tensor)
+
             persistent_state_fn(
                 f"{prefix}_uvm",
-                torch.zeros(
-                    split.uvm_size,
-                    device=current_device,
-                    out=torch.ops.fbgemm.new_unified_tensor(
-                        # pyre-fixme[6]: Expected `type[torch._dtype] | None`
-                        #  for 3rd param but got `type[type[torch._dtype]]`.
-                        torch.zeros(1, device=current_device, dtype=dtype),
-                        [split.uvm_size],
-                        is_host_mapped=uvm_host_mapped,
-                    ),
-                ),
+                torch.zeros(split.uvm_size, out=device_tensor),
             )
             if uvm_tensors_log is not None:
                 uvm_tensors_log.append(f"{prefix}_uvm")
@@ -823,9 +830,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Check if init is called from QRSplitTableBatchedEmbeddingBagsCodegen
         self.is_qr_tbe: bool = is_qr_tbe
 
+        valid_embedding_locations_cpu_path = [EmbeddingLocation.HOST] + (
+            [EmbeddingLocation.MANAGED] if self.use_mtia else []
+        )
         assert not self.use_cpu or all(
-            loc == EmbeddingLocation.HOST for loc in locations
+            loc in valid_embedding_locations_cpu_path for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
+        assert (
+            not self.use_mtia
+            or all(loc != EmbeddingLocation.MANAGED for loc in locations)
+            or uvm_host_mapped
+        ), "ComputeDevice.MTIA needs uvm_host_mapped set to True if any table in EmbeddingLocation.MANAGED"
         assert self.use_cpu or all(
             loc != EmbeddingLocation.HOST for loc in locations
         ), "EmbeddingLocation.HOST doesn't work for CUDA device!"
@@ -1230,16 +1245,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 ]
+
+                if self.use_mtia:
+                    momentum1_location = EmbeddingLocation.HOST
+                else:
+                    momentum1_location = (
+                        EmbeddingLocation.MANAGED
+                        if ((not rowwise) and uvm_non_rowwise_momentum)
+                        else None
+                    )
+
                 self._apply_split(
                     construct_split_state(
                         embedding_specs,
                         rowwise=rowwise,
                         cacheable=False,
-                        placement=(
-                            EmbeddingLocation.MANAGED
-                            if ((not rowwise) and uvm_non_rowwise_momentum)
-                            else None
-                        ),
+                        placement=momentum1_location,
                     ),
                     prefix="momentum1",
                     # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
@@ -1298,11 +1319,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 # NOTE: make TorchScript work!
                 self._register_nonpersistent_buffers("momentum2")
             if self._used_rowwise_adagrad_with_counter:
+                optim_location = EmbeddingLocation.HOST if self.use_mtia else None
                 self._apply_split(
                     construct_split_state(
                         embedding_specs,
                         rowwise=True,
                         cacheable=False,
+                        placement=optim_location,
                     ),
                     prefix="prev_iter",
                     # TODO: ideally we should use int64 to track iter but it failed to compile.
@@ -1318,6 +1341,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         embedding_specs,
                         rowwise=True,
                         cacheable=False,
+                        placement=optim_location,
                     ),
                     prefix="row_counter",
                     # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
@@ -2480,7 +2504,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             host_weights=self.weights_host,
             # pyre-fixme[6]: For 4th argument expected `Tensor` but got
             #  `Module | Tensor`.
-            uvm_weights=self.weights_uvm,
+            uvm_weights=(
+                # For MTIA: pass the original MTIA UVM tensor (IOVA data_ptr)
+                # so TBE ops can use scatter-gather DMA
+                getattr(self, "_weights_uvm_mtia", self.weights_uvm)
+                if self.use_mtia
+                else self.weights_uvm
+            ),
             # pyre-fixme[6]: For 5th argument expected `Tensor` but got
             #  `Module | Tensor`.
             lxu_cache_weights=self.lxu_cache_weights,
