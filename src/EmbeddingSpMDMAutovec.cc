@@ -9,10 +9,12 @@
 #define FBGEMM_EXPORTS
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include <bit>
+#include "./EmbeddingSpMDMPrefetch.h"
 #include "./EmbeddingStatsTracker.h"
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
+#include "fbgemm/Utils.h"
 
 #if defined(__clang__) && HAVE_SVE
 #include <arm_neon.h>
@@ -356,29 +358,42 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     return false;
   }
 
-  // more prefetch
-  // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
-  // size
-  constexpr int64_t max_prefetch_bytes = 4096;
-  // 16 is manually tuned for Neoverse-V2 for best performance
-  constexpr int64_t max_initial_prefetch_rows = 16;
-  constexpr int64_t CACHE_LINE_SIZE = 64;
-  const int64_t rows_to_prefetch =
-      std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
-  const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
+  const bool use_tuned_prefetch = is_tbe_tuned_prefetch_enabled();
+  const TbePrefetchPlan pf = tbe_prefetch_plan(
+      index_size,
+      input_stride,
+      data_size,
+      use_tuned_prefetch,
+      /*original_l1_distance=*/
+      std::min(INITIAL_PREFETCH_ROWS, 4096 / input_stride));
+  const int64_t l1_prefetch_stride = pf.l1_stride;
+  const int64_t l2_prefetch_stride = pf.l2_stride;
+  const bool use_l2_prefetch = pf.use_l2;
   const int num_elem_per_byte = 8 / input_bit_rate;
   const int64_t scale_bias_offset =
       scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0;
   const size_t scale_bias_size = 2 * sizeof(float16);
   const int64_t input_row_offset = scale_bias_last ? 0 : scale_bias_size;
-  // The following prefetch loop is written in this way for better performance.
-  // My understanding is that manually separating the case of input_stride being
-  // greater or not greater than cache line size will make the branch predictor
-  // work better. Same for line 113-126.
-  for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
-    for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
-      do_prefetch(prefetch_addr + offset, 0, 0);
+
+  for (int64_t pf_idx = 0; pf_idx < l1_prefetch_stride; ++pf_idx) {
+    const int64_t idx = indices[pf_idx];
+    if (idx < 0 || idx >= data_size) {
+      continue;
+    }
+    prefetch_row_l1(
+        input + input_stride * idx,
+        input_stride,
+        use_tuned_prefetch,
+        /*write=*/false);
+  }
+  if (use_l2_prefetch && index_size <= MAX_TLB_PRIME_INDEX_SIZE) {
+    for (int64_t pf_idx = l1_prefetch_stride; pf_idx < l2_prefetch_stride;
+         ++pf_idx) {
+      const int64_t idx = indices[pf_idx];
+      if (idx < 0 || idx >= data_size) {
+        continue;
+      }
+      do_tlb_prime(input + input_stride * idx);
     }
   }
 
@@ -459,8 +474,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         }
         return false;
       }
-      int64_t prefetch_idx =
-          indices[std::min(current + prefetch_stride, index_size - 1)];
+      const int64_t l1_pf_idx =
+          indices[std::min(current + l1_prefetch_stride, index_size - 1)];
+      const int64_t l2_pf_idx = use_l2_prefetch
+          ? indices[std::min(current + l2_prefetch_stride, index_size - 1)]
+          : -1;
 
       const uint8_t* input_row_base = input + input_stride * idx;
       const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
@@ -527,10 +545,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         }
       }
 
-      const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-      for (int64_t offset = 0; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(prefetch_addr + offset, 0, 0);
+      if (l1_pf_idx >= 0 && l1_pf_idx < data_size) {
+        prefetch_row_l1(
+            input + input_stride * l1_pf_idx,
+            input_stride,
+            use_tuned_prefetch,
+            /*write=*/false);
+      }
+      if (use_l2_prefetch && l2_pf_idx >= 0 && l2_pf_idx < data_size) {
+        prefetch_row_l2(input + input_stride * l2_pf_idx, input_stride);
       }
     }
 
