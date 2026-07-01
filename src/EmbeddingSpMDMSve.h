@@ -17,6 +17,8 @@
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
 
+#include "./EmbeddingSpMDMPrefetch.h"
+
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -25,12 +27,6 @@
 #include <new>
 #include <numeric>
 #include <thread>
-
-#ifdef _WIN32
-#define do_prefetch(...)
-#else
-#define do_prefetch(...) __builtin_prefetch(__VA_ARGS__)
-#endif
 
 #define FBGEMM_VECTOR_WIDTH 16
 
@@ -354,17 +350,31 @@ bool EmbeddingSpMDM8Bit_Sve(
     assert(input_stride == output_stride);
   }
 
-  constexpr int64_t CACHE_LINE_SIZE = 64;
-  constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
-  const int64_t prefetch_stride =
-      std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
+  const bool use_tuned_prefetch = is_tbe_tuned_prefetch_enabled();
+  const TbePrefetchPlan pf = tbe_prefetch_plan(
+      index_size,
+      input_stride,
+      data_size,
+      use_tuned_prefetch,
+      /*original_l1_distance=*/INITIAL_PREFETCH_ROWS);
+  const int64_t l1_prefetch_stride = pf.l1_stride;
+  const int64_t l2_prefetch_stride = pf.l2_stride;
+  const bool use_l2_prefetch = pf.use_l2;
 
   if constexpr (EnablePrefetching) {
-    for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    for (int64_t pf_idx = 0; pf_idx < l1_prefetch_stride; ++pf_idx) {
       const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
-      for (int64_t offset = 0; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(prefetch_addr + offset, 0, 0);
+      prefetch_row_l1(
+          prefetch_addr, input_stride, use_tuned_prefetch, /*write=*/false);
+    }
+    if (use_l2_prefetch && index_size <= MAX_TLB_PRIME_INDEX_SIZE) {
+      for (int64_t pf_idx = l1_prefetch_stride; pf_idx < l2_prefetch_stride;
+           ++pf_idx) {
+        const IndexType idx = indices[pf_idx];
+        if (idx < 0 || idx >= data_size) {
+          continue;
+        }
+        do_tlb_prime(input + input_stride * idx);
       }
     }
   }
@@ -491,11 +501,18 @@ bool EmbeddingSpMDM8Bit_Sve(
 
       if constexpr (EnablePrefetching) {
         IndexType prefetch_idx =
-            indices[std::min(current + prefetch_stride, index_size - 1)];
+            indices[std::min(current + l1_prefetch_stride, index_size - 1)];
         const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-        for (int64_t offset = 0; offset < input_stride;
-             offset += CACHE_LINE_SIZE) {
-          do_prefetch(prefetch_addr + offset, 1);
+        prefetch_row_l1(
+            prefetch_addr,
+            input_stride,
+            use_tuned_prefetch,
+            /*write=*/true);
+        if (use_l2_prefetch) {
+          IndexType l2_pf_idx =
+              indices[std::min(current + l2_prefetch_stride, index_size - 1)];
+          const uint8_t* l2_pf_addr = input + input_stride * l2_pf_idx;
+          prefetch_row_l2(l2_pf_addr, input_stride);
         }
       }
 
@@ -550,11 +567,18 @@ bool EmbeddingSpMDM8Bit_Sve(
 
       if constexpr (EnablePrefetching) {
         IndexType prefetch_idx =
-            indices[std::min(current + prefetch_stride, index_size - 1)];
+            indices[std::min(current + l1_prefetch_stride, index_size - 1)];
         const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-        for (int64_t offset = 0; offset < input_stride;
-             offset += CACHE_LINE_SIZE) {
-          do_prefetch(prefetch_addr + offset, 1);
+        prefetch_row_l1(
+            prefetch_addr,
+            input_stride,
+            use_tuned_prefetch,
+            /*write=*/true);
+        if (use_l2_prefetch) {
+          IndexType l2_pf_idx =
+              indices[std::min(current + l2_prefetch_stride, index_size - 1)];
+          const uint8_t* l2_pf_addr = input + input_stride * l2_pf_idx;
+          prefetch_row_l2(l2_pf_addr, input_stride);
         }
       }
 
@@ -771,17 +795,31 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
     return false;
   }
 
-  constexpr int64_t CACHE_LINE_SIZE = 64;
-  constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
-  const int64_t prefetch_stride =
-      std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
+  const bool use_tuned_prefetch = is_tbe_tuned_prefetch_enabled();
+  const TbePrefetchPlan pf = tbe_prefetch_plan(
+      index_size,
+      input_stride,
+      data_size,
+      use_tuned_prefetch,
+      /*original_l1_distance=*/INITIAL_PREFETCH_ROWS);
+  const int64_t l1_prefetch_stride = pf.l1_stride;
+  const int64_t l2_prefetch_stride = pf.l2_stride;
+  const bool use_l2_prefetch = pf.use_l2;
 
   if constexpr (EnablePrefetching) {
-    for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    for (int64_t pf_idx = 0; pf_idx < l1_prefetch_stride; ++pf_idx) {
       const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
-      for (int64_t offset = 0; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(prefetch_addr + offset, 0, 0);
+      prefetch_row_l1(
+          prefetch_addr, input_stride, use_tuned_prefetch, /*write=*/false);
+    }
+    if (use_l2_prefetch && index_size <= MAX_TLB_PRIME_INDEX_SIZE) {
+      for (int64_t pf_idx = l1_prefetch_stride; pf_idx < l2_prefetch_stride;
+           ++pf_idx) {
+        const IndexType idx = indices[pf_idx];
+        if (idx < 0 || idx >= data_size) {
+          continue;
+        }
+        do_tlb_prime(input + input_stride * idx);
       }
     }
   }
@@ -923,11 +961,15 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
 
             if constexpr (EnablePrefetching) {
               const IndexType pidx = indices[std::min(
-                  tile_current + prefetch_stride, index_size - 1)];
+                  tile_current + l1_prefetch_stride, index_size - 1)];
               const uint8_t* paddr = input + input_stride * pidx;
-              for (int64_t off = 0; off < input_stride;
-                   off += CACHE_LINE_SIZE) {
-                do_prefetch(paddr + off, 0, 0);
+              prefetch_row_l1(
+                  paddr, input_stride, use_tuned_prefetch, /*write=*/false);
+              if (use_l2_prefetch) {
+                const IndexType pidx_l2 = indices[std::min(
+                    tile_current + l2_prefetch_stride, index_size - 1)];
+                const uint8_t* paddr_l2 = input + input_stride * pidx_l2;
+                prefetch_row_l2(paddr_l2, input_stride);
               }
             }
 
@@ -1046,11 +1088,15 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
           if constexpr (EnablePrefetching) {
             auto prefetch_row = [&](int64_t cur) {
               const IndexType pidx =
-                  indices[std::min(cur + prefetch_stride, index_size - 1)];
+                  indices[std::min(cur + l1_prefetch_stride, index_size - 1)];
               const uint8_t* paddr = input + input_stride * pidx;
-              for (int64_t off = 0; off < input_stride;
-                   off += CACHE_LINE_SIZE) {
-                do_prefetch(paddr + off, 0, 0);
+              prefetch_row_l1(
+                  paddr, input_stride, use_tuned_prefetch, /*write=*/false);
+              if (use_l2_prefetch) {
+                const IndexType pidx_l2 =
+                    indices[std::min(cur + l2_prefetch_stride, index_size - 1)];
+                const uint8_t* paddr_l2 = input + input_stride * pidx_l2;
+                prefetch_row_l2(paddr_l2, input_stride);
               }
             };
             prefetch_row(current);
@@ -1132,11 +1178,16 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
 
         if constexpr (EnablePrefetching) {
           IndexType prefetch_idx =
-              indices[std::min(current + prefetch_stride, index_size - 1)];
+              indices[std::min(current + l1_prefetch_stride, index_size - 1)];
           const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-          for (int64_t offset = 0; offset < input_stride;
-               offset += CACHE_LINE_SIZE) {
-            do_prefetch(prefetch_addr + offset, 0, 0);
+          prefetch_row_l1(
+              prefetch_addr, input_stride, use_tuned_prefetch, /*write=*/false);
+          if (use_l2_prefetch) {
+            IndexType l2_prefetch_idx =
+                indices[std::min(current + l2_prefetch_stride, index_size - 1)];
+            const uint8_t* l2_prefetch_addr =
+                input + input_stride * l2_prefetch_idx;
+            prefetch_row_l2(l2_prefetch_addr, input_stride);
           }
         }
 
@@ -1383,11 +1434,19 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
 
       if constexpr (EnablePrefetching) {
         IndexType prefetch_idx =
-            indices[std::min(current + prefetch_stride, index_size - 1)];
+            indices[std::min(current + l1_prefetch_stride, index_size - 1)];
         const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-        for (int64_t offset = 0; offset < input_stride;
-             offset += CACHE_LINE_SIZE) {
-          do_prefetch(prefetch_addr + offset, 1);
+        prefetch_row_l1(
+            prefetch_addr,
+            input_stride,
+            use_tuned_prefetch,
+            /*write=*/true);
+        if (use_l2_prefetch) {
+          IndexType l2_prefetch_idx =
+              indices[std::min(current + l2_prefetch_stride, index_size - 1)];
+          const uint8_t* l2_prefetch_addr =
+              input + input_stride * l2_prefetch_idx;
+          prefetch_row_l2(l2_prefetch_addr, input_stride);
         }
       }
 
@@ -1463,11 +1522,19 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
 
       if constexpr (EnablePrefetching) {
         IndexType prefetch_idx =
-            indices[std::min(current + prefetch_stride, index_size - 1)];
+            indices[std::min(current + l1_prefetch_stride, index_size - 1)];
         const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-        for (int64_t offset = 0; offset < input_stride;
-             offset += CACHE_LINE_SIZE) {
-          do_prefetch(prefetch_addr + offset, 1);
+        prefetch_row_l1(
+            prefetch_addr,
+            input_stride,
+            use_tuned_prefetch,
+            /*write=*/true);
+        if (use_l2_prefetch) {
+          IndexType l2_prefetch_idx =
+              indices[std::min(current + l2_prefetch_stride, index_size - 1)];
+          const uint8_t* l2_prefetch_addr =
+              input + input_stride * l2_prefetch_idx;
+          prefetch_row_l2(l2_prefetch_addr, input_stride);
         }
       }
 
@@ -1648,29 +1715,47 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     return false;
   }
 
-  constexpr int64_t CACHE_LINE_SIZE = 64;
-  constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
-  const int64_t prefetch_stride =
-      std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
+  const bool use_tuned_prefetch = is_tbe_tuned_prefetch_enabled();
+  const TbePrefetchPlan pf = tbe_prefetch_plan(
+      index_size,
+      input_stride,
+      data_size,
+      use_tuned_prefetch,
+      /*original_l1_distance=*/INITIAL_PREFETCH_ROWS);
+  const int64_t l1_prefetch_stride = pf.l1_stride;
+  const int64_t l2_prefetch_stride = pf.l2_stride;
+  const bool use_l2_prefetch = pf.use_l2;
 
   if constexpr (EnablePrefetching) {
-    for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    for (int64_t pf_idx = 0; pf_idx < l1_prefetch_stride; ++pf_idx) {
       const IndexType idx = indices[pf_idx];
       if (idx < 0 || idx >= data_size) {
         continue;
       }
       const uint8_t* prefetch_addr = input + input_stride * idx;
-      for (int64_t offset = 0; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(prefetch_addr + offset, 0, 0);
+      prefetch_row_l1(
+          prefetch_addr, input_stride, use_tuned_prefetch, /*write=*/false);
+    }
+
+    if (use_l2_prefetch && index_size <= MAX_TLB_PRIME_INDEX_SIZE) {
+      for (int64_t pf_idx = l1_prefetch_stride; pf_idx < l2_prefetch_stride;
+           ++pf_idx) {
+        const IndexType idx = indices[pf_idx];
+        if (idx < 0 || idx >= data_size) {
+          continue;
+        }
+        do_tlb_prime(input + input_stride * idx);
       }
     }
   }
 
+  // for 4bit, 2 elements per byte; for 2bit, 4 elements per byte
   const int num_elem_per_byte = 8 / bit_rate;
+
   constexpr int64_t scale_bias_fp16_size =
       2 * sizeof(float16_t); // only used when scale and bias is at the
                              // beginning, in which case, they are fp16
+
   const int64_t scale_bias_offset = scale_bias_last
       ? ((block_size + num_elem_per_byte - 1) / num_elem_per_byte)
       : 0;
@@ -1807,12 +1892,18 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
 
           if constexpr (EnablePrefetching) {
             const IndexType pidx =
-                indices[std::min(current + prefetch_stride, index_size - 1)];
+                indices[std::min(current + l1_prefetch_stride, index_size - 1)];
             if (pidx >= 0 && pidx < data_size) {
               const uint8_t* paddr = input + input_stride * pidx;
-              for (int64_t off = 0; off < input_stride;
-                   off += CACHE_LINE_SIZE) {
-                do_prefetch(paddr + off, 0, 0);
+              prefetch_row_l1(
+                  paddr, input_stride, use_tuned_prefetch, /*write=*/false);
+            }
+            if (use_l2_prefetch) {
+              const IndexType pidx_l2 = indices[std::min(
+                  current + l2_prefetch_stride, index_size - 1)];
+              if (pidx_l2 >= 0 && pidx_l2 < data_size) {
+                const uint8_t* paddr_l2 = input + input_stride * pidx_l2;
+                prefetch_row_l2(paddr_l2, input_stride);
               }
             }
           }
@@ -1965,12 +2056,18 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
           if constexpr (EnablePrefetching) {
             auto prefetch_row = [&](int64_t cur) {
               const IndexType pidx =
-                  indices[std::min(cur + prefetch_stride, index_size - 1)];
+                  indices[std::min(cur + l1_prefetch_stride, index_size - 1)];
               if (pidx >= 0 && pidx < data_size) {
                 const uint8_t* paddr = input + input_stride * pidx;
-                for (int64_t off = 0; off < input_stride;
-                     off += CACHE_LINE_SIZE) {
-                  do_prefetch(paddr + off, 0, 0);
+                prefetch_row_l1(
+                    paddr, input_stride, use_tuned_prefetch, /*write=*/false);
+              }
+              if (use_l2_prefetch) {
+                const IndexType pidx_l2 =
+                    indices[std::min(cur + l2_prefetch_stride, index_size - 1)];
+                if (pidx_l2 >= 0 && pidx_l2 < data_size) {
+                  const uint8_t* paddr_l2 = input + input_stride * pidx_l2;
+                  prefetch_row_l2(paddr_l2, input_stride);
                 }
               }
             };
@@ -2104,12 +2201,18 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
           if constexpr (EnablePrefetching) {
             auto prefetch_row = [&](int64_t cur) {
               const IndexType pidx =
-                  indices[std::min(cur + prefetch_stride, index_size - 1)];
+                  indices[std::min(cur + l1_prefetch_stride, index_size - 1)];
               if (pidx >= 0 && pidx < data_size) {
                 const uint8_t* paddr = input + input_stride * pidx;
-                for (int64_t off = 0; off < input_stride;
-                     off += CACHE_LINE_SIZE) {
-                  do_prefetch(paddr + off, 0, 0);
+                prefetch_row_l1(
+                    paddr, input_stride, use_tuned_prefetch, /*write=*/false);
+              }
+              if (use_l2_prefetch) {
+                const IndexType pidx_l2 =
+                    indices[std::min(cur + l2_prefetch_stride, index_size - 1)];
+                if (pidx_l2 >= 0 && pidx_l2 < data_size) {
+                  const uint8_t* paddr_l2 = input + input_stride * pidx_l2;
+                  prefetch_row_l2(paddr_l2, input_stride);
                 }
               }
             };
@@ -2195,12 +2298,21 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
 
         if constexpr (EnablePrefetching) {
           IndexType prefetch_idx =
-              indices[std::min(current + prefetch_stride, index_size - 1)];
+              indices[std::min(current + l1_prefetch_stride, index_size - 1)];
           if (prefetch_idx >= 0 && prefetch_idx < data_size) {
             const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-            for (int64_t offset = 0; offset < input_stride;
-                 offset += CACHE_LINE_SIZE) {
-              do_prefetch(prefetch_addr + offset, 0, 0);
+            prefetch_row_l1(
+                prefetch_addr,
+                input_stride,
+                use_tuned_prefetch,
+                /*write=*/false);
+          }
+          if (use_l2_prefetch) {
+            IndexType l2_pf_idx =
+                indices[std::min(current + l2_prefetch_stride, index_size - 1)];
+            if (l2_pf_idx >= 0 && l2_pf_idx < data_size) {
+              const uint8_t* l2_pf_addr = input + input_stride * l2_pf_idx;
+              prefetch_row_l2(l2_pf_addr, input_stride);
             }
           }
         }
@@ -2439,12 +2551,21 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
 
       if constexpr (EnablePrefetching) {
         IndexType prefetch_idx =
-            indices[std::min(current + prefetch_stride, index_size - 1)];
+            indices[std::min(current + l1_prefetch_stride, index_size - 1)];
         if (prefetch_idx >= 0 && prefetch_idx < data_size) {
           const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-          for (int64_t offset = 0; offset < input_stride;
-               offset += CACHE_LINE_SIZE) {
-            do_prefetch(prefetch_addr + offset, 1);
+          prefetch_row_l1(
+              prefetch_addr,
+              input_stride,
+              use_tuned_prefetch,
+              /*write=*/true);
+        }
+        if (use_l2_prefetch) {
+          IndexType l2_pf_idx =
+              indices[std::min(current + l2_prefetch_stride, index_size - 1)];
+          if (l2_pf_idx >= 0 && l2_pf_idx < data_size) {
+            const uint8_t* l2_pf_addr = input + input_stride * l2_pf_idx;
+            prefetch_row_l2(l2_pf_addr, input_stride);
           }
         }
       }
