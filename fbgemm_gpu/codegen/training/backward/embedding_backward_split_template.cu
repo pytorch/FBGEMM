@@ -882,7 +882,7 @@ Tensor {{ embedding_cuda_op }}(
     {%- endif %}
 
     AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&] {
-    DISPATCH_EMB_GRAD_CACHE_TYPES(
+    fbgemm_gpu::dispatch_emb_grad_cache_types(
         dev_weights.scalar_type(),
         aligned_grad_output.scalar_type(),
         {%- if not dense %}
@@ -891,7 +891,7 @@ Tensor {{ embedding_cuda_op }}(
         dev_weights.scalar_type(),
         {%- endif %}
             "{{ embedding_cuda_op }}",
-        [&] {
+        [&]<typename emb_t, typename grad_t, typename cache_t>() {
             {%- if weighted %}
             auto indice_weights_sorted = at::empty_like(indice_weights);
             {
@@ -1383,7 +1383,7 @@ Tensor {{ embedding_cuda_op }}(
                 return;
 
             }); // DISPATCH_OPTIMAL_KERNEL
-        }); // DISPATCH_EMB_GRAD_CACHE_TYPES
+        }); // dispatch_emb_grad_cache_types
         }); // AT_DISPATCH_INDEX_TYPES
 
     {%- if dense %}
