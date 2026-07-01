@@ -289,6 +289,15 @@ def invoke(
     {%- if "use_rowwise_bias_correction" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     dict_optim_bool["use_rowwise_bias_correction"] = optimizer_args.use_rowwise_bias_correction
     {%- endif %}
+    {%- if "ar_alpha" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_float["ar_alpha"] = optimizer_args.ar_alpha
+    {%- endif %}
+    {%- if "ema_beta" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_float["ema_beta"] = optimizer_args.ema_beta
+    {%- endif %}
+    {%- if "min_shrinkage" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_float["min_shrinkage"] = optimizer_args.min_shrinkage
+    {%- endif %}
 
     {%- if "momentum1" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     {{ pack_tensors("momentum1") }}
