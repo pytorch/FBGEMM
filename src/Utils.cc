@@ -11,17 +11,21 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/Utils.h"
 #include <cpuinfo.h>
+#include <algorithm>
 #include <bit>
 #include <cassert>
+#include <charconv>
 #include <cinttypes>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <new>
 #include <optional>
 #include <stdexcept>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -829,6 +833,28 @@ bool is_sve_fp16_enabled() {
   static bool res = [] {
     char* env_val = std::getenv("FBGEMM_TBE_SVE_FP16_ACCUMULATOR");
     return env_val != nullptr;
+  }();
+  return res;
+}
+
+bool is_tbe_tuned_prefetch_enabled() {
+  static const bool res = [] {
+    const char* env_val = std::getenv("FBGEMM_TBE_TUNED_PREFETCH");
+    return env_val != nullptr && std::strcmp(env_val, "0") != 0;
+  }();
+  return res;
+}
+
+int tbe_tuned_prefetch_l2_multiplier() {
+  static const int res = [] {
+    const char* env_val = std::getenv("FBGEMM_TBE_L2_MULT");
+    if (env_val == nullptr) {
+      return 0;
+    }
+    int val = 0;
+    const char* const end = env_val + std::strlen(env_val);
+    const std::from_chars_result r = std::from_chars(env_val, end, val);
+    return (r.ec == std::errc() && r.ptr == end && val > 0) ? val : 0;
   }();
   return res;
 }
