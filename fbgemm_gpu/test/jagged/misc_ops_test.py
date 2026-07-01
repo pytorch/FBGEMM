@@ -19,9 +19,14 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, optests
+    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, optests
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+    )
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -230,6 +235,62 @@ class JaggedTensorOpsTest(unittest.TestCase):
         output_ref.backward(grad_output)
 
         torch.testing.assert_close(values.grad, values_ref.grad)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_jagged_softmax_forward_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in jagged_softmax_kernel
+        (jagged_tensor_ops/jagged_softmax_forward.cu line 136) and
+        verifies output correctness against the CPU dispatch.
+
+        Block: THREADS_PER_BLOCK = 128. Grid: dim3(D, min(B, 65535), 1).
+        Total launch threads = D * min(B, 65535) * 128. For D = 513,
+        B = 65535 the total is 4,295,032,320 > 2**32 (= 4,294,967,296).
+        Pre-fix on ROCm this fails the launch-side check.
+
+        ``offsets`` is sparse: most segments are length-zero with sentinel
+        non-zero lengths at start / middle / end. Distinct non-zero values
+        per row let any "kernel addressed wrong segment" bug surface in
+        the softmax output.
+        """
+        # The production cap is `blocks_x_capped = min(blocks_x_uncapped,
+        # get_max_thread_blocks(stream))` where `get_max_thread_blocks =
+        # 64 * #SMs ~= 16384` on MI300/MI350. blocks_x_uncapped = D, so
+        # for the cap to actually help we need D > 16384. For pre-fix to
+        # trip and post-fix to pass at threads_per_block=128:
+        #   pre-fix:  D * min(B, 65535) * 128 > 2**32
+        #   post-fix: 16384 * min(B, 65535) * 128 <= 2**32
+        # ⇒ min(B, 65535) <= 2047, and D >= 16385.
+        D = 16385
+        B = 2047
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse non-zero segment lengths at sentinel positions.
+        lengths_cpu = torch.zeros(B, dtype=torch.int64)
+        lengths_cpu[0] = 2
+        lengths_cpu[B // 2] = 1
+        lengths_cpu[B - 1] = 3
+        offsets_cpu = torch.zeros(B + 1, dtype=torch.int64)
+        offsets_cpu[1:] = torch.cumsum(lengths_cpu, dim=0)
+        total_L = int(offsets_cpu[-1].item())
+
+        # Distinct values across rows so any out-of-segment bug surfaces.
+        values_cpu = torch.arange(total_L * D, dtype=torch.float32).reshape(total_L, D)
+
+        # CPU reference oracle — same op, different dispatch.
+        max_L = int(lengths_cpu.max().item())
+        output_cpu, _ = torch.ops.fbgemm.jagged_softmax(
+            values_cpu, offsets_cpu, max_L=max_L
+        )
+
+        # GPU op under test. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        output_gpu, _ = torch.ops.fbgemm.jagged_softmax(
+            values_cpu.to(device), offsets_cpu.to(device), max_L=max_L
+        )
+
+        torch.testing.assert_close(output_gpu.cpu(), output_cpu)
 
 
 if __name__ == "__main__":
