@@ -80,8 +80,9 @@ void FusedQuantizeDequantizeAvx2(
 
 /// @ingroup fbgemm-quant-utils-avx2
 ///
-/// Random number generator in [0, 9] based on
-/// <a href="https://www.jstatsoft.org/v08/i14/paper">this paper</a>.
+/// Random number generator in [0, 9] based on Marsaglia's Xorshift RNG
+/// (G. Marsaglia, "Xorshift RNGs," Journal of Statistical Software, 8(14),
+/// 2003; doi:10.18637/jss.v008.i14).
 uint32_t FBGEMM_API Xor128();
 
 void RequantizeFixedPointAvx2(
