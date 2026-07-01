@@ -379,26 +379,27 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     // virtual dispatch.
     auto ret = dram_cache_->get_dram_kv_perf(step, interval);
 
-    // Append SSD metrics (indices 38-41)
-    // Base DRAM returns 38 elements (0-37), with hit/miss counts at 36-37.
-    ret.resize(43, 0);
+    // Append the SSD-tier metrics after the DRAM block, deriving the offset
+    // from the base vector size so it stays aligned if the DRAM metric set
+    // changes (Python mirrors this with _DRAM_SSD_PERF_OFFSET).
+    const size_t ssd_offset = ret.size();
+    constexpr size_t kNumSsdMetrics = 5;
+    ret.resize(ssd_offset + kNumSsdMetrics, 0);
     if (step > 0 && step % interval == 0) {
       int64_t reset_val = 0;
       auto lookups = ssd_num_lookups_.exchange(reset_val);
       auto hits = ssd_num_hits_.exchange(reset_val);
       auto writes = ssd_num_writes_.exchange(reset_val);
 
-      ret[38] = static_cast<double>(lookups) / interval;
-      ret[39] = static_cast<double>(hits) / interval;
-      ret[40] = static_cast<double>(writes) / interval;
-      // ret[41]: SSD estimated num keys (absolute, not averaged).
-      // Read from cached atomic to avoid blocking the training thread on
-      // RocksDB mutex contention with the background writeback thread.
-      ret[41] = static_cast<double>(cached_ssd_num_keys_.load());
-      // ret[42]: Cumulative actual rows written to SSD (absolute, not
-      // averaged). Tracked inside EmbeddingRocksDB::set_kv_db_async after
-      // skipping negative keys, so this reflects real writes.
-      ret[42] = static_cast<double>(rocksdb_backend_->get_total_rows_written());
+      ret[ssd_offset + 0] = static_cast<double>(lookups) / interval;
+      ret[ssd_offset + 1] = static_cast<double>(hits) / interval;
+      ret[ssd_offset + 2] = static_cast<double>(writes) / interval;
+      // SSD estimated num keys (absolute). Read from the cached atomic to avoid
+      // blocking the training thread on RocksDB mutex contention.
+      ret[ssd_offset + 3] = static_cast<double>(cached_ssd_num_keys_.load());
+      // Cumulative actual rows written to SSD (absolute).
+      ret[ssd_offset + 4] =
+          static_cast<double>(rocksdb_backend_->get_total_rows_written());
     }
     return ret;
   }
