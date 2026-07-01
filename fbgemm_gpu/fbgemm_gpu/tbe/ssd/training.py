@@ -3352,6 +3352,33 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ]
 
     @torch.jit.ignore
+    def _generate_zero_optimizer_states(
+        self,
+        dim: int,
+        sorted_id: torch.Tensor,
+        local_weight_count: int,
+    ) -> list[Tensor]:
+        optimizer_state_size_table = self.optimizer.state_size_table(dim)
+
+        num_rows = sorted_id.size(0) if sorted_id.size(0) > 0 else local_weight_count
+
+        optimizer_states: list[Tensor] = []
+        for state_name in self.optimizer.state_names():
+            state_dtype = self.optimizer_state_dtypes.get(
+                state_name, SparseType.FP32
+            ).as_dtype()
+            state_size = optimizer_state_size_table[state_name]
+            optimizer_states.append(
+                torch.zeros(
+                    (num_rows, state_size),
+                    dtype=state_dtype,
+                    device="cpu",
+                )
+            )
+
+        return optimizer_states
+
+    @torch.jit.ignore
     def _split_optimizer_states_kv_zch_whole_row(
         self,
         sorted_ids: torch.Tensor,
@@ -3366,6 +3393,33 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # Cumulative row counts per (virtual) table for rowwise states
         row_count_cumsum: list[int] = [0] + list(itertools.accumulate(rows_))
+
+        # For DRAM_SSD with embedding cache, skip the expensive SSD read for
+        # optimizer state and return zeros. The optimizer state is co-located
+        # with weights in the same RocksDB value, so reading it requires
+        # fetching the full row from SSD — doubling checkpoint I/O for a
+        # state that can be cheaply re-warmed.
+        if self.backend_type == BackendType.DRAM_SSD and self._embedding_cache_mode:
+            logging.info(
+                "split_optimizer_states: DRAM_SSD embedding cache mode, "
+                "returning zero optimizer states to skip SSD read"
+            )
+            if sorted_ids is None:
+                sorted_ids = [
+                    torch.empty(0, 1, device=torch.device("cpu"), dtype=torch.int64)
+                    for _ in dims_
+                ]
+
+            optimizer_states: list[list[torch.Tensor]] = []
+            for table_idx, dim in enumerate(dims_):
+                optimizer_states.append(
+                    self._generate_zero_optimizer_states(
+                        dim,
+                        sorted_ids[table_idx],
+                        self.local_weight_counts[table_idx],
+                    )
+                )
+            return optimizer_states
 
         snapshot_handle, _ = self._may_create_snapshot_for_state_dict(
             no_snapshot=no_snapshot,

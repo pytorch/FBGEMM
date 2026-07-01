@@ -1695,11 +1695,13 @@ class SSDCheckpointTest(unittest.TestCase):
         D: int = 16,
         E: int = 100,
         bucket_size: int = 50,
+        embedding_cache_mode: bool = False,
     ) -> SSDTableBatchedEmbeddingBags:
         kv_zch_params = KVZCHParams(
             bucket_offsets=[(0, E // bucket_size)] * T,
             bucket_sizes=[bucket_size] * T,
             enable_optimizer_offloading=True,
+            embedding_cache_mode=embedding_cache_mode,
             backend_return_whole_row=True,
             eviction_policy=EvictionPolicy(
                 eviction_trigger_mode=0,
@@ -1758,3 +1760,28 @@ class SSDCheckpointTest(unittest.TestCase):
 
             emb.split_embedding_weights(no_snapshot=False, should_flush=True)
             self.assertEqual(emb.ssd_db.get_snapshot_count(), 1)
+
+    def test_dram_ssd_embedding_cache_returns_zero_optimizer_states(self) -> None:
+        """DRAM_SSD embedding-cache mode skips the (expensive) SSD optimizer-state
+        read and returns all-zero states sized by the provided sorted ids."""
+        T = 2
+        num_ids = 3
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = self._build_dram_ssd_tbe(
+                ssd_directory, T=T, embedding_cache_mode=True
+            )
+            self.assertTrue(emb._embedding_cache_mode)
+
+            sorted_ids = [
+                torch.arange(num_ids, dtype=torch.int64).view(-1, 1) for _ in range(T)
+            ]
+            opt_states = emb.split_optimizer_states(
+                sorted_ids, no_snapshot=True, should_flush=False
+            )
+
+            self.assertEqual(len(opt_states), T)
+            for per_table in opt_states:
+                self.assertGreater(len(per_table), 0)
+                for state in per_table:
+                    self.assertEqual(state.size(0), num_ids)
+                    self.assertTrue(torch.equal(state, torch.zeros_like(state)))
