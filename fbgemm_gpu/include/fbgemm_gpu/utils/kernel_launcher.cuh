@@ -93,7 +93,7 @@ template <
     bool EnableBarrierIsolation = false,
     bool EnableNaNChecks = false,
     bool EnableExecutionTimer = false>
-struct KernelLauncher {
+struct __attribute__((visibility("hidden"))) KernelLauncher {
   const SourceContext context;
 
   constexpr inline KernelLauncher(const SourceContext& ctx) noexcept

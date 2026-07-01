@@ -69,6 +69,7 @@ class SSDCheckpointTest(unittest.TestCase):
         eviction_policy: EvictionPolicy | None = None,
         disable_random_init: bool = False,
         enable_blob_db: bool = False,
+        backend_return_whole_row: bool = False,
     ) -> object:
         if backend_type == BackendType.SSD:
             assert ssd_directory
@@ -140,7 +141,72 @@ class SSDCheckpointTest(unittest.TestCase):
                 weight_precision.bit_rate(),  # row_storage_bitwidth
                 table_dims=feature_dims,
                 hash_size_cumsum=hash_size_cumsum,
+                backend_return_whole_row=backend_return_whole_row,
                 disable_random_init=disable_random_init,
+            )
+        elif backend_type == BackendType.DRAM_SSD:
+            eviction_config = None
+            if eviction_policy:
+                enable_eviction_for_feature_score_eviction_policy = (
+                    [
+                        int(x)
+                        for x in eviction_policy.enable_eviction_for_feature_score_eviction_policy
+                    ]
+                    if eviction_policy.enable_eviction_for_feature_score_eviction_policy
+                    is not None
+                    else None
+                )
+                eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
+                    eviction_policy.eviction_trigger_mode,
+                    eviction_policy.eviction_strategy,
+                    eviction_policy.eviction_step_intervals,
+                    None,  # mem_util_threshold_in_GB
+                    eviction_policy.ttls_in_mins,
+                    eviction_policy.counter_thresholds,
+                    eviction_policy.counter_decay_rates,
+                    eviction_policy.feature_score_counter_decay_rates,
+                    eviction_policy.training_id_eviction_trigger_count,
+                    eviction_policy.training_id_keep_count,
+                    enable_eviction_for_feature_score_eviction_policy,
+                    eviction_policy.l2_weight_thresholds,
+                    feature_dims.tolist() if feature_dims is not None else None,
+                    eviction_policy.threshold_calculation_bucket_stride,
+                    eviction_policy.threshold_calculation_bucket_num,
+                    eviction_policy.interval_for_insufficient_eviction_s,
+                    eviction_policy.interval_for_sufficient_eviction_s,
+                    eviction_policy.interval_for_feature_statistics_decay_s,
+                )
+            # Create the composite DRAM+SSD wrapper. Mirror the production setup
+            # in training.py: the wrapper builds its own internal RocksDB (L3 SSD
+            # tier) from the ssd_path + RocksDB construction params. There is no
+            # separate backend to wire in.
+            assert ssd_directory
+            return torch.classes.fbgemm.DramSsdKVEmbeddingCacheWrapper(
+                max_D,
+                -0.01,  # uniform_init_lower
+                0.01,  # uniform_init_upper
+                eviction_config,
+                8,  # num_shards
+                8,  # num_threads
+                weight_precision.bit_rate(),  # row_storage_bitwidth
+                table_dims=feature_dims,
+                hash_size_cumsum=hash_size_cumsum,
+                backend_return_whole_row=backend_return_whole_row,
+                disable_random_init=disable_random_init,
+                # SSD (RocksDB L3 tier) construction params
+                ssd_path=ssd_directory,
+                memtable_flush_period=0,
+                memtable_flush_offset=0,
+                l0_files_per_compact=4,
+                rate_limit_mbps=0,
+                size_ratio=1,
+                compaction_ratio=8,
+                write_buffer_size=536870912,  # 512MB
+                max_write_buffer_num=8,
+                block_cache_size=0,
+                use_passed_in_path=True,
+                l2_cache_size_gb=0,
+                flushing_block_size=flushing_block_size,
             )
 
     def generate_fbgemm_kv_tbe(
@@ -1260,7 +1326,10 @@ class SSDCheckpointTest(unittest.TestCase):
             row_offset += E
 
     @given(
-        **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
+        **default_st,
+        backend_type=st.sampled_from(
+            [BackendType.SSD, BackendType.DRAM, BackendType.DRAM_SSD]
+        ),
     )
     @settings(**default_settings)
     def test_disable_random_init_functionality(
@@ -1287,9 +1356,15 @@ class SSDCheckpointTest(unittest.TestCase):
                 enable_l2=False,
                 backend_type=backend_type,
                 ssd_directory=(
-                    ssd_directory if backend_type == BackendType.SSD else None
+                    ssd_directory
+                    if (
+                        backend_type == BackendType.SSD
+                        or backend_type == BackendType.DRAM_SSD
+                    )
+                    else None
                 ),
                 disable_random_init=True,  # This is the key parameter we're testing
+                backend_return_whole_row=True,
             )
 
             # Generate some random indices that don't exist in the backend
@@ -1316,7 +1391,10 @@ class SSDCheckpointTest(unittest.TestCase):
             )
 
     @given(
-        **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
+        **default_st,
+        backend_type=st.sampled_from(
+            [BackendType.SSD, BackendType.DRAM, BackendType.DRAM_SSD]
+        ),
     )
     @settings(**default_settings)
     def test_disable_random_init_vs_enable_random_init(
@@ -1343,9 +1421,15 @@ class SSDCheckpointTest(unittest.TestCase):
                 enable_l2=False,
                 backend_type=backend_type,
                 ssd_directory=(
-                    ssd_directory1 if backend_type == BackendType.SSD else None
+                    ssd_directory1
+                    if (
+                        backend_type == BackendType.SSD
+                        or backend_type == BackendType.DRAM_SSD
+                    )
+                    else None
                 ),
                 disable_random_init=False,  # Default behavior (random init enabled)
+                backend_return_whole_row=True,
             )
 
             # Create backend with disable_random_init=True using the helper method
@@ -1355,9 +1439,15 @@ class SSDCheckpointTest(unittest.TestCase):
                 enable_l2=False,
                 backend_type=backend_type,
                 ssd_directory=(
-                    ssd_directory2 if backend_type == BackendType.SSD else None
+                    ssd_directory2
+                    if (
+                        backend_type == BackendType.SSD
+                        or backend_type == BackendType.DRAM_SSD
+                    )
+                    else None
                 ),
                 disable_random_init=True,  # Disable random init
+                backend_return_whole_row=True,
             )
 
             # Generate some random indices that don't exist in either backend
@@ -1448,3 +1538,223 @@ class SSDCheckpointTest(unittest.TestCase):
                 atol=1e-8,
                 rtol=1e-8,
             )
+
+    def test_dram_ssd_backend_construction(self) -> None:
+        """Test that BackendType.DRAM_SSD can construct a composite backend."""
+        max_D = 132
+        E = 20
+        weight_precision = SparseType.FP32
+        T = 4
+        feature_dims = torch.tensor([64, 32, 128, 64], dtype=torch.int64)
+        hash_size_cumsum = torch.tensor(
+            [0, E // T, 2 * E // T, 3 * E // T, E + 10], dtype=torch.int64
+        )
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            dram_ssd_backend = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weight_precision,
+                enable_l2=False,
+                feature_dims=feature_dims,
+                hash_size_cumsum=hash_size_cumsum,
+                backend_type=BackendType.DRAM_SSD,
+                flushing_block_size=1000,
+                ssd_directory=ssd_directory,
+                backend_return_whole_row=True,
+            )
+            self.assertIsNotNone(dram_ssd_backend)
+
+            # Write data and read it back
+            indices = torch.arange(E, dtype=torch.int64)
+            weights = torch.randn(E, max_D, dtype=weight_precision.as_dtype())
+            weights_out = torch.empty_like(weights)
+            count = torch.as_tensor([E])
+
+            dram_ssd_backend.set(indices, weights, count)  # pyre-ignore
+            dram_ssd_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
+
+            torch.testing.assert_close(weights, weights_out, atol=1e-8, rtol=1e-8)
+
+    def test_dram_ssd_flush_and_read(self) -> None:
+        """Test that flush writes dirty DRAM blocks to SSD and data is recoverable."""
+        max_D = 132
+        E = 20
+        weight_precision = SparseType.FP32
+        T = 4
+        feature_dims = torch.tensor([64, 32, 128, 64], dtype=torch.int64)
+        hash_size_cumsum = torch.tensor(
+            [0, E // T, 2 * E // T, 3 * E // T, E + 10], dtype=torch.int64
+        )
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            dram_ssd_backend = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weight_precision,
+                enable_l2=False,
+                feature_dims=feature_dims,
+                hash_size_cumsum=hash_size_cumsum,
+                backend_type=BackendType.DRAM_SSD,
+                flushing_block_size=1000,
+                ssd_directory=ssd_directory,
+                backend_return_whole_row=True,
+            )
+
+            # Write data
+            indices = torch.arange(E, dtype=torch.int64)
+            weights = torch.randn(E, max_D, dtype=weight_precision.as_dtype())
+            count = torch.as_tensor([E])
+            dram_ssd_backend.set(indices, weights, count)  # pyre-ignore
+
+            # Flush dirty DRAM blocks to SSD
+            dram_ssd_backend.flush()  # pyre-ignore
+
+            # Read back after flush
+            weights_out = torch.empty_like(weights)
+            dram_ssd_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
+            torch.testing.assert_close(weights, weights_out, atol=1e-8, rtol=1e-8)
+
+    def test_dram_ssd_get_keys_in_range(self) -> None:
+        """Test get_keys_in_range_by_snapshot for DRAM_SSD backend."""
+        max_D = 132
+        E = 20
+        weight_precision = SparseType.FP32
+        T = 4
+        feature_dims = torch.tensor([64, 32, 128, 64], dtype=torch.int64)
+        hash_size_cumsum = torch.tensor(
+            [0, E // T, 2 * E // T, 3 * E // T, E + 10], dtype=torch.int64
+        )
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            dram_ssd_backend = self.generate_fbgemm_kv_backend(
+                max_D=max_D,
+                weight_precision=weight_precision,
+                enable_l2=False,
+                feature_dims=feature_dims,
+                hash_size_cumsum=hash_size_cumsum,
+                backend_type=BackendType.DRAM_SSD,
+                flushing_block_size=1000,
+                ssd_directory=ssd_directory,
+                backend_return_whole_row=True,
+            )
+
+            # Build whole rows with the key embedded in the MetaHeader. The
+            # MetaHeader occupies the first 16 bytes of each row: int64 key
+            # (bytes 0-7), then timestamp/count/used. For FP32 that is the first
+            # 4 floats; the key is the first 2 floats bit-cast from int64.
+            keys = torch.arange(E, dtype=torch.int64)
+            rows = torch.randn(E, max_D, dtype=weight_precision.as_dtype())
+            rows[:, :2] = keys.view(torch.int64).view(E, 1).view(torch.float32)
+            # Mark each block used (used = highest bit of the uint32 at byte 12).
+            rows[:, 3] = (
+                torch.full((E,), 0x80000000, dtype=torch.int64)
+                .to(torch.int32)
+                .view(torch.float32)
+            )
+
+            # Write whole rows directly to the SSD tier.
+            dram_ssd_backend.set_range_to_storage(rows, 0, E)  # pyre-ignore
+
+            keys_out = dram_ssd_backend.get_keys_in_range_by_snapshot(  # pyre-ignore
+                0, E, 0, None
+            )
+            self.assertEqual(keys_out.numel(), E)
+            self.assertEqual(sorted(keys_out.flatten().tolist()), list(range(E)))
+
+    def test_dram_ssd_tbe_construction(self) -> None:
+        """Test that SSDTableBatchedEmbeddingBags can be constructed with BackendType.DRAM_SSD."""
+        T = 2
+        D = 16
+        E = 100
+        bucket_size = 50
+        kv_zch_params = KVZCHParams(
+            bucket_offsets=[(0, E // bucket_size)] * T,
+            bucket_sizes=[bucket_size] * T,
+            enable_optimizer_offloading=True,
+            backend_return_whole_row=True,
+            eviction_policy=EvictionPolicy(
+                eviction_trigger_mode=0,
+                meta_header_lens=[16 // (SparseType.FP32.bit_rate() // 8)] * T,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = SSDTableBatchedEmbeddingBags(
+                embedding_specs=[(E, D)] * T,
+                feature_table_map=list(range(T)),
+                ssd_storage_directory=ssd_directory,
+                cache_sets=1,
+                ssd_uniform_init_lower=-0.1,
+                ssd_uniform_init_upper=0.1,
+                weights_precision=SparseType.FP32,
+                kv_zch_params=kv_zch_params,
+                backend_type=BackendType.DRAM_SSD,
+                use_passed_in_path=True,
+            )
+            self.assertIsNotNone(emb.ssd_db)
+
+    def _build_dram_ssd_tbe(
+        self,
+        ssd_directory: str,
+        T: int = 2,
+        D: int = 16,
+        E: int = 100,
+        bucket_size: int = 50,
+    ) -> SSDTableBatchedEmbeddingBags:
+        kv_zch_params = KVZCHParams(
+            bucket_offsets=[(0, E // bucket_size)] * T,
+            bucket_sizes=[bucket_size] * T,
+            enable_optimizer_offloading=True,
+            backend_return_whole_row=True,
+            eviction_policy=EvictionPolicy(
+                eviction_trigger_mode=0,
+                meta_header_lens=[16 // (SparseType.FP32.bit_rate() // 8)] * T,
+            ),
+        )
+        return SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=ssd_directory,
+            cache_sets=1,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            weights_precision=SparseType.FP32,
+            kv_zch_params=kv_zch_params,
+            backend_type=BackendType.DRAM_SSD,
+            use_passed_in_path=True,
+        )
+
+    def test_dram_ssd_split_embedding_weights_creates_snapshot(self) -> None:
+        """DRAM_SSD: split_embedding_weights(no_snapshot=False) creates a RocksDB
+        snapshot and returns one partially-materialized tensor per table."""
+        T = 2
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb: SSDTableBatchedEmbeddingBags = self._build_dram_ssd_tbe(
+                ssd_directory, T=T
+            )
+
+            pmt_splits, _, _, _ = emb.split_embedding_weights(
+                no_snapshot=False, should_flush=True
+            )
+
+            self.assertEqual(len(pmt_splits), T)
+            self.assertEqual(emb.ssd_db.get_snapshot_count(), 1)
+
+    def test_dram_ssd_split_embedding_weights_no_snapshot(self) -> None:
+        """DRAM_SSD: split_embedding_weights(no_snapshot=True) flushes but does
+        not create a snapshot."""
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = self._build_dram_ssd_tbe(ssd_directory)
+
+            emb.split_embedding_weights(no_snapshot=True, should_flush=True)
+
+            self.assertEqual(emb.ssd_db.get_snapshot_count(), 0)
+
+    def test_dram_ssd_snapshot_released_across_calls(self) -> None:
+        """DRAM_SSD: each checkpoint releases the previous snapshot, so the live
+        snapshot count stays at 1 across repeated split_embedding_weights calls."""
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = self._build_dram_ssd_tbe(ssd_directory)
+
+            # Discard the returned tensors so the only live snapshot reference is
+            # the one the module stores internally for release on the next call.
+            emb.split_embedding_weights(no_snapshot=False, should_flush=True)
+            self.assertEqual(emb.ssd_db.get_snapshot_count(), 1)
+
+            emb.split_embedding_weights(no_snapshot=False, should_flush=True)
+            self.assertEqual(emb.ssd_db.get_snapshot_count(), 1)

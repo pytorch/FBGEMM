@@ -52,12 +52,14 @@ jobs:
       # Nova Coordinate Filters:
       # cuda/11.8: No longer supported in FBGEMM
       # cuda/12.9: No longer supported in PyTorch
+      # cuda 13.2 (cu132): not supported by FBGEMM yet; validate step fails with
+      #   "Unknown distribution". Drop until 13.2 is supported.
       # rocm/3.13t: causes segfaults at runtime
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
