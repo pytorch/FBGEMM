@@ -463,11 +463,6 @@
 <dd><p>Enum class definition for feature gates, generated using the X-macro pattern. </p>
 <p><em>Values:</em></p>
 <dl class="cpp enumerator">
-<dt class="sig sig-object cpp" id="_CPPv4N15FeatureGateName1XE">
-<span id="_CPPv3N15FeatureGateName1XE"></span><span id="_CPPv2N15FeatureGateName1XE"></span><span class="target" id="group__fbgemm-gpu-config_1ggad33a2827298233d7e9954d00d0cc4ce7a453df1f860c26180ca96c50a8437f21f"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">X</span></span></span><a class="headerlink" href="#_CPPv4N15FeatureGateName1XE" title="Permalink to this definition">¶</a><br /></dt>
-<dd></dd></dl>
-
-<dl class="cpp enumerator">
 <dt class="sig sig-object cpp" id="_CPPv4N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE">
 <span id="_CPPv3N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE"></span><span id="_CPPv2N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE"></span><span class="target" id="group__fbgemm-gpu-config_1ggad33a2827298233d7e9954d00d0cc4ce7aced6b8050372701fe6b0c9f7c525e4c6"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">ENUMERATE_ALL_FEATURE_FLAGS</span></span></span><a class="headerlink" href="#_CPPv4N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
@@ -497,7 +492,7 @@
 <span class="target" id="group__fbgemm-gpu-config_1gac42b789c9026f13d4c8bc000f5bd5edc"></span><span class="sig-name descname"><span class="n"><span class="pre">ENUMERATE_ALL_FEATURE_FLAGS</span></span></span><a class="headerlink" href="#c.ENUMERATE_ALL_FEATURE_FLAGS" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>FBGEMM_GPU feature gates enum (C++). </p>
 <p>Feature gates are used to enable/disable experimental features based on environment settings.</p>
-<p>ENUMs are defined using the X-macro pattern. To add a feature gate, simply append <code class="docutils literal notranslate"><span class="pre">X(FEATURE_NAME)</span></code> to the <code class="docutils literal notranslate"><span class="pre">ENUMERATE_ALL_FEATURE_FLAGS</span></code> macro. Then, to use the feature gate, see example below.</p>
+<p>ENUMs are defined using the X-macro pattern. To add a feature gate, simply append <code class="docutils literal notranslate"><span class="pre">X(FEATURE_NAME)</span></code> to the <code class="docutils literal notranslate"><a class="reference internal" href="#group__fbgemm-gpu-config_1gac42b789c9026f13d4c8bc000f5bd5edc"><span class="std std-ref"><span class="pre">ENUMERATE_ALL_FEATURE_FLAGS</span></span></a></code> macro. Then, to use the feature gate, see example below.</p>
 <p><strong>Example:</strong> <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">namespace</span><span class="w"> </span><span class="nn">config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nn">fbgemm_gpu</span><span class="o">::</span><span class="nn">config</span><span class="p">;</span>
 
 <span class="kt">void</span><span class="w"> </span><span class="nf">foo</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
