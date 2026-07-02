@@ -34,7 +34,8 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Callable, TypeAlias
+from collections.abc import Callable
+from typing import TypeAlias
 
 import click
 import torch

@@ -11,8 +11,8 @@
 
 import logging
 import uuid
+from collections.abc import Callable
 from itertools import accumulate
-from typing import Callable, Optional
 
 import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
@@ -639,7 +639,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.bounds_check_version: int = get_bounds_check_version_for_platform()
 
         # Get a reporter function pointer
-        self._report_input_params: Optional[Callable[..., None]] = (
+        self._report_input_params: Callable[..., None] | None = (
             self.__report_input_params_factory()
         )
         self._eeg_step: int = 0
@@ -667,7 +667,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.ignore
     def __report_input_params_factory(
         self,
-    ) -> Optional[Callable[..., None]]:
+    ) -> Callable[..., None] | None:
         """
         Returns a function pointer for reporting input parameters (TBEDataConfig)
         if the TBE_REPORT_INPUT_PARAMS feature gate is enabled, otherwise None.
@@ -697,7 +697,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
+        per_sample_weights: Tensor | None = None,
     ) -> None:
         """
         Extract and write input stats if enabled.
