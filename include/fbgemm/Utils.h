@@ -415,6 +415,8 @@ FBGEMM_API bool is_autovec_forced();
 FBGEMM_API bool is_asmjit_disabled();
 FBGEMM_API bool is_stats_enabled();
 FBGEMM_API bool is_sve_fp16_enabled();
+FBGEMM_API bool is_tbe_tuned_prefetch_enabled();
+FBGEMM_API int tbe_tuned_prefetch_l2_multiplier();
 
 FBGEMM_API void set_autovec_disabled(bool val);
 FBGEMM_API void set_autovec_forced(bool val);
