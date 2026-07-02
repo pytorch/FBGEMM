@@ -9,7 +9,12 @@
 #pragma once
 
 #include <ATen/ATen.h>
+// curand is unused here (the philox RNG is hand-rolled) and unavailable on
+// ROCm. Guard it so this header stays compilable when pulled into HIP-native
+// (.hip) translation units, which bypass hipify's include rewriting.
+#if !defined(USE_ROCM)
 #include <curand_kernel.h>
+#endif
 
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/float.cuh"

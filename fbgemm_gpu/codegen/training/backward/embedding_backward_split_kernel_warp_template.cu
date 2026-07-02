@@ -672,7 +672,12 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
                max_segment_length_per_warp,
                emb_dim,
                T,
-               opt_karg
+               opt_karg,
+               // Pass SR state as kernel params (not via opt_karg) so the
+               // broadly-included rocm/split_embeddings_common.h need not
+               // depend on ATen. Both are in scope from the kernel signature.
+               stochastic_rounding,
+               stochastic_rounding_philox_args
                {%- if weighted %}
                , p_indice_weights_sorted
                {%- endif %});
