@@ -85,8 +85,16 @@ setup_miniconda () {
     libmambapy \
     libarchive) || return 1
 
+  # NOTE: Do NOT pass --update-deps here. conda-forge periodically publishes a
+  # base `conda` whose --update-deps solve bumps base Python to a version that
+  # conda itself is not built against. This orphans conda's own package and
+  # breaks every subsequent `conda` invocation (including `conda clean` and the
+  # post-link scripts of later package installs) with:
+  #   ModuleNotFoundError: No module named 'conda'
+  # which takes down setup_miniconda and, downstream, the docs/lint/ci jobs.
+  # Updating conda without --update-deps keeps the base interpreter intact.
   echo "[SETUP] Updating Miniconda base packages ..."
-  (exec_with_retries 3 conda update -n base -c conda-forge --override-channels --update-deps -y conda) || return 1
+  (exec_with_retries 3 conda update -n base -c conda-forge --override-channels -y conda) || return 1
 
   # Clean up packages
   conda_cleanup
