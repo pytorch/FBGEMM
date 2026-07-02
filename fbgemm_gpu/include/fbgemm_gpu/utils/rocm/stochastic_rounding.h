@@ -167,4 +167,55 @@ DEVICE_INLINE void stochastic_rounding_vector(
   fp8_ptr[0] = static_cast<__nv_fp8x2_e4m3>(value.acc);
 }
 
+// Scalar-array weight write for the optimized HIP optimizer update path.
+//
+// Writes `thread_length` accumulator values (`value`, in cache_t/fp32) into the
+// reduced-precision `output` storage applying stochastic rounding (SR). SR is
+// only representable for at::Half on this scalar path (it relies on
+// stochastic_rounding_scalar, which yields __half); for any other emb_t this
+// falls back to a plain round-to-nearest cast. The RNG state is taken by
+// reference (the on/off decision is made by the caller); pass a register-local
+// copy so rand4() operates on registers.
+//
+// Reusable by any optimizer's update() that writes a per-lane scalar array.
+template <typename emb_t, typename cache_t, int32_t thread_length>
+DEVICE_INLINE void stochastic_rounding_store_vector(
+    emb_t* output,
+    const cache_t* value,
+    StochasticRoundingRNGState& state) {
+  if constexpr (std::is_same_v<emb_t, at::Half>) {
+#pragma unroll
+    for (int32_t i = 0; i < thread_length; i += 4) {
+      const uint4 random_bits = state.rand4();
+      const uint32_t bits[4] = {
+          random_bits.x, random_bits.y, random_bits.z, random_bits.w};
+#pragma unroll
+      for (int32_t j = 0; j < 4; j++) {
+        if (i + j < thread_length) {
+          output[i + j] = stochastic_rounding_scalar(
+              static_cast<float>(value[i + j]), bits[j]);
+        }
+      }
+    }
+  } else {
+    // SR is not representable for non-Half on this scalar path: plain cast.
+#pragma unroll
+    for (int32_t i = 0; i < thread_length; i++) {
+      output[i] = static_cast<emb_t>(value[i]);
+    }
+  }
+}
+
+// Scalar-array weight write with plain round-to-nearest (no SR). Used for the
+// SR-disabled case and for fp32 weights (where SR is a no-op).
+template <typename emb_t, typename cache_t, int32_t thread_length>
+DEVICE_INLINE void nearest_rounding_store_vector(
+    emb_t* output,
+    const cache_t* value) {
+#pragma unroll
+  for (int32_t i = 0; i < thread_length; i++) {
+    output[i] = static_cast<emb_t>(value[i]);
+  }
+}
+
 } // namespace fbgemm_gpu::rocm

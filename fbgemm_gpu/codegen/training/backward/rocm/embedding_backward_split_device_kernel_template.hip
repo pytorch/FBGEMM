@@ -34,6 +34,7 @@
 
 #include <ATen/AccumulateType.h>
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
+#include "fbgemm_gpu/utils/rocm/stochastic_rounding.h"
 
 namespace fbgemm_gpu::rocm {
 template <typename cache_t, typename emb_t, typename index_t, int32_t embedding_dim, int32_t weight_decay_mode>
@@ -45,7 +46,11 @@ struct rowwise_adagrad_optimizer_t
     }
 
     template <int32_t thread_length, int32_t segment_split>
-    __device__ void update(cache_t* acc, emb_t* weight, index_t row_index)
+    __device__ void update(
+        cache_t* acc,
+        emb_t* weight,
+        index_t row_index,
+        StochasticRoundingRNGState* sr_state = nullptr)
     {
         if constexpr(segment_split == 0)
         {
@@ -97,13 +102,29 @@ struct rowwise_adagrad_optimizer_t
             }
 
 // update new weight value
+            cache_t updated_weight[thread_length];
 #pragma unroll
             for(auto i = 0; i < thread_length; i++)
             {
                 cache_t w = static_cast<cache_t>(weight[i]);
                 cache_t a = acc[i];
-                w         = correction * w - multiplier * a;
-                weight[i] = static_cast<emb_t>(w);
+                updated_weight[i] = correction * w - multiplier * a;
+            }
+            // Write the fp32 accumulator back to the emb_t weights. When SR is
+            // armed (sr_state != nullptr; only the case for at::Half), copy the
+            // RNG state into a register-local and apply stochastic rounding;
+            // otherwise use plain round-to-nearest. The on/off branch lives here
+            // (per row, warp-uniform); the helpers themselves are branch-free.
+            if (sr_state != nullptr)
+            {
+                StochasticRoundingRNGState local_state = *sr_state;
+                stochastic_rounding_store_vector<emb_t, cache_t, thread_length>(
+                    weight, updated_weight, local_state);
+            }
+            else
+            {
+                nearest_rounding_store_vector<emb_t, cache_t, thread_length>(
+                    weight, updated_weight);
             }
 
             p_momentum[row_index] = momentum_new;
@@ -139,6 +160,8 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     uint32_t emb_dim,
     uint32_t num_tables,
     optimizer_karg_t opt_karg,
+    bool stochastic_rounding,
+    at::PhiloxCudaState stochastic_rounding_philox_args,
     const float * p_sorted_indice_weights = nullptr)
 {
     constexpr uint32_t dword_per_row   = (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
@@ -419,7 +442,24 @@ L_tail_grad_acc:
     load_row_per_warp<emb_t, embedding_dim, index_t>::run(
         &emb_data[0], emb_idx, p_emb_table, lane_id);
     optimizer_t optimizer(opt_karg);
-    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx);
+
+    // Seed a per-thread, per-run stochastic-rounding RNG state when SR is
+    // enabled and the weights are at::Half (SR is a no-op for fp32 and is only
+    // supported for Half on this scalar write path). The salt mirrors the
+    // generic path's per-thread/per-run convention. The philox state is passed
+    // as a kernel parameter (rather than via opt_karg) so the broadly-included
+    // rocm/split_embeddings_common.h need not depend on ATen.
+    StochasticRoundingRNGState sr_state;
+    StochasticRoundingRNGState* sr_state_ptr = nullptr;
+    if constexpr (std::is_same_v<emb_t, at::Half>) {
+        if (stochastic_rounding) {
+            sr_state.init(
+                stochastic_rounding_philox_args,
+                static_cast<uint64_t>(run_id) * AMDGCN_WAVE_SIZE + lane_id);
+            sr_state_ptr = &sr_state;
+        }
+    }
+    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx, sr_state_ptr);
 
     store_row_per_warp<emb_t, embedding_dim>::run(&emb_data[0], p_emb_table + emb_idx * embedding_dim, lane_id);
 }

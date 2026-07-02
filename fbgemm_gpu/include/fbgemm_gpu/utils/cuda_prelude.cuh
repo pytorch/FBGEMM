@@ -10,7 +10,12 @@
 
 #include <ATen/ATen.h>
 
+// cuda.h (CUDA driver API) is unavailable and unused on ROCm. Guard it so this
+// header stays compilable when pulled into HIP-native (.hip) translation units,
+// which bypass hipify's include rewriting.
+#if !defined(USE_ROCM)
 #include <cuda.h>
+#endif
 
 #ifdef __HIP_PLATFORM_AMD__
 #include <ATen/cuda/CUDAContext.h>

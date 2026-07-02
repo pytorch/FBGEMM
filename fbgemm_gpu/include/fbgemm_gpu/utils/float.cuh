@@ -14,7 +14,11 @@
 #else
 #include <cuda_bf16.h>
 #endif
+#ifdef USE_ROCM
+#include <hip/hip_fp16.h>
+#else
 #include <cuda_fp16.h>
+#endif
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 
 #ifdef USE_ROCM
