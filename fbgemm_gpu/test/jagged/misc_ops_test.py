@@ -262,7 +262,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         #   pre-fix:  D * min(B, 65535) * 128 > 2**32
         #   post-fix: 16384 * min(B, 65535) * 128 <= 2**32
         # ⇒ min(B, 65535) <= 2047, and D >= 16385.
-        D = 16385
+        D = 20000
         B = 2047
         device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
@@ -291,6 +291,80 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
 
         torch.testing.assert_close(output_gpu.cpu(), output_cpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_jagged_softmax_backward_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        jagged_softmax_backward_kernel via a direct dispatch to
+        torch.ops.fbgemm.jagged_softmax_backward, and verifies forward +
+        backward correctness against the CPU dispatch.
+
+        Same launch math as the forward kernel:
+        Block: THREADS_PER_BLOCK = 128. Grid: dim3(D, min(B, 65535), 1).
+        The production cap is `blocks_x_capped = min(D,
+        get_max_thread_blocks(stream))` where `get_max_thread_blocks ~=
+        16384` on MI300/MI350. For pre-fix to trip and post-fix to pass:
+            pre-fix:  D * min(B, 65535) * 128 > 2**32 ⇒ D >= 16385.
+            post-fix: 16384 * min(B, 65535) * 128 <= 2**32
+                      ⇒ min(B, 65535) <= 2047.
+        Use D = 20000 (well above 16384) for unambiguous cap-trip
+        detection; post-fix the cap reduces blocks_x to 16384 and the
+        kernel runs successfully.
+
+        ``offsets`` is sparse: most segments are length-zero with
+        sentinel non-zero lengths at start / middle / end. Distinct
+        non-zero values per row let any "kernel addressed wrong segment"
+        bug surface in both the forward output and the backward grad.
+        """
+        D = 20000
+        B = 2047
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Sparse non-zero segment lengths at sentinel positions.
+        lengths_cpu = torch.zeros(B, dtype=torch.int64)
+        lengths_cpu[0] = 2
+        lengths_cpu[B // 2] = 1
+        lengths_cpu[B - 1] = 3
+        offsets_cpu = torch.zeros(B + 1, dtype=torch.int64)
+        offsets_cpu[1:] = torch.cumsum(lengths_cpu, dim=0)
+        total_L = int(offsets_cpu[-1].item())
+        max_L = int(lengths_cpu.max().item())
+
+        # Distinct values across rows so any out-of-segment bug surfaces.
+        values_init = torch.arange(total_L * D, dtype=torch.float32).reshape(total_L, D)
+
+        # Forward to obtain softmax output (used as backward input).
+        output_cpu, _ = torch.ops.fbgemm.jagged_softmax(
+            values_init, offsets_cpu, max_L=max_L
+        )
+        output_gpu, _ = torch.ops.fbgemm.jagged_softmax(
+            values_init.to(device), offsets_cpu.to(device), max_L=max_L
+        )
+        torch.testing.assert_close(output_gpu.cpu(), output_cpu)
+
+        # grad_output: distinct non-zero values so any "kernel addressed
+        # wrong row" bug surfaces in the backward grad.
+        grad_output_cpu = (
+            torch.arange(total_L * D, dtype=torch.float32).reshape(total_L, D) * 0.5
+        )
+
+        # CPU backward via direct dispatch (no autograd indirection).
+        grad_input_cpu = torch.ops.fbgemm.jagged_softmax_backward(
+            grad_output_cpu, output_cpu, offsets_cpu, max_L
+        )
+
+        # GPU backward via direct dispatch. Pre-fix, this launch trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        grad_input_gpu = torch.ops.fbgemm.jagged_softmax_backward(
+            grad_output_cpu.to(device),
+            output_gpu,
+            offsets_cpu.to(device),
+            max_L,
+        )
+
+        torch.testing.assert_close(grad_input_gpu.cpu(), grad_input_cpu)
 
 
 if __name__ == "__main__":
