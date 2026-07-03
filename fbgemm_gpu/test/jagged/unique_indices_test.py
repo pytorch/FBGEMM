@@ -22,9 +22,9 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 
 
 def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: list[int]) -> list[int]:
@@ -826,6 +826,57 @@ class UniqueIndicesTest(unittest.TestCase):
         )  # Counts should be non-negative
         self.assertTrue(torch.all(torch.isfinite(result_small)))
         self.assertTrue(torch.all(torch.isfinite(result_large)))
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_jagged_acc_weights_and_counts_large_grid(self) -> None:
+        """
+        Validates correctness of accumulate_weights_and_counts_kernel
+        end-to-end against the CPU dispatch.
+
+        The HIP grid-overflow cap fix targets the case where
+        ceil(total_elements / kMaxThreads) > get_max_thread_blocks
+        (~16384 on MI300/MI350), i.e. total_elements > ~16M. However,
+        the kernel's host-side wrapper has an upstream
+        ``TORCH_CHECK(reverse_indices.numel() <= INT32_MAX, ...)`` that
+        rejects calls with ``total_elements >= 2**31`` before the
+        launch is reached, so the cap-trip path itself is not directly
+        reachable in a single regression test on this devserver.
+
+        This test exercises the kernel at a small scale, comparing GPU
+        forward output against the CPU dispatch element-for-element.
+        Catches kernel correctness regressions; the cap-trip detection
+        is exercised in CI on hardware where it can be reached without
+        hitting the accessor32 check (or once the accessor is upgraded
+        to int64 indexing).
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Distinct non-zero weights and varied reverse_indices so any
+        # "kernel addressed wrong row" bug surfaces in both the per-row
+        # weight sum and count.
+        small_num_unique = 3
+        small_weights_cpu = torch.tensor(
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=torch.float32
+        )
+        # Distribute: 3 elements to row 0, 2 to row 1, 3 to row 2.
+        small_reverse_indices_cpu = torch.tensor(
+            [0, 1, 0, 2, 1, 2, 0, 2], dtype=torch.int64
+        )
+
+        # CPU reference oracle.
+        small_output_cpu = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            small_weights_cpu, small_reverse_indices_cpu, small_num_unique
+        )
+
+        # GPU op under test.
+        small_output_gpu = torch.ops.fbgemm.jagged_acc_weights_and_counts(
+            small_weights_cpu.to(device),
+            small_reverse_indices_cpu.to(device),
+            small_num_unique,
+        )
+
+        torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
 
 
 if __name__ == "__main__":
