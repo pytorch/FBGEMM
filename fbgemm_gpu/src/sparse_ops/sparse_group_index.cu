@@ -81,6 +81,64 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     warps_per_row = (num_cols + COLS_PER_WARP - 1) >> LOG_COLS_PER_WARP;
   }
 
+  if constexpr (!USE_INDEX_SELECT && !USE_VAR_COLS && !USE_CACHE &&
+                !USE_SORTED_INDICES && !USE_CONTIGUOUS_WARPS &&
+                USE_PACKED_ROWS) {
+    for (int64_t warp_id = threadIdx.y * gridDim.x + blockIdx.x;
+         warp_id < total_num_warps;
+         warp_id += gridDim.x * blockDim.y) {
+      int32_t member_id = warp_id / (warps_per_row * num_work_rows);
+      int32_t member_warp_id =
+          warp_id - (member_id * warps_per_row * num_work_rows);
+      if (num_cols < COLS_PER_WARP && num_cols >= UNROLL_FACTOR) {
+        // Pack multiple narrow rows into one warp.
+        const auto rows_per_warp = COLS_PER_WARP / num_cols;
+        const auto warps_per_member =
+            (num_work_rows + rows_per_warp - 1) / rows_per_warp;
+        member_id = warp_id / warps_per_member;
+        member_warp_id = warp_id % warps_per_member;
+
+        const int64_t start_row = member_warp_id * rows_per_warp;
+        const auto local_row = (threadIdx.x * UNROLL_FACTOR) / num_cols;
+        const auto col_offset = (threadIdx.x * UNROLL_FACTOR) % num_cols;
+        const int64_t current_row = start_row + local_row;
+        if (local_row < rows_per_warp && current_row < num_work_rows) {
+          scalar_t* input =
+              reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
+          scalar_t* output =
+              reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+          index_t* indices =
+              reinterpret_cast<index_t*>(indices_ptrs[member_id]);
+          const index_t idx = indices[current_row];
+#pragma unroll
+          for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
+            gpuAtomicAddNoReturn(
+                &output[idx * num_cols + i],
+                input[current_row * num_cols + i]);
+          }
+        }
+      } else {
+        // Wide-column fallback: >= 1 warp per row.
+        const auto row = member_warp_id / warps_per_row;
+        const auto col_offset =
+            ((member_warp_id % warps_per_row) << LOG_COLS_PER_WARP) +
+            (threadIdx.x * UNROLL_FACTOR);
+        scalar_t* input =
+            reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
+        scalar_t* output =
+            reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+        index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
+        const index_t idx = indices[row];
+#pragma unroll
+        for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
+          gpuAtomicAddNoReturn(
+              &output[idx * num_cols + i], input[row * num_cols + i]);
+        }
+      }
+    }
+    return;
+  }
+
   [[maybe_unused]] int cached_member_id = -1;
   [[maybe_unused]] int64_t cached_upper_bound = -1;
   [[maybe_unused]] int32_t last_member_id_for_accum = -1;
