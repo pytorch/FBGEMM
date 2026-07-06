@@ -317,13 +317,13 @@ def execute_global_weight_decay(  # noqa C901
         if uniq_indices.numel() > 0:
             # DECOUPLE MODE doesn't update prev_iter_dev (i.e., tbe_ref.prev_iter_dev won't be updated)
             if i >= start_iter:
+                prev_iter_dev = tbe.prev_iter_dev
+                assert isinstance(prev_iter_dev, torch.Tensor)
                 apply_gwd(
                     T,
                     Bs,
                     tbe_ref,
-                    # pyre-fixme[6]: For 4th argument expected `Tensor` but got
-                    #  `Union[Tensor, Module]`.
-                    tbe.prev_iter_dev,
+                    prev_iter_dev,
                     i,
                     indices,
                     offsets,
@@ -351,13 +351,13 @@ def execute_global_weight_decay(  # noqa C901
             output.backward(grad)
             # compare weights
             output_ref.backward(grad_ref)
+            tbe_ref_weights_dev = tbe_ref.weights_dev
+            tbe_weights_dev = tbe.weights_dev
+            assert isinstance(tbe_ref_weights_dev, torch.Tensor)
+            assert isinstance(tbe_weights_dev, torch.Tensor)
             compare_output(
-                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
-                tbe_ref.weights_dev,
-                # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
-                tbe.weights_dev,
+                tbe_ref_weights_dev,
+                tbe_weights_dev,
                 is_fp32,
             )
 
