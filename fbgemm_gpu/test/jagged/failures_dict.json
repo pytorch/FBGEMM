@@ -48,6 +48,10 @@
         "comment": "",
         "status": "xfail"
       },
+      "UniqueIndicesTest.test_aot_dispatch_dynamic__test_jagged_acc_weights_and_counts_large_grid": {
+        "comment": "jagged_acc_weights_and_counts has no FakeTensor/meta abstract impl, so the opcheck aot_dispatch_dynamic variant is xfail'd (same known gap as the sibling _1d/_edge_cases/_different_sizes tests).",
+        "status": "xfail"
+      },
       "UniqueIndicesTest.test_faketensor__test_jagged_acc_weights_and_counts_1d": {
         "comment": "",
         "status": "xfail"
@@ -58,6 +62,10 @@
       },
       "UniqueIndicesTest.test_faketensor__test_jagged_acc_weights_and_counts_edge_cases": {
         "comment": "",
+        "status": "xfail"
+      },
+      "UniqueIndicesTest.test_faketensor__test_jagged_acc_weights_and_counts_large_grid": {
+        "comment": "jagged_acc_weights_and_counts has no FakeTensor/meta abstract impl, so the opcheck faketensor variant is xfail'd (same known gap as the sibling _1d/_edge_cases/_different_sizes tests).",
         "status": "xfail"
       }
     },
