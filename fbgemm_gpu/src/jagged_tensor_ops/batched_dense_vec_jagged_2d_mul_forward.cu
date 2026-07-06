@@ -74,6 +74,17 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
         std::min(div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
     const int block_dim_y = kMaxThreads / block_dim_x;
 
+    // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+    // which silently wraps). dense_vec_jagged_2d_bmm grid-strides over `b_h`
+    // (`for (auto b_h = b_h_begin; b_h < B*H; b_h += b_h_step)` where
+    // `b_h_step = gridDim.x * blockDim.y`), so capping is
+    // correctness-preserving.
+    // See: https://github.com/ROCm/hip/issues/2253
+    const auto blocks_x = utils::cuda::cap_grid_dim_x(
+        static_cast<uint32_t>(div_round_up(B * H, block_dim_y)),
+        kMaxThreads,
+        at::cuda::getCurrentCUDAStream());
+
     AT_DISPATCH_INDEX_TYPES(
         a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
           FBGEMM_DISPATCH_FLOATING_TYPES(
@@ -82,7 +93,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
               [&] {
                 FBGEMM_LAUNCH_KERNEL(
                   (dense_vec_jagged_2d_bmm<index_t, scalar_t>),
-                  div_round_up(B * H, block_dim_y),
+                  blocks_x,
                   dim3(block_dim_x, block_dim_y),
                   0,
                   at::cuda::getCurrentCUDAStream(),

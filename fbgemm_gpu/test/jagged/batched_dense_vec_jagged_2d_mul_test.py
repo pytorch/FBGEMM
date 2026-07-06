@@ -19,9 +19,21 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gradcheck, optests
+    from test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        gradcheck,
+        optests,
+    )
 else:
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gradcheck, optests
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        gradcheck,
+        optests,
+    )
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -232,6 +244,97 @@ class BatchedDenseVecJagged2DMulTest(unittest.TestCase):
             dynamic=True,
         )(dense, values, offsets)
         assert output.size() == output_ref.size()
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_batched_dense_vec_jagged_2d_mul_forward_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in dense_vec_jagged_2d_bmm
+        and verifies output correctness via a downsampled CPU oracle.
+
+        Block: dim3(block_dim_x, block_dim_y) where
+            block_dim_x = min(div_round_up(D, kWarpSize)*kWarpSize, kMaxThreads),
+            block_dim_y = kMaxThreads / block_dim_x.
+        Block size in threads = kMaxThreads = 1024.
+        Grid: dim3(div_round_up(B*H, block_dim_y)).
+        Total threads = ceil(B*H / block_dim_y) * 1024.
+
+        The production cap is `blocks_x_capped = min(blocks_x_uncapped,
+        get_max_thread_blocks(stream))` where `get_max_thread_blocks ~=
+        16384` on MI300/MI350. For pre-fix to trip and post-fix to pass:
+            pre-fix:  ceil(B*H / block_dim_y) * 1024 > 2**32
+                      ⇒ B*H > 2**22 * block_dim_y. With D = 4,
+                        block_dim_y = 32, so B*H > 2**27.
+            post-fix: 16384 * 1024 = 2**24 < 2**32 (always passes
+                      regardless of B*H).
+
+        Verification strategy (per master plan's downsampled-oracle
+        guidance for ops where the full-scale CPU oracle is impractical
+        due to ~2 GiB CPU memory pressure):
+
+        1. Full-scale invocation to verify launch survival at the
+           cap-trip scale. Uses an empty jagged tensor (max_L=0) so
+           the kernel does no per-segment work; output shape and
+           zero-fill are asserted.
+        2. Small-scale invocation vs CPU dispatch with sentinel
+           non-zero values to validate kernel correctness end-to-end.
+        """
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: full-scale launch survival (cap-trip detection). ----
+        B = (1 << 27) + 1
+        H = 1
+        D = 4
+        # Empty jagged tensor (max_L=0 ⇒ a_values has 0 rows).
+        a_values_large = torch.zeros((0, H * D), dtype=torch.float32, device=device)
+        a_offsets_large = torch.zeros(B * H + 1, dtype=torch.int64, device=device)
+        v_large = torch.zeros((B * H, 0), dtype=torch.float32, device=device)
+
+        output_large = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            v_large, a_values_large, a_offsets_large
+        )
+        self.assertEqual(output_large.shape, (B * H, D))
+        self.assertTrue(torch.all(output_large == 0).item())
+        del a_values_large, a_offsets_large, v_large, output_large
+
+        # ---- Step 2: downsampled CPU-oracle correctness check. ----
+        # Same kernel code path, smaller scale to keep the CPU oracle cheap.
+        # Distinct non-zero values so any "kernel addressed wrong row" bug
+        # surfaces in the matrix product output.
+        small_B = 2
+        small_H = 2
+        small_D = 4
+        small_max_L = 3
+        # Sparse jagged: segment 0 has 1 row, segment 1 has 2 rows,
+        # segment 2 has 0 rows, segment 3 has 3 rows. Total = 6 rows.
+        small_lengths = torch.tensor([1, 2, 0, 3], dtype=torch.int64)
+        small_offsets_cpu = torch.zeros(small_B * small_H + 1, dtype=torch.int64)
+        small_offsets_cpu[1:] = torch.cumsum(small_lengths, dim=0)
+        total_rows = int(small_offsets_cpu[-1].item())
+        small_a_values_cpu = torch.arange(
+            total_rows * small_H * small_D, dtype=torch.float32
+        ).reshape(total_rows, small_H * small_D)
+        small_v_cpu = (
+            torch.arange(small_B * small_H * small_max_L, dtype=torch.float32).reshape(
+                small_B * small_H, small_max_L
+            )
+            * 0.1
+        )
+
+        # CPU reference oracle.
+        small_output_cpu = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            small_v_cpu, small_a_values_cpu, small_offsets_cpu
+        )
+
+        # GPU op under test.
+        small_output_gpu = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            small_v_cpu.to(device),
+            small_a_values_cpu.to(device),
+            small_offsets_cpu.to(device),
+        )
+
+        torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
 
 
 if __name__ == "__main__":
