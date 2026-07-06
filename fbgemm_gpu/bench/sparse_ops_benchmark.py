@@ -601,6 +601,20 @@ def _gen_group_inputs_jagged(
     default=True,
     help="Use manual seed for reproduction.",
 )
+@click.option(
+    "--num-warmups",
+    type=int,
+    default=50,
+    help="Number of warm-up iterations. Excluded from the exported Kineto trace "
+    "via the profiler schedule. Raised from 10 to 50 per AMD benchmarking "
+    "feedback for more reliable small-config measurements.",
+)
+@click.option(
+    "--iters",
+    type=int,
+    default=100,
+    help="Number of measured iterations recorded in the trace.",
+)
 def group_index_select_2d_bench(
     num_cols: int | None,
     num_rows: int | None,
@@ -615,6 +629,8 @@ def group_index_select_2d_bench(
     input_strides: str | None,
     num_indices: int | None,
     manual_seed: bool,
+    num_warmups: int,
+    iters: int,
 ) -> None:
     # set manual seed for reproducibility
     if manual_seed:
@@ -693,17 +709,63 @@ def group_index_select_2d_bench(
         # )
         # num_bytes = 2 * num_rows * num_cols * input.element_size() * num_groups
 
-    bench_kwargs = {"num_warmups": 10, "iters": 100}
+    bench_kwargs = {"num_warmups": num_warmups, "iters": iters}
 
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(trace_url.format(phase=phase, ospid=os.getpid()))
 
-    # pyre-ignore[3]
-    def context_factory(on_trace_ready: Callable[[profile], None]):
-        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+    def _export_kineto_trace(
+        fn: Callable[[], None],
+        phase: str,
+        num_warmup: int,
+        num_active: int,
+    ) -> None:
+        """Schedule-based profiling pass that records ONLY the measured iters.
 
-    # Benchmark forward
-    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        The bare ``profile(on_trace_ready=...)`` pattern records every iteration
+        run inside it, warm-ups included -- so the exported trace (and the
+        per-kernel stats derived from it) would be polluted by the warm-up
+        launches. Using ``schedule(wait=0, warmup=num_warmup, active=num_active)``
+        with explicit ``prof.step()`` calls excludes the warm-ups from the trace
+        (AMD benchmarking feedback, point 1).
+        """
+        if not export_trace:
+            return
+        total_iters = num_warmup + num_active
+        is_cuda = device != "cpu"
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if is_cuda:
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        with profile(
+            activities=activities,
+            schedule=schedule(wait=0, warmup=num_warmup, active=num_active, repeat=1),
+            record_shapes=True,
+            on_trace_ready=lambda p: _kineto_trace_handler(p, phase),
+        ) as prof:
+            for _ in range(total_iters):
+                fn()
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                prof.step()
+
+    # Benchmark forward. When exporting a trace, the schedule-based pass below is
+    # the single execution and the canonical source of the reported per-kernel
+    # numbers (warm-ups excluded). Otherwise fall back to benchmark_torch_function
+    # for a logged scalar. A single forward call is captured first to build the
+    # autograd graph consumed by the backward pass.
+    output_group = torch.ops.fbgemm.group_index_select_dim0(input_group, indices_group)
+    if export_trace:
+        _export_kineto_trace(
+            lambda: torch.ops.fbgemm.group_index_select_dim0(
+                input_group, indices_group
+            ),
+            "fwd",
+            num_warmups,
+            iters,
+        )
+    else:
         time, output_group = benchmark_torch_function(
             torch.ops.fbgemm.group_index_select_dim0,
             (input_group, indices_group),
@@ -711,7 +773,7 @@ def group_index_select_2d_bench(
             # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
-    logging.info(f"forward group_index_select_dim0: {time:.5f} sec")
+        logging.info(f"forward group_index_select_dim0: {time:.5f} sec")
     # PyTorch single-tensor reference (synthetic/homogeneous path only); kept
     # per reviewer request. Re-enable together with the reference setup in the
     # synthetic branch above to compare against torch.index_select.
@@ -730,7 +792,14 @@ def group_index_select_2d_bench(
     #  typing.tuple[Tensor, ...]]` but got `Tensor`.
     cat_output = torch.cat(output_group, dim=1)
     grad = torch.rand_like(cat_output)
-    with context_factory(lambda p: _kineto_trace_handler(p, "bwd")):
+    if export_trace:
+        _export_kineto_trace(
+            lambda: cat_output.backward(grad, retain_graph=True),
+            "bwd",
+            num_warmups,
+            iters,
+        )
+    else:
         time, _ = benchmark_torch_function(
             functools.partial(cat_output.backward, retain_graph=True),
             (grad,),
@@ -738,7 +807,7 @@ def group_index_select_2d_bench(
             # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
-    logging.info(f"backward group_index_select_dim0: {time:.5f} sec")
+        logging.info(f"backward group_index_select_dim0: {time:.5f} sec")
     # PyTorch single-tensor reference backward (synthetic/homogeneous path
     # only); kept per reviewer request.
     # grad_ref = torch.rand_like(output_ref)
