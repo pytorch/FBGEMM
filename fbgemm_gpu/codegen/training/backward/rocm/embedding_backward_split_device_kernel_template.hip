@@ -32,10 +32,145 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
+#include <cstdint>
+#include <type_traits>
+
 #include <ATen/AccumulateType.h>
+// Provides at::PhiloxCudaState + at::cuda::philox::unpack. This is a raw .hip
+// translation unit, and the OSS hipify pipeline does NOT rewrite #includes
+// inside .hip files. So we must include the ROCm (ATen/hip) header path
+// directly: an ATen/cuda/... include would (a) resolve to the CUDA header that
+// pulls <cuda.h> (absent in the ROCm toolchain) and (b) define a second,
+// CUDA-flavored at::PhiloxCudaState that clashes with the HIP one already in the
+// enclosing warp TU. PhiloxUtils.cuh is header-guarded, so it de-dups with the
+// warp's copy. (The namespace stays at::cuda::philox even under ROCm.)
+#ifdef USE_ROCM
+#include <ATen/hip/PhiloxUtils.cuh>
+#else
+#include <ATen/cuda/PhiloxUtils.cuh>
+#endif
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
 
 namespace fbgemm_gpu::rocm {
+
+// Stochastic-rounding primitives, defined locally in fbgemm_gpu::rocm rather
+// than pulled from stochastic_rounding.cuh (directly or via
+// rocm/stochastic_rounding.h). This device kernel is compiled both standalone
+// (gen_..._device_kernel_hip.hip.o) and #included into the warp kernel, and
+// neither of those headers is usable from a raw .hip TU:
+//   (a) they transitively include cuda_prelude.cuh -> <cuda.h> and
+//       <curand_kernel.h>, which do not exist on the raw ROCm compile, and
+//   (b) in the #included build they would re-define
+//       fbgemm_gpu::StochasticRoundingRNGState against the hipified copy already
+//       present in the warp TU.
+// Keeping our own copy in the fbgemm_gpu::rocm namespace sidesteps both: it is
+// self-contained for the standalone compile and does not collide with the
+// fbgemm_gpu:: symbols in the #included compile.
+
+// xorshift* RNG state seeded from a philox state; mirrors
+// fbgemm_gpu::StochasticRoundingRNGState.
+struct StochasticRoundingRNGState {
+  uint64_t state = 0;
+
+  // From https://github.com/lemire/testingRNG/blob/master/source/splitmix64.h
+  __device__ __forceinline__ uint64_t splitmix64_stateless(uint64_t index) {
+    uint64_t z = (index + UINT64_C(0x9E3779B97F4A7C15));
+    z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
+    return z ^ (z >> 31);
+  }
+
+  // salt_value should differ for every run and every thread.
+  __device__ __forceinline__ void init(
+      const at::PhiloxCudaState& philox_state,
+      const uint64_t salt_value) {
+    const auto [s0, s1] = at::cuda::philox::unpack(philox_state);
+    state = splitmix64_stateless(s0 ^ s1) ^ splitmix64_stateless(salt_value);
+    // Never allow a zero state (astronomically unlikely, but still).
+    if (state == 0) {
+      state = 1;
+    }
+  }
+
+  // xorshift* -- see https://en.wikipedia.org/wiki/Xorshift#xorshift*
+  __device__ __forceinline__ uint4 rand4() {
+    uint4 random_bits = {0, 0, 0, 0};
+    uint64_t x = state; // must be seeded nonzero
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    random_bits.x = (x * UINT64_C(0x2545F4914F6CDD1D)) >> 32;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    random_bits.y = (x * UINT64_C(0x2545F4914F6CDD1D)) >> 32;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    random_bits.z = (x * UINT64_C(0x2545F4914F6CDD1D)) >> 32;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    random_bits.w = (x * UINT64_C(0x2545F4914F6CDD1D)) >> 32;
+    state = x;
+    return random_bits;
+  }
+};
+
+// Correct for cases where x is not subnormal; mirrors
+// fbgemm_gpu::stochastic_rounding_scalar.
+__device__ __forceinline__ __half
+stochastic_rounding_scalar(float x, uint32_t random_value) {
+  uint32_t w_int = __float_as_uint(x);
+  unsigned assembles = (w_int & 0xff800000) | (random_value >> 19);
+  unsigned subtract = (w_int & 0xff800000);
+  float assemble_float = __uint_as_float(assembles) - __uint_as_float(subtract);
+  return __float2half_rz(x + assemble_float);
+}
+
+// Writes `thread_length` fp32 accumulator values into reduced-precision `output`
+// with stochastic rounding. SR is only representable for at::Half on this scalar
+// path (stochastic_rounding_scalar yields __half); any other emb_t falls back to
+// a plain round-to-nearest cast.
+template <typename emb_t, typename cache_t, int32_t thread_length>
+__device__ __forceinline__ void stochastic_rounding_store_vector(
+    emb_t* output,
+    const cache_t* value,
+    StochasticRoundingRNGState& state) {
+  if constexpr (std::is_same_v<emb_t, at::Half>) {
+#pragma unroll
+    for (int32_t i = 0; i < thread_length; i += 4) {
+      const uint4 random_bits = state.rand4();
+      const uint32_t bits[4] = {
+          random_bits.x, random_bits.y, random_bits.z, random_bits.w};
+#pragma unroll
+      for (int32_t j = 0; j < 4; j++) {
+        if (i + j < thread_length) {
+          output[i + j] = stochastic_rounding_scalar(
+              static_cast<float>(value[i + j]), bits[j]);
+        }
+      }
+    }
+  } else {
+#pragma unroll
+    for (int32_t i = 0; i < thread_length; i++) {
+      output[i] = static_cast<emb_t>(value[i]);
+    }
+  }
+}
+
+// Scalar-array weight write with plain round-to-nearest (no SR). Used for the
+// SR-disabled case and for fp32 weights (where SR is a no-op).
+template <typename emb_t, typename cache_t, int32_t thread_length>
+__device__ __forceinline__ void nearest_rounding_store_vector(
+    emb_t* output,
+    const cache_t* value) {
+#pragma unroll
+  for (int32_t i = 0; i < thread_length; i++) {
+    output[i] = static_cast<emb_t>(value[i]);
+  }
+}
+
 template <typename cache_t, typename emb_t, typename index_t, int32_t embedding_dim, int32_t weight_decay_mode>
 struct rowwise_adagrad_optimizer_t
 {
@@ -45,7 +180,11 @@ struct rowwise_adagrad_optimizer_t
     }
 
     template <int32_t thread_length, int32_t segment_split>
-    __device__ void update(cache_t* acc, emb_t* weight, index_t row_index)
+    __device__ void update(
+        cache_t* acc,
+        emb_t* weight,
+        index_t row_index,
+        StochasticRoundingRNGState* sr_state = nullptr)
     {
         if constexpr(segment_split == 0)
         {
@@ -97,13 +236,29 @@ struct rowwise_adagrad_optimizer_t
             }
 
 // update new weight value
+            cache_t updated_weight[thread_length];
 #pragma unroll
             for(auto i = 0; i < thread_length; i++)
             {
                 cache_t w = static_cast<cache_t>(weight[i]);
                 cache_t a = acc[i];
-                w         = correction * w - multiplier * a;
-                weight[i] = static_cast<emb_t>(w);
+                updated_weight[i] = correction * w - multiplier * a;
+            }
+            // Write the fp32 accumulator back to the emb_t weights. When SR is
+            // armed (sr_state != nullptr; only the case for at::Half), copy the
+            // RNG state into a register-local and apply stochastic rounding;
+            // otherwise use plain round-to-nearest. The on/off branch lives here
+            // (per row, warp-uniform); the helpers themselves are branch-free.
+            if (sr_state != nullptr)
+            {
+                StochasticRoundingRNGState local_state = *sr_state;
+                stochastic_rounding_store_vector<emb_t, cache_t, thread_length>(
+                    weight, updated_weight, local_state);
+            }
+            else
+            {
+                nearest_rounding_store_vector<emb_t, cache_t, thread_length>(
+                    weight, updated_weight);
             }
 
             p_momentum[row_index] = momentum_new;
@@ -139,6 +294,8 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     uint32_t emb_dim,
     uint32_t num_tables,
     optimizer_karg_t opt_karg,
+    bool stochastic_rounding,
+    at::PhiloxCudaState stochastic_rounding_philox_args,
     const float * p_sorted_indice_weights = nullptr)
 {
     constexpr uint32_t dword_per_row   = (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
@@ -419,7 +576,24 @@ L_tail_grad_acc:
     load_row_per_warp<emb_t, embedding_dim, index_t>::run(
         &emb_data[0], emb_idx, p_emb_table, lane_id);
     optimizer_t optimizer(opt_karg);
-    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx);
+
+    // Seed a per-thread, per-run stochastic-rounding RNG state when SR is
+    // enabled and the weights are at::Half (SR is a no-op for fp32 and is only
+    // supported for Half on this scalar write path). The salt mirrors the
+    // generic path's per-thread/per-run convention. The philox state is passed
+    // as a kernel parameter (rather than via opt_karg) so the broadly-included
+    // rocm/split_embeddings_common.h need not depend on ATen.
+    StochasticRoundingRNGState sr_state;
+    StochasticRoundingRNGState* sr_state_ptr = nullptr;
+    if constexpr (std::is_same_v<emb_t, at::Half>) {
+        if (stochastic_rounding) {
+            sr_state.init(
+                stochastic_rounding_philox_args,
+                static_cast<uint64_t>(run_id) * AMDGCN_WAVE_SIZE + lane_id);
+            sr_state_ptr = &sr_state;
+        }
+    }
+    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx, sr_state_ptr);
 
     store_row_per_warp<emb_t, embedding_dim>::run(&emb_data[0], p_emb_table + emb_idx * embedding_dim, lane_id);
 }
