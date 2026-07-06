@@ -683,8 +683,17 @@ Tensor jagged_acc_weights_and_counts_cu(
             reverse_indices.scalar_type(),
             "accumulate_weights_and_counts_idx",
             ([&] {
-              // Calculate number of blocks based on total elements
-              const int num_blocks = div_round_up(total_elements, kMaxThreads);
+              // HIP enforces a hard limit of 2^32 total threads per launch
+              // (unlike CUDA, which silently wraps).
+              // accumulate_weights_and_counts_kernel grid-strides over `i`
+              // (`for (int i = bid * kMaxThreads + tid; i < total_elements;
+              // i += kMaxThreads * gridDim.x)`), so capping is
+              // correctness-preserving.
+              // See: https://github.com/ROCm/hip/issues/2253
+              const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+                  total_elements,
+                  kMaxThreads,
+                  at::cuda::getCurrentCUDAStream());
 
               FBGEMM_LAUNCH_KERNEL(
                   (accumulate_weights_and_counts_kernel<index_t, scalar_t>),
