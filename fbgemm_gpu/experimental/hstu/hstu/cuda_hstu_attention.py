@@ -9,7 +9,7 @@
 
 # pyre-strict
 
-from typing import Any, Optional
+from typing import Any
 from .library import *  # noqa: F401, F403
 import torch
 
@@ -30,12 +30,12 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
         target_group_size: int,
         window_size: tuple[int, int] = (-1, -1),
         alpha: float = 1.0,
-        rab: Optional[torch.Tensor] = None,  # need grad
+        rab: torch.Tensor | None = None,  # need grad
         has_drab: bool = False,
         is_delta_q: bool = False,
-        descale_q: Optional[torch.Tensor] = None,
-        descale_k: Optional[torch.Tensor] = None,
-        descale_v: Optional[torch.Tensor] = None,
+        descale_q: torch.Tensor | None = None,
+        descale_k: torch.Tensor | None = None,
+        descale_v: torch.Tensor | None = None,
     ) -> torch.Tensor:
         assert q.dim() == 3, "q shape should be (L, num_heads, head_dim)"
         assert k.dim() == 3, "k shape should be (L, num_heads, head_dim)"
@@ -229,12 +229,12 @@ def hstu_attn_varlen_func(
     target_group_size: int = 1,
     window_size: tuple[int, int] = (-1, -1),
     alpha: float = 1.0,
-    rab: Optional[torch.Tensor] = None,
+    rab: torch.Tensor | None = None,
     has_drab: bool = False,
     is_delta_q: bool = False,
-    descale_q: Optional[torch.Tensor] = None,
-    descale_k: Optional[torch.Tensor] = None,
-    descale_v: Optional[torch.Tensor] = None,
+    descale_q: torch.Tensor | None = None,
+    descale_k: torch.Tensor | None = None,
+    descale_v: torch.Tensor | None = None,
 ):
     """
     Arguments:

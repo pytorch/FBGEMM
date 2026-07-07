@@ -20,7 +20,7 @@ import logging
 import os
 import unittest
 import warnings
-from typing import Any, Optional
+from typing import Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -93,7 +93,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         ref_cc: DenseTableBatchedEmbeddingBagsCodegen,
         indices: torch.Tensor,
         offsets: torch.Tensor,
-        per_sample_weights: Optional[torch.Tensor],
+        per_sample_weights: torch.Tensor | None,
         grad_output: torch.Tensor,
     ) -> torch.Tensor:
         cc = DenseTableBatchedEmbeddingBagsCodegen(
@@ -123,8 +123,8 @@ class BackwardDeterminismTest(unittest.TestCase):
         ref_cc: SplitTableBatchedEmbeddingBagsCodegen,
         indices: torch.Tensor,
         offsets: torch.Tensor,
-        per_sample_weights: Optional[torch.Tensor],
-        total_unique_indices: Optional[int],
+        per_sample_weights: torch.Tensor | None,
+        total_unique_indices: int | None,
         grad_output: torch.Tensor,
     ) -> torch.Tensor | list[torch.Tensor]:
         cc = SplitTableBatchedEmbeddingBagsCodegen(
@@ -201,7 +201,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         output_dtype: SparseType = SparseType.FP32,
         dense: bool = False,
         num_runs: int = 5,
-        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Run backward pass num_runs times and assert bit-identical results.
 

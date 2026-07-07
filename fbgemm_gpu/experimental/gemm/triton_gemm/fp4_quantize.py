@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Optional, Union
 
 import torch
 import triton  # @manual
@@ -273,7 +272,7 @@ def triton_quantize_mx4_unpack(
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -284,7 +283,7 @@ def triton_quantize_mx4_unpack(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target mx4 format.
         mbits (int): Number of bits to use for mantissa in target mx4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -699,7 +698,7 @@ def triton_silu_quantize_mx4_unpack(
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -710,7 +709,7 @@ def triton_silu_quantize_mx4_unpack(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target mx4 format.
         mbits (int): Number of bits to use for mantissa in target mx4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -1123,7 +1122,7 @@ def triton_rms_quantize_mx4_unpack(
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1135,7 +1134,7 @@ def triton_rms_quantize_mx4_unpack(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target mx4 format.
         mbits (int): Number of bits to use for mantissa in target mx4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -1502,7 +1501,7 @@ def triton_scale_nvfp4_quant(
     group_size: int = 16,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
     use_e8m0_scale: bool = False,
@@ -1515,7 +1514,7 @@ def triton_scale_nvfp4_quant(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target nvfp4 format.
         mbits (int): Number of bits to use for mantissa in target nvfp4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
         use_e8m0_scale (bool): Whether to use E8M0 for quantization
@@ -1858,7 +1857,7 @@ def triton_scale_nvfp4_quant_silu(
     group_size: int = 16,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -1869,7 +1868,7 @@ def triton_scale_nvfp4_quant_silu(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target nvfp4 format.
         mbits (int): Number of bits to use for mantissa in target nvfp4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -2220,7 +2219,7 @@ def triton_scale_nvfp4_quant_rms(
     group_size: int = 16,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -2232,7 +2231,7 @@ def triton_scale_nvfp4_quant_rms(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target nvfp4 format.
         mbits (int): Number of bits to use for mantissa in target nvfp4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -2605,7 +2604,7 @@ def triton_nvfp4_quant_stacked(
     group_size: int = 16,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -2617,7 +2616,7 @@ def triton_nvfp4_quant_stacked(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target nvfp4 format.
         mbits (int): Number of bits to use for mantissa in target nvfp4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -3839,11 +3838,11 @@ def mega_fp4_quantize_kernel(
     m_sizes: torch.Tensor,
     input: torch.Tensor,
     input_global_scale: torch.Tensor,
-    optional_tensor_idx: Optional[torch.Tensor] = None,
+    optional_tensor_idx: torch.Tensor | None = None,
     group_size: int = 16,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -4022,7 +4021,7 @@ def triton_nvfp4_quant_stacked_silu(
     group_size: int = 16,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -4034,7 +4033,7 @@ def triton_nvfp4_quant_stacked_silu(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target nvfp4 format.
         mbits (int): Number of bits to use for mantissa in target nvfp4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -4433,7 +4432,7 @@ def triton_nvfp4_quant_stacked_rms(
     group_size: int = 16,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    rounding_mode: RoundingMode | int = RoundingMode.ceil,
     stochastic_casting: bool = False,
     EPS: float = 1e-5,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -4445,7 +4444,7 @@ def triton_nvfp4_quant_stacked_rms(
         group_size (int): Size of chunks that will use the same shared exponent.
         ebits (int): Number of bits to use for exponent in target nvfp4 format.
         mbits (int): Number of bits to use for mantissa in target nvfp4 format.
-        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        rounding_mode (RoundingMode | int): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
 
@@ -4960,7 +4959,7 @@ def mega_fp4_pack(
     input_global_scale: torch.Tensor,
     group_size: int = 16,
     per_tensor: bool = False,
-    m_sizes: Optional[torch.Tensor] = None,
+    m_sizes: torch.Tensor | None = None,
 ) -> torch.Tensor:
 
     orig_shape = input.shape

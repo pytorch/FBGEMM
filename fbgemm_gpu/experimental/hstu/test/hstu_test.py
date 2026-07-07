@@ -11,7 +11,6 @@ import logging
 import math
 import os
 import unittest
-from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -156,7 +155,7 @@ def construct_mask(
 def generate_input(
     batch_size: int,
     heads: int,
-    heads_rab: Optional[int],
+    heads_rab: int | None,
     max_seq_len_q: int,
     max_seq_len_k: int,
     max_context_len: int,
@@ -374,7 +373,7 @@ def _hstu_attention_maybe_from_cache(
     v: torch.Tensor,
     q_offsets: torch.Tensor,
     k_offsets: torch.Tensor,
-    rab: Optional[torch.Tensor],
+    rab: torch.Tensor | None,
     invalid_attn_mask: torch.Tensor,
     alpha: float,
     upcast: bool = True,
@@ -527,7 +526,7 @@ class HSTU16Test(unittest.TestCase):
         max_context_len: int,
         attn_hidden_dims: tuple[int, int],
         alpha: float,
-        rab_params: tuple[bool, bool, Optional[int]],
+        rab_params: tuple[bool, bool, int | None],
         seq_len_params: tuple[int, int, bool],
         target_params: tuple[int, tuple[int, int], int],
         dtype: torch.dtype,
@@ -702,12 +701,12 @@ def _hstu_attention_maybe_from_cache_fp8(
     v: torch.Tensor,
     q_offsets: torch.Tensor,
     k_offsets: torch.Tensor,
-    rab: Optional[torch.Tensor],
+    rab: torch.Tensor | None,
     invalid_attn_mask: torch.Tensor,
     alpha: float,
-    descale_q: Optional[torch.Tensor] = None,
-    descale_k: Optional[torch.Tensor] = None,
-    descale_v: Optional[torch.Tensor] = None,
+    descale_q: torch.Tensor | None = None,
+    descale_k: torch.Tensor | None = None,
+    descale_v: torch.Tensor | None = None,
 ):
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
     B: int = q_offsets.size(0) - 1
@@ -890,7 +889,7 @@ class HSTU8Test(unittest.TestCase):
         window_size: tuple[int, int],
         attn_hidden_dims: tuple[int, int],
         alpha: float,
-        rab_params: tuple[bool, bool, Optional[int]],
+        rab_params: tuple[bool, bool, int | None],
         full_batch: bool,
         dtype: torch.dtype,
         max_target_len: int,

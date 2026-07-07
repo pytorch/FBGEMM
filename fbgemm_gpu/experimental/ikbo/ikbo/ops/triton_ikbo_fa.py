@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Optional
 
 import torch
 import triton
@@ -180,7 +179,7 @@ def triton_flash_attn_ikbo_tma(
     cand_to_user_mapping: torch.Tensor,
     q_seq_len: int,
     max_seq_len: int,
-    scale: Optional[float] = None,
+    scale: float | None = None,
 ) -> torch.Tensor:
     """
     Ba: candidate batch size, Bu: user batch, H: num heads, D: head dim
