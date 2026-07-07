@@ -336,6 +336,106 @@ class BatchedDenseVecJagged2DMulTest(unittest.TestCase):
 
         torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
 
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_batched_dense_vec_jagged_2d_mul_backward_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in the backward kernels of
+        fbgemm.batched_dense_vec_jagged_2d_mul:
+          - dense_vec_jagged_2d_transposed_bmm: grid =
+              ceil(B*H / block_dim_y) * 1024.
+          - outer_prod_jagged_2d_output: grid =
+              ceil(B*H*max_L / block_dim_y) * 1024.
+
+        The production cap is `blocks_x_capped = min(blocks_x_uncapped,
+        get_max_thread_blocks(stream))` where `get_max_thread_blocks ~=
+        16384` on MI300/MI350. With max_L=1, D=4, block_dim_y=32 for
+        both kernels:
+            pre-fix:  ceil(B*H / 32) * 1024 > 2**32 ⇒ B*H > 2**27.
+            post-fix: 16384 * 1024 = 2**24 < 2**32 (always passes).
+
+        Verification strategy (downsampled-oracle):
+        1. Full-scale forward + backward to verify both backward kernels
+           launch successfully under the cap. Uses an empty jagged
+           tensor (offsets all zero) so per-segment work is zero;
+           backward grad shapes are asserted.
+        2. Small-scale forward + backward vs CPU dispatch to validate
+           kernel correctness end-to-end.
+        """
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: full-scale forward + backward launch survival. ----
+        B = (1 << 27) + 1
+        H = 1
+        max_L = 1
+        D = 4
+        a_values_large = torch.zeros(
+            (0, H * D), dtype=torch.float32, device=device, requires_grad=True
+        )
+        a_offsets_large = torch.zeros(B * H + 1, dtype=torch.int64, device=device)
+        v_large = torch.zeros(
+            (B * H, max_L),
+            dtype=torch.float32,
+            device=device,
+            requires_grad=True,
+        )
+
+        output_large = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            v_large, a_values_large, a_offsets_large
+        )
+        # Pre-fix, this backward call's two kernels both trip
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        output_large.sum().backward()
+        # pyre-ignore[16]
+        self.assertEqual(v_large.grad.shape, v_large.shape)
+        # pyre-ignore[16]
+        self.assertEqual(a_values_large.grad.shape, a_values_large.shape)
+        del v_large, a_values_large, a_offsets_large, output_large
+        torch.cuda.empty_cache()
+
+        # ---- Step 2: downsampled CPU-oracle correctness check. ----
+        small_B = 2
+        small_H = 2
+        small_D = 4
+        small_max_L = 3
+        # Sparse jagged offsets. Total = 6 rows.
+        small_lengths = torch.tensor([1, 2, 0, 3], dtype=torch.int64)
+        small_offsets_cpu = torch.zeros(small_B * small_H + 1, dtype=torch.int64)
+        small_offsets_cpu[1:] = torch.cumsum(small_lengths, dim=0)
+        total_rows = int(small_offsets_cpu[-1].item())
+        a_values_init = torch.arange(
+            total_rows * small_H * small_D, dtype=torch.float32
+        ).reshape(total_rows, small_H * small_D)
+        v_init = (
+            torch.arange(small_B * small_H * small_max_L, dtype=torch.float32).reshape(
+                small_B * small_H, small_max_L
+            )
+            * 0.1
+        )
+
+        # CPU forward + backward.
+        a_values_cpu = a_values_init.detach().clone().requires_grad_(True)
+        v_cpu = v_init.detach().clone().requires_grad_(True)
+        output_cpu = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            v_cpu, a_values_cpu, small_offsets_cpu
+        )
+        output_cpu.sum().backward()
+
+        # GPU forward + backward.
+        a_values_gpu = a_values_init.detach().clone().to(device).requires_grad_(True)
+        v_gpu = v_init.detach().clone().to(device).requires_grad_(True)
+        output_gpu = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            v_gpu, a_values_gpu, small_offsets_cpu.to(device)
+        )
+        output_gpu.sum().backward()
+
+        torch.testing.assert_close(output_gpu.cpu(), output_cpu)
+        # pyre-ignore[16]
+        torch.testing.assert_close(v_gpu.grad.cpu(), v_cpu.grad)
+        # pyre-ignore[16]
+        torch.testing.assert_close(a_values_gpu.grad.cpu(), a_values_cpu.grad)
+
 
 if __name__ == "__main__":
     unittest.main()
