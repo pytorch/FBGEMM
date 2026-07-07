@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Optional
 
 import torch
 import triton
@@ -503,7 +502,7 @@ def tlx_flash_attn_ikbo_tma_persistent(
     q_seq_len: int,
     max_seq_len: int,
     cand_grid: torch.Tensor,
-    scale: Optional[float] = None,
+    scale: float | None = None,
 ) -> torch.Tensor:
     """
     Ba: candidate batch size, Bu: user batch, H: num heads, D: head dim

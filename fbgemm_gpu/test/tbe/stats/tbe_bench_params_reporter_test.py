@@ -8,7 +8,6 @@
 # pyre-strict
 
 import unittest
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import fbgemm_gpu
@@ -313,7 +312,7 @@ class TestInferenceTBEBenchmarkParamsReporter(unittest.TestCase):
             "torch.ops.fbgemm.check_feature_gate_key"
         ) as mock_check_feature_gate_key:
 
-            def side_effect(feature_name: str) -> Optional[bool]:
+            def side_effect(feature_name: str) -> bool | None:
                 if feature_name == FeatureGateName.TBE_REPORT_INPUT_PARAMS.name:
                     return True
 
@@ -356,7 +355,7 @@ class TestInferenceTBEBenchmarkParamsReporter(unittest.TestCase):
             "torch.ops.fbgemm.check_feature_gate_key"
         ) as mock_check_feature_gate_key:
 
-            def side_effect(feature_name: str) -> Optional[bool]:
+            def side_effect(feature_name: str) -> bool | None:
                 if feature_name == FeatureGateName.TBE_REPORT_INPUT_PARAMS.name:
                     return True
 

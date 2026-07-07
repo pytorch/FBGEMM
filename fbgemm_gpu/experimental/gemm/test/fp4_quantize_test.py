@@ -6,7 +6,6 @@
 
 import math
 import unittest
-from typing import Optional
 
 import fbgemm_gpu
 import torch
@@ -368,7 +367,7 @@ F8E4M3_MAX = torch.finfo(torch.float8_e4m3fn).max  # 448.0
 def nvfp4_quantize(
     data_hp: torch.Tensor,
     block_size: int = 16,
-    per_tensor_scale: Optional[torch.Tensor] = None,
+    per_tensor_scale: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """NVIDIA FP4 quantization with UE4M3 scales.
 
