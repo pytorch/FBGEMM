@@ -522,6 +522,156 @@ class BackwardAdagradTest(unittest.TestCase):
                 )
 
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("Validates stochastic rounding in the optimized HIP backward kernel")
+    def test_backward_adagrad_rocm_hip_stochastic_rounding_seeded(self) -> None:
+        """
+        Validates that the optimized HIP TBE backward kernel threads stochastic
+        rounding (SR) correctly. Before SR was plumbed into the HIP optimizer the
+        kernel always used round-to-nearest, so the updated weights were
+        independent of the RNG seed. With identical weights/inputs and only the
+        SR seed varying, we expect:
+          - same seed -> bit-identical updated weights (seed threaded correctly)
+          - diff seed -> different updated weights (SR is actually applied)
+        """
+        E: int = 1000
+        T, B, L = 1, 64, 10
+        D: int = 128
+        lr: float = 0.5
+        eps: float = 0.1
+        device = torch.accelerator.current_accelerator()
+
+        # Fixed weights + inputs so SR is the only source of randomness.
+        torch.manual_seed(0)
+        init_weights: torch.Tensor = torch.randn(E, D, device=device).to(torch.float16)
+        indices: torch.Tensor = torch.randint(
+            0, E, (T * B * L,), dtype=torch.long, device=device
+        )
+        offsets: torch.Tensor = torch.arange(
+            0, T * B * L + 1, L, dtype=torch.long, device=device
+        )
+
+        def run_update(sr_seed: int) -> torch.Tensor:
+            with updated_env(
+                {"FBGEMM_NO_JK": "1", "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL": "1"}
+            ):
+                cc = SplitTableBatchedEmbeddingBagsCodegen(
+                    embedding_specs=[
+                        (E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)
+                    ],
+                    weights_precision=SparseType.FP16,
+                    output_dtype=SparseType.FP16,
+                    optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                    learning_rate=lr,
+                    eps=eps,
+                    weight_decay=0.0,
+                    weight_decay_mode=WeightDecayMode.NONE,
+                    stochastic_rounding=True,
+                ).cuda()
+                with torch.no_grad():
+                    cc.split_embedding_weights()[0].copy_(init_weights)
+                # Seed the default generator that supplies the SR philox state,
+                # immediately before the backward so the offset is deterministic.
+                torch.manual_seed(sr_seed)
+                output = cc(indices, offsets)
+                output.backward(torch.ones_like(output))
+                return cc.split_embedding_weights()[0].detach().clone()
+
+        w_same_a = run_update(1234)
+        w_same_b = run_update(1234)
+        w_diff = run_update(5678)
+
+        self.assertTrue(
+            torch.equal(w_same_a, w_same_b),
+            "Same SR seed produced different weights — the SR seed is not "
+            "threaded deterministically through the HIP backward kernel.",
+        )
+        self.assertFalse(
+            torch.equal(w_same_a, w_diff),
+            "Different SR seeds produced identical weights — stochastic rounding "
+            "is not being applied by the HIP backward kernel (round-to-nearest).",
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm(
+        "Validates stochastic rounding is unbiased in the HIP backward kernel"
+    )
+    def test_backward_adagrad_rocm_hip_stochastic_rounding_unbiased(self) -> None:
+        """
+        Stochastic rounding is unbiased: E[SR(x)] == x. Averaging the FP16 SR'd
+        weight updates from the optimized HIP kernel over many runs should
+        converge to the exact FP32 optimizer update, while any single run does
+        not match it (it rounds to the FP16 grid). This is the property that
+        recovers NE parity vs. round-to-nearest.
+        """
+        E: int = 200
+        B, L = 32, 8
+        D: int = 128
+        lr: float = 0.5
+        eps: float = 0.1
+        n_runs = 50
+        device = torch.accelerator.current_accelerator()
+
+        torch.manual_seed(0)
+        init_weights_fp16 = torch.randn(E, D, device=device).to(torch.float16)
+        indices = torch.randint(0, E, (B * L,), dtype=torch.long, device=device)
+        offsets = torch.arange(0, B * L + 1, L, dtype=torch.long, device=device)
+        accessed = indices.unique().cpu()
+
+        def build(
+            precision: SparseType, stochastic: bool
+        ) -> SplitTableBatchedEmbeddingBagsCodegen:
+            return SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[(E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)],
+                weights_precision=precision,
+                output_dtype=precision,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                learning_rate=lr,
+                eps=eps,
+                weight_decay=0.0,
+                weight_decay_mode=WeightDecayMode.NONE,
+                stochastic_rounding=stochastic,
+            ).cuda()
+
+        with updated_env(
+            {"FBGEMM_NO_JK": "1", "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL": "1"}
+        ):
+            # FP32 oracle: exact update with no rounding. The gradient into the
+            # table is a scatter of grad_output and is independent of weight
+            # precision, so this is the unbiased target for the FP16 SR updates.
+            cc_ref = build(SparseType.FP32, False)
+            with torch.no_grad():
+                cc_ref.split_embedding_weights()[0].copy_(init_weights_fp16.float())
+            out = cc_ref(indices, offsets)
+            out.backward(torch.ones_like(out))
+            w_ref = cc_ref.split_embedding_weights()[0].detach().float().cpu()[accessed]
+
+            # FP16 + SR: average accessed-row updates across many runs.
+            acc_sum = torch.zeros_like(w_ref)
+            single_run = None
+            for r in range(n_runs):
+                cc = build(SparseType.FP16, True)
+                with torch.no_grad():
+                    cc.split_embedding_weights()[0].copy_(init_weights_fp16)
+                torch.manual_seed(1000 + r)
+                out = cc(indices, offsets)
+                out.backward(torch.ones_like(out))
+                w_run = cc.split_embedding_weights()[0].detach().float().cpu()[accessed]
+                acc_sum += w_run
+                if single_run is None:
+                    single_run = w_run
+            w_sr_mean = acc_sum / n_runs
+
+        # Mean of SR updates converges to the exact FP32 update (unbiased).
+        torch.testing.assert_close(w_sr_mean, w_ref, atol=5e-3, rtol=5e-3)
+        # A single SR run does not match the exact update bit-for-bit — i.e. SR
+        # genuinely rounds to the FP16 grid rather than being a no-op.
+        self.assertIsNotNone(single_run)
+        self.assertFalse(
+            torch.equal(single_run, w_ref),
+            "A single SR run exactly matched the FP32 update — SR not applied.",
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(40))
     def test_backward_adagrad_from_config_file(self) -> None:
         """
