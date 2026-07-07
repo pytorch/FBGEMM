@@ -1832,7 +1832,9 @@ def permute_1d_sparse_data_bench(
 @click.option("--batch-size", default=128)
 @click.option("--max-segment-length", default=2000)
 @click.option(
-    "--index-dtype", type=click.Choice(["int", "int64", "float"]), default="float"
+    "--index-dtype",
+    type=click.Choice(["int", "int64", "float", "bf16", "fp16"]),
+    default="float",
 )
 @click.option("--has-weight", is_flag=True, default=False)
 @click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cuda")
@@ -1871,6 +1873,10 @@ def permute_2d_sparse_data_bench(
         index_dtype = torch.int64
     elif index_dtype == "float":
         index_dtype = torch.float32
+    elif index_dtype == "bf16":
+        index_dtype = torch.bfloat16
+    elif index_dtype == "fp16":
+        index_dtype = torch.float16
     else:
         raise RuntimeError(f"Does not support data type {index_dtype}")
 
@@ -1891,7 +1897,7 @@ def permute_2d_sparse_data_bench(
         * emb_dim
     )
     total_indices = int(lengths.sum().item())
-    if index_dtype == torch.float32:
+    if index_dtype.is_floating_point:
         indices = torch.rand(total_indices, dtype=index_dtype, device=device)
     else:
         indices = torch.randint(
