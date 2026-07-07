@@ -19,7 +19,19 @@ import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
-from fbgemm_gpu.split_embedding_configs import sparse_type_to_int, SparseType
+from fbgemm_gpu.split_embedding_configs import SparseType
+
+try:
+    from fbgemm_gpu.split_embedding_configs import sparse_type_to_int
+except ImportError:
+    # Forward-compat for torch.package re-export version blends: a model's frozen
+    # split_embedding_configs bundled alongside this (newer) module may predate the
+    # module-level sparse_type_to_int (extracted in D63000116). Delegate to
+    # SparseType.as_int(), which the older enum implements standalone.
+    def sparse_type_to_int(sparse_type: "SparseType") -> int:
+        return sparse_type.as_int()
+
+
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
