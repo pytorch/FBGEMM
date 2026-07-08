@@ -663,10 +663,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # The max number of rows to be evicted is limited by the number of
         # slots in the cache. Thus, we allocate `lxu_cache_evicted_weights` to
         # be the same shape as the L1 cache (lxu_cache_weights)
-        self.lxu_cache_evicted_weights_list = []
-        self.lxu_cache_evicted_indices_list = []
-        self.lxu_cache_evicted_slots_list = []
-        self.lxu_cache_evicted_count_list = []
+        self.lxu_cache_evicted_weights_list: list[torch.Tensor] = []
+        self.lxu_cache_evicted_indices_list: list[torch.Tensor] = []
+        self.lxu_cache_evicted_slots_list: list[torch.Tensor] = []
+        self.lxu_cache_evicted_count_list: list[torch.Tensor] = []
         for buf_idx in range(2):
             evicted_weights = torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
@@ -2127,9 +2127,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Returns:
             None
         """
-        if self.prefetch_stream:
+        prefetch_stream = self.prefetch_stream
+        if prefetch_stream is not None:
             # Ensure that prefetch is done
-            torch.cuda.current_stream().wait_stream(self.prefetch_stream)
+            torch.cuda.current_stream().wait_stream(prefetch_stream)
 
         assert self.current_iter_data is not None, "current_iter_data must be set"
 
@@ -3381,7 +3382,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.ignore
     def _split_optimizer_states_kv_zch_whole_row(
         self,
-        sorted_ids: torch.Tensor,
+        sorted_ids: list[torch.Tensor] | None,
         no_snapshot: bool = True,
         should_flush: bool = False,
     ) -> list[list[torch.Tensor]]:
@@ -3882,6 +3883,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             row_offset = table_offset
             metaheader_dim = 0
             if self.kv_zch_params:
+                # pyre-ignore[16]: bucket_offsets is guarded by the enclosing `if self.kv_zch_params`
                 bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[i]
                 # pyre-ignore
                 bucket_size = self.kv_zch_params.bucket_sizes[i]
@@ -4772,7 +4774,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             return
 
         # skip metrics reporting when evicting disabled
-        if self.kv_zch_params.eviction_policy.eviction_trigger_mode == 0:
+        if (
+            self.kv_zch_params is None
+            or self.kv_zch_params.eviction_policy is None
+            or self.kv_zch_params.eviction_policy.eviction_trigger_mode == 0
+        ):
             return
 
         T = len(set(self.feature_table_map))

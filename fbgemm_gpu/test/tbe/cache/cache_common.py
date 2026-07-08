@@ -82,7 +82,7 @@ class TestingStatsReporter(TBEStatsReporter):
         self,
         iteration_step: int,
         event_name: str,
-        data_bytes: int,
+        data_bytes: float,
         embedding_id: str = "",
         tbe_id: str = "",
         enable_tb_metrics: bool = False,
