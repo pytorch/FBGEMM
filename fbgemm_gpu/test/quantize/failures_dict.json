@@ -5,9 +5,17 @@
     "fbgemm::FP8RowwiseQuantizedToFloat": {},
     "fbgemm::FloatToFP8RowwiseQuantized": {},
     "fbgemm::FloatToPaddedFP8RowwiseQuantized": {
+      "TestFP8RowwiseQuantizationConversion.test_aot_dispatch_dynamic__test_padded_fp8_rowwise_1d_roundtrip": {
+        "comment": "1D nrows==1 roundtrip is harness-incompatible under opcheck: the paired PaddedFP8RowwiseQuantizedToFloat has a data-dependent output shape (per-row pad values) when output_last_dim is unset, which faketensor/aot_dispatch tracing cannot verify. Eager correctness is covered by the base test_padded_fp8_rowwise_1d_roundtrip. T191384137",
+        "status": "xfail"
+      },
       "TestFP8RowwiseQuantizationConversion.test_aot_dispatch_dynamic__test_quantize_and_dequantize_op_padded_fp8_rowwise": {
         "comment": "",
         "status": "xfail"
+      },
+      "TestFP8RowwiseQuantizationConversion.test_faketensor__test_padded_fp8_rowwise_1d_roundtrip": {
+        "comment": "1D nrows==1 roundtrip is harness-incompatible under opcheck (data-dependent dequant output shape). Eager correctness is covered by the base test_padded_fp8_rowwise_1d_roundtrip. T191384137",
+        "status": "skip"
       },
       "TestFP8RowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op_padded_fp8_rowwise": {
         "comment": "flaky (CUDA IMA)",
@@ -15,9 +23,17 @@
       }
     },
     "fbgemm::PaddedFP8RowwiseQuantizedToFloat": {
+      "TestFP8RowwiseQuantizationConversion.test_aot_dispatch_dynamic__test_padded_fp8_rowwise_1d_roundtrip": {
+        "comment": "1D nrows==1 roundtrip is harness-incompatible under opcheck: data-dependent output shape (per-row pad values) when output_last_dim is unset cannot be verified under faketensor/aot_dispatch tracing. Eager correctness is covered by the base test_padded_fp8_rowwise_1d_roundtrip. T191384137",
+        "status": "xfail"
+      },
       "TestFP8RowwiseQuantizationConversion.test_aot_dispatch_dynamic__test_quantize_and_dequantize_op_padded_fp8_rowwise": {
         "comment": "",
         "status": "xfail"
+      },
+      "TestFP8RowwiseQuantizationConversion.test_faketensor__test_padded_fp8_rowwise_1d_roundtrip": {
+        "comment": "1D nrows==1 roundtrip is harness-incompatible under opcheck (data-dependent dequant output shape). Eager correctness is covered by the base test_padded_fp8_rowwise_1d_roundtrip. T191384137",
+        "status": "skip"
       },
       "TestFP8RowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op_padded_fp8_rowwise": {
         "comment": "flaky (CUDA IMA)",
