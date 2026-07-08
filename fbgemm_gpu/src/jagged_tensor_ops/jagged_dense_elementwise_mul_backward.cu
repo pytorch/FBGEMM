@@ -90,6 +90,18 @@ void jagged_jagged_elementwise_dense_output_(
   std::tie(threads, blocks, jagged_dims_tensor) =
       check_shape_and_partition_(x_values, x_offsets, output);
 
+  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
+  // which silently wraps). jagged_jagged_elementwise_dense_output_kernel_
+  // grid-strides over the outer dim
+  // (`outer_stride = gridDim.x * blockDim.y`), so capping is
+  // correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  blocks.x = utils::cuda::cap_grid_dim_x(
+      static_cast<uint32_t>(blocks.x),
+      static_cast<int64_t>(threads.x) * static_cast<int64_t>(threads.y) *
+          static_cast<int64_t>(threads.z),
+      at::cuda::getCurrentCUDAStream());
+
   // Canonicalize output to 3D, collapsing jagged dimensions.
   Tensor output_reshaped = output.view({output.size(0), -1, output.size(-1)});
 
