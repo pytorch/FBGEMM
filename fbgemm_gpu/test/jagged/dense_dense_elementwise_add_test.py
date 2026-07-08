@@ -25,10 +25,17 @@ from .common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, gradcheck, optests
+    from test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        gradcheck,
+        optests,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
         gpu_unavailable,
         gradcheck,
         optests,
@@ -275,6 +282,102 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         output = to_padded_dense(output, output_offsets, max_lengths)
 
         assert output.size() == output_ref.size()
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(40))
+    def test_jagged_dense_dense_elementwise_add_jagged_output_large_grid(
+        self,
+    ) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in
+        jagged_dense_dense_elementwise_jagged_output_kernel_ (the
+        common.cuh `_opt_` codepath, kernel template at common.cuh:738)
+        and verifies output correctness via a downsampled CPU oracle.
+
+        Same block/grid arithmetic as the mul_backward kernel: block <= 1024;
+        grid.x = div_round_up(outer * jagged_folded, 32); saturation at
+        outer * jagged_folded >= 2**27. With D=8 we keep
+        x_values.numel() < 2**31 (the kernel's int32_t accessor limit).
+
+        Verification strategy (downsampled-oracle):
+        1. Full-scale forward to verify launch survival at the cap-trip
+           scale. Uses zeros so output is zeros; shape and zero-fill are
+           asserted.
+        2. Small-scale invocation vs CPU dispatch with sentinel non-zero
+           values to validate kernel correctness end-to-end.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: full-scale launch survival (cap-trip detection). ----
+        B = 1
+        max_L = (1 << 27) + 1
+        # D=8 keeps numel < 2**31 for int32_t accessor compatibility.
+        D = 8
+        nnz = max_L
+        x_values_large = torch.zeros((nnz, D), dtype=torch.float32, device=device)
+        x_offsets_large = [torch.tensor([0, nnz], dtype=torch.int64, device=device)]
+        y0_large = torch.zeros((B, max_L, D), dtype=torch.float32, device=device)
+        y1_large = torch.zeros((B, max_L, D), dtype=torch.float32, device=device)
+
+        output_large = (
+            torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                x_values_large, x_offsets_large, y0_large, y1_large
+            )
+        )
+        # output[0] is the output jagged values.
+        self.assertEqual(output_large[0].shape, (nnz, D))
+        self.assertTrue(torch.all(output_large[0] == 0).item())
+        del x_values_large, x_offsets_large, y0_large, y1_large, output_large
+        torch.cuda.empty_cache()
+
+        # ---- Step 2: downsampled CPU-oracle correctness check. ----
+        # Same kernel code path, smaller scale. Distinct non-zero values so
+        # any "kernel addressed wrong row" bug surfaces in the output sum.
+        small_B = 2
+        small_max_L = 4
+        small_D = 3
+        small_lengths = torch.tensor([1, 3], dtype=torch.int64)
+        small_x_offsets_cpu = [torch.zeros(small_B + 1, dtype=torch.int64)]
+        small_x_offsets_cpu[0][1:] = torch.cumsum(small_lengths, dim=0)
+        small_nnz = int(small_x_offsets_cpu[0][-1].item())
+        small_x_values_cpu = torch.arange(
+            small_nnz * small_D, dtype=torch.float32
+        ).reshape(small_nnz, small_D)
+        small_y0_cpu = (
+            torch.arange(small_B * small_max_L * small_D, dtype=torch.float32).reshape(
+                small_B, small_max_L, small_D
+            )
+            * 0.1
+        )
+        small_y1_cpu = (
+            torch.arange(small_B * small_max_L * small_D, dtype=torch.float32).reshape(
+                small_B, small_max_L, small_D
+            )
+            * 0.01
+        )
+
+        # CPU reference oracle.
+        small_output_cpu = (
+            torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                small_x_values_cpu,
+                small_x_offsets_cpu,
+                small_y0_cpu,
+                small_y1_cpu,
+            )
+        )
+
+        # GPU op under test.
+        small_x_offsets_gpu = [t.to(device) for t in small_x_offsets_cpu]
+        small_output_gpu = (
+            torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                small_x_values_cpu.to(device),
+                small_x_offsets_gpu,
+                small_y0_cpu.to(device),
+                small_y1_cpu.to(device),
+            )
+        )
+
+        torch.testing.assert_close(small_output_gpu[0].cpu(), small_output_cpu[0])
 
 
 if __name__ == "__main__":
