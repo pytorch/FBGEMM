@@ -487,6 +487,12 @@ static Tensor float_or_half_to_fusednbitrowwise_cpu_with_rowwise_min_max(
       (rowwise_min_max.dim() == 2 && rowwise_min_max.size(0) == input.size(0) &&
        rowwise_min_max.size(1) == fbgemm::kRowwiseMinMaxNumCols),
       "'rowwise_min_max' must be a 2D tensor with shape [num_rows(weight), 2].");
+  TORCH_CHECK(
+      rowwise_min_max.scalar_type() == input.scalar_type(),
+      "'rowwise_min_max' must have the same dtype as input, got ",
+      rowwise_min_max.scalar_type(),
+      " vs ",
+      input.scalar_type());
 
   const auto rowwise_min_max_contig = rowwise_min_max.expect_contiguous(
       rowwise_min_max.suggest_memory_format());

@@ -8,7 +8,6 @@
 
 import itertools
 import unittest
-from typing import Optional
 
 import torch
 import triton
@@ -45,12 +44,12 @@ class TestFp8Matmul(unittest.TestCase):
             shape: tuple[int, ...],
             use_triton: bool,
             device: torch.device,
-            output_device: Optional[torch.device] = None,
+            output_device: torch.device | None = None,
             use_jagged: bool = False,
             use_scale_ub: bool = False,
             transpose_inputs: bool = False,
-            align_rows_to: Optional[int] = None,
-            expected_padded_size: Optional[int] = None,  # only set with align_rows_to
+            align_rows_to: int | None = None,
+            expected_padded_size: int | None = None,  # only set with align_rows_to
         ) -> None:
             a = torch.randn(shape, dtype=torch.bfloat16, device=device)
             inputs = [a]
@@ -230,7 +229,7 @@ class TestFp8Matmul(unittest.TestCase):
             shape: tuple[int, ...],
             use_triton: bool,
             device: torch.device,
-            output_device: Optional[torch.device] = None,
+            output_device: torch.device | None = None,
             use_jagged: bool = False,
             use_scale_ub: bool = False,
             transpose_inputs: bool = False,
@@ -462,7 +461,7 @@ class TestFp8Matmul(unittest.TestCase):
                 def _quantize_matmul_fp8(
                     a: torch.Tensor,
                     b: torch.Tensor,
-                    bias: Optional[torch.Tensor],
+                    bias: torch.Tensor | None,
                     fp8_fast_accum: bool,
                 ) -> torch.Tensor:
                     a_fp8, a_scale = quantize_fp8_row(a)
@@ -496,7 +495,7 @@ class TestFp8Matmul(unittest.TestCase):
             expected_result = a @ b.T
             if use_bias:
                 # pyre-fixme[6]: For 1st argument expected `Union[bool, complex,
-                #  float, int, Tensor]` but got `Optional[Tensor]`.
+                #  float, int, Tensor]` but got `Tensor | None`.
                 expected_result += bias
             self.assertTrue(
                 torch.allclose(result, expected_result, atol=2e-1, rtol=5e-2)
@@ -544,7 +543,7 @@ class TestFp8Matmul(unittest.TestCase):
                 def _quantize_matmul_fp8(
                     a: torch.Tensor,
                     b: torch.Tensor,
-                    bias: Optional[torch.Tensor],
+                    bias: torch.Tensor | None,
                 ) -> torch.Tensor:
                     a_fp8, a_scale = _fp8_clamp(a), None
                     b_fp8, b_scale = quantize_fp8_row(b)
@@ -585,7 +584,7 @@ class TestFp8Matmul(unittest.TestCase):
             expected_result = a @ b.T
             if use_bias:
                 # pyre-fixme[6]: For 1st argument expected `Union[bool, complex,
-                #  float, int, Tensor]` but got `Optional[Tensor]`.
+                #  float, int, Tensor]` but got `Tensor | None`.
                 expected_result += bias
             self.assertTrue(
                 torch.allclose(result, expected_result, atol=2e-1, rtol=5e-2)

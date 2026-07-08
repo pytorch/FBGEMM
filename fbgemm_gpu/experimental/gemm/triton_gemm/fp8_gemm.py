@@ -8,7 +8,6 @@
 import functools
 import logging
 import os
-from typing import Optional, Union
 
 import torch
 import triton  # @manual
@@ -107,7 +106,7 @@ def get_configs_io_bound() -> list[Config]:
     Returns a list of configs for matmul that are IO bound.
 
     Returns:
-        List[Config]: list of configs.
+        list[Config]: list of configs.
     """
     configs = []
     for num_stages in [2, 3, 4, 5, 6]:
@@ -1180,7 +1179,7 @@ def _is_eligible_for_skip_scaling(
     fp8_fast_accum: bool,
     imprecise_acc: bool,
     tma_persistent: bool,
-    no_use_persistent: Optional[bool],
+    no_use_persistent: bool | None,
     use_warp_specialization: bool,
 ) -> bool:
     if not is_rowwise:
@@ -1199,17 +1198,17 @@ def _is_eligible_for_skip_scaling(
 def matmul_fp8_row(
     a: torch.Tensor,
     b: torch.Tensor,
-    a_scale: Optional[torch.Tensor],
+    a_scale: torch.Tensor | None,
     b_scale: torch.Tensor,
-    bias: Optional[torch.Tensor] = None,
-    dot_out_dtype: Optional[torch.dtype] = None,
+    bias: torch.Tensor | None = None,
+    dot_out_dtype: torch.dtype | None = None,
     allow_tf32: bool = True,
     fp8_fast_accum: bool = True,
     imprecise_acc: bool = False,
     tma_persistent: bool = True,
-    no_use_persistent: Optional[bool] = None,
+    no_use_persistent: bool | None = None,
     # add an option to explicitly require the use of persistent process
-    use_persistent: Optional[bool] = None,
+    use_persistent: bool | None = None,
     use_warp_specialization: bool = False,
 ) -> torch.Tensor:
     """
@@ -1661,15 +1660,15 @@ def matmul_fp8_row(
 def matmul_fp8_row_meta(
     a: torch.Tensor,
     b: torch.Tensor,
-    a_scale: Optional[torch.Tensor],
+    a_scale: torch.Tensor | None,
     b_scale: torch.Tensor,
-    bias: Optional[torch.Tensor] = None,
-    dot_out_dtype: Optional[torch.dtype] = None,
+    bias: torch.Tensor | None = None,
+    dot_out_dtype: torch.dtype | None = None,
     allow_tf32: bool = True,
     fp8_fast_accum: bool = True,
     imprecise_acc: bool = False,
     tma_persistent: bool = True,
-    no_use_persistent: Optional[bool] = None,
+    no_use_persistent: bool | None = None,
     use_warp_specialization: bool = False,
 ) -> torch.Tensor:
     """Shape function for torch compile."""
@@ -2074,7 +2073,7 @@ def matmul_fp8_block(
     scale_block_m: int = 256,
     scale_block_n: int = 256,
     scale_block_k: int = 256,
-    dot_out_dtype: Optional[torch.dtype] = None,
+    dot_out_dtype: torch.dtype | None = None,
     allow_tf32: bool = True,
     fp8_fast_accum: bool = True,
 ) -> Tensor:
@@ -2208,7 +2207,7 @@ def matmul_fp8_block_meta(
     scale_block_m: int = 256,
     scale_block_n: int = 256,
     scale_block_k: int = 256,
-    dot_out_dtype: Optional[torch.dtype] = None,
+    dot_out_dtype: torch.dtype | None = None,
     allow_tf32: bool = True,
     fp8_fast_accum: bool = True,
 ) -> torch.Tensor:
@@ -2244,9 +2243,9 @@ def get_matmul_tune(M: int, N: int, K: int) -> tuple[int, int, int]:
 
 
 def prep_matmul(
-    a: Union[TensorWrapper, torch.Tensor],
-    b: Union[TensorWrapper, torch.Tensor],
-    dot_out_dtype: Optional[torch.dtype],
+    a: TensorWrapper | torch.Tensor,
+    b: TensorWrapper | torch.Tensor,
+    dot_out_dtype: torch.dtype | None,
 ) -> tuple[
     int, int, int, int, int, int, torch.Tensor, tl.dtype, tl.dtype, torch.device
 ]:
@@ -2474,9 +2473,9 @@ def _kernel_quantize_fp8_row(
 
 def triton_quantize_fp8_row(
     a: Tensor,
-    scale_ub: Optional[Tensor] = None,
-    zero_start_index_M: Optional[Tensor] = None,
-    align_rows_to: Optional[int] = None,
+    scale_ub: Tensor | None = None,
+    zero_start_index_M: Tensor | None = None,
+    align_rows_to: int | None = None,
 ) -> tuple[Tensor, Tensor]:
     """
     Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
@@ -2749,10 +2748,10 @@ def _kernel_quantize_fp8_packed_row(
 
 def triton_quantize_fp8_packed_row(
     a: Tensor,
-    scale_ub: Optional[Tensor] = None,
-    zero_start_index_M: Optional[Tensor] = None,
-    return_only_packed: Optional[bool] = False,
-) -> tuple[Optional[Tensor], Optional[Tensor], Tensor]:
+    scale_ub: Tensor | None = None,
+    zero_start_index_M: Tensor | None = None,
+    return_only_packed: bool | None = False,
+) -> tuple[Tensor | None, Tensor | None, Tensor]:
     """
     Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
 
@@ -2831,7 +2830,7 @@ def triton_quantize_fp8_packed_row(
     # Extract the original shape data without the extra 4 bytes per row
     # The data is still contiguous in memory, so we have to unpack it.
     final_fp8_view = a_fp8[..., :-4].view(a_shape)
-    scale_view = a_fp8[..., -4:].reshape((num_rows * 4)).view(torch.float32)
+    scale_view = a_fp8[..., -4:].reshape(num_rows * 4).view(torch.float32)
 
     # the difference with the packed API is that it also
     # returns the full packed tensor as a third return value
@@ -2841,10 +2840,10 @@ def triton_quantize_fp8_packed_row(
 @torch.library.custom_op("triton::quantize_fp8_packed_row", mutates_args=())
 def quantize_fp8_packed_row(
     a: Tensor,
-    scale_ub: Optional[Tensor] = None,
-    zero_start_index_M: Optional[Tensor] = None,
+    scale_ub: Tensor | None = None,
+    zero_start_index_M: Tensor | None = None,
     use_triton: bool = True,
-    output_device: Optional[torch.device] = None,
+    output_device: torch.device | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a to fp8 with row-wise scalings and optionally move to output device.
@@ -2899,10 +2898,10 @@ def quantize_fp8_packed_row(
 @torch.library.custom_op("triton::quantize_fp8_packed_row_raw", mutates_args=())
 def quantize_fp8_packed_row_raw(
     a: Tensor,
-    scale_ub: Optional[Tensor] = None,
-    zero_start_index_M: Optional[Tensor] = None,
+    scale_ub: Tensor | None = None,
+    zero_start_index_M: Tensor | None = None,
     use_triton: bool = True,
-    output_device: Optional[torch.device] = None,
+    output_device: torch.device | None = None,
 ) -> torch.Tensor:
     """
     Quantize a to fp8 with row-wise scalings and optionally move to output device.
@@ -2938,11 +2937,11 @@ def quantize_fp8_packed_row_raw(
 @torch.library.custom_op("triton::quantize_fp8_row", mutates_args=())
 def quantize_fp8_row(
     a: Tensor,
-    scale_ub: Optional[Tensor] = None,
-    zero_start_index_M: Optional[Tensor] = None,
+    scale_ub: Tensor | None = None,
+    zero_start_index_M: Tensor | None = None,
     use_triton: bool = True,
-    output_device: Optional[torch.device] = None,
-    align_rows_to: Optional[int] = None,
+    output_device: torch.device | None = None,
+    align_rows_to: int | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a to fp8 with row-wise scalings and optionally move to output device.
@@ -2998,11 +2997,11 @@ def quantize_fp8_row(
 @quantize_fp8_row.register_fake
 def quantize_fp8_row_meta(
     a: Tensor,
-    scale_ub: Optional[Tensor] = None,
-    zero_start_index_M: Optional[Tensor] = None,
+    scale_ub: Tensor | None = None,
+    zero_start_index_M: Tensor | None = None,
     use_triton: bool = True,
-    output_device: Optional[torch.device] = None,
-    align_rows_to: Optional[int] = None,
+    output_device: torch.device | None = None,
+    align_rows_to: int | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Shape function for torch compile."""
     if output_device is None:
@@ -3220,7 +3219,7 @@ def triton_quantize_fp8_block(
     x: torch.Tensor,
     block_m: int = 256,
     block_k: int = 256,
-    scale_ub: Optional[torch.Tensor] = None,
+    scale_ub: torch.Tensor | None = None,
     k_major: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -3296,9 +3295,9 @@ def quantize_fp8_block(
     x: torch.Tensor,
     block_m: int = 256,
     block_k: int = 256,
-    scale_ub: Optional[torch.Tensor] = None,
+    scale_ub: torch.Tensor | None = None,
     use_triton: bool = True,
-    output_device: Optional[torch.device] = None,
+    output_device: torch.device | None = None,
     k_major: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -3421,7 +3420,7 @@ def _kernel_quantize_fp8_group(
         A_scale (Tensor): [M, cdiv(K, GROUP_SIZE)] reciprocal scale tensor per group.
         A_fp8 (Tensor): [M, K] fp8 scaled tensor. A_fp8 = A * a
         scale_ub (Tensor): [1] Maximum allowed value for scale.
-        m_sizes (Optional[Tensor]): [G] Number of rows in each group.
+        m_sizes (Tensor | None): [G] Number of rows in each group.
         M (int): Number of rows.
         K (int): Number of columns.
         stride_am (int): Stride of m dimension of A.
@@ -3530,8 +3529,8 @@ def _kernel_quantize_fp8_group(
 def triton_quantize_fp8_group(
     x: torch.Tensor,
     group_size: int = 128,
-    scale_ub: Optional[torch.Tensor] = None,
-    m_sizes: Optional[torch.Tensor] = None,
+    scale_ub: torch.Tensor | None = None,
+    m_sizes: torch.Tensor | None = None,
     k_major: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -3598,11 +3597,11 @@ def triton_quantize_fp8_group(
 def quantize_fp8_group(
     x: torch.Tensor,
     group_size: int = 128,
-    scale_ub: Optional[torch.Tensor] = None,
-    m_sizes: Optional[torch.Tensor] = None,
+    scale_ub: torch.Tensor | None = None,
+    m_sizes: torch.Tensor | None = None,
     k_major: bool = True,
     use_triton: bool = True,
-    output_device: Optional[torch.device] = None,
+    output_device: torch.device | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with group-wise scalings and optionally move to output device.
@@ -4245,7 +4244,7 @@ def dequantize_fp8_packed_row(
 
     # TODO: we take a perf hit from these reshapes, can we do better?
     # It's hard to skip this reshape, we can't create a int32/float32 view because of alignment issues
-    scale_view = xq[..., -4:].reshape((num_rows * 4)).view(torch.float32)
+    scale_view = xq[..., -4:].reshape(num_rows * 4).view(torch.float32)
     scale_view = scale_view.view(orig_shape[:-1])
 
     # Reshape to 2-d array keeping last dim only.

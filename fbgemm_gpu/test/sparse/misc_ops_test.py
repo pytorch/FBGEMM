@@ -12,7 +12,6 @@
 import itertools
 import random
 import unittest
-from typing import Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -71,7 +70,7 @@ class MiscOpsTest(unittest.TestCase):
         N: int,
         # pyre-fixme[11]: Annotation `int32` is not defined as a type.
         # pyre-fixme[11]: Annotation `int64` is not defined as a type.
-        offsets_type: "Union[type[torch.int32], type[torch.int64]]",
+        offsets_type: "type[torch.int32] | type[torch.int64]",
     ) -> None:
         lengths = np.array([np.random.randint(low=0, high=20) for _ in range(N)])
         offsets = np.cumsum(np.concatenate([[0], lengths]))[:-1]

@@ -126,6 +126,17 @@ on_arm_platform: tuple[bool, str] = (
 )
 
 
+def symint_vector_unsupported() -> tuple[bool, str]:
+    major, minor = torch.__version__.split(".")[0:2]
+    return (
+        int(major) < 2 or (int(major) == 2 and int(minor) < 1),
+        """
+        dynamic shape support for this op needs to be on PyTorch 2.1 or
+        newer with https://github.com/pytorch/pytorch/pull/101056
+        """,
+    )
+
+
 def cpu_and_maybe_gpu() -> st.SearchStrategy[list[torch.device]]:
     gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
     # st.sampled_from is not guaranteed to test all the values passed to it.

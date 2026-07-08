@@ -117,9 +117,21 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
                     div_round_up(max_L, kWarpSize) * kWarpSize, kMaxThreads);
                 int block_dim_y = kMaxThreads / block_dim_x;
 
+                // HIP enforces a hard limit of 2^32 total threads per launch
+                // (unlike CUDA, which silently wraps).
+                // dense_vec_jagged_2d_transposed_bmm grid-strides over `b_h`
+                // (`for (b_h = b_h_begin; b_h < B*H; b_h += b_h_step)`
+                // where `b_h_step = gridDim.x * blockDim.y`), so capping
+                // is correctness-preserving.
+                // See: https://github.com/ROCm/hip/issues/2253
+                const auto blocks_x_t = utils::cuda::cap_grid_dim_x(
+                    static_cast<uint32_t>(div_round_up(B * H, block_dim_y)),
+                    kMaxThreads,
+                    at::cuda::getCurrentCUDAStream());
+
                 FBGEMM_LAUNCH_KERNEL(
                     (dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>),
-                    div_round_up(B * H, block_dim_y),
+                    blocks_x_t,
                     dim3(block_dim_x, block_dim_y),
                     0,
                     at::cuda::getCurrentCUDAStream(),
@@ -132,9 +144,22 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
                     div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
                 block_dim_y = kMaxThreads / block_dim_x;
 
+                // HIP 2^32 cap. outer_prod_jagged_2d_output grid-strides
+                // over the outer index
+                // (`for (auto outer = outer_begin; outer < B*H*max_L;
+                // outer += outer_step)` where
+                // `outer_step = gridDim.x * blockDim.y`), so capping is
+                // correctness-preserving.
+                // See: https://github.com/ROCm/hip/issues/2253
+                const auto blocks_x_o = utils::cuda::cap_grid_dim_x(
+                    static_cast<uint32_t>(
+                        div_round_up(B * H * max_L, block_dim_y)),
+                    kMaxThreads,
+                    at::cuda::getCurrentCUDAStream());
+
                 FBGEMM_LAUNCH_KERNEL(
                     (outer_prod_jagged_2d_output<index_t, scalar_t>),
-                    div_round_up(B * H * max_L, block_dim_y),
+                    blocks_x_o,
                     dim3(block_dim_x, block_dim_y),
                     0,
                     at::cuda::getCurrentCUDAStream(),
