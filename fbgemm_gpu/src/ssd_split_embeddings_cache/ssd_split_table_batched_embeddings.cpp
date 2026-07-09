@@ -576,9 +576,10 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
     CHECK_GE(
         db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
     TORCH_CHECK(
-        (snapshot_handle_ == nullptr) ==
-            (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
-        "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
+        (snapshot_handle_ != nullptr) ==
+            (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_) != nullptr ||
+             rocksdb_for_serialization_ != nullptr),
+        "snapshot handler must be valid for rocksdb (incl. DRAM_SSD) and nullptr for emb kvdb");
     if (!sorted_indices_.has_value()) {
       auto t = at::empty(c10::IntArrayRef({length, shape_[1]}), options_);
       db_->get_range_from_snapshot(
@@ -788,9 +789,10 @@ at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
       db_->get_max_D() + db_->get_metaheader_width_in_front(),
       shape_[1] + width_offset_);
   TORCH_CHECK(
-      (snapshot_handle_ == nullptr) ==
-          (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
-      "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
+      (snapshot_handle_ != nullptr) ==
+          (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_) != nullptr ||
+           rocksdb_for_serialization_ != nullptr),
+      "snapshot handler must be valid for rocksdb (incl. DRAM_SSD) and nullptr for emb kvdb");
   auto weights =
       at::empty(c10::IntArrayRef({ids.size(0), shape_[1]}), options_);
   auto linearized_ids = ids + row_offset_;
