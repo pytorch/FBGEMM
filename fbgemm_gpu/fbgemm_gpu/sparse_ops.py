@@ -383,7 +383,7 @@ def tbe_input_combine_abstract(
             need_weight = True
     total_offsets = torch.library.get_ctx().new_dynamic_size()
     combined_indices = indices_list[0].new_empty([total_indices], dtype=torch.int)
-    combined_offsets = offsets_list[0].new_empty([total_offsets], dtype=torch.int)
+    combined_offsets = offsets_list[0].new_empty([total_offsets], dtype=torch.long)
     if need_weight:
         combined_weights = per_sample_weights[0].new_empty(
             [total_indices], dtype=torch.float
