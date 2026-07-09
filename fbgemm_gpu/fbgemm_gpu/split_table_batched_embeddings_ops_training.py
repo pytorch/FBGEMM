@@ -3255,6 +3255,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is
             #  not a function.
             if weights.dim() == 2:
+                # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is
+                #  not a function.
                 weights = weights.flatten()
             splits.append(
                 weights.detach()[offset : offset + rows * dim].view(rows, dim)
@@ -3919,12 +3921,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.prefetch_stream is not None:
             # need to wait for the prefetch of next batch,
             # so that cache states are valid
+            prefetch_stream = self.prefetch_stream
             with self._recording_to_timer(
                 self.bwd_wait_prefetch_timer,
                 context=self.step,
                 stream=torch.cuda.current_stream(),
             ):
-                torch.cuda.current_stream().wait_stream(self.prefetch_stream)
+                torch.cuda.current_stream().wait_stream(prefetch_stream)
 
         torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
             self.lxu_cache_locking_counter,

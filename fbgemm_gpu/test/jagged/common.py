@@ -9,7 +9,6 @@
 # pyre-ignore-all-errors[56]
 
 import itertools
-import unittest
 from collections.abc import Callable
 from typing import Any
 
@@ -43,29 +42,13 @@ settings.load_profile("suppress_differing_executors_check")
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
 #
-# The exception is the auto-generated `test_pt2_compliant_tag_fbgemm_<op>`
-# tests. When an op is tagged `pt2_compliant_tag` but has legitimately-xfail'd
-# opcheck sub-tests (recorded in failures_dict.json), the tag test fails with a
-# cascading "failed some of the generated opcheck tests" assertion even though
-# the underlying gaps are already tracked. These cannot be expressed in
-# failures_dict.json (they are not per-op-per-input entries), so they are
-# skipped here until the underlying opcheck gaps are fixed (T191384137).
-additional_decorators: dict[str, list[Callable[..., Any]]] = {
-    # Cascades from xfail'd ElementwiseBinaryTest.test_aot_dispatch_dynamic /
-    # test_autograd_registration __test_jagged_elementwise_binary entries.
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
-        unittest.skip(
-            "pt2_compliant_tag test cascades from xfail'd jagged_dense_elementwise_add opcheck sub-tests (T191384137)"
-        ),
-    ],
-    # Cascades from xfail'd JaggedToPaddedDenseTest.test_aot_dispatch_dynamic
-    # __test_jagged_to_padded_dense entry.
-    "test_pt2_compliant_tag_fbgemm_jagged_to_padded_dense": [
-        unittest.skip(
-            "pt2_compliant_tag test cascades from xfail'd jagged_to_padded_dense opcheck sub-tests (T191384137)"
-        ),
-    ],
-}
+# The auto-generated `test_pt2_compliant_tag_fbgemm_<op>` tests previously had to
+# be skipped here when an op had `xfail`'d opcheck sub-tests (an `xfail` cascades
+# into the tag test). Those sub-tests for jagged_dense_elementwise_add and
+# jagged_to_padded_dense are now recorded as `skip` (not `xfail`) in
+# failures_dict.json -- `skip` does not cascade -- so no pt2_compliant_tag skips
+# are needed here. See T191384137.
+additional_decorators: dict[str, list[Callable[..., Any]]] = {}
 
 
 def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
