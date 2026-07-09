@@ -16,7 +16,7 @@ var searchData=
   ['col_5foffsets_5fwith_5fzero_5fpt_5fs8acc32_5fref_13',['col_offsets_with_zero_pt_s8acc32_ref',['../namespacefbgemm.html#a0f66af5e8e787dc1ff6893ac75ae161f',1,'fbgemm']]],
   ['combine_20input_20operators_14',['Combine Input Operators',['../group__input-combine.html',1,'']]],
   ['compact_15',['compact',['../classkv__mem_1_1_dram_k_v_inference_embedding.html#a0268ace19e30db99b8666bbb627fdd3b',1,'kv_mem::DramKVInferenceEmbedding::compact()'],['../classkv__mem_1_1_k_v_inference_embedding_interface.html#ade91db6c9e31225c0060d93407ce0a2b',1,'kv_mem::KVInferenceEmbeddingInterface::compact()']]],
-  ['compact_5findices_5fcuda_16',['compact_indices_cuda',['../group__embedding-ssd.html#ga3c1be516461fee114c157402e33cb0d9',1,'ssd_split_table_batched_embeddings.cpp']]],
+  ['compact_5findices_5fcuda_16',['compact_indices_cuda',['../group__embedding-ssd.html#ga3c1be516461fee114c157402e33cb0d9',1,'compact_indices_cuda(std::vector&lt; Tensor &gt; compact_indices, Tensor compact_count, std::vector&lt; Tensor &gt; indices, Tensor masks, Tensor count):&#160;ssd_split_embeddings_cache_cuda.cu'],['../group__embedding-ssd.html#ga3c1be516461fee114c157402e33cb0d9',1,'compact_indices_cuda(std::vector&lt; Tensor &gt; compact_indices, Tensor compact_count, std::vector&lt; Tensor &gt; indices, Tensor masks, Tensor count):&#160;ssd_split_embeddings_cache_cuda.cu']]],
   ['comparator_17',['Comparator',['../structfbgemm__gpu_1_1_comparator.html',1,'fbgemm_gpu']]],
   ['compare_5fbuffers_18',['compare_buffers',['../namespacefbgemm.html#a9d995b583abb4b09927c90f66e3b1463',1,'fbgemm']]],
   ['compressedsparsecolumn_19',['CompressedSparseColumn',['../classfbgemm_1_1_compressed_sparse_column.html',1,'fbgemm']]],
