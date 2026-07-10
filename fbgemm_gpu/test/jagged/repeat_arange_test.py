@@ -18,9 +18,14 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
+    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+    )
 
 
 def repeat_arange_ref(lengths: torch.Tensor) -> torch.Tensor:
@@ -280,6 +285,44 @@ class RepeatArangeTest(unittest.TestCase):
         # Spot check some values
         for i in [0, 100, 500, 1000, 5000, 9999]:
             self.assertEqual(result[i].item(), i)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_repeat_arange_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in `repeat_arange_kernel`
+        and verifies output correctness against the CPU dispatch.
+
+        With kMaxThreads=1024, the launch grid is `batch_size`. Total threads
+        = batch_size * 1024. For batch_size > 2**22, total threads cross the
+        HIP 2**32-per-launch limit and trip
+        KernelLauncher::checkThreadCountNotExceeded on ROCm pre-fix.
+        Post-fix the host caps `num_blocks` to
+        `get_max_thread_blocks(stream)` (~16384) and the kernel grid-strides
+        over batches.
+
+        Uses sparse `lengths` (mostly zero) with sentinel non-zero values at
+        start / middle / end so the kernel actually emits non-trivial output
+        and any "kernel addressed wrong batch" bug surfaces in the output
+        sequence.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        # batch_size * 1024 > 2**32 requires batch_size > 2**22.
+        batch_size = (1 << 22) + 1
+        # Sparse non-zero lengths at sentinel positions. Total output = 6.
+        lengths_cpu = torch.zeros(batch_size, dtype=torch.int32)
+        lengths_cpu[0] = 1
+        lengths_cpu[batch_size // 2] = 2
+        lengths_cpu[batch_size - 1] = 3
+
+        # CPU reference oracle.
+        result_cpu = torch.ops.fbgemm.repeat_arange(lengths_cpu)
+
+        # GPU op under test. Pre-fix this trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        result_gpu = torch.ops.fbgemm.repeat_arange(lengths_cpu.to(device))
+
+        torch.testing.assert_close(result_gpu.cpu(), result_cpu)
 
 
 if __name__ == "__main__":
