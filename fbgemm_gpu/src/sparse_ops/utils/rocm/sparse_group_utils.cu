@@ -92,9 +92,9 @@ DLL_PUBLIC void sort_indices_segmented_rocprim(
       all_keys_in.scalar_type(), "sort_indices_segmented_rocprim", [&] {
         // segmented_radix_sort_pairs requires segmented_radix_sort_config —
         // radix_sort_config is not accepted here, so default config is used.
-        // Only call this path when num_items_per_segment >=
-        // k_sort_merge_threshold so there is no regression vs the per-group
-        // merge sort path.
+        // The caller routes only SMALL segments here (num_items_per_segment <=
+        // k_sort_merge_threshold); LARGE segments use the per-group onesweep
+        // path, which is faster for them.
         AT_CUDA_CHECK(
             rocprim::segmented_radix_sort_pairs(
                 temp_storage.data_ptr(),

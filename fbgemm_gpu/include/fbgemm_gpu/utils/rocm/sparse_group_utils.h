@@ -139,9 +139,11 @@ void sort_indices_segmented_rocprim(
     const int64_t num_groups,
     at::Tensor& temp_storage,
     const at::cuda::CUDAStream& stream);
-// Sort all groups in a batch with one AT_DISPATCH and one stream lookup.
-// Uses radix_sort_pairs<sort_config> per group, preserving the merge sort
-// fallback for small segment sizes (num_items < k_sort_merge_threshold).
+// Sort all groups in a batch with one AT_DISPATCH and one stream lookup, via
+// radix_sort_pairs<sort_config> per group (rocprim runs this as onesweep radix
+// for large per-segment counts, with a merge-sort fallback below
+// k_sort_merge_threshold). The caller routes LARGE segments here, where it is
+// faster than the segmented radix sort.
 void sort_indices_batch_rocprim(
     const int64_t* keys_in_ptrs,
     void* keys_out_base,
