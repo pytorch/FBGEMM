@@ -148,7 +148,7 @@ def _collect_kernel_stats(
     config_columns: list[str],
     patterns: list[tuple[str, str, str]],
     emit_total: bool = False,
-) -> list[tuple[dict[str, Any], str, str, KernelStats]]:
+) -> list[tuple[dict[str, Any], str, str, str, KernelStats]]:
     """Extract durations and bucket by ``(config_tuple, kernel_name)``.
 
     Returns a flat list of ``(config, kernel_base, kernel_name, stats)``
@@ -166,6 +166,10 @@ def _collect_kernel_stats(
     bucket: dict[tuple, dict[str, list[float]]] = {}
     config_for: dict[tuple, dict[str, Any]] = {}
     all_kernels: set[str] = set()
+    # kernel_name -> the --kernel-pattern group name that matched it. Patterns
+    # are expected mutually disjoint (a kernel matches at most one), so the
+    # first match wins. This makes the category data-driven downstream.
+    kernel_group: dict[str, str] = {}
     entries_per_cfg: Counter[tuple] = Counter()
 
     for entry in config_map:
@@ -189,19 +193,28 @@ def _collect_kernel_stats(
             )
             continue
 
-        for _, pattern, match_mode in patterns:
+        for pname, pattern, match_mode in patterns:
             bucketed = trace.extract_durations(pattern, match_mode=match_mode)
             for kname, durs in bucketed.items():
                 all_kernels.add(kname)
+                kernel_group.setdefault(kname, pname)
                 bucket[cfg_tuple].setdefault(kname, []).extend(durs)
 
-    rows: list[tuple[dict[str, Any], str, str, KernelStats]] = []
+    rows: list[tuple[dict[str, Any], str, str, str, KernelStats]] = []
     for cfg_tuple, cfg_dict in config_for.items():
         kernel_durs = bucket[cfg_tuple]
         for kname in sorted(all_kernels):
             durs = kernel_durs.get(kname, [])
             stats = KernelStats(name=kname, durations_us=list(durs))
-            rows.append((cfg_dict, base_name_of(kname), kname, stats))
+            rows.append(
+                (
+                    cfg_dict,
+                    base_name_of(kname),
+                    kname,
+                    kernel_group.get(kname, ""),
+                    stats,
+                )
+            )
         if emit_total:
             if entries_per_cfg[cfg_tuple] > 1:
                 print(
@@ -223,6 +236,7 @@ def _collect_kernel_stats(
             rows.append(
                 (
                     cfg_dict,
+                    "(total)",
                     "(total)",
                     "(total)",
                     KernelStats(name="(total)", durations_us=totals),
