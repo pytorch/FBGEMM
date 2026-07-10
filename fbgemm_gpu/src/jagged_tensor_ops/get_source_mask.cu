@@ -38,22 +38,21 @@ __global__ __launch_bounds__(kMaxThreads) void get_source_mask_kernel(
     const index_t* __restrict__ offsets,
     bool* __restrict__ output,
     const index_t batch_size) {
-  // Each block handles one batch item
-  const index_t batch_idx = blockIdx.x;
+  // Grid-stride over batches so a capped grid (used on ROCm to avoid the
+  // 2^32 launch-side limit) still covers every batch item.
+  for (index_t batch_idx = blockIdx.x; batch_idx < batch_size;
+       batch_idx += gridDim.x) {
+    const index_t ns = num_sources[batch_idx];
+    const index_t nt = num_targets[batch_idx];
+    const index_t total = ns + nt;
+    const index_t offset = offsets[batch_idx];
 
-  if (batch_idx >= batch_size) {
-    return;
-  }
-
-  const index_t ns = num_sources[batch_idx];
-  const index_t nt = num_targets[batch_idx];
-  const index_t total = ns + nt;
-  const index_t offset = offsets[batch_idx];
-
-  // Grid-stride loop: each thread processes multiple elements if needed
-  for (index_t local_idx = threadIdx.x; local_idx < total;
-       local_idx += blockDim.x) {
-    output[offset + local_idx] = (local_idx < ns);
+    // Inner grid-stride loop: each thread processes multiple elements if
+    // needed.
+    for (index_t local_idx = threadIdx.x; local_idx < total;
+         local_idx += blockDim.x) {
+      output[offset + local_idx] = (local_idx < ns);
+    }
   }
 }
 
@@ -81,8 +80,15 @@ Tensor get_source_mask_cuda(
     return output;
   }
 
-  // Launch kernel - one block per batch item
-  const int num_blocks = batch_size;
+  // Launch kernel - one block per batch item.
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // get_source_mask_kernel grid-strides over batches, so capping is
+  // correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto num_blocks = utils::cuda::cap_grid_dim_x(
+      static_cast<uint32_t>(batch_size),
+      kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
 
   AT_DISPATCH_INDEX_TYPES(
       num_sources.scalar_type(), "get_source_mask_kernel", ([&] {
