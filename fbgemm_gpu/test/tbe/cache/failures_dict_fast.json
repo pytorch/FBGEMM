@@ -124,12 +124,7 @@
     "fbgemm::lru_cache_populate_byte": {},
     "fbgemm::lxu_cache_flush": {},
     "fbgemm::lxu_cache_locking_counter_decrement": {},
-    "fbgemm::lxu_cache_lookup": {
-      "CacheTest.test_schema__test_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::lxu_cache_lookup": {},
     "fbgemm::new_managed_tensor": {},
     "fbgemm::new_unified_tensor": {
       "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
