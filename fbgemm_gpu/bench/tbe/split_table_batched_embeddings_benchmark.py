@@ -319,6 +319,12 @@ def _benchmark_cpu_fwd_bwd(
     default=False,
     help="Run CPU baseline comparison",
 )
+@click.option(
+    "--deterministic",
+    is_flag=True,
+    default=False,
+    help="Enable torch.use_deterministic_algorithms(True) during benchmarking",
+)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -355,6 +361,7 @@ def device(  # noqa C901
     indices_file: str | None,
     offsets_file: str | None,
     compare: bool,
+    deterministic: bool,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
     num_requests = iters if num_requests == -1 else num_requests
@@ -514,6 +521,10 @@ def device(  # noqa C901
         index_dtype=torch.long,
         offset_dtype=torch.long,
     )
+
+    if deterministic:
+        torch.use_deterministic_algorithms(True)
+        logging.info("Deterministic mode enabled")
 
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(
@@ -1239,6 +1250,12 @@ def cache(  # noqa C901
     default=False,
     help="Run CPU baseline comparison",
 )
+@click.option(
+    "--deterministic",
+    is_flag=True,
+    default=False,
+    help="Enable torch.use_deterministic_algorithms(True) during benchmarking",
+)
 def device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -1262,9 +1279,15 @@ def device_with_spec(  # noqa C901
     export_trace: bool,
     trace_url: str,
     compare: bool,
+    deterministic: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
+
+    if deterministic:
+        torch.use_deterministic_algorithms(True)
+        logging.info("Deterministic mode enabled")
+
     B = batch_size
     Ds = [int(D) for D in embedding_dim_list.split(",")]
     Es = [int(E) for E in num_embeddings_list.split(",")]
