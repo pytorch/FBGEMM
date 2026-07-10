@@ -131,7 +131,11 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.4xlarge", timeout: 20 },
+          # x86 test runner bumped 4xlarge (32GB) -> 12xlarge (96GB): the CPU
+          # gradcheck tests (backward_dense/backward_adagrad/...) OOM on 32GB
+          # for py3.12+. The arm m7g.4xlarge already has 64GB, so it stays.
+          # Timeout also bumped 20 -> 40m: the py3.12+ CPU sweep runs longer.
+          { arch: x86, instance: "linux.12xlarge", timeout: 40 },
           { arch: arm, instance: "linux.arm64.m7g.4xlarge", timeout: 30 },
         ]
         python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
