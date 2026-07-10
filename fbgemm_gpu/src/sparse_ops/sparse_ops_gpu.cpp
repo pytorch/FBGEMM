@@ -694,15 +694,15 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   at::Tensor all_sorted_indices;
   at::Tensor all_reverse_indices;
   int64_t sort_num_items = static_cast<int64_t>(indices_group[0].numel());
-  // Dispatch policy (must match the helper contracts in sparse_group_utils.*):
-  //   * SMALL segments (num_items < k_sort_merge_threshold): per-group batch
-  //     path, whose sort_config enables the rocprim merge-sort fallback that is
-  //     faster for small inputs.
-  //   * LARGE segments (num_items >= k_sort_merge_threshold): single segmented
-  //     radix sort, which amortizes per-group launch overhead (merge sort is
-  //     not used above the threshold anyway).
+  // Choose the sort backend by per-segment size:
+  //   * LARGE segments (num_items > k_sort_merge_threshold): per-group batch
+  //     path (radix_sort_pairs<sort_config>, which rocprim runs as onesweep
+  //     radix at these sizes) — faster than segmented radix for large segments.
+  //   * SMALL segments (num_items <= k_sort_merge_threshold): the single
+  //     segmented radix sort; cheap at these sizes and saves per-group
+  //     launches.
   const bool use_segmented_sort =
-      static_cast<size_t>(sort_num_items) >= rocm::k_sort_merge_threshold;
+      static_cast<size_t>(sort_num_items) <= rocm::k_sort_merge_threshold;
   if (use_sorted_indices) {
     const auto stream = at::cuda::getCurrentCUDAStream();
     const size_t temp_bytes = use_segmented_sort
