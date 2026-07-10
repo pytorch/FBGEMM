@@ -48,7 +48,7 @@ class TBEIndicesGeneratorTest(unittest.TestCase):
         epsilon = torch.rand(1)[0] * 1000 + 0.01
         heavy_hitters /= torch.sum(heavy_hitters) + epsilon
 
-        indices = torch.ops.fbgemm.tbe_generate_indices_from_distribution(
+        indices: torch.Tensor = torch.ops.fbgemm.tbe_generate_indices_from_distribution(
             heavy_hitters,
             zipf_q,
             zipf_s,
@@ -58,7 +58,5 @@ class TBEIndicesGeneratorTest(unittest.TestCase):
 
         assert indices.shape == (num_indices,)
         assert indices.dtype == torch.int64
-        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `bool`.
         assert not torch.any(indices > max_index)
-        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `bool`.
         assert not torch.any(indices < 0)

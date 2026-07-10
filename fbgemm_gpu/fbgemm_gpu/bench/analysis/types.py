@@ -321,19 +321,22 @@ class KernelStats:
 
 
 def write_config_stats_csv(
-    rows: list[tuple[dict[str, object], str, str, "KernelStats"]],
+    rows: list[tuple[dict[str, object], str, str, str, "KernelStats"]],
     output_path: str,
     config_columns: list[str],
 ) -> None:
     """Write one row per ``(config_tuple, kernel_name)`` to ``output_path``.
 
-    ``rows`` is a list of ``(config_dict, kernel_base, kernel_name, stats)``
-    tuples. Each ``config_dict`` MUST contain every column listed in
+    ``rows`` is a list of ``(config_dict, kernel_base, kernel_name,
+    pattern_group, stats)`` tuples. ``pattern_group`` is the ``--kernel-pattern``
+    group name that matched the kernel (``(total)`` for the rollup row), and
+    lets downstream reporting categorize kernels without op-specific string
+    matching. Each ``config_dict`` MUST contain every column listed in
     ``config_columns`` (missing entries get an empty cell).
 
     Column order is the v1 canonical schema:
         ``config.<col1>, ..., config.<colK>, kernel_base, kernel_name,
-         count, mean_us, stdev_us, median_us, min_us, max_us``
+         pattern_group, count, mean_us, stdev_us, median_us, min_us, max_us``
 
     ``count == 0`` rows are preserved; they are the first-class "kernel
     not dispatched for this config" signal. When ``count == 0``, the stat
@@ -345,6 +348,7 @@ def write_config_stats_csv(
         [
             "kernel_base",
             "kernel_name",
+            "pattern_group",
             "count",
             "mean_us",
             "stdev_us",
@@ -357,13 +361,14 @@ def write_config_stats_csv(
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for config_dict, kernel_base, kernel_name, stats in rows:
+        for config_dict, kernel_base, kernel_name, pattern_group, stats in rows:
             out: dict[str, object] = {}
             for col in config_columns:
                 val = config_dict.get(col, "")
                 out[f"config.{col}"] = "" if val is None else val
             out["kernel_base"] = kernel_base
             out["kernel_name"] = kernel_name
+            out["pattern_group"] = pattern_group
             if stats.count == 0:
                 out["count"] = 0
                 out["mean_us"] = ""
@@ -432,6 +437,9 @@ def read_config_stats_csv(
                 "config": config,
                 "kernel_base": raw.get("kernel_base", "") or "",
                 "kernel_name": raw.get("kernel_name", "") or "",
+                # Optional column (added in the v1 pattern_group schema). Older
+                # CSVs without it read as "" and simply carry no category.
+                "pattern_group": raw.get("pattern_group", "") or "",
                 "count": int(raw.get("count", "0") or 0),
             }
             for stat in ("mean_us", "stdev_us", "median_us", "min_us", "max_us"):
