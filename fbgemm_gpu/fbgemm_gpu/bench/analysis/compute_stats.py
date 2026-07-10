@@ -122,7 +122,7 @@ def main() -> int:
         return 3
 
     # Union of (config, kernel) keys across commits.
-    all_keys: dict[tuple, tuple[tuple, str, str]] = {}
+    all_keys: dict[tuple, tuple[tuple, str, str, str]] = {}
     for _, _, rows in per_commit_rows:
         for row in rows:
             key = _row_key(row, config_columns)
@@ -131,6 +131,7 @@ def main() -> int:
                     key[0],
                     row["kernel_base"],
                     row["kernel_name"],
+                    row.get("pattern_group", "") or "",
                 )
 
     if not all_keys:
@@ -140,7 +141,7 @@ def main() -> int:
     # Build per-row per-commit stats.
     rows_out: list[dict[str, Any]] = []
     for key in all_keys:
-        cfg_tuple, kernel_base, kernel_name = all_keys[key]
+        cfg_tuple, kernel_base, kernel_name, pattern_group = all_keys[key]
         config_dict = dict(zip(config_columns, cfg_tuple))
         per_commit_entries: list[dict[str, Any]] = []
         for label, _, rows in per_commit_rows:
@@ -179,6 +180,7 @@ def main() -> int:
             "config": config_dict,
             "kernel_base": kernel_base,
             "kernel_name": kernel_name,
+            "pattern_group": pattern_group,
             "per_commit": per_commit_entries,
             "pct_diff": None,
             "welch_t": None,
