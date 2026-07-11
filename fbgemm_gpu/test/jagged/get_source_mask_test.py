@@ -19,9 +19,9 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 
 
 def get_source_mask_reference(
@@ -325,6 +325,55 @@ class GetSourceMaskTest(unittest.TestCase):
 
         jit_result = scripted_wrapper(num_sources, num_targets)
         self.assertTrue(torch.equal(jit_result, expected))
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    def test_get_source_mask_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in `get_source_mask_kernel`
+        and verifies output correctness against the CPU dispatch.
+
+        With kMaxThreads=1024, the launch grid is `batch_size`. Total threads
+        = batch_size * 1024. For batch_size > 2**22, total threads cross the
+        HIP 2**32-per-launch limit and trip
+        KernelLauncher::checkThreadCountNotExceeded on ROCm pre-fix.
+        Post-fix the host caps `num_blocks` to
+        `get_max_thread_blocks(stream)` (~16384) and the kernel grid-strides
+        over batches.
+
+        Uses sparse num_sources/num_targets (mostly zero) with sentinel
+        non-zero values at start / middle / end so the kernel emits a
+        non-trivial output and any "kernel addressed wrong batch" bug
+        surfaces in the True/False boundary positions.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        # batch_size * 1024 > 2**32 requires batch_size > 2**22.
+        batch_size = (1 << 22) + 1
+        # Sparse non-zero counts at sentinel positions.
+        num_sources_cpu = torch.zeros(batch_size, dtype=torch.int32)
+        num_targets_cpu = torch.zeros(batch_size, dtype=torch.int32)
+        num_sources_cpu[0] = 1
+        num_targets_cpu[0] = 1
+        num_sources_cpu[batch_size // 2] = 2
+        num_targets_cpu[batch_size // 2] = 1
+        num_sources_cpu[batch_size - 1] = 3
+        num_targets_cpu[batch_size - 1] = 2
+        output_size = int((num_sources_cpu + num_targets_cpu).sum().item())
+
+        # CPU reference oracle.
+        result_cpu = torch.ops.fbgemm.get_source_mask(
+            num_sources_cpu, num_targets_cpu, output_size
+        )
+
+        # GPU op under test. Pre-fix this trips
+        # KernelLauncher::checkThreadCountNotExceeded on ROCm.
+        result_gpu = torch.ops.fbgemm.get_source_mask(
+            num_sources_cpu.to(device),
+            num_targets_cpu.to(device),
+            output_size,
+        )
+
+        torch.testing.assert_close(result_gpu.cpu(), result_cpu)
 
 
 if __name__ == "__main__":
