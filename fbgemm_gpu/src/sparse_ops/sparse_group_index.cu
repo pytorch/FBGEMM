@@ -317,12 +317,17 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       // Compile time conditional
       if constexpr (USE_INDEX_SELECT) {
         if constexpr (USE_CACHE) {
-          if (cached_idx != idx) {
+          // Force re-read when col_tile changes (output pointer shifted)
+          const bool col_tile_changed =
+              (last_member_output_tile != nullptr &&
+               output != last_member_output_tile);
+          if (cached_idx != idx || col_tile_changed) {
             storage = LDG(&input[static_cast<int64_t>(idx) * num_cols + i]);
             cached_idx = idx;
           }
 
           output[row * num_cols + i] = storage;
+          last_member_output_tile = output;
         } else {
           output[row * num_cols + i] =
               LDG(&input[static_cast<int64_t>(idx) * num_cols + i]);
@@ -332,14 +337,18 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
           const bool member_changed =
               (last_member_id_for_accum != -1 &&
                member_id != last_member_id_for_accum);
-          // Probably might be merged into following if-else cascade
-          if (member_changed) {
+          // Detect col_tile boundary: output pointer changes within the
+          // same member
+          const bool col_tile_changed =
+              (!member_changed && last_member_output_tile != nullptr &&
+               output != last_member_output_tile);
+          if (member_changed || col_tile_changed) {
             flush_cache_accumulator(
                 last_member_output_tile, last_member_num_cols);
           }
 
           const bool is_first_warp =
-              member_changed || (warp_id == start_warp_id);
+              member_changed || col_tile_changed || (warp_id == start_warp_id);
           const bool is_last_warp = (warp_id + warp_stride >= warp_end);
           if (is_first_warp) {
             storage = input[row * num_cols + i];
