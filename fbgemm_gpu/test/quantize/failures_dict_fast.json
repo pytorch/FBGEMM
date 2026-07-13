@@ -68,8 +68,8 @@
     "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloat": {},
     "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf": {
       "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op": {
-        "comment": "",
-        "status": "xfail"
+        "comment": "Flaky under opcheck by sampled output dtype: the FloatOrHalf meta raises 'Unsupported output dtype' for some dtypes but passes for others, so 'xfail' oscillates between XPASS (Unexpected success) and fail. Eager is correct. Skip (not xfail) for a stable signal. T191384137",
+        "status": "skip"
       },
       "TestFusedNBitRowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op_cpu_and_cuda": {
         "comment": "",
