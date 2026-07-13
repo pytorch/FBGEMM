@@ -299,6 +299,46 @@ class IndexSelectTest(unittest.TestCase):
                 [input0, input1], [indices0, indices1]
             )
 
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @optests.dontGenerateOpCheckTests(
+        "This test IS the opcheck; the harness variants would double-run it"
+    )
+    def test_group_index_select_dim0_fake_kernel_opcheck(self) -> None:
+        """The fake/meta kernel must report the same output metadata as the real
+        op, otherwise torch.compile sizes the op's buffers wrong and crashes at
+        runtime (assert_size_stride). This directly opchecks the fake kernel
+        against the real forward so an args_tensor layout change in
+        sparse_ops_gpu.cpp can't silently drift from the fake kernel again.
+        """
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # CUDA specifically required: GPU-only FBGEMM sparse op.
+        device = torch.device("cuda")
+        # Odd group_size exercises the ceil(group_size / 2) int32 packing.
+        group_size = 9
+        num_input_rows = 16
+        num_cols = 8
+        num_indices = 5
+
+        indices_group = [
+            torch.randint(
+                num_input_rows, (num_indices,), dtype=torch.long, device=device
+            )
+            for _ in range(group_size)
+        ]
+        input_group = [
+            torch.rand((num_input_rows, num_cols), dtype=torch.float, device=device)
+            for _ in range(group_size)
+        ]
+        # group_index_select_dim0_gpu_impl unpacks inputs as
+        # [*indices_group, *input_group].
+        all_indices_input = [*indices_group, *input_group]
+
+        torch.library.opcheck(
+            torch.ops.fbgemm.group_index_select_dim0_gpu_impl.default,
+            (all_indices_input, group_size),
+            test_utils=["test_faketensor"],
+        )
+
     def execute_batch_index_select_dim0(  # noqa: C901
         self,
         num_inputs: int,

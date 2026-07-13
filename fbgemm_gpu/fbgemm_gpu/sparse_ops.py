@@ -1088,8 +1088,12 @@ def group_index_select_dim0_gpu_impl_abstract(
         size = list(input_group[i].size())
         ret.append(input_group[i].new_empty([indices_group[i].size(0)] + size[1:]))
 
-    # divide by 2 since sizeof(int64_t) / sizeof(int32_t) = 2
-    args_tensor_numel = 4 * group_size + 1 + int(math.ceil(group_size / 2))
+    # args_tensor packs, in int64 units (must match the C++ forward layout in
+    # sparse_ops_gpu.cpp, NUM_ARGS = 7): input_ptrs, output_ptrs, indices_ptrs,
+    # sorted_indices_ptrs, reverse_indices_ptrs (5 * group_size) +
+    # warp_offsets_group (group_size + 1) + num_cols_group (int32, packed 2 per
+    # int64 -> ceil(group_size / 2)).
+    args_tensor_numel = 6 * group_size + 1 + int(math.ceil(group_size / 2))
 
     ret.append(
         # sizeof(int64_t) = 8, torch.uint8 = at::kByte
@@ -1098,7 +1102,8 @@ def group_index_select_dim0_gpu_impl_abstract(
         )
     )
 
-    ret.append(torch.zeros(5, dtype=torch.int64, device="cpu"))
+    # Saved args-offsets tensor: NUM_ARGS + 1 int64 entries (NUM_ARGS = 7).
+    ret.append(torch.zeros(8, dtype=torch.int64, device="cpu"))
 
     return ret
 
