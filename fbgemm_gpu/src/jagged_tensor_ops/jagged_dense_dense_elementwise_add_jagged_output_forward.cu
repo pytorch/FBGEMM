@@ -133,7 +133,13 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
           }
 
           const auto threads_bs = dim3(1024, 1, 1);
-          const auto blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
+          // HIP enforces a hard limit of 2^32 total threads per launch.
+          // The opt_search_kernel grid-strides over rows, so capping is
+          // correctness-preserving.
+          // See: https://github.com/ROCm/hip/issues/2253
+          const auto blocks_bs_x = utils::cuda::cap_grid_dim_x_from_workload(
+              nnz, threads_bs.x, at::cuda::getCurrentCUDAStream());
+          const auto blocks_bs = dim3(blocks_bs_x, 1, 1);
           FBGEMM_LAUNCH_KERNEL(
               (jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                   index_t>),

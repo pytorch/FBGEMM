@@ -379,6 +379,97 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
 
         torch.testing.assert_close(small_output_gpu[0].cpu(), small_output_cpu[0])
 
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(40))
+    def test_jagged_dense_dense_elementwise_add_jagged_output_opt_search_large_grid(
+        self,
+    ) -> None:
+        """
+        Retro: regression test for the HIP grid-overflow bug in
+        ``jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_``
+        (D105203391 / Subplan D Diff #25), which lacked its own test
+        method when landed.
+
+        The opt-search path is taken by
+        ``jagged_dense_dense_elementwise_add_jagged_output`` when
+        ``D = Half`` and ``B == 1``. With kMaxThreads=1024, the
+        binary-search kernel launches with grid_x = ceil(nnz / 1024).
+        For nnz > 2**22 the launch exceeds 2^32 threads pre-fix; the
+        production fix caps grid_x to ``get_max_thread_blocks(stream)``
+        and the kernel grid-strides over rows.
+
+        Verification strategy:
+        1. Full-scale launch survival to verify the cap-trip path.
+        2. Small-scale CPU-oracle correctness to verify kernel logic
+           through the opt-search dispatch.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: full-scale launch survival. ----
+        B = 1  # opt-search path requires B == 1.
+        max_L = (1 << 22) + 1  # nnz > 2**22 trips the cap pre-fix.
+        D_half = 16  # half-dtype required; numel < 2**31 satisfied.
+        nnz = max_L
+        x_values_large = torch.zeros((nnz, D_half), dtype=torch.float16, device=device)
+        x_offsets_large = [torch.tensor([0, nnz], dtype=torch.int64, device=device)]
+        y0_large = torch.zeros((B, max_L, D_half), dtype=torch.float16, device=device)
+        y1_large = torch.zeros((B, max_L, D_half), dtype=torch.float16, device=device)
+
+        output_large = (
+            torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                x_values_large, x_offsets_large, y0_large, y1_large
+            )
+        )
+        self.assertEqual(output_large[0].shape, (nnz, D_half))
+        del x_values_large, x_offsets_large, y0_large, y1_large, output_large
+        torch.cuda.empty_cache()
+
+        # ---- Step 2: small-scale CPU-oracle correctness. ----
+        small_B = 1
+        small_max_L = 4
+        small_D = 8
+        small_lengths = torch.tensor([3], dtype=torch.int64)
+        small_x_offsets_cpu = [torch.zeros(small_B + 1, dtype=torch.int64)]
+        small_x_offsets_cpu[0][1:] = torch.cumsum(small_lengths, dim=0)
+        small_nnz = int(small_x_offsets_cpu[0][-1].item())
+        small_x_values_cpu = (
+            torch.arange(small_nnz * small_D, dtype=torch.float16).reshape(
+                small_nnz, small_D
+            )
+            * 0.1
+        )
+        small_y0_cpu = (
+            torch.arange(small_B * small_max_L * small_D, dtype=torch.float16).reshape(
+                small_B, small_max_L, small_D
+            )
+            * 0.01
+        )
+        small_y1_cpu = (
+            torch.arange(small_B * small_max_L * small_D, dtype=torch.float16).reshape(
+                small_B, small_max_L, small_D
+            )
+            * 0.001
+        )
+
+        small_output_cpu = (
+            torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                small_x_values_cpu,
+                small_x_offsets_cpu,
+                small_y0_cpu,
+                small_y1_cpu,
+            )
+        )
+        small_x_offsets_gpu = [t.to(device) for t in small_x_offsets_cpu]
+        small_output_gpu = (
+            torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                small_x_values_cpu.to(device),
+                small_x_offsets_gpu,
+                small_y0_cpu.to(device),
+                small_y1_cpu.to(device),
+            )
+        )
+        torch.testing.assert_close(small_output_gpu[0].cpu(), small_output_cpu[0])
+
 
 if __name__ == "__main__":
     unittest.main()
