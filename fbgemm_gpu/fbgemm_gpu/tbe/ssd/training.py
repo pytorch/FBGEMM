@@ -3450,10 +3450,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             # When backend returns whole row, the optimizer will be returned as
             # PMT directly
+            # pyre-ignore[16]
             if sorted_ids[t].size(0) == 0 and self.local_weight_counts[t] > 0:
                 logging.info(
                     f"Before opt PMT loading, resetting id tensor with {self.local_weight_counts[t]}"
                 )
+                # pyre-ignore[16]
                 sorted_ids[t] = torch.zeros(
                     (self.local_weight_counts[t], 1),
                     device=torch.device("cpu"),
