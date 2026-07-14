@@ -57,6 +57,14 @@ using namespace fbgemm_gpu;
                                                  not vbe and
                                                  not ssd %}
 
+{%- set enable_optimized_hip_mixed_D_kernel  = is_rocm and
+                                               optimizer == "rowwise_adagrad" and
+                                               not dense and
+                                               not is_index_select and
+                                               not is_gwd_kernel and
+                                               not nobag and
+                                               not ssd %}
+
 template <
     typename emb_t,
     typename grad_t,
@@ -1064,7 +1072,7 @@ Tensor {{ embedding_cuda_op }}(
                         )
                     %}
 
-                    const auto backward_cta_per_row_kernel =
+                    auto backward_cta_per_row_kernel =
                         {{ cta_kernel }}
                             <emb_t,
                              grad_t,
@@ -1077,8 +1085,7 @@ Tensor {{ embedding_cuda_op }}(
                              kThreadGroupSize,
                              kUseVecBlocking>;
 
-                    // Compute shared memory size for cta_per_row
-                    constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
+                    auto thread_group_size = kThreadGroupSize;
                     const int cta_warp_size = at::cuda::warp_size();
                     {% if is_rocm %}
                     int32_t total_L = indices.numel();
@@ -1095,7 +1102,34 @@ Tensor {{ embedding_cuda_op }}(
                     {%- else %}
                     int32_t num_cta_per_row_groups = kMaxThreads / cta_warp_size;
                     const int32_t work_group_size = kMaxThreads;
+                    {%- endif %}{# /*if is_rocm*/ #}
+
+                    {%- if enable_optimized_hip_mixed_D_kernel  %}
+                    if (max_D <= 128) {
+                        backward_cta_per_row_kernel =
+                        {{ cta_kernel }}
+                            <emb_t,
+                             grad_t,
+                             cache_t,
+                             index_t,
+                             {%- for ph_name in args.placeholder_tensor_names %}
+                             {{ ph_name + "_ph_t" }},
+                             {%- endfor %}
+                             1,
+                             32,
+                             false>;
+                        // Note kThreadGroupSize * kFixedMaxVecsPerThread * vec_width should >= max_D
+                        // Because the kernel processes embedding dimensions in chunks of
+                        // kThreadGroupSize * VEC_WIDTH per vector iteration, and does at most
+                        // kFixedMaxVecsPerThread iterations. So the maximum D it can cover is
+                        // kThreadGroupSize * kFixedMaxVecsPerThread * VEC_WIDTH.
+                        // So, for small-D override with D <= 128, we can use kThreadGroupSize=32;
+                        // as 32 * 1 * 4 = 128 exactly covers max_D <= 128.
+                        thread_group_size = 32;
+                    }
                     {%- endif %}
+
+                    constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
                     const size_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                         &num_cta_per_row_groups,
                         [&] (int num_groups) {
@@ -1107,14 +1141,14 @@ Tensor {{ embedding_cuda_op }}(
 
                     const auto cta_per_row_grid_size = utils::cuda::cap_grid_dim_x(
                             cuda_calc_xblock_count(total_unique_indices, work_group_size),
-                            kThreadGroupSize * num_cta_per_row_groups, // block size
+                            thread_group_size * num_cta_per_row_groups, // block size
                             at::cuda::getCurrentCUDAStream(),
                             utils::cuda::BlockCapPolicy::Always);
 
                     FBGEMM_LAUNCH_KERNEL(
                         backward_cta_per_row_kernel,
                         cta_per_row_grid_size,
-                        dim3(kThreadGroupSize, num_cta_per_row_groups),
+                        dim3(thread_group_size, num_cta_per_row_groups),
                         cta_per_row_smem_bytes,
                         at::cuda::getCurrentCUDAStream(),
                         grad_output_accessor,
