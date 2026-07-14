@@ -182,8 +182,15 @@ endif()
 set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
 macro(RUN_GEN_SCRIPT SCRIPT)
+  set(rocm_flag)
   if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
-    set(rocm_flag --is_rocm)
+    list(APPEND rocm_flag --is_rocm)
+    if(FBGEMM_HAS_WAVE32)
+      list(APPEND rocm_flag --has_wave32)
+    endif()
+    if(FBGEMM_HAS_WAVE64)
+      list(APPEND rocm_flag --has_wave64)
+    endif()
   endif()
 
   BLOCK_PRINT(

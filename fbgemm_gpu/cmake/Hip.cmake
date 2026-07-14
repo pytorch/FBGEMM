@@ -34,6 +34,22 @@ if(PYTORCH_ROCM_ARCH STREQUAL "")
 endif()
 message("Building FBGEMM for GPU arch: ${PYTORCH_ROCM_ARCH}")
 
+# Derive the wave-size set in scope for this build from PYTORCH_ROCM_ARCH.
+# gfx9* archs (CDNA: gfx90a, gfx940/941/942, gfx950) run wave64; gfx10/11/12
+# archs (RDNA3/4: gfx1100, gfx1200, ...) run wave32. The codegen uses these
+# to emit only the host-side dispatch branches needed by this wheel, so
+# single-arch wheels stay free of the wrong wave's bracket table.
+set(FBGEMM_HAS_WAVE32 OFF)
+set(FBGEMM_HAS_WAVE64 OFF)
+foreach(fbgemm_rocm_arch ${PYTORCH_ROCM_ARCH})
+  if(fbgemm_rocm_arch MATCHES "^gfx9")
+    set(FBGEMM_HAS_WAVE64 ON)
+  else()
+    set(FBGEMM_HAS_WAVE32 ON)
+  endif()
+endforeach()
+message("FBGEMM wave-size set: WAVE32=${FBGEMM_HAS_WAVE32} WAVE64=${FBGEMM_HAS_WAVE64}")
+
 ADD_DEFINITIONS(-DNDEBUG)
 # USE_ROCM flag is used inside FBGEMM_GPU C++ code
 ADD_DEFINITIONS(-DUSE_ROCM)

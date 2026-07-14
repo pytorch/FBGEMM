@@ -21,6 +21,11 @@ parser.add_argument(
 )
 parser.add_argument("--opensource", action="store_false", dest="is_fbcode")
 parser.add_argument("--is_rocm", action="store_true")
+# CMake-derived wave-size set for the current ROCm build. CUDA builds ignore
+# these (always wave32). Both unset on a ROCm build defaults to wave64-only
+# to preserve pre-port behavior.
+parser.add_argument("--has_wave32", action="store_true")
+parser.add_argument("--has_wave64", action="store_true")
 
 args: argparse.Namespace
 _: list[str]
