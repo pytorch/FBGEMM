@@ -240,7 +240,8 @@ void _bounds_check_indices_cuda_v2(
 
   constexpr size_t kNumThreads = 1024;
   auto grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
-      cuda_calc_xblock_count(total_B, kNumThreads / fbgemm_gpu::kWarpSize),
+      cuda_calc_xblock_count(
+          total_B, kNumThreads / fbgemm_gpu::kWarpSizeHost()),
       kNumThreads,
       at::cuda::getCurrentCUDAStream(),
       fbgemm_gpu::utils::cuda::BlockCapPolicy::Always);
@@ -264,7 +265,7 @@ void _bounds_check_indices_cuda_v2(
               bounds_check_kernel,                                             \
               grid_dim,                                                        \
               dim3(                                                            \
-                  fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
+                  fbgemm_gpu::kWarpSizeHost(), kNumThreads / fbgemm_gpu::kWarpSizeHost()), \
               0,                                                               \
               at::cuda::getCurrentCUDAStream(),                                \
               PTA_B(rows_per_table, int64_t, 1, 32),                           \
