@@ -1136,5 +1136,103 @@ class PreallocatedHostBuffersTest(unittest.TestCase):
         self.assertEqual(momentum1_host.data_ptr(), momentum1_buffer.data_ptr())
 
 
+class PrunedArrayLookupFromRowIdxLargeGridTest(unittest.TestCase):
+    """
+    Regression tests for the grid-stride refactor of
+    ``pruned_array_lookup_from_row_idx_kernel`` (D105203915), which
+    lacked its own test method when landed.
+
+    Scope: these tests only exercise ``pruned_array_lookup_from_row_idx``
+    (it has both CPU and CUDA dispatches, so the GPU output can be checked
+    against the CPU reference). They verify the grid-stride loop over a
+    multi-block grid and that the launch survives once the host-side ROCm
+    grid cap is applied.
+
+    They do NOT exercise ``embedding_inplace_update_kernel_{1,2}`` and do
+    NOT reach the 2^32 thread cap-trip threshold that the ROCm fix guards
+    against: doing so would require >2^32 indices (a >16 GB int32 tensor),
+    which is infeasible in a unit test. A regression specific to the
+    embedding-update grid-stride loops is therefore not covered here.
+    """
+
+    @unittest.skipUnless(torch.cuda.is_available(), "GPU not available")
+    def test_pruned_array_lookup_from_row_idx_correctness(self) -> None:
+        """
+        Multi-block correctness check at small scale. Sentinel non-zero
+        values at start / middle / end of the index axis force the
+        grid-stride loop to iterate.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        # num_indices > kForwardMaxThreads * 2 so the grid-stride loop
+        # iterates >= 2 times.
+        num_indices = 2 * 256 + 7
+        T = 2  # 2 tables.
+        # Single shared remapping per table.
+        remap_size = 16
+        update_row_indices_cpu = torch.zeros(num_indices, dtype=torch.int32)
+        update_row_indices_cpu[0] = 1
+        update_row_indices_cpu[num_indices // 2] = 5
+        update_row_indices_cpu[num_indices - 1] = 9
+        update_table_indices_cpu = torch.zeros(num_indices, dtype=torch.int32)
+        update_table_indices_cpu[num_indices // 2] = 1
+        # Identity remapping: index_remappings[i] = i.
+        index_remappings_cpu = torch.arange(T * remap_size, dtype=torch.int32)
+        index_remappings_offsets_cpu = torch.tensor(
+            [0, remap_size, T * remap_size], dtype=torch.int64
+        )
+
+        result_cpu = torch.ops.fbgemm.pruned_array_lookup_from_row_idx(
+            update_row_indices_cpu,
+            update_table_indices_cpu,
+            index_remappings_cpu,
+            index_remappings_offsets_cpu,
+        )
+        result_gpu = torch.ops.fbgemm.pruned_array_lookup_from_row_idx(
+            update_row_indices_cpu.to(device),
+            update_table_indices_cpu.to(device),
+            index_remappings_cpu.to(device),
+            index_remappings_offsets_cpu.to(device),
+        )
+        torch.testing.assert_close(result_gpu.cpu(), result_cpu)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "GPU not available")
+    def test_pruned_array_lookup_from_row_idx_large_grid(self) -> None:
+        """
+        Grid-stride + host-cap survival test at a multi-block scale.
+
+        Post-fix, ``pruned_array_lookup_from_row_idx_kernel`` grid-strides
+        over indices and the host caps grid_x on ROCm. This test runs the
+        op at a moderately large ``num_indices`` (many blocks) and checks
+        that the launch succeeds and returns the expected shape.
+
+        Note: this scale does NOT reach the 2^32 thread cap-trip that the
+        ROCm fix ultimately guards against -- that would require >2^32
+        indices (>16 GB), which is infeasible here. It verifies the grid-
+        stride / cap code path executes, not the overflow boundary itself.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        num_indices = (1 << 22) + 1
+        T = 1
+        remap_size = 4
+        update_row_indices = torch.zeros(num_indices, dtype=torch.int32, device=device)
+        update_table_indices = torch.zeros(
+            num_indices, dtype=torch.int32, device=device
+        )
+        index_remappings = torch.arange(
+            T * remap_size, dtype=torch.int32, device=device
+        )
+        index_remappings_offsets = torch.tensor(
+            [0, remap_size], dtype=torch.int64, device=device
+        )
+
+        result = torch.ops.fbgemm.pruned_array_lookup_from_row_idx(
+            update_row_indices,
+            update_table_indices,
+            index_remappings,
+            index_remappings_offsets,
+        )
+        self.assertEqual(result.shape, (num_indices,))
+
+
 if __name__ == "__main__":
     unittest.main()
