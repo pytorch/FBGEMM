@@ -50,7 +50,7 @@ class UvmTest(unittest.TestCase):
             ]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
     def test_is_uvm_tensor(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
@@ -83,7 +83,7 @@ class UvmTest(unittest.TestCase):
             ]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
     def test_cudaMemAdvise(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
@@ -115,7 +115,7 @@ class UvmTest(unittest.TestCase):
             ]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
     def test_cudaMemPrefetchAsync(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
@@ -148,7 +148,7 @@ class UvmTest(unittest.TestCase):
             ]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
     def test_uvm_slice(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
@@ -188,7 +188,7 @@ class UvmTest(unittest.TestCase):
             ]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
     def test_uvm_memadviceDontFork(self, sizes: list[int], uvm_op) -> None:
         if uvm_op is torch.ops.fbgemm.new_unified_tensor:
@@ -214,7 +214,7 @@ class UvmTest(unittest.TestCase):
             st.integers(min_value=1, max_value=(512)), min_size=1, max_size=3
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_new_managed_tensor_meta(self, sizes: list[int]) -> None:
         cpu_tensor = torch.empty(sizes).to("meta")
         cpu_tensor_meta = torch.ops.fbgemm.new_managed_tensor(cpu_tensor, sizes)

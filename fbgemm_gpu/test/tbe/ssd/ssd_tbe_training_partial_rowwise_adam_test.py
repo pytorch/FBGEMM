@@ -44,7 +44,7 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
         **default_st,
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_backward_partial_rowwise_adam(
         self,
         T: int,
@@ -205,7 +205,7 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
         bulk_init_chunk_size=st.sampled_from([0, 204800]),
         lazy_bulk_init_enabled=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_emb_state_dict_partial_rowwise_adam(
         self,
         T: int,
@@ -370,7 +370,7 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
         enable_optimizer_offloading=st.booleans(),
         backend_type=st.just(BackendType.DRAM),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_emb_state_dict_partial_rowwise_adam(
         self,
         T: int,
@@ -572,7 +572,7 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
         enable_optimizer_offloading=st.just(True),
         backend_type=st.sampled_from([BackendType.DRAM]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_emb_state_dict_partial_rowwise_adam_whole_row(
         self,
         T: int,
@@ -819,7 +819,7 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
             table_offset += VIRTUAL_TABLE_ROWS
 
     @given(**default_st)
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_fetch_from_l1_sp_w_row_ids_partial_rowwise_adam(
         self,
         T: int,

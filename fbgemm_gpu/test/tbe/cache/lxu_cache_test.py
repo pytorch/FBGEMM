@@ -25,7 +25,7 @@ from torch import Tensor
 from ..common import MAX_EXAMPLES  # noqa E402
 from .cache_common import generate_cache_tbes, gpu_unavailable, optests
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 
 @optests.generate_opcheck_tests(fast=True)
@@ -247,7 +247,7 @@ class LXUCacheTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_unique_lxu_cache_lookup(
         self,
         T: int,

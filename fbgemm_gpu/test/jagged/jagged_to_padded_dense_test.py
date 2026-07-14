@@ -40,7 +40,7 @@ class JaggedToPaddedDenseTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_to_padded_dense(
         self,
         num_jagged_dim: int,
@@ -165,7 +165,7 @@ class JaggedToPaddedDenseTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.just("meta"),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_to_padded_dense_meta_backend(
         self,
         num_jagged_dim: int,

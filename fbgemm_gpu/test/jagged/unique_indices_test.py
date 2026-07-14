@@ -100,7 +100,7 @@ class UniqueIndicesTest(unittest.TestCase):
         max_length=st.integers(min_value=5, max_value=10),
         dtype=st.sampled_from([torch.int32, torch.int64]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_jagged_unique_indices(
         self,
         B: int,  # Batch size
@@ -206,7 +206,7 @@ class UniqueIndicesTest(unittest.TestCase):
         max_length=st.integers(min_value=5, max_value=10),
         dtype=st.sampled_from([torch.int32, torch.int64]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_jagged_unique_indices_multi_keys(
         self,
         B: int,  # Batch size
@@ -280,7 +280,7 @@ class UniqueIndicesTest(unittest.TestCase):
         F=st.integers(min_value=50, max_value=100),
         dtype=st.sampled_from([torch.int32, torch.int64]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=2, deadline=None)
     def test_jagged_unique_indices_empty(
         self,
         B: int,  # Batch size
@@ -709,7 +709,7 @@ class UniqueIndicesTest(unittest.TestCase):
         weight_dtype=st.sampled_from([torch.float32, torch.float16]),
         use_cpu=st.booleans() if not gpu_unavailable[0] else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_acc_weights_and_counts_1d(
         self,
         num_elements: int,
@@ -759,7 +759,7 @@ class UniqueIndicesTest(unittest.TestCase):
     @given(
         use_cpu=st.booleans() if not gpu_unavailable[0] else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=2, deadline=None)
     def test_jagged_acc_weights_and_counts_edge_cases(self, use_cpu: bool) -> None:
         """Test edge cases for both 1D and 2D accumulation kernels.
 
@@ -786,7 +786,7 @@ class UniqueIndicesTest(unittest.TestCase):
         torch.testing.assert_close(result, expected)
 
     @given(use_cpu=st.booleans() if not gpu_unavailable[0] else st.just(True))
-    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=2, deadline=None)
     def test_jagged_acc_weights_and_counts_different_sizes(self, use_cpu: bool) -> None:
         """Test that the kernel works correctly with different dataset sizes.
 

@@ -72,7 +72,7 @@ MAX_EXAMPLES_LONG_RUNNING = 15
 
 FORWARD_MAX_THREADS = 512
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 
 def gen_mixed_B_batch_sizes(

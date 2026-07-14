@@ -28,7 +28,7 @@ common_st = {
 }
 
 common_settings = {
-    "verbosity": Verbosity.verbose,
+    "verbosity": Verbosity.normal,
     "max_examples": 4,
     "deadline": None,
 }

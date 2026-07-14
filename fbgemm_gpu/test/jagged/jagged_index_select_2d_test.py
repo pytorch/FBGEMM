@@ -66,7 +66,7 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
         check_non_contiguous=st.booleans(),
         known_shape=st.booleans(),
     )
-    @settings(max_examples=20, deadline=None, verbosity=Verbosity.verbose)
+    @settings(max_examples=20, deadline=None, verbosity=Verbosity.normal)
     def test_jagged_index_select_2d(
         self,
         max_seq_length: int,

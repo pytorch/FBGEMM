@@ -42,7 +42,7 @@ class CumSumTest(unittest.TestCase):
         ),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_cumsum(
         self,
         n: int,
@@ -108,7 +108,7 @@ class CumSumTest(unittest.TestCase):
         ),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_asynchronous_complete_cumsum_2d(
         self,
         n: int,
@@ -148,7 +148,7 @@ class CumSumTest(unittest.TestCase):
         device=cpu_and_maybe_gpu(),
     )
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=50,
         deadline=None,
     )

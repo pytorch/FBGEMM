@@ -28,7 +28,7 @@ else:
 
 class HistogramBinningCalibrationTest(unittest.TestCase):
     @given(data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]))
-    @settings(verbosity=Verbosity.verbose, deadline=None)
+    @settings(verbosity=Verbosity.normal, deadline=None)
     def test_histogram_binning_calibration(self, data_type: torch.dtype) -> None:
         num_bins = 5000
 
@@ -114,7 +114,7 @@ class HistogramBinningCalibrationTest(unittest.TestCase):
         segment_value_type=st.sampled_from([torch.int, torch.long]),
         segment_length_type=st.sampled_from([torch.int, torch.long]),
     )
-    @settings(verbosity=Verbosity.verbose, deadline=None)
+    @settings(verbosity=Verbosity.normal, deadline=None)
     def test_histogram_binning_calibration_by_feature(
         self,
         data_type: torch.dtype,
@@ -219,7 +219,7 @@ class HistogramBinningCalibrationTest(unittest.TestCase):
         segment_value_type=st.sampled_from([torch.int, torch.long]),
         segment_length_type=st.sampled_from([torch.int, torch.long]),
     )
-    @settings(verbosity=Verbosity.verbose, deadline=None)
+    @settings(verbosity=Verbosity.normal, deadline=None)
     def test_generic_histogram_binning_calibration_by_feature(
         self,
         data_type: torch.dtype,
@@ -326,7 +326,7 @@ class HistogramBinningCalibrationTest(unittest.TestCase):
     @given(
         data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
     )
-    @settings(verbosity=Verbosity.verbose, deadline=None)
+    @settings(verbosity=Verbosity.normal, deadline=None)
     @optests.dontGenerateOpCheckTests(
         "GPU-only CPU/GPU parity test; op covered by test_generic_histogram_binning_calibration_by_feature (T191384137)"
     )
