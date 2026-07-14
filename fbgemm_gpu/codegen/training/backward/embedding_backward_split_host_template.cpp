@@ -16,6 +16,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/config/feature_gates.h"
 
 using Tensor = at::Tensor;
@@ -960,7 +961,10 @@ class {{ autograd_func }} :
     TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
 #ifdef USE_ROCM
-    constexpr int32_t BT_block_size = 64;
+    // BT_block_size matches the active device's warp size on ROCm (32 on
+    // wave32 archs like gfx1100, 64 on wave64 archs like gfx90a). Multi-arch
+    // wheels must read this at runtime, hence the const int (not constexpr).
+    const int32_t BT_block_size = kWarpSizeHost();
     constexpr int32_t max_segment_length_per_warp =  16384;
 #else
     constexpr int32_t BT_block_size = 32;
