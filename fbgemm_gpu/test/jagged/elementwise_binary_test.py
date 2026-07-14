@@ -140,7 +140,7 @@ class ElementwiseBinaryTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_elementwise_binary(
         self,
         num_jagged_dim: int,
@@ -168,7 +168,7 @@ class ElementwiseBinaryTest(unittest.TestCase):
         dtype=st.just(torch.half),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=4, deadline=None)
     def test_jagged_elementwise_binary_opt(
         self,
         num_jagged_dim: int,
@@ -196,7 +196,7 @@ class ElementwiseBinaryTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_elementwise_binary_dynamic_shape(
         self,
         num_jagged_dim: int,

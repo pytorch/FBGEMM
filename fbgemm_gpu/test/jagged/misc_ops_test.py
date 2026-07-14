@@ -188,7 +188,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float]),
         device_type=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_softmax(
         self,
         B: int,

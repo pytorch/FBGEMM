@@ -100,7 +100,7 @@ class SSDUtilsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half]),
         use_pipeline=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_masked_index_put(
         self,
         num_indices: int,
@@ -135,7 +135,7 @@ class SSDUtilsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half]),
         use_pipeline=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_masked_index_select(
         self,
         num_indices: int,
@@ -180,7 +180,7 @@ class SSDUtilsTest(unittest.TestCase):
         iters=st.integers(min_value=1, max_value=5),
         total_to_uniq_ratio=st.integers(min_value=1, max_value=5),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_scratch_pad_indices_queue(
         self,
         hash_size: int,
@@ -333,7 +333,7 @@ class SSDUtilsTest(unittest.TestCase):
         num_indices=st.integers(min_value=1, max_value=128),
         num_tensors=st.integers(min_value=1, max_value=2),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_compact_indices(self, num_indices: int, num_tensors: int) -> None:
         """
         Test correctness of `torch.ops.fbgemm.compact_indices`

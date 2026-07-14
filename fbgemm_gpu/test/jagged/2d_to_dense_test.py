@@ -28,7 +28,7 @@ else:
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class Jagged2DToDenseTest(unittest.TestCase):
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )
@@ -135,7 +135,7 @@ class Jagged2DToDenseTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )
@@ -191,7 +191,7 @@ class Jagged2DToDenseTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )

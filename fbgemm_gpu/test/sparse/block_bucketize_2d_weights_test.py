@@ -59,7 +59,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         sequence=st.booleans(),
         weights_dim=st.sampled_from([2, 3, 4]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights(
         self,
         index_type: type[torch.dtype],
@@ -177,7 +177,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights_vs_original(
         self,
         index_type: type[torch.dtype],
@@ -332,7 +332,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         weights_dtype=st.sampled_from([torch.float, torch.double]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights_pooled_vs_sequence(
         self,
         index_type: type[torch.dtype],
@@ -480,7 +480,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         sequence=st.booleans(),
         keep_orig_idx=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights_keep_orig_idx(
         self,
         index_type: type[torch.dtype],
@@ -590,7 +590,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights_keep_orig_idx_per_feature(
         self,
         index_type: type[torch.dtype],
@@ -695,7 +695,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights_total_num_blocks(
         self,
         index_type: type[torch.dtype],
@@ -796,7 +796,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights_block_bucketize_pos(
         self,
         index_type: type[torch.dtype],
@@ -905,7 +905,7 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_2d_weights_with_variable_batch_sizes(
         self,
         index_type: type[torch.dtype],

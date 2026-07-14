@@ -33,7 +33,7 @@ class JaggedSliceTest(unittest.TestCase):
         slice_length=st.integers(0, 64),
         dtype=st.sampled_from([torch.float]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_slice(
         self,
         B: int,

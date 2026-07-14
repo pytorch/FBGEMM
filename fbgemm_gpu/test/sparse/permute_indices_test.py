@@ -54,7 +54,7 @@ class PermuteIndicesTest(unittest.TestCase):
         is_1D=st.booleans(),
         W=st.integers(min_value=4, max_value=8),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_permute_indices(
         self,
         B: int,
@@ -180,7 +180,7 @@ class PermuteIndicesTest(unittest.TestCase):
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
@@ -294,7 +294,7 @@ class PermuteIndicesTest(unittest.TestCase):
         long_index=st.booleans(),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_permute_indices_with_repeats(
         self, B: int, T: int, L: int, long_index: bool, has_weight: bool
     ) -> None:
@@ -366,7 +366,7 @@ class PermuteIndicesTest(unittest.TestCase):
         index_dtype=st.sampled_from([torch.int32, torch.int64, torch.float32]),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=100, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=100, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
@@ -518,7 +518,7 @@ class PermuteIndicesTest(unittest.TestCase):
         index_dtype=st.sampled_from([torch.int32, torch.int64, torch.float32]),
         weights_columns=st.sampled_from([2, 3, 4, 7, 8]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=50, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=50, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
@@ -660,7 +660,7 @@ class PermuteIndicesTest(unittest.TestCase):
         long_index=st.booleans(),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
@@ -739,7 +739,7 @@ class PermuteIndicesTest(unittest.TestCase):
         index_dtype=st.sampled_from([torch.int32, torch.int64, torch.float32]),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     @unittest.skipIf(*gpu_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
@@ -1055,7 +1055,7 @@ class PermuteIndicesTest(unittest.TestCase):
         long_index=st.booleans(),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_permute_indices_with_preallocated_output(
         self,
         B: int,
@@ -1210,7 +1210,7 @@ class PermuteIndicesTest(unittest.TestCase):
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_permute_indices_backward(
         self,
         B: int,

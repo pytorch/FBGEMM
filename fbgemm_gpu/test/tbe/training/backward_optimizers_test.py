@@ -76,7 +76,7 @@ else:
     )
 
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)

@@ -68,7 +68,7 @@ else:
         use_cpu_strategy,
     )
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 common_strategy: dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=5),

@@ -132,7 +132,7 @@ class IndexSelectTest(unittest.TestCase):
         check_non_contiguous=st.booleans(),
     )
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )
@@ -544,7 +544,7 @@ class IndexSelectTest(unittest.TestCase):
         ),
     )
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )
@@ -616,7 +616,7 @@ class IndexSelectTest(unittest.TestCase):
         max_rl=st.sampled_from([32, 64, 128, 256, 512]),
     )
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )

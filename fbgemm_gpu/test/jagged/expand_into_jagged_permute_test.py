@@ -61,7 +61,7 @@ class ExpandIntoJaggedPermuteTest(unittest.TestCase):
         T=st.integers(min_value=10, max_value=20),
         W=st.integers(min_value=8, max_value=64),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_expand_into_jagged_permute(
         self,
         T: int,

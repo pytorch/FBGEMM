@@ -38,7 +38,7 @@ class MiscOpsTest(unittest.TestCase):
         permute_size=st.integers(min_value=0, max_value=1000),
         long_index=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_invert_permute(
         self,
         permute_size: int,
@@ -64,7 +64,7 @@ class MiscOpsTest(unittest.TestCase):
         N=st.integers(min_value=1, max_value=20),
         offsets_type=st.sampled_from([torch.int32, torch.int64]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_offsets_range(
         self,
         N: int,
@@ -94,7 +94,7 @@ class MiscOpsTest(unittest.TestCase):
         has_weight=st.booleans(),
         bucketize_pos=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=2, deadline=None)
     def test_bucketize_sparse_features(
         self,
         index_type: type[torch.dtype],
@@ -260,7 +260,7 @@ class MiscOpsTest(unittest.TestCase):
         n=st.just(5),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_permute102_baddbmm_permute102(
         self,
         batch_size: int,

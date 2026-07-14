@@ -96,7 +96,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         mixed_weights_ty=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_ssd_forward(
         self,
         T: int,
@@ -250,7 +250,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         L=st.integers(min_value=0, max_value=20),
         weighted=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_ssd_cache(
         self, T: int, D: int, B: int, log_E: int, L: int, weighted: bool
     ) -> None:
