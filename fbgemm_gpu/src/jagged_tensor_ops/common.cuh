@@ -468,30 +468,34 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_(
     offsets_sh[i] = offsets[i];
   }
   __syncthreads();
-  auto row = threadIdx.x + blockIdx.x * blockDim.x;
-  if (row >= nnz)
-    return;
-  int first = -1;
-  int count = B - 1;
-  first = 1;
-  while (count > 0) {
-    int idx = first;
-    int step = count / 2;
-    idx += step;
-    if (offsets_sh[idx] <= row) {
-      first = ++idx;
-      count -= step + 1;
-    } else {
-      count = step;
+  // Grid-stride over rows so a capped grid (used on ROCm to avoid the 2^32
+  // launch-side limit) still covers every row. The pre-loop shared-memory
+  // load above is performed once per block; the data remains valid across
+  // all grid-stride iterations.
+  const auto row_init = threadIdx.x + blockIdx.x * blockDim.x;
+  const auto row_stride = gridDim.x * blockDim.x;
+  for (auto row = row_init; row < nnz; row += row_stride) {
+    int first = 1;
+    int count = B - 1;
+    while (count > 0) {
+      int idx = first;
+      int step = count / 2;
+      idx += step;
+      if (offsets_sh[idx] <= row) {
+        first = ++idx;
+        count -= step + 1;
+      } else {
+        count = step;
+      }
     }
-  }
-  --first;
+    --first;
 
-  int dense_row = first;
-  int offset = offsets_sh[dense_row];
-  int dense_col = row - offset;
-  rows[row] = dense_row;
-  cols[row] = dense_col;
+    int dense_row = first;
+    int offset = offsets_sh[dense_row];
+    int dense_col = row - offset;
+    rows[row] = dense_row;
+    cols[row] = dense_col;
+  }
 }
 
 struct VecType128 {
@@ -953,10 +957,16 @@ void jagged_dense_elementwise_jagged_output_opt_(
           }
 
           dim3 threads_bs = dim3(1024, 1, 1);
+          // HIP enforces a hard limit of 2^32 total threads per launch.
+          // The opt_search_kernel grid-strides over rows, so capping is
+          // correctness-preserving.
+          // See: https://github.com/ROCm/hip/issues/2253
+          const auto blocks_bs_x = utils::cuda::cap_grid_dim_x_from_workload(
+              nnz, threads_bs.x, at::cuda::getCurrentCUDAStream());
           FBGEMM_LAUNCH_KERNEL(
               (jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                   index_t>),
-              dim3(div_round_up(nnz, threads_bs.x), 1, 1),
+              dim3(blocks_bs_x, 1, 1),
               threads_bs,
               dynamic_smem_size,
               at::cuda::getCurrentCUDAStream(),
