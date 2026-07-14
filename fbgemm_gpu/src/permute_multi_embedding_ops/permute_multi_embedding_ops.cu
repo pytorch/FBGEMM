@@ -67,6 +67,12 @@ __global__ void permute_multi_embs_kernel(
   length = pp[PermuteParam::length];
   next = pp[PermuteParam::next];
 
+  if (in_tensor < 0 || in_tensor >= static_cast<int32_t>(in_lengths.size(0)) ||
+      out_tensor < 0 ||
+      out_tensor >= static_cast<int32_t>(out_lengths.size(0))) {
+    return;
+  }
+
   if (worker_id >= length) {
     return;
   }
@@ -108,12 +114,19 @@ __global__ void permute_multi_embs_kernel(
   }
 
   // for reverse_permute (backward) with next
-  while (reverse_permute && next > 0 && next < permute_size) {
+  int32_t loop_guard = permute_size;
+  while (reverse_permute && next > 0 && next < permute_size &&
+         --loop_guard > 0) {
     int32_t* __restrict__ pp = permutes[next].data();
     in_tensor = pp[PermuteParam::out_tensor];
     in_offset = pp[PermuteParam::out_offset];
     length = pp[PermuteParam::length];
     next = -pp[PermuteParam::next];
+
+    if (in_tensor < 0 ||
+        in_tensor >= static_cast<int32_t>(in_lengths.size(0))) {
+      return;
+    }
 
     const auto in_length = in_lengths[in_tensor];
     const scalar_t* input_ptr =
