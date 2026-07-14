@@ -6,11 +6,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
+#include <limits>
+
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "fbgemm_gpu/embedding_inplace_update.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
@@ -44,15 +48,8 @@ inline __device__ void embedding_inplace_update_kernel_impl(
     pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        lxu_cache_locations) {
-  // each row is updated by one warp of threads
-  // blockIdx.x: block idx, threadIdx.x: thread idx in the warp,
-  // threadIdx.y: warp idx in the block.
-  // blockDim.x = warpSize, blockDim.y = warpsPerBlock.
-  const int64_t i = blockIdx.x * blockDim.y + threadIdx.y;
-  if (i >= update_row_idx.size(0)) {
-    return;
-  }
+        lxu_cache_locations,
+    const int64_t i) {
   const int32_t table_idx = update_table_idx[i];
   const auto row_idx = update_row_idx[i];
 
@@ -131,31 +128,31 @@ __launch_bounds__(kMaxThreads) __global__
             lxu_cache_weights,
         const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
             lxu_cache_locations) {
-  // each row is updated by one warp of threads
-  // blockIdx.x: block idx, threadIdx.x: thread idx in the warp,
-  // threadIdx.y: warp idx in the block.
-  // blockDim.x = warpSize, blockDim.y = warpsPerBlock.
-  const int64_t i = blockIdx.x * blockDim.y + threadIdx.y;
-  if (i >= update_row_idx.size(0)) {
-    return;
+  // each row is updated by one warp of threads.
+  // Grid-stride over rows so a capped grid (used on ROCm to avoid the 2^32
+  // launch-side limit) still covers every row.
+  const int64_t N = update_row_idx.size(0);
+  for (int64_t i = blockIdx.x * blockDim.y + threadIdx.y; i < N;
+       i += gridDim.x * blockDim.y) {
+    const int32_t table_idx = update_table_idx[i];
+    const auto placement =
+        static_cast<PlacementType>(weights_placements[table_idx]);
+    embedding_inplace_update_kernel_impl(
+        dev_weights,
+        uvm_weights,
+        placement,
+        weights_offsets,
+        weights_tys,
+        D_offsets,
+        update_weights,
+        update_table_idx,
+        update_row_idx,
+        update_offsets,
+        row_alignment,
+        lxu_cache_weights,
+        lxu_cache_locations,
+        i);
   }
-  const int32_t table_idx = update_table_idx[i];
-  const auto placement =
-      static_cast<PlacementType>(weights_placements[table_idx]);
-  embedding_inplace_update_kernel_impl(
-      dev_weights,
-      uvm_weights,
-      placement,
-      weights_offsets,
-      weights_tys,
-      D_offsets,
-      update_weights,
-      update_table_idx,
-      update_row_idx,
-      update_offsets,
-      row_alignment,
-      lxu_cache_weights,
-      lxu_cache_locations);
 }
 
 template <typename index_t>
@@ -185,20 +182,26 @@ __launch_bounds__(kMaxThreads) __global__
             lxu_cache_weights,
         const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
             lxu_cache_locations) {
-  embedding_inplace_update_kernel_impl(
-      dev_weights,
-      uvm_weights,
-      weights_placement,
-      weights_offsets,
-      weights_tys,
-      D_offsets,
-      update_weights,
-      update_table_idx,
-      update_row_idx,
-      update_offsets,
-      row_alignment,
-      lxu_cache_weights,
-      lxu_cache_locations);
+  // Grid-stride over rows; see kernel_1 for details.
+  const int64_t N = update_row_idx.size(0);
+  for (int64_t i = blockIdx.x * blockDim.y + threadIdx.y; i < N;
+       i += gridDim.x * blockDim.y) {
+    embedding_inplace_update_kernel_impl(
+        dev_weights,
+        uvm_weights,
+        weights_placement,
+        weights_offsets,
+        weights_tys,
+        D_offsets,
+        update_weights,
+        update_table_idx,
+        update_row_idx,
+        update_offsets,
+        row_alignment,
+        lxu_cache_weights,
+        lxu_cache_locations,
+        i);
+  }
 }
 
 void embedding_inplace_update_cuda(
@@ -247,9 +250,25 @@ void embedding_inplace_update_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       update_row_idx.scalar_type(), "embedding_inplace_update_kernel_1", [&] {
+        // HIP enforces a hard limit of 2^32 total threads per launch.
+        // See: https://github.com/ROCm/hip/issues/2253
+        // Compute the uncapped block count in 64-bit and clamp to uint32_t
+        // max before handing it to cap_grid_dim_x. A bare
+        // static_cast<uint32_t> would truncate for N >= ~2^32 * warpsPerBlock
+        // and could wrap to 0, which would make the cap's overflow check
+        // (blocks * threads) pass and silently launch no work. Clamping keeps
+        // the value above the cap threshold so the ROCm cap engages; the
+        // grid-stride loop then still covers all N rows.
+        const int64_t blocks_uncapped = nbit::div_round_up(N, warpsPerBlock);
+        const auto blocks = utils::cuda::cap_grid_dim_x(
+            static_cast<uint32_t>(std::min<int64_t>(
+                blocks_uncapped,
+                static_cast<int64_t>(std::numeric_limits<uint32_t>::max()))),
+            kMaxThreads,
+            at::cuda::getCurrentCUDAStream());
         FBGEMM_LAUNCH_KERNEL(
             (embedding_inplace_update_kernel_1<index_t>),
-            nbit::div_round_up(N, warpsPerBlock), // number of blocks needed
+            blocks, // number of blocks needed
             dim3(kWarpSize, warpsPerBlock), // shape of each block
             0,
             at::cuda::getCurrentCUDAStream(),
@@ -315,9 +334,21 @@ void embedding_inplace_update_single_placement_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       update_row_idx.scalar_type(), "embedding_inplace_update_kernel_2", [&] {
+        // HIP enforces a hard limit of 2^32 total threads per launch.
+        // See: https://github.com/ROCm/hip/issues/2253
+        // See embedding_inplace_update_kernel_1 above: clamp the uncapped
+        // block count in 64-bit so a huge N cannot truncate/wrap the
+        // uint32_t and defeat the ROCm overflow cap.
+        const int64_t blocks_uncapped = nbit::div_round_up(N, warpsPerBlock);
+        const auto blocks = utils::cuda::cap_grid_dim_x(
+            static_cast<uint32_t>(std::min<int64_t>(
+                blocks_uncapped,
+                static_cast<int64_t>(std::numeric_limits<uint32_t>::max()))),
+            kMaxThreads,
+            at::cuda::getCurrentCUDAStream());
         FBGEMM_LAUNCH_KERNEL(
             (embedding_inplace_update_kernel_2<index_t>),
-            nbit::div_round_up(N, warpsPerBlock), // number of blocks needed
+            blocks, // number of blocks needed
             dim3(kWarpSize, warpsPerBlock), // shape of each block
             0,
             at::cuda::getCurrentCUDAStream(),
@@ -351,25 +382,30 @@ __launch_bounds__(kMaxThreads) void pruned_array_lookup_from_row_idx_kernel(
         index_remappings_offsets,
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
-  const int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= update_row_indices.size(0)) {
-    return;
-  }
-  const auto row_idx = update_row_indices[idx];
-  if (idx >= update_table_indices.size(0)) {
-    return;
-  }
-  const int table_idx = update_table_indices[idx];
+  const int64_t total = update_row_indices.size(0);
+  const int64_t update_table_size = update_table_indices.size(0);
+  // Grid-stride over rows so a capped grid (used on ROCm to avoid the 2^32
+  // launch-side limit) still covers every row.
+  for (int64_t idx =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       idx < total;
+       idx += static_cast<int64_t>(gridDim.x) * blockDim.x) {
+    if (idx >= update_table_size) {
+      continue;
+    }
+    const auto row_idx = update_row_indices[idx];
+    const int table_idx = update_table_indices[idx];
 
-  const auto index_remappings_start = index_remappings_offsets[table_idx];
-  const auto index_remappings_end = index_remappings_offsets[table_idx + 1];
-  const auto capacity = index_remappings_end - index_remappings_start;
+    const auto index_remappings_start = index_remappings_offsets[table_idx];
+    const auto index_remappings_end = index_remappings_offsets[table_idx + 1];
+    const auto capacity = index_remappings_end - index_remappings_start;
 
-  if (capacity > 0) {
-    dense_indices[idx] = static_cast<index_t>(
-        index_remappings[index_remappings_start + row_idx]);
-  } else {
-    dense_indices[idx] = row_idx;
+    if (capacity > 0) {
+      dense_indices[idx] = static_cast<index_t>(
+          index_remappings[index_remappings_start + row_idx]);
+    } else {
+      dense_indices[idx] = row_idx;
+    }
   }
 }
 
@@ -418,9 +454,15 @@ Tensor pruned_array_lookup_from_row_idx_cuda(
             update_row_indices.scalar_type(),
             "pruned_array_lookup_from_row_idx_cuda_1",
             [&] {
+              // HIP enforces a hard limit of 2^32 total threads per launch.
+              // See: https://github.com/ROCm/hip/issues/2253
+              const auto blocks = utils::cuda::cap_grid_dim_x_from_workload(
+                  num_indices,
+                  kForwardMaxThreads,
+                  at::cuda::getCurrentCUDAStream());
               FBGEMM_LAUNCH_KERNEL(
                   (pruned_array_lookup_from_row_idx_kernel<index_t, remap_t>),
-                  nbit::div_round_up(num_indices, kForwardMaxThreads),
+                  blocks,
                   kForwardMaxThreads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
