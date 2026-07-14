@@ -203,6 +203,12 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: ${{ matrix.host-machine.timeout }}
+      # TorchInductor defaults to one C++ compile worker per vCPU (16 on the x86
+      # linux.4xlarge). The torch.compile TBE tests (backward_adagrad, ...) blow
+      # peak memory past the box's 32GB and OOM-kill the runner. Serialize the
+      # compile workers to bound peak memory (config fix; no runner-size change).
+      env:
+        TORCHINDUCTOR_COMPILE_THREADS: 1
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Push Wheel to PyPI
