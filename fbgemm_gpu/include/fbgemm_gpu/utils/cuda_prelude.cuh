@@ -162,11 +162,22 @@ DEVICE_INLINE uint32_t ballot_sync(
 }
 
 /// Sums a register value across all warp threads
+//
+// The rocm::wave_reduce DPP path is only correct on the CDNA archs whose
+// hand-tuned assembly / row_bcast DPP controls it relies on (gfx942, gfx90a,
+// gfx950); on other archs dpp_reduction compiles to a no-op and wave_reduce
+// would return an un-reduced lane value. RDNA (wave 32) also lacks the
+// row_bcast DPP controls. Everywhere except those CDNA archs, use the portable
+// shfl_xor butterfly, which is correct for any ReduceWidth and arch (and is the
+// CUDA path). __shfl_xor on ROCm adjusts internally for the device warp size.
+// The arch macros are device-pass-only, so per-arch device code in a multi-arch
+// fat binary selects the right path automatically.
 template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T warpReduceAllSum(
     T val,
     unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
-#ifdef USE_ROCM
+#if defined(USE_ROCM) && \
+    (defined(__gfx942__) || defined(__gfx90a__) || defined(__gfx950__))
   return rocm::wave_reduce<
       rocm::reduce_op::sum, // Sum reduction
       T, // Data type
