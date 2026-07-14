@@ -260,6 +260,72 @@ class IndexSelectTest(unittest.TestCase):
         )
 
     @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @unittest.skipIf(
+        not getattr(torch.version, "hip", None),
+        "ROCm-only: tests contiguous warp cache flush",
+    )
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only correctness regression test; the faketensor variant only "
+        "exercises the (pre-existing, separately tracked) stale fake kernel "
+        "and adds no op coverage"
+    )
+    def test_group_index_select_backward_col_tile_boundary(self) -> None:
+        """Regression test for col_tile boundary cache accumulator flush bug.
+
+        When USE_CONTIGUOUS_WARPS and USE_CACHE are both true (ROCm backward),
+        the cache accumulator must be flushed when a warp crosses a col_tile
+        boundary.  Without the fix, columns [0:32] of grad_input lose a
+        contribution and columns [32:64] gain a spurious one.
+
+        Trigger conditions:
+          - num_cols > 32 (multiple col_tiles)
+          - total_num_warps > warps_per_launch (chunk_size >= 2)
+          - duplicate index at col_tile boundary (cached_idx == idx)
+        """
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # CUDA specifically required: testing GPU-only FBGEMM sparse op
+        device = torch.device("cuda")
+        dtype = torch.float
+
+        # 64 cols → 2 col_tiles (warps_per_row = 2).
+        # 100003 indices (prime) → total_num_warps = 200006, which exceeds
+        # warps_per_launch on all current AMD GPUs, so chunk_size >= 2.
+        # Being prime ensures the col_tile boundary never aligns with chunk
+        # boundaries for any chunk_size.
+        num_cols = 64
+        num_embedding_rows = 10
+        num_indices = 100003
+
+        # All indices point to the same row so the cache always hits across
+        # the col_tile boundary.
+        indices = torch.zeros(num_indices, device=device, dtype=torch.long)
+
+        input_tensor = torch.randn(
+            num_embedding_rows, num_cols, device=device, dtype=dtype
+        )
+        input_tensor.requires_grad = True
+
+        input_ref = input_tensor.detach().clone()
+        input_ref.requires_grad = True
+
+        # Forward
+        output = torch.ops.fbgemm.group_index_select_dim0([input_tensor], [indices])
+        output_ref = [torch.index_select(input_ref, 0, indices)]
+
+        # Backward with ones — expected gradient per column = num_indices.
+        grad = torch.ones(num_indices, num_cols, device=device, dtype=dtype)
+        output_ref[0].backward(grad)
+        output[0].backward(grad)
+
+        torch.testing.assert_close(
+            input_tensor.grad,
+            input_ref.grad,
+            atol=0.5,
+            rtol=0,
+            msg="grad_input mismatch — col_tile boundary cache flush bug?",
+        )
+
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
@@ -298,6 +364,46 @@ class IndexSelectTest(unittest.TestCase):
             torch.ops.fbgemm.group_index_select_dim0(
                 [input0, input1], [indices0, indices1]
             )
+
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @optests.dontGenerateOpCheckTests(
+        "This test IS the opcheck; the harness variants would double-run it"
+    )
+    def test_group_index_select_dim0_fake_kernel_opcheck(self) -> None:
+        """The fake/meta kernel must report the same output metadata as the real
+        op, otherwise torch.compile sizes the op's buffers wrong and crashes at
+        runtime (assert_size_stride). This directly opchecks the fake kernel
+        against the real forward so an args_tensor layout change in
+        sparse_ops_gpu.cpp can't silently drift from the fake kernel again.
+        """
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # CUDA specifically required: GPU-only FBGEMM sparse op.
+        device = torch.device("cuda")
+        # Odd group_size exercises the ceil(group_size / 2) int32 packing.
+        group_size = 9
+        num_input_rows = 16
+        num_cols = 8
+        num_indices = 5
+
+        indices_group = [
+            torch.randint(
+                num_input_rows, (num_indices,), dtype=torch.long, device=device
+            )
+            for _ in range(group_size)
+        ]
+        input_group = [
+            torch.rand((num_input_rows, num_cols), dtype=torch.float, device=device)
+            for _ in range(group_size)
+        ]
+        # group_index_select_dim0_gpu_impl unpacks inputs as
+        # [*indices_group, *input_group].
+        all_indices_input = [*indices_group, *input_group]
+
+        torch.library.opcheck(
+            torch.ops.fbgemm.group_index_select_dim0_gpu_impl.default,
+            (all_indices_input, group_size),
+            test_utils=["test_faketensor"],
+        )
 
     def execute_batch_index_select_dim0(  # noqa: C901
         self,
