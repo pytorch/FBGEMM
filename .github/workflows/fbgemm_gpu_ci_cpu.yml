@@ -148,7 +148,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.4xlarge", timeout: 20 },
+          { arch: x86, instance: "linux.4xlarge.memory", timeout: 40 },
           { arch: arm, instance: "linux.arm64.m7g.4xlarge", timeout: 30 },
         ]
         build-target: [ "default" ]
