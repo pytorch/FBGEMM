@@ -27,7 +27,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
-from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
 from fbgemm_gpu.tbe.utils import get_table_batched_offsets_from_dense
 from hypothesis import given, settings, Verbosity
 
@@ -265,7 +264,7 @@ class NBitCacheTest(unittest.TestCase):
         )
         cc1.fill_random_weights()
 
-        associativty = DEFAULT_ASSOC  # 32 for NVidia / 64 for AMD.
+        associativty = cc1.cache_assoc
         repetition = 17
         indices1 = torch.Tensor(
             [[list(range(0, associativty))] * repetition]
