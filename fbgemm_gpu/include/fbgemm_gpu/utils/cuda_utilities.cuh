@@ -25,6 +25,15 @@ namespace fbgemm_gpu::utils::cuda {
 /// kernels: `max_blocks = MAX_THREAD_BLOCKS_FACTOR * #SMs`.
 constexpr int32_t MAX_THREAD_BLOCKS_FACTOR = 64;
 
+/// The grid x-dimension is limited to 2^31 - 1 on both CUDA and HIP; a launch
+/// with `gridDim.x` above this is rejected by the driver.
+constexpr int64_t kMaxGridDimX = std::numeric_limits<int32_t>::max();
+
+/// HIP additionally caps the *total* threads per launch at 2^32 (CUDA silently
+/// wraps). Used only as the `OverflowOnly` threshold, and is distinct from the
+/// grid-x dimension limit above. See: https://github.com/ROCm/hip/issues/2253
+constexpr int64_t kMaxThreadsPerLaunch = std::numeric_limits<uint32_t>::max();
+
 /// Selects how `cap_grid_dim_x{,_from_workload}` clamps the requested grid.
 ///
 /// - `Always`: cap on both CUDA and ROCm at `MAX_THREAD_BLOCKS_FACTOR * #SMs`.
@@ -53,7 +62,12 @@ enum class BlockCapPolicy { Always, OverflowOnly, Never };
 /// - HIP 2^32 thread-per-launch limit: https://github.com/ROCm/hip/issues/2253
 /// - Pre-existing unconditional-cap pattern: D75543767, D65009966
 ///
-/// @param blocks_uncapped     Pre-computed unclamped grid-x dimension.
+/// @param blocks_uncapped     Pre-computed unclamped grid-x dimension. Taken
+///                            as 64-bit so callers whose uncapped block count
+///                            can exceed `uint32_t` (the exact overflow case
+///                            this cap guards against) do not have to narrow it
+///                            first; the returned dimension is always clamped
+///                            into the valid grid-x range `[1, 2^31 - 1]`.
 /// @param threads_per_block   Full per-block thread count
 ///                            (`block.x * block.y * block.z`), used only by
 ///                            the `OverflowOnly` threshold check.
@@ -62,32 +76,42 @@ enum class BlockCapPolicy { Always, OverflowOnly, Never };
 ///                            `OverflowOnly`.
 /// @return Grid-x dimension to pass to the kernel launch.
 inline uint32_t cap_grid_dim_x(
-    uint32_t blocks_uncapped,
+    int64_t blocks_uncapped,
     [[maybe_unused]] int64_t threads_per_block,
     const c10::cuda::CUDAStream& stream,
     BlockCapPolicy policy = BlockCapPolicy::OverflowOnly) {
+  // Clamp into the valid launch range [1, kMaxGridDimX]. Every caller
+  // grid-strides over its saturating dimension, so a clamped grid still covers
+  // all work; this also prevents a bogus (negative, or int64-overflowed) count
+  // from wrapping into an out-of-range dimension.
+  const auto to_grid_dim = [](int64_t blocks) {
+    return static_cast<uint32_t>(
+        std::clamp<int64_t>(blocks, int64_t{1}, kMaxGridDimX));
+  };
+
   if (policy == BlockCapPolicy::Never) {
-    return blocks_uncapped;
+    return to_grid_dim(blocks_uncapped);
   }
 
-  const auto max_blocks = static_cast<uint32_t>(
+  const auto max_blocks = static_cast<int64_t>(
       MAX_THREAD_BLOCKS_FACTOR *
       at::cuda::getDeviceProperties(stream.device_index())
           ->multiProcessorCount);
 
   if (policy == BlockCapPolicy::Always) {
-    return std::min<uint32_t>(blocks_uncapped, max_blocks);
+    return to_grid_dim(std::min(blocks_uncapped, max_blocks));
   }
 
   // policy == OverflowOnly
 #ifdef USE_ROCM
-  const auto threads_total = static_cast<uint64_t>(blocks_uncapped) *
-      static_cast<uint64_t>(threads_per_block);
-  if (threads_total > std::numeric_limits<uint32_t>::max()) {
-    return std::min<uint32_t>(blocks_uncapped, max_blocks);
+  // Overflow-safe form of `blocks_uncapped * threads_per_block >
+  // kMaxThreadsPerLaunch` (the product can exceed int64 for large grids).
+  if (threads_per_block > 0 &&
+      blocks_uncapped > kMaxThreadsPerLaunch / threads_per_block) {
+    return to_grid_dim(std::min(blocks_uncapped, max_blocks));
   }
 #endif
-  return blocks_uncapped;
+  return to_grid_dim(blocks_uncapped);
 }
 
 /// Sugar over `cap_grid_dim_x` for the common case where the block-count
