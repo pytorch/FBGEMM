@@ -1422,7 +1422,8 @@ Tensor {{ embedding_cuda_op }}(
                                 1,
                                 32,
                                 false>;
-                            blockSize = dim3(32, (kBackwardMaxThreads / 2) / 32);
+                            num_warp_per_row_groups = (kBackwardMaxThreads / 2) / 32;
+                            blockSize = dim3(32, num_warp_per_row_groups);
                             // Notice that, kThreadGroupSize * kFixedMaxVecsPerThread * vec_width should >= max_D
                             // Use (kBackwardMaxThreads/2)/32 instead of num_warp_per_row_groups to maintain
                             // 4 AMD wavefronts per block (kThreadGroupSize=32 is half a wavefront, so we need
@@ -1447,7 +1448,7 @@ Tensor {{ embedding_cuda_op }}(
                     }
                     auto warp_per_row_grid_size = utils::cuda::cap_grid_dim_x(
                         cuda_calc_xblock_count(total_unique_indices, num_warp_per_row_groups),
-                        kThreadGroupSize * num_warp_per_row_groups, // block size
+                        blockSize.x * blockSize.y, // block size
                         at::cuda::getCurrentCUDAStream(),
                         utils::cuda::BlockCapPolicy::Always);
 
