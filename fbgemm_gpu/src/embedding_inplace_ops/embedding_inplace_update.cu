@@ -252,20 +252,12 @@ void embedding_inplace_update_cuda(
       update_row_idx.scalar_type(), "embedding_inplace_update_kernel_1", [&] {
         // HIP enforces a hard limit of 2^32 total threads per launch.
         // See: https://github.com/ROCm/hip/issues/2253
-        // Compute the uncapped block count in 64-bit and clamp to uint32_t
-        // max before handing it to cap_grid_dim_x. A bare
-        // static_cast<uint32_t> would truncate for N >= ~2^32 * warpsPerBlock
-        // and could wrap to 0, which would make the cap's overflow check
-        // (blocks * threads) pass and silently launch no work. Clamping keeps
-        // the value above the cap threshold so the ROCm cap engages; the
+        // cap_grid_dim_x takes the 64-bit uncapped block count and clamps it
+        // into grid-x range, engaging the ROCm overflow cap when needed; the
         // grid-stride loop then still covers all N rows.
         const int64_t blocks_uncapped = nbit::div_round_up(N, warpsPerBlock);
         const auto blocks = utils::cuda::cap_grid_dim_x(
-            static_cast<uint32_t>(std::min<int64_t>(
-                blocks_uncapped,
-                static_cast<int64_t>(std::numeric_limits<uint32_t>::max()))),
-            kMaxThreads,
-            at::cuda::getCurrentCUDAStream());
+            blocks_uncapped, kMaxThreads, at::cuda::getCurrentCUDAStream());
         FBGEMM_LAUNCH_KERNEL(
             (embedding_inplace_update_kernel_1<index_t>),
             blocks, // number of blocks needed
@@ -336,16 +328,11 @@ void embedding_inplace_update_single_placement_cuda(
       update_row_idx.scalar_type(), "embedding_inplace_update_kernel_2", [&] {
         // HIP enforces a hard limit of 2^32 total threads per launch.
         // See: https://github.com/ROCm/hip/issues/2253
-        // See embedding_inplace_update_kernel_1 above: clamp the uncapped
-        // block count in 64-bit so a huge N cannot truncate/wrap the
-        // uint32_t and defeat the ROCm overflow cap.
+        // See embedding_inplace_update_kernel_1 above: cap_grid_dim_x takes the
+        // 64-bit uncapped block count and clamps it into grid-x range.
         const int64_t blocks_uncapped = nbit::div_round_up(N, warpsPerBlock);
         const auto blocks = utils::cuda::cap_grid_dim_x(
-            static_cast<uint32_t>(std::min<int64_t>(
-                blocks_uncapped,
-                static_cast<int64_t>(std::numeric_limits<uint32_t>::max()))),
-            kMaxThreads,
-            at::cuda::getCurrentCUDAStream());
+            blocks_uncapped, kMaxThreads, at::cuda::getCurrentCUDAStream());
         FBGEMM_LAUNCH_KERNEL(
             (embedding_inplace_update_kernel_2<index_t>),
             blocks, // number of blocks needed
