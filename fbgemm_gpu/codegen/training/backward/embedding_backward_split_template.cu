@@ -1257,17 +1257,15 @@ Tensor {{ embedding_cuda_op }}(
                     const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
 
                     constexpr bool supported_weights_type = std::is_same_v<emb_t, float> || std::is_same_v<emb_t, at::Half>;
-                    constexpr bool supported_grad_type = std::is_same_v<grad_t, float> || std::is_same_v<grad_t, at::Half>;
+                    constexpr bool supported_grad_type = std::is_same_v<grad_t, float> || std::is_same_v<grad_t, at::Half> || std::is_same_v<grad_t, at::BFloat16>;
                     const bool cached = uvm_weights.numel() > 0 || lxu_cache_weights.numel() > 0;
-
-                    constexpr bool same_precision = std::is_same_v<emb_t, grad_t>;
 
                     // The optimized HIP backward kernel uses warpSize-64-only
                     // intrinsics; it must only be dispatched on warpSize 64
                     // devices. warpSize 32 devices fall through to the generic
                     // shuffle-based backward kernel.
 
-                    if (use_hip_kernel && at::cuda::warp_size() == 64 && !mixed_D && !cached && supported_weights_type && supported_grad_type && same_precision && rocm::is_supported_cdna())
+                    if (use_hip_kernel && at::cuda::warp_size() == 64 && !mixed_D && !cached && supported_weights_type && supported_grad_type && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
