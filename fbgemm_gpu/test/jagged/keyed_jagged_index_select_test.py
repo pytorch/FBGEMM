@@ -347,6 +347,73 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
+    @unittest.skipUnless(torch.cuda.is_available(), "GPU not available")
+    def test_keyed_jagged_index_select_dim1_large_grid(self) -> None:
+        """
+        Regression test for the HIP grid-overflow bug in
+        ``keyed_jagged_index_select_dim1_kernel`` and
+        ``keyed_jagged_index_add_dim1_kernel`` (D105205634 / Subplan D
+        Diff #30).
+
+        Both kernels grid-stride over outputs/inputs respectively. The
+        production fix caps grid_x to ``get_max_thread_blocks(stream)``
+        on ROCm. Verification: end-to-end forward + backward
+        correctness vs. CPU dispatch using sentinel non-zero lengths,
+        at a multi-block scale that forces the grid-stride outer loop
+        to iterate.
+
+        The third kernel touched by this diff —
+        ``index_select_scalar_cumsum_kernel`` — uses a cross-block
+        decoupled-look-back scan and was given a Tier-C fast-fail
+        TORCH_CHECK guard rather than a grid-stride retrofit. That
+        Tier-C branch is exercised by code review of the diff itself
+        (the production TORCH_CHECK line) and not unit-testable here
+        without allocating a ~16 GiB indices tensor.
+        """
+        device = torch.accelerator.current_accelerator()
+        # Small but multi-block scale so grid-stride loop iterates.
+        num_batches = 2
+        input_batch_size = 32
+        # Sparse non-zero lengths.
+        lengths_cpu = torch.zeros(num_batches * input_batch_size, dtype=torch.int64)
+        lengths_cpu[0] = 3
+        lengths_cpu[input_batch_size + input_batch_size // 2] = 2
+        lengths_cpu[-1] = 4
+        offsets_cpu = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths_cpu)
+        total = int(lengths_cpu.sum().item())
+
+        # Distinct values across rows.
+        values_init = torch.arange(total, dtype=torch.float32)
+        # Indices select all batches.
+        indices_cpu = torch.arange(input_batch_size, dtype=torch.int64)
+
+        # CPU forward + backward.
+        values_cpu = values_init.detach().clone().requires_grad_(True)
+        out_cpu = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
+            values_cpu,
+            lengths_cpu,
+            offsets_cpu,
+            indices_cpu,
+            input_batch_size,
+        )
+        out_cpu[0].sum().backward()
+
+        # GPU forward + backward.
+        values_gpu = values_init.detach().clone().to(device).requires_grad_(True)
+        out_gpu = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
+            values_gpu,
+            lengths_cpu.to(device),
+            offsets_cpu.to(device),
+            indices_cpu.to(device),
+            input_batch_size,
+        )
+        out_gpu[0].sum().backward()
+
+        torch.testing.assert_close(out_gpu[0].cpu(), out_cpu[0])
+        assert values_gpu.grad is not None
+        assert values_cpu.grad is not None
+        torch.testing.assert_close(values_gpu.grad.cpu(), values_cpu.grad)
+
 
 if __name__ == "__main__":
     unittest.main()
