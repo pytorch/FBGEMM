@@ -623,7 +623,6 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
   svbool_t lastPredE = svwhilelt_b64_u64(2, input_columns_mod);
 
   svuint32_t shift = svindex_u32(0, 2); // {0, 2, 4, 6};
-  svuint64_t multiplier = svdup_n_u64((1ULL << 28) + 1);
 
   for (; input_rows > 0; --input_rows) {
     const float* input_row_scale_bias =
@@ -652,10 +651,10 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
 
         input += 4;
 
-        in_v_0 =
-            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_0) * multiplier);
-        in_v_1 =
-            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_1) * multiplier);
+        in_v_0 = svreinterpret_u32_u64(svsli_n_u64(
+            svreinterpret_u64_u32(in_v_0), svreinterpret_u64_u32(in_v_0), 28));
+        in_v_1 = svreinterpret_u32_u64(svsli_n_u64(
+            svreinterpret_u64_u32(in_v_1), svreinterpret_u64_u32(in_v_1), 28));
 
         in_v_0 &= 15;
         in_v_1 &= 15;
@@ -708,10 +707,10 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
         in_v_0 = svreinterpret_u32_u64(svld1ub_u64(lastPredD, input));
         in_v_1 = svreinterpret_u32_u64(svld1ub_u64(lastPredE, input + 2));
 
-        in_v_0 =
-            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_0) * multiplier);
-        in_v_1 =
-            svreinterpret_u32_u64(svreinterpret_u64_u32(in_v_1) * multiplier);
+        in_v_0 = svreinterpret_u32_u64(svsli_n_u64(
+            svreinterpret_u64_u32(in_v_0), svreinterpret_u64_u32(in_v_0), 28));
+        in_v_1 = svreinterpret_u32_u64(svsli_n_u64(
+            svreinterpret_u64_u32(in_v_1), svreinterpret_u64_u32(in_v_1), 28));
 
         in_v_0 &= 15;
         in_v_1 &= 15;
