@@ -45,7 +45,7 @@ DISABLE_CAUSAL = os.getenv("HSTU_DISABLE_CAUSAL", "FALSE") == "TRUE"
 DISABLE_CONTEXT = os.getenv("HSTU_DISABLE_CONTEXT", "FALSE") == "TRUE"
 DISABLE_TARGET = os.getenv("HSTU_DISABLE_TARGET", "FALSE") == "TRUE"
 DISABLE_ARBITRARY = os.getenv("HSTU_DISABLE_ARBITRARY", "FALSE") == "TRUE"
-ARBITRARY_NFUNC = int(os.getenv("HSTU_ARBITRARY_NFUNC", "0"))
+ARBITRARY_NFUNC = int(os.getenv("HSTU_ARBITRARY_NFUNC", "1"))
 DISABLE_RAB = os.getenv("HSTU_DISABLE_RAB", "FALSE") == "TRUE"
 DISABLE_DRAB = os.getenv("HSTU_DISABLE_DRAB", "FALSE") == "TRUE"
 DISABLE_BF16 = os.getenv("HSTU_DISABLE_BF16", "FALSE") == "TRUE"
@@ -170,6 +170,7 @@ ext_modules = []
 
 cmdclass = []
 install_requires = []
+package_version = "0.1.0"
 
 if not SKIP_CUDA_BUILD:
     if not ONLY_COMPILE_SO:
@@ -179,6 +180,7 @@ if not SKIP_CUDA_BUILD:
 
     check_if_cuda_home_none("--hstu")
     _, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)
+    package_version += "+cu" + str(bare_metal_version)
     if bare_metal_version < Version("12.3"):
         raise RuntimeError("HSTU is only supported on CUDA 12.3 and above")
 
@@ -328,6 +330,9 @@ class NinjaBuildExtension(BuildExtension):
 
     def build_extensions(self):
         super().build_extensions()
+
+    def run(self):
+        super().run()
         import sysconfig
         for ext in self.extensions:
             ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')
@@ -339,7 +344,7 @@ class NinjaBuildExtension(BuildExtension):
 
 setup(
     name=PACKAGE_NAME,
-    version="0.1.0" + '+cu' + str(bare_metal_version),
+    version=package_version,
     packages=find_packages(
         exclude=(
             "build",

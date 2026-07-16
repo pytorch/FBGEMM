@@ -12,10 +12,11 @@
 import logging
 import os
 
+no_fbgemm_gpu: bool = False
 try:
     import fbgemm_gpu  # noqa: F401
 except ImportError:
-    no_fbgemm_gpu: bool = True
+    no_fbgemm_gpu = True
 
 import torch
 
