@@ -28,9 +28,14 @@ from .common import (
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, optests
+    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, optests
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+    )
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
@@ -411,6 +416,61 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                     f"Unsupported output dtype for gpu ops {output_dtype}"
                 )
             torch.testing.assert_close(dequantized_data.cpu(), reference)
+
+    @optests.dontGenerateOpCheckTests("Large grid HIP regression — uses ~4 GB HBM")
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-ignore[56]: gpu_memory_lt_gb is typed (bool, str), but Pyre cannot
+    # infer the unpacked arg type through the open-source import shim above.
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_float_to_fusednbitrowwise_large_grid(self) -> None:
+        """
+        Regression test for the HIP grid-cap on
+        `_float_to_fusednbitrowwise_cuda_kernel`
+        (quantize_ops/quantize_fused_nbit_rowwise.cu line ~152).
+
+        Block: 256. Grid: cuda_calc_xblock_count(nrows, 256). Total threads
+        ~= nrows. The host fn reads `nrows = input.size(0)` into an `int`,
+        so total threads are naturally bounded below 2**31 by valid inputs;
+        thus this kernel cannot strictly trigger HIP's 2**32 cap. The cap
+        added here is defensive — consistent with the canonical pattern
+        applied across the audit and harmless for kernels that grid-stride.
+
+        Two-part test:
+        1. Launch-survival at large grid (nrows ~ 2**28) — verifies the
+           cap-path compiles and the launch succeeds.
+        2. Small-scale Tier-A CPU-oracle correctness — verifies the
+           kernel produces the same quantized bytes as the CPU dispatch
+           for non-trivial input.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Step 1: launch-survival at large nrows. ----
+        nrows = 1 << 28  # 256M rows
+        ncols = 4  # smallest valid: ncols % (2 * num_elem_per_byte) == 0 for bit_rate=4
+        inp = torch.zeros((nrows, ncols), dtype=torch.float32, device=device)
+        output = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(inp, 4)
+        # Output shape: (nrows, ncols / num_elem_per_byte + 2 * sizeof(at::Half))
+        #             = (nrows, 4/2 + 4) = (nrows, 6).
+        self.assertEqual(output.shape[0], nrows)
+        del inp, output
+        torch.cuda.empty_cache()
+
+        # ---- Step 2: Tier-A CPU-oracle correctness at small scale. ----
+        small_nrows = 2 * 256 + 7  # multi-block on the small kernel grid
+        small_ncols = 8  # multi-element per row, valid for bit_rate=4
+        # Sentinel non-zero values at start / middle / end of each row.
+        small_inp_cpu = torch.zeros((small_nrows, small_ncols), dtype=torch.float32)
+        small_inp_cpu[0, 0] = 1.0
+        small_inp_cpu[small_nrows // 2, small_ncols // 2] = 2.0
+        small_inp_cpu[-1, -1] = 3.0
+
+        out_cpu = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+            small_inp_cpu, 4
+        )
+        out_gpu = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+            small_inp_cpu.to(device), 4
+        )
+        torch.testing.assert_close(out_gpu.cpu(), out_cpu)
 
 
 if __name__ == "__main__":
