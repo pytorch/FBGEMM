@@ -9,6 +9,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include "fbgemm_gpu/input_combine.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
@@ -49,59 +50,66 @@ __launch_bounds__(kMaxThreads) void tbe_input_combine_with_length_kernel(
     const uint64_t* const __restrict__ indices_offsets,
     const uint64_t* const __restrict__ lengths_offsets,
     const uint64_t num_lists,
-    const FixedDivisor fd_num_warps_per_list) {
-  const auto global_warp_id = blockIdx.x * blockDim.y + threadIdx.y;
-  uint32_t list_id;
-  uint32_t warp_id;
-  fd_num_warps_per_list.DivMod(
-      global_warp_id,
-      reinterpret_cast<int32_t*>(&list_id),
-      reinterpret_cast<int32_t*>(&warp_id));
+    const FixedDivisor fd_num_warps_per_list,
+    const uint64_t total_warp_work) {
+  // Grid-stride over (list_id, warp_id) pairs so a capped grid (used on
+  // ROCm to avoid the 2^32 launch-side limit) still covers every pair.
+  for (uint64_t global_warp_id = blockIdx.x * blockDim.y + threadIdx.y;
+       global_warp_id < total_warp_work;
+       global_warp_id += static_cast<uint64_t>(gridDim.x) * blockDim.y) {
+    uint32_t list_id;
+    uint32_t warp_id;
+    fd_num_warps_per_list.DivMod(
+        global_warp_id,
+        reinterpret_cast<int32_t*>(&list_id),
+        reinterpret_cast<int32_t*>(&warp_id));
 
-  if (list_id >= num_lists) {
-    return;
-  }
+    if (list_id >= num_lists) {
+      continue;
+    }
 
-  // IS_LONG_NUM_BITS is power of 2 (default = 32); div and mod should be cheap
-  const uint32_t is_long_idx = list_id / IS_LONG_NUM_BITS;
-  const uint32_t is_long_mask = 1u << (list_id % IS_LONG_NUM_BITS);
-  const uint64_t src_idx = (warp_id * kWarpSize + threadIdx.x) * VEC_WIDTH;
-  const auto indices_start = indices_offsets[list_id];
-  const auto indices_end = indices_offsets[list_id + 1];
-  const auto lengths_start = lengths_offsets[list_id];
-  const auto lengths_end = lengths_offsets[list_id + 1];
+    // IS_LONG_NUM_BITS is power of 2 (default = 32); div and mod should be
+    // cheap
+    const uint32_t is_long_idx = list_id / IS_LONG_NUM_BITS;
+    const uint32_t is_long_mask = 1u << (list_id % IS_LONG_NUM_BITS);
+    const uint64_t src_idx = (warp_id * kWarpSize + threadIdx.x) * VEC_WIDTH;
+    const auto indices_start = indices_offsets[list_id];
+    const auto indices_end = indices_offsets[list_id + 1];
+    const auto lengths_start = lengths_offsets[list_id];
+    const auto lengths_end = lengths_offsets[list_id + 1];
 
-  // Invoke a function based on the indices type
-  ((indices_is_long[is_long_idx] & is_long_mask)
-       ? vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>
-       : vec_copy_with_implicit_type_cast<
-             int32_t,
-             int32_t,
-             VEC_WIDTH>)(combined_indices,
-                         indices_addrs[list_id],
-                         src_idx,
-                         indices_start + src_idx,
-                         indices_end - indices_start);
+    // Invoke a function based on the indices type
+    ((indices_is_long[is_long_idx] & is_long_mask)
+         ? vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>
+         : vec_copy_with_implicit_type_cast<
+               int32_t,
+               int32_t,
+               VEC_WIDTH>)(combined_indices,
+                           indices_addrs[list_id],
+                           src_idx,
+                           indices_start + src_idx,
+                           indices_end - indices_start);
 
-  // Invoke a function based on the lengths type
-  ((lengths_is_long[is_long_idx] & is_long_mask)
-       ? vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>
-       : vec_copy_with_implicit_type_cast<
-             int32_t,
-             int32_t,
-             VEC_WIDTH>)(combined_lengths,
-                         lengths_addrs[list_id],
-                         src_idx,
-                         lengths_start + src_idx,
-                         lengths_end - lengths_start);
+    // Invoke a function based on the lengths type
+    ((lengths_is_long[is_long_idx] & is_long_mask)
+         ? vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>
+         : vec_copy_with_implicit_type_cast<
+               int32_t,
+               int32_t,
+               VEC_WIDTH>)(combined_lengths,
+                           lengths_addrs[list_id],
+                           src_idx,
+                           lengths_start + src_idx,
+                           lengths_end - lengths_start);
 
-  if (per_sample_weights_addrs && per_sample_weights_addrs[list_id] > 0) {
-    vec_copy_with_implicit_type_cast<float, float, VEC_WIDTH>(
-        combined_weights,
-        per_sample_weights_addrs[list_id],
-        src_idx,
-        indices_start + src_idx,
-        indices_end - indices_start);
+    if (per_sample_weights_addrs && per_sample_weights_addrs[list_id] > 0) {
+      vec_copy_with_implicit_type_cast<float, float, VEC_WIDTH>(
+          combined_weights,
+          per_sample_weights_addrs[list_id],
+          src_idx,
+          indices_start + src_idx,
+          indices_end - indices_start);
+    }
   }
 }
 
@@ -144,8 +152,20 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cuda(
   constexpr uint32_t NUM_WARPS_PER_BLOCK = kMaxThreads / kWarpSize;
   const auto num_warps_per_list =
       div_round_up(max_list_size, kWarpSize * VEC_WIDTH);
-  const auto num_blocks =
-      div_round_up(num_warps_per_list * num_lists, NUM_WARPS_PER_BLOCK);
+  const auto total_warp_work = num_warps_per_list * num_lists;
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // tbe_input_combine_with_length_kernel grid-strides over warps, so capping
+  // is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  //
+  // Compute the block count in 64-bit: div_round_up only has 32-bit overloads,
+  // so div_round_up(total_warp_work, ...) would narrow total_warp_work
+  // (uint64_t) before dividing. cap_grid_dim_x takes the 64-bit count and
+  // clamps it into grid-x range.
+  const int64_t num_blocks_uncapped = static_cast<int64_t>(
+      (total_warp_work + NUM_WARPS_PER_BLOCK - 1) / NUM_WARPS_PER_BLOCK);
+  const auto num_blocks = utils::cuda::cap_grid_dim_x(
+      num_blocks_uncapped, kMaxThreads, at::cuda::getCurrentCUDAStream());
 
   FBGEMM_LAUNCH_KERNEL(
       (tbe_input_combine_with_length_kernel<VEC_WIDTH, IS_LONG_NUM_BITS>),
@@ -164,7 +184,8 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cuda(
       indices_offsets,
       lengths_offsets,
       num_lists,
-      FixedDivisor(num_warps_per_list));
+      FixedDivisor(num_warps_per_list),
+      total_warp_work);
 
   return {
       std::move(combined_indices),

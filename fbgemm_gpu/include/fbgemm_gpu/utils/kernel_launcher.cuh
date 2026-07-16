@@ -255,7 +255,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
     const auto cuda_kernel_failure =
         c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref().has_failed();
 
-    if (C10_LIKELY(cuda_error == cudaSuccess && !cuda_kernel_failure)) {
+    if (cuda_error == cudaSuccess && !cuda_kernel_failure) [[likely]] {
       return;
     }
 
