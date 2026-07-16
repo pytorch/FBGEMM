@@ -415,6 +415,80 @@ class InputCombineTest(unittest.TestCase):
     def test_padding_fused_input_combined_mix_with_length(self) -> None:
         self._run_padding_fused_test_with_length((torch.int64, torch.int32), 64)
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `torch.cuda.is_available()` to decorator factory `unittest.skipUnless`.
+    @unittest.skipUnless(torch.cuda.is_available(), "GPU not available")
+    def test_tbe_input_combine_with_length_correctness_large(self) -> None:
+        """
+        Correctness check for the refactored
+        ``tbe_input_combine_with_length_kernel`` (D105204171), which
+        lacked its own test method when landed.
+
+        The production fix wraps the kernel body in a grid-stride loop
+        over ``(list_id, warp_id)`` pairs, adds the ``total_warp_work``
+        parameter, and caps ``grid_x`` on ROCm via ``cap_grid_dim_x``.
+        This test exercises a multi-list, multi-block configuration and
+        compares GPU output against the CPU dispatch, guarding the new
+        kernel signature and the grid-stride index math.
+
+        Note: at this scale the grid is small (a handful of blocks), so
+        the ROCm ``OverflowOnly`` cap does not engage and the grid-stride
+        outer loop executes once. Actually tripping the 2^32-thread cap
+        would require ``num_lists * max_list_size >= ~2^37`` (a multi-GB
+        allocation), which is infeasible in a unit test; the cap/overflow
+        boundary is therefore covered by the host-side clamp logic, not
+        this test.
+        """
+        # Many small lists so total_warp_work is non-trivial but
+        # memory stays modest. Each list contributes one warp of work.
+        num_lists = 256
+        list_len = 64
+        batch_size = 32
+
+        indices_list = [
+            torch.arange(list_len, dtype=torch.int32) for _ in range(num_lists)
+        ]
+        # Equal-length offsets per list.
+        lengths_list = [
+            torch.full(
+                (batch_size,),
+                list_len // batch_size,
+                dtype=torch.int32,
+            )
+            for _ in range(num_lists)
+        ]
+        # Trim the last segment to match list_len.
+        for lengths in lengths_list:
+            lengths[-1] = list_len - (list_len // batch_size) * (batch_size - 1)
+        # Non-empty per-sample weights (numel must match each list's indices)
+        # so the kernel's weights-copy branch is exercised too.
+        per_sample_weights = [
+            torch.ones(list_len, dtype=torch.float) for _ in range(num_lists)
+        ]
+
+        # Reference is the CPU dispatch of the SAME op. Only
+        # ``tbe_input_combine_with_length`` has a CUDA kernel (the one this
+        # diff modified); ``padding_fused_*`` is CPU-only, so the GPU dispatch
+        # must go through the non-fused op.
+        out_cpu = torch.ops.fbgemm.tbe_input_combine_with_length(
+            indices_list,
+            lengths_list,
+            per_sample_weights,
+        )
+
+        # GPU op under test.
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        out_gpu = torch.ops.fbgemm.tbe_input_combine_with_length(
+            [t.to(device) for t in indices_list],
+            [t.to(device) for t in lengths_list],
+            [t.to(device) for t in per_sample_weights],
+        )
+
+        # Compare combined indices, lengths, and per-sample weights.
+        self.assertEqual(len(out_cpu), len(out_gpu))
+        for cpu_t, gpu_t in zip(out_cpu, out_gpu):
+            torch.testing.assert_close(gpu_t.cpu(), cpu_t)
+
 
 if __name__ == "__main__":
     unittest.main()
