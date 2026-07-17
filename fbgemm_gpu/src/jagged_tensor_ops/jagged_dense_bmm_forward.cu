@@ -35,8 +35,8 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
   const int K = x_values.size(1);
   const int N = y.size(2);
 
-  const auto block_row = blockIdx.y;
-  const auto block_col = blockIdx.x;
+  const auto NUM_BLOCK_COLS = (N + BLOCK_TILE_N - 1) / BLOCK_TILE_N;
+  const auto NUM_BLOCK_ROWS = (max_L + BLOCK_TILE_M - 1) / BLOCK_TILE_M;
 
   const int THREADS_X_PER_BLOCK = BLOCK_TILE_N / THREAD_TILE_N;
   const int THREADS_Y_PER_BLOCK = BLOCK_TILE_M / THREAD_TILE_M;
@@ -48,103 +48,122 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
   __shared__ scalar_t As[BLOCK_TILE_M][BLOCK_TILE_K];
   __shared__ scalar_t Bs[BLOCK_TILE_K][BLOCK_TILE_N];
 
-  // Once we remove ROCm<=5.3 support, we should replace uint32_t with auto.
-  // See #1655
-  for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
-    const index_t row_start = x_offsets[b];
-    const index_t row_end = x_offsets[b + 1];
-    const auto length = min(row_end - row_start, (index_t)max_L);
+  // Grid-stride over (block_col, block_row, b) so a capped grid (used on
+  // ROCm to avoid the 2^32 launch-side limit) still covers every output
+  // tile. The per-iteration accumulator and shared-memory tiles are
+  // reset/refilled at the inner K-block loop; trailing __syncthreads()
+  // between iterations ensures shared-memory reuse is safe.
+  for (auto block_col = blockIdx.x; block_col < NUM_BLOCK_COLS;
+       block_col += gridDim.x) {
+    for (auto block_row = blockIdx.y; block_row < NUM_BLOCK_ROWS;
+         block_row += gridDim.y) {
+      // Once we remove ROCm<=5.3 support, we should replace uint32_t with auto.
+      // See #1655
+      for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
+        const index_t row_start = x_offsets[b];
+        const index_t row_end = x_offsets[b + 1];
+        const auto length = min(row_end - row_start, (index_t)max_L);
 
-    // the indices that this current will load into shared mem
-    const auto inner_row_a = threadIdx.x / BLOCK_TILE_K;
-    const auto inner_col_a = threadIdx.x % BLOCK_TILE_K;
-    // the number of rows of As that will be loaded per step by a thread block
-    const auto A_TILE_ROW_STRIDE = THREADS_PER_BLOCK / BLOCK_TILE_K;
+        // the indices that this current will load into shared mem
+        const auto inner_row_a = threadIdx.x / BLOCK_TILE_K;
+        const auto inner_col_a = threadIdx.x % BLOCK_TILE_K;
+        // the number of rows of As that will be loaded per step by a thread
+        // block
+        const auto A_TILE_ROW_STRIDE = THREADS_PER_BLOCK / BLOCK_TILE_K;
 
-    const auto inner_row_b = threadIdx.x / BLOCK_TILE_N;
-    const auto inner_col_b = threadIdx.x % BLOCK_TILE_N;
-    const auto B_TILE_ROW_STRIDE = THREADS_PER_BLOCK / BLOCK_TILE_N;
+        const auto inner_row_b = threadIdx.x / BLOCK_TILE_N;
+        const auto inner_col_b = threadIdx.x % BLOCK_TILE_N;
+        const auto B_TILE_ROW_STRIDE = THREADS_PER_BLOCK / BLOCK_TILE_N;
 
-    // registers for C
-    scalar_t accum[THREAD_TILE_M][THREAD_TILE_N] = {0};
+        // registers for C
+        scalar_t accum[THREAD_TILE_M][THREAD_TILE_N] = {0};
 
-    // registers for As and Bs
-    scalar_t fragment_a[THREAD_TILE_M] = {0};
-    scalar_t fragment_b[THREAD_TILE_N] = {0};
+        // registers for As and Bs
+        scalar_t fragment_a[THREAD_TILE_M] = {0};
+        scalar_t fragment_b[THREAD_TILE_N] = {0};
 
-    // loop for block tiles in K dimension
-    for (auto block = 0; block < NUM_K_BLOCKS; block++) {
+        // loop for block tiles in K dimension
+        for (auto block = 0; block < NUM_K_BLOCKS; block++) {
 // load a block of x_values from global memory to shared memory
 // apply tiling for threads in a block
 #pragma unroll
-      for (auto offset = 0; offset < BLOCK_TILE_M;
-           offset += A_TILE_ROW_STRIDE) {
-        auto x_row_offset = block_row * BLOCK_TILE_M + inner_row_a + offset;
-        auto x_col_offset = block * BLOCK_TILE_K + inner_col_a;
-        if ((x_row_offset < length) && (x_col_offset < K)) {
-          As[inner_row_a + offset][inner_col_a] =
-              x_values[row_start + x_row_offset][x_col_offset];
-        } else {
-          As[inner_row_a + offset][inner_col_a] = 0;
-        }
-      }
+          for (auto offset = 0; offset < BLOCK_TILE_M;
+               offset += A_TILE_ROW_STRIDE) {
+            auto x_row_offset = block_row * BLOCK_TILE_M + inner_row_a + offset;
+            auto x_col_offset = block * BLOCK_TILE_K + inner_col_a;
+            if ((x_row_offset < length) && (x_col_offset < K)) {
+              As[inner_row_a + offset][inner_col_a] =
+                  x_values[row_start + x_row_offset][x_col_offset];
+            } else {
+              As[inner_row_a + offset][inner_col_a] = 0;
+            }
+          }
 
 // load a block of y from global memory to shared memory
 // apply tiling for threads in a block
 #pragma unroll
-      for (auto offset = 0; offset < BLOCK_TILE_K;
-           offset += B_TILE_ROW_STRIDE) {
-        auto y_row_offset = block * BLOCK_TILE_K + inner_row_b + offset;
-        auto y_col_offset = block_col * BLOCK_TILE_N + inner_col_b;
-        if ((y_row_offset < K) && (y_col_offset < N)) {
-          Bs[inner_row_b + offset][inner_col_b] =
-              y[b][y_row_offset][y_col_offset];
-        } else {
-          Bs[inner_row_b + offset][inner_col_b] = 0;
-        }
-      }
+          for (auto offset = 0; offset < BLOCK_TILE_K;
+               offset += B_TILE_ROW_STRIDE) {
+            auto y_row_offset = block * BLOCK_TILE_K + inner_row_b + offset;
+            auto y_col_offset = block_col * BLOCK_TILE_N + inner_col_b;
+            if ((y_row_offset < K) && (y_col_offset < N)) {
+              Bs[inner_row_b + offset][inner_col_b] =
+                  y[b][y_row_offset][y_col_offset];
+            } else {
+              Bs[inner_row_b + offset][inner_col_b] = 0;
+            }
+          }
 
-      __syncthreads();
+          __syncthreads();
 
 // calculate the results per thread
 #pragma unroll
-      for (auto k = 0; k < BLOCK_TILE_K; k++) {
-        // load values from shared memory to registers for x_values
-        for (auto row = 0; row < THREAD_TILE_M; row++) {
-          fragment_a[row] = As[thread_row * THREAD_TILE_M + row][k];
-        }
+          for (auto k = 0; k < BLOCK_TILE_K; k++) {
+            // load values from shared memory to registers for x_values
+            for (auto row = 0; row < THREAD_TILE_M; row++) {
+              fragment_a[row] = As[thread_row * THREAD_TILE_M + row][k];
+            }
 
 // load values from shared memory to registers for y
 #pragma unroll
-        for (auto col = 0; col < THREAD_TILE_N; col++) {
-          fragment_b[col] = Bs[k][thread_col * THREAD_TILE_N + col];
-        }
+            for (auto col = 0; col < THREAD_TILE_N; col++) {
+              fragment_b[col] = Bs[k][thread_col * THREAD_TILE_N + col];
+            }
 
 // each thread calcualtes THREAD_TILE_M * THREAD_TILE_N elements
+#pragma unroll
+            for (auto row = 0; row < THREAD_TILE_M; row++) {
+#pragma unroll
+              for (auto col = 0; col < THREAD_TILE_N; col++) {
+                accum[row][col] += fragment_a[row] * fragment_b[col];
+              }
+            }
+          }
+
+          __syncthreads();
+        }
+
+// write the result to the output
 #pragma unroll
         for (auto row = 0; row < THREAD_TILE_M; row++) {
 #pragma unroll
           for (auto col = 0; col < THREAD_TILE_N; col++) {
-            accum[row][col] += fragment_a[row] * fragment_b[col];
+            auto out_row_offset =
+                block_row * BLOCK_TILE_M + thread_row * THREAD_TILE_M + row;
+            auto out_col_offset =
+                block_col * BLOCK_TILE_N + thread_col * THREAD_TILE_N + col;
+            if ((out_row_offset < length) && (out_col_offset < N)) {
+              output[row_start + out_row_offset][out_col_offset] =
+                  accum[row][col];
+            }
           }
         }
-      }
-
-      __syncthreads();
-    }
-
-// write the result to the output
-#pragma unroll
-    for (auto row = 0; row < THREAD_TILE_M; row++) {
-#pragma unroll
-      for (auto col = 0; col < THREAD_TILE_N; col++) {
-        auto out_row_offset =
-            block_row * BLOCK_TILE_M + thread_row * THREAD_TILE_M + row;
-        auto out_col_offset =
-            block_col * BLOCK_TILE_N + thread_col * THREAD_TILE_N + col;
-        if ((out_row_offset < length) && (out_col_offset < N)) {
-          output[row_start + out_row_offset][out_col_offset] = accum[row][col];
-        }
+        // Defense-in-depth barrier between (block_col, block_row, b) grid-
+        // stride iterations. The __syncthreads() at the end of the K-loop
+        // already fences As/Bs (the write-back above only touches registers
+        // and global output), so this is redundant today; kept to keep the
+        // shared-memory contract explicit if the write-back is ever changed.
+        __syncthreads();
       }
     }
   }
@@ -182,7 +201,14 @@ Tensor jagged_dense_bmm_forward_cuda(
 
       const dim3 block(
           (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N));
-      const auto grid_dim_x = div_round_up(N, BLOCK_TILE_N);
+      // HIP enforces a hard limit of 2^32 total threads per launch.
+      // The kernel grid-strides over (block_col, block_row, b), so capping
+      // is correctness-preserving.
+      // See: https://github.com/ROCm/hip/issues/2253
+      const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
+          div_round_up(N, BLOCK_TILE_N),
+          (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N),
+          at::cuda::getCurrentCUDAStream());
       const auto grid_dim_y = div_round_up(max_L, BLOCK_TILE_M);
       TORCH_CHECK(
           grid_dim_y <= kMaxBlockYDim,
@@ -220,7 +246,14 @@ Tensor jagged_dense_bmm_forward_cuda(
       constexpr int BLOCK_TILE_N = 32;
       const dim3 block(
           (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N));
-      const auto grid_dim_x = div_round_up(N, BLOCK_TILE_N);
+      // HIP enforces a hard limit of 2^32 total threads per launch.
+      // The kernel grid-strides over (block_col, block_row, b), so capping
+      // is correctness-preserving.
+      // See: https://github.com/ROCm/hip/issues/2253
+      const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
+          div_round_up(N, BLOCK_TILE_N),
+          (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N),
+          at::cuda::getCurrentCUDAStream());
       const auto grid_dim_y = div_round_up(max_L, BLOCK_TILE_M);
       TORCH_CHECK(
           grid_dim_y <= kMaxBlockYDim,
