@@ -121,6 +121,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             OptimType.EXACT_ADAGRAD,
             OptimType.EXACT_SGD,
             OptimType.EXACT_ROWWISE_ADAGRAD,
+            OptimType.ROWWISE_RMSPROP_AR,
         ]:
             return
         # weight decay mode is only supported in EXACT_ROWWISE_ADAGRAD
@@ -378,6 +379,13 @@ class BackwardOptimizersTest(unittest.TestCase):
                 step_ema_coef=momentum,
             )
 
+        ar_alpha, ema_beta, min_shrinkage = (1.0e-3, 0.99, 0.1)
+        if optimizer == OptimType.ROWWISE_RMSPROP_AR:
+            optimizer_kwargs["eps"] = eps
+            optimizer_kwargs["ar_alpha"] = ar_alpha
+            optimizer_kwargs["ema_beta"] = ema_beta
+            optimizer_kwargs["min_shrinkage"] = min_shrinkage
+
         cc = emb_op(
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
@@ -477,6 +485,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     OptimType.EXACT_ADAGRAD,
                     OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+                    OptimType.ROWWISE_RMSPROP_AR,
                 )
 
         if exact_adagrad:
@@ -751,6 +760,46 @@ class BackwardOptimizersTest(unittest.TestCase):
                     atol=1.0e-3,
                     rtol=1.0e-3,
                 )
+
+        if optimizer == OptimType.ROWWISE_RMSPROP_AR:
+            for t in range(T):
+                m1, _prev_iter = split_optimizer_states[t]
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                # momentum1 is a bounded EMA of mean(g^2) over the embedding
+                # dim. It starts at 0, so after one step it is
+                # (1 - ema_beta) * mean(g^2).
+                m1_ref = dense_cpu_grad.pow(2).mean(dim=1) * (1.0 - ema_beta)
+                torch.testing.assert_close(
+                    m1.float().cpu().index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    m1_ref.float().index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    atol=1.0e-4,
+                    rtol=1.0e-4,
+                )
+                # First touch: prev_iter == 0 -> step_gap == 1, so the lazy AR
+                # decay is lambda = clip(lr * ar_alpha * 1, 0, 1) and the shrink
+                # multiplier is max(min_shrinkage, 1 - lambda). The gradient
+                # step uses lr / (sqrt(v) + eps) per row.
+                lambda_ = max(0.0, min(1.0, lr * ar_alpha))
+                exp_reg_correction = max(min_shrinkage, 1.0 - lambda_)
+                multiplier = (m1_ref.sqrt() + eps).reciprocal() * lr
+                weights_new = split_weights[t]
+                weights_ref = (
+                    exp_reg_correction * bs[t].weight.cpu()
+                    - multiplier.view(multiplier.numel(), 1) * dense_cpu_grad
+                )
+                torch.testing.assert_close(
+                    weights_new.index_select(dim=0, index=xs[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    atol=1.0e-3,
+                    rtol=1.0e-3,
+                )
+                if get_optimizer_states is not None:
+                    optimizer_states_dict = get_optimizer_states[t]
+                    assert set(optimizer_states_dict.keys()) == {
+                        "sum",
+                        "prev_iter",
+                        "iter",
+                    }
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_LAMB
@@ -1574,6 +1623,62 @@ class BackwardOptimizersTest(unittest.TestCase):
         D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=2, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=use_cpu_strategy(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_backward_optimizers_rowwise_rmsprop_ar(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        # Exercises ROWWISE_RMSPROP_AR (Adaptive Regularization) across
+        # variable T/D/B/E/L, mixed dims, weighted/unweighted, VBE (mixed_B,
+        # GPU-only) and all pooling modes, reusing the shared reference harness.
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            OptimType.ROWWISE_RMSPROP_AR,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
         weighted=st.booleans(),
         mixed=st.booleans(),
@@ -1894,6 +1999,259 @@ class BackwardOptimizersTest(unittest.TestCase):
             weight_decay_mode,
             counter_weight_decay_mode=counter_weight_decay_mode,
             use_api_v1=True,
+        )
+
+
+class RowwiseRMSpropARTest(unittest.TestCase):
+    """
+    Numerical tests for ROWWISE_RMSPROP_AR — verify the decay multiplier
+    max(min_shrinkage, 1 − lr·ar_alpha·I), soft-reset semantics, and the
+    bounded EMA accumulator.
+
+    Tests pair lr=1.0 with a zero-grad backward so the post-step weight
+    reflects only the decay multiplier (mult·grad = 0).
+    """
+
+    def _build_tbe(
+        self,
+        E: int,
+        D: int,
+        ar_alpha: float,
+        use_cpu: bool = True,
+        ema_beta: float = 0.99,
+        min_shrinkage: float = 0.0,
+    ) -> SplitTableBatchedEmbeddingBagsCodegen:
+        """Single-table TBE with weights init to 1.0 so the decay multiplier
+        reads directly off post-step weights when paired with zero grad."""
+        compute_device = ComputeDevice.CPU if use_cpu else ComputeDevice.CUDA
+        location = EmbeddingLocation.HOST if use_cpu else EmbeddingLocation.DEVICE
+        tbe = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[(E, D, location, compute_device)],
+            optimizer=OptimType.ROWWISE_RMSPROP_AR,
+            learning_rate=1.0,  # non-zero so decay (= lr*ar_alpha*I) is active
+            eps=1.0e-8,
+            ar_alpha=ar_alpha,  # paper's adaptive coefficient (lr-scaled in kernel)
+            ema_beta=ema_beta,
+            min_shrinkage=min_shrinkage,
+            pooling_mode=PoolingMode.SUM,
+            output_dtype=SparseType.FP32,
+        )
+        # Initialize weights to 1.0 so we can read the decay multiplier
+        # directly from the post-step weight value.
+        with torch.no_grad():
+            for w in tbe.split_embedding_weights():
+                w.fill_(1.0)
+        return tbe
+
+    def _touch(
+        self,
+        tbe: SplitTableBatchedEmbeddingBagsCodegen,
+        rows: list[int],
+    ) -> None:
+        """Touch rows with zero grad. The kernel still updates prev_iter and
+        applies decay; mult·grad = 0 isolates the decay multiplier."""
+        indices = torch.tensor(rows, dtype=torch.long)
+        offsets = torch.tensor(list(range(len(rows) + 1)), dtype=torch.long)
+        out = tbe(indices, offsets)
+        (out * 0).sum().backward()
+
+    def test_decay_is_linear_clipped(self) -> None:
+        """Verify the paper's linear-in-I dependence (not exponential)
+        and the lr-scaling on lambda."""
+        E, D = 8, 4
+        ar_alpha = 0.1
+        tbe = self._build_tbe(E=E, D=D, ar_alpha=ar_alpha, use_cpu=True)
+
+        # Step 1: touch row 0. prev_iter[0] was 0 (first-touch sentinel) →
+        # step_gap = 1 → lambda = lr*ar_alpha*1 = 0.1 → w = 0.9.
+        self._touch(tbe, rows=[0])
+        w0 = tbe.split_embedding_weights()[0][0].clone()
+        torch.testing.assert_close(
+            w0,
+            torch.full((D,), 0.9),
+            atol=1e-5,
+            rtol=0,
+            msg="First touch should apply one step of decay (step_gap=1)",
+        )
+
+        # Steps 2..6: touch row 7 only. Row 0's prev_iter stays at 1.
+        for _ in range(5):
+            self._touch(tbe, rows=[7])
+
+        # Step 7: touch row 0 again. step=7, prev_iter[0]=1, so I = 6.
+        # lambda = min(1, lr*ar_alpha*I) = min(1, 1.0*0.1*6) = 0.6 → w = 0.4 * 0.9 = 0.36
+        self._touch(tbe, rows=[0])
+        w0 = tbe.split_embedding_weights()[0][0].clone()
+        torch.testing.assert_close(
+            w0,
+            torch.full((D,), 0.36),
+            atol=1e-5,
+            rtol=0,
+            msg="After I=6 with lr=1, ar_alpha=0.1 expect (1-0.6)*0.9 = 0.36",
+        )
+
+    def test_decay_clips_to_zero_for_long_gap(self) -> None:
+        """Soft-reset: at lr·ar_alpha·I >= 1 the row zeros out
+        (paper §3.2, eq. 14 — MEDA limit). Requires min_shrinkage=0.0;
+        the production default 0.1 floors the multiplier."""
+        E, D = 4, 4  # D must be a multiple of 4 (FBGEMM vec4 alignment)
+        ar_alpha = 0.05
+        tbe = self._build_tbe(
+            E=E, D=D, ar_alpha=ar_alpha, use_cpu=True, min_shrinkage=0.0
+        )
+
+        # Touch row 0 once to seed prev_iter (first touch: step_gap=1,
+        # lambda=lr*ar_alpha*1=0.05, w=0.95).
+        self._touch(tbe, rows=[0])
+
+        # Touch row 1 for 25 steps. Now step=26, prev_iter[0]=1, I=25.
+        # lr*ar_alpha*I = 1.0 * 0.05 * 25 = 1.25 → clipped to 1.0 → ema_beta = 0.
+        for _ in range(25):
+            self._touch(tbe, rows=[1])
+        self._touch(tbe, rows=[0])
+
+        w0 = tbe.split_embedding_weights()[0][0].clone()
+        torch.testing.assert_close(
+            w0,
+            torch.zeros(D),
+            atol=1e-6,
+            rtol=0,
+            msg="lr*ar_alpha*I > 1 must zero the row (linear-clipped, not exponential)",
+        )
+
+    def test_split_optimizer_states_shape(self) -> None:
+        """Regression: split_optimizer_states must return rowwise-shaped (E,)
+        tensors for momentum1 + prev_iter. A wrong rowwise=False classification
+        breaks TorchRec EmbeddingFusedOptimizer init with shape mismatch."""
+        E, D = 4, 4
+        tbe = self._build_tbe(E=E, D=D, ar_alpha=1.0e-3, use_cpu=True)
+        states = tbe.split_optimizer_states()
+        # One table → one entry; each entry is [momentum1, prev_iter].
+        self.assertEqual(len(states), 1)
+        self.assertEqual(
+            len(states[0]),
+            2,
+            msg="expected momentum1 + prev_iter",
+        )
+        for name, s in zip(("momentum1", "prev_iter"), states[0]):
+            self.assertEqual(
+                s.shape,
+                torch.Size([E]),
+                msg=f"{name} must be rowwise-shaped (E,), got {tuple(s.shape)}",
+            )
+
+    def test_no_decay_when_ar_alpha_zero(self) -> None:
+        """ar_alpha=0 disables AR; weight stays unchanged across any gap."""
+        E, D = 4, 4  # D must be a multiple of 4 (FBGEMM vec4 alignment)
+        tbe = self._build_tbe(E=E, D=D, ar_alpha=0.0, use_cpu=True)
+
+        # Touch row 0, then a long gap, then touch again.
+        self._touch(tbe, rows=[0])
+        for _ in range(100):
+            self._touch(tbe, rows=[1])
+        self._touch(tbe, rows=[0])
+
+        w0 = tbe.split_embedding_weights()[0][0].clone()
+        torch.testing.assert_close(
+            w0,
+            torch.ones(D),
+            atol=1e-6,
+            rtol=0,
+            msg="ar_alpha=0 must leave weight unchanged regardless of gap",
+        )
+
+    def test_ema_accumulator_is_bounded(self) -> None:
+        """momentum1 is an EMA of g², not a cumulative sum. Under constant
+        unit grad it converges to ~1.0 instead of growing as N, so
+        lr/(sqrt(v)+eps) stays bounded for hot rows."""
+        E, D = 4, 4
+        ema_beta = 0.5  # aggressive forgetting → fast convergence for the test
+        tbe = self._build_tbe(
+            E=E,
+            D=D,
+            ar_alpha=0.0,
+            use_cpu=True,
+            ema_beta=ema_beta,
+        )
+
+        indices = torch.tensor([0], dtype=torch.long)
+        offsets = torch.tensor([0, 1], dtype=torch.long)
+
+        # Touch row 0 with unit grad many times to let EMA converge.
+        # With ema_beta=0.5 and g²=1: v converges to 1 within a few steps.
+        for _ in range(20):
+            with torch.no_grad():
+                tbe.split_embedding_weights()[0][0].fill_(1.0)
+            out = tbe(indices, offsets)
+            out.sum().backward()
+
+        # Inspect momentum1: should be ≈ 1.0 (bounded EMA), NOT 20 (sum).
+        states = tbe.split_optimizer_states()
+        momentum1 = states[0][0]
+        self.assertLess(
+            momentum1[0].item(),
+            1.5,
+            msg=(
+                f"EMA momentum1 should converge near 1.0 (g²=1), got {momentum1[0].item()}. "
+                "If accumulator were cumulative, it would be ≈ 20 after 20 touches."
+            ),
+        )
+        self.assertGreater(
+            momentum1[0].item(),
+            0.5,
+            msg=(
+                f"EMA momentum1 should converge near 1.0 (g²=1), got {momentum1[0].item()}."
+            ),
+        )
+
+        # The weight should be near 0 each iteration since multiplier ≈ 1
+        # (lr * g / (sqrt(v) + eps) ≈ 1 * 1 / 1 = 1, so w = 1 − 1 = 0).
+        # Plain Adagrad after 20 touches would have v=20, multiplier=1/sqrt(20)≈0.22,
+        # so w would be 0.78. EMA keeps multiplier near 1.
+        w0 = tbe.split_embedding_weights()[0][0].clone()
+        torch.testing.assert_close(
+            w0,
+            torch.zeros(D),
+            atol=0.1,
+            rtol=0,
+            msg=(
+                "EMA accumulator should keep multiplier ≈ lr so weight reaches ≈ 0. "
+                "Cumulative-sum accumulator would shrink multiplier by 1/sqrt(N)."
+            ),
+        )
+
+    def test_min_shrinkage_floors_decay_multiplier(self) -> None:
+        """min_shrinkage>0 floors the multiplier: at long gaps the row
+        retains min_shrinkage * prior_weight instead of zeroing."""
+        E, D = 4, 4  # D must be a multiple of 4 (FBGEMM vec4 alignment)
+        ar_alpha = 0.05
+        min_shrinkage = 0.05
+        tbe = self._build_tbe(
+            E=E, D=D, ar_alpha=ar_alpha, use_cpu=True, min_shrinkage=min_shrinkage
+        )
+
+        # Touch row 0 once. First touch: step_gap=1, lambda=0.05,
+        # max(0.05, 0.95)=0.95 → w = 0.95.
+        self._touch(tbe, rows=[0])
+
+        # Touch row 1 for 25 steps so row 0's gap grows.
+        for _ in range(25):
+            self._touch(tbe, rows=[1])
+        # Touch row 0 again. step=27, prev_iter[0]=1, I=26.
+        # lambda = min(1, 1.0*0.05*26) = 1.0 → 1 − lambda = 0 →
+        # clip to min_shrinkage=0.05 → w = 0.05 * 0.95 = 0.0475.
+        self._touch(tbe, rows=[0])
+
+        w0 = tbe.split_embedding_weights()[0][0].clone()
+        torch.testing.assert_close(
+            w0,
+            torch.full((D,), 0.05 * 0.95),
+            atol=1e-6,
+            rtol=0,
+            msg=(
+                "min_shrinkage must floor the decay multiplier: at lr·α·I >= 1 "
+                "the row should retain min_shrinkage * prior_weight, not zero out."
+            ),
         )
 
 

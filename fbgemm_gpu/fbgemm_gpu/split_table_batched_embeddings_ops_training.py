@@ -663,6 +663,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         momentum: float = 0.9,
         weight_decay: float = 0.0,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
+        # ROWWISE_RMSPROP_AR knobs (ignored by other optimizers).
+        # `ar_alpha` (not `alpha`) avoids colliding with dper3's alpha=lr convention.
+        ar_alpha: float = 0.0,  # paper's adaptive coefficient
+        ema_beta: float = 0.99,  # EMA decay for momentum1 (g²)
+        min_shrinkage: float = 0.1,  # floor on decay multiplier; 0.0 = full soft-reset
         eta: float = 0.001,
         beta1: float = 0.9,
         beta2: float = 0.999,
@@ -1051,6 +1056,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
                 OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+                OptimType.ROWWISE_RMSPROP_AR,
             ), f"Optimizer {optimizer} is not supported in CPU mode."
         else:
             assert optimizer in (
@@ -1064,6 +1070,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.PARTIAL_ROWWISE_LAMB,
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                 OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+                OptimType.ROWWISE_RMSPROP_AR,
                 OptimType.NONE,
             ), f"Optimizer {optimizer} is not supported."
 
@@ -1204,6 +1211,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lower_bound=cowclip_regularization.lower_bound,
             regularization_mode=weight_decay_mode.value,
             use_rowwise_bias_correction=self.use_rowwise_bias_correction,
+            # ROWWISE_RMSPROP_AR knobs (defaults are no-ops for other optimizers).
+            ar_alpha=ar_alpha,
+            ema_beta=ema_beta,
+            min_shrinkage=min_shrinkage,
         )
 
         if optimizer != OptimType.NONE:
@@ -1227,6 +1238,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
                 rowwise = optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD,
+                    OptimType.ROWWISE_RMSPROP_AR,
                     OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 ]
@@ -1350,6 +1362,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     torch.ones(1, dtype=torch.float32, device=self.current_device),
                     persistent=False,
                 )
+            elif optimizer == OptimType.ROWWISE_RMSPROP_AR:
+                # AR needs `prev_iter` per row for the lazy adaptive decay.
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=True,
+                        cacheable=False,
+                    ),
+                    prefix="prev_iter",
+                    # float32 to match the dtype of every other prev_iter
+                    # buffer in this file; int64 is preferable conceptually
+                    # but has known codegen issues here.
+                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
+                    #  but got `type[torch.float32]`.
+                    dtype=torch.float32,
+                    uvm_host_mapped=self.uvm_host_mapped,
+                )
+                # Empty placeholders for the shared row_counter Momentum
+                # dispatch (AR doesn't use them but the dispatch reads them).
+                self._register_nonpersistent_buffers("row_counter")
+                self.register_buffer(
+                    "max_counter",
+                    torch.ones(1, dtype=torch.float32, device=self.current_device),
+                    persistent=False,
+                )
             elif optimizer == OptimType.ADAM and self.use_rowwise_bias_correction:
                 self._apply_split(
                     construct_split_state(
@@ -1380,6 +1417,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     OptimType.PARTIAL_ROWWISE_LAMB,
                     OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+                    OptimType.ROWWISE_RMSPROP_AR,
                 )
                 or self._used_rowwise_adagrad_with_global_weight_decay
             ):
@@ -2200,10 +2238,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 OptimType.NONE,
                 OptimType.ADAM,
+                OptimType.ROWWISE_RMSPROP_AR,
             ), (
                 "Variable batch size TBE support is enabled for "
                 "OptimType.EXACT_ROWWISE_ADAGRAD,EXACT_SGD, "
-                "ENSEMBLE_ROWWISE_ADAGRAD, NONE, and ADAM only"
+                "ENSEMBLE_ROWWISE_ADAGRAD, ROWWISE_RMSPROP_AR, NONE, and ADAM only"
             )
         return generate_vbe_metadata(
             offsets,
@@ -2688,6 +2727,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             #  `Module | Tensor`.
             placements=self.prev_iter_placements,
         )
+
+        if self.optimizer == OptimType.ROWWISE_RMSPROP_AR:
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_rowwise_rmsprop_ar.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    prev_iter,
+                    iter_int,
+                    mixed_D=self.mixed_D,
+                ),
+            )
 
         if self.optimizer == OptimType.EMAINPLACE_ROWWISE_ADAGRAD:
             with torch.no_grad():
@@ -3349,6 +3401,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 }
                 for states in split_optimizer_states
             ]
+        elif self.optimizer == OptimType.ROWWISE_RMSPROP_AR:
+            list_of_state_dict = [
+                {
+                    "sum": states[0],
+                    "prev_iter": states[1],
+                    "iter": self.iter,
+                }
+                for states in split_optimizer_states
+            ]
         else:
             raise NotImplementedError(
                 f"Getting optimizer state {self.optimizer} is not implmeneted"
@@ -3450,6 +3511,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         OptimType.EXACT_ROWWISE_ADAGRAD,
                         OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                         OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
+                        OptimType.ROWWISE_RMSPROP_AR,
                     ],
                 )
             )
@@ -3484,6 +3546,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if (
             self._used_rowwise_adagrad_with_counter
             or self._used_rowwise_adagrad_with_global_weight_decay
+            or self.optimizer == OptimType.ROWWISE_RMSPROP_AR
         ):
             states.append(
                 get_optimizer_states(
