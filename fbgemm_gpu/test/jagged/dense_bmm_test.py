@@ -292,6 +292,48 @@ class DenseBmmTest(unittest.TestCase):
         # default tolerance.
         torch.testing.assert_close(out_gpu.cpu(), out_cpu, rtol=1e-3, atol=1e-1)
 
+    @unittest.skipUnless(torch.cuda.is_available(), "GPU not available")
+    def test_jagged_jagged_bmm_correctness(self) -> None:
+        """
+        Regression test for the HIP grid-overflow bug in
+        ``jagged_jagged_bmm_kernel`` (D105205055 / Subplan D Diff #29),
+        which lacked its own test method when landed.
+
+        Verifies end-to-end correctness vs. CPU dispatch using
+        sentinel non-zero lengths (including a zero-length entry).
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        max_L = 8
+        M = 16
+        N = 8
+
+        lengths_cpu = torch.tensor([3, 0, 5, 2], dtype=torch.int64)
+        offsets_cpu = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths_cpu)
+        total_length = int(lengths_cpu.sum().item())
+
+        x_values_init = torch.arange(total_length * M, dtype=torch.float32).reshape(
+            total_length, M
+        )
+        y_values_init = (
+            torch.arange(total_length * N, dtype=torch.float32).reshape(total_length, N)
+            * 0.01
+        )
+
+        # CPU oracle.
+        out_cpu = torch.ops.fbgemm.jagged_jagged_bmm(
+            x_values_init, y_values_init, offsets_cpu, max_L
+        )
+
+        # GPU op under test.
+        out_gpu = torch.ops.fbgemm.jagged_jagged_bmm(
+            x_values_init.to(device),
+            y_values_init.to(device),
+            offsets_cpu.to(device),
+            max_L,
+        )
+
+        torch.testing.assert_close(out_gpu.cpu(), out_cpu)
+
 
 if __name__ == "__main__":
     unittest.main()
