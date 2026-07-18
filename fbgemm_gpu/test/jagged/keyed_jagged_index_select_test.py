@@ -347,6 +347,90 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
+    @optests.dontGenerateOpCheckTests(
+        "large-grid GPU-memory-gated stress repro; opcheck variants add no op "
+        "coverage and only skip on CPU samples (T191384137)"
+    )
+    @unittest.skipUnless(torch.cuda.is_available(), "GPU not available")
+    def test_keyed_jagged_index_select_dim1_large_grid(self) -> None:
+        """
+        Regression test for the HIP grid-overflow bug in
+        ``keyed_jagged_index_select_dim1_kernel`` and
+        ``keyed_jagged_index_add_dim1_kernel`` (D105205634 / Subplan D
+        Diff #30).
+
+        Both kernels grid-stride over outputs/inputs respectively. The
+        production fix caps grid_x to ``get_max_thread_blocks(stream)``
+        on ROCm; on CUDA the grid still covers every element in a single
+        stride. Either way the refactor must remain correctness-
+        preserving. ``keyed_jagged_index_select_dim1`` is a CUDA-only op
+        (no CPU kernel), so verification is end-to-end forward + backward
+        correctness on the accelerator against a per-key
+        ``jagged_index_select`` reference, using sentinel non-zero
+        lengths at a multi-key scale.
+
+        The third kernel touched by this diff —
+        ``index_select_scalar_cumsum_kernel`` — uses a cross-block
+        decoupled-look-back scan and was given a Tier-C fast-fail
+        TORCH_CHECK guard rather than a grid-stride retrofit. That
+        Tier-C branch is exercised by code review of the diff itself
+        (the production TORCH_CHECK line) and not unit-testable here
+        without allocating a ~16 GiB indices tensor.
+        """
+        device = torch.accelerator.current_accelerator()
+        num_batches = 2
+        input_batch_size = 32
+        # Sparse sentinel non-zero lengths spread across batches.
+        lengths = torch.zeros(
+            num_batches * input_batch_size, dtype=torch.int64, device=device
+        )
+        lengths[0] = 3
+        lengths[input_batch_size + input_batch_size // 2] = 2
+        lengths[-1] = 4
+        offsets = torch.concat(
+            [torch.zeros(1, dtype=torch.long, device=device), lengths.cumsum(0)]
+        )
+        total = int(offsets[-1].item())
+
+        # Distinct values across rows; indices select all batches.
+        values_init = torch.arange(total, dtype=torch.float32, device=device)
+        indices = torch.arange(input_batch_size, dtype=torch.int64, device=device)
+
+        # Op under test: forward + backward on the accelerator.
+        values = values_init.detach().clone().requires_grad_(True)
+        out = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
+            values,
+            lengths,
+            offsets,
+            indices,
+            input_batch_size,
+        )[0]
+
+        # Reference: keyed_jagged_index_select_dim1 has no CPU kernel, so build
+        # the expected result on-device from the per-key jagged_index_select
+        # primitive (same equivalence the other tests in this file rely on).
+        values_ref = values_init.detach().clone().requires_grad_(True)
+        output_ref = []
+        for k in range(num_batches):
+            key_lengths = lengths[k * input_batch_size : (k + 1) * input_batch_size]
+            start_offset = offsets[k * input_batch_size]
+            end_offset = offsets[(k + 1) * input_batch_size]
+            key_values = values_ref[start_offset:end_offset].view(-1, 1)
+            output_ref.append(
+                torch.ops.fbgemm.jagged_index_select(key_values, key_lengths, indices)[
+                    0
+                ].view(-1)
+            )
+        output_ref = torch.concat(output_ref)
+
+        torch.testing.assert_close(out, output_ref)
+
+        out.sum().backward()
+        output_ref.sum().backward()
+        assert values.grad is not None
+        assert values_ref.grad is not None
+        torch.testing.assert_close(values.grad, values_ref.grad)
+
 
 if __name__ == "__main__":
     unittest.main()

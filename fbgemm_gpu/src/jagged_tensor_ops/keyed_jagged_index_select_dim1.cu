@@ -169,11 +169,15 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
         output_offsets,
     const int num_batches,
     const int input_batch_size) {
-  const int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   const int output_batch_size = indices.size(0);
   const int64_t num_outputs = output.size(0);
 
-  if (tid < num_outputs) {
+  // Grid-stride over outputs so a capped grid (used on ROCm to avoid the
+  // 2^32 launch-side limit) still covers every output element.
+  for (int64_t tid =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       tid < num_outputs;
+       tid += static_cast<int64_t>(gridDim.x) * blockDim.x) {
     entry_t index_pos;
     const entry_t num_entries =
         static_cast<entry_t>(num_batches) * output_batch_size;
@@ -220,11 +224,15 @@ __global__ void keyed_jagged_index_add_dim1_kernel(
         output_offsets,
     const int num_batches,
     const int output_batch_size) {
-  const int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   const int input_batch_size = indices.size(0);
   const int64_t num_inputs = input.size(0);
 
-  if (tid < num_inputs) {
+  // Grid-stride over inputs so a capped grid (used on ROCm to avoid the
+  // 2^32 launch-side limit) still covers every input element.
+  for (int64_t tid =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       tid < num_inputs;
+       tid += static_cast<int64_t>(gridDim.x) * blockDim.x) {
     entry_t index_pos;
     const entry_t num_entries =
         static_cast<entry_t>(num_batches) * input_batch_size;
@@ -278,6 +286,20 @@ class KeyedJaggedIndexSelectDim1GPUOp
         " * indices.numel()=",
         indices.numel(),
         " causes overflow.");
+    // Special: index_select_scalar_cumsum_kernel uses a cross-block
+    // decoupled-look-back scan with block_flags / block_sums; capping the
+    // grid would corrupt the cumsum. As a Tier-2 stop-gap, fast-fail with
+    // TORCH_CHECK if the launch would trip the HIP 2^32 limit. Algorithmic
+    // restructure (cub::DeviceScan or per-segment block tiling) is tracked
+    // as a Tier-3 follow-up.
+    TORCH_CHECK(
+        static_cast<uint64_t>(num_output_lengths) <
+            (static_cast<uint64_t>(1) << 32),
+        "index_select_scalar_cumsum_kernel: num_output_lengths (",
+        num_output_lengths,
+        ") must be < 2^32 to avoid HIP grid-overflow. The kernel uses a "
+        "cross-block prefix scan that cannot be naively grid-strided. See "
+        "Tier-3 follow-up for restructure.");
     auto grid_size = cuda_calc_xblock_count(
         num_output_lengths, MAX_CUMSUM_ENTRIES_PER_BLOCK);
     TORCH_CHECK_VALUE(
@@ -453,7 +475,12 @@ class KeyedJaggedIndexSelectDim1GPUOp
     if (weights.has_value()) {
       output_weights = at::empty({num_outputs}, weights.value().options());
     }
-    grid_size = cuda_calc_xblock_count(num_outputs, kMaxThreads);
+    // HIP enforces a hard limit of 2^32 total threads per launch.
+    // keyed_jagged_index_select_dim1_kernel grid-strides over outputs, so
+    // capping is correctness-preserving.
+    // See: https://github.com/ROCm/hip/issues/2253
+    grid_size = utils::cuda::cap_grid_dim_x_from_workload(
+        num_outputs, kMaxThreads, at::cuda::getCurrentCUDAStream());
 
     // output_offsets has to be contiguous because it is passed to
     // binary_search_range which takes raw pointers as arguments
@@ -633,7 +660,12 @@ class KeyedJaggedIndexSelectDim1GPUOp
     device_guard.set_index(grad.get_device());
 
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
-    auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);
+    // HIP enforces a hard limit of 2^32 total threads per launch.
+    // keyed_jagged_index_add_dim1_kernel grid-strides over inputs, so
+    // capping is correctness-preserving.
+    // See: https://github.com/ROCm/hip/issues/2253
+    auto grid_size = utils::cuda::cap_grid_dim_x_from_workload(
+        grad.numel(), kMaxThreads, at::cuda::getCurrentCUDAStream());
     // grad_offsets has to be contiguous because it is passed to
     // binary_search_range which takes raw pointers as arguments
     const auto grad_offsets_contig = grad_offsets.expect_contiguous();
