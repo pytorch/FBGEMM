@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -144,7 +145,12 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
   }
 
   constexpr auto threads_per_block = 256;
-  const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // _float_to_fusednbitrowwise_cuda_kernel grid-strides over `row`, so
+  // capping is correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+      nrows, threads_per_block, at::cuda::getCurrentCUDAStream());
   // think unsigned as we use 0, 255
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
