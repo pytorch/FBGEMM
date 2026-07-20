@@ -11,17 +11,21 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/Utils.h"
 #include <cpuinfo.h>
+#include <algorithm>
 #include <bit>
 #include <cassert>
+#include <charconv>
 #include <cinttypes>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <new>
 #include <optional>
 #include <stdexcept>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -830,6 +834,45 @@ bool is_sve_fp16_enabled() {
     char* env_val = std::getenv("FBGEMM_TBE_SVE_FP16_ACCUMULATOR");
     return env_val != nullptr;
   }();
+  return res;
+}
+
+static int64_t read_non_negative_int_env(const char* env_name) {
+  const char* env_val = std::getenv(env_name);
+  if (env_val == nullptr) {
+    return -1;
+  }
+  int64_t val = 0;
+  const char* const end = env_val + std::strlen(env_val);
+  const std::from_chars_result r = std::from_chars(env_val, end, val);
+  if (r.ec != std::errc() || r.ptr != end || val < 0) {
+    std::cerr << "[fbgemm] " << env_name << "='" << env_val
+              << "' is not a non-negative integer; ignoring it.\n";
+    return -1;
+  }
+  return val;
+}
+
+int64_t tbe_l1_prefetch_distance() {
+  static const int64_t res =
+      read_non_negative_int_env("FBGEMM_TBE_L1_PREFETCH_DISTANCE");
+  return res;
+}
+
+int64_t tbe_l2_prefetch_distance() {
+  static const int64_t res =
+      read_non_negative_int_env("FBGEMM_TBE_L2_PREFETCH_DISTANCE");
+  return res;
+}
+
+int64_t tbe_l2_large_table_bytes() {
+  // FBGEMM_TBE_L2_LARGE_TABLE_MB in bytes; 0 when unset/non-positive (caller
+  // applies the default). std::min guards the MiB->bytes overflow.
+  constexpr int64_t kMaxMiB = std::numeric_limits<int64_t>::max() >> 20;
+  static const int64_t mb =
+      read_non_negative_int_env("FBGEMM_TBE_L2_LARGE_TABLE_MB");
+  static const int64_t res =
+      mb <= 0 ? 0 : std::min(mb, kMaxMiB) * (int64_t{1} << 20);
   return res;
 }
 
