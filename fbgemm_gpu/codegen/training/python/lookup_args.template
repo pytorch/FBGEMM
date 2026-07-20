@@ -83,6 +83,13 @@ class OptimizerArgs(NamedTuple):
     lower_bound: float
     regularization_mode: int
     use_rowwise_bias_correction: bool # Used for OptimType.ADAM
+    # ROWWISE_RMSPROP_AR knobs (ignored by other optimizers; defaults are
+    # backwards-compatible with existing OptimizerArgs(...) call sites).
+    ar_alpha: float = 0.0       # paper's adaptive coefficient (named ar_alpha,
+                                # not alpha, to avoid colliding with dper3's
+                                # convention where alpha means learning rate).
+    ema_beta: float = 0.99      # EMA decay for momentum1 (g²)
+    min_shrinkage: float = 0.1  # floor on the decay multiplier; 0.0 = full soft-reset
 
 
 class Momentum(NamedTuple):
