@@ -39,8 +39,8 @@ DLL_PUBLIC void compute_frequency_sequence(
       input.scalar_type(), "compute_frequency_sequence_kernel_1", [&] {
         FBGEMM_LAUNCH_KERNEL(
             (compute_frequency_sequence_kernel<index_t>),
-            cuda_calc_xblock_count(input.numel(), kWarpSize),
-            kWarpSize,
+            cuda_calc_xblock_count(input.numel(), kWarpSizeHost()),
+            kWarpSizeHost(),
             0,
             at::cuda::getCurrentCUDAStream(),
             input.data_ptr<index_t>(),
