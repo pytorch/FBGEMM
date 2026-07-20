@@ -114,7 +114,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
               "dense_vec_jagged_2d_bmm_backward_kernel_2",
               [&] {
                 int block_dim_x = std::min(
-                    div_round_up(max_L, kWarpSize) * kWarpSize, kMaxThreads);
+                    div_round_up(max_L, kWarpSizeHost()) * kWarpSizeHost(), kMaxThreads);
                 int block_dim_y = kMaxThreads / block_dim_x;
 
                 // HIP enforces a hard limit of 2^32 total threads per launch
@@ -141,7 +141,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
                     PTA_B(v_grad, scalar_t, 2, 32));
 
                 block_dim_x = std::min(
-                    div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
+                    div_round_up(D, kWarpSizeHost()) * kWarpSizeHost(), kMaxThreads);
                 block_dim_y = kMaxThreads / block_dim_x;
 
                 // HIP 2^32 cap. outer_prod_jagged_2d_output grid-strides

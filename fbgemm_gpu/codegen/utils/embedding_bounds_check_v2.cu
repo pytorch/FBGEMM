@@ -240,7 +240,8 @@ void _bounds_check_indices_cuda_v2(
 
   constexpr size_t kNumThreads = 1024;
   auto grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
-      cuda_calc_xblock_count(total_B, kNumThreads / fbgemm_gpu::kWarpSize),
+      cuda_calc_xblock_count(
+          total_B, kNumThreads / fbgemm_gpu::kWarpSizeHost()),
       kNumThreads,
       at::cuda::getCurrentCUDAStream(),
       fbgemm_gpu::utils::cuda::BlockCapPolicy::Always);
@@ -251,33 +252,34 @@ void _bounds_check_indices_cuda_v2(
     grid_dim = std::min<uint32_t>(grid_dim, PREFETCH_KERNEL_MAX_BLOCKS);
   }
 
-#define INVOKE_BOUNDS_CHECK_INDICES(MODE)                                      \
-  if (bounds_check_mode == MODE) {                                             \
-    AT_DISPATCH_INDEX_TYPES(                                                   \
-        indices.scalar_type(), "bounds_check_indices_cuda", [&] {              \
-          [[maybe_unused]] const auto func_name =                              \
-              "bounds_check_indices_cuda_v2";                                  \
-          const auto bounds_check_kernel =                                     \
-              (vbe ? bounds_check_indices_kernel_v2<index_t, true, MODE>       \
-                   : bounds_check_indices_kernel_v2<index_t, false, MODE>);    \
-          FBGEMM_LAUNCH_DSA_KERNEL(                                            \
-              bounds_check_kernel,                                             \
-              grid_dim,                                                        \
-              dim3(                                                            \
-                  fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
-              0,                                                               \
-              at::cuda::getCurrentCUDAStream(),                                \
-              PTA_B(rows_per_table, int64_t, 1, 32),                           \
-              PTA_B(indices, index_t, 1, 32),                                  \
-              PTA_B(offsets, index_t, 1, 32),                                  \
-              vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,           \
-              PTA_B(warning, int64_t, 1, 32),                                  \
-              FixedDivisor(B),                                                 \
-              vbe ? b_t_map.value().data_ptr<int32_t>() : nullptr,             \
-              info_B_num_bits,                                                 \
-              info_B_mask,                                                     \
-              disable_offsets_adjustment);                                     \
-        });                                                                    \
+#define INVOKE_BOUNDS_CHECK_INDICES(MODE)                                   \
+  if (bounds_check_mode == MODE) {                                          \
+    AT_DISPATCH_INDEX_TYPES(                                                \
+        indices.scalar_type(), "bounds_check_indices_cuda", [&] {           \
+          [[maybe_unused]] const auto func_name =                           \
+              "bounds_check_indices_cuda_v2";                               \
+          const auto bounds_check_kernel =                                  \
+              (vbe ? bounds_check_indices_kernel_v2<index_t, true, MODE>    \
+                   : bounds_check_indices_kernel_v2<index_t, false, MODE>); \
+          FBGEMM_LAUNCH_DSA_KERNEL(                                         \
+              bounds_check_kernel,                                          \
+              grid_dim,                                                     \
+              dim3(                                                         \
+                  fbgemm_gpu::kWarpSizeHost(),                              \
+                  kNumThreads / fbgemm_gpu::kWarpSizeHost()),               \
+              0,                                                            \
+              at::cuda::getCurrentCUDAStream(),                             \
+              PTA_B(rows_per_table, int64_t, 1, 32),                        \
+              PTA_B(indices, index_t, 1, 32),                               \
+              PTA_B(offsets, index_t, 1, 32),                               \
+              vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,        \
+              PTA_B(warning, int64_t, 1, 32),                               \
+              FixedDivisor(B),                                              \
+              vbe ? b_t_map.value().data_ptr<int32_t>() : nullptr,          \
+              info_B_num_bits,                                              \
+              info_B_mask,                                                  \
+              disable_offsets_adjustment);                                  \
+        });                                                                 \
   }
 
   INVOKE_BOUNDS_CHECK_INDICES(BoundsCheckMode::FATAL)

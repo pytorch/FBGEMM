@@ -222,9 +222,10 @@ inline std::tuple<dim3, dim3, StackArray<int64_t>> check_shape_and_partition_(
   const int jagged_folded_size =
       dense_tensor.numel() / (outer_dense_size * inner_dense_size);
 
-  const int threads_x =
-      inner_dense_size >= kWarpSize / 2 ? kWarpSize : inner_dense_size;
-  const int threads_y = kMaxThreads / kWarpSize;
+  const int threads_x = inner_dense_size >= kWarpSizeHost() / 2
+      ? kWarpSizeHost()
+      : inner_dense_size;
+  const int threads_y = kMaxThreads / kWarpSizeHost();
   const dim3 blocks(
       div_round_up(outer_dense_size * jagged_folded_size, threads_y));
 

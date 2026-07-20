@@ -71,7 +71,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
 
   if (B > 0 && D > 0) {
     const int block_dim_x =
-        std::min(div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
+        std::min(div_round_up(D, kWarpSizeHost()) * kWarpSizeHost(), kMaxThreads);
     const int block_dim_y = kMaxThreads / block_dim_x;
 
     // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,

@@ -53,8 +53,8 @@ DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
   Tensor output_permute = at::empty({output_size}, permute.options());
 
   // number of table per block
-  constexpr int32_t T_blocks = kMaxThreads / kWarpSize;
-  dim3 threads(kWarpSize, T_blocks);
+  const int32_t T_blocks = kMaxThreads / kWarpSizeHost();
+  dim3 threads(kWarpSizeHost(), T_blocks);
   // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
   // which silently wraps). expand_into_jagged_permute_kernel grid-strides
   // over t (line 27), so capping is correctness-preserving.
