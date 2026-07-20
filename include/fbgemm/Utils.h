@@ -416,6 +416,11 @@ FBGEMM_API bool is_asmjit_disabled();
 FBGEMM_API bool is_stats_enabled();
 FBGEMM_API bool is_sve_fp16_enabled();
 
+// Tuned Prefetch on CG1, only apply to SVE and Autovec kernels on ARM
+FBGEMM_API int64_t tbe_l1_prefetch_distance();
+FBGEMM_API int64_t tbe_l2_prefetch_distance();
+FBGEMM_API int64_t tbe_l2_large_table_bytes();
+
 FBGEMM_API void set_autovec_disabled(bool val);
 FBGEMM_API void set_autovec_forced(bool val);
 FBGEMM_API void set_asmjit_disabled(bool val);
