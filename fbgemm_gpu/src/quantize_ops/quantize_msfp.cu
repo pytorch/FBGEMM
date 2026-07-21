@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -151,7 +152,15 @@ DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
 
   const int blockDim_x = std::min(ncols, threads_per_block);
   const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
-  const int gridDim_x = (ncols + blockDim.x - 1) / blockDim.x;
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // The kernel grid-strides on both dims (over row and col), so capping is
+  // correctness-preserving. gridDim.y is already manually capped below at
+  // 65535 — leave it untouched.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const int gridDim_x = utils::cuda::cap_grid_dim_x(
+      (ncols + blockDim.x - 1) / blockDim.x,
+      threads_per_block,
+      at::cuda::getCurrentCUDAStream());
   const int gridDim_y = std::min((nrows + blockDim.y - 1) / blockDim.y, 65535u);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
