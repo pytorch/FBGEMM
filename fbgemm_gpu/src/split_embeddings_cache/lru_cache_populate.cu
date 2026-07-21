@@ -226,7 +226,7 @@ void lru_cache_insert_cuda(
 
         const auto grid_size_uncapped = lock_cache_line
             ? div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO)
-            : div_round_up(N, kMaxThreads / kWarpSize);
+            : div_round_up(N, kMaxThreads / kWarpSizeHost());
         // HIP enforces a hard limit of 2^32 total threads per launch.
         // lru_cache_insert_kernel grid-strides over n, so capping is
         // correctness-preserving. The lock_cache_line=true branch is already
@@ -240,7 +240,7 @@ void lru_cache_insert_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (lru_cache_insert_kernel<emb_t, cache_t>),
             grid_size,
-            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(weights, emb_t, 1, 64),
@@ -310,15 +310,6 @@ DLL_PUBLIC void lru_cache_populate_cuda(
   }
 
   CUDA_DEVICE_GUARD(weights);
-
-#ifdef USE_ROCM
-  TORCH_CHECK(
-      at::cuda::warp_size() == 64,
-      __func__,
-      ": TBE cache requires warpSize 64 on ROCm (got ",
-      at::cuda::warp_size(),
-      "); warpSize 32 devices are not yet supported");
-#endif
 
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());

@@ -30,13 +30,12 @@ from __future__ import annotations
 import enum
 from typing import NamedTuple
 
-import torch
-
 # Import from config module
 from fbgemm_gpu.tbe.config import EmbeddingLocation
 
-# Default associativity for the UVM cache (32 for CUDA, 64 for ROCm)
-DEFAULT_ASSOC: int = 32 if torch.version.hip is None else 64
+# Default cache associativity. Overridden to 64 in each module's
+# __init__ on AMD devices that have 64-lane waves.
+DEFAULT_ASSOC: int = 32
 
 
 class CacheAlgorithm(enum.Enum):
