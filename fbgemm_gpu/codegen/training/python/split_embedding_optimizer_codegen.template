@@ -156,7 +156,7 @@ class SplitEmbedding{{ optimizer_class_name }}(Optimizer):
 
                     {% for state_tensor in args.split_tensors %}
                     {% if state_tensor == "momentum1" %}
-                    {% if optimizer in ["rowwise_adagrad", "rowwise_adagrad_with_counter", "rowwise_weighted_adagrad"] %}
+                    {% if optimizer in ["rowwise_adagrad", "rowwise_adagrad_with_counter", "rowwise_weighted_adagrad", "rowwise_rmsprop_ar"] %}
                     rowwise = True
                     {% else %}
                     rowwise = False

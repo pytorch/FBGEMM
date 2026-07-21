@@ -9,6 +9,7 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmI8Depthwise.h"
 
+#include <cstring>
 #include <stdexcept> // for logic_error
 #include <string>
 
@@ -170,6 +171,9 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
   auto row_offsets_owner =
       makeAlignedUniquePtr<int32_t>(64, (IC + 31) / 32 * 32);
   int32_t* row_offsets = row_offsets_owner.get();
+  if (row_offsets) {
+    std::memset(row_offsets, 0, (IC + 31) / 32 * 32 * sizeof(int32_t));
+  }
 
   int64_t n_begin = 0, n_end = 0, t_begin = 0, t_end = 0, h_begin = 0,
           h_end = 0;

@@ -70,6 +70,7 @@ class EmbOptimType(enum.Enum):
     PARTIAL_ROWWISE_ADAM = "partial_row_wise_adam"
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
     ROWWISE_ADAGRAD = "row_wise_adagrad"
+    ROWWISE_RMSPROP_AR = "row_wise_rmsprop_ar"
     SHAMPOO = "shampoo"  # not currently supported for sparse embedding tables
     SHAMPOO_V2 = "shampoo_v2"  # not currently supported for sparse embedding tables
     MADGRAD = "madgrad"
@@ -97,6 +98,8 @@ class EmbOptimType(enum.Enum):
         """
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             return ["momentum1"]
+        elif self == EmbOptimType.ROWWISE_RMSPROP_AR:
+            return ["momentum1", "prev_iter"]
         elif self in [EmbOptimType.PARTIAL_ROWWISE_ADAM, EmbOptimType.ADAM]:
             return ["momentum1", "momentum2"]
         else:
@@ -109,6 +112,8 @@ class EmbOptimType(enum.Enum):
         """
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             return {"momentum1": 1}
+        elif self == EmbOptimType.ROWWISE_RMSPROP_AR:
+            return {"momentum1": 1, "prev_iter": 1}
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             return {"momentum1": D, "momentum2": 1}
         elif self == EmbOptimType.ADAM:
@@ -130,6 +135,10 @@ class EmbOptimType(enum.Enum):
 
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             return momentum1_dtype.itemsize
+
+        elif self == EmbOptimType.ROWWISE_RMSPROP_AR:
+            # momentum1 (EMA of g²) + prev_iter (last touched step).
+            return momentum1_dtype.itemsize + torch.float32.itemsize
 
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             return pad4(1 * momentum2_dtype.itemsize) + D * momentum1_dtype.itemsize
@@ -159,6 +168,14 @@ class EmbOptimType(enum.Enum):
 
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             return {"momentum1": (p0, p0 + momentum1_dtype.itemsize)}
+
+        elif self == EmbOptimType.ROWWISE_RMSPROP_AR:
+            # Layout: momentum1, prev_iter (float32)
+            p1 = p0 + momentum1_dtype.itemsize
+            return {
+                "momentum1": (p0, p1),
+                "prev_iter": (p1, p1 + torch.float32.itemsize),
+            }
 
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             # momentum1 lies after momentum2
@@ -243,6 +260,11 @@ class EmbOptimType(enum.Enum):
 
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             params = {"momentum1": row_count_cumsum}
+        elif self == EmbOptimType.ROWWISE_RMSPROP_AR:
+            params = {
+                "momentum1": row_count_cumsum,
+                "prev_iter": row_count_cumsum,
+            }
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             params = {"momentum1": table_size_cumsum, "momentum2": row_count_cumsum}
         elif self == EmbOptimType.ADAM:
