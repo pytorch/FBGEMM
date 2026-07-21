@@ -149,6 +149,7 @@ fbgemm_gpu_libraries = [
     "fbgemm_gpu_tbe_training_backward_split_host",
     "fbgemm_gpu_tbe_training_backward_gwd",
     "fbgemm_gpu_tbe_training_backward_vbe",
+    "fbgemm_gpu_embedding_inplace_ops",
     "fbgemm_gpu_py",
 ]
 
