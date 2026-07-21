@@ -461,13 +461,16 @@ void cblas_gemm_i64_i64acc(
     ldb = N;
   }
 
-  alignas(64) array<int64_t, MCB * KCB> packA;
-  alignas(64) array<int64_t, KCB * NCB> packB;
-  alignas(64) array<int64_t, MCB * NCB> packC;
+  alignas(64) array<int64_t, MCB * KCB> packA = {};
+  alignas(64) array<int64_t, KCB * NCB> packB = {};
+  alignas(64) array<int64_t, MCB * NCB> packC = {};
 
   for (int ic = 0; ic < M; ic += MCB) {
     for (int kc = 0; kc < K; kc += KCB) {
       // pack A
+      if (std::min(MCB, M - ic) < MCB || std::min(K - kc, KCB) < KCB) {
+        packA.fill(0);
+      }
       for (int i = 0; i < std::min(MCB, M - ic); ++i) {
         memcpy(
             &packA[i * KCB],
@@ -477,6 +480,9 @@ void cblas_gemm_i64_i64acc(
 
       for (int jc = 0; jc < N; jc += NCB) {
         // pack B
+        if (std::min(K - kc, KCB) < KCB || std::min(NCB, N - jc) < NCB) {
+          packB.fill(0);
+        }
         for (int i = 0; i < std::min(KCB, K - kc); ++i) {
           memcpy(
               &packB[i * NCB],
@@ -512,6 +518,9 @@ void cblas_gemm_i64_i64acc(
                 std::min(KCB, K - kc),
                 NCB);
           } else {
+            if (std::min(MCB, M - ic) < MCB || std::min(NCB, N - jc) < NCB) {
+              packC.fill(0);
+            }
             for (int i = 0; i < std::min(MCB, M - ic); ++i) {
               memcpy(
                   &packC[i * NCB],

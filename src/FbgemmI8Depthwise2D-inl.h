@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstring>
 #include "./FbgemmI8DepthwiseUtils.h" // @manual
 #include "./GenerateI8Depthwise.h" // @manual
 #include "./MaskAvx2.h" // @manual
@@ -155,6 +156,9 @@ static ALWAYS_INLINE void depthwise_2d_(
   auto row_offsets_owner =
       makeAlignedUniquePtr<int32_t>(64, (IC + 31) / 32 * 32);
   int32_t* row_offsets = row_offsets_owner.get();
+  if (row_offsets) {
+    std::memset(row_offsets, 0, (IC + 31) / 32 * 32 * sizeof(int32_t));
+  }
 
   int64_t n_begin = 0, n_end = 0, h_begin = 0, h_end = 0, w_begin = 0,
           w_end = 0;
