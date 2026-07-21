@@ -51,6 +51,15 @@ inline __device__ void embedding_inplace_update_kernel_impl(
         lxu_cache_locations,
     const int64_t i) {
   const int32_t table_idx = update_table_idx[i];
+  // Defense-in-depth backstop (callers are expected to validate up front). An
+  // out-of-range table_idx would index D_offsets / weights_tys /
+  // weights_offsets out of bounds and then scatter to a wild address.
+  // weights_offsets has one entry per table; D_offsets has num_tables + 1
+  // entries, so table_idx + 1 is in range once table_idx is.
+  const int64_t num_tables = weights_offsets.size(0);
+  CUDA_KERNEL_ASSERT(
+      table_idx >= 0 && table_idx < num_tables &&
+      "embedding_inplace_update: table_idx out of range");
   const auto row_idx = update_row_idx[i];
 
   // TODO: We don't need to compute these here.
@@ -62,17 +71,27 @@ inline __device__ void embedding_inplace_update_kernel_impl(
       nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
   const int64_t weight_offset = weights_offsets[table_idx];
+  const int64_t byte_offset = weight_offset +
+      static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx);
+  const int64_t row_end = weight_offset +
+      static_cast<int64_t>(D_bytes) * (static_cast<int64_t>(row_idx) + 1);
   uint8_t* __restrict__ weight_row;
   if (weights_placement == PlacementType::DEVICE) {
-    weight_row =
-        &dev_weights
-            [weight_offset +
-             static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx)];
+    // Bound the row's byte range against the dev_weights allocation. A tighter
+    // per-table upper bound (weights_offsets[table_idx + 1]) is NOT safe here:
+    // weights_offsets is per-placement-buffer, so under mixed DEVICE/UVM
+    // placement (kernel_1) the next entry can belong to uvm_weights and is not
+    // a valid end for this table. The exact per-table [0, num_embeddings) range
+    // is enforced host-side before dispatch; this is the allocation backstop.
+    CUDA_KERNEL_ASSERT(
+        row_idx >= 0 && byte_offset >= 0 && row_end <= dev_weights.size(0) &&
+        "embedding_inplace_update: row scatters past dev_weights");
+    weight_row = &dev_weights[byte_offset];
   } else {
-    weight_row =
-        &uvm_weights
-            [weight_offset +
-             static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx)];
+    CUDA_KERNEL_ASSERT(
+        row_idx >= 0 && byte_offset >= 0 && row_end <= uvm_weights.size(0) &&
+        "embedding_inplace_update: row scatters past uvm_weights");
+    weight_row = &uvm_weights[byte_offset];
   }
 
   // padded_row_size_in_bytes pad each row with row_alignment (16 bytes on GPUs)

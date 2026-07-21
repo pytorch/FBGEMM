@@ -6,10 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <algorithm>
-#include <cmath>
-#include <functional>
-
 #include <ATen/ATen.h>
 #include <c10/util/irange.h>
 #include <torch/library.h>
@@ -35,8 +31,20 @@ void embedding_inplace_update_cpu_kernel(
     const at::TensorAccessor<index_t, 1>& update_row_idx,
     const at::TensorAccessor<int64_t, 1>& update_offsets,
     int64_t row_alignment) {
+  const int64_t num_tables = weights_offsets.size(0);
   for (const auto n : c10::irange(update_row_idx.size(0))) {
     int32_t t = update_table_idx[n];
+    // Defense-in-depth backstop. An out-of-range table_idx would index the
+    // per-table metadata (D_offsets / weights_tys / weights_offsets) out of
+    // bounds and then scatter to a wild address. weights_offsets has one entry
+    // per table; D_offsets has num_tables + 1 entries.
+    TORCH_CHECK(
+        t >= 0 && t < num_tables,
+        "embedding_inplace_update: table index ",
+        t,
+        " out of range [0, ",
+        num_tables,
+        ")");
     auto row_idx = update_row_idx[n];
 
     SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
@@ -46,19 +54,41 @@ void embedding_inplace_update_cpu_kernel(
     const int32_t D_bytes =
         nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
     int64_t weight_offset = weights_offsets[t];
+    const int64_t byte_offset = weight_offset +
+        static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx);
+    const int64_t row_end = weight_offset +
+        static_cast<int64_t>(D_bytes) * (static_cast<int64_t>(row_idx) + 1);
 
     uint8_t* __restrict__ weight_row = nullptr;
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
+    // Bound the row's byte range against the destination allocation. A tighter
+    // per-table bound (weights_offsets[t + 1]) is not safe: weights_offsets is
+    // per-placement-buffer, so under mixed HOST/UVM placement the next entry
+    // can belong to the other buffer. The exact per-table [0, num_embeddings)
+    // range is enforced by callers before dispatch; this is the allocation
+    // backstop.
     if (placement == PlacementType::HOST) {
-      weight_row =
-          &dev_weights
-              [weight_offset +
-               static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx)];
+      TORCH_CHECK(
+          row_idx >= 0 && byte_offset >= 0 && row_end <= dev_weights.size(0),
+          "embedding_inplace_update: row_idx ",
+          row_idx,
+          " (table ",
+          t,
+          ") scatters past dev_weights of ",
+          dev_weights.size(0),
+          " bytes");
+      weight_row = &dev_weights[byte_offset];
     } else {
-      weight_row =
-          &uvm_weights
-              [weight_offset +
-               static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx)];
+      TORCH_CHECK(
+          row_idx >= 0 && byte_offset >= 0 && row_end <= uvm_weights.size(0),
+          "embedding_inplace_update: row_idx ",
+          row_idx,
+          " (table ",
+          t,
+          ") scatters past uvm_weights of ",
+          uvm_weights.size(0),
+          " bytes");
+      weight_row = &uvm_weights[byte_offset];
     }
 
     int64_t update_weight_offset = update_offsets[n];
