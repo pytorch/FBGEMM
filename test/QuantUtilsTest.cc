@@ -740,14 +740,14 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
 
   // ref (double) vs SIMD (fp32 FMA) can differ by ~1 fp32 ULP; allow ~2 bf16
   // ULPs.
-  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float16, true>(
+  vector<bfloat16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<bfloat16>(
       bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16, true>(
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<bfloat16>(
       bit_rate, outVecRef.data(), rows, out_cols, dequantBf16Test.data());
   for (int i = 0; i < rows * cols; ++i) {
-    float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
-    float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
+    float r = cpu_bf162float(dequantBf16Ref[i]);
+    float t = cpu_bf162float(dequantBf16Test[i]);
     EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
     // Independently verify the bf16 reference against cpu_float2bfloat16()
     // applied to the fp32 reference, rather than asserting bf16 != fp16 bit
@@ -830,14 +830,14 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
 
   // ref (double) vs SIMD (fp32 FMA) can differ by ~1 fp32 ULP; allow ~2 bf16
   // ULPs.
-  vector<float16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
-  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<float16, true>(
+  vector<bfloat16> dequantBf16Ref(rows * cols), dequantBf16Test(rows * cols);
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<bfloat16>(
       outVecRef.data(), rows, out_cols, dequantBf16Ref.data());
-  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16, true>(
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<bfloat16>(
       outVecRef.data(), rows, out_cols, dequantBf16Test.data());
   for (int i = 0; i < rows * cols; ++i) {
-    float r = cpu_bf162float(static_cast<bfloat16>(dequantBf16Ref[i]));
-    float t = cpu_bf162float(static_cast<bfloat16>(dequantBf16Test[i]));
+    float r = cpu_bf162float(dequantBf16Ref[i]);
+    float t = cpu_bf162float(dequantBf16Test[i]);
     EXPECT_NEAR(r, t, std::max(1e-3f, 1.6e-2f * std::abs(r)));
     // Independently verify the bf16 reference against cpu_float2bfloat16()
     // applied to the fp32 reference, rather than asserting bf16 != fp16 bit
