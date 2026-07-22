@@ -22,7 +22,7 @@
 namespace fbgemm_gpu::utils::cuda {
 
 /// Empirical multiplier on `#SMs` that gives a good grid-size cap across
-/// kernels: `max_blocks = MAX_THREAD_BLOCKS_FACTOR * #SMs`.
+/// kernels: `perf_block_cap = MAX_THREAD_BLOCKS_FACTOR * #SMs`.
 constexpr int32_t MAX_THREAD_BLOCKS_FACTOR = 64;
 
 /// The grid x-dimension is limited to 2^31 - 1 on both CUDA and HIP; a launch
@@ -93,13 +93,16 @@ inline uint32_t cap_grid_dim_x(
     return to_grid_dim(blocks_uncapped);
   }
 
-  const auto max_blocks = static_cast<int64_t>(
+  // Occupancy/perf heuristic (64 * #SMs), not a correctness bound: caps grid.x
+  // to a few waves per SM. Used directly by `Always` and as one of the caps in
+  // the ROCm overflow branch below.
+  const auto perf_block_cap = static_cast<int64_t>(
       MAX_THREAD_BLOCKS_FACTOR *
       at::cuda::getDeviceProperties(stream.device_index())
           ->multiProcessorCount);
 
   if (policy == BlockCapPolicy::Always) {
-    return to_grid_dim(std::min(blocks_uncapped, max_blocks));
+    return to_grid_dim(std::min(blocks_uncapped, perf_block_cap));
   }
 
   // policy == OverflowOnly
@@ -108,7 +111,14 @@ inline uint32_t cap_grid_dim_x(
   // kMaxThreadsPerLaunch` (the product can exceed int64 for large grids).
   if (threads_per_block > 0 &&
       blocks_uncapped > kMaxThreadsPerLaunch / threads_per_block) {
-    return to_grid_dim(std::min(blocks_uncapped, max_blocks));
+    // Also clamp grid.x so the *total* launch stays within HIP's 2^32 thread
+    // limit (perf_block_cap alone can exceed it when threads_per_block folds in
+    // other grid dims, e.g. a large grid.y). Safe because callers grid-stride.
+    const auto overflow_block_cap =
+        static_cast<int64_t>(kMaxThreadsPerLaunch / threads_per_block);
+    return to_grid_dim(
+        std::min(
+            blocks_uncapped, std::min(perf_block_cap, overflow_block_cap)));
   }
 #endif
   return to_grid_dim(blocks_uncapped);

@@ -128,16 +128,23 @@ Tensor jagged_softmax_forward_cuda(
   if (B > 0 && D > 0) {
     constexpr int THREADS_PER_BLOCK = 128;
     // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
-    // which silently wraps). jagged_softmax_kernel grid-strides over `d`
-    // (`for (uint32_t d = blockIdx.x; d < D; d += gridDim.x)`), so capping
-    // is correctness-preserving. y is already clamped to kMaxBlockYDim;
-    // kernel additionally grid-strides over `b`.
-    // See: https://github.com/ROCm/hip/issues/2253
+    // which silently wraps). The launch is dim3(D, blocks_y) x
+    // THREADS_PER_BLOCK, so the total thread count is D * blocks_y *
+    // THREADS_PER_BLOCK. The y dimension must be included in the overflow
+    // check: a large D combined with a large blocks_y overflows even when D *
+    // THREADS_PER_BLOCK alone does not. Pass the full per-grid-x thread count
+    // (THREADS_PER_BLOCK * blocks_y) so cap_grid_dim_x clamps grid.x when the
+    // *total* launch would exceed 2^32. Capping grid.x is
+    // correctness-preserving because jagged_softmax_kernel grid-strides over
+    // `d` (`for (uint32_t d = blockIdx.x; d < D; d += gridDim.x)`) and over
+    // `b`. See: https://github.com/ROCm/hip/issues/2253
+    const auto blocks_y = static_cast<int32_t>(
+        std::min<int64_t>(B, static_cast<int64_t>(kMaxBlockYDim)));
     const auto blocks_x = utils::cuda::cap_grid_dim_x(
         static_cast<uint32_t>(D),
-        THREADS_PER_BLOCK,
+        static_cast<int64_t>(THREADS_PER_BLOCK) * blocks_y,
         at::cuda::getCurrentCUDAStream());
-    const dim3 grid(blocks_x, std::min((int32_t)B, (int32_t)kMaxBlockYDim), 1);
+    const dim3 grid(blocks_x, blocks_y, 1);
 
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_softmax_kernel_1", [&] {
