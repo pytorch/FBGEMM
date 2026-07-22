@@ -394,10 +394,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
         )
 
-        # 64 for AMD
-        if cache_assoc == 32 and torch.version.hip is not None:
-            cache_assoc = 64
-
         if device is None:
             self.current_device: torch.device = torch.device(
                 torch.cuda.current_device()
@@ -407,6 +403,20 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
+
+        # Cache associativity must equal the device warp size (see the training
+        # module's _apply_cache_state for the rationale). Only query a live CUDA
+        # device: on CPU, a meta device (tracing/sharding/publish), or a
+        # CUDA-typed device on a host with no driver, get_device_properties
+        # raises, so fall back to the default associativity in those cases.
+        if (
+            cache_assoc == 32
+            and self.current_device.type == "cuda"
+            and torch.cuda.is_available()
+        ):
+            cache_assoc = torch.cuda.get_device_properties(
+                self.current_device
+            ).warp_size
 
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
         self.pooling_mode = pooling_mode
