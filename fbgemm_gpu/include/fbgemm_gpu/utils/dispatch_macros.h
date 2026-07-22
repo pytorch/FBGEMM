@@ -48,6 +48,12 @@
         at::Float8_e4m3fnuz,                                                 \
         NAME,                                                                \
         __VA_ARGS__)                                                         \
+    PRIVATE_CASE_TYPE_EMB(                                                   \
+        at::ScalarType::Float8_e4m3fn,                                       \
+        _cache_t,                                                            \
+        at::Float8_e4m3fn,                                                   \
+        NAME,                                                                \
+        __VA_ARGS__)                                                         \
     default:                                                                 \
       TORCH_CHECK(                                                           \
           false,                                                             \
@@ -209,6 +215,12 @@
           at::Float8_e4m3fnuz,                                         \
           NAME,                                                        \
           __VA_ARGS__)                                                 \
+      PRIVATE_CASE_TYPE_EMB(                                           \
+          at::ScalarType::Float8_e4m3fn,                               \
+          _cache_t,                                                    \
+          at::Float8_e4m3fn,                                           \
+          NAME,                                                        \
+          __VA_ARGS__)                                                 \
       default:                                                         \
         TORCH_CHECK(                                                   \
             false,                                                     \
@@ -296,10 +308,11 @@
 
 #if defined(USE_ROCM)
 
-#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)   \
-  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
-  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
-  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fnuz, __VA_ARGS__)
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)          \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)        \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)         \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fnuz, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fn, __VA_ARGS__)
 
 #else
 

@@ -81,8 +81,7 @@ class BackwardAdagradTest(unittest.TestCase):
     ) -> None:
         kwargs = adjust_mixed_B_st(kwargs)
         # Skip for use_cpu=True, as FP8 is not supported on CPU.
-        # Also disable on AMD for now.
-        if kwargs["use_cpu"] or torch.version.hip:
+        if kwargs["use_cpu"]:
             return
         execute_backward_adagrad(
             weights_precision=SparseType.NFP8,

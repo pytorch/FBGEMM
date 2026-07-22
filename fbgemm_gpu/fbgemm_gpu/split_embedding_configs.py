@@ -20,6 +20,37 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 
 
+@torch.jit.ignore
+def _nfp8_is_fnuz() -> bool:
+    """
+    Whether the current runtime device uses the FP8 "fnuz" e4m3 encoding.
+
+    The FP8 e4m3 encoding is hardware specific on AMD GPUs: gfx942 (MI300) and
+    gfx90a use the "fnuz" encoding, while gfx950 and CUDA use the OCP "fn"
+    encoding. A single ROCm build can be a fat binary spanning multiple archs,
+    so this must be resolved at runtime from the actual device in use, mirroring
+    the C++ getNFP8ScalarType() helper in embedding_common.h. Keep the arch to
+    encoding mapping identical between the two.
+
+    Marked @torch.jit.ignore because the arch query is not TorchScript-able;
+    scripted callers get the eager result at runtime.
+    """
+    if torch.version.hip is not None and torch.cuda.is_available():
+        arch = torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName
+        # fnuz archs: gfx942 and gfx90a.
+        if "gfx94" in arch or "gfx90a" in arch:
+            return True
+    return False
+
+
+def nfp8_dtype() -> torch.dtype:
+    """
+    Return the native FP8 (e4m3) torch dtype for the current runtime device.
+    See _nfp8_is_fnuz() for the arch to encoding mapping.
+    """
+    return torch.float8_e4m3fnuz if _nfp8_is_fnuz() else torch.float8_e4m3fn
+
+
 def pad4(value: int) -> int:
     """
     Compute the smallest multiple of 4 that is greater than or equal to the given value.
@@ -361,11 +392,7 @@ def sparse_type_int_to_dtype(ty: int) -> torch.dtype:
     elif ty == 7:  # mx4
         return torch.uint8
     elif ty == 9:
-        return (
-            torch.float8_e4m3fnuz
-            if torch.version.hip is not None
-            else torch.float8_e4m3fn
-        )
+        return torch.float8_e4m3fnuz if _nfp8_is_fnuz() else torch.float8_e4m3fn
     else:  # Invalid is 7 or non enumerated.
         raise ValueError(f"Unsupported sparse type: {ty}")
 
@@ -446,11 +473,7 @@ class SparseType(enum.Enum):
             SparseType.INT2.value: torch.quint2x4,
             SparseType.BF16.value: torch.bfloat16,
             SparseType.MX4.value: torch.uint8,
-            SparseType.NFP8.value: (
-                torch.float8_e4m3fnuz
-                if torch.version.hip is not None
-                else torch.float8_e4m3fn
-            ),
+            SparseType.NFP8.value: nfp8_dtype(),
         }[self.value]
 
     def bit_rate(self) -> int:
