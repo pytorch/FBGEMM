@@ -159,6 +159,7 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
         B=st.integers(20, 100),
     )
     @settings(max_examples=1, deadline=None)
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*running_in_oss)
     def test_report_fb_files(
         self,

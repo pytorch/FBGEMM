@@ -163,6 +163,7 @@ class AsyncSeriesTimerRecordedContext:
         context: T,
         stream: torch.cuda.Stream | None = None,
     ) -> None:
+        # pyrefly: ignore [invalid-type-var]
         self._context = context
         self._stream = stream
         self._timer = timer
@@ -192,10 +193,12 @@ class AsyncSeriesTimer:
     """
 
     def __init__(self, report_functor: Callable[[T, float], None]) -> None:
+        # pyrefly: ignore [invalid-type-var]
         self._events_queue: deque[tuple[torch.cuda.Event, torch.cuda.Event, T]] = (
             deque()
         )
         self._active_start_event: torch.cuda.Event | None = None
+        # pyrefly: ignore [invalid-type-var]
         self._report_functor = report_functor
 
     def start(self, stream: torch.cuda.Stream | None = None) -> None:

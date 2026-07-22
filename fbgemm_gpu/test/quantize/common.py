@@ -46,6 +46,7 @@ def floats_to_bytes(floats: npt.NDArray) -> npt.NDArray:
         if isinstance(as_bytes[0], int):
             byte_matrix[i] = list(as_bytes)
         else:
+            # pyrefly: ignore [bad-argument-type]
             byte_matrix[i] = list(map(ord, as_bytes))
     return byte_matrix
 

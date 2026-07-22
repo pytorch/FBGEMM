@@ -415,12 +415,18 @@ def rope_padded(
             seqlenk.stride(0),
             out_q.stride(1),
             out_q.stride(2),
+            # pyrefly: ignore [bad-argument-type]
             _INTERNAL_DTYPE_MAP[internal_dtype],
+            # pyrefly: ignore [bad-argument-type]
             const_batch_strides=False,
             cache_padding_length=0,
+            # pyrefly: ignore [bad-argument-type]
             seqlenk_shift=0,
+            # pyrefly: ignore [bad-argument-type]
             BLOCK_SIZE=BLOCK_SIZE,
+            # pyrefly: ignore [bad-argument-type]
             adjacents=adjacents,
+            # pyrefly: ignore [unexpected-keyword]
             num_warps=num_warps,
         )
     return out_q

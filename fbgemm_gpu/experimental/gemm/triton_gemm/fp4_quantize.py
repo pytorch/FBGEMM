@@ -5650,4 +5650,5 @@ def quantize_nvfp4_naive(
         )
     )
 
+    # pyrefly: ignore [bad-return]
     return xqs, x_scales

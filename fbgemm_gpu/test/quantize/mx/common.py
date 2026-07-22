@@ -95,6 +95,7 @@ def _get_format_params(  # noqa
     """
 
     if type(fmt) is str:
+        # pyrefly: ignore [bad-assignment]
         fmt = ElemFormat.from_str(fmt)
 
     if fmt in _FORMAT_CACHE:
@@ -178,6 +179,7 @@ def _reshape_to_blocks(
     for axis in axes:
         pre_pad_size = orig_shape[axis]
         if isinstance(pre_pad_size, torch.Tensor):
+            # pyrefly: ignore [missing-attribute]
             pre_pad_size = int(pre_pad_size.value)
         # Don't pad if the axis is short enough to fit inside one tile
         if pre_pad_size % block_size == 0:
@@ -312,7 +314,9 @@ def check_diff_quantize(
     x = np.array(x) if type(x) is list else x
     # pyre-fixme[9]: x has type `Tensor`; used as `ndarray[Any, Any] | Tensor`.
     x = x.cpu().numpy() if type(x) is torch.Tensor else x
+    # pyrefly: ignore [bad-assignment]
     y1 = y1.detach().cpu().numpy()
+    # pyrefly: ignore [bad-assignment]
     y2 = y2.detach().cpu().numpy()
 
     torch_infs = np.isinf(y1) | np.isnan(y1)
@@ -335,13 +339,17 @@ def check_diff_quantize(
         print("First and last mismatch:")
         # pyre-fixme[6]: For 1st argument expected `float` but got `Tensor`.
         print("Orig:", x[where_diff][0], get_s_e_m(x[where_diff][0]))
+        # pyrefly: ignore [bad-argument-type]
         print("y1:  ", y1[where_diff][0], get_s_e_m(y1[where_diff][0]))
+        # pyrefly: ignore [bad-argument-type]
         print("y2:  ", y2[where_diff][0], get_s_e_m(y2[where_diff][0]))
         if np.count_nonzero(where_diff) > 1:
             print("--------------------")
             # pyre-fixme[6]: For 1st argument expected `float` but got `Tensor`.
             print("Orig:", x[where_diff][-1], get_s_e_m(x[where_diff][-1]))
+            # pyrefly: ignore [bad-argument-type]
             print("y1:  ", y1[where_diff][-1], get_s_e_m(y1[where_diff][-1]))
+            # pyrefly: ignore [bad-argument-type]
             print("y2:  ", y2[where_diff][-1], get_s_e_m(y2[where_diff][-1]))
         # raise ValueError
         return False
@@ -565,6 +573,7 @@ def _quantize_elemwise_core(
 
     if A_is_sparse:
         out = torch.sparse_coo_tensor(
+            # pyrefly: ignore [unbound-name]
             sparse_A.indices(),
             out,
             sparse_A.size(),

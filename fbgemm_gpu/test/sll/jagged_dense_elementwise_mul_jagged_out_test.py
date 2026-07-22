@@ -20,7 +20,9 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
 
 
+# pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*gpu_unavailable)
+# pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_on_rocm)
 class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
@@ -153,6 +155,7 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
         ref.backward(grad_output)
         result.backward(grad_output)
 
+        # pyrefly: ignore [bad-argument-type]
         assert torch.allclose(jagged_A_ref.grad, jagged_A.grad)
 
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
@@ -219,5 +222,8 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
         result.backward(grad_output)
 
         assert (
-            jagged_A.grad.is_meta and jagged_A_ref.grad.size() == jagged_A.grad.size()
+            # pyrefly: ignore [missing-attribute]
+            jagged_A.grad.is_meta
+            and jagged_A_ref.grad.size()  # pyrefly: ignore [missing-attribute]
+            == jagged_A.grad.size()  # pyrefly: ignore [missing-attribute]
         )

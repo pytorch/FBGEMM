@@ -67,6 +67,7 @@ def triton_jagged_self_substraction_jagged_out(
         offsets_a,
         offsets_b,
         max_seq_len,
+        # pyrefly: ignore [bad-argument-type]
         BLOCK_SIZE,
     )
 

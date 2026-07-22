@@ -254,8 +254,11 @@ def execute_backward_adagrad(  # noqa C901
         bs = [b.half() for b in bs]
 
     # Get optimizer parameters - use tbe_op's values if provided, otherwise use defaults
+    # pyrefly: ignore [not-callable]
     lr = tbe_op.get_learning_rate() if tbe_op else 0.5
+    # pyrefly: ignore [not-callable]
     eps = tbe_op.optimizer_args.eps if tbe_op else 0.2
+    # pyrefly: ignore [not-callable]
     max_norm = tbe_op.optimizer_args.max_norm if tbe_op else max_norm
 
     optimizer = (
@@ -266,7 +269,7 @@ def execute_backward_adagrad(  # noqa C901
 
     cc = (
         tbe_op
-        if tbe_op
+        if tbe_op  # pyrefly: ignore [not-callable]
         else emb_op(
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
@@ -454,6 +457,7 @@ def execute_backward_adagrad(  # noqa C901
         else:
             (m1,) = split_optimizer_states[t]
 
+        # pyrefly: ignore [missing-attribute]
         grads = bs[t].weight.grad.float().cpu().to_dense()
         weights_ref = torch.addcdiv(
             bs[t].weight.float().cpu(),
@@ -478,6 +482,7 @@ def execute_backward_adagrad(  # noqa C901
         if weights_precision == SparseType.NFP8:
             weights_ref = weights_ref.to(fp8_dtype).to(torch.float)
         torch.testing.assert_close(
+            # pyrefly: ignore [missing-attribute]
             cc.split_embedding_weights()[t].float().cpu(),
             weights_ref,
             atol=tolerance,
@@ -560,6 +565,7 @@ def execute_backward_adagrad(  # noqa C901
         batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
     )
     y.sum().backward()
+    # pyrefly: ignore [missing-attribute]
     indice_weight_grad_mask = per_sample_weights.grad.clone().cpu()
 
     if gpu_available and not TEST_WITH_ROCM:

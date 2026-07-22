@@ -73,6 +73,7 @@ class GenerateVBEMetadataTest(unittest.TestCase):
         )
         # pyre-ignore: Missing argument [20]
         dummy_offsets = torch.sparse_coo_tensor(
+            # pyrefly: ignore [bad-argument-type]
             (total_B + 1,),
             dtype=torch.long,
         )
@@ -151,6 +152,7 @@ class GenerateVBEMetadataTest(unittest.TestCase):
         assert torch.equal(row_output_offsets.cpu(), row_output_offsets_cpu)
         assert torch.equal(b_t_map.cpu(), b_t_map_cpu)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_generate_vbe_metadata_kernel(self):
         self.execute_generate_vbe_metadata_kernel(
@@ -159,6 +161,7 @@ class GenerateVBEMetadataTest(unittest.TestCase):
             max_B=32,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_generate_vbe_metadata_kernel_large(self):
         self.execute_generate_vbe_metadata_kernel(

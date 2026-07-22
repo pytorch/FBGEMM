@@ -559,7 +559,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         # Compare outputs
         if is_paged:
             # Compare paged output with both reference and non paged output
+            # pyrefly: ignore [bad-argument-type]
             self._allclose(out_paged, out_ref, out_pt)
+            # pyrefly: ignore [bad-argument-type]
             self._allclose(out_paged, out, out_pt)
         else:
             self._allclose(out, out_ref, out_pt)
@@ -613,6 +615,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
                 dq_d,
                 dk_d,
                 dv_d,
+                # pyrefly: ignore [no-matching-overload]
             ) = torch.autograd.grad(out_d, (q, k, v), g)
             assert torch.equal(dq, dq_d)
             assert torch.equal(dk, dk_d)
@@ -769,7 +772,9 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
         # Compare outputs
         if is_paged:
             # Compare paged output with both reference and non paged output
+            # pyrefly: ignore [bad-argument-type]
             self._allclose(out_paged, out_ref, out_pt)
+            # pyrefly: ignore [bad-argument-type]
             self._allclose(out_paged, out, out_pt)
         else:
             self._allclose(out, out_ref, out_pt)
@@ -815,6 +820,7 @@ class CutlassBlackwellFMHATest(unittest.TestCase):
 
         if deterministic:
             # Rerun the test. The outputs must be bit-wise exact
+            # pyrefly: ignore [no-matching-overload]
             dq_unpad_d, dk_unpad_d, dv_unpad_d = torch.autograd.grad(
                 out_unpad_d, (q_unpad, k_unpad, v_unpad), g_unpad
             )

@@ -294,6 +294,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                         )
                     )
             if nrows == 0 or ncols == 0:
+                # pyrefly: ignore [unbound-name]
                 assert dequantized_data_gpu.numel() == 0
                 return
             # compare quantized data
@@ -319,6 +320,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                 raise NotImplementedError(
                     f"Unsupported output dtype for gpu ops {output_dtype}"
                 )
+            # pyrefly: ignore [unbound-name]
             torch.testing.assert_close(dequantized_data_gpu.cpu(), reference)
 
     @unittest.skipIf(no_long_tests, "Slow test, requires buck build to run.")  # noqa
@@ -418,6 +420,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             torch.testing.assert_close(dequantized_data.cpu(), reference)
 
     @optests.dontGenerateOpCheckTests("Large grid HIP regression — uses ~4 GB HBM")
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore[56]: gpu_memory_lt_gb is typed (bool, str), but Pyre cannot
     # infer the unpacked arg type through the open-source import shim above.

@@ -337,6 +337,7 @@ def _fbgemm_grouped_gemm(
             if USE_TMA_STORE:
                 c_desc_ptr = tl.make_tensor_descriptor(
                     c_ptr + M_start_offset * N,
+                    # pyrefly: ignore [bad-argument-type]
                     shape=[m_size, n_size],
                     # pyre-ignore
                     strides=[n_size, 1],
@@ -347,6 +348,7 @@ def _fbgemm_grouped_gemm(
                 tl.static_assert(K % BLOCK_SIZE_K == 0)
                 a_desc_ptr = tl.make_tensor_descriptor(
                     a_ptr + M_start_offset * K,
+                    # pyrefly: ignore [bad-argument-type]
                     shape=[m_size, K],
                     # pyre-ignore
                     strides=[K, 1],
@@ -374,7 +376,9 @@ def _fbgemm_grouped_gemm(
                     m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
                     n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
                     for k_offset in range(0, K, BLOCK_SIZE_K):
+                        # pyrefly: ignore [bad-argument-type, unbound-name]
                         a = a_desc_ptr.load([m_offset, k_offset])
+                        # pyrefly: ignore [bad-argument-type, unbound-name]
                         b = b_desc_ptr.load([n_offset, k_offset])
                         if USE_FAST_ACCUM:
                             accumulator = tl.dot(a, b.T, accumulator)
@@ -512,6 +516,7 @@ def _fbgemm_grouped_gemm_ws(
             if USE_TMA_STORE:
                 c_desc_ptr = tl.make_tensor_descriptor(
                     c_ptr + M_start_offset * N,
+                    # pyrefly: ignore [bad-argument-type]
                     shape=[m_size, N],
                     # pyre-ignore
                     strides=[N, 1],
@@ -659,6 +664,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
             if USE_TMA_STORE:
                 c_desc_ptr = tl.make_tensor_descriptor(
                     c_ptr + M_start_offset * N,
+                    # pyrefly: ignore [bad-argument-type]
                     shape=[m_size, n_size],
                     # pyre-ignore
                     strides=[n_size, 1],
@@ -668,6 +674,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
             if USE_TMA_LOAD:
                 a_desc_ptr = tl.make_tensor_descriptor(
                     a_ptr + M_start_offset * K,
+                    # pyrefly: ignore [bad-argument-type]
                     shape=[m_size, K],
                     # pyre-ignore
                     strides=[K, 1],
@@ -695,7 +702,9 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                     m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
                     n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
                     for k_offset in range(0, K, BLOCK_SIZE_K):
+                        # pyrefly: ignore [bad-argument-type, unbound-name]
                         a = a_desc_ptr.load([m_offset, k_offset])
+                        # pyrefly: ignore [bad-argument-type, unbound-name]
                         b = b_desc_ptr.load([n_offset, k_offset])
                         if USE_FAST_ACCUM:
                             accumulator = tl.dot(a, b.T, accumulator)
@@ -835,6 +844,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
             if USE_TMA_STORE:
                 c_desc_ptr = tl.make_tensor_descriptor(
                     c_ptr + M_start_offset * N,
+                    # pyrefly: ignore [bad-argument-type]
                     shape=[m_size, N],
                     # pyre-ignore
                     strides=[N, 1],

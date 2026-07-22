@@ -38,6 +38,7 @@ class MultiHeadJaggedFlashAttentionTest(unittest.TestCase):
         d_per_head=st.sampled_from([32]),
         device_type=st.sampled_from(["cuda"]),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @settings(deadline=None)
     def test_multi_head_jagged_flash_attention(

@@ -38,6 +38,7 @@ def fill_random_scale_bias(
                 shifts = np.random.normal(-2, 2, size=(E,)).astype(np.float16)
             scale_shift.copy_(
                 torch.tensor(
+                    # pyrefly: ignore [bad-argument-type]
                     np.stack([scales, shifts], axis=1)
                     .astype(np.float16)
                     .view(np.uint8),

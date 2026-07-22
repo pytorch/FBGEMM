@@ -263,6 +263,7 @@ def generate_input(
                 (batch_size,), device=torch.device("cuda"), dtype=torch.int32
             )
             for i in range(batch_size):
+                # pyrefly: ignore [no-matching-overload]
                 lengths_q[i] = torch.randint(
                     1,
                     min(max_seq_len_q, lengths_k[i]) + 1,  # pyre-ignore[6]
@@ -598,7 +599,10 @@ class HSTU16Test(unittest.TestCase):
             k_offsets=seq_offsets_k,
             rab=rab if has_rab else None,
             invalid_attn_mask=(
-                attn_mask.to(torch.float32) if attn_mask is not None else None
+                # pyrefly: ignore [bad-argument-type]
+                attn_mask.to(torch.float32)
+                if attn_mask is not None
+                else None
             ),
             alpha=alpha,
             is_delta_q=is_delta_q,
@@ -617,7 +621,10 @@ class HSTU16Test(unittest.TestCase):
             k_offsets=seq_offsets_k,
             rab=rab if has_rab else None,
             invalid_attn_mask=(
-                attn_mask.to(torch.float32) if attn_mask is not None else None
+                # pyrefly: ignore [bad-argument-type]
+                attn_mask.to(torch.float32)
+                if attn_mask is not None
+                else None
             ),
             alpha=alpha,
             upcast=False,
@@ -632,7 +639,9 @@ class HSTU16Test(unittest.TestCase):
             seq_offsets_k=seq_offsets_k,
             max_seqlen_q=max_context_len + max_seq_len_q + max_target_len,
             max_seqlen_k=max_context_len + max_seq_len_k + max_target_len,
+            # pyrefly: ignore [bad-argument-type]
             num_contexts=num_contexts,
+            # pyrefly: ignore [bad-argument-type]
             num_targets=num_targets,
             target_group_size=target_group_size,
             window_size=window_size,
@@ -932,7 +941,10 @@ class HSTU8Test(unittest.TestCase):
             k_offsets=seq_offsets_k,
             rab=rab if has_rab else None,
             invalid_attn_mask=(
-                attn_mask.to(torch.float32) if attn_mask is not None else None
+                # pyrefly: ignore [bad-argument-type]
+                attn_mask.to(torch.float32)
+                if attn_mask is not None
+                else None
             ),
             alpha=alpha,
             is_delta_q=is_delta_q,
@@ -951,7 +963,10 @@ class HSTU8Test(unittest.TestCase):
             k_offsets=seq_offsets_k,
             rab=rab if has_rab else None,
             invalid_attn_mask=(
-                attn_mask.to(torch.float32) if attn_mask is not None else None
+                # pyrefly: ignore [bad-argument-type]
+                attn_mask.to(torch.float32)
+                if attn_mask is not None
+                else None
             ),
             alpha=alpha,
             descale_q=torch.tensor([1.0], dtype=torch.float32, device="cuda"),

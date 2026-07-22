@@ -158,11 +158,13 @@ class EmbeddingSpecInfo(enum.IntEnum):
     embedding_location = 4
 
 
+# pyrefly: ignore [bad-assignment]
 RecordCacheMetrics: NamedTuple = NamedTuple(
     "RecordCacheMetrics",
     [("record_cache_miss_counter", bool), ("record_tablewise_cache_miss", bool)],
 )
 
+# pyrefly: ignore [bad-assignment]
 SplitState: NamedTuple = NamedTuple(
     "SplitState",
     [

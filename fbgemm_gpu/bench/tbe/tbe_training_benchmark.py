@@ -641,6 +641,7 @@ def device_with_speclist(  # noqa C901
     # pyre-ignore[53]
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(
+            # pyrefly: ignore [missing-attribute]
             benchconfig.trace_url.format(
                 emb_op_type=emb_op_type, phase=phase, ospid=os.getpid()
             )
