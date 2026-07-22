@@ -20,7 +20,11 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, on_arm_platform
+    from test_utils import (  # noqa: F401
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        on_arm_platform,
+    )
 else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_gpu"
@@ -28,7 +32,11 @@ else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_cpu"
     )
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, on_arm_platform
+    from fbgemm_gpu.test.test_utils import (  # noqa: F401
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        on_arm_platform,
+    )
 
 typed_gpu_unavailable: tuple[bool, str] = gpu_unavailable
 typed_on_arm_platform: tuple[bool, str] = on_arm_platform

@@ -17,7 +17,7 @@ import torch.nn as nn
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
 from hypothesis import given, settings
 
-from .common import Net, open_source
+from .common import gpu_memory_lt_gb, Net, open_source, typed_gpu_unavailable
 
 if open_source:
     # pyre-ignore[21]
@@ -158,6 +158,59 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
 
         assert output_meta.shape == output_cpu.shape
         assert input.shape == output_meta.shape
+
+    @unittest.skipIf(*typed_gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_permute_pooled_embedding_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in permute_pooled_embs_kernel
+        (include/fbgemm_gpu/layout_transform_ops.cuh:64-117).
+
+        Block: dim3(kMaxThreads=1024). Grid x = div_round_up(T, 32). For
+        T = 2**22 + 1 and B = 32, total threads = ceil(T/32) * 32 * 1024
+        > 2**32, tripping KernelLauncher::checkThreadCountNotExceeded on
+        ROCm pre-fix.
+
+        Pre-fix: AMD launch fails. Post-fix: passes (kernel grid-strides
+        over t).
+        """
+        T = (1 << 22) + 1
+        B = 32
+        embs_dims = [1] * T
+        permute = list(range(T))
+
+        pooled_embs = torch.zeros(
+            B, sum(embs_dims), dtype=torch.float32, device=self.device
+        )
+        module = PermutePooledEmbeddings(embs_dims, permute, device=self.device)
+        result = module(pooled_embs)
+
+        self.assertEqual(result.shape, pooled_embs.shape)
+        self.assertTrue(torch.all(result == 0).item())
+
+        # Tier-A correctness check at small scale with non-trivial permute
+        # and non-zero values. Pure Python reference: per-feature gather.
+        small_embs_dims = [3, 5, 2, 4]
+        small_T = len(small_embs_dims)
+        # Reverse permute: [3, 2, 1, 0].
+        small_permute = list(range(small_T))[::-1]
+        small_B = 4
+        small_total_D = sum(small_embs_dims)
+        # Distinct values across rows.
+        small_pooled_cpu = torch.arange(
+            small_B * small_total_D, dtype=torch.float32
+        ).view(small_B, small_total_D)
+
+        small_module = PermutePooledEmbeddings(
+            small_embs_dims, small_permute, device=self.device
+        )
+        small_result = small_module(small_pooled_cpu.to(self.device))
+
+        # Python reference: split per-feature, gather by permute.
+        small_segments = list(small_pooled_cpu.split(small_embs_dims, dim=1))
+        small_ref = torch.cat([small_segments[p] for p in small_permute], dim=1)
+
+        torch.testing.assert_close(small_result.cpu(), small_ref)
 
 
 if __name__ == "__main__":
