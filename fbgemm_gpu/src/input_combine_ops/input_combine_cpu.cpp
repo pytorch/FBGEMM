@@ -202,6 +202,22 @@ Tensor _cat_per_sample_weights_list(
   return combined_weights;
 }
 
+// Allocates the int64 combined_offsets buffer shared by the tbe_input_combine
+// family. Centralizing this keeps the output dtype (int64) consistent across
+// variants; previously each caller built at::empty with its own options, so the
+// int32->int64 overflow fix had to be applied to every copy.
+static Tensor _allocate_combined_offsets(
+    int64_t total_offsets,
+    const Tensor& device_ref,
+    bool pin_memory) {
+  return at::empty(
+      {total_offsets},
+      at::TensorOptions()
+          .dtype(c10::kLong)
+          .device(device_ref.device())
+          .pinned_memory(pin_memory));
+}
+
 std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& offsets_list,
@@ -276,15 +292,11 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
       to_trim_padding,
       indices_terminating_idx);
 
-  auto combined_offsets = at::empty(
-      {total_offsets},
-      at::TensorOptions()
-          .dtype(c10::kInt)
-          .device(offsets_list[0].device())
-          .pinned_memory(pin_memory));
+  auto combined_offsets =
+      _allocate_combined_offsets(total_offsets, offsets_list[0], pin_memory);
 
-  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
-  int32_t offset = 0;
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int64_t>();
+  int64_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -299,13 +311,13 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
                j < size;
                j++) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_data_ptr[j]);
+                offset + offsets_data_ptr[j];
           }
 
           if (to_trim_padding) {
-            offset += static_cast<int32_t>(offsets_list[i][-1].item().toInt());
+            offset += offsets_list[i][-1].item().toLong();
           } else {
-            offset += static_cast<int32_t>(indices_list[i].numel());
+            offset += indices_list[i].numel();
           }
           combined_offsets_data_ptr[offsets_acc_idx++] = offset;
         });
@@ -470,15 +482,11 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
   auto combined_indices =
       _cat_int_tensors(indices_list, total_indices, pin_memory);
 
-  auto combined_offsets = at::empty(
-      {total_offsets},
-      at::TensorOptions()
-          .dtype(c10::kInt)
-          .device(offsets_list[0].device())
-          .pinned_memory(pin_memory));
+  auto combined_offsets =
+      _allocate_combined_offsets(total_offsets, offsets_list[0], pin_memory);
 
-  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
-  int32_t offset = 0;
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int64_t>();
+  int64_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -489,11 +497,19 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
           auto* offsets_data_ptr = offsets_list[i].const_data_ptr<index_t>();
           int64_t offsets_size =
               offsets_list[i].numel() - (include_last_offsets_acc[i] ? 1 : 0);
+          TORCH_CHECK(
+              offsets_size >= 1 && offsets_size <= batch_size + 1,
+              "padding_fused_tbe_input_combine expects each table's effective "
+              "offsets count to be in [1, batch_size + 1], but got ",
+              offsets_size,
+              " (batch_size = ",
+              batch_size,
+              ")");
           for (const auto j : c10::irange(1, offsets_size)) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_data_ptr[j]);
+                offset + offsets_data_ptr[j];
           }
-          offset += static_cast<int32_t>(indices_list[i].numel());
+          offset += indices_list[i].numel();
           for (int64_t j = offsets_size; j <= batch_size; j++) {
             combined_offsets_data_ptr[offsets_acc_idx++] = offset;
           }

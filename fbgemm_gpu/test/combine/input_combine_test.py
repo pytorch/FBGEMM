@@ -113,7 +113,7 @@ class InputCombineTest(unittest.TestCase):
         for i, j in zip(outputs, ref_outputs):
             torch.testing.assert_close(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
 
         outputs = torch.ops.fbgemm.tbe_input_combine(
             indices_list,
@@ -124,10 +124,9 @@ class InputCombineTest(unittest.TestCase):
         ref_outputs = ref_mod(indices_list, offsets_list, empty_per_sample_weights)
         for i, j in zip(outputs[:-1], ref_outputs[:-1]):
             torch.testing.assert_close(i, j)
-            self.assertTrue(j.dtype == torch.int32)
 
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
         self.assertTrue(outputs[-1].size(0) == 0)
 
     def _run_test_with_prepadded_indices_weights(self) -> None:
@@ -155,7 +154,7 @@ class InputCombineTest(unittest.TestCase):
             torch.tensor(
                 [1, 2, 3, 1, 2, 3, 4, 123, 123, 123, 456, 456, 456], dtype=torch.int32
             ),
-            torch.tensor([0, 2, 3, 4, 7], dtype=torch.int32),
+            torch.tensor([0, 2, 3, 4, 7], dtype=torch.int64),
             torch.tensor(
                 [1.0, 2.0, 1.0, 1.0, 2.0, 1.0, 3.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
             ),
@@ -163,7 +162,7 @@ class InputCombineTest(unittest.TestCase):
         for i, j in zip(outputs, expected_outputs):
             torch.testing.assert_close(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
 
         outputs = torch.ops.fbgemm.tbe_input_combine(
             indices_list,
@@ -175,13 +174,13 @@ class InputCombineTest(unittest.TestCase):
             torch.tensor(
                 [1, 2, 3, 1, 2, 3, 4, 123, 123, 123, 456, 456, 456], dtype=torch.int32
             ),
-            torch.tensor([0, 2, 3, 4, 7], dtype=torch.int32),
+            torch.tensor([0, 2, 3, 4, 7], dtype=torch.int64),
             torch.empty(0),
         ]
         for i, j in zip(outputs, expected_outputs):
             torch.testing.assert_close(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
         self.assertTrue(outputs[2].size(0) == 0)
 
     def _run_test_with_prepadded_indices_weights_without_last_offsets(self) -> None:
@@ -210,7 +209,7 @@ class InputCombineTest(unittest.TestCase):
         for i, j in zip(outputs, ref_outputs):
             torch.testing.assert_close(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
 
         outputs = torch.ops.fbgemm.tbe_input_combine(
             indices_list,
@@ -222,7 +221,7 @@ class InputCombineTest(unittest.TestCase):
         for i, j in zip(outputs[:-1], ref_outputs[:-1]):
             torch.testing.assert_close(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
         self.assertTrue(outputs[2].size(0) == 0)
 
     # pyre-fixme[2]: Parameter must be annotated.
@@ -249,7 +248,7 @@ class InputCombineTest(unittest.TestCase):
         for i, j in zip(outputs, ref_outputs):
             torch.testing.assert_close(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
 
         outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
             indices_list,
@@ -263,10 +262,9 @@ class InputCombineTest(unittest.TestCase):
         )
         for i, j in zip(outputs[:-1], ref_outputs[:-1]):
             torch.testing.assert_close(i, j)
-            self.assertTrue(j.dtype == torch.int32)
 
         self.assertTrue(outputs[0].dtype == torch.int32)
-        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int64)
         self.assertTrue(outputs[-1].size(0) == 0)
 
     # pyre-fixme[3]: Return type must be annotated.
@@ -322,7 +320,7 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(ref_outputs[2].allclose(outputs[2]))
 
         ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
-        self.assertTrue(ref_lengths.allclose(outputs[1]))
+        self.assertTrue(ref_lengths.to(outputs[1].dtype).allclose(outputs[1]))
 
     # pyre-fixme[2]: Parameter must be annotated.
     def _run_padding_fused_test_with_length(self, dtypes, batch_size) -> None:
@@ -357,7 +355,7 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(ref_outputs[2].allclose(outputs[2]))
 
         ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
-        self.assertTrue(ref_lengths.allclose(outputs[1]))
+        self.assertTrue(ref_lengths.to(outputs[1].dtype).allclose(outputs[1]))
 
     def test_input_combine_int64(self) -> None:
         self._run_test((torch.int64, torch.int64))
@@ -367,6 +365,62 @@ class InputCombineTest(unittest.TestCase):
 
     def test_input_combined_mix(self) -> None:
         self._run_test((torch.int64, torch.int32))
+
+    def _run_large_offsets_test(self, batch_size: int | None = None) -> None:
+        # Regression test for int32 truncation of combined offsets. A synthetic
+        # int64 offset value beyond INT32_MAX exercises the int64 *storage* /
+        # passthrough path (offset + offsets_data_ptr[j]); the int64
+        # *accumulation* variable (offset += numel) is only reachable with
+        # >2^31 real indices elements (~8 GB), which is impractical to
+        # materialize here. Uses non-trim mode (include_last_offsets=False) so
+        # raw offset values pass through without the offsets[-1] <= numel check.
+        big = 2_500_000_000  # > INT32_MAX (2_147_483_647)
+        indices_list = [
+            torch.tensor([1, 2, 3], dtype=torch.int32),
+            torch.tensor([1, 2, 3, 4], dtype=torch.int32),
+        ]
+        offsets_list = [
+            torch.tensor([0, 2], dtype=torch.int64),
+            torch.tensor([0, big], dtype=torch.int64),
+        ]
+        empty_per_sample_weights = [
+            torch.tensor([], dtype=torch.float),
+            torch.tensor([], dtype=torch.float),
+        ]
+        include_last_offsets = [False, False]
+
+        if batch_size is None:
+            outputs = torch.ops.fbgemm.tbe_input_combine(
+                indices_list,
+                offsets_list,
+                empty_per_sample_weights,
+                torch.BoolTensor(include_last_offsets),
+            )
+        else:
+            outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                indices_list,
+                offsets_list,
+                empty_per_sample_weights,
+                torch.BoolTensor(include_last_offsets),
+                batch_size,
+            )
+        ref_mod = TBEInputPrepareReference(include_last_offsets)
+        ref_outputs = ref_mod(
+            indices_list, offsets_list, empty_per_sample_weights, batch_size
+        )
+
+        self.assertTrue(outputs[1].dtype == torch.int64)
+        # No truncation: the large shifted offset (big + 3) is preserved exactly.
+        self.assertEqual(outputs[1].tolist(), [0, 2, 3, big + 3, 7])
+        for i, j in zip(outputs[:-1], ref_outputs[:-1]):
+            torch.testing.assert_close(i, j)
+        self.assertTrue(outputs[-1].size(0) == 0)
+
+    def test_tbe_input_combine_large_offsets(self) -> None:
+        self._run_large_offsets_test()
+
+    def test_padding_fused_tbe_input_combine_large_offsets(self) -> None:
+        self._run_large_offsets_test(batch_size=2)
 
     def test_tbe_input_combine_cpu_with_padded_indices(self) -> None:
         self._run_test_with_prepadded_indices_weights()
