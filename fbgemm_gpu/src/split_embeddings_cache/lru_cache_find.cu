@@ -214,7 +214,7 @@ lru_cache_find_uncached_cuda(
         constexpr int PREFETCH_KERNEL_MAX_BLOCKS = 8;
 
         auto grid_size = std::min(
-            div_round_up(N, kMaxThreads / kWarpSize),
+            div_round_up(N, kMaxThreads / kWarpSizeHost()),
             lock_cache_line ? PREFETCH_KERNEL_MAX_BLOCKS
                             : get_max_thread_blocks_for_cache_kernels_());
 
@@ -222,7 +222,7 @@ lru_cache_find_uncached_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (lru_cache_find_uncached_kernel<index_t>),
             grid_size,
-            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(unique_indices, index_t, 1, 32),

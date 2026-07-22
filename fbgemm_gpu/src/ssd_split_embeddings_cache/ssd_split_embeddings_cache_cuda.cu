@@ -447,8 +447,8 @@ ssd_cache_populate_actions_cuda(
 
   FBGEMM_LAUNCH_DSA_KERNEL(
       ssd_cache_actions_insert_kernel,
-      div_round_up(N, kMaxThreads / kWarpSize),
-      dim3(kWarpSize, kMaxThreads / kWarpSize),
+      div_round_up(N, kMaxThreads / kWarpSizeHost()),
+      dim3(kWarpSizeHost(), kMaxThreads / kWarpSizeHost()),
       0,
       at::cuda::getCurrentCUDAStream(),
       PTA_B(lxu_cache_state, int64_t, 2, 32),
@@ -558,7 +558,7 @@ std::tuple<Tensor, Tensor> ssd_generate_row_addrs_cuda(
       lxu_cache_locations.options().dtype(at::kLong));
   const auto post_bwd_evicted_indices = at::empty_like(ssd_row_addrs);
 
-  constexpr auto kNumWarps = kMaxThreads / kWarpSize;
+  const auto kNumWarps = kMaxThreads / kWarpSizeHost();
   const auto cache_row_bytes =
       lxu_cache_weights.size(1) * lxu_cache_weights.element_size();
   const auto lxu_cache_weights_addr =
@@ -578,7 +578,7 @@ std::tuple<Tensor, Tensor> ssd_generate_row_addrs_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (ssd_generate_row_addrs_kernel<index_t>),
             div_round_up(lxu_cache_locations.numel(), kNumWarps),
-            dim3(kWarpSize, kNumWarps),
+            dim3(kWarpSizeHost(), kNumWarps),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(ssd_row_addrs, int64_t, 1, 32),
@@ -684,12 +684,12 @@ void ssd_update_row_addrs_cuda(
       reinterpret_cast<uint64_t>(inserted_ssd_weights_next.data_ptr());
   const auto cache_row_bytes =
       lxu_cache_weights.size(1) * lxu_cache_weights.element_size();
-  constexpr auto kNumWarps = kMaxThreads / kWarpSize;
+  const auto kNumWarps = kMaxThreads / kWarpSizeHost();
 
   FBGEMM_LAUNCH_KERNEL(
       (ssd_update_row_addrs_kernel),
       div_round_up(ssd_row_addrs_curr.numel(), kNumWarps),
-      dim3(kWarpSize, kNumWarps),
+      dim3(kWarpSizeHost(), kNumWarps),
       0,
       at::cuda::getCurrentCUDAStream(),
       PTA_B(ssd_row_addrs_curr, int64_t, 1, 32),

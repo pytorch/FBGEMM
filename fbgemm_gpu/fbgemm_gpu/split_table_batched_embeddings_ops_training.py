@@ -92,7 +92,9 @@ except Exception:
     pass
 
 
-DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
+# Default cache associativity. Overridden to 64 in each module's
+# __init__ on AMD devices that have 64-lane waves.
+DEFAULT_ASSOC = 32
 INT8_EMB_ROW_DIM_OFFSET = 8
 
 
@@ -3730,6 +3732,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.timestep = 1
         self.timesteps_prefetched = []
 
+        # Cache associativity (ways per set) must equal the device warp size:
+        # the cache kernels use one warp to cooperatively scan the ways of a
+        # single set. CDNA (gfx9xx) is warp 64, RDNA (gfx11xx) is warp 32, and
+        # NVIDIA is warp 32. Query the actual device when a live CUDA device is
+        # present, so a single multi-arch ROCm build is correct on both wave
+        # sizes. On CPU, a meta device (tracing/sharding/publish), or a
+        # CUDA-typed device on a host with no driver, get_device_properties
+        # raises, so fall back to the module-level DEFAULT_ASSOC in those cases.
+        self.cache_assoc: int = DEFAULT_ASSOC
+        if self.current_device.type == "cuda" and torch.cuda.is_available():
+            self.cache_assoc = torch.cuda.get_device_properties(
+                self.current_device
+            ).warp_size
+
         self.max_prefetch_depth = MAX_PREFETCH_DEPTH
         self.lxu_cache_locations_list = []
         self.lxu_cache_locations_empty = torch.empty(
@@ -3812,24 +3828,24 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert free_memory > 0
             cache_sets = (
                 int(cache_state.total_cache_hash_size * cache_load_factor)
-                + DEFAULT_ASSOC
+                + self.cache_assoc
                 - 1
-            ) // DEFAULT_ASSOC
+            ) // self.cache_assoc
             cache_sets = 1 if cache_sets == 0 else cache_sets
-            cache_size = cache_sets * DEFAULT_ASSOC * element_size * self.max_D_cache
+            cache_size = cache_sets * self.cache_assoc * element_size * self.max_D_cache
             if cache_size > free_memory:
                 cache_sets = (
                     int(1.0 * free_memory / self.max_D_cache / element_size)
-                    + DEFAULT_ASSOC
+                    + self.cache_assoc
                     - 1
-                ) // DEFAULT_ASSOC
+                ) // self.cache_assoc
         cache_load_factor = (
-            1.0 * cache_sets * DEFAULT_ASSOC / int(cache_state.total_cache_hash_size)
+            1.0 * cache_sets * self.cache_assoc / int(cache_state.total_cache_hash_size)
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2**24 - 1
-        cache_size = cache_sets * DEFAULT_ASSOC * element_size * self.max_D_cache
+        cache_size = cache_sets * self.cache_assoc * element_size * self.max_D_cache
         self.log(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
@@ -3862,14 +3878,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
-                cache_sets, DEFAULT_ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ).fill_(-1),
         )
         # Cache itself, not auxiliary size
         self.register_buffer(
             "lxu_cache_weights",
             torch.zeros(
-                cache_sets * DEFAULT_ASSOC,
+                cache_sets * self.cache_assoc,
                 self.max_D_cache,
                 device=self.current_device,
                 dtype=dtype,
@@ -3883,7 +3902,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 size=(
                     (self.total_cache_hash_size + 1,)
                     if cache_algorithm == CacheAlgorithm.LFU
-                    else (cache_sets, DEFAULT_ASSOC)
+                    else (cache_sets, self.cache_assoc)
                 ),
                 device=self.current_device,
                 dtype=torch.int64,
@@ -4028,7 +4047,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "lxu_cache_locking_counter",
                 torch.zeros(
                     cache_sets,
-                    DEFAULT_ASSOC,
+                    self.cache_assoc,
                     device=self.current_device,
                     dtype=torch.int32,
                 ),

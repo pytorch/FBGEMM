@@ -176,9 +176,9 @@ void lfu_cache_insert_byte_cuda(
         FBGEMM_LAUNCH_KERNEL(
             (lfu_cache_insert_byte_kernel<index_t>),
             std::min(
-                div_round_up(N, kCacheMaxThreads / kWarpSize),
+                div_round_up(N, kCacheMaxThreads / kWarpSizeHost()),
                 get_max_thread_blocks_for_cache_kernels_()),
-            dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kCacheMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(weights, uint8_t, 1, 64),
