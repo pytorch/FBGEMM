@@ -24,6 +24,11 @@ else:
 
 
 class ZipfTest(unittest.TestCase):
+    @unittest.skip(
+        "CUDA-only large-grid stress repro allocates ~32 GiB and exceeds the 600s "
+        "tpx timeout when it runs on a large-HBM GPU; it cannot run reliably in CI. "
+        "Kept in-tree as a manual repro. T191384137"
+    )
     @unittest.skipIf(*gpu_unavailable)
     # Skip on GPUs with insufficient HBM. The test allocates int64[n] for
     # n = 2**32 + 1 (~32 GiB), so it needs a large-HBM GPU. Gate at 64 GiB to
