@@ -21,6 +21,7 @@
 #include <torch/library.h>
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
@@ -140,10 +141,17 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
   const dim3 threads(
       fbgemm_gpu::kWarpSizeHost(),
       fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost());
-  const dim3 blocks(
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // recat_copy_async_kernel grid-strides over (b, t), so capping is
+  // correctness-preserving.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_x = utils::cuda::cap_grid_dim_x(
       fbgemm_gpu::div_round_up(
           (B_local * dim_num),
-          fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost()));
+          fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost()),
+      fbgemm_gpu::kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
+  const dim3 blocks(blocks_x);
 
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {
