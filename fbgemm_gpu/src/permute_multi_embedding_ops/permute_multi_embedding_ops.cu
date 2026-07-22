@@ -17,6 +17,7 @@
 
 #include "fbgemm_gpu/permute_multi_embedding_function.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
@@ -41,88 +42,90 @@ __global__ void permute_multi_embs_kernel(
     const int32_t permute_size) {
   // workers in a warp handle exact one permute (of a feature/key)
   const auto worker_id = threadIdx.x;
-  const auto permute_id = threadIdx.y + blockIdx.x * blockDim.y;
+  const auto permute_id_start = threadIdx.y + blockIdx.x * blockDim.y;
+  const auto permute_stride = gridDim.x * blockDim.y;
   const auto batch_id = blockIdx.y + gridDim.y * blockIdx.z;
   if (batch_id >= batch_size) {
     return;
   }
-  if (permute_id >= permute_size) {
-    return;
-  }
-
-  // parse permutes
-  int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
-  int32_t* __restrict__ pp = permutes[permute_id].data();
-  if (reverse_permute) {
-    out_tensor = pp[PermuteParam::in_tensor];
-    in_tensor = pp[PermuteParam::out_tensor];
-    out_offset = pp[PermuteParam::in_offset];
-    in_offset = pp[PermuteParam::out_offset];
-  } else {
-    in_tensor = pp[PermuteParam::in_tensor];
-    out_tensor = pp[PermuteParam::out_tensor];
-    in_offset = pp[PermuteParam::in_offset];
-    out_offset = pp[PermuteParam::out_offset];
-  }
-  length = pp[PermuteParam::length];
-  next = pp[PermuteParam::next];
-
-  if (worker_id >= length) {
-    return;
-  }
-  if (reverse_permute && next < 0) {
-    return;
-  }
-
-  // locate the batch_id
-  const auto in_length = in_lengths[in_tensor];
-  // Sometimes batch_id * length can go beyond 32-bit int (e.g., 3900 * 654060)
-  // so cast them to int64_t.
-  const scalar_t* __restrict__ input_ptr =
-      reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
-      static_cast<int64_t>(batch_id) * static_cast<int64_t>(in_length) +
-      in_offset;
-
-  const auto out_length = out_lengths[out_tensor];
-  scalar_t* __restrict__ output_ptr =
-      reinterpret_cast<scalar_t*>(outputs[out_tensor]) +
-      static_cast<int64_t>(batch_id) * static_cast<int64_t>(out_length) +
-      out_offset;
-
-  if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(output_ptr) &&
-      fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(input_ptr)) {
-    constexpr int32_t vec_size = 4;
-    const int32_t loop_end = round_down(length, vec_size);
-    for (int32_t i = worker_id * vec_size; i < loop_end;
-         i += blockDim.x * vec_size) {
-      fbgemm_gpu::Vec4T<scalar_t>::copy(&input_ptr[i], &output_ptr[i]);
+  // Grid-stride loop over permute_id so the kernel remains correct when the
+  // host caps gridDim.x to satisfy the HIP 2^32 thread-per-launch limit.
+  for (int32_t permute_id = permute_id_start; permute_id < permute_size;
+       permute_id += permute_stride) {
+    // parse permutes
+    int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
+    int32_t* __restrict__ pp = permutes[permute_id].data();
+    if (reverse_permute) {
+      out_tensor = pp[PermuteParam::in_tensor];
+      in_tensor = pp[PermuteParam::out_tensor];
+      out_offset = pp[PermuteParam::in_offset];
+      in_offset = pp[PermuteParam::out_offset];
+    } else {
+      in_tensor = pp[PermuteParam::in_tensor];
+      out_tensor = pp[PermuteParam::out_tensor];
+      in_offset = pp[PermuteParam::in_offset];
+      out_offset = pp[PermuteParam::out_offset];
     }
-    // Use elementwise access for the last incomplete vector.
-    for (auto i = loop_end + worker_id; i < length; i += blockDim.x) {
-      output_ptr[i] = input_ptr[i];
-    }
-  } else { // Fallback if not aligned.
-    for (auto i = worker_id; i < length; i += blockDim.x) {
-      output_ptr[i] = input_ptr[i];
-    }
-  }
-
-  // for reverse_permute (backward) with next
-  while (reverse_permute && next > 0 && next < permute_size) {
-    int32_t* __restrict__ pp = permutes[next].data();
-    in_tensor = pp[PermuteParam::out_tensor];
-    in_offset = pp[PermuteParam::out_offset];
     length = pp[PermuteParam::length];
-    next = -pp[PermuteParam::next];
+    next = pp[PermuteParam::next];
 
+    if (worker_id >= length) {
+      continue;
+    }
+    if (reverse_permute && next < 0) {
+      continue;
+    }
+
+    // locate the batch_id
     const auto in_length = in_lengths[in_tensor];
-    const scalar_t* input_ptr =
+    // Sometimes batch_id * length can go beyond 32-bit int (e.g., 3900 *
+    // 654060) so cast them to int64_t.
+    const scalar_t* __restrict__ input_ptr =
         reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
         static_cast<int64_t>(batch_id) * static_cast<int64_t>(in_length) +
         in_offset;
 
-    for (auto i = worker_id; i < length; i += blockDim.x) {
-      output_ptr[i] += input_ptr[i];
+    const auto out_length = out_lengths[out_tensor];
+    scalar_t* __restrict__ output_ptr =
+        reinterpret_cast<scalar_t*>(outputs[out_tensor]) +
+        static_cast<int64_t>(batch_id) * static_cast<int64_t>(out_length) +
+        out_offset;
+
+    if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(output_ptr) &&
+        fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(input_ptr)) {
+      constexpr int32_t vec_size = 4;
+      const int32_t loop_end = round_down(length, vec_size);
+      for (int32_t i = worker_id * vec_size; i < loop_end;
+           i += blockDim.x * vec_size) {
+        fbgemm_gpu::Vec4T<scalar_t>::copy(&input_ptr[i], &output_ptr[i]);
+      }
+      // Use elementwise access for the last incomplete vector.
+      for (auto i = loop_end + worker_id; i < length; i += blockDim.x) {
+        output_ptr[i] = input_ptr[i];
+      }
+    } else { // Fallback if not aligned.
+      for (auto i = worker_id; i < length; i += blockDim.x) {
+        output_ptr[i] = input_ptr[i];
+      }
+    }
+
+    // for reverse_permute (backward) with next
+    while (reverse_permute && next > 0 && next < permute_size) {
+      int32_t* __restrict__ pp = permutes[next].data();
+      in_tensor = pp[PermuteParam::out_tensor];
+      in_offset = pp[PermuteParam::out_offset];
+      length = pp[PermuteParam::length];
+      next = -pp[PermuteParam::next];
+
+      const auto in_length = in_lengths[in_tensor];
+      const scalar_t* input_ptr =
+          reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
+          static_cast<int64_t>(batch_id) * static_cast<int64_t>(in_length) +
+          in_offset;
+
+      for (auto i = worker_id; i < length; i += blockDim.x) {
+        output_ptr[i] += input_ptr[i];
+      }
     }
   }
 }
@@ -275,8 +278,16 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
       fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost();
   const int32_t max_grid_dim = 32768; // The CUDA maximum is 65535, not 1<<N.
   const dim3 block_dim(fbgemm_gpu::kWarpSizeHost(), warp_per_block);
-  const dim3 grid_dim(
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // permute_multi_embs_kernel grid-strides over permute_id, so capping is
+  // correctness-preserving. y/z dims are already bounded by max_grid_dim.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_x = utils::cuda::cap_grid_dim_x(
       fbgemm_gpu::div_round_up(permute_size, warp_per_block),
+      fbgemm_gpu::kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
+  const dim3 grid_dim(
+      blocks_x,
       std::min(static_cast<int32_t>(batch_size), max_grid_dim),
       (batch_size + max_grid_dim - 1) / max_grid_dim);
 
