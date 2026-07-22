@@ -13,11 +13,11 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 // Kernel for permuting 1D lengths. Used for permutation of sparse features.
-template <typename index_t>
+template <typename index_t, typename permute_t = int32_t>
 __global__ __launch_bounds__(kMaxThreads) void permute_1D_lengths_kernel(
     const index_t* __restrict__ lengths,
     int32_t permuted_lengths_size,
-    const int32_t* __restrict__ permute,
+    const permute_t* __restrict__ permute,
     index_t* __restrict__ permuted_lengths) {
   CUDA_KERNEL_LOOP(i, permuted_lengths_size) {
     permuted_lengths[i] = lengths[permute[i]];
@@ -30,13 +30,14 @@ template <
     bool has_weight,
     typename offsets_t,
     typename indices_t,
-    typename weights_t>
+    typename weights_t,
+    typename permute_t = int32_t>
 __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel(
     int32_t permuted_indices_size,
     int32_t permuted_lengths_size,
     const indices_t* __restrict__ indices,
     const weights_t* __restrict__ weights,
-    const int32_t* __restrict__ permute,
+    const permute_t* __restrict__ permute,
     const offsets_t* __restrict__ input_offsets,
     const offsets_t* __restrict__ output_offsets,
     indices_t* __restrict__ permuted_indices,
@@ -71,13 +72,14 @@ template <
     bool has_weight,
     typename offsets_t,
     typename indices_t,
-    typename weights_t>
+    typename weights_t,
+    typename permute_t = int32_t>
 __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_vec(
     int32_t permuted_indices_size,
     int32_t permuted_lengths_size,
     const indices_t* __restrict__ indices,
     const weights_t* __restrict__ weights,
-    const int32_t* __restrict__ permute,
+    const permute_t* __restrict__ permute,
     const offsets_t* __restrict__ input_offsets,
     const offsets_t* __restrict__ output_offsets,
     indices_t* __restrict__ permuted_indices,
@@ -244,17 +246,21 @@ permute_1D_sparse_data_cuda(
       at::cuda::getCurrentCUDAStream(),
       utils::cuda::BlockCapPolicy::OverflowOnly);
   AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
-        FBGEMM_LAUNCH_KERNEL(
-            (permute_1D_lengths_kernel<index_t>),
-            blocks_1,
-            threads_1,
-            0,
-            at::cuda::getCurrentCUDAStream(),
-            lengths_contig.data_ptr<index_t>(),
-            permuted_lengths_size,
-            permute_contig.data_ptr<int32_t>(),
-            permuted_lengths.data_ptr<index_t>());
+      permute.scalar_type(), "permute_1D_lengths_permute_type", [&] {
+        using permute_t = index_t;
+        AT_DISPATCH_INDEX_TYPES(
+            lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
+              FBGEMM_LAUNCH_KERNEL(
+                  (permute_1D_lengths_kernel<index_t, permute_t>),
+                  blocks_1,
+                  threads_1,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  lengths_contig.data_ptr<index_t>(),
+                  permuted_lengths_size,
+                  permute_contig.data_ptr<permute_t>(),
+                  permuted_lengths.data_ptr<index_t>());
+            });
       });
 
   // convert lengths to offsets
@@ -289,35 +295,63 @@ permute_1D_sparse_data_cuda(
   permuted_indices = at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_1D_data_kernel_vec_1", [&] {
-        using offsets_t = index_t;
-        FBGEMM_DISPATCH_ALL_TYPES(
-            indices.scalar_type(), "permute_1D_data_kernel_vec_2", [&] {
-              using indices_t = scalar_t;
-              if (weights.has_value()) {
-                const Tensor weights_value = weights.value();
-                const auto weights_value_contig = weights_value.contiguous();
-                int32_t weights_columns = 1;
-                if (weights_value.dense_dim() > 1) {
-                  weights_columns = weights_value.size(1);
-                  permuted_weights = at::empty(
-                      {permuted_indices_size, weights_columns},
-                      weights_value.options());
-                } else {
-                  permuted_weights =
-                      at::empty(permuted_indices_size, weights_value.options());
-                }
-                FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
-                    weights_value.scalar_type(),
-                    "permute_1D_data_kernel_vec_3",
-                    [&] {
-                      using weights_t = scalar_t;
+      permute.scalar_type(), "permute_1D_data_permute_type", [&] {
+        using permute_t = index_t;
+        AT_DISPATCH_INDEX_TYPES(
+            input_offsets.scalar_type(), "permute_1D_data_kernel_vec_1", [&] {
+              using offsets_t = index_t;
+              FBGEMM_DISPATCH_ALL_TYPES(
+                  indices.scalar_type(), "permute_1D_data_kernel_vec_2", [&] {
+                    using indices_t = scalar_t;
+                    if (weights.has_value()) {
+                      const Tensor weights_value = weights.value();
+                      const auto weights_value_contig =
+                          weights_value.contiguous();
+                      int32_t weights_columns = 1;
+                      if (weights_value.dense_dim() > 1) {
+                        weights_columns = weights_value.size(1);
+                        permuted_weights = at::empty(
+                            {permuted_indices_size, weights_columns},
+                            weights_value.options());
+                      } else {
+                        permuted_weights = at::empty(
+                            permuted_indices_size, weights_value.options());
+                      }
+                      FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
+                          weights_value.scalar_type(),
+                          "permute_1D_data_kernel_vec_3",
+                          [&] {
+                            using weights_t = scalar_t;
+                            FBGEMM_LAUNCH_KERNEL(
+                                (permute_1D_data_kernel_vec<
+                                    true,
+                                    offsets_t,
+                                    indices_t,
+                                    weights_t,
+                                    permute_t>),
+                                blocks_2,
+                                threads_2,
+                                0,
+                                at::cuda::getCurrentCUDAStream(),
+                                permuted_indices_size,
+                                permuted_lengths_size,
+                                indices_contig.data_ptr<indices_t>(),
+                                weights_value_contig.data_ptr<weights_t>(),
+                                permute_contig.data_ptr<permute_t>(),
+                                input_offsets.data_ptr<offsets_t>(),
+                                output_offsets.data_ptr<offsets_t>(),
+                                permuted_indices.data_ptr<indices_t>(),
+                                permuted_weights.data_ptr<weights_t>(),
+                                weights_columns);
+                          }); // for each weights_t
+                    } else {
                       FBGEMM_LAUNCH_KERNEL(
                           (permute_1D_data_kernel_vec<
-                              true,
+                              false,
                               offsets_t,
                               indices_t,
-                              weights_t>),
+                              std::nullptr_t,
+                              permute_t>),
                           blocks_2,
                           threads_2,
                           0,
@@ -325,38 +359,17 @@ permute_1D_sparse_data_cuda(
                           permuted_indices_size,
                           permuted_lengths_size,
                           indices_contig.data_ptr<indices_t>(),
-                          weights_value_contig.data_ptr<weights_t>(),
-                          permute_contig.data_ptr<int32_t>(),
+                          nullptr,
+                          permute_contig.data_ptr<permute_t>(),
                           input_offsets.data_ptr<offsets_t>(),
                           output_offsets.data_ptr<offsets_t>(),
                           permuted_indices.data_ptr<indices_t>(),
-                          permuted_weights.data_ptr<weights_t>(),
-                          weights_columns);
-                    }); // for each weights_t
-              } else {
-                FBGEMM_LAUNCH_KERNEL(
-                    (permute_1D_data_kernel_vec<
-                        false,
-                        offsets_t,
-                        indices_t,
-                        std::nullptr_t>),
-                    blocks_2,
-                    threads_2,
-                    0,
-                    at::cuda::getCurrentCUDAStream(),
-                    permuted_indices_size,
-                    permuted_lengths_size,
-                    indices_contig.data_ptr<indices_t>(),
-                    nullptr,
-                    permute_contig.data_ptr<int32_t>(),
-                    input_offsets.data_ptr<offsets_t>(),
-                    output_offsets.data_ptr<offsets_t>(),
-                    permuted_indices.data_ptr<indices_t>(),
-                    nullptr,
-                    1);
-              }
-            }); // for each indices_t
-      }); // for each offsets_t
+                          nullptr,
+                          1);
+                    }
+                  }); // for each indices_t
+            }); // for each offsets_t
+      }); // for each permute_t
 
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
