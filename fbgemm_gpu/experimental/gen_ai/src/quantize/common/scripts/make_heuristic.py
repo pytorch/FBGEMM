@@ -88,6 +88,7 @@ def get_kernel_assignment(file_path: str, threshold: float) -> dict[ProblemShape
         for row in file:
             problem_shape_str, kernel, time_ms_str = row.strip().split(",")
             shape_tuple = tuple(int(x) for x in problem_shape_str.split("_"))
+            # pyrefly: ignore [bad-argument-type]
             problem_shape = ProblemShape.from_tuple(shape_tuple)
             time_ms = float(time_ms_str)
 
@@ -110,6 +111,7 @@ def get_kernel_assignment(file_path: str, threshold: float) -> dict[ProblemShape
 
     # Prefer kernels that are used more often across all problem shapes
     while len(kernel_assignment) < len(kernel_candidates):
+        # pyrefly: ignore [no-matching-overload]
         top_kernel = sorted(kernel_count.keys(), key=kernel_count.get, reverse=True)[0]
         for problem_shape, candidates in kernel_candidates.items():
             if problem_shape not in kernel_assignment and top_kernel in candidates:

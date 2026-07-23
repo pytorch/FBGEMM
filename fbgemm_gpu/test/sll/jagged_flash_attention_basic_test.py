@@ -32,7 +32,9 @@ class JaggedFlashAttentionBasicTest(unittest.TestCase):
         allow_tf32=st.booleans(),
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*running_on_rocm)
     @settings(deadline=40000)
     def test_triton_jagged_flash_attention_basic(

@@ -2047,6 +2047,7 @@ def device_from_files(  # noqa C901
     _Ds: list[int]
     emb_loc: list[EmbeddingLocation]
     compute_device: list[ComputeDevice]
+    # pyrefly: ignore [bad-assignment]
     _Es, _Ds, emb_loc, compute_device = zip(*embedding_specs)
 
     # Determine location suffix for trace URL based on embedding locations

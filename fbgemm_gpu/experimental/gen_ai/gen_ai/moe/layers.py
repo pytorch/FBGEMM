@@ -1070,6 +1070,7 @@ class MetaShufflingMoE(BaselineMoE):
         scores = torch.sigmoid(scores)
         assert scores.shape == (B * T, self.E)
 
+        # pyrefly: ignore [not-callable]
         token_counts, expert_indices, token_indices = index_shuffling(
             scores,  # num_tokens
         )

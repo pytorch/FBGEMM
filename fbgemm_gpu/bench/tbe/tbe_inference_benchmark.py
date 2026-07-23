@@ -874,6 +874,7 @@ def nbit_device_with_spec(  # noqa C901
                 TBERequest(
                     req.indices.cpu().int(),
                     req.offsets.cpu().int(),
+                    # pyrefly: ignore [missing-attribute]
                     req.per_sample_weigths.cpu() if req.per_sample_weights else None,
                 )
                 for req in requests
@@ -1197,6 +1198,7 @@ def nbit_uvm(
     )
 
     if T_gpu > 0:
+        # pyrefly: ignore [unbound-name]
         nparams_byte = sum(w.numel() for (w, _) in emb_mixed.split_embedding_weights())
         logging.info(
             f"{weights_precision} Embedding tables: {E * T_gpu + E_uvm * T_uvm} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
@@ -1647,6 +1649,7 @@ def nbit_cache(  # noqa C901
             )
             for d in Ds
         ],
+        # pyrefly: ignore [not-callable]
         record_cache_metrics=RecordCacheMetrics(
             record_cache_miss_counter, record_tablewise_cache_miss
         ),

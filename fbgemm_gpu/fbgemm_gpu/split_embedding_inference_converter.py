@@ -153,7 +153,10 @@ class SplitEmbInferenceConverter:
                 q_child = IntNBitTableBatchedEmbeddingBagsCodegen(
                     embedding_specs=new_embedding_specs,
                     index_remapping=(
-                        index_remapping_list if self.pruning_ratio is not None else None
+                        # pyrefly: ignore [bad-argument-type]
+                        index_remapping_list
+                        if self.pruning_ratio is not None
+                        else None
                     ),
                     pooling_mode=child.pooling_mode,
                     device="cpu" if use_cpu else torch.cuda.current_device(),

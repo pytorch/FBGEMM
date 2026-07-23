@@ -44,6 +44,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
         )
         assert mixed_dim_dequant_output.numel() == 0
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
@@ -66,6 +67,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
     ) -> None:
         self.run_mixed_dim_8bit_dequantize_op_test(B, T, output_dtype, min_dim, max_dim)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
@@ -88,6 +90,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
     ) -> None:
         self.run_mixed_dim_8bit_dequantize_op_test(B, T, output_dtype, min_dim, max_dim)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =

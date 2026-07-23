@@ -27,6 +27,7 @@ else:
 
 
 class TestMSFPQuantizationConversion(unittest.TestCase):
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
@@ -57,6 +58,7 @@ class TestMSFPQuantizationConversion(unittest.TestCase):
         )
         torch.testing.assert_close(dequantized_data.cpu(), input_data, rtol=1, atol=0)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore[56]: Pyre cannot infer the type of `gpu_memory_lt_gb`
     # through the open-source / non-open-source import branch above.

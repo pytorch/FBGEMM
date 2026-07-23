@@ -292,7 +292,9 @@ class TBEBenchmarkParamsReporter:
 
         return TBEDataConfig(
             T=T,
+            # pyrefly: ignore [bad-argument-type]
             E=E,
+            # pyrefly: ignore [bad-argument-type]
             D=D,
             mixed_dim=mixed_dim,
             weighted=(per_sample_weights is not None),

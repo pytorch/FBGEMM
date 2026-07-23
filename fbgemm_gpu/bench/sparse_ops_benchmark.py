@@ -1402,6 +1402,7 @@ def index_select_bench(
         )
 
     if timeline:
+        # pyrefly: ignore [missing-attribute]
         prof.export_chrome_trace("index_select_fwd_trace.json")
 
     grads = [torch.rand_like(out) for out in out_pyt]
@@ -1442,6 +1443,7 @@ def index_select_bench(
         )
 
     if timeline:
+        # pyrefly: ignore [missing-attribute]
         prof.export_chrome_trace("index_select_bwd_trace.json")
 
     logging.info(
@@ -1715,10 +1717,13 @@ def permute_1d_sparse_data_bench(
     embedding tables.
     """
     if index_dtype == "int":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.int32
     elif index_dtype == "int64":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.int64
     elif index_dtype == "float":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.float32
     else:
         raise RuntimeError(f"Does not support data type {index_dtype}")
@@ -1738,8 +1743,10 @@ def permute_1d_sparse_data_bench(
     total_indices = int(lengths.sum().item())
     # Generate indices
     if index_dtype == torch.float32:
+        # pyrefly: ignore [no-matching-overload]
         indices = torch.rand(total_indices, dtype=index_dtype, device=device)
     else:
+        # pyrefly: ignore [no-matching-overload]
         indices = torch.randint(
             low=0,
             high=2**31 - 1,
@@ -1868,14 +1875,19 @@ def permute_2d_sparse_data_bench(
     systems to reorder embedding tables.
     """
     if index_dtype == "int":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.int32
     elif index_dtype == "int64":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.int64
     elif index_dtype == "float":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.float32
     elif index_dtype == "bf16":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.bfloat16
     elif index_dtype == "fp16":
+        # pyrefly: ignore [bad-assignment]
         index_dtype = torch.float16
     else:
         raise RuntimeError(f"Does not support data type {index_dtype}")
@@ -1897,9 +1909,12 @@ def permute_2d_sparse_data_bench(
         * emb_dim
     )
     total_indices = int(lengths.sum().item())
+    # pyrefly: ignore [missing-attribute]
     if index_dtype.is_floating_point:
+        # pyrefly: ignore [no-matching-overload]
         indices = torch.rand(total_indices, dtype=index_dtype, device=device)
     else:
+        # pyrefly: ignore [no-matching-overload]
         indices = torch.randint(
             low=0,
             high=2**31 - 1,

@@ -26,6 +26,7 @@ try:
     from .optimizer_args import annotation_dict, OptimizerArgsSet
     from .scripts_argsparse import args
 except ImportError:
+    # pyrefly: ignore [missing-import]
     from optimizers import *
 
     # pyre-ignore[21]
@@ -118,6 +119,7 @@ class BackwardSplitGenerator:
         ]:
             BackwardSplitGenerator.render_backward_templates(
                 template_filepath,
+                # pyrefly: ignore [bad-argument-type]
                 optimizer,
                 filename_format,
                 kwargs,
@@ -141,6 +143,7 @@ class BackwardSplitGenerator:
             ]:
                 BackwardSplitGenerator.render_backward_templates(
                     template_filepath,
+                    # pyrefly: ignore [bad-argument-type]
                     optimizer,
                     filename_format,
                     kwargs,
@@ -241,7 +244,7 @@ class BackwardSplitGenerator:
         if kwargs.get("has_cpu_support"):
             CodeTemplate.load(
                 "training/backward/embedding_backward_split_cpu_approx_template.cpp"
-                if "approx" in optimizer
+                if "approx" in optimizer  # pyrefly: ignore [not-iterable]
                 else "training/backward/embedding_backward_split_cpu_template.cpp"
             ).write(f"gen_embedding_backward_{optimizer}_split_cpu.cpp", **kwargs)
 

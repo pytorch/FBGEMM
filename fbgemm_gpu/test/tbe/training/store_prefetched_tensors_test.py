@@ -30,6 +30,7 @@ else:
 
 
 class StorePrefetchedTensorsTest(unittest.TestCase):
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_prefetched_info(self) -> None:
         hash_zch_identities = torch.tensor(
@@ -115,6 +116,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             prefetched_info.hash_zch_runtime_meta.tolist(),
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_prefetched_info_with_duplicate_hash_zch_identities(self) -> None:
         """
@@ -206,6 +208,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             ],
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_prefetched_info_mixed_cache_non_cache(self) -> None:
         """
@@ -310,6 +313,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             ],
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_prefetched_info_without_identities(self) -> None:
         """
@@ -352,6 +356,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         # Identities should be None when not provided
         self.assertIsNone(prefetched_info.hash_zch_identities)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_store_prefetched_tensors_disabled(self) -> None:
         """
@@ -387,6 +392,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
 
         self.assertEqual(len(tbe.prefetched_info_list), 0)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_store_prefetched_tensors_filters_non_cached_indices(self) -> None:
         """
@@ -484,6 +490,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         self.assertEqual(prefetched_info.linear_unique_cache_indices.shape[0], 6)
         self.assertEqual(prefetched_info.linear_unique_indices.shape[0], 6)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_prefetched_info_with_only_runtime_meta(self) -> None:
         """
@@ -540,6 +547,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             prefetched_info.hash_zch_runtime_meta.tolist(),
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_prefetched_info_with_only_hash_zch_identities(self) -> None:
         """
@@ -596,6 +604,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         )
         self.assertIsNone(prefetched_info.hash_zch_runtime_meta)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_prefetched_info_with_neither(self) -> None:
         """
@@ -629,6 +638,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         self.assertIsNone(prefetched_info.hash_zch_identities)
         self.assertIsNone(prefetched_info.hash_zch_runtime_meta)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_register_res_buffers_default_dim(self) -> None:
         """
@@ -650,10 +660,12 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
                 enable_raw_embedding_streaming=True,
                 res_params=res_params,
             )
+        # pyrefly: ignore [not-callable]
         cache_size = tbe.lxu_cache_weights.size(0)
         self.assertGreater(cache_size, 0)
         self.assertEqual(tbe.res_runtime_meta.shape, (cache_size, 1))
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_register_empty_res_buffers_default_dim(self) -> None:
         """
@@ -665,8 +677,10 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             ],
             enable_raw_embedding_streaming=False,
         )
+        # pyrefly: ignore [bad-index]
         self.assertEqual(tbe.res_runtime_meta.shape[1], 1)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_lazy_resize_runtime_meta(self) -> None:
         """
@@ -689,6 +703,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
                 enable_raw_embedding_streaming=True,
                 res_params=res_params,
             )
+        # pyrefly: ignore [not-callable]
         cache_size = tbe.lxu_cache_weights.size(0)
         # Initially dim=1
         self.assertEqual(tbe.res_runtime_meta.shape, (cache_size, 1))
@@ -704,6 +719,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         # Manually trigger the resize logic
         data = runtime_meta_data
         if (
+            # pyrefly: ignore [bad-index]
             data.shape[1] != tbe.res_runtime_meta.shape[1]
             or data.dtype != tbe.res_runtime_meta.dtype
         ):
@@ -720,12 +736,15 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         # After resize, dim should be 2
         self.assertEqual(tbe.res_runtime_meta.shape, (cache_size, 2))
         # Copy should succeed
+        # pyrefly: ignore [bad-index]
         tbe.res_runtime_meta[:n].copy_(runtime_meta_data)
         self.assertEqual(
             runtime_meta_data.tolist(),
+            # pyrefly: ignore [bad-index]
             tbe.res_runtime_meta[:n].tolist(),
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_res_runtime_meta_not_in_state_dict(self) -> None:
         """
@@ -755,6 +774,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             "res_runtime_meta should not be in state_dict",
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_prefetched_info_with_multi_dim_runtime_meta(self) -> None:
         """
@@ -801,6 +821,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
             prefetched_info.hash_zch_runtime_meta.tolist(),
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_copy_runtime_meta_none_skipped(self) -> None:
         """
