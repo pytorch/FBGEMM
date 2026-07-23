@@ -450,10 +450,11 @@ using namespace embedding_ops;
     {%- endfor %}
     true                                                                \
   ) {                                                                   \
+    return (__VA_ARGS__).template operator()<                           \
     {%- for ph_name, ph_ty in ph_combo.items() %}
-    using {{ ph_name + "_ph_t" }} = {{ ph_ty.primitive_type }};         \
+        {{ ph_ty.primitive_type }}{{ "," if not loop.last }}           \
     {%- endfor  %}
-    return __VA_ARGS__();                                               \
+        >();                                                            \
   }                                                                     \
   {%- endfor %}
   else {                                                                \
@@ -881,8 +882,8 @@ Tensor {{ embedding_cuda_op }}(
      %}
     {%- endif %}
 
-    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&] {
-    DISPATCH_EMB_GRAD_CACHE_TYPES(
+    fbgemm_gpu::dispatch_index_types(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&]<typename index_t>() {
+    fbgemm_gpu::dispatch_emb_grad_cache_types(
         dev_weights.scalar_type(),
         aligned_grad_output.scalar_type(),
         {%- if not dense %}
@@ -891,7 +892,7 @@ Tensor {{ embedding_cuda_op }}(
         dev_weights.scalar_type(),
         {%- endif %}
             "{{ embedding_cuda_op }}",
-        [&] {
+        [&]<typename emb_t, typename grad_t, typename cache_t>() {
             {%- if weighted %}
             auto indice_weights_sorted = at::empty_like(indice_weights);
             {
@@ -1051,7 +1052,7 @@ Tensor {{ embedding_cuda_op }}(
                   {{ ph_name + "_dev" }}.scalar_type(),
                   {%- endfor %}
                   "{{ mdesc }}_embedding_backward_{{ optimizer }}_exact_placeholder_type_kernel",
-                  [&] {
+                  [&]{% if args.placeholder_tensor_names %}<{% for ph_name in args.placeholder_tensor_names %}typename {{ ph_name + "_ph_t" }}{{ ", " if not loop.last }}{% endfor %}>{% endif %}() {
 
                     {%- set cta_kernel =
                         "batch_index_select_dim0_codegen_backward_kernel_cta_per_row"
@@ -1383,7 +1384,7 @@ Tensor {{ embedding_cuda_op }}(
                 return;
 
             }); // DISPATCH_OPTIMAL_KERNEL
-        }); // DISPATCH_EMB_GRAD_CACHE_TYPES
+        }); // dispatch_emb_grad_cache_types
         }); // AT_DISPATCH_INDEX_TYPES
 
     {%- if dense %}
