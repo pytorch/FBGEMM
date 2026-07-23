@@ -199,7 +199,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
 */
 
 {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
-{%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
+{%- for emb_type in (['float', 'at::Half'] + emb_fp8_types) %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for kEmbeddingSize in [4, 8, 16, 32] %}
 {%- for index_type in ['int32_t', 'int64_t'] %}

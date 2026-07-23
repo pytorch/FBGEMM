@@ -28,7 +28,11 @@ from torch.autograd.profiler import record_function  # usort:skip
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    nfp8_dtype,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -3273,11 +3277,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for param in splits:
                 tmp_param = torch.zeros(param.shape, device=self.current_device)
                 # Create initialized weights and cast to fp8.
-                fp8_dtype = (
-                    torch.float8_e4m3fnuz
-                    if torch.version.hip is not None
-                    else torch.float8_e4m3fn
-                )
+                fp8_dtype = nfp8_dtype()
                 tmp_param.uniform_(min_val, max_val).to(fp8_dtype)
                 param.data.copy_(tmp_param)
         else:
