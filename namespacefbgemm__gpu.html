@@ -204,7 +204,10 @@ Functions</h2></td></tr>
 <tr class="memitem:a1e0d0b15352cec6fd53b0cc2193fc970" id="r_a1e0d0b15352cec6fd53b0cc2193fc970"><td class="memItemLeft">std::tuple&lt; Tensor, Tensor, std::optional&lt; Tensor &gt;, std::optional&lt; Tensor &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a1e0d0b15352cec6fd53b0cc2193fc970">get_unique_indices_cpu_impl</a> (const Tensor &amp;linear_indices, const int64_t max_indices, const bool compute_count, const bool compute_inverse_indices)</td></tr>
 </table>
 <a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>This is a placeholder source file that is used to force compilation and generation of an .SO file. </p>
+<div class="textblock"><p>Type Dispatch Functions</p>
+<p>These functions dispatch runtime at::ScalarType values to compile-time types and invoke the given functor with the resolved types as explicit template arguments, e.g.:</p>
+<p>dispatch_emb_cache_types( emb.scalar_type(), cache.scalar_type(), "op_name", [&amp;]&lt;typename emb_t, typename cache_t&gt;() { ... });</p>
+<p>This is a placeholder source file that is used to force compilation and generation of an .SO file. </p>
 </div><a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
 <a id="aa8239012c659795a7ac8b2fb971efc7c" name="aa8239012c659795a7ac8b2fb971efc7c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aa8239012c659795a7ac8b2fb971efc7c">&#9670;&#160;</a></span>__launch_bounds__() <span class="overload">[1/3]</span></h2>
