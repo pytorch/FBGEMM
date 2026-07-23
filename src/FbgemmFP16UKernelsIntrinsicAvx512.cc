@@ -11,12 +11,24 @@
 #include <immintrin.h>
 #endif
 #include "./FbgemmFP16UKernelsAvx512.h" // @manual
+#include "./fp32/FbgemmFP32UKernelsAvx512.h" // @manual
 
 namespace fbgemm {
 
-// Intrinsic kernel for MSVC
-void gemmkernel_Avx512_fp16_fA0fB0fC0(
-    GemmParamsFP16* gp,
+namespace {
+
+inline __m512 load_b_avx512(const float16* addr) {
+  return _mm512_cvtph_ps(
+      _mm256_load_si256(reinterpret_cast<const __m256i*>(addr)));
+}
+inline __m512 load_b_avx512(const float* addr) {
+  return _mm512_load_ps(addr);
+}
+
+// Intrinsic kernel for MSVC - shared between FP16 and FP32
+template <typename T>
+void gemmkernel_Avx512_fA0fB0fC0(
+    GemmParams<T>* gp,
     const size_t kernel_nrows) {
   // register buffer
   __m512 zmmSum[28];
@@ -35,10 +47,8 @@ void gemmkernel_Avx512_fp16_fA0fB0fC0(
     // inner loop - k
     for (uint64_t kk = 0; kk < gp->k; kk++) {
       // load B
-      __m512 zmmB0 =
-          _mm512_cvtph_ps(_mm256_load_si256((__m256i*)(gp->B + idxB)));
-      __m512 zmmB1 =
-          _mm512_cvtph_ps(_mm256_load_si256((__m256i*)(gp->B + idxB + 16)));
+      __m512 zmmB0 = load_b_avx512(gp->B + idxB);
+      __m512 zmmB1 = load_b_avx512(gp->B + idxB + 16);
       idxB += 32;
 
       // first element
@@ -96,47 +106,94 @@ void gemmkernel_Avx512_fp16_fA0fB0fC0(
   }
 }
 
+} // anonymous namespace
+
+// FP16 kernels
 void NOINLINE gemmkernel_1x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 1);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 1);
 }
 void NOINLINE gemmkernel_2x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 2);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 2);
 }
 void NOINLINE gemmkernel_3x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 3);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 3);
 }
 void NOINLINE gemmkernel_4x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 4);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 4);
 }
 void NOINLINE gemmkernel_5x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 5);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 5);
 }
 void NOINLINE gemmkernel_6x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 6);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 6);
 }
 void NOINLINE gemmkernel_7x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 7);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 7);
 }
 void NOINLINE gemmkernel_8x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 8);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 8);
 }
 void NOINLINE gemmkernel_9x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 9);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 9);
 }
 void NOINLINE gemmkernel_10x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 10);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 10);
 }
 void NOINLINE gemmkernel_11x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 11);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 11);
 }
 void NOINLINE gemmkernel_12x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 12);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 12);
 }
 void NOINLINE gemmkernel_13x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 13);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 13);
 }
 void NOINLINE gemmkernel_14x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-  gemmkernel_Avx512_fp16_fA0fB0fC0(gp, 14);
+  gemmkernel_Avx512_fA0fB0fC0(gp, 14);
+}
+
+// FP32 kernels
+void NOINLINE gemmkernel_1x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 1);
+}
+void NOINLINE gemmkernel_2x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 2);
+}
+void NOINLINE gemmkernel_3x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 3);
+}
+void NOINLINE gemmkernel_4x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 4);
+}
+void NOINLINE gemmkernel_5x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 5);
+}
+void NOINLINE gemmkernel_6x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 6);
+}
+void NOINLINE gemmkernel_7x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 7);
+}
+void NOINLINE gemmkernel_8x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 8);
+}
+void NOINLINE gemmkernel_9x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 9);
+}
+void NOINLINE gemmkernel_10x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 10);
+}
+void NOINLINE gemmkernel_11x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 11);
+}
+void NOINLINE gemmkernel_12x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 12);
+}
+void NOINLINE gemmkernel_13x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 13);
+}
+void NOINLINE gemmkernel_14x2_Avx512_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
+  gemmkernel_Avx512_fA0fB0fC0(gp, 14);
 }
 
 } // namespace fbgemm

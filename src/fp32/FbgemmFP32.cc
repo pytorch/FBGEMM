@@ -12,9 +12,7 @@
 #include <utility>
 
 #ifndef __aarch64__
-#include "./FbgemmFP32UKernelsAvx2.h" // @manual
-#include "./FbgemmFP32UKernelsAvx512.h" // @manual
-#include "./FbgemmFP32UKernelsAvx512_256.h" // @manual
+#include "../GenerateKernelFP16FP32.h" // @manual
 #else
 #ifdef FBGEMM_ENABLE_KLEIDIAI
 #include "./KleidiAIFP32UKernelsNeon.h" // @manual
@@ -31,60 +29,23 @@ namespace {
 // 2 in ?x2 should be the same as kernel_ncol_blocks.
 // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
 // the restrictions of ymm register numbers (16).
-constexpr kernel_array_t<float> kernel_f32_avx2 = {
 #ifndef __aarch64__
-    nullptr,
-    gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_2x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_3x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_4x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_5x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp32_fA0fB0fC0};
-#else
-    nullptr};
-#endif
+const auto kernel_f32_avx2 =
+    makeKernelArray<float, inst_set_t::avx2>(1, 6);
 
-constexpr kernel_array_t<float> kernel_f32_avx512 = {
-#ifndef __aarch64__
-    nullptr,
-    gemmkernel_1x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_2x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_3x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_4x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_5x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_6x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_7x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_8x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_9x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_10x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_11x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_12x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_13x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_fp32_fA0fB0fC0};
-#else
-    nullptr};
-#endif
+const auto kernel_f32_avx512 =
+    makeKernelArray<float, inst_set_t::avx512>(1, 14);
 
-// clang-format on
-constexpr kernel_array_t<float> kernel_f32_avx512_256 = {
-#ifndef __aarch64__
-    nullptr,
-    gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_2x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_3x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_4x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_5x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_7x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_8x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_9x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_10x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_11x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_12x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_13x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_256_fp32_fA0fB0fC0};
+const kernel_array_t<float> kernel_f32_avx512_256 = []() {
+  auto k = makeKernelArray<float, inst_set_t::avx2>(1, 6);
+  for (int n = 7; n <= 14; n++)
+    k[n] = generateGemmKernel<float, inst_set_t::avx512_ymm>(n);
+  return k;
+}();
 #else
-    nullptr};
+constexpr kernel_array_t<float> kernel_f32_avx2 = {nullptr};
+constexpr kernel_array_t<float> kernel_f32_avx512 = {nullptr};
+constexpr kernel_array_t<float> kernel_f32_avx512_256 = {nullptr};
 #endif
 
 #ifdef __aarch64__
@@ -179,7 +140,7 @@ FBGEMM_API void ref_kernel<float>(
 }
 #endif // FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
 
-template void cblas_gemm_compute(
+template FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
     const float* A,
