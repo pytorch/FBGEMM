@@ -11,6 +11,13 @@ import inspect
 import sys
 import unittest
 
+# Import for its side effect of registering the Python abstract (fake-tensor)
+# impls for the split permute ops (e.g. fbgemm::permute_pooled_embs_split).
+# Without this, generate_opcheck_tests' faketensor / aot_dispatch variants of
+# test_permute_pooled_embedding_split_large_grid fail with "could not find the
+# abstract impl". The non-split ops register their meta impl in C++, so they do
+# not need this.
+import fbgemm_gpu.sparse_ops  # noqa: F401
 import hypothesis.strategies as st
 import torch
 import torch.nn as nn
@@ -211,6 +218,48 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         small_ref = torch.cat([small_segments[p] for p in small_permute], dim=1)
 
         torch.testing.assert_close(small_result.cpu(), small_ref)
+
+    @unittest.skipIf(*typed_gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_permute_pooled_embedding_split_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in the split frontend of
+        permute_pooled_embs_kernel
+        (src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split.cu).
+
+        Same kernel as test_permute_pooled_embedding_large_grid, exercised
+        through torch.ops.fbgemm.permute_pooled_embs_auto_grad_split.
+        """
+        T = (1 << 22) + 1
+        B = 32
+        embs_dims = [1] * T
+        permute = list(range(T))
+        inv_permute = list(range(T))
+
+        offsets = torch.zeros(T + 1, dtype=torch.int64, device=self.device)
+        offsets[1:] = torch.cumsum(
+            torch.tensor(embs_dims, dtype=torch.int64, device=self.device),
+            dim=0,
+        )
+        permute_t = torch.tensor(permute, dtype=torch.int64, device=self.device)
+        inv_permute_t = torch.tensor(inv_permute, dtype=torch.int64, device=self.device)
+
+        pooled_embs = torch.zeros(
+            B,
+            int(offsets[-1].item()),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        result = torch.ops.fbgemm.permute_pooled_embs_auto_grad_split(
+            pooled_embs,
+            offsets,
+            permute_t,
+            offsets,
+            inv_permute_t,
+        )
+
+        self.assertEqual(result.shape, pooled_embs.shape)
+        self.assertTrue(torch.all(result == 0).item())
 
 
 if __name__ == "__main__":

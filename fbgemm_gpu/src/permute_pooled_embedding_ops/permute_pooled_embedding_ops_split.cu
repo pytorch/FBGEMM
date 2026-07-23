@@ -15,6 +15,7 @@
 
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/permute_pooled_embedding_ops_split.h"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_utils.h"
@@ -110,8 +111,17 @@ Tensor permute_pooled_embs_split_gpu_impl(
   const int32_t max_grid_dim_y =
       32768; // The CUDA maximum is 65535, not a power of 2.
   const dim3 threads(fbgemm_gpu::kMaxThreads);
-  const dim3 blocks(
+  // HIP enforces a hard limit of 2^32 total threads per launch.
+  // permute_pooled_embs_kernel grid-strides over t (kernel-side change
+  // landed in the previous diff in this stack), so capping is
+  // correctness-preserving. y/z dims are already bounded by max_grid_dim_y.
+  // See: https://github.com/ROCm/hip/issues/2253
+  const auto blocks_x = utils::cuda::cap_grid_dim_x(
       fbgemm_gpu::div_round_up(T, warp_per_block),
+      fbgemm_gpu::kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
+  const dim3 blocks(
+      blocks_x,
       std::min(static_cast<int32_t>(B), max_grid_dim_y),
       (B + max_grid_dim_y - 1) / max_grid_dim_y);
 
