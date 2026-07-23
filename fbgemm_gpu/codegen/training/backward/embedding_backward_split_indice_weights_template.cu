@@ -516,8 +516,8 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const uint32_t info_B_mask = info_B_mask_int64;
     {%- endif %}
 
-    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "split_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel_1", [&] {
-    DISPATCH_EMB_GRAD_CACHE_TYPES(
+    fbgemm_gpu::dispatch_index_types(indices.scalar_type(), "split_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel_1", [&]<typename index_t>() {
+    fbgemm_gpu::dispatch_emb_grad_cache_types(
         dev_weights.scalar_type(),
         aligned_grad_output.scalar_type(),
         {%- if not dense %}
@@ -526,7 +526,7 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         dev_weights.scalar_type(),
         {%- endif %}
         "split_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel_2",
-        [&] {
+        [&]<typename emb_t, typename grad_t, typename cache_t>() {
             {%- if vbe %}
             const auto& grad_output_reshaped = aligned_grad_output.reshape({1, -1});
             {%- else %}

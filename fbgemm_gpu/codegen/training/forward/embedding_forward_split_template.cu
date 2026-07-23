@@ -588,8 +588,8 @@ batch_index_select_dim0_codegen_forward_cuda(
     }
 
 
-    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "batched_embedding{{ ndesc }}_forward_kernel_1", [&] {
-    DISPATCH_EMB_CACHE_OUTPUT_TYPES(
+    fbgemm_gpu::dispatch_index_types(indices.scalar_type(), "batched_embedding{{ ndesc }}_forward_kernel_1", [&]<typename index_t>() {
+    fbgemm_gpu::dispatch_emb_cache_output_types(
         dev_weights.scalar_type(),
         {%- if not dense %}
         lxu_cache_weights.scalar_type(),
@@ -597,7 +597,8 @@ batch_index_select_dim0_codegen_forward_cuda(
         dev_weights.scalar_type(),
         {%- endif %}
         output.scalar_type(),
-        "batched_embedding{{ ndesc }}_forward_kernel_2", [&] {
+        "batched_embedding{{ ndesc }}_forward_kernel_2",
+        [&]<typename emb_t, typename cache_t, typename output_t>() {
 
         {%- if dense %}
         [[maybe_unused]] bool use_lxu_cache = false;

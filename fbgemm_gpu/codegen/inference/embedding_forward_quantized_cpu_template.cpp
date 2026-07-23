@@ -304,7 +304,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     const int32_t* weights_placements_ptr = weights_placements.const_data_ptr<int32_t>();
     const auto* weights_tys_acc = weights_tys.const_data_ptr<uint8_t>();
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "intn_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", [&] {
+    fbgemm_gpu::dispatch_output_types(output.scalar_type(), "intn_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", [&]<typename output_t>() {
         {% if weighted %}
         const float* indice_weights_acc = indice_weights.const_data_ptr<float>();
         {% endif %}
