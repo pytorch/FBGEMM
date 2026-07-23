@@ -12,6 +12,8 @@
 set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDM.cc"
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
+  "${FBGEMM}/src/FbgemmBfloat16Convert.cc"
+  "${FBGEMM}/src/FbgemmFloat16Convert.cc"
   "${FBGEMM}/src/QuantUtils.cc"
   "${FBGEMM}/src/RefImplementations.cc"
   "${FBGEMM}/src/RowWiseSparseAdagradFused.cc"
@@ -25,9 +27,13 @@ endif()
 
 set(fbgemm_sources_avx2
   "${FBGEMM}/src/EmbeddingSpMDMAvx2.cc"
+  "${FBGEMM}/src/FbgemmBfloat16ConvertAvx2.cc"
+  "${FBGEMM}/src/FbgemmFloat16ConvertAvx2.cc"
   "${FBGEMM}/src/QuantUtilsAvx2.cc")
 set(fbgemm_sources_avx512
   "${FBGEMM}/src/EmbeddingSpMDMAvx512.cc"
+  "${FBGEMM}/src/FbgemmBfloat16ConvertAvx512.cc"
+  "${FBGEMM}/src/FbgemmFloat16ConvertAvx512.cc"
   "${FBGEMM}/src/QuantUtilsAvx512.cc")
 
 # Assemble combined source list based on available ISA support

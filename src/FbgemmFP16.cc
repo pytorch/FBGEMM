@@ -215,4 +215,47 @@ template FBGEMM_API void cblas_gemm_compute(
     int thread_id,
     int num_threads);
 
+#if !defined(_MSC_VER)
+// === metablas Class-F legacy-ABI shim =======================================
+// metablas links against fbgemm with a linker `--wrap` on the *pre-flip*
+// Itanium-mangled symbol for cblas_gemm_compute<unsigned short> (the `It` in
+// the mangled name), which only existed while fbgemm::float16 was an alias of
+// uint16_t. Now that float16 is a distinct struct, fbgemm emits
+// cblas_gemm_compute<fbgemm::float16> with a different mangled name, so the
+// legacy `...It...` symbol disappears and metablas's `__real_...It...`
+// reference would fail to link.
+//
+// Provide an exported definition whose linker symbol is exactly that legacy
+// mangled name (via an asm label) and forward to the real float16
+// instantiation. The ABI is identical: float16 is a standard-layout struct
+// wrapping a single uint16_t (see static_asserts in fbgemm/Types.h), and
+// metablas already declares this entry point with a PackedGemmMatrixB<float16>
+// reference, so no reinterpret is required.
+//
+// TODO: migrate metablas off this hard-coded mangled `--wrap` string onto a
+// stable extern "C" fbgemm entry point so this shim can be removed.
+FBGEMM_API void fbgemmLegacyFp16CblasGemmComputeAbiShim(
+    const matrix_op_t transa,
+    const int m,
+    const float* A,
+    const PackedGemmMatrixB<float16>& Bp,
+    const float beta,
+    float* C,
+    int thread_id,
+    int num_threads) asm("_ZN6fbgemm18cblas_gemm_computeItEEvNS_11matrix_op_tEiPKfRKNS_17PackedGemmMatrixBIT_NS_13TypeConverterIS5_EEEEfPfii");
+
+FBGEMM_API void fbgemmLegacyFp16CblasGemmComputeAbiShim(
+    const matrix_op_t transa,
+    const int m,
+    const float* A,
+    const PackedGemmMatrixB<float16>& Bp,
+    const float beta,
+    float* C,
+    int thread_id,
+    int num_threads) {
+  cblas_gemm_compute<float16>(
+      transa, m, A, Bp, beta, C, thread_id, num_threads);
+}
+#endif // !defined(_MSC_VER)
+
 } // namespace fbgemm

@@ -9,10 +9,12 @@
 #define FBGEMM_EXPORTS
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include <bit>
+#include "./EmbeddingSpMDMPrefetch.h"
 #include "./EmbeddingStatsTracker.h"
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
+#include "fbgemm/Utils.h"
 
 #if defined(__clang__) && HAVE_SVE
 #include <arm_neon.h>
@@ -69,12 +71,20 @@ static inline void fill_output(
   } else if constexpr (std::is_same_v<OutType, uint16_t>) {
     if (is_bf16_out) {
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2bfloat16(src[j]);
+        out[j] = cpu_float2bfloat16(src[j]).val;
       }
     } else {
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2half(src[j]);
+        out[j] = cpu_float2half(src[j]).val;
       }
+    }
+  } else if constexpr (std::is_same_v<OutType, float16>) {
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = cpu_float2half(src[j]);
+    }
+  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = cpu_float2bfloat16(src[j]);
     }
   }
 }
@@ -124,10 +134,14 @@ static constexpr EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
   if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
+  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
     return EmbeddingStatsTracker::DataType::BF16;
-  } else {
+  } else if constexpr (std::is_same_v<OutType, float16>) {
     return EmbeddingStatsTracker::DataType::FP16;
+  } else {
+    // uint16_t legacy storage: fp16 vs bf16 is selected at runtime.
+    return is_bf16_out ? EmbeddingStatsTracker::DataType::BF16
+                       : EmbeddingStatsTracker::DataType::FP16;
   }
 }
 
@@ -154,7 +168,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
   if (data_size < 0) {
     return false;
   }
-  constexpr int64_t CACHE_LINE_SIZE = 64;
   constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
   const int64_t prefetch_stride =
       std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
@@ -356,29 +369,48 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     return false;
   }
 
-  // more prefetch
-  // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
-  // size
-  constexpr int64_t max_prefetch_bytes = 4096;
-  // 16 is manually tuned for Neoverse-V2 for best performance
-  constexpr int64_t max_initial_prefetch_rows = 16;
-  constexpr int64_t CACHE_LINE_SIZE = 64;
-  const int64_t rows_to_prefetch =
-      std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
-  const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
+  const int64_t l1_distance = tbe_l1_prefetch_distance();
+  const int64_t l2_distance = tbe_l2_prefetch_distance();
+  const bool use_tuned_l1_prefetch = l1_distance > 0;
+  const bool use_l2_prefetch =
+      tbe_use_l2_prefetch(l2_distance, input_stride, data_size);
+  constexpr int64_t max_prefetch_bytes = 4096; // cap based on CPU cache size
+  // L1 look-ahead: tuned distance if set, default if unset, 0 if disabled.
+  const int64_t l1_prefetch_distance = std::min(
+      use_tuned_l1_prefetch ? l1_distance
+          : l1_distance == -1
+          ? std::min(
+                DEFAULT_L1_PREFETCH_DISTANCE, max_prefetch_bytes / input_stride)
+          : 0,
+      index_size);
+  const int64_t l2_prefetch_distance = std::min(l2_distance, index_size);
+  const int64_t last_index = std::max<int64_t>(index_size - 1, 0);
+
   const int num_elem_per_byte = 8 / input_bit_rate;
   const int64_t scale_bias_offset =
       scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0;
   const size_t scale_bias_size = 2 * sizeof(float16);
   const int64_t input_row_offset = scale_bias_last ? 0 : scale_bias_size;
-  // The following prefetch loop is written in this way for better performance.
-  // My understanding is that manually separating the case of input_stride being
-  // greater or not greater than cache line size will make the branch predictor
-  // work better. Same for line 113-126.
-  for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
-    for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
-      do_prefetch(prefetch_addr + offset, 0, 0);
+
+  for (int64_t pf_idx = 0; pf_idx < l1_prefetch_distance; ++pf_idx) {
+    const int64_t idx = indices[pf_idx];
+    if (use_tuned_l1_prefetch) {
+      prefetch_row_l1(input + input_stride * idx, input_stride);
+    } else {
+      for (int64_t offset = 0; offset < input_stride;
+           offset += CACHE_LINE_SIZE) {
+        do_prefetch(input + input_stride * idx + offset, 0, 0);
+      }
+    }
+  }
+  if (use_l2_prefetch && index_size <= MAX_TLB_PRIME_INDEX_SIZE) {
+    for (int64_t pf_idx = l1_prefetch_distance; pf_idx < l2_prefetch_distance;
+         ++pf_idx) {
+      const int64_t idx = indices[pf_idx];
+      if (idx < 0 || idx >= data_size) {
+        continue;
+      }
+      do_tlb_prime(input + input_stride * idx);
     }
   }
 
@@ -459,9 +491,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         }
         return false;
       }
-      int64_t prefetch_idx =
-          indices[std::min(current + prefetch_stride, index_size - 1)];
-
       const uint8_t* input_row_base = input + input_stride * idx;
       const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
       const uint8_t* input_row = input_row_base + input_row_offset;
@@ -527,10 +556,36 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         }
       }
 
-      const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
-      for (int64_t offset = 0; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(prefetch_addr + offset, 0, 0);
+      if (use_tuned_l1_prefetch) {
+        tbe_prefetch_row<prefetch_row_l1>(
+            input,
+            indices,
+            current,
+            last_index,
+            input_stride,
+            data_size,
+            l1_prefetch_distance);
+      } else if (l1_distance == -1) {
+        const int64_t prefetch_idx =
+            indices[std::min(current + l1_prefetch_distance, last_index)];
+        // Prefetch of an out-of-range address is a harmless no-op, so the
+        // default path issues it unconditionally (matching the
+        // pre-prefetch-diff behavior) to keep the hot loop free of a per-row
+        // bounds branch.
+        for (int64_t offset = 0; offset < input_stride;
+             offset += CACHE_LINE_SIZE) {
+          do_prefetch(input + input_stride * prefetch_idx + offset, 0, 0);
+        }
+      }
+      if (use_l2_prefetch) {
+        tbe_prefetch_row<prefetch_row_l2>(
+            input,
+            indices,
+            current,
+            last_index,
+            input_stride,
+            data_size,
+            l2_prefetch_distance);
       }
     }
 
@@ -817,7 +872,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
   constexpr int64_t max_prefetch_bytes = 4096;
   // 16 is manually tuned for Neoverse-V2 for best performance
   constexpr int64_t max_initial_prefetch_rows = 8;
-  constexpr int64_t CACHE_LINE_SIZE = 64;
   const int64_t rows_to_prefetch =
       std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
   const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
@@ -1053,18 +1107,28 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(
-              weight,
-              std::is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
-              out[j]);
+          float in_val = 0.f;
+          if constexpr (std::is_same_v<InType, float16>) {
+            in_val = cpu_half2float(*inptr);
+          } else if constexpr (std::is_same_v<InType, uint16_t>) {
+            in_val = cpu_half2float(float16{*inptr});
+          } else {
+            in_val = *inptr;
+          }
+          out[j] = std::fma(weight, in_val, out[j]);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(
-              weight,
-              std::is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
-              out[j]);
+          float in_val = 0.f;
+          if constexpr (std::is_same_v<InType, float16>) {
+            in_val = cpu_half2float(*inptr);
+          } else if constexpr (std::is_same_v<InType, uint16_t>) {
+            in_val = cpu_half2float(float16{*inptr});
+          } else {
+            in_val = *inptr;
+          }
+          out[j] = std::fma(weight, in_val, out[j]);
         }
       }
       if (normalize_by_lengths && len) {
@@ -1175,7 +1239,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
   constexpr int64_t max_prefetch_bytes = 4096;
   // 16 is manually tuned for Neoverse-V2 for best performance
   constexpr int64_t max_initial_prefetch_rows = 16;
-  constexpr int64_t CACHE_LINE_SIZE = 64;
   const int64_t rows_to_prefetch =
       std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
   const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
@@ -2124,9 +2187,10 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
   INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
+#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)    \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)    \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16)  \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, uint16_t) \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, uint8_t)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
@@ -2177,10 +2241,11 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
       bool is_bf16_out,                                                    \
       bool is_bf16_in);
 
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)         \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)         \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)       \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint16_t) \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t)  \
   INSTANTIATE_SPMDM_ROWWISE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
@@ -2193,6 +2258,7 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 
 INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
+INSTANTIATE_SPMDM_INDEX_T(std::uint16_t)
 INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 
 #undef INSTANTIATE_SPMDM_ROWWISE

@@ -166,8 +166,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     std::uint8_t* output,
     const InputType* rowwise_min_max = nullptr);
 
-template <typename OutputType, int BIT_RATE, bool is_bf16 = false>
-  requires(!is_bf16 || !std::is_same_v<OutputType, float>)
+template <typename OutputType, int BIT_RATE>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     const std::uint8_t* input,
     size_t input_rows,
@@ -177,9 +176,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
 template <
     typename OutputType,
     bool scale_bias_last = true,
-    bool quant_padding_float_type = true,
-    bool is_bf16 = false>
-  requires(!is_bf16 || !std::is_same_v<OutputType, float>)
+    bool quant_padding_float_type = true>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
     size_t input_rows,

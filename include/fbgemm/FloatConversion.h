@@ -210,18 +210,18 @@ inline typename Tgt::value_type ieee754_trunc(typename Src::value_type value) {
 
 inline float16 cpu_float2half_rn(float f) {
   uint32_t f_u32 = std::bit_cast<uint32_t>(f);
-  return detail::ieee754_trunc<
+  return {detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
       /*Tgt=*/detail::IEEE754Half,
-      detail::RoundingMode::ToNearestTiesToEven>(f_u32);
+      detail::RoundingMode::ToNearestTiesToEven>(f_u32)};
 }
 
 inline float16 cpu_float2half_rz(float f) {
   uint32_t f_u32 = std::bit_cast<uint32_t>(f);
-  return detail::ieee754_trunc<
+  return {detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
       /*Tgt=*/detail::IEEE754Half,
-      detail::RoundingMode::ToZero>(f_u32);
+      detail::RoundingMode::ToZero>(f_u32)};
 }
 
 // Converts a 16-bit unsigned integer representation of a IEEE754 half-precision
@@ -245,10 +245,10 @@ inline float cpu_half2float_ref(const float16 h) {
   constexpr uint32_t f32_most_significant_bit = 1u << 22;
 
   // Get sign and exponent alone by themselves
-  uint32_t sign_bit = (h >> f16_num_non_sign_bits) & 1;
-  uint32_t exponent = (h >> f16_num_mantissa_bits) & f16_exponent_mask;
+  uint32_t sign_bit = (h.val >> f16_num_non_sign_bits) & 1;
+  uint32_t exponent = (h.val >> f16_num_mantissa_bits) & f16_exponent_mask;
   // Shift mantissa so that it fills the most significant bits of a float32
-  uint32_t mantissa = (h & f16_mantissa_mask)
+  uint32_t mantissa = (h.val & f16_mantissa_mask)
       << (f32_num_mantissa_bits - f16_num_mantissa_bits);
 
   if (exponent == f16_exponent_mask) { // NaN or Inf
@@ -280,10 +280,10 @@ inline float cpu_half2float_ref(const float16 h) {
 
 inline float cpu_half2float(const float16 h) {
 #ifdef HAS_NATIVE_FP16_TYPE
-  return std::bit_cast<__fp16>(h);
+  return std::bit_cast<__fp16>(h.val);
 #elif defined(HAS_F16C)
   // Use F16C VCVTPH2PS instruction
-  __m128i v = _mm_cvtsi32_si128(static_cast<int>(h));
+  __m128i v = _mm_cvtsi32_si128(static_cast<int>(h.val));
   return _mm_cvtss_f32(_mm_cvtph_ps(v));
 #else
   return cpu_half2float_ref(h);
@@ -293,25 +293,25 @@ inline float cpu_half2float(const float16 h) {
 inline float16 cpu_float2half(const float f) {
 #ifdef HAS_NATIVE_FP16_TYPE
   __fp16 h = f;
-  return std::bit_cast<float16>(h);
+  return {std::bit_cast<uint16_t>(h)};
 #elif defined(HAS_F16C)
   // Use F16C VCVTPS2PH instruction
   __m128 v = _mm_set_ss(f);
-  return static_cast<float16>(
-      _mm_extract_epi16(_mm_cvtps_ph(v, _MM_FROUND_TO_NEAREST_INT), 0));
+  return {static_cast<uint16_t>(
+      _mm_extract_epi16(_mm_cvtps_ph(v, _MM_FROUND_TO_NEAREST_INT), 0))};
 #else
   return cpu_float2half_rn(f);
 #endif
 }
 
 inline float cpu_bf162float(bfloat16 src) {
-  uint32_t val_fp32 = static_cast<uint32_t>(src) << 16;
+  uint32_t val_fp32 = static_cast<uint32_t>(src.val) << 16;
   return std::bit_cast<float>(val_fp32);
 }
 
 inline bfloat16 cpu_float2bfloat16(float src) {
   uint32_t temp = std::bit_cast<uint32_t>(src);
-  return (temp + (1u << 15)) >> 16;
+  return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
 }
 
 } // namespace fbgemm

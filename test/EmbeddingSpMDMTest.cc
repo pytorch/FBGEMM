@@ -240,12 +240,12 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       batch_size,                                              \
       lengths_sum,                                             \
       num_rows,                                                \
-      table.data(),                                            \
+      reinterpret_cast<const InType*>(table.data()),           \
       corner_case == EMPTY_INDICES ? nullptr : indices.data(), \
       offsets_or_lengths,                                      \
       use_weight ? weights.data() : nullptr,                   \
       normalize_by_lengths,                                    \
-      output_ref.data(),                                       \
+      reinterpret_cast<OutType*>(output_ref.data()),           \
       is_wt_positional,                                        \
       use_offsets,                                             \
       output_stride,                                           \
@@ -277,11 +277,11 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       batch_size,                                              \
       lengths_sum,                                             \
       num_rows,                                                \
-      table.data(),                                            \
+      reinterpret_cast<const InType*>(table.data()),           \
       corner_case == EMPTY_INDICES ? nullptr : indices.data(), \
       offsets_or_lengths,                                      \
       use_weight ? weights.data() : nullptr,                   \
-      output.data());
+      reinterpret_cast<OutType*>(output.data()));
 
 #define TEST_THREAD_LOCAL(  \
     table,                  \
@@ -342,7 +342,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         InType,                                                        \
         IndexType,                                                     \
         OffsetType,                                                    \
-        bfloat16);                                                     \
+        uint16_t);                                                     \
   } else {                                                             \
     TEST_THREAD_LOCAL(                                                 \
         table,                                                         \
@@ -353,7 +353,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         InType,                                                        \
         IndexType,                                                     \
         OffsetType,                                                    \
-        float16);                                                      \
+        uint16_t);                                                     \
   }
 
 #define TEST_OFFSET_TYPE(table, indices, InType, IndexType)                 \
@@ -373,9 +373,9 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   }
 
     if (isFp16) {
-      TEST_INDEX_TYPE(embedding_table_fp16, float16);
+      TEST_INDEX_TYPE(embedding_table_fp16, uint16_t);
     } else if (isBf16) {
-      TEST_INDEX_TYPE(embedding_table_bf16, bfloat16);
+      TEST_INDEX_TYPE(embedding_table_bf16, uint16_t);
     } else {
       TEST_INDEX_TYPE(embedding_table, float);
     }
@@ -757,7 +757,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               use_offsets);
 
           auto kernel =
-              GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t, int64_t>(
+              GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int64_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
@@ -768,7 +768,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              embedding_table_fp16.data(),
+              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
               corner_case == EMPTY_INDICES ? nullptr : indices.data(),
               offsets_or_lengths,
               use_weight ? weights.data() : nullptr,
@@ -827,7 +827,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               use_offsets);
 
           auto kernel =
-              GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t, int64_t>(
+              GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int32_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
@@ -838,7 +838,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              embedding_table_fp16.data(),
+              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
               corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
               offsets_or_lengths,
               use_weight ? weights.data() : nullptr,
@@ -898,7 +898,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               is_wt_positional,
               use_offsets);
 
-          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t>(
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int64_t>(
               embedding_dim,
               use_weight,
               normalize_by_lengths,
@@ -909,7 +909,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              embedding_table_fp16.data(),
+              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
               corner_case == EMPTY_INDICES ? nullptr : indices.data(),
               offsets_or_lengths_32,
               use_weight ? weights.data() : nullptr,
@@ -966,7 +966,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               is_wt_positional,
               use_offsets);
 
-          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t>(
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int32_t>(
               embedding_dim,
               use_weight,
               normalize_by_lengths,
@@ -977,7 +977,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              embedding_table_fp16.data(),
+              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
               corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
               offsets_or_lengths_32,
               use_weight ? weights.data() : nullptr,

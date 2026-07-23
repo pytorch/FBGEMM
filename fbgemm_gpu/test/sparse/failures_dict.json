@@ -14,8 +14,8 @@
     },
     "fbgemm::asynchronous_batched_complete_cumsum": {
       "CumSumTest.test_aot_dispatch_dynamic__test_batched_complete_cumsum": {
-        "comment": "Test builds output via a dynamic Python loop + torch.stack; incompatible with aot_dispatch_dynamic. C++ symbolic meta is correct. T191384137",
-        "status": "xfail"
+        "comment": "Test builds output via a dynamic Python loop + torch.stack; incompatible with aot_dispatch_dynamic. Under aot_dispatch_dynamic it recompiles per example and exceeds the 600s tpx timeout (xfail does not catch a timeout), so skip. C++ symbolic meta is correct; eager + faketensor variants still cover the op. T191384137",
+        "status": "skip"
       }
     },
     "fbgemm::asynchronous_complete_cumsum": {},
@@ -26,6 +26,10 @@
     "fbgemm::block_bucketize_sparse_features": {
       "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_large": {
         "comment": "max_examples=32 with my_size up to 1024 (~2048 items) recompiles per hypothesis example under aot_dispatch_dynamic and exceeds the 600s tpx timeout (flaky ~10%). Eager + faketensor variants still cover the op. T191384137",
+        "status": "skip"
+      },
+      "BlockBucketizeTest.test_schema__test_block_bucketize_sparse_features_large": {
+        "comment": "Same large-shape recompile as the aot_dispatch variant; test_schema also exceeds the 600s tpx timeout. Eager + faketensor variants still cover the op schema. T191384137",
         "status": "skip"
       }
     },
