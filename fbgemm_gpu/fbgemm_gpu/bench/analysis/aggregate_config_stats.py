@@ -148,6 +148,7 @@ def _collect_kernel_stats(
     config_columns: list[str],
     patterns: list[tuple[str, str, str]],
     emit_total: bool = False,
+    group_by_pattern: bool = False,
 ) -> list[tuple[dict[str, Any], str, str, str, KernelStats]]:
     """Extract durations and bucket by ``(config_tuple, kernel_name)``.
 
@@ -171,6 +172,14 @@ def _collect_kernel_stats(
     # first match wins. This makes the category data-driven downstream.
     kernel_group: dict[str, str] = {}
     entries_per_cfg: Counter[tuple] = Counter()
+    # group_bucket[cfg_tuple][pattern_name] -> pooled list[float] across all
+    # kernel_names matching that --kernel-pattern group. Only populated when
+    # group_by_pattern is set; it collapses the per-kernel_name cross-product
+    # (config x every distinct demangled signature, mostly count=0 padding)
+    # into one row per (config, pattern_group). The per-kernel_name ``bucket``
+    # above is still maintained so the (total) reconstruction is unaffected.
+    group_bucket: dict[tuple, dict[str, list[float]]] = {}
+    group_names: list[str] = [pname for pname, _, _ in patterns]
 
     for entry in config_map:
         cfg = entry["config"]
@@ -199,22 +208,42 @@ def _collect_kernel_stats(
                 all_kernels.add(kname)
                 kernel_group.setdefault(kname, pname)
                 bucket[cfg_tuple].setdefault(kname, []).extend(durs)
+                if group_by_pattern:
+                    group_bucket.setdefault(cfg_tuple, {}).setdefault(pname, []).extend(
+                        durs
+                    )
 
     rows: list[tuple[dict[str, Any], str, str, str, KernelStats]] = []
     for cfg_tuple, cfg_dict in config_for.items():
         kernel_durs = bucket[cfg_tuple]
-        for kname in sorted(all_kernels):
-            durs = kernel_durs.get(kname, [])
-            stats = KernelStats(name=kname, durations_us=list(durs))
-            rows.append(
-                (
-                    cfg_dict,
-                    base_name_of(kname),
-                    kname,
-                    kernel_group.get(kname, ""),
-                    stats,
+        if group_by_pattern:
+            # One row per REAL measurement: for each config emit only the
+            # pattern groups it actually dispatched (count>0), in
+            # --kernel-pattern spec order. No count=0 padding is emitted — the
+            # cross-commit dispatch gap still surfaces in compute_stats, which
+            # unions dispatched keys across commits and marks the missing side
+            # count=0 in the comparison. This is what collapses the per-run row
+            # count from tens of thousands to one row per dispatched kernel.
+            gdurs = group_bucket.get(cfg_tuple, {})
+            for pname in group_names:
+                durs = gdurs.get(pname, [])
+                if not durs:
+                    continue
+                stats = KernelStats(name=pname, durations_us=list(durs))
+                rows.append((cfg_dict, pname, pname, pname, stats))
+        else:
+            for kname in sorted(all_kernels):
+                durs = kernel_durs.get(kname, [])
+                stats = KernelStats(name=kname, durations_us=list(durs))
+                rows.append(
+                    (
+                        cfg_dict,
+                        base_name_of(kname),
+                        kname,
+                        kernel_group.get(kname, ""),
+                        stats,
+                    )
                 )
-            )
         if emit_total:
             if entries_per_cfg[cfg_tuple] > 1:
                 print(
@@ -267,6 +296,17 @@ def main() -> int:
         "total time series (mean/median/stdev/min/max) reconstructed from the "
         "per-launch durations. Supersedes the rollup_per_config.py placeholder.",
     )
+    parser.add_argument(
+        "--group-by-pattern",
+        action="store_true",
+        help="Emit one row per (config, dispatched --kernel-pattern group) "
+        "with durations pooled across every kernel_name matching that group, "
+        "instead of one row per distinct demangled kernel_name. Emits only "
+        "real measurements (count>0) plus the (total) row — no count=0 "
+        "cross-product padding, which otherwise dominates row count on a full "
+        "sweep. The kernel_base/kernel_name/pattern_group columns all carry "
+        "the group name. Default (off) preserves the per-kernel_name behavior.",
+    )
     args = parser.parse_args()
 
     try:
@@ -282,6 +322,7 @@ def main() -> int:
         config_columns,
         patterns,
         emit_total=args.emit_total,
+        group_by_pattern=args.group_by_pattern,
     )
 
     if not rows:
