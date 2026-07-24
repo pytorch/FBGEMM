@@ -19,12 +19,6 @@ import click
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
-    CacheAlgorithm,
-    EmbeddingLocation,
-    PoolingMode,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     DenseTableBatchedEmbeddingBagsCodegen,
@@ -41,6 +35,12 @@ from fbgemm_gpu.tbe.bench import (
     TbeBenchClickInterface,
     TBEBenchmarkingConfig,
     TBEBenchmarkingConfigLoader,
+)
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config.embedding_config import (
+    BoundsCheckMode,
+    EmbeddingLocation,
+    PoolingMode,
 )
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest

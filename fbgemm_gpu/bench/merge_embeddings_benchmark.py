@@ -18,13 +18,10 @@ import numpy as np
 import tabulate
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
-    EmbeddingLocation,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.config.embedding_config import BoundsCheckMode, EmbeddingLocation
 from torch import Tensor
 
 # pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.

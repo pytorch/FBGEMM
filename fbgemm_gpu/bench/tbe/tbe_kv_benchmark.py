@@ -15,12 +15,12 @@ import click
 import numpy as np
 import psutil
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.bench import benchmark_requests
 from fbgemm_gpu.tbe.cache.kv_embedding_ops_inference import KVEmbeddingInference
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation
 from fbgemm_gpu.tbe.utils import generate_requests, round_up, TBERequest
 
 OptionCommandType = Callable[..., Callable[..., None]]
