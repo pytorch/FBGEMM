@@ -23,13 +23,6 @@ import click
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
-    CacheAlgorithm,
-    EmbeddingLocation,
-    PoolingMode,
-    RecordCacheMetrics,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
@@ -41,6 +34,13 @@ from fbgemm_gpu.tbe.bench import (
     benchmark_requests_refer,
     BenchmarkReporter,
     fill_random_scale_bias,
+)
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config.embedding_config import (
+    BoundsCheckMode,
+    EmbeddingLocation,
+    PoolingMode,
+    RecordCacheMetrics,
 )
 from fbgemm_gpu.tbe.utils import generate_requests, round_up, TBERequest
 from torch.profiler import profile

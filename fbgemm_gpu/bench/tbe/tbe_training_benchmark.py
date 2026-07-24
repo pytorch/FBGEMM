@@ -30,10 +30,6 @@ from fbgemm_gpu.split_embedding_configs import (
     EmbOptimType as OptimType,
     SparseType,
 )
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    CacheAlgorithm,
-    EmbeddingLocation,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     DenseTableBatchedEmbeddingBagsCodegen,
@@ -54,6 +50,8 @@ from fbgemm_gpu.tbe.bench.tbe_data_config_bench_helper import (
     generate_requests,
     generate_requests_with_Llist,
 )
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import get_device
 from torch.profiler import profile
