@@ -17,6 +17,7 @@ from math import sqrt
 import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 import numpy as np
 import torch
+from pyre_extensions import none_throws
 
 try:
     # pyre-ignore[21]
@@ -339,6 +340,88 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_batched_unary_embeddings_forward_backward_small_repro(self) -> None:
+        """
+        Validates correctness of the forward + backward paths through
+        batched_unary_embeddings end-to-end against the CPU dispatch.
+
+        The HIP grid-overflow cap fix in D105669555 targets the forward
+        kernel (batched_unary_embeddings_forward_kernel), where
+        blocks_x * threads * T * N can exceed 2**32 when T*N is large.
+        This test was the original repro because the backward pass triggers
+        a forward call (transpose_embedding_input -> forward kernel) before
+        running the backward kernel.
+
+        Reproducing the cap-trip scale requires concurrent residency of
+        several large tensors (~70-80 GiB total). On this devserver's MI350
+        (256 GiB HBM) the caching allocator pool exhausts before that scale
+        is reached -- so we forgo the full-scale launch survival check here.
+        Instead, this test exercises the same kernel code path at a small
+        scale to catch forward/backward correctness regressions. The
+        cap-trip detection is exercised in CI on large-HBM hardware.
+        """
+
+        # Same kernel code path as full-scale, just downsampled so the
+        # CPU oracle is cheap. Uses sentinel non-zero embedding weights
+        # so any "kernel addressed wrong row" bug surfaces in both
+        # forward and backward.
+        small_N = 2
+        small_T = 3
+        small_B = 4
+        small_hash_sizes = [2] * small_T  # E=2 per table
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # Build CPU and GPU modules with identical weights.
+        torch.manual_seed(42)
+        small_unary_emb_cpu = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=small_N,
+            hash_sizes=small_hash_sizes,
+            long_index=True,
+        )
+        small_unary_emb_gpu = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=small_N,
+            hash_sizes=small_hash_sizes,
+            long_index=True,
+        ).to(device)
+        with torch.no_grad():
+            small_unary_emb_gpu.weight.copy_(small_unary_emb_cpu.weight)
+
+        # Each (t, b) picks row 0 of its table; one lookup per cell.
+        # all-ones lengths -> offsets = [0, 1, 2, ..., T*B]
+        small_indices = torch.zeros(small_T * small_B, dtype=torch.long)
+        small_offsets = torch.arange(small_T * small_B + 1, dtype=torch.long)
+
+        # CPU forward.
+        small_output_cpu = small_unary_emb_cpu(small_offsets, small_indices)
+
+        # GPU forward + backward.
+        small_output_gpu = small_unary_emb_gpu(
+            small_offsets.to(device), small_indices.to(device)
+        )
+        small_output_gpu.sum().backward()
+
+        # Forward correctness: GPU vs CPU element-wise.
+        torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
+
+        # Backward correctness: each (t, b) cell selected row 0 of
+        # table t once, so weight.grad[n, t*E + 0] = small_B (number of
+        # times row 0 of table t was selected by `sum().backward()`'s
+        # gradient broadcast of 1.0). Other rows are 0. This analytic
+        # check exercises the backward kernel without depending on the
+        # CPU autograd dispatch (which has no registered autograd
+        # kernel for fbgemm::batched_unary_embeddings).
+        gpu_grad = none_throws(small_unary_emb_gpu.weight.grad).cpu()
+        for n in range(small_N):
+            for t in range(small_T):
+                row0_idx = sum(small_hash_sizes[:t])  # offset of table t
+                self.assertEqual(gpu_grad[n, row0_idx].item(), float(small_B))
+                # Other rows in this table should be 0.
+                for r in range(1, small_hash_sizes[t]):
+                    self.assertEqual(gpu_grad[n, row0_idx + r].item(), 0.0)
 
 
 if __name__ == "__main__":
