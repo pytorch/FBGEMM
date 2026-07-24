@@ -775,6 +775,128 @@ class IndexSelectTest(unittest.TestCase):
             small_input_gpu.grad.cpu(), small_input_cpu_clone.grad
         )
 
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only large-scale repro; opcheck/faketensor variants add no op "
+        "coverage and are impractical at 2**32-thread scale (T191384137)"
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    # This test exercises the HIP launch-side limit on the
+    # batch_index_select_dim0 forward path
+    # (batch_index_select_dim0_codegen_forward_kernel). The forward tensors
+    # here stay small (~1.5 GiB), so most large-HBM GPUs run it; the overflow
+    # is triggered by the grid size, not tensor size.
+    @unittest.skipIf(*gpu_memory_lt_gb(8))
+    def test_batch_index_select_dim0_forward_large_grid(self) -> None:
+        """
+        Reproduces the HIP grid-overflow bug in the
+        batch_index_select_dim0 forward kernel and verifies output
+        correctness via head/middle/tail sentinels plus a small-scale
+        CPU oracle (forward + backward).
+
+        The forward launch computes
+        total_B = num_warps_per_feature * T = max(input_num_indices) * num_inputs
+        (fixed_L_per_warp = ROWS_PER_WARP = 1), and launches
+        grid = div_round_up(total_B, kForwardMaxThreads / kWarpSize) with
+        block = dim3(kWarpSize, kForwardMaxThreads / kWarpSize). On ROCm
+        (kWarpSize = 64, kForwardMaxThreads = 512) the total thread count
+        is ~= total_B * 64. With num_inputs = 1024 and
+        input_num_indices = 80000, total_B = 81_920_000 and total threads
+        ~= 5.24e9 > 2**32. Pre-fix on ROCm, FBGEMM_LAUNCH_KERNEL ->
+        KernelLauncher::checkThreadCountNotExceeded TORCH_CHECK-fails.
+        The fix caps the grid on ROCm and grid-strides the kernel to
+        cover the full workload; the tail sentinel check below fails if
+        any strided work item is dropped.
+
+        Unlike index_select_dim0, memory here stays modest because the
+        overflow is driven by the number of (input, selected-row) work
+        items rather than the tensor sizes, so full-scale forward +
+        backward-free correctness checks are cheap.
+        """
+
+        num_inputs = 1024
+        num_indices = 80000
+        input_rows = 4
+        cols = 4  # must be a multiple of 4
+
+        total_b = num_indices * num_inputs
+        self.assertGreater(total_b * 64, 2**32)
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+
+        # ---- Full-scale forward: launch survival + head/middle/tail sentinels. ----
+        # Build the concatenated op inputs directly on device. Wrap in
+        # no_grad to avoid autograd graph creation.
+        with torch.no_grad():
+            concat_inputs = torch.zeros(
+                num_inputs * input_rows * cols, dtype=torch.float16, device=device
+            )
+            mid = num_inputs // 2
+            # Sentinels (exactly representable in fp16) at the first input's
+            # row 0, a middle input's row 1, and the last input's last row.
+            concat_inputs[0] = 1.0
+            concat_inputs[mid * input_rows * cols + 1 * cols + 0] = 2.0
+            concat_inputs[
+                (num_inputs - 1) * input_rows * cols
+                + (input_rows - 1) * cols
+                + (cols - 1)
+            ] = 3.0
+
+            # Per-input selection pattern: index k selects row (k % input_rows).
+            per_input_indices = (
+                torch.arange(num_indices, dtype=torch.long, device=device) % input_rows
+            )
+            concat_indices = per_input_indices.repeat(num_inputs)
+
+            output = torch.ops.fbgemm.batch_index_select_dim0(
+                concat_inputs,
+                concat_indices,
+                [num_indices] * num_inputs,  # input_num_indices
+                [input_rows] * num_inputs,  # input_rows
+                [cols] * num_inputs,  # input_columns
+                False,  # permute_output_dim_0_1
+            )
+
+            self.assertEqual(output.numel(), num_inputs * num_indices * cols)
+            # output[i, k, c] is flattened at i*(num_indices*cols) + k*cols + c,
+            # and equals concat input i's row (k % input_rows), column c.
+            # Head: input 0, k=0 -> row 0, col 0.
+            self.assertEqual(output[0].item(), 1.0)
+            # Middle: input mid, k=1 -> row 1, col 0.
+            self.assertEqual(output[mid * num_indices * cols + cols].item(), 2.0)
+            # Tail: last input, k=num_indices-1 -> row input_rows-1, col cols-1.
+            # This is the final work item; it is only produced if the ROCm
+            # grid-stride loop covers the whole (capped) workload.
+            self.assertEqual(output[-1].item(), 3.0)
+            del concat_inputs, concat_indices, per_input_indices, output
+
+        # Release the caching allocator pool before the small-scale step.
+        torch.cuda.empty_cache()
+
+        # ---- Small-scale correctness (forward + backward) vs CPU dispatch. ----
+        small_input_rows = [4, 5, 6]
+        small_cols = [4, 8, 4]
+        small_num_indices = [7, 3, 5]
+        inputs = [
+            torch.rand(rows, c, dtype=torch.float, device=device)
+            for rows, c in zip(small_input_rows, small_cols)
+        ]
+        indices = [
+            torch.randint(0, rows, (n,), dtype=torch.long, device=device)
+            for n, rows in zip(small_num_indices, small_input_rows)
+        ]
+        self.execute_batch_index_select_dim0(
+            num_inputs=len(small_input_rows),
+            inputs=inputs,
+            indices=indices,
+            input_rows=small_input_rows,
+            input_columns=small_cols,
+            input_num_indices=small_num_indices,
+            permute_output_dim_0_1=False,
+            dtype=torch.float,
+            device=device,
+            op=torch.ops.fbgemm.batch_index_select_dim0,
+        )
+
 
 # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
 # Please avoid putting tests here, you should put operator-specific
