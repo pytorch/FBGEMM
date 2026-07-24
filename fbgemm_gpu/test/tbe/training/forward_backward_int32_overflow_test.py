@@ -116,6 +116,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
         # Delete the op to save space
         del op
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)
@@ -130,6 +131,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
             **kwargs,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)
@@ -144,6 +146,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
             **kwargs,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)
@@ -158,6 +161,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
             **kwargs,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)

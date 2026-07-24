@@ -297,6 +297,7 @@ def generate_requests_with_Llist(
     for i in range(len(Bs)):
         L = L_list[i]
         B = Bs[i]
+        # pyrefly: ignore [no-matching-overload]
         Ls_iter = np.random.normal(
             loc=L, scale=tbe_data_config.pooling_params.sigma_L, size=B
         ).astype(int)

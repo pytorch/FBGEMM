@@ -22,7 +22,9 @@ from ..common import gpu_unavailable, running_in_oss
 MAX_EXAMPLES = 20
 
 
+# pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_in_oss)
+# pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*gpu_unavailable)
 class SSDUtilsTest(unittest.TestCase):
     def execute_masked_index_test(
@@ -270,10 +272,12 @@ class SSDUtilsTest(unittest.TestCase):
 
             # Insert indices into the map
             sp_map = {}
+            # pyrefly: ignore [bad-index]
             for i, idx in enumerate(sp_indices[: count.item()]):
                 sp_map[idx] = i
 
             # Lookup
+            # pyrefly: ignore [bad-argument-type]
             for i in range(lookup_count.item()):
                 ssd_idx = ssd_indices[i]
                 if ssd_idx in sp_map:

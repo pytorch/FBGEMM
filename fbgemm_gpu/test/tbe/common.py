@@ -571,6 +571,7 @@ def v1_lookup(
 
         # Increment the iteration counter
         iter_int = int(emb_op.iter_cpu.add_(1).item())  # used for local computation
+        # pyrefly: ignore [not-callable]
         emb_op.iter.add_(1)  # used for checkpointing
         iter = int(emb_op.iter_cpu.item())
 
@@ -579,10 +580,13 @@ def v1_lookup(
                 emb_op._max_counter_update_freq > 0
                 and iter_int % emb_op._max_counter_update_freq == 0
             ):
+                # pyrefly: ignore [not-callable]
                 row_counter_dev = emb_op.row_counter_dev.detach()
                 if row_counter_dev.numel() > 0:
+                    # pyrefly: ignore [unsupported-operation]
                     emb_op.max_counter[0] = torch.max(row_counter_dev).cpu().item() + 1
                 else:
+                    # pyrefly: ignore [unsupported-operation]
                     emb_op.max_counter[0] = 1
 
     common_kwargs: dict[str, Any] = {
@@ -673,6 +677,7 @@ def v1_lookup(
             "row_counter_offsets": emb_op.row_counter_offsets,
             "row_counter_placements": emb_op.row_counter_placements,
             "learning_rate": emb_op.learning_rate_tensor.item(),
+            # pyrefly: ignore [not-callable]
             "max_counter": emb_op.max_counter.item(),
             "use_rowwise_adagrad_with_counter": emb_op._used_rowwise_adagrad_with_counter,
             # optimizer_args fields

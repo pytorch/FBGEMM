@@ -238,6 +238,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-1,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*on_arm_platform)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.booleans() if test_utils.gpu_available else

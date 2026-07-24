@@ -97,6 +97,7 @@ def generate_requests(
         rs.append(
             get_table_batched_offsets_from_dense(all_indices.view(T, B, L), gpu_num)
         )
+    # pyrefly: ignore [bad-return]
     return rs
 
 

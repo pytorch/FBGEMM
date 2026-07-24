@@ -44,6 +44,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
             f"Setting torch._dynamo.config.cache_size_limit = {self.max_examples}"
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
@@ -136,6 +137,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
 
         torch.testing.assert_close(qref.cpu(), dq.cpu(), rtol=0.1, atol=0.05)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
@@ -227,6 +229,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
 
         torch.testing.assert_close(dqcat, qref, rtol=0.1, atol=0.05)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_padded_fp8_rowwise_input_validation(self) -> None:
         fp32 = SparseType.FP32.as_int()
@@ -263,6 +266,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
                 output_dtype=fp32,
             )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_padded_fp8_rowwise_1d_roundtrip(self) -> None:
         # Exercises the nrows == 1 path where _get_padding_value_kernel used

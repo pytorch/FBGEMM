@@ -200,6 +200,7 @@ class PartiallyMaterializedTensor:
         return layout
 
     @property
+    # pyrefly: ignore [bad-override]
     def __class__(self):
         # this is a hack to avoid assertion error in torch.nn.Module.register_parameter()
         return torch.nn.Parameter
