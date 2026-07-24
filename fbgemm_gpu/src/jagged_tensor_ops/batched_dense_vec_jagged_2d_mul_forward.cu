@@ -81,7 +81,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
     // correctness-preserving.
     // See: https://github.com/ROCm/hip/issues/2253
     const auto blocks_x = utils::cuda::cap_grid_dim_x(
-        static_cast<uint32_t>(div_round_up(B * H, block_dim_y)),
+        div_round_up(B * H, block_dim_y),
         kMaxThreads,
         at::cuda::getCurrentCUDAStream());
 

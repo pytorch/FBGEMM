@@ -141,7 +141,7 @@ Tensor jagged_softmax_forward_cuda(
     const auto blocks_y = static_cast<int32_t>(
         std::min<int64_t>(B, static_cast<int64_t>(kMaxBlockYDim)));
     const auto blocks_x = utils::cuda::cap_grid_dim_x(
-        static_cast<uint32_t>(D),
+        D,
         static_cast<int64_t>(THREADS_PER_BLOCK) * blocks_y,
         at::cuda::getCurrentCUDAStream());
     const dim3 grid(blocks_x, blocks_y, 1);
