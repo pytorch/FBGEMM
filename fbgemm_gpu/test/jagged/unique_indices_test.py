@@ -878,6 +878,53 @@ class UniqueIndicesTest(unittest.TestCase):
 
         torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_delinearize_unique_index_multiblock(self) -> None:
+        """
+        Validates correctness of delinearize_unique_index_kernel end-to-end
+        via jagged_unique_indices at multi-block scale.
+
+        The kernel grid-strides over the input indices and its launch grid is
+        capped on ROCm (cap_grid_dim_x_from_workload) to stay under the HIP
+        2**32-thread launch limit. Tripping that cap requires
+        total_indices > MAX_THREAD_BLOCKS_FACTOR * #SMs * kFlatBlockSize (~4M),
+        but the kernel's PackedTensorAccessor32 carries an upstream
+        TORCH_CHECK(numel < INT32_MAX) that rejects total_indices >= 2**31
+        before the launch is reached, so the cap-trip path is only reachable
+        on ROCm CI (or once the accessor is upgraded to 64-bit indexing).
+
+        This test exercises the grid-stride kernel across many blocks
+        (total_indices >> kFlatBlockSize = 256) and asserts the round-trip
+        invariant unique_indices[reverse_index[i]] == indices[i] for both
+        int32 and int64 indices.
+        """
+        # total_indices spanning many blocks (kFlatBlockSize = 256).
+        total_indices = 3 * 256 + 7
+        f_hash_size = 1024
+        # Sparse, deterministic pattern: mostly zeros with distinct sentinels
+        # scattered across the range so a mis-addressed scatter is detectable.
+        indices_list = [0] * total_indices
+        for pos, val in (
+            (0, 1),
+            (total_indices // 3, 2),
+            (2 * total_indices // 3, 3),
+            (total_indices - 1, 4),
+        ):
+            indices_list[pos] = val
+
+        hash_size_cumsum_list = [0, f_hash_size]
+        hash_size_offsets_list = hash_size_cumsum_to_offsets(hash_size_cumsum_list)
+
+        for dtype in (torch.int32, torch.int64):
+            outputs = self._run_op(
+                hash_size_cumsum_list,
+                hash_size_offsets_list,
+                [total_indices],
+                indices_list,
+                dtype,
+            )
+            self._check_sum_and_roundtrip(outputs, indices_list)
+
 
 if __name__ == "__main__":
     unittest.main()
