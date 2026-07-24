@@ -241,10 +241,7 @@ permute_1D_sparse_data_cuda(
   // correctness-preserving. OverflowOnly leaves the CUDA launch uncapped.
   // See: https://github.com/ROCm/hip/issues/2253
   const auto blocks_1 = utils::cuda::cap_grid_dim_x_from_workload(
-      permuted_lengths_size,
-      threads_1,
-      at::cuda::getCurrentCUDAStream(),
-      utils::cuda::BlockCapPolicy::OverflowOnly);
+      permuted_lengths_size, threads_1, at::cuda::getCurrentCUDAStream());
   AT_DISPATCH_INDEX_TYPES(
       permute.scalar_type(), "permute_1D_lengths_permute_type", [&] {
         using permute_t = index_t;

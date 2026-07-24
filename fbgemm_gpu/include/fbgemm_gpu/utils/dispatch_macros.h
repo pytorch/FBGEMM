@@ -8,276 +8,180 @@
 
 #pragma once
 
+#include <c10/core/ScalarType.h>
+#include <c10/util/Exception.h>
 // This is NECESSARY for the PT2_COMPLIANT_TAG macro to work.
 #include <torch/library.h>
 
-#define PRIVATE_CASE_TYPE_CACHE(enum_type, type, ...) \
-  case enum_type: {                                   \
-    using cache_t = type;                             \
-    return __VA_ARGS__();                             \
-  }
+////////////////////////////////////////////////////////////////////////////////
+/// Type Dispatch Functions
+///
+/// These functions dispatch runtime at::ScalarType values to compile-time
+/// types and invoke the given functor with the resolved types as explicit
+/// template arguments, e.g.:
+///
+///   dispatch_emb_cache_types(
+///       emb.scalar_type(), cache.scalar_type(), "op_name",
+///       [&]<typename emb_t, typename cache_t>() { ... });
+////////////////////////////////////////////////////////////////////////////////
 
-#define PRIVATE_CASE_TYPE_EMB(enum_type1, enum_type2, type1, NAME, ...)    \
-  case enum_type1: {                                                       \
-    using emb_t = type1;                                                   \
-    switch (enum_type2) {                                                  \
-      PRIVATE_CASE_TYPE_CACHE(at::ScalarType::Float, float, __VA_ARGS__)   \
-      PRIVATE_CASE_TYPE_CACHE(at::ScalarType::Half, at::Half, __VA_ARGS__) \
-      default:                                                             \
-        TORCH_CHECK(                                                       \
-            false,                                                         \
-            #NAME,                                                         \
-            " not implemented for cache_t '",                              \
-            toString(enum_type2),                                          \
-            "'");                                                          \
-    }                                                                      \
-  }
+namespace fbgemm_gpu {
+
 #if defined(USE_ROCM)
-
-#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...) \
-  at::ScalarType _emb_t = emb_enum_type;                                     \
-  at::ScalarType _cache_t = cache_enum_type;                                 \
-  switch (_emb_t) {                                                          \
-    PRIVATE_CASE_TYPE_EMB(                                                   \
-        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)           \
-    PRIVATE_CASE_TYPE_EMB(                                                   \
-        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)         \
-    PRIVATE_CASE_TYPE_EMB(                                                   \
-        at::ScalarType::Float8_e4m3fnuz,                                     \
-        _cache_t,                                                            \
-        at::Float8_e4m3fnuz,                                                 \
-        NAME,                                                                \
-        __VA_ARGS__)                                                         \
-    default:                                                                 \
-      TORCH_CHECK(                                                           \
-          false,                                                             \
-          #NAME,                                                             \
-          " not implemented for emb_t '",                                    \
-          toString(_emb_t),                                                  \
-          "'");                                                              \
-  }
-
+using fp8_e4m3_t = at::Float8_e4m3fnuz;
 #else
-
-#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...) \
-  at::ScalarType _emb_t = emb_enum_type;                                     \
-  at::ScalarType _cache_t = cache_enum_type;                                 \
-  switch (_emb_t) {                                                          \
-    PRIVATE_CASE_TYPE_EMB(                                                   \
-        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)           \
-    PRIVATE_CASE_TYPE_EMB(                                                   \
-        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)         \
-    PRIVATE_CASE_TYPE_EMB(                                                   \
-        at::ScalarType::Float8_e4m3fn,                                       \
-        _cache_t,                                                            \
-        at::Float8_e4m3fn,                                                   \
-        NAME,                                                                \
-        __VA_ARGS__)                                                         \
-    default:                                                                 \
-      TORCH_CHECK(                                                           \
-          false,                                                             \
-          #NAME,                                                             \
-          " not implemented for emb_t '",                                    \
-          toString(_emb_t),                                                  \
-          "'");                                                              \
-  }
-
+using fp8_e4m3_t = at::Float8_e4m3fn;
 #endif
 
-#define DISPATCH_EMB_CACHE_TYPES(EMB_TYPE, CACHE_TYPE, NAME, ...)      \
-  [&] {                                                                \
-    const auto& emb_type = EMB_TYPE;                                   \
-    const auto& cache_type = CACHE_TYPE;                               \
-    _DISPATCH_EMB_CACHE_TYPES(emb_type, cache_type, NAME, __VA_ARGS__) \
-  }()
-
-#define PRIVATE_CASE_TYPE_OUTPUT(                            \
-    output_enum_type1,                                       \
-    emb_enum_type1,                                          \
-    cache_enum_type1,                                        \
-    output_type1,                                            \
-    NAME,                                                    \
-    ...)                                                     \
-  case output_enum_type1: {                                  \
-    using output_t = output_type1;                           \
-    _DISPATCH_EMB_CACHE_TYPES(                               \
-        emb_enum_type1, cache_enum_type1, NAME, __VA_ARGS__) \
+template <typename F>
+decltype(auto) dispatch_emb_cache_types(
+    const at::ScalarType emb_type,
+    const at::ScalarType cache_type,
+    const char* const name,
+    F&& f) {
+  const auto dispatch_cache = [&]<typename emb_t>() -> decltype(auto) {
+    switch (cache_type) {
+      case at::ScalarType::Float:
+        return f.template operator()<emb_t, float>();
+      case at::ScalarType::Half:
+        return f.template operator()<emb_t, at::Half>();
+      default:
+        TORCH_CHECK(
+            false,
+            name,
+            " not implemented for cache_t '",
+            toString(cache_type),
+            "'");
+    }
+  };
+  switch (emb_type) {
+    case at::ScalarType::Float:
+      return dispatch_cache.template operator()<float>();
+    case at::ScalarType::Half:
+      return dispatch_cache.template operator()<at::Half>();
+    case c10::CppTypeToScalarType<fp8_e4m3_t>::value:
+      return dispatch_cache.template operator()<fp8_e4m3_t>();
+    default:
+      TORCH_CHECK(
+          false, name, " not implemented for emb_t '", toString(emb_type), "'");
   }
+}
 
-#define DISPATCH_EMB_CACHE_OUTPUT_TYPES(                           \
-    EMB_TYPE, CACHE_TYPE, OUTPUT_TYPE, NAME, ...)                  \
-  [&] {                                                            \
-    const at::ScalarType _output_t = OUTPUT_TYPE; /*            */ \
-    const auto& emb_type = EMB_TYPE;                               \
-    const auto& cache_type = CACHE_TYPE;                           \
-    switch (_output_t) {                                           \
-      PRIVATE_CASE_TYPE_OUTPUT(                                    \
-          at::ScalarType::Half,                                    \
-          emb_type,                                                \
-          cache_type,                                              \
-          at::Half,                                                \
-          NAME,                                                    \
-          __VA_ARGS__)                                             \
-      PRIVATE_CASE_TYPE_OUTPUT(                                    \
-          at::ScalarType::Float,                                   \
-          emb_type,                                                \
-          cache_type,                                              \
-          float,                                                   \
-          NAME,                                                    \
-          __VA_ARGS__)                                             \
-      PRIVATE_CASE_TYPE_OUTPUT(                                    \
-          at::ScalarType::BFloat16,                                \
-          emb_type,                                                \
-          cache_type,                                              \
-          at::BFloat16,                                            \
-          NAME,                                                    \
-          __VA_ARGS__)                                             \
-      default:                                                     \
-        TORCH_CHECK(                                               \
-            false,                                                 \
-            #NAME,                                                 \
-            " not implemented for output_t '",                     \
-            toString(_output_t),                                   \
-            "'");                                                  \
-    }                                                              \
-  }()
-
-#define PRIVATE_CASE_TYPE_OUTPUT2(enum_type, type, ...) \
-  case enum_type: {                                     \
-    using output_t = type;                              \
-    return __VA_ARGS__();                               \
+template <typename F>
+decltype(auto) dispatch_emb_cache_output_types(
+    const at::ScalarType emb_type,
+    const at::ScalarType cache_type,
+    const at::ScalarType output_type,
+    const char* const name,
+    F&& f) {
+  const auto dispatch_emb_cache = [&]<typename output_t>() -> decltype(auto) {
+    return dispatch_emb_cache_types(
+        emb_type,
+        cache_type,
+        name,
+        [&]<typename emb_t, typename cache_t>() -> decltype(auto) {
+          return f.template operator()<emb_t, cache_t, output_t>();
+        });
+  };
+  switch (output_type) {
+    case at::ScalarType::Half:
+      return dispatch_emb_cache.template operator()<at::Half>();
+    case at::ScalarType::Float:
+      return dispatch_emb_cache.template operator()<float>();
+    case at::ScalarType::BFloat16:
+      return dispatch_emb_cache.template operator()<at::BFloat16>();
+    default:
+      TORCH_CHECK(
+          false,
+          name,
+          " not implemented for output_t '",
+          toString(output_type),
+          "'");
   }
+}
 
+template <typename F>
+decltype(auto) dispatch_output_types(
+    const at::ScalarType output_type,
+    const char* const name,
+    F&& f) {
+  switch (output_type) {
+    case at::ScalarType::Half:
+      return f.template operator()<at::Half>();
+    case at::ScalarType::Float:
+      return f.template operator()<float>();
+    case at::ScalarType::Byte:
+      return f.template operator()<uint8_t>();
 #if !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
-
-#define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
-  [&] {                                                                      \
-    const at::ScalarType _output_t = OUTPUT_TYPE;                            \
-    switch (_output_t) {                                                     \
-      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Half, at::Half, __VA_ARGS__) \
-      PRIVATE_CASE_TYPE_OUTPUT2(                                             \
-          at::ScalarType::BFloat16, at::BFloat16, __VA_ARGS__)               \
-      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
-      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Byte, uint8_t, __VA_ARGS__)  \
-      PRIVATE_CASE_TYPE_OUTPUT2(                                             \
-          at::ScalarType::QUInt4x2, uint8_t, __VA_ARGS__)                    \
-      default:                                                               \
-        TORCH_CHECK(                                                         \
-            false,                                                           \
-            #NAME,                                                           \
-            " not implemented for output_t '",                               \
-            toString(_output_t),                                             \
-            "'");                                                            \
-    }                                                                        \
-  }()
-
-#else
-
-#define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
-  [&] {                                                                      \
-    const at::ScalarType _output_t = OUTPUT_TYPE;                            \
-    switch (_output_t) {                                                     \
-      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Half, at::Half, __VA_ARGS__) \
-      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
-      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Byte, uint8_t, __VA_ARGS__)  \
-      default:                                                               \
-        TORCH_CHECK(                                                         \
-            false,                                                           \
-            #NAME,                                                           \
-            " not implemented for output_t '",                               \
-            toString(_output_t),                                             \
-            "'");                                                            \
-    }                                                                        \
-  }()
-
+    case at::ScalarType::BFloat16:
+      return f.template operator()<at::BFloat16>();
+    case at::ScalarType::QUInt4x2:
+      return f.template operator()<uint8_t>();
 #endif
-
-#if defined(USE_ROCM)
-
-#define PRIVATE_CASE_TYPE_CACHE_EMB(                                   \
-    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)        \
-  case grad_enum_type: {                                               \
-    using grad_t = grad_cxx_type;                                      \
-    switch (_emb_t) {                                                  \
-      PRIVATE_CASE_TYPE_EMB(                                           \
-          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)   \
-      PRIVATE_CASE_TYPE_EMB(                                           \
-          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__) \
-      PRIVATE_CASE_TYPE_EMB(                                           \
-          at::ScalarType::Float8_e4m3fnuz,                             \
-          _cache_t,                                                    \
-          at::Float8_e4m3fnuz,                                         \
-          NAME,                                                        \
-          __VA_ARGS__)                                                 \
-      default:                                                         \
-        TORCH_CHECK(                                                   \
-            false,                                                     \
-            #NAME,                                                     \
-            " not implemented for emb_t '",                            \
-            toString(_emb_t),                                          \
-            "'");                                                      \
-    }                                                                  \
+    default:
+      TORCH_CHECK(
+          false,
+          name,
+          " not implemented for output_t '",
+          toString(output_type),
+          "'");
   }
+}
 
-#else
-
-#define PRIVATE_CASE_TYPE_CACHE_EMB(                                   \
-    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)        \
-  case grad_enum_type: {                                               \
-    using grad_t = grad_cxx_type;                                      \
-    switch (_emb_t) {                                                  \
-      PRIVATE_CASE_TYPE_EMB(                                           \
-          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)   \
-      PRIVATE_CASE_TYPE_EMB(                                           \
-          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__) \
-      PRIVATE_CASE_TYPE_EMB(                                           \
-          at::ScalarType::Float8_e4m3fn,                               \
-          _cache_t,                                                    \
-          at::Float8_e4m3fn,                                           \
-          NAME,                                                        \
-          __VA_ARGS__)                                                 \
-      default:                                                         \
-        TORCH_CHECK(                                                   \
-            false,                                                     \
-            #NAME,                                                     \
-            " not implemented for emb_t '",                            \
-            toString(_emb_t),                                          \
-            "'");                                                      \
-    }                                                                  \
+template <typename F>
+decltype(auto) dispatch_emb_grad_cache_types(
+    const at::ScalarType emb_type,
+    const at::ScalarType grad_type,
+    const at::ScalarType cache_type,
+    const char* const name,
+    F&& f) {
+  const auto dispatch_emb_cache = [&]<typename grad_t>() -> decltype(auto) {
+    return dispatch_emb_cache_types(
+        emb_type,
+        cache_type,
+        name,
+        [&]<typename emb_t, typename cache_t>() -> decltype(auto) {
+          return f.template operator()<emb_t, grad_t, cache_t>();
+        });
+  };
+  switch (grad_type) {
+    case at::ScalarType::Float:
+      return dispatch_emb_cache.template operator()<float>();
+    case at::ScalarType::Half:
+      return dispatch_emb_cache.template operator()<at::Half>();
+    case at::ScalarType::BFloat16:
+      return dispatch_emb_cache.template operator()<at::BFloat16>();
+    default:
+      TORCH_CHECK(
+          false,
+          name,
+          " not implemented for grad_t '",
+          toString(grad_type),
+          "'");
   }
+}
 
-#endif
+template <typename F>
+decltype(auto) dispatch_index_types(
+    const at::ScalarType index_type,
+    const char* const name,
+    F&& f) {
+  switch (index_type) {
+    case at::ScalarType::Int:
+      return f.template operator()<int32_t>();
+    case at::ScalarType::Long:
+      return f.template operator()<int64_t>();
+    default:
+      TORCH_CHECK(
+          false,
+          name,
+          " not implemented for index_t '",
+          toString(index_type),
+          "'");
+  }
+}
 
-#define DISPATCH_EMB_GRAD_CACHE_TYPES(                                         \
-    EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, ...)                                \
-  [&] {                                                                        \
-    const auto& emb_type = EMB_TYPE;                                           \
-    const auto& grad_type = GRAD_TYPE;                                         \
-    const auto& cache_type = CACHE_TYPE;                                       \
-    at::ScalarType _emb_t = emb_type;                                          \
-    at::ScalarType _grad_t = grad_type;                                        \
-    at::ScalarType _cache_t = cache_type;                                      \
-    switch (_grad_t) {                                                         \
-      PRIVATE_CASE_TYPE_CACHE_EMB(                                             \
-          at::ScalarType::Float, _cache_t, _emb_t, float, NAME, __VA_ARGS__)   \
-      PRIVATE_CASE_TYPE_CACHE_EMB(                                             \
-          at::ScalarType::Half, _cache_t, _emb_t, at::Half, NAME, __VA_ARGS__) \
-      PRIVATE_CASE_TYPE_CACHE_EMB(                                             \
-          at::ScalarType::BFloat16,                                            \
-          _cache_t,                                                            \
-          _emb_t,                                                              \
-          at::BFloat16,                                                        \
-          NAME,                                                                \
-          __VA_ARGS__)                                                         \
-      default:                                                                 \
-        TORCH_CHECK(                                                           \
-            false,                                                             \
-            #NAME,                                                             \
-            " not implemented for grad_t '",                                   \
-            toString(_grad_t),                                                 \
-            "'");                                                              \
-    }                                                                          \
-  }()
+} // namespace fbgemm_gpu
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Dispatch Helper Macros

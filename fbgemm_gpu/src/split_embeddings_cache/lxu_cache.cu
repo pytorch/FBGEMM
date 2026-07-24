@@ -131,11 +131,11 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
           static_cast<uint64_t>(get_max_thread_blocks_for_cache_kernels_())));
   const dim3 blocks(static_cast<uint32_t>(capped_blocks));
 
-  DISPATCH_EMB_CACHE_TYPES(
+  fbgemm_gpu::dispatch_emb_cache_types(
       uvm_weights.scalar_type(),
       lxu_cache_weights.scalar_type(),
       "lxu_cache_flush_kernel_2",
-      ([&] {
+      ([&]<typename emb_t, typename cache_t>() {
         // Stochastic rounding is required only when emb_t and cache_t are
         // not the same type and emb_t is not float
         const bool stochastic_rounding_ = stochastic_rounding &&

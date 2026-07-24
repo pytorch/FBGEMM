@@ -360,6 +360,7 @@ install_build_tools () {
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     auditwheel \
     'bazel<=7.6.1' \
+    click \
     'cmake>=3.30' \
     hypothesis \
     jinja2 \

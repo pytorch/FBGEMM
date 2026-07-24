@@ -429,7 +429,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
 
 /*
     Explicitly instantiate the kernel function template.  The instantiations are
-    based on the types enumerated by DISPATCH_EMB_GRAD_CACHE_TYPES macro used in
+    based on the types enumerated by dispatch_emb_grad_cache_types function used in
     embedding_backward_split_template.cu
 */
 

@@ -66,10 +66,11 @@ split_{{ optimizer }}_update_kernel(
     {%- endfor %}
     true                                                                \
   ) {                                                                   \
+    return (__VA_ARGS__).template operator()<                           \
     {%- for ph_name, ph_ty in ph_combo.items() %}
-    using {{ ph_name + "_ph_t" }} = {{ ph_ty.primitive_type }};         \
+        {{ ph_ty.primitive_type }}{{ "," if not loop.last }}           \
     {%- endfor  %}
-    return __VA_ARGS__();                                               \
+        >();                                                            \
   }                                                                     \
   {%- endfor %}
   else {                                                                \
@@ -148,11 +149,11 @@ void split_embedding_{{ optimizer }}_update(
     const auto& flatten_grad_dev_weights = grad_dev_weights.flatten();
     const auto& flatten_grad_dev_indices = grad_dev_indices.flatten();
 
-    DISPATCH_EMB_CACHE_TYPES(
+    fbgemm_gpu::dispatch_emb_cache_types(
         dev_weights.scalar_type(),
         lxu_cache_weights.scalar_type(),
         "split_embedding_{{ optimizer }}_update_kernel",
-        [&] {
+        [&]<typename emb_t, typename cache_t>() {
             TORCH_CHECK(!(std::is_same_v<emb_t, uint8_t>));
 
             at::PhiloxCudaState rng_engine_inputs;
@@ -180,7 +181,7 @@ void split_embedding_{{ optimizer }}_update(
                   {{ ph_name + "_dev" }}.scalar_type(),
                   {%- endfor %}
                   "split_embedding_{{ optimizer }}_update_placeholder_type_kernel",
-                  [&] {
+                  [&]{% if args.placeholder_tensor_names %}<{% for ph_name in args.placeholder_tensor_names %}typename {{ ph_name + "_ph_t" }}{{ ", " if not loop.last }}{% endfor %}>{% endif %}() {
                     FBGEMM_LAUNCH_KERNEL(
                         (split_{{ optimizer }}_update_kernel<
                             emb_t,
@@ -216,6 +217,6 @@ void split_embedding_{{ optimizer }}_update(
             }
             {%- endif %}
             {%- endfor %}
-        } // DISPATCH_EMB_CACHE_TYPES
+        } // dispatch_emb_cache_types
     );
 }

@@ -240,6 +240,29 @@ at::Tensor batch_auc(
 
   const int grid_size = num_blocks * num_tasks;
 
+  // HIP enforces a hard limit of 2^32 total threads per launch. auc_kernel
+  // is a chained block-level prefix-sum that requires every (num_blocks *
+  // num_tasks) CTA to be co-resident concurrently (it spinwaits on
+  // block_flags[num_blocks - 1] published by the last block of each
+  // task), so the standard grid-stride + cap pattern is not safe — capping
+  // the grid would force serial reuse of block_flags / block_sums slots
+  // and corrupt the cumsum (best case wrong output, worst case deadlock).
+  // Until the inter-block scan is restructured (Tier-3 follow-up) we
+  // fast-fail host-side instead of letting HIP fire its runtime error
+  // (or, on NVIDIA, silently wrap and produce wrong AUC values).
+  TORCH_CHECK(
+      static_cast<uint64_t>(num_blocks) * static_cast<uint64_t>(num_tasks) *
+              static_cast<uint64_t>(NUM_THREADS_PER_BLOCK) <
+          (uint64_t(1) << 32),
+      "auc_kernel launch would exceed HIP 2^32 thread-per-launch "
+      "limit (num_blocks=",
+      num_blocks,
+      ", num_tasks=",
+      num_tasks,
+      ", threads_per_block=",
+      NUM_THREADS_PER_BLOCK,
+      ")");
+
   at::Tensor block_flags;
   at::Tensor block_sums;
   if (num_blocks > 1) {

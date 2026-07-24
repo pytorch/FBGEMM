@@ -144,6 +144,9 @@ class RESParams:
     table_sizes: list[int] = field(
         default_factory=list
     )  # table sizes for the global rows the TBE holds
+    res_enabled_tables: list[str] = field(
+        default_factory=list
+    )  # table names that are enabled for RES (empty means all enabled)
 
 
 class PrefetchedInfo:
@@ -1561,6 +1564,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
             )
+            self._register_res_enabled_feature_mask()
             logging.info(
                 f"{self.uuid} raw embedding streaming enabled with {self.res_params=}, {self._res_require_copy=}, {self._res_sync_copy=}"
             )
@@ -1694,6 +1698,71 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(1, device=self.current_device, dtype=torch.int32),
             persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
+
+    @torch.jit.ignore
+    def _register_res_enabled_feature_mask(self) -> None:
+        """Build `res_enabled_feature_mask` (per feature) from the
+        `res_enabled_tables` allowlist; an empty allowlist enables all tables."""
+        assert (
+            self.enable_raw_embedding_streaming
+        ), "Should not register res enabled feature mask when raw embedding streaming is not enabled"
+
+        num_features = len(self.feature_table_map)
+        self._res_num_features: int = num_features
+
+        if not self.res_params.res_enabled_tables:
+            self.register_buffer(
+                "res_enabled_feature_mask",
+                torch.ones(
+                    num_features,
+                    device=self.current_device,
+                    dtype=torch.bool,
+                ),
+                persistent=False,  # RES buffer is not checkpointed; derived from res_enabled_tables at init
+            )
+            self._res_all_features_enabled: bool = True
+            return
+
+        # A name not in this TBE's tables simply contributes nothing here; it may
+        # belong to another TBE in a multi-TBE model, so it is not an error.
+        enabled = set(self.res_params.res_enabled_tables)
+        enabled_table_mask_list = [
+            name in enabled for name in self.res_params.table_names
+        ]
+
+        enabled_feature_mask = torch.tensor(
+            [
+                enabled_table_mask_list[table_idx]
+                for table_idx in self.feature_table_map
+            ],
+            device=self.current_device,
+            dtype=torch.bool,
+        )
+        self.register_buffer(
+            "res_enabled_feature_mask", enabled_feature_mask, persistent=False
+        )
+        self._res_all_features_enabled: bool = bool(enabled_feature_mask.all())
+
+    @torch.jit.ignore
+    def _get_enabled_feature_mask_and_indices(
+        self,
+        linearize_indices: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Get a boolean mask for which indices belong to enabled features."""
+        feature_indices = torch.searchsorted(
+            self.hash_size_cumsum[1:],
+            linearize_indices,
+            right=True,
+        )
+        # searchsorted returns num_features for the >= total_hash_size sentinel
+        # (pruned/masked rows); clamp keeps the gather below in-range (a CUDA OOB
+        # gather can silently read garbage). Real cache-hit rows are always in
+        # range, and any clamped sentinel is dropped later by cache_hit_mask.
+        valid_feature_indices = feature_indices.clamp(0, self._res_num_features - 1)
+        # pyre-ignore[29]: res_enabled_feature_mask is a registered buffer (typed
+        # Tensor | Module); tensor indexing is valid at runtime.
+        enabled_mask = self.res_enabled_feature_mask[valid_feature_indices]
+        return enabled_mask, feature_indices
 
     @torch.jit.ignore
     def log(self, msg: str) -> None:
@@ -4644,14 +4713,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         with record_function(
             f"## uvm_save_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
-            found_in_cache_mask = final_lxu_cache_locations != -1
-            # only process the indices that are found in the cache
-            # this will filter out the indices from tables that doesn't have UVM_CACHE enabled
-            linear_cache_indices_merged_masked = torch.where(
-                found_in_cache_mask,
-                linear_cache_indices_merged,
-                self.total_cache_hash_size,
-            )
             linearize_indices = torch.ops.fbgemm.linearize_cache_indices(
                 self.hash_size_cumsum,
                 indices,
@@ -4659,9 +4720,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 vbe_metadata.B_offsets if vbe_metadata is not None else None,
                 vbe_metadata.max_B if vbe_metadata is not None else -1,
             )
+
+            cache_hit_mask = final_lxu_cache_locations != -1
+            # Scope streaming to res_enabled_table (empty list => all tables);
+            # also filters out indices from tables without UVM_CACHE enabled.
+            if not self._res_all_features_enabled:
+                enabled_feature_mask, _ = self._get_enabled_feature_mask_and_indices(
+                    linearize_indices
+                )
+                valid_mask = cache_hit_mask & enabled_feature_mask
+            else:
+                valid_mask = cache_hit_mask
+
+            linear_cache_indices_merged_masked = torch.where(
+                valid_mask,
+                linear_cache_indices_merged,
+                self.total_cache_hash_size,
+            )
             # -1 indices are ignored in raw_embedding_streamer.
             linearize_indices_masked = torch.where(
-                found_in_cache_mask,
+                valid_mask,
                 linearize_indices,
                 -1,
             )

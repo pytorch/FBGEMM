@@ -278,11 +278,11 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
   }
 
   // Reset weight and momentum of pruned rows
-  DISPATCH_EMB_CACHE_TYPES(
+  fbgemm_gpu::dispatch_emb_cache_types(
       dev_weights.scalar_type(),
       lxu_cache_weights.scalar_type(),
       "reset_weight_momentum_kernel",
-      ([&] {
+      ([&]<typename emb_t, typename cache_t>() {
         FBGEMM_LAUNCH_KERNEL(
             (reset_weight_momentum_kernel<emb_t, cache_t>),
             num_pruned_tables * blocks_per_table,

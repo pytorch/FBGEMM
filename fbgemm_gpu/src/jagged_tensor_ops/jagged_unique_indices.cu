@@ -302,8 +302,10 @@ __launch_bounds__(kFlatBlockSize) void delinearize_unique_index_kernel(
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         unique_indices) {
   const auto total_indices = indices.size(0);
-  const auto i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < static_cast<uint64_t>(total_indices)) {
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       i < total_indices;
+       i += stride) {
     unique_indices[reverse_index[i]] = indices[i];
   }
 }
@@ -531,10 +533,17 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
   if (total_indices > 0 && unique_indices.numel() > 0) {
     AT_DISPATCH_INDEX_TYPES(
         indices.scalar_type(), "delinearize_unique_index", ([&] {
+          // HIP enforces a hard limit of 2^32 total threads per launch (unlike
+          // CUDA, which silently wraps). delinearize_unique_index_kernel
+          // grid-strides over `i`, so capping the launch grid is
+          // correctness-preserving.
+          // See: https://github.com/ROCm/hip/issues/2253
+          const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+              total_indices, kFlatBlockSize, at::cuda::getCurrentCUDAStream());
+
           FBGEMM_LAUNCH_KERNEL(
               (delinearize_unique_index_kernel<index_t>),
-              static_cast<int32_t>(
-                  (total_indices + kFlatBlockSize - 1) / kFlatBlockSize),
+              num_blocks,
               kFlatBlockSize,
               0,
               at::cuda::getCurrentCUDAStream(),
