@@ -233,9 +233,7 @@ void lru_cache_insert_cuda(
         // SM-bounded by div_round_up(SM_cnt, 8), so this cap is a no-op for it.
         // See: https://github.com/ROCm/hip/issues/2253
         const auto grid_size = utils::cuda::cap_grid_dim_x(
-            static_cast<uint32_t>(grid_size_uncapped),
-            kMaxThreads,
-            at::cuda::getCurrentCUDAStream());
+            grid_size_uncapped, kMaxThreads, at::cuda::getCurrentCUDAStream());
 
         FBGEMM_LAUNCH_KERNEL(
             (lru_cache_insert_kernel<emb_t, cache_t>),
