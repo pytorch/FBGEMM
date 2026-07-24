@@ -138,17 +138,27 @@ def main() -> int:
         print("error: no data rows across any commit", file=sys.stderr)
         return 3
 
+    # Index each commit's rows by key once (first occurrence wins, matching
+    # the previous next()-based first-match semantics) so per-key lookup is
+    # O(1). The prior nested scan was O(keys*rows) and did not scale to the
+    # tens of thousands of distinct kernel rows a full sweep produces.
+    per_commit_index: list[tuple[str, dict[tuple, dict[str, Any]]]] = []
+    for label, _, rows in per_commit_rows:
+        idx: dict[tuple, dict[str, Any]] = {}
+        for r in rows:
+            k = _row_key(r, config_columns)
+            if k not in idx:
+                idx[k] = r
+        per_commit_index.append((label, idx))
+
     # Build per-row per-commit stats.
     rows_out: list[dict[str, Any]] = []
     for key in all_keys:
         cfg_tuple, kernel_base, kernel_name, pattern_group = all_keys[key]
         config_dict = dict(zip(config_columns, cfg_tuple))
         per_commit_entries: list[dict[str, Any]] = []
-        for label, _, rows in per_commit_rows:
-            found = next(
-                (r for r in rows if _row_key(r, config_columns) == key),
-                None,
-            )
+        for label, idx in per_commit_index:
+            found = idx.get(key)
             if found is None:
                 per_commit_entries.append(
                     {
