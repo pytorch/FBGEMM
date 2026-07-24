@@ -109,9 +109,7 @@ Tensor repeat_arange_cuda(const Tensor& lengths) {
   // correctness-preserving.
   // See: https://github.com/ROCm/hip/issues/2253
   const auto num_blocks = utils::cuda::cap_grid_dim_x(
-      static_cast<uint32_t>(batch_size),
-      kMaxThreads,
-      at::cuda::getCurrentCUDAStream());
+      batch_size, kMaxThreads, at::cuda::getCurrentCUDAStream());
 
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "repeat_arange_kernel", ([&] {

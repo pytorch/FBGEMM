@@ -86,9 +86,7 @@ Tensor get_source_mask_cuda(
   // correctness-preserving.
   // See: https://github.com/ROCm/hip/issues/2253
   const auto num_blocks = utils::cuda::cap_grid_dim_x(
-      static_cast<uint32_t>(batch_size),
-      kMaxThreads,
-      at::cuda::getCurrentCUDAStream());
+      batch_size, kMaxThreads, at::cuda::getCurrentCUDAStream());
 
   AT_DISPATCH_INDEX_TYPES(
       num_sources.scalar_type(), "get_source_mask_kernel", ([&] {
