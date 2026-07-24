@@ -633,7 +633,18 @@ batch_index_select_dim0_codegen_forward_cuda(
               output_t,
               index_t,
               kEmbeddingSize / 4>),
+            {%- if is_index_select %}
+            // Cap the grid on ROCm to stay within the HIP 2^32 threads-per-launch
+            // limit; the kernel grid-strides to cover the full workload. This is a
+            // no-op on CUDA (OverflowOnly).
+            utils::cuda::cap_grid_dim_x(
+                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                kForwardMaxThreads,
+                at::cuda::getCurrentCUDAStream(),
+                utils::cuda::BlockCapPolicy::OverflowOnly),
+            {%- else %}
             div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            {%- endif %}
             dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream(),
@@ -683,7 +694,18 @@ batch_index_select_dim0_codegen_forward_cuda(
               <emb_t, cache_t, output_t, use_cache_t, index_t>
               {%- endif %}
             ),
+            {%- if is_index_select %}
+            // Cap the grid on ROCm to stay within the HIP 2^32 threads-per-launch
+            // limit; the kernel grid-strides to cover the full workload. This is a
+            // no-op on CUDA (OverflowOnly).
+            utils::cuda::cap_grid_dim_x(
+                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                kForwardMaxThreads,
+                at::cuda::getCurrentCUDAStream(),
+                utils::cuda::BlockCapPolicy::OverflowOnly),
+            {%- else %}
             div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            {%- endif %}
             dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream(),
