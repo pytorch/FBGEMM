@@ -779,54 +779,53 @@ inline bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
 // `offset` at line 327 of common.cuh
 // (`for (offset = offset_begin; offset < nnz; offset += offset_stride)`),
 // so capping is correctness-preserving.
-#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                              \
-  {                                                                         \
-    dim3 threads, blocks;                                                   \
-    StackArray<int64_t> jagged_dims_tensor;                                 \
-    std::tie(threads, blocks, jagged_dims_tensor) =                         \
-        check_shape_and_partition_(x_values, x_offsets, y);                 \
-    blocks.x = div_round_up(x_values.size(0), threads.y);                   \
-    blocks.x = utils::cuda::cap_grid_dim_x(                                 \
-        static_cast<uint32_t>(blocks.x),                                    \
-        static_cast<int64_t>(threads.x) * static_cast<int64_t>(threads.y) * \
-            static_cast<int64_t>(threads.z),                                \
-        at::cuda::getCurrentCUDAStream());                                  \
-    std::vector<Tensor> x_offsets_contig;                                   \
-    x_offsets_contig.resize(num_jagged_dim);                                \
-    StackArray<index_t*> x_offset_ptrs;                                     \
-    x_offset_ptrs.ndim = num_jagged_dim;                                    \
-    StackArray<int64_t> x_offset_sizes;                                     \
-    x_offset_sizes.ndim = num_jagged_dim;                                   \
-    for (int d = 0; d < num_jagged_dim; ++d) {                              \
-      x_offsets_contig[d] = x_offsets[d].contiguous();                      \
-      x_offset_ptrs.vals[d] =                                               \
-          x_offsets_contig[d].template data_ptr<index_t>();                 \
-      x_offset_sizes.vals[d] = x_offsets[d].numel();                        \
-    }                                                                       \
-    const auto ff =                                                         \
-        ([f] __device__(                                                    \
-             scalar_t x, scalar_t y, scalar_t /*unused*/) -> scalar_t {     \
-          return f(x, y);                                                   \
-        });                                                                 \
-                                                                            \
-    FBGEMM_LAUNCH_KERNEL(                                                   \
-        (jagged_dense_dense_elementwise_jagged_output_kernel_<              \
-            NUM_JAGGED_DIM,                                                 \
-            index_t,                                                        \
-            scalar_t,                                                       \
-            decltype(ff)>),                                                 \
-        blocks,                                                             \
-        threads,                                                            \
-        0,                                                                  \
-        at::cuda::getCurrentCUDAStream(),                                   \
-        PTA_B(x_values, scalar_t, 2, 32),                                   \
-        x_offset_ptrs,                                                      \
-        x_offset_sizes,                                                     \
-        PTA_B(y_reshaped, scalar_t, 3, 32),                                 \
-        PTA_B(y_reshaped, scalar_t, 3, 32),                                 \
-        PTA_B(output_values, scalar_t, 2, 32),                              \
-        jagged_dims_tensor,                                                 \
-        ff);                                                                \
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                          \
+  {                                                                     \
+    dim3 threads, blocks;                                               \
+    StackArray<int64_t> jagged_dims_tensor;                             \
+    std::tie(threads, blocks, jagged_dims_tensor) =                     \
+        check_shape_and_partition_(x_values, x_offsets, y);             \
+    blocks.x = div_round_up(x_values.size(0), threads.y);               \
+    blocks.x = utils::cuda::cap_grid_dim_x(                             \
+        blocks.x,                                                       \
+        static_cast<int64_t>(threads.x) * threads.y * threads.z,        \
+        at::cuda::getCurrentCUDAStream());                              \
+    std::vector<Tensor> x_offsets_contig;                               \
+    x_offsets_contig.resize(num_jagged_dim);                            \
+    StackArray<index_t*> x_offset_ptrs;                                 \
+    x_offset_ptrs.ndim = num_jagged_dim;                                \
+    StackArray<int64_t> x_offset_sizes;                                 \
+    x_offset_sizes.ndim = num_jagged_dim;                               \
+    for (int d = 0; d < num_jagged_dim; ++d) {                          \
+      x_offsets_contig[d] = x_offsets[d].contiguous();                  \
+      x_offset_ptrs.vals[d] =                                           \
+          x_offsets_contig[d].template data_ptr<index_t>();             \
+      x_offset_sizes.vals[d] = x_offsets[d].numel();                    \
+    }                                                                   \
+    const auto ff =                                                     \
+        ([f] __device__(                                                \
+             scalar_t x, scalar_t y, scalar_t /*unused*/) -> scalar_t { \
+          return f(x, y);                                               \
+        });                                                             \
+                                                                        \
+    FBGEMM_LAUNCH_KERNEL(                                               \
+        (jagged_dense_dense_elementwise_jagged_output_kernel_<          \
+            NUM_JAGGED_DIM,                                             \
+            index_t,                                                    \
+            scalar_t,                                                   \
+            decltype(ff)>),                                             \
+        blocks,                                                         \
+        threads,                                                        \
+        0,                                                              \
+        at::cuda::getCurrentCUDAStream(),                               \
+        PTA_B(x_values, scalar_t, 2, 32),                               \
+        x_offset_ptrs,                                                  \
+        x_offset_sizes,                                                 \
+        PTA_B(y_reshaped, scalar_t, 3, 32),                             \
+        PTA_B(y_reshaped, scalar_t, 3, 32),                             \
+        PTA_B(output_values, scalar_t, 2, 32),                          \
+        jagged_dims_tensor,                                             \
+        ff);                                                            \
   }
 #else
 #define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                          \
