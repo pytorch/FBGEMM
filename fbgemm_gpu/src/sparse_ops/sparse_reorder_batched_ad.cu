@@ -88,7 +88,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
   const dim3 blocks(
       utils::cuda::cap_grid_dim_x(
           grid_size_uncapped,
-          static_cast<int64_t>(threads.x) * static_cast<int64_t>(threads.y),
+          static_cast<int64_t>(threads.x) * threads.y,
           at::cuda::getCurrentCUDAStream()));
 
   FBGEMM_DISPATCH_ALL_TYPES(
@@ -493,8 +493,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
               const dim3 blocks(
                   utils::cuda::cap_grid_dim_x(
                       cuda_calc_xblock_count(B * T, NUM_WARPS),
-                      static_cast<int64_t>(threads.x) *
-                          static_cast<int64_t>(threads.y),
+                      static_cast<int64_t>(threads.x) * threads.y,
                       at::cuda::getCurrentCUDAStream()));
               FBGEMM_LAUNCH_KERNEL(
                   (reorder_batched_ad_indices_kernel_name),
@@ -601,7 +600,7 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
   const dim3 blocks(
       utils::cuda::cap_grid_dim_x(
           grid_size_uncapped,
-          static_cast<int64_t>(threads.x) * static_cast<int64_t>(threads.y),
+          static_cast<int64_t>(threads.x) * threads.y,
           at::cuda::getCurrentCUDAStream()));
 
   FBGEMM_DISPATCH_FLOATING_TYPES_AND(

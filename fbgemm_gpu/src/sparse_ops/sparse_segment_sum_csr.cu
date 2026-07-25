@@ -94,9 +94,7 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
   // segments, so capping the launch grid is correctness-preserving.
   // See: https://github.com/ROCm/hip/issues/2253
   const uint32_t num_blocks = utils::cuda::cap_grid_dim_x(
-      static_cast<uint32_t>(num_segments),
-      threads_per_block,
-      at::cuda::getCurrentCUDAStream());
+      num_segments, threads_per_block, at::cuda::getCurrentCUDAStream());
 
   FBGEMM_DISPATCH_ALL_TYPES(
       values.scalar_type(), "_segment_sum_csr_cuda_1", [&] {
