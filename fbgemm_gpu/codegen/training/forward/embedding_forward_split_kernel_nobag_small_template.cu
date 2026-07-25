@@ -68,11 +68,22 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     ) {
     int32_t T = weights_offsets.size(0);
-    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     {%- if not is_index_select %}
+    // On ROCm the launch caps the grid to stay within the HIP 2^32
+    // threads-per-launch limit, so we grid-stride to cover the full workload.
+    // On CUDA the grid is not capped and the loop body runs once per warp.
+#ifdef USE_ROCM
+    for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
+         b_t < offsets.size(0) - 1;
+         b_t += blockDim.y * gridDim.x) {
+#else
+    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     if (b_t >= offsets.size(0) - 1) {
         return;
     }
+#endif
+    {%- else %}
+    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     {%- endif %}
     int32_t t;
     int32_t b;
@@ -190,6 +201,11 @@ batch_index_select_dim0_codegen_forward_small_kernel(
             }
         }
     }
+    {%- if not is_index_select %}
+#ifdef USE_ROCM
+    } // for b_t (grid-stride loop, ROCm only)
+#endif
+    {%- endif %}
 }
 
 /*
