@@ -97,9 +97,8 @@ void jagged_jagged_elementwise_dense_output_(
   // correctness-preserving.
   // See: https://github.com/ROCm/hip/issues/2253
   blocks.x = utils::cuda::cap_grid_dim_x(
-      static_cast<uint32_t>(blocks.x),
-      static_cast<int64_t>(threads.x) * static_cast<int64_t>(threads.y) *
-          static_cast<int64_t>(threads.z),
+      blocks.x,
+      static_cast<int64_t>(threads.x) * threads.y * threads.z,
       at::cuda::getCurrentCUDAStream());
 
   // Canonicalize output to 3D, collapsing jagged dimensions.

@@ -97,7 +97,7 @@ static void transpose_kernel_mxn_small_sve(
     int64_t ld_dst) {
   asm volatile(
 
-      "mov x0, %[N]\t\n"
+      "mov w0, %w[N]\t\n"
       "mov x1, %[src]\t\n"
       "mov x2, %[ld_src]\t\n"
       "mov x3, %[dst]\t\n"
@@ -350,7 +350,7 @@ static void transpose_kernel_mxn_large_sve(
     int64_t ld_dst) {
   asm volatile(
 
-      "mov x0, %[N]\t\n"
+      "mov w0, %w[N]\t\n"
       "mov x1, %[src]\t\n"
       "mov x2, %[ld_src]\t\n"
       "mov x3, %[dst]\t\n"
