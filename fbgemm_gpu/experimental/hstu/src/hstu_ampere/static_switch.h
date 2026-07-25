@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// clang-format off
+
 // Inspired by
 // https://github.com/NVIDIA/DALI/blob/main/include/dali/core/static_switch.h
 // and https://github.com/pytorch/pytorch/blob/master/aten/src/ATen/Dispatch.h
@@ -23,6 +25,7 @@
 /// });
 /// ```
 
+
 #define BOOL_SWITCH(COND, CONST_NAME, ...)      \
   [&] {                                         \
     if (COND) {                                 \
@@ -30,6 +33,20 @@
       return __VA_ARGS__();                     \
     } else {                                    \
       constexpr static bool CONST_NAME = false; \
+      return __VA_ARGS__();                     \
+    }                                           \
+  }()
+
+#define INT_SWITCH(COND, CONST_NAME, ...)      \
+  [&] {                                         \
+    if (COND == 32) {                                 \
+      constexpr static int CONST_NAME = 32;  \
+      return __VA_ARGS__();                     \
+    } else if (COND == 64) {                    \
+      constexpr static int CONST_NAME = 64; \
+      return __VA_ARGS__();                     \
+    } else {                                    \
+      constexpr static int CONST_NAME = 0; \
       return __VA_ARGS__();                     \
     }                                           \
   }()
@@ -109,6 +126,13 @@
 #endif
 #endif
 
+#ifdef HSTU_DISABLE_86OR89
+#define ARCH_SWITCH(ARCH, ARCH_NAME, ...)  \
+  [&] {                                    \
+    constexpr static int ARCH_NAME = 80;   \
+    return __VA_ARGS__();                  \
+  }()
+#else
 #define ARCH_SWITCH(ARCH, ARCH_NAME, ...)  \
   [&] {                                    \
     if (ARCH == 86 || ARCH == 89) {        \
@@ -119,6 +143,7 @@
       return __VA_ARGS__();                \
     }                                      \
   }()
+#endif
 
 #ifdef HSTU_DISABLE_FP16
 #define FP16_BF16_SWITCH(BF16_COND, ...) \
@@ -145,4 +170,14 @@
     }                                    \
   }()
 #endif
+#endif
+
+#ifdef HSTU_DISABLE_DETERMINISTIC
+  #define DETERMINISTIC_SWITCH(COND, CONST_NAME, ...) \
+  [&] {                                         \
+    constexpr static bool CONST_NAME = false;   \
+    return __VA_ARGS__();                       \
+  }()
+#else
+  #define DETERMINISTIC_SWITCH BOOL_SWITCH
 #endif

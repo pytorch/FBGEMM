@@ -9,6 +9,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// clang-format off
+
 #pragma once
 
 #include "cutlass/arch/barrier.h"
@@ -20,7 +22,6 @@ namespace flash {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <bool Is_balance_bwd = false>
 class SingleTileSchedulerBwd {
  public:
   // Host side kernel arguments
@@ -36,17 +37,7 @@ class SingleTileSchedulerBwd {
   }
 
   static dim3 get_grid_dim(Arguments const& args) {
-    if constexpr (Is_balance_bwd) {
-      return {
-          uint32_t(args.num_head),
-          uint32_t(args.num_batch),
-          uint32_t(args.num_blocks_m)};
-    } else {
-      return {
-          uint32_t(args.num_blocks_m),
-          uint32_t(args.num_head),
-          uint32_t(args.num_batch)};
-    }
+    return {uint32_t(args.num_blocks_m), uint32_t(args.num_head), uint32_t(args.num_batch)};
   }
 
   struct WorkTileInfo {
@@ -72,11 +63,7 @@ class SingleTileSchedulerBwd {
 
   CUTLASS_DEVICE
   WorkTileInfo get_initial_work() const {
-    if constexpr (Is_balance_bwd) {
-      return {int(blockIdx.z), int(blockIdx.x), int(blockIdx.y), true};
-    } else {
-      return {int(blockIdx.x), int(blockIdx.y), int(blockIdx.z), true};
-    }
+    return {int(blockIdx.x), int(blockIdx.y), int(blockIdx.z), true};
   }
 
   CUTLASS_DEVICE
