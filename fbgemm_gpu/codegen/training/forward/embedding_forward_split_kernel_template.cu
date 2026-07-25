@@ -637,7 +637,16 @@ batch_index_select_dim0_codegen_forward_kernel(
 
     // Determine the linearized warp ID, and exit early if needed
     {%- if is_index_select %}
+    // On ROCm the launch caps the grid to stay within the HIP 2^32
+    // threads-per-launch limit, so we grid-stride to cover the full workload.
+    // On CUDA the grid is not capped and the loop body runs exactly once per warp.
+#ifdef USE_ROCM
+    for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
+         ;
+         b_t += blockDim.y * gridDim.x) {
+#else
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
+#endif
     {%- else %}
     const auto total_B = offsets.size(0) - 1;
     // Since we place a limit on the grid size, we need to perform grid-striding
@@ -663,13 +672,23 @@ batch_index_select_dim0_codegen_forward_kernel(
     int32_t L;
     overflow_safe_int_t L_start;
     if (t >= T) {
+        // t is monotonically increasing in b_t, so no further warp has work.
+#ifdef USE_ROCM
+        break;
+#else
         return;
+#endif
     }
     const auto total_L_start = total_L_offsets[t];
     const auto total_L = total_L_offsets[t + 1] - total_L_start;
     L_start = static_cast<overflow_safe_int_t>(b) * fixed_L_per_warp;
     if (L_start >= total_L) {
+        // This warp has no rows to gather; move on to the next strided warp.
+#ifdef USE_ROCM
+        continue;
+#else
         return;
+#endif
     }
     indices_start = total_L_start + L_start;
     L = (total_L - L_start >= fixed_L_per_warp) ? fixed_L_per_warp : (total_L - L_start);
@@ -821,7 +840,11 @@ batch_index_select_dim0_codegen_forward_kernel(
     }
     {%- endif %}
 
-    {%- if not is_index_select %}
+    {%- if is_index_select %}
+#ifdef USE_ROCM
+    } // for b_t (grid-stride loop, ROCm only)
+#endif
+    {%- else %}
     } // for b_t
     {%- endif %}
 }
