@@ -563,7 +563,6 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
                 )
                 dout_t = dout_t.transpose(0, 2).contiguous().transpose(0, 2).detach()
             elif quant_mode == 2:
-                dim = q.shape[-1]
                 bm, bn = get_bm_and_bn_block_size_bwd()
                 q, q_descale, cu_seqlens_q_block_descale = quantize_for_block_scale(
                     ctx.q_fp16, cu_seqlens_q, block_size=bm, fp8_type=bwd_fp8_type
