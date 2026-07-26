@@ -18,6 +18,7 @@
 // Required for op registrations
 ////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/assert_macros.h"
@@ -106,10 +107,19 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     [[maybe_unused]] int64_t error_value = 0;
 
     int32_t T = D_offsets.size(0) - 1;
+    // On ROCm the launch caps the grid to stay within the HIP 2^32
+    // threads-per-launch limit, so we grid-stride to cover the full workload.
+    // On CUDA the grid is not capped and the loop body runs once per warp.
+#ifdef USE_ROCM
+    for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
+         b_t < offsets.size(0) - 1;
+         b_t += blockDim.y * gridDim.x) {
+#else
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     if (b_t >= offsets.size(0) - 1) {
         return;
     }
+#endif
 
     int32_t t;
     [[maybe_unused]] int32_t b;
@@ -141,7 +151,12 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                 grad_indice_weights[indices_start + l] = 0.0;
             }
         }
+        // This b_t has no gradient to compute; move on to the next strided warp.
+#ifdef USE_ROCM
+        continue;
+#else
         return;
+#endif
     }
 
     emb_t* __restrict__ weights;
@@ -426,6 +441,9 @@ kernel_error_handler:
         weights_numel
     )
 {%- endif %}
+#ifdef USE_ROCM
+    } // for b_t (grid-stride loop, ROCm only)
+#endif
 }
 {%- endfor %} {# /* for use_vec_blocking */ #}
 
@@ -548,7 +566,10 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                         cache_t,
                         index_t,
                         kFixedMaxVecsPerThread>),
-                    div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                    utils::cuda::cap_grid_dim_x(
+                        div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                        kForwardMaxThreads,
+                        at::cuda::getCurrentCUDAStream()),
                     dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                     0,
                     at::cuda::getCurrentCUDAStream(),
