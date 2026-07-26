@@ -68,7 +68,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         indice_int64_t=st.sampled_from([True, False]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd(self, indice_int64_t: bool, weights_precision: SparseType) -> None:
         import tempfile
 
@@ -114,7 +114,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         **default_strategies,
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_forward(
         self,
         T: int,
@@ -454,7 +454,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
     @given(**default_strategies)
     @settings(
-        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+        verbosity=Verbosity.normal, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
     def test_ssd_cache_implicit_prefetch(self, **kwargs: Any):
         """
@@ -475,7 +475,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
     @given(**default_strategies)
     @settings(
-        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+        verbosity=Verbosity.normal, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
     def test_ssd_cache_explicit_prefetch(self, **kwargs: Any):
         """
@@ -506,7 +506,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
     @given(use_prefetch_stream=st.booleans(), **default_strategies)
     @settings(
-        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+        verbosity=Verbosity.normal, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
     def test_ssd_cache_pipeline_before_fwd(self, **kwargs: Any):
         """
@@ -536,7 +536,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
     @given(use_prefetch_stream=st.booleans(), **default_strategies)
     @settings(
-        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+        verbosity=Verbosity.normal, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
     def test_ssd_cache_pipeline_between_fwd_bwd(self, **kwargs: Any):
         """
@@ -571,7 +571,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         num_buckets=st.integers(min_value=10, max_value=15),
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_db_forward(
         self,
         T: int,
@@ -659,7 +659,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
         enable_optimizer_offloading=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_apply_kv_state_dict(
         self,
         T: int,
@@ -930,7 +930,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         **default_strategies,
     )
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=MAX_PIPELINE_EXAMPLES,
         deadline=None,
     )
@@ -973,7 +973,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         **default_strategies,
     )
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=MAX_PIPELINE_EXAMPLES,
         deadline=None,
     )
@@ -1017,7 +1017,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         enable_optimizer_offloading=st.booleans(),
         prefetch_pipeline=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_direct_write_embedding(
         self,
         T: int,
@@ -1327,7 +1327,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         enable_optimizer_offloading=st.just(True),
         prefetch_pipeline=st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_direct_write_with_async_backend_fetch_synchronization(
         self,
         T: int,
@@ -1566,7 +1566,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         enable_optimizer_offloading=st.just(True),
         prefetch_pipeline=st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_direct_write_clears_location_update_queue(
         self,
         T: int,
@@ -1818,7 +1818,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
     @given(
         weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=4, deadline=None)
     def test_auto_size_block_cache(
         self,
         weights_precision: SparseType,
@@ -1893,7 +1893,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
     @given(
         ssd_rocksdb_shards=st.sampled_from([1, 4, 8]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=3, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=3, deadline=None)
     def test_rocksdb_tuning_thread_pool_scaling(
         self,
         ssd_rocksdb_shards: int,
@@ -2043,7 +2043,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         use_prefetch_stream=st.booleans(),
     )
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=2,
         deadline=None,
     )

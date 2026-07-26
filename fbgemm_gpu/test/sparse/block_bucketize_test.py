@@ -84,7 +84,7 @@ class BlockBucketizeTest(unittest.TestCase):
         sequence=st.booleans(),
         bucketize_pos=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_long_indices(
         self,
         long_indices: bool,
@@ -282,7 +282,7 @@ class BlockBucketizeTest(unittest.TestCase):
         sequence=st.booleans(),
         bucketize_pos=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_keep_orig_idx_per_feature(
         self,
         long_indices: bool,
@@ -477,7 +477,7 @@ class BlockBucketizeTest(unittest.TestCase):
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_total_num_blocks_uneven_raw_ids(
         self,
         long_indices: bool,
@@ -612,7 +612,7 @@ class BlockBucketizeTest(unittest.TestCase):
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_total_num_blocks_uneven(
         self,
         long_indices: bool,
@@ -735,7 +735,7 @@ class BlockBucketizeTest(unittest.TestCase):
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_total_num_blocks(
         self,
         long_indices: bool,
@@ -846,7 +846,7 @@ class BlockBucketizeTest(unittest.TestCase):
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_total_num_blocks_raw_ids(
         self,
         long_indices: bool,
@@ -956,7 +956,7 @@ class BlockBucketizeTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features(
         self,
         index_type: type[torch.dtype],
@@ -1120,7 +1120,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_inference(
         self,
         index_type: type[torch.dtype],
@@ -1201,7 +1201,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_populate_bucketized_permute(
         self,
         index_type: type[torch.dtype],
@@ -1388,7 +1388,7 @@ class BlockBucketizeTest(unittest.TestCase):
         my_size=st.integers(min_value=1, max_value=16),
         num_sequences=st.integers(min_value=1, max_value=32),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_populate_bucketized_permute_long_sequences(
         self,
         index_type: torch.dtype,
@@ -1411,7 +1411,7 @@ class BlockBucketizeTest(unittest.TestCase):
         index_type=st.sampled_from([torch.int, torch.long]),
         num_sequences=st.integers(min_value=1, max_value=16),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_populate_bucketized_permute_my_size_boundary(
         self,
         index_type: torch.dtype,
@@ -1434,7 +1434,7 @@ class BlockBucketizeTest(unittest.TestCase):
         my_size=st.integers(min_value=33, max_value=64),
         num_sequences=st.integers(min_value=1, max_value=16),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_populate_bucketized_permute_fallback_kernel(
         self,
         index_type: torch.dtype,
@@ -1457,7 +1457,7 @@ class BlockBucketizeTest(unittest.TestCase):
         index_type=st.sampled_from([torch.int, torch.long]),
         my_size=st.integers(min_value=1, max_value=32),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_populate_bucketized_permute_many_sequences(
         self,
         index_type: torch.dtype,
@@ -1478,7 +1478,7 @@ class BlockBucketizeTest(unittest.TestCase):
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_populate_bucketized_permute_warp_parallel_vs_original(
         self,
         index_type: torch.dtype,
@@ -1589,7 +1589,7 @@ class BlockBucketizeTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_with_variable_batch_sizes(
         self,
         index_type: torch.dtype | None,
@@ -1681,7 +1681,7 @@ class BlockBucketizeTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_with_block_bucketize_pos(
         self,
         index_type: torch.dtype | None,
@@ -1850,7 +1850,7 @@ class BlockBucketizeTest(unittest.TestCase):
         sequence=st.booleans(),
         my_size=st.sampled_from([3, 194, 256, 1024]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=32, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=32, deadline=None)
     def test_block_bucketize_sparse_features_large(
         self,
         index_type: type[torch.dtype],
@@ -1956,7 +1956,7 @@ class BlockBucketizeTest(unittest.TestCase):
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_float64_weights(
         self,
         index_type: type[torch.dtype],

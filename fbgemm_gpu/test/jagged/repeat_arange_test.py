@@ -54,7 +54,7 @@ class RepeatArangeTest(unittest.TestCase):
         dtype=st.sampled_from([torch.int32, torch.int64]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_repeat_arange_correctness(
         self,
         batch_size: int,
@@ -110,7 +110,7 @@ class RepeatArangeTest(unittest.TestCase):
         dtype=st.sampled_from([torch.int32, torch.int64]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_repeat_arange_single_length(
         self,
         batch_size: int,
@@ -157,7 +157,7 @@ class RepeatArangeTest(unittest.TestCase):
         max_length=st.integers(1, 100),
         dtype=st.sampled_from([torch.int32, torch.int64]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_repeat_arange_large_batch(
         self,
         batch_size: int,
@@ -185,7 +185,7 @@ class RepeatArangeTest(unittest.TestCase):
         dtype=st.sampled_from([torch.int32, torch.int64]),
         device=st.sampled_from([torch.device("meta")]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_repeat_arange_meta_backend(
         self,
         batch_size: int,
@@ -218,7 +218,7 @@ class RepeatArangeTest(unittest.TestCase):
         dtype=st.sampled_from([torch.int32, torch.int64]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_repeat_arange_dynamic_shape(
         self,
         batch_size: int,

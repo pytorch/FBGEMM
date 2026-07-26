@@ -38,7 +38,7 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
 
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 # pyre-ignore
 additional_decorators: dict[str, list[Callable[..., Any]]] = {

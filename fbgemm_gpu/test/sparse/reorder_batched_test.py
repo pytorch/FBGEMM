@@ -43,7 +43,7 @@ class ReorderBatchedTest(unittest.TestCase):
         Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
         broadcast_lengths=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples; op covered by *_cpu twin (T191384137)"
     )
@@ -98,7 +98,7 @@ class ReorderBatchedTest(unittest.TestCase):
         Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
         broadcast_lengths=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=40, deadline=None)
     def test_reorder_batched_ad_lengths_cpu(
         self,
         B: int,
@@ -144,7 +144,7 @@ class ReorderBatchedTest(unittest.TestCase):
         Itype=st.sampled_from([torch.int32, torch.int64]),
         broadcast_indices=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples; op covered by *_cpu twin (T191384137)"
     )
@@ -239,7 +239,7 @@ class ReorderBatchedTest(unittest.TestCase):
         broadcast_indices=st.booleans(),
         max_batch_size=st.integers(min_value=-2, max_value=5),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_cat_reorder_batched_ad_indices_cpu(
         self,
         B: int,
@@ -356,7 +356,7 @@ class ReorderBatchedTest(unittest.TestCase):
         Itype=st.sampled_from([torch.int32, torch.int64]),
         broadcast_indices=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=40, deadline=None)
     def test_reorder_batched_ad_indices_cpu(
         self,
         B: int,
@@ -434,7 +434,7 @@ class ReorderBatchedTest(unittest.TestCase):
         L=st.integers(min_value=2, max_value=20),
         index_dtype=st.sampled_from([torch.int32, torch.int64]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=40, deadline=None)
     def test_reorder_batched_sequence_embeddings_cpu(
         self,
         B: int,
@@ -523,7 +523,7 @@ class ReorderBatchedTest(unittest.TestCase):
             [torch.float32, torch.uint8, torch.bfloat16, torch.float16]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=40, deadline=None)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples; op covered by *_cpu twin (T191384137)"
     )

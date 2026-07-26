@@ -39,7 +39,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         D=st.integers(min_value=2, max_value=20),
         W=st.integers(min_value=1, max_value=20),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_recat_embedding_grad_output(self, B: int, T: int, D: int, W: int) -> None:
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         grad_output = torch.randn(B, sum(num_features_per_rank), D).float().cuda()
@@ -65,7 +65,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         W=st.integers(min_value=1, max_value=20),
         cuda=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_recat_embedding_grad_output_mixed_D(
         self, B: int, W: int, cuda: bool
     ) -> None:
@@ -107,7 +107,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=20),
         W=st.integers(min_value=1, max_value=20),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_recat_embedding_grad_output_mixed_D_batch(self, B: int, W: int) -> None:
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         global_T = sum(num_features_per_rank)

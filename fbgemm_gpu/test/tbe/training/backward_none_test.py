@@ -59,7 +59,7 @@ else:
         running_on_github,
         TEST_WITH_ROCM,
     )
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 # pyre-ignore
 additional_decorators.update(

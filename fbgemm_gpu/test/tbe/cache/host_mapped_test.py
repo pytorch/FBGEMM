@@ -83,7 +83,7 @@ class HostMappedUvmOpsTest(unittest.TestCase):
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=3),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_to_cpu_host_mapped(self, sizes: list[int]) -> None:
         uvm_t = _make_host_mapped(sizes)
         self.assertTrue(torch.ops.fbgemm.is_uvm_tensor(uvm_t))
@@ -113,7 +113,7 @@ class HostMappedUvmOpsTest(unittest.TestCase):
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=3),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_to_cpu_unified_host_mapped(self, sizes: list[int]) -> None:
         uvm_t = _make_unified_host_mapped(sizes)
         self.assertTrue(torch.ops.fbgemm.is_uvm_tensor(uvm_t))

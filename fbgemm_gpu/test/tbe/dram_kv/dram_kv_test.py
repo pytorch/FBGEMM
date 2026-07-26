@@ -37,7 +37,7 @@ default_st: dict[str, Any] = {
 }
 
 default_settings: dict[str, Any] = {
-    "verbosity": Verbosity.verbose,
+    "verbosity": Verbosity.normal,
     "max_examples": MAX_EXAMPLES,
     "deadline": None,
 }

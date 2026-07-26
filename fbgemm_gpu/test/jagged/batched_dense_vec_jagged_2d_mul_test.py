@@ -39,7 +39,7 @@ else:
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class BatchedDenseVecJagged2DMulTest(unittest.TestCase):
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )
@@ -116,7 +116,7 @@ class BatchedDenseVecJagged2DMulTest(unittest.TestCase):
         )
 
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )
@@ -176,7 +176,7 @@ class BatchedDenseVecJagged2DMulTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @settings(
-        verbosity=Verbosity.verbose,
+        verbosity=Verbosity.normal,
         max_examples=20,
         deadline=None,
     )

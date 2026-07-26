@@ -62,7 +62,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
         ),
         test_compile=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=max_examples, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=max_examples, deadline=None)
     def test_quantize_and_dequantize_op_fp8_rowwise(
         self,
         batched: bool,
@@ -154,7 +154,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
             ],
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=max_examples, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=max_examples, deadline=None)
     def test_quantize_and_dequantize_op_padded_fp8_rowwise(
         self,
         m: int,

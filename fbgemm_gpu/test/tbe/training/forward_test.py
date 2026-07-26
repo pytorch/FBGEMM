@@ -68,7 +68,7 @@ else:
         TEST_WITH_ROCM,
     )
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 fp8_dtype: torch.dtype = (
     torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn

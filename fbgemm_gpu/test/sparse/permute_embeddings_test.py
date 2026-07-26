@@ -98,7 +98,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
         # routing it through the Callable-typed param so pyre accepts the op.
         permute_fn=st.just(torch.ops.fbgemm.permute_2D_sparse_data),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_permute_embeddings_2d(
         self,
         B: int,
@@ -119,7 +119,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
         # routing it through the Callable-typed param so pyre accepts the op.
         permute_fn=st.just(torch.ops.fbgemm.permute_sequence_embeddings),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_permute_embeddings_seq(
         self,
         B: int,
@@ -133,7 +133,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
     @given(
         weights_dtype=st.sampled_from([torch.float, torch.double, torch.half]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_permute_2D_sparse_data_weights_dtype(
         self, weights_dtype: torch.dtype
     ) -> None:

@@ -48,7 +48,7 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, use_cpu_strategy
 
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 
 additional_decorators: dict[str, list[Callable[..., Any]]] = {}

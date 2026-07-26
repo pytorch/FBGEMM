@@ -24,7 +24,7 @@ from hypothesis import given, settings, Verbosity
 from ..common import MAX_EXAMPLES, TEST_WITH_ROCM
 from .common import get_nbit_weights_ty, NBitFowardTestCommon
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 
 class NBitFowardAutovecTest(NBitFowardTestCommon):

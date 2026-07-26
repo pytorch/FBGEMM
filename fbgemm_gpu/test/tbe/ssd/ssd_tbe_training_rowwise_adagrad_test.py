@@ -36,7 +36,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
         **default_strategies,
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_backward_adagrad(
         self,
         T: int,
@@ -174,7 +174,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
         bulk_init_chunk_size=st.sampled_from([0, 204800]),
         lazy_bulk_init_enabled=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_emb_state_dict_adagrad(
         self, bulk_init_chunk_size: int, lazy_bulk_init_enabled: bool
     ) -> None:
@@ -297,7 +297,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
         enable_optimizer_offloading=st.booleans(),
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_emb_state_dict_adagrad(
         self,
         T: int,
@@ -512,7 +512,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
         num_buckets=st.integers(min_value=10, max_value=15),
         enable_optimizer_offloading=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_opt_state_w_offloading_adagrad(
         self,
         T: int,
@@ -740,7 +740,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
         **default_strategies,
         num_buckets=st.integers(min_value=10, max_value=15),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_state_dict_w_backend_return_whole_row(
         self,
         T: int,
@@ -1001,7 +1001,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             )
 
     @given(**default_strategies)
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_fetch_from_l1_sp_w_row_ids_weight(
         self,
         T: int,
@@ -1166,7 +1166,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             )
 
     @given(**default_strategies)
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_fetch_from_l1_sp_w_row_ids_opt_only(
         self,
         T: int,

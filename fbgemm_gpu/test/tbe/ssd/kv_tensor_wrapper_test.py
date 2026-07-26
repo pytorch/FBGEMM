@@ -31,7 +31,7 @@ if not open_source:
 MAX_EXAMPLES = 20
 MAX_D = 256
 default_settings: dict[str, Any] = {
-    "verbosity": Verbosity.verbose,
+    "verbosity": Verbosity.normal,
     "max_examples": MAX_EXAMPLES,
     "deadline": None,
 }

@@ -24,7 +24,7 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
 
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 
 @optests.generate_opcheck_tests(fast=True)

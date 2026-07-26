@@ -88,7 +88,7 @@ class DenseToJaggedTest(unittest.TestCase):
         device=cpu_and_maybe_gpu(),
         precompute_total_L=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_dense_to_jagged(
         self,
         num_jagged_dim: int,
@@ -116,7 +116,7 @@ class DenseToJaggedTest(unittest.TestCase):
         device=cpu_and_maybe_gpu(),
         precompute_total_L=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_dense_to_jagged_opt(
         self,
         num_jagged_dim: int,
@@ -146,7 +146,7 @@ class DenseToJaggedTest(unittest.TestCase):
         device=cpu_and_maybe_gpu(),
         precompute_total_L=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=1, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=1, deadline=None)
     def test_dense_to_jagged_opt_large_batch(
         self,
         num_jagged_dim: int,
@@ -279,7 +279,7 @@ class DenseToJaggedTest(unittest.TestCase):
         device=st.sampled_from([torch.device("meta")]),
         precompute_total_L=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_dense_to_jagged_meta_backend(
         self,
         num_jagged_dim: int,
@@ -329,7 +329,7 @@ class DenseToJaggedTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_dense_to_jagged_dynamic_shape(
         self,
         num_jagged_dim: int,

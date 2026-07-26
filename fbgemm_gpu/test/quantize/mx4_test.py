@@ -153,7 +153,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         power=st.integers(min_value=5, max_value=8),
         sizes=st.integers(min_value=4, max_value=12),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_mx4(self, power: int, sizes: int) -> None:
         group_size = 2**power
         device = torch.device("cuda")
@@ -250,7 +250,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         mx4_format=st.sampled_from([(2, 1), (3, 0)]),
         device=st.sampled_from(["cpu", "cuda"]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_mx4_cases(
         self,
         shape: list[int],
@@ -293,7 +293,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         output_dtype=st.sampled_from([None, SparseType.FP32, SparseType.BF16]),
         use_triton=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_mx4_to_float_correctness(
         self, output_dtype: SparseType | None, use_triton: bool
     ) -> None:
@@ -384,7 +384,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         mx4_format=st.sampled_from([(2, 1)]),
         device=st.sampled_from(["cuda"]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=2, deadline=None)
     def test_mx4_large_cases(
         self,
         shape: list[int],

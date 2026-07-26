@@ -34,7 +34,7 @@ class DenseBmmTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_jagged_bmm(
         self,
         B: int,
@@ -108,7 +108,7 @@ class DenseBmmTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=2, deadline=None)
     def test_jagged_dense_bmm(
         self,
         B: int,
@@ -168,7 +168,7 @@ class DenseBmmTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float]),
         device=st.just(torch.device("cpu")),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_dense_bmm_dynamic_shape(
         self,
         B: int,

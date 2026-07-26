@@ -121,7 +121,7 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output(
         self,
         num_jagged_dim: int,
@@ -142,7 +142,7 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         dtype=st.just(torch.half),
         device=cpu_and_maybe_gpu(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=4, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output_opt(
         self,
         num_jagged_dim: int,
@@ -162,7 +162,7 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.just("meta"),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output_meta_backend(
         self,
         num_jagged_dim: int,
@@ -224,7 +224,7 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.just("cpu"),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output_dynamic_shape(
         self,
         num_jagged_dim: int,

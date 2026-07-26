@@ -48,7 +48,7 @@ else:
     )
 
 
-VERBOSITY: Verbosity = Verbosity.verbose
+VERBOSITY: Verbosity = Verbosity.normal
 
 
 class TestingStatsReporter(TBEStatsReporter):

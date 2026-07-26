@@ -69,7 +69,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         source_from_same_device=st.booleans(),
     )
     # Can instantiate 8 contexts which takes a long time.
-    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=40, deadline=None)
     def test_merge(
         self,
         num_ads: int,
@@ -133,7 +133,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         use_pitched=st.booleans(),
     )
     # Can instantiate 8 contexts which takes a long time.
-    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=40, deadline=None)
     def test_all_to_one_device(
         self,
         num_inputs: int,
@@ -181,7 +181,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         target_deivce=st.integers(min_value=0, max_value=torch.cuda.device_count() - 1),
     )
     # Can instantiate 8 contexts which takes a long time.
-    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=40, deadline=None)
     def test_merge_pooled_embeddings_gpu_to_cuda_without_index(
         self,
         # pyre-fixme[2]: Parameter must be annotated.
@@ -234,7 +234,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         r=st.randoms(use_true_random=False),
     )
     # Can instantiate 8 contexts which takes a long time.
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=10, deadline=None)
     def test_sum_reduce_to_one(
         self,
         # pyre-fixme[2]: Parameter must be annotated.

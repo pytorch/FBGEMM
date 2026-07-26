@@ -152,7 +152,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if gpu_available else st.just(True),
         pruning_ratio=st.sampled_from([None, 0.0]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_quantize_workflow(
         self,
         T: int,
@@ -255,7 +255,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             ]
         ),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_l2_norm_pruning_workflow(
         self,
         use_cpu: bool,
@@ -338,7 +338,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=MAX_EXAMPLES, deadline=None)
     def test_pruning_workflow_large_scale(
         self,
         T: int,

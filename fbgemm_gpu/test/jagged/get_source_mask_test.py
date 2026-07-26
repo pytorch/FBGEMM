@@ -46,7 +46,7 @@ class GetSourceMaskTest(unittest.TestCase):
         max_targets=st.integers(min_value=1, max_value=20),
         dtype=st.sampled_from([torch.int32, torch.int64]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=20, deadline=None)
     def test_get_source_mask_basic(
         self,
         batch_size: int,
@@ -135,7 +135,7 @@ class GetSourceMaskTest(unittest.TestCase):
     @given(
         batch_size=st.integers(min_value=10, max_value=1000),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=5, deadline=None)
+    @settings(verbosity=Verbosity.normal, max_examples=5, deadline=None)
     def test_get_source_mask_large_batch(self, batch_size: int) -> None:
         device = torch.accelerator.current_accelerator()
 
