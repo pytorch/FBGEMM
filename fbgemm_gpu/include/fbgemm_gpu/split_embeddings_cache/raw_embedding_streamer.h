@@ -69,8 +69,8 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   /// weights, and the optional identities / runtime_meta) to CPU and injects
   /// them into the background queue, which is drained by a pool of consumer
   /// threads that stream out to the thrift server (co-located on same host
-  /// now). The copy is split into <= res_chunk_size-row chunks across up to
-  /// res_num_copy_threads copy threads.
+  /// now). The copy is split into <= res_chunk_size-row chunks that run
+  /// concurrently across the res_num_copy_threads-worker copy pool.
   ///
   /// This is used in cuda stream callback, which doesn't require to be
   /// serialized with other callbacks, thus a separate thread is used to
@@ -97,8 +97,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> copy_done_flag = std::nullopt);
 
   /*
-   * Join the pending dispatch (and the copy threads it spawned), making sure it
-   * is properly finished before creating new.
+   * Join the pending dispatch future (which resolves only after all copies for
+   * the previous iteration have been enqueued), making sure it is properly
+   * finished before creating new.
    */
   void join_dispatch();
 
@@ -136,10 +137,12 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   // producers submit one ship task per item and workers wake on submit (no
   // polling). Sized to res_num_consumers_.
   std::unique_ptr<folly::CPUThreadPoolExecutor> consumer_executor_;
-  // Copy threads for UVM cache (joined every iteration). Shared by the blocking
-  // and non-blocking stream() paths; this assumes a given table streams in a
-  // single mode at a time (blocking OR non-blocking), never concurrently.
-  std::vector<std::unique_ptr<std::thread>> chunk_copy_threads_;
+  // Persistent pool that runs the per-chunk tensor copies (CPU-bound
+  // std::copy), sized res_num_copy_threads_ so chunks run concurrently. Shared
+  // by the blocking and non-blocking stream() paths; this assumes a given table
+  // streams in a single mode at a time (blocking OR non-blocking), never
+  // concurrently.
+  std::unique_ptr<folly::CPUThreadPoolExecutor> copy_executor_;
   // Persistent size-1 executor that runs the per-iteration dispatch (poll_flag
   // + chunked_copy_and_enqueue). Named so its thread is identifiable in traces.
   std::unique_ptr<folly::CPUThreadPoolExecutor> dispatch_executor_;
@@ -151,17 +154,33 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
                       TrainingPsOdsLogger>
       ods_logger_;
 
-  void join_chunk_copy_threads();
   // Submit one ship task (blockingWait(tensor_stream(...))) for `item` onto
   // consumer_executor_.
   void submit_stream_item(StreamQueueItem item);
-  void chunked_copy_and_enqueue(
-      const at::Tensor& indices,
-      const at::Tensor& weights,
+  // Copies `count` rows of the source tensors into CPU chunks and enqueues each
+  // via submit_stream_item, fanning the per-chunk copies out across
+  // copy_executor_ and awaiting them all (the torn-row barrier). A coroutine so
+  // the non-blocking dispatch can co_await it; args are by value so nothing
+  // dangles once a chunk is scheduled on copy_executor_.
+  folly::coro::Task<void> chunked_copy_and_enqueue(
+      at::Tensor indices,
+      at::Tensor weights,
       std::optional<at::Tensor> identities,
       std::optional<at::Tensor> runtime_meta,
-      const at::Tensor& count,
-      std::vector<std::unique_ptr<std::thread>>& target_copy_threads);
+      at::Tensor count);
+  // Copies one chunk [start, end) and enqueues it via submit_stream_item. Runs
+  // to completion on a single copy_executor_ worker; the per-chunk try/catch
+  // keeps an exception from escaping into collectAllRange (which awaits every
+  // sibling to completion and then rethrows one exception onto the blocking
+  // caller / dispatch future). By value for the same reason as
+  // chunked_copy_and_enqueue.
+  folly::coro::Task<void> copy_chunk_task(
+      at::Tensor indices,
+      at::Tensor weights,
+      std::optional<at::Tensor> identities,
+      std::optional<at::Tensor> runtime_meta,
+      int64_t start,
+      int64_t end);
 
   // Waits (spinning) for copy_done_flag to signal the source tensors are safe
   // to read, resetting it. Returns false on timeout. Shared by the blocking
@@ -191,13 +210,12 @@ fbgemm_gpu::StreamQueueItem tensor_copy_chunk(
     int64_t start_row,
     int64_t end_row);
 
-// Tiles [0, num_rows) into per-thread groups of [start, end) chunk ranges, each
-// chunk of size <= chunk_size, contiguous and non-overlapping (union is the
-// whole range). The outer index is the thread; each inner vector is that
-// thread's contiguous band split into chunks. Empty bands produce no group.
-// Pure/build-agnostic so it is unit-testable without a GPU or FBGEMM_FBCODE.
-// num_threads bounds how the rows are pre-split before chunking, matching
-// chunked_copy_and_enqueue's tiling.
-std::vector<std::vector<std::pair<int64_t, int64_t>>>
-computeChunkRanges(int64_t num_rows, size_t chunk_size, size_t num_threads);
+// Tiles [0, num_rows) into flat [start, end) chunks of size <= chunk_size,
+// contiguous and non-overlapping (their union is the whole range). One task per
+// chunk is submitted to copy_executor_, which load-balances them across its
+// workers. Pure/build-agnostic so it is unit-testable without a GPU or
+// FBGEMM_FBCODE.
+std::vector<std::pair<int64_t, int64_t>> computeChunks(
+    int64_t num_rows,
+    size_t chunk_size);
 } // namespace fbgemm_gpu

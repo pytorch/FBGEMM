@@ -9,6 +9,8 @@
 #ifdef FBGEMM_FBCODE
 #include <fmt/format.h>
 #include <folly/coro/BlockingWait.h>
+#include <folly/coro/Collect.h>
+#include <folly/coro/Task.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/thread_factory/NamedThreadFactory.h>
 #include <folly/futures/Future.h>
@@ -139,39 +141,20 @@ fbgemm_gpu::StreamQueueItem tensor_copy_chunk(
       new_indices, new_weights, new_identities, new_runtime_meta, new_count};
 }
 
-std::vector<std::vector<std::pair<int64_t, int64_t>>>
-computeChunkRanges(int64_t num_rows, size_t chunk_size, size_t num_threads) {
-  // Split [0, num_rows) across up to num_threads contiguous per-thread bands,
-  // then split each band into <= chunk_size chunks. Returns one inner vector of
-  // [start, end) chunk ranges per thread (outer index = thread); ranges are
-  // contiguous, non-overlapping, and their union is the whole range. Empty
-  // bands produce no group.
-  std::vector<std::vector<std::pair<int64_t, int64_t>>> thread_chunks;
-  if (num_rows <= 0 || chunk_size == 0 || num_threads == 0) {
-    return thread_chunks;
+std::vector<std::pair<int64_t, int64_t>> computeChunks(
+    int64_t num_rows,
+    size_t chunk_size) {
+  // Split [0, num_rows) into flat [start, end) chunks of <= chunk_size rows;
+  // chunks are contiguous, non-overlapping, and their union is the whole range.
+  std::vector<std::pair<int64_t, int64_t>> chunks;
+  if (num_rows <= 0 || chunk_size == 0) {
+    return chunks;
   }
-  // ceil-div (a + b - 1) / b: rounds up so a partial final chunk/band counts.
-  const size_t n_chunks =
-      (static_cast<size_t>(num_rows) + chunk_size - 1) / chunk_size;
-  const size_t n_threads = std::min(n_chunks, num_threads);
-  const size_t rows_per_thread =
-      (static_cast<size_t>(num_rows) + n_threads - 1) / n_threads;
-  for (size_t ti = 0; ti < n_threads; ++ti) {
-    const int64_t thread_start = static_cast<int64_t>(ti * rows_per_thread);
-    const int64_t thread_end =
-        std::min(static_cast<int64_t>((ti + 1) * rows_per_thread), num_rows);
-    std::vector<std::pair<int64_t, int64_t>> chunks;
-    for (int64_t s = thread_start; s < thread_end;
-         s += static_cast<int64_t>(chunk_size)) {
-      const int64_t e =
-          std::min(s + static_cast<int64_t>(chunk_size), thread_end);
-      chunks.emplace_back(s, e);
-    }
-    if (!chunks.empty()) {
-      thread_chunks.push_back(std::move(chunks));
-    }
+  for (int64_t s = 0; s < num_rows; s += static_cast<int64_t>(chunk_size)) {
+    const int64_t e = std::min(s + static_cast<int64_t>(chunk_size), num_rows);
+    chunks.emplace_back(s, e);
   }
-  return thread_chunks;
+  return chunks;
 }
 
 RawEmbeddingStreamer::RawEmbeddingStreamer(
@@ -202,9 +185,10 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     // Fail loud on a misconfigured knob. These are now caller-supplied (were
     // compile-time constants), and 0 -- or a negative that wrapped to a huge
     // size_t -- would silently break streaming: res_num_consumers=0 spawns no
-    // drain threads (queue grows unbounded), res_chunk_size=0 /
-    // res_num_copy_threads=0 make computeChunkRanges return empty (enqueues
-    // nothing). Reject rather than silently no-op.
+    // drain threads (queue grows unbounded), res_chunk_size=0 makes
+    // computeChunks return empty (enqueues nothing), res_num_copy_threads=0
+    // sizes copy_executor_ to zero workers (copy tasks never run). Reject
+    // rather than silently no-op.
     TORCH_CHECK(
         res_chunk_size > 0 && res_num_consumers > 0 && res_num_copy_threads > 0,
         "RES config knobs must be > 0: res_chunk_size=",
@@ -251,6 +235,15 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
         res_num_consumers_,
         std::make_unique<folly::NamedThreadFactory>(
             fmt::format("RESShip.{}", unique_id_)));
+
+    // Persistent pool that runs the per-chunk tensor copies (CPU-bound
+    // std::copy) off the trainer thread. Sized res_num_copy_threads_ so N
+    // chunks run concurrently -- the same N-way parallelism the old
+    // one-std::thread-per-group model gave.
+    copy_executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        res_num_copy_threads_,
+        std::make_unique<folly::NamedThreadFactory>(
+            fmt::format("RESCopy.{}", unique_id_)));
   }
 #endif
 }
@@ -258,13 +251,19 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
 RawEmbeddingStreamer::~RawEmbeddingStreamer() {
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
+    // Drain in producer order: dispatch schedules onto copy_executor_, and copy
+    // groups submit ship tasks onto consumer_executor_, so join dispatch ->
+    // copy -> consumer. A wrong order risks joining an executor while a
+    // producer still schedules onto it.
     join_dispatch();
     if (dispatch_executor_ != nullptr) {
       dispatch_executor_->join();
     }
-    join_chunk_copy_threads();
-    // Producers (dispatch + copy threads) are all joined above, so no further
-    // ship tasks will be submitted. join() drains the in-flight ones before the
+    if (copy_executor_ != nullptr) {
+      copy_executor_->join();
+    }
+    // Producers (dispatch + copy) are all joined above, so no further ship
+    // tasks will be submitted. join() drains the in-flight ones before the
     // executor's threads stop, then destroys members in a safe order.
     if (consumer_executor_ != nullptr) {
       consumer_executor_->join();
@@ -305,19 +304,23 @@ void RawEmbeddingStreamer::stream(
     if (!poll_flag()) {
       return;
     }
-    chunked_copy_and_enqueue(
+    // blockingWait blocks the trainer thread until every copy group (bound to
+    // copy_executor_) has finished and enqueued -- the torn-row barrier. The
+    // trainer thread is not a copy_executor_ worker, so this cannot self-
+    // deadlock. The per-group try/catch keeps collectAllRange from rethrowing
+    // here.
+    folly::coro::blockingWait(chunked_copy_and_enqueue(
         indices,
         weights,
         std::move(identities),
         std::move(runtime_meta),
-        count,
-        chunk_copy_threads_);
-    join_chunk_copy_threads();
+        count));
     return;
   }
-  // Non-blocking: join the previous dispatch + copy threads, then spawn new
-  // ones. The join is the serializer: it guarantees iter i's copy finished
-  // reading the source cache rows before iter i+1 overwrites them.
+  // Non-blocking: join the previous dispatch (which awaited its copies on
+  // copy_executor_) before starting a new one. join_dispatch() is the
+  // serializer: it guarantees iter i's copies finished reading the source cache
+  // rows before iter i+1 overwrites them.
   join_dispatch();
   // Dispatch runs as a coroutine on the persistent size-1 executor; folly
   // captures any exception into dispatch_future_, which is logged when the
@@ -340,8 +343,11 @@ void RawEmbeddingStreamer::join_dispatch() {
 #ifdef FBGEMM_FBCODE
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## RawEmbeddingStreamer::join_dispatch ##");
-  // Wait the previous dispatch. Log-and-continue: an exception the dispatch
-  // deferred into the future must not escape (would std::terminate the
+  // Wait the previous dispatch. The dispatch future resolves only after
+  // chunked_copy_and_enqueue's collectAllRange completes, so this is also the
+  // torn-row barrier: iter i's copies finish reading the source cache rows
+  // before iter i+1 overwrites them. Log-and-continue: an exception the
+  // dispatch deferred into the future must not escape (would std::terminate the
   // trainer).
   if (dispatch_future_.valid()) {
     try {
@@ -355,23 +361,11 @@ void RawEmbeddingStreamer::join_dispatch() {
     }
     dispatch_future_ = folly::makeSemiFuture();
   }
-  // The real torn-row barrier: iter i's copy must finish reading the source
-  // cache rows before iter i+1 overwrites them.
-  join_chunk_copy_threads();
   rec->record.end();
 #endif
 }
 
 #ifdef FBGEMM_FBCODE
-void RawEmbeddingStreamer::join_chunk_copy_threads() {
-  for (auto& t : chunk_copy_threads_) {
-    if (t && t->joinable()) {
-      t->join();
-    }
-  }
-  chunk_copy_threads_.clear();
-}
-
 void RawEmbeddingStreamer::submit_stream_item(StreamQueueItem item) {
   // Push model: hand the item to a ship worker that wakes on submit. folly
   // captures any task exception (so an escaped throw can't std::terminate the
@@ -402,67 +396,63 @@ void RawEmbeddingStreamer::submit_stream_item(StreamQueueItem item) {
   });
 }
 
-void RawEmbeddingStreamer::chunked_copy_and_enqueue(
-    const at::Tensor& indices,
-    const at::Tensor& weights,
+folly::coro::Task<void> RawEmbeddingStreamer::copy_chunk_task(
+    at::Tensor indices,
+    at::Tensor weights,
     std::optional<at::Tensor> identities,
     std::optional<at::Tensor> runtime_meta,
-    const at::Tensor& count,
-    std::vector<std::unique_ptr<std::thread>>& target_copy_threads) {
+    int64_t start,
+    int64_t end) {
+  // Guard the copy body so a per-chunk failure logs instead of escaping into
+  // collectAllRange (which would cancel siblings and rethrow onto the blocking
+  // caller / std::terminate).
+  try {
+    auto chunk_item = tensor_copy_chunk(
+        indices, weights, identities, runtime_meta, start, end);
+    submit_stream_item(std::move(chunk_item));
+  } catch (const std::exception& e) {
+    XLOG(ERR) << "[TBE_ID" << unique_id_ << "] copy_chunk [" << start << ", "
+              << end << ") caught exception: " << e.what();
+  } catch (...) {
+    XLOG(ERR) << "[TBE_ID" << unique_id_ << "] copy_chunk [" << start << ", "
+              << end << ") caught unknown exception";
+  }
+  co_return;
+}
+
+folly::coro::Task<void> RawEmbeddingStreamer::chunked_copy_and_enqueue(
+    at::Tensor indices,
+    at::Tensor weights,
+    std::optional<at::Tensor> identities,
+    std::optional<at::Tensor> runtime_meta,
+    at::Tensor count) {
   const auto num_rows = get_maybe_uvm_scalar(count);
-  const auto thread_chunks =
-      computeChunkRanges(num_rows, res_chunk_size_, res_num_copy_threads_);
-
-  for (auto& t : target_copy_threads) { // join+clear the previous batch
-    if (t && t->joinable()) {
-      t->join();
-    }
-  }
-  target_copy_threads.clear();
-  if (thread_chunks.empty()) {
-    return;
-  }
-
-  // One copy thread per pre-computed group. Chunk boundaries and per-thread
-  // grouping live entirely in computeChunkRanges, so the enqueued row set is
-  // identical regardless of how threads are laid out here.
-  target_copy_threads.reserve(thread_chunks.size());
-  for (size_t ti = 0; ti < thread_chunks.size(); ++ti) {
-    target_copy_threads.push_back(
-        std::make_unique<std::thread>([this,
-                                       indices,
-                                       weights,
-                                       identities,
-                                       runtime_meta,
-                                       chunks = thread_chunks[ti],
-                                       ti]() {
-          // Guard the copy body so a per-chunk failure logs instead of escaping
-          // the std::thread and calling std::terminate.
-          try {
-            folly::stop_watch<std::chrono::milliseconds> thread_watch;
-            int64_t rows_done = 0;
-            for (const auto& [s, e] : chunks) {
-              auto chunk_item = tensor_copy_chunk(
-                  indices, weights, identities, runtime_meta, s, e);
-              submit_stream_item(std::move(chunk_item));
-              rows_done += (e - s);
-            }
-            XLOG_EVERY_MS(INFO, 15000)
-                << "[TBE_ID" << unique_id_ << "] copy_thread tid=" << ti
-                << " rows=" << rows_done << " chunks=" << chunks.size()
-                << " copy_ms=" << thread_watch.elapsed().count();
-          } catch (const std::exception& e) {
-            XLOG(ERR) << "[TBE_ID" << unique_id_ << "] copy_thread tid=" << ti
-                      << " caught exception: " << e.what();
-          } catch (...) {
-            XLOG(ERR) << "[TBE_ID" << unique_id_ << "] copy_thread tid=" << ti
-                      << " caught unknown exception";
-          }
-        }));
-  }
+  const auto chunks = computeChunks(num_rows, res_chunk_size_);
   XLOG_EVERY_MS(INFO, 15000)
       << "[RES] chunked_copy tbe=" << unique_id_ << " rows=" << num_rows
-      << " threads=" << thread_chunks.size();
+      << " chunks=" << chunks.size();
+  if (chunks.empty()) {
+    co_return;
+  }
+
+  // One copy task per chunk. Chunk boundaries live entirely in computeChunks,
+  // so the enqueued row set is identical regardless of how the tasks run.
+  // co_withExecutor binds each task to copy_executor_ (a bare Task would
+  // inherit the size-1 dispatch_executor_ and serialize the copies);
+  // collectAllRange then runs the tasks across the pool -- the workers pull
+  // them, so the pool load-balances -- and completes only after every one is
+  // done (the barrier).
+  std::vector<folly::coro::TaskWithExecutor<void>> tasks;
+  tasks.reserve(chunks.size());
+  for (const auto& [start, end] : chunks) {
+    tasks.push_back(
+        folly::coro::co_withExecutor(
+            copy_executor_.get(),
+            copy_chunk_task(
+                indices, weights, identities, runtime_meta, start, end)));
+  }
+  co_await folly::coro::collectAllRange(std::move(tasks));
+  co_return;
 }
 
 bool RawEmbeddingStreamer::poll_copy_done_flag(
@@ -494,8 +484,8 @@ folly::coro::Task<void> RawEmbeddingStreamer::dispatch_copy_task(
   if (!poll_copy_done_flag(copy_done_flag)) {
     co_return;
   }
-  chunked_copy_and_enqueue(
-      indices, weights, identities, runtime_meta, count, chunk_copy_threads_);
+  co_await chunked_copy_and_enqueue(
+      indices, weights, identities, runtime_meta, count);
   co_return;
 }
 
