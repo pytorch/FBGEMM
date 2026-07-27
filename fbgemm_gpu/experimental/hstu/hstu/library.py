@@ -12,13 +12,13 @@
 import logging
 import os
 
+import torch
+
 no_fbgemm_gpu: bool = False
 try:
     import fbgemm_gpu  # noqa: F401
 except ImportError:
     no_fbgemm_gpu = True
-
-import torch
 
 try:
     # pyre-ignore[21]

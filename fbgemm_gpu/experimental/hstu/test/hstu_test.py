@@ -1515,8 +1515,8 @@ def P_blockwise_Vt_gemm_fp8(
     BM = BN if swapQK else BM
     BN = BM if swapQK else BN
 
-    is_delta_q_m = (swapQK == False) and (start_ids is not None)
-    is_delta_q_n = (swapQK == True) and (start_ids is not None)
+    is_delta_q_m = (not swapQK) and (start_ids is not None)
+    is_delta_q_n = swapQK and (start_ids is not None)
 
     output = torch.zeros(B, H, seq_len_q, dim, dtype=torch.float, device="cuda")
     descale_one = torch.tensor([1.0], dtype=torch.float32, device="cuda")
@@ -1972,7 +1972,6 @@ def _bwd_reference_fp8(
     ori_n_k: int = n_k
     n_q = 16 * math.ceil(seqlen_q / 16)
     n_k = 16 * math.ceil(seqlen_k / 16)
-    L: int = q.size(0)
     dtype_out = q.dtype
     bm, bn = get_bm_and_bn_block_size_bwd()
 
@@ -2665,7 +2664,7 @@ class HSTU8Test(unittest.TestCase):
             )
             return
         if quant_mode > 0 and (
-            total_q % 16 != 0 or total_k % 16 != 0 or full_batch == False
+            total_q % 16 != 0 or total_k % 16 != 0 or not full_batch
         ):
             logger.info(
                 "Skipping test for quant_mode > 0 and (total_q % 16 != 0 or total_k % 16 != 0 or full_batch == False), not supported"
