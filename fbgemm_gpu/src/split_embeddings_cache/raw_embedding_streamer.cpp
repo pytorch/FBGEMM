@@ -230,65 +230,32 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
         std::make_unique<folly::NamedThreadFactory>(
             fmt::format("RESDispatch.{}", unique_id_)));
 
-    XLOG(INFO) << "[TBE_ID" << unique_id_ << "] Starting " << res_num_consumers_
-               << " consumer threads"
+    XLOG(INFO) << "[TBE_ID" << unique_id_
+               << "] Starting RES ship executor with " << res_num_consumers_
+               << " threads"
                << ", chunk_size=" << res_chunk_size_
                << ", copy_threads=" << res_num_copy_threads_;
-    // Ordering caveat: with res_num_consumers_ > 1, these consumers drain the
-    // queue concurrently, so arrival order at the PS is NOT enqueue (iteration)
+    // Push model: ship tasks are submitted onto this executor (one per enqueued
+    // StreamQueueItem) and its workers wake on submit -- no polled queue, no
+    // raw std::thread that could std::terminate on an escaped exception.
+    //
+    // Ordering caveat: with res_num_consumers_ > 1, ship tasks run
+    // concurrently, so arrival order at the PS is NOT enqueue (iteration)
     // order. The store (TrainingPsHandler) applies same-(fqn,row_id) writes
     // arrival-wins with no version compare, so a stale iter-i write can
     // transiently clobber a fresh iter-(i+1) one for a hot row (self-heals on
-    // the row's next in-order update). A single consumer would be ordered/safe.
-    // TODO(T281413204): proper fix is to carry a per-row iteration/version and
-    // keep-newest in the store.
-    for (size_t ci = 0; ci < res_num_consumers_; ++ci) {
-      consumer_threads_.push_back(std::make_unique<std::thread>([this] {
-        while (!stop_) {
-          auto item = weights_to_stream_queue_.try_dequeue();
-          if (!item.has_value()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-          }
-          if (stop_) {
-            return;
-          }
-          // Guard the per-item body: a transient tensor_stream failure must log
-          // and move on to the next item, never escape and std::terminate the
-          // trainer.
-          try {
-            folly::stop_watch<std::chrono::milliseconds> stop_watch;
-            folly::coro::blockingWait(tensor_stream(
-                item->indices,
-                item->weights,
-                item->identities,
-                item->runtime_meta));
-            if (ods_logger_) {
-              ods_logger_->bumpKeyGauge(
-                  "stream_mpmc_depth",
-                  static_cast<double>(weights_to_stream_queue_.size()));
-            }
-            XLOG_EVERY_MS(INFO, 60000)
-                << "[TBE_ID" << unique_id_ << "] end stream queue size: "
-                << weights_to_stream_queue_.size() << " stream takes "
-                << stop_watch.elapsed().count() << "ms"
-                << " rows=" << item->indices.size(0);
-          } catch (const std::exception& e) {
-            XLOG(ERR) << "[TBE_ID" << unique_id_
-                      << "] consumer thread caught exception: " << e.what();
-          } catch (...) {
-            XLOG(ERR) << "[TBE_ID" << unique_id_
-                      << "] consumer thread caught unknown exception";
-          }
-        }
-      }));
-    }
+    // the row's next in-order update). res_num_consumers_ == 1 is
+    // ordered/safe. TODO(T281413204): proper fix is to carry a per-row
+    // iteration/version and keep-newest in the store.
+    consumer_executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        res_num_consumers_,
+        std::make_unique<folly::NamedThreadFactory>(
+            fmt::format("RESShip.{}", unique_id_)));
   }
 #endif
 }
 
 RawEmbeddingStreamer::~RawEmbeddingStreamer() {
-  stop_ = true;
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
     join_dispatch();
@@ -296,7 +263,12 @@ RawEmbeddingStreamer::~RawEmbeddingStreamer() {
       dispatch_executor_->join();
     }
     join_chunk_copy_threads();
-    join_consumer_threads();
+    // Producers (dispatch + copy threads) are all joined above, so no further
+    // ship tasks will be submitted. join() drains the in-flight ones before the
+    // executor's threads stop, then destroys members in a safe order.
+    if (consumer_executor_ != nullptr) {
+      consumer_executor_->join();
+    }
   }
 #endif
 }
@@ -317,13 +289,12 @@ void RawEmbeddingStreamer::stream(
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## RawEmbeddingStreamer::stream_callback ##");
   if (!require_tensor_copy) {
-    StreamQueueItem stream_item(
+    submit_stream_item(StreamQueueItem(
         indices,
         weights,
         std::move(identities),
         std::move(runtime_meta),
-        count);
-    weights_to_stream_queue_.enqueue(stream_item);
+        count));
     return;
   }
   auto poll_flag = [this, copy_done_flag]() {
@@ -401,13 +372,34 @@ void RawEmbeddingStreamer::join_chunk_copy_threads() {
   chunk_copy_threads_.clear();
 }
 
-void RawEmbeddingStreamer::join_consumer_threads() {
-  for (auto& t : consumer_threads_) {
-    if (t && t->joinable()) {
-      t->join();
+void RawEmbeddingStreamer::submit_stream_item(StreamQueueItem item) {
+  // Push model: hand the item to a ship worker that wakes on submit. folly
+  // captures any task exception (so an escaped throw can't std::terminate the
+  // trainer); we still wrap the body to log a transient tensor_stream failure
+  // and to keep the depth-gauge / periodic-log behavior of the old consumer.
+  consumer_executor_->add([this, item = std::move(item)]() mutable {
+    try {
+      folly::stop_watch<std::chrono::milliseconds> stop_watch;
+      folly::coro::blockingWait(tensor_stream(
+          item.indices, item.weights, item.identities, item.runtime_meta));
+      if (ods_logger_) {
+        ods_logger_->bumpKeyGauge(
+            "stream_mpmc_depth",
+            static_cast<double>(consumer_executor_->getTaskQueueSize()));
+      }
+      XLOG_EVERY_MS(INFO, 60000)
+          << "[TBE_ID" << unique_id_ << "] end stream queue size: "
+          << consumer_executor_->getTaskQueueSize() << " stream takes "
+          << stop_watch.elapsed().count() << "ms"
+          << " rows=" << item.indices.size(0);
+    } catch (const std::exception& e) {
+      XLOG(ERR) << "[TBE_ID" << unique_id_
+                << "] ship task caught exception: " << e.what();
+    } catch (...) {
+      XLOG(ERR) << "[TBE_ID" << unique_id_
+                << "] ship task caught unknown exception";
     }
-  }
-  consumer_threads_.clear();
+  });
 }
 
 void RawEmbeddingStreamer::chunked_copy_and_enqueue(
@@ -452,7 +444,7 @@ void RawEmbeddingStreamer::chunked_copy_and_enqueue(
             for (const auto& [s, e] : chunks) {
               auto chunk_item = tensor_copy_chunk(
                   indices, weights, identities, runtime_meta, s, e);
-              weights_to_stream_queue_.enqueue(std::move(chunk_item));
+              submit_stream_item(std::move(chunk_item));
               rows_done += (e - s);
             }
             XLOG_EVERY_MS(INFO, 15000)
@@ -642,12 +634,19 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
 }
 
 void RawEmbeddingStreamer::join_weights_stream_thread() {
-  stop_ = true;
-  join_consumer_threads();
+  // TESTING only: drop the ship executor to 0 worker threads so subsequently
+  // submitted tasks accumulate in its queue (observable via
+  // get_weights_to_stream_queue_size()) instead of being shipped. Mirrors the
+  // old "stop the consumer threads" behavior; unlike join() the executor still
+  // accepts newly submitted tasks.
+  if (consumer_executor_ != nullptr) {
+    consumer_executor_->setNumThreads(0);
+  }
 }
 
 uint64_t RawEmbeddingStreamer::get_weights_to_stream_queue_size() {
-  return weights_to_stream_queue_.size();
+  return consumer_executor_ != nullptr ? consumer_executor_->getTaskQueueSize()
+                                       : 0;
 }
 #endif
 
