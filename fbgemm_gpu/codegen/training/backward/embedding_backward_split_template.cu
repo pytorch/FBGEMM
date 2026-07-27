@@ -952,7 +952,10 @@ Tensor {{ embedding_cuda_op }}(
                 const int grad_mean_warp_size = at::cuda::warp_size();
                 FBGEMM_LAUNCH_KERNEL(
                     (grad_mean{{ vdesc }}_kernel<grad_t, index_t>),
-                    div_round_up(total_B, kMaxThreads / grad_mean_warp_size),
+                    utils::cuda::cap_grid_dim_x(
+                        div_round_up(total_B, kMaxThreads / grad_mean_warp_size),
+                        kMaxThreads,
+                        at::cuda::getCurrentCUDAStream()),
                     dim3(grad_mean_warp_size, kMaxThreads / grad_mean_warp_size),
                     0,
                     at::cuda::getCurrentCUDAStream(),

@@ -158,14 +158,23 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
     {% endif %}
 ) {
   int32_t T = D_offsets.size(0) - 1;
-  auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   [[maybe_unused]] int32_t b;
   int32_t t;
   const auto total_B = offsets.size(0) - 1;
 
+  // On ROCm the launch caps the grid to stay within the HIP 2^32
+  // threads-per-launch limit, so we grid-stride to cover the full workload.
+  // On CUDA the grid is not capped and the loop body runs once per warp.
+#ifdef USE_ROCM
+  for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
+       b_t < total_B;
+       b_t += blockDim.y * gridDim.x) {
+#else
+  auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   if (b_t >= total_B) {
     return;
   }
+#endif
 
   {% if vbe %}
   const auto info = reinterpret_cast<const uint32_t*>(&b_t_map[b_t])[0];
@@ -205,6 +214,9 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
       grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
   }
+#ifdef USE_ROCM
+  } // for b_t (grid-stride loop, ROCm only)
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
