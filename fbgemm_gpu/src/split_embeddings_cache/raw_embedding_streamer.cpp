@@ -33,6 +33,8 @@ constexpr int64_t kCopyDonePollTimeoutUs = 10'000'000;
 
 // Max rows copied into one enqueued chunk.
 constexpr size_t kChunkSize = 500000;
+// Threads draining the queue and shipping via co_setEmbeddings.
+constexpr size_t kNumConsumerThreads = 8;
 // Parallel chunk-copy threads spawned per non-blocking stream() call.
 constexpr size_t kNumCopyThreads = 4;
 
@@ -205,36 +207,59 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     ods_logger_ = std::make_unique<facebook::aiplatform::gmpp::experimental::
                                        training_ps::TrainingPsOdsLogger>();
 
-    weights_stream_thread_ = std::make_unique<std::thread>([this] {
-      while (!stop_) {
-        auto stream_item_ptr = weights_to_stream_queue_.try_peek();
-        if (!stream_item_ptr) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(10));
-          continue;
+    XLOG(INFO) << "[TBE_ID" << unique_id_ << "] Starting "
+               << kNumConsumerThreads << " consumer threads"
+               << ", chunk_size=" << kChunkSize
+               << ", copy_threads=" << kNumCopyThreads;
+    // Ordering caveat: with kNumConsumerThreads > 1, these consumers drain the
+    // queue concurrently, so arrival order at the PS is NOT enqueue (iteration)
+    // order. The store (TrainingPsHandler) applies same-(fqn,row_id) writes
+    // arrival-wins with no version compare, so a stale iter-i write can
+    // transiently clobber a fresh iter-(i+1) one for a hot row (self-heals on
+    // the row's next in-order update). A single consumer would be ordered/safe.
+    // TODO(T281413204): proper fix is to carry a per-row iteration/version and
+    // keep-newest in the store.
+    for (size_t ci = 0; ci < kNumConsumerThreads; ++ci) {
+      consumer_threads_.push_back(std::make_unique<std::thread>([this] {
+        while (!stop_) {
+          auto item = weights_to_stream_queue_.try_dequeue();
+          if (!item.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+          }
+          if (stop_) {
+            return;
+          }
+          // Guard the per-item body: a transient tensor_stream failure must log
+          // and move on to the next item, never escape and std::terminate the
+          // trainer.
+          try {
+            folly::stop_watch<std::chrono::milliseconds> stop_watch;
+            folly::coro::blockingWait(tensor_stream(
+                item->indices,
+                item->weights,
+                item->identities,
+                item->runtime_meta));
+            if (ods_logger_) {
+              ods_logger_->bumpKeyGauge(
+                  "stream_mpmc_depth",
+                  static_cast<double>(weights_to_stream_queue_.size()));
+            }
+            XLOG_EVERY_MS(INFO, 60000)
+                << "[TBE_ID" << unique_id_ << "] end stream queue size: "
+                << weights_to_stream_queue_.size() << " stream takes "
+                << stop_watch.elapsed().count() << "ms"
+                << " rows=" << item->indices.size(0);
+          } catch (const std::exception& e) {
+            XLOG(ERR) << "[TBE_ID" << unique_id_
+                      << "] consumer thread caught exception: " << e.what();
+          } catch (...) {
+            XLOG(ERR) << "[TBE_ID" << unique_id_
+                      << "] consumer thread caught unknown exception";
+          }
         }
-        if (stop_) {
-          return;
-        }
-        auto& indices = stream_item_ptr->indices;
-        auto& weights = stream_item_ptr->weights;
-        auto& identities = stream_item_ptr->identities;
-        auto& runtime_meta = stream_item_ptr->runtime_meta;
-        folly::stop_watch<std::chrono::milliseconds> stop_watch;
-        folly::coro::blockingWait(
-            tensor_stream(indices, weights, identities, runtime_meta));
-
-        weights_to_stream_queue_.dequeue();
-        auto post_dequeue_depth = weights_to_stream_queue_.size();
-        if (ods_logger_) {
-          ods_logger_->bumpKeyGauge(
-              "stream_mpsc_depth", static_cast<double>(post_dequeue_depth));
-        }
-        XLOG_EVERY_MS(INFO, 60000)
-            << "[TBE_ID" << unique_id_
-            << "] end stream queue size: " << post_dequeue_depth
-            << " stream takes " << stop_watch.elapsed().count() << "ms";
-      }
-    });
+      }));
+    }
   }
 #endif
 }
@@ -245,7 +270,7 @@ RawEmbeddingStreamer::~RawEmbeddingStreamer() {
   if (enable_raw_embedding_streaming_) {
     join_dispatch_thread();
     join_chunk_copy_threads();
-    join_weights_stream_thread();
+    join_consumer_threads();
   }
 #endif
 }
@@ -359,6 +384,15 @@ void RawEmbeddingStreamer::join_chunk_copy_threads() {
     }
   }
   chunk_copy_threads_.clear();
+}
+
+void RawEmbeddingStreamer::join_consumer_threads() {
+  for (auto& t : consumer_threads_) {
+    if (t && t->joinable()) {
+      t->join();
+    }
+  }
+  consumer_threads_.clear();
 }
 
 void RawEmbeddingStreamer::chunked_copy_and_enqueue(
@@ -544,23 +578,23 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
     try {
       co_await res_client->co_setEmbeddings(req);
     } catch (const std::exception& e) {
+      // A transient per-shard RPC failure must not propagate: it would tear
+      // down the consumer thread (std::terminate). Log, bump the counter, and
+      // move on to the next shard.
       if (ods_logger_) {
-        ods_logger_->bumpKey("set_embeddings_rpc", 1);
+        ods_logger_->bumpKey("set_embeddings_rpc_failure", 1);
       }
       XLOG(ERR) << "[TBE_ID" << unique_id_
                 << "] co_setEmbeddings threw on shard " << i << ": "
                 << e.what();
-      throw;
     }
   }
   co_return;
 }
 
 void RawEmbeddingStreamer::join_weights_stream_thread() {
-  if (weights_stream_thread_ != nullptr && weights_stream_thread_->joinable()) {
-    stop_ = true;
-    weights_stream_thread_->join();
-  }
+  stop_ = true;
+  join_consumer_threads();
 }
 
 uint64_t RawEmbeddingStreamer::get_weights_to_stream_queue_size() {
