@@ -248,6 +248,16 @@ permute_2D_sparse_preallocated_out_cuda(
     };
   }
 
+  // T and B are narrowed to int32_t at the kernel boundary, and the data
+  // kernels grid-stride over b_t < B * T (also int32_t). Guard the product so
+  // neither the narrowing nor the loop bound silently overflows.
+  TORCH_CHECK(
+      B * T <= std::numeric_limits<int32_t>::max(),
+      "B * T must be within int32. B = ",
+      B,
+      ", T = ",
+      T);
+
   Tensor permuted_lengths;
   Tensor permuted_indices;
   Tensor permuted_weights;
@@ -315,6 +325,13 @@ permute_2D_sparse_preallocated_out_cuda(
                 const auto weights_value_contig = weights_value.contiguous();
                 int32_t weights_columns = 1;
                 if (weights_value.dense_dim() > 1) {
+                  TORCH_CHECK(
+                      weights_value.size(1) >= 0 &&
+                          weights_value.size(1) <=
+                              std::numeric_limits<int32_t>::max(),
+                      "weights_columns must be >= 0 and within int32. "
+                      "weights.size(1) = ",
+                      weights_value.size(1));
                   weights_columns = weights_value.size(1);
                   permuted_weights = permuted_weights_out.has_value()
                       ? permuted_weights_out.value()
@@ -482,6 +499,22 @@ permute_sparse_features_cuda(
   const auto num_output_features = permute.numel();
   const auto num_features = lengths.size(0);
   const auto B = lengths.size(1);
+
+  // num_output_features and B are each narrowed to int32_t at the kernel
+  // boundary, and permute_indices_weights_kernel grid-strides over
+  // b_t < B * num_output_features (also int32_t). Unlike
+  // permute_2D_sparse_preallocated_out_cuda there is no early return for a zero
+  // dimension here, so guard each value in addition to the product: the product
+  // check alone would miss a degenerate case such as num_output_features == 0
+  // with B > INT32_MAX, where B still truncates.
+  TORCH_CHECK(
+      B <= std::numeric_limits<int32_t>::max() &&
+          num_output_features <= std::numeric_limits<int32_t>::max() &&
+          B * num_output_features <= std::numeric_limits<int32_t>::max(),
+      "B, num_output_features, and their product must be within int32. B = ",
+      B,
+      ", num_output_features = ",
+      num_output_features);
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
