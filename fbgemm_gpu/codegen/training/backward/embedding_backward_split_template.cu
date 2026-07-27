@@ -817,7 +817,8 @@ Tensor {{ embedding_cuda_op }}(
                 {{ "int64_t" if nobag else "uint32_t" }},
                 {{ "true" if nobag else "false" }}
                 >),
-            div_round_up(total_unique_indices, kMaxThreads),
+            utils::cuda::cap_grid_dim_x_from_workload(
+                total_unique_indices, kMaxThreads, at::cuda::getCurrentCUDAStream()),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream(),
@@ -1029,7 +1030,8 @@ Tensor {{ embedding_cuda_op }}(
                 constexpr auto fls_ctx = "find_long_segments";
                 FBGEMM_LAUNCH_KERNEL(
                     split_embedding_backward_codegen_find_long_segments,
-                    div_round_up(total_unique_indices, kMaxThreads),
+                    utils::cuda::cap_grid_dim_x_from_workload(
+                        total_unique_indices, kMaxThreads, at::cuda::getCurrentCUDAStream()),
                     kMaxThreads,
                     0,
                     at::cuda::getCurrentCUDAStream(),
