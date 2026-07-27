@@ -91,47 +91,45 @@ fbgemm_gpu::StreamQueueItem tensor_copy_chunk(
   }
   auto new_count =
       at::empty({1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  // Each tensor is copied under its own dispatch. They are independent copies,
+  // so there is no need to nest the dispatches (nesting would only reintroduce
+  // scalar_t shadowing and multiply template instantiations).
+  FBGEMM_DISPATCH_INTEGRAL_TYPES(
+      indices.scalar_type(), "tensor_copy_chunk", [&] {
+        std::copy(
+            indices.const_data_ptr<scalar_t>() + start_row,
+            indices.const_data_ptr<scalar_t>() + end_row,
+            new_indices.mutable_data_ptr<scalar_t>());
+      });
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       weights.scalar_type(), "tensor_copy_chunk", [&] {
-        using value_t = scalar_t;
-        FBGEMM_DISPATCH_INTEGRAL_TYPES(
-            indices.scalar_type(), "tensor_copy_chunk", [&] {
-              using index_t = scalar_t;
-              std::copy(
-                  indices.const_data_ptr<index_t>() + start_row,
-                  indices.const_data_ptr<index_t>() + end_row,
-                  new_indices.mutable_data_ptr<index_t>());
-              std::copy(
-                  weights.const_data_ptr<value_t>() +
-                      start_row * weights.size(1),
-                  weights.const_data_ptr<value_t>() + end_row * weights.size(1),
-                  new_weights.mutable_data_ptr<value_t>());
-              if (identities.has_value()) {
-                FBGEMM_DISPATCH_INTEGRAL_TYPES(
-                    identities->scalar_type(), "tensor_copy_chunk", [&] {
-                      using id_t = scalar_t;
-                      std::copy(
-                          identities->const_data_ptr<id_t>() +
-                              start_row * identities->size(1),
-                          identities->const_data_ptr<id_t>() +
-                              end_row * identities->size(1),
-                          new_identities->mutable_data_ptr<id_t>());
-                    });
-              }
-              if (runtime_meta.has_value()) {
-                FBGEMM_DISPATCH_ALL_TYPES(
-                    runtime_meta->scalar_type(), "tensor_copy_chunk", [&] {
-                      using rm_t = scalar_t;
-                      std::copy(
-                          runtime_meta->const_data_ptr<rm_t>() +
-                              start_row * runtime_meta->size(1),
-                          runtime_meta->const_data_ptr<rm_t>() +
-                              end_row * runtime_meta->size(1),
-                          new_runtime_meta->mutable_data_ptr<rm_t>());
-                    });
-              }
-            });
+        std::copy(
+            weights.const_data_ptr<scalar_t>() + start_row * weights.size(1),
+            weights.const_data_ptr<scalar_t>() + end_row * weights.size(1),
+            new_weights.mutable_data_ptr<scalar_t>());
       });
+  if (identities.has_value()) {
+    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+        identities->scalar_type(), "tensor_copy_chunk", [&] {
+          std::copy(
+              identities->const_data_ptr<scalar_t>() +
+                  start_row * identities->size(1),
+              identities->const_data_ptr<scalar_t>() +
+                  end_row * identities->size(1),
+              new_identities->mutable_data_ptr<scalar_t>());
+        });
+  }
+  if (runtime_meta.has_value()) {
+    FBGEMM_DISPATCH_ALL_TYPES(
+        runtime_meta->scalar_type(), "tensor_copy_chunk", [&] {
+          std::copy(
+              runtime_meta->const_data_ptr<scalar_t>() +
+                  start_row * runtime_meta->size(1),
+              runtime_meta->const_data_ptr<scalar_t>() +
+                  end_row * runtime_meta->size(1),
+              new_runtime_meta->mutable_data_ptr<scalar_t>());
+        });
+  }
   *new_count.mutable_data_ptr<int64_t>() = n;
   return fbgemm_gpu::StreamQueueItem{
       new_indices, new_weights, new_identities, new_runtime_meta, new_count};
