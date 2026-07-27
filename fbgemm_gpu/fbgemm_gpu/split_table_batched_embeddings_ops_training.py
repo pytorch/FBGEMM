@@ -4529,7 +4529,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"## uvm_lookup_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
             if not self._res_sync_copy and self._res_require_copy:
-                self._raw_embedding_streamer.join_stream_tensor_copy_thread()
+                self._raw_embedding_streamer.join_dispatch_thread()
             prefetched_info = self.prefetched_info_list.pop(0)
             updated_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 prefetched_info.linear_unique_cache_indices,
@@ -4580,7 +4580,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         # Lazy resize: runtime_meta shape/dtype is not known until
                         # the first data arrives from the MC module. Must use UVM
                         # (new_unified_tensor) because the C++ RawEmbeddingStreamer
-                        # reads this buffer via raw CPU pointers in tensor_copy().
+                        # reads this buffer via raw CPU pointers in tensor_copy_chunk().
                         self.register_buffer(
                             "res_runtime_meta",
                             torch.ops.fbgemm.new_unified_tensor(

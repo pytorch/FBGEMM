@@ -115,7 +115,7 @@ auto raw_embedding_streamer =
                 torch::arg("copy_done_flag") = std::nullopt,
             })
         .def(
-            "join_stream_tensor_copy_thread",
-            &fbgemm_gpu::RawEmbeddingStreamer::join_stream_tensor_copy_thread);
+            "join_dispatch_thread",
+            &fbgemm_gpu::RawEmbeddingStreamer::join_dispatch_thread);
 
 } // namespace
