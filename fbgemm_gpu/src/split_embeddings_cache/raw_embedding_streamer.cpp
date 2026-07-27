@@ -7,7 +7,11 @@
  */
 
 #ifdef FBGEMM_FBCODE
+#include <fmt/format.h>
 #include <folly/coro/BlockingWait.h>
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/thread_factory/NamedThreadFactory.h>
+#include <folly/futures/Future.h>
 #include <folly/stop_watch.h>
 #include <utility>
 #include "aiplatform/gmpp/experimental/training_ps/TrainingPsOdsLogger.h"
@@ -218,6 +222,14 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     ods_logger_ = std::make_unique<facebook::aiplatform::gmpp::experimental::
                                        training_ps::TrainingPsOdsLogger>();
 
+    // Persistent size-1 executor that runs the non-blocking per-iteration
+    // dispatch (poll + chunked_copy_and_enqueue) as a coroutine, off the
+    // trainer thread. Named so its thread is identifiable in traces.
+    dispatch_executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        1,
+        std::make_unique<folly::NamedThreadFactory>(
+            fmt::format("RESDispatch.{}", unique_id_)));
+
     XLOG(INFO) << "[TBE_ID" << unique_id_ << "] Starting " << res_num_consumers_
                << " consumer threads"
                << ", chunk_size=" << res_chunk_size_
@@ -279,7 +291,10 @@ RawEmbeddingStreamer::~RawEmbeddingStreamer() {
   stop_ = true;
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
-    join_dispatch_thread();
+    join_dispatch();
+    if (dispatch_executor_ != nullptr) {
+      dispatch_executor_->join();
+    }
     join_chunk_copy_threads();
     join_consumer_threads();
   }
@@ -312,21 +327,7 @@ void RawEmbeddingStreamer::stream(
     return;
   }
   auto poll_flag = [this, copy_done_flag]() {
-    if (copy_done_flag.has_value()) {
-      auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
-      folly::stop_watch<std::chrono::microseconds> poll_watch;
-      while (*ptr == 0) {
-        std::this_thread::yield();
-        if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
-          LOG(ERROR) << "[TBE_ID" << unique_id_
-                     << "] copy_done_flag poll timed out after "
-                     << kCopyDonePollTimeoutUs / 1'000'000 << "s";
-          return false;
-        }
-      }
-      *ptr = 0;
-    }
-    return true;
+    return poll_copy_done_flag(copy_done_flag);
   };
 
   if (blocking_tensor_copy) {
@@ -346,42 +347,45 @@ void RawEmbeddingStreamer::stream(
   // Non-blocking: join the previous dispatch + copy threads, then spawn new
   // ones. The join is the serializer: it guarantees iter i's copy finished
   // reading the source cache rows before iter i+1 overwrites them.
-  join_dispatch_thread();
-  dispatch_thread_ = std::make_unique<std::thread>(
-      [this, poll_flag, indices, weights, identities, runtime_meta, count]() {
-        // Guard the dispatcher body so a copy/enqueue failure logs instead of
-        // escaping the std::thread and calling std::terminate.
-        try {
-          if (!poll_flag()) {
-            return;
-          }
-          chunked_copy_and_enqueue(
-              indices,
-              weights,
-              identities,
-              runtime_meta,
-              count,
-              chunk_copy_threads_);
-        } catch (const std::exception& e) {
-          XLOG(ERR) << "[TBE_ID" << unique_id_
-                    << "] stream dispatcher thread caught exception: "
-                    << e.what();
-        } catch (...) {
-          XLOG(ERR) << "[TBE_ID" << unique_id_
-                    << "] stream dispatcher thread caught unknown exception";
-        }
-      });
+  join_dispatch();
+  // Dispatch runs as a coroutine on the persistent size-1 executor; folly
+  // captures any exception into dispatch_future_, which is logged when the
+  // future is waited in join_dispatch() (log-and-continue, never terminate).
+  dispatch_future_ = folly::coro::co_withExecutor(
+                         dispatch_executor_.get(),
+                         dispatch_copy_task(
+                             indices,
+                             weights,
+                             identities,
+                             runtime_meta,
+                             count,
+                             copy_done_flag))
+                         .start();
   rec->record.end();
 #endif
 }
 
-void RawEmbeddingStreamer::join_dispatch_thread() {
+void RawEmbeddingStreamer::join_dispatch() {
 #ifdef FBGEMM_FBCODE
   auto rec = torch::autograd::profiler::record_function_enter_new(
-      "## RawEmbeddingStreamer::join_dispatch_thread ##");
-  if (dispatch_thread_ != nullptr && dispatch_thread_->joinable()) {
-    dispatch_thread_->join();
+      "## RawEmbeddingStreamer::join_dispatch ##");
+  // Wait the previous dispatch. Log-and-continue: an exception the dispatch
+  // deferred into the future must not escape (would std::terminate the
+  // trainer).
+  if (dispatch_future_.valid()) {
+    try {
+      std::move(dispatch_future_).get();
+    } catch (const std::exception& e) {
+      XLOG(ERR) << "[TBE_ID" << unique_id_
+                << "] stream dispatcher caught exception: " << e.what();
+    } catch (...) {
+      XLOG(ERR) << "[TBE_ID" << unique_id_
+                << "] stream dispatcher caught unknown exception";
+    }
+    dispatch_future_ = folly::makeSemiFuture();
   }
+  // The real torn-row barrier: iter i's copy must finish reading the source
+  // cache rows before iter i+1 overwrites them.
   join_chunk_copy_threads();
   rec->record.end();
 #endif
@@ -467,6 +471,40 @@ void RawEmbeddingStreamer::chunked_copy_and_enqueue(
   XLOG_EVERY_MS(INFO, 15000)
       << "[RES] chunked_copy tbe=" << unique_id_ << " rows=" << num_rows
       << " threads=" << thread_chunks.size();
+}
+
+bool RawEmbeddingStreamer::poll_copy_done_flag(
+    const std::optional<at::Tensor>& copy_done_flag) {
+  if (copy_done_flag.has_value()) {
+    auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
+    folly::stop_watch<std::chrono::microseconds> poll_watch;
+    while (*ptr == 0) {
+      std::this_thread::yield();
+      if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
+        LOG(ERROR) << "[TBE_ID" << unique_id_
+                   << "] copy_done_flag poll timed out after "
+                   << kCopyDonePollTimeoutUs / 1'000'000 << "s";
+        return false;
+      }
+    }
+    *ptr = 0;
+  }
+  return true;
+}
+
+folly::coro::Task<void> RawEmbeddingStreamer::dispatch_copy_task(
+    at::Tensor indices,
+    at::Tensor weights,
+    std::optional<at::Tensor> identities,
+    std::optional<at::Tensor> runtime_meta,
+    at::Tensor count,
+    std::optional<at::Tensor> copy_done_flag) {
+  if (!poll_copy_done_flag(copy_done_flag)) {
+    co_return;
+  }
+  chunked_copy_and_enqueue(
+      indices, weights, identities, runtime_meta, count, chunk_copy_threads_);
+  co_return;
 }
 
 folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
