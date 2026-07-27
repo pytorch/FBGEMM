@@ -47,6 +47,9 @@ getRawEmbeddingStreamer(
       enable_raw_embedding_streaming,
       3, // res_store_shards
       0, // res_server_port
+      500000, // res_chunk_size
+      8, // res_num_consumers
+      4, // res_num_copy_threads
       table_names,
       table_offsets,
       table_sizes);
@@ -391,6 +394,25 @@ TEST(RawEmbeddingStreamerTest, ComputeChunkRangesZeroThreadsOrChunkSizeEmpty) {
 }
 
 #ifdef FBGEMM_FBCODE
+TEST(RawEmbeddingStreamerTest, CtorRejectsZeroKnob) {
+  // A 0-valued RES knob would silently disable streaming (0 consumers never
+  // drain the queue; res_chunk_size/res_num_copy_threads=0 make chunk ranges
+  // empty), so the ctor must reject it loudly. The TORCH_CHECK fires before any
+  // thrift client is created, so no mock server is needed.
+  EXPECT_ANY_THROW(
+      fbgemm_gpu::RawEmbeddingStreamer(
+          "test_zero_knob",
+          /*enable_raw_embedding_streaming=*/true,
+          /*res_store_shards=*/3,
+          /*res_server_port=*/0,
+          /*res_chunk_size=*/0,
+          /*res_num_consumers=*/8,
+          /*res_num_copy_threads=*/4,
+          /*table_names=*/{},
+          /*table_offsets=*/{},
+          /*table_sizes=*/{}));
+}
+
 TEST(RawEmbeddingStreamerTest, TestTensorStream) {
   std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
   std::vector<int64_t> table_offsets = {0, 100, 300};

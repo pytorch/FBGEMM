@@ -49,6 +49,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       bool enable_raw_embedding_streaming,
       int64_t res_store_shards,
       int64_t res_server_port,
+      int64_t res_chunk_size,
+      int64_t res_num_consumers,
+      int64_t res_num_copy_threads,
       std::vector<std::string> table_names,
       std::vector<int64_t> table_offsets,
       const std::vector<int64_t>& table_sizes);
@@ -61,8 +64,8 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   /// weights, and the optional identities / runtime_meta) to CPU and injects
   /// them into the background queue, which is drained by a pool of consumer
   /// threads that stream out to the thrift server (co-located on same host
-  /// now). The copy is split into <= kChunkSize-row chunks across up to
-  /// kNumCopyThreads threads.
+  /// now). The copy is split into <= res_chunk_size-row chunks across up to
+  /// res_num_copy_threads copy threads.
   ///
   /// This is used in cuda stream callback, which doesn't require to be
   /// serialized with other callbacks, thus a separate thread is used to
@@ -117,6 +120,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
 #ifdef FBGEMM_FBCODE
   int64_t res_store_shards_;
   int64_t res_server_port_;
+  size_t res_chunk_size_;
+  size_t res_num_consumers_;
+  size_t res_num_copy_threads_;
 #endif
   std::vector<std::string> table_names_;
   std::vector<int64_t> table_offsets_;
