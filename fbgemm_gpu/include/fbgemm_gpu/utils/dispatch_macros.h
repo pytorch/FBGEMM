@@ -27,12 +27,6 @@
 
 namespace fbgemm_gpu {
 
-#if defined(USE_ROCM)
-using fp8_e4m3_t = at::Float8_e4m3fnuz;
-#else
-using fp8_e4m3_t = at::Float8_e4m3fn;
-#endif
-
 template <typename F>
 decltype(auto) dispatch_emb_cache_types(
     const at::ScalarType emb_type,
@@ -59,8 +53,15 @@ decltype(auto) dispatch_emb_cache_types(
       return dispatch_cache.template operator()<float>();
     case at::ScalarType::Half:
       return dispatch_cache.template operator()<at::Half>();
-    case c10::CppTypeToScalarType<fp8_e4m3_t>::value:
-      return dispatch_cache.template operator()<fp8_e4m3_t>();
+    case at::ScalarType::Float8_e4m3fn:
+      return dispatch_cache.template operator()<at::Float8_e4m3fn>();
+#if defined(USE_ROCM)
+    // On ROCm the FP8 e4m3 encoding is arch-dependent (fnuz on gfx94x/gfx90a,
+    // fn on gfx950), so both encodings must be dispatchable at runtime; the
+    // host allocates the tensor dtype per-arch via getNFP8ScalarType().
+    case at::ScalarType::Float8_e4m3fnuz:
+      return dispatch_cache.template operator()<at::Float8_e4m3fnuz>();
+#endif
     default:
       TORCH_CHECK(
           false, name, " not implemented for emb_t '", toString(emb_type), "'");
@@ -200,10 +201,11 @@ decltype(auto) dispatch_index_types(
 
 #if defined(USE_ROCM)
 
-#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)   \
-  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
-  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
-  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fnuz, __VA_ARGS__)
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)             \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)           \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)            \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fnuz, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fn, __VA_ARGS__)
 
 #else
 

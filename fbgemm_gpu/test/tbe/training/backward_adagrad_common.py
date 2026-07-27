@@ -12,7 +12,11 @@ from typing import Any
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    nfp8_dtype,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -97,9 +101,7 @@ common_settings: dict[str, Any] = {
     "deadline": None,
 }
 
-fp8_dtype: torch.dtype = (
-    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
-)
+fp8_dtype: torch.dtype = nfp8_dtype()
 
 
 def execute_backward_adagrad(  # noqa C901
