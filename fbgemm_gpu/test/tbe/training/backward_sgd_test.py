@@ -15,16 +15,13 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    CacheAlgorithm,
-    EmbeddingLocation,
-    PoolingMode,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
     UserEnabledConfigDefinition,
 )
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     get_table_batched_offsets_from_dense,

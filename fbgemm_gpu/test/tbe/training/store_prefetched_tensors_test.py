@@ -11,14 +11,11 @@ import unittest
 from unittest.mock import patch
 
 import torch
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    ComputeDevice,
-    EmbeddingLocation,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     RESParams,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.config.embedding_config import ComputeDevice, EmbeddingLocation
 
 from ..common import open_source
 

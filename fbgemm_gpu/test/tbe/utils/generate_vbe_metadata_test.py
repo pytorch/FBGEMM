@@ -11,10 +11,10 @@ import unittest
 from itertools import accumulate
 
 import torch
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
 )
+from fbgemm_gpu.tbe.config.embedding_config import PoolingMode
 
 from ..common import open_source
 

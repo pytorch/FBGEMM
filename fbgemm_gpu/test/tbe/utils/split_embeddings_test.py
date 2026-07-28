@@ -18,7 +18,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
     rounded_row_size_in_bytes,
@@ -30,6 +29,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     INT8_EMB_ROW_DIM_OFFSET,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation
 from fbgemm_gpu.tbe.utils import (
     get_table_batched_offsets_from_dense,
     round_up,
