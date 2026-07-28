@@ -278,18 +278,23 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
       fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSizeHost();
   const int32_t max_grid_dim = 32768; // The CUDA maximum is 65535, not 1<<N.
   const dim3 block_dim(fbgemm_gpu::kWarpSizeHost(), warp_per_block);
+  // The y/z dims carry batch_size (y is capped at max_grid_dim; z holds the
+  // overflow when batch_size > max_grid_dim).
+  const int32_t grid_dim_y =
+      std::min(static_cast<int32_t>(batch_size), max_grid_dim);
+  const int32_t grid_dim_z = (batch_size + max_grid_dim - 1) / max_grid_dim;
   // HIP enforces a hard limit of 2^32 total threads per launch.
-  // permute_multi_embs_kernel grid-strides over permute_id, so capping is
-  // correctness-preserving. y/z dims are already bounded by max_grid_dim.
+  // permute_multi_embs_kernel grid-strides over permute_id, so capping grid.x
+  // is correctness-preserving. cap_grid_dim_x bounds the *total* launch, so we
+  // must fold every other launch dimension (block threads and the y/z batch
+  // dims) into its per-column thread count -- otherwise a large batch_size
+  // multiplies past 2^32 even though grid.x alone fits.
   // See: https://github.com/ROCm/hip/issues/2253
   const auto blocks_x = utils::cuda::cap_grid_dim_x(
       fbgemm_gpu::div_round_up(permute_size, warp_per_block),
-      fbgemm_gpu::kMaxThreads,
+      static_cast<int64_t>(block_dim.x) * block_dim.y * grid_dim_y * grid_dim_z,
       at::cuda::getCurrentCUDAStream());
-  const dim3 grid_dim(
-      blocks_x,
-      std::min(static_cast<int32_t>(batch_size), max_grid_dim),
-      (batch_size + max_grid_dim - 1) / max_grid_dim);
+  const dim3 grid_dim(blocks_x, grid_dim_y, grid_dim_z);
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       pooled_embs[0].scalar_type(), "permute_multi_embedding", [&] {
