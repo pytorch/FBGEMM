@@ -1,18 +1,13 @@
 # Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
 # Copyright (c) 2024, NVIDIA Corporation & AFFILIATES.
 
-import ast
 import copy
 import glob
-import itertools
 import os
 import platform
-import re
 import shutil
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 import warnings
 from pathlib import Path
 
@@ -20,7 +15,6 @@ from packaging.version import parse, Version
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 from src.generate_kernels import generate_kernels_ampere, generate_kernels_hopper
-from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -123,12 +117,7 @@ if ONLY_COMPILE_SO:
 
 else:
     import torch
-    from torch.utils.cpp_extension import (
-        BuildExtension,
-        CppExtension,
-        CUDA_HOME,
-        CUDAExtension,
-    )
+    from torch.utils.cpp_extension import BuildExtension, CUDA_HOME, CUDAExtension
 
 
 def get_platform():

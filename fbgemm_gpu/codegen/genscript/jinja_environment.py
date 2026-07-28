@@ -74,6 +74,20 @@ env.globals["fixed_max_vecs_per_thread"] = {"backward": 2, "backward_indice_weig
 env.globals["dense"] = False
 env.globals["is_rocm"] = args.is_rocm
 
+# FP8 embedding weight types to instantiate kernels for.
+#
+# FP8 e4m3 has two encodings: the OCP "fn" variant (CUDA, and AMD gfx950) and
+# the "fnuz" variant (AMD gfx942 / gfx90a). A single ROCm build can be a fat
+# binary spanning both arch families, so on ROCm we instantiate BOTH kernel
+# variants and let the runtime dispatch (keyed on the tensor's scalar type,
+# which is chosen per-device by getNFP8ScalarType()) select the correct one.
+# CUDA only needs the OCP "fn" variant.
+env.globals["emb_fp8_types"] = (
+    ["at::Float8_e4m3fnuz", "at::Float8_e4m3fn"]
+    if args.is_rocm
+    else ["at::Float8_e4m3fn"]
+)
+
 
 ################################################################################
 # Helper functions in Jinja Environment

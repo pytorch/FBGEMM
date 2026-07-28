@@ -817,7 +817,8 @@ Tensor {{ embedding_cuda_op }}(
                 {{ "int64_t" if nobag else "uint32_t" }},
                 {{ "true" if nobag else "false" }}
                 >),
-            div_round_up(total_unique_indices, kMaxThreads),
+            utils::cuda::cap_grid_dim_x_from_workload(
+                total_unique_indices, kMaxThreads, at::cuda::getCurrentCUDAStream()),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream(),
@@ -952,7 +953,10 @@ Tensor {{ embedding_cuda_op }}(
                 const int grad_mean_warp_size = at::cuda::warp_size();
                 FBGEMM_LAUNCH_KERNEL(
                     (grad_mean{{ vdesc }}_kernel<grad_t, index_t>),
-                    div_round_up(total_B, kMaxThreads / grad_mean_warp_size),
+                    utils::cuda::cap_grid_dim_x(
+                        div_round_up(total_B, kMaxThreads / grad_mean_warp_size),
+                        kMaxThreads,
+                        at::cuda::getCurrentCUDAStream()),
                     dim3(grad_mean_warp_size, kMaxThreads / grad_mean_warp_size),
                     0,
                     at::cuda::getCurrentCUDAStream(),
@@ -1026,7 +1030,8 @@ Tensor {{ embedding_cuda_op }}(
                 constexpr auto fls_ctx = "find_long_segments";
                 FBGEMM_LAUNCH_KERNEL(
                     split_embedding_backward_codegen_find_long_segments,
-                    div_round_up(total_unique_indices, kMaxThreads),
+                    utils::cuda::cap_grid_dim_x_from_workload(
+                        total_unique_indices, kMaxThreads, at::cuda::getCurrentCUDAStream()),
                     kMaxThreads,
                     0,
                     at::cuda::getCurrentCUDAStream(),

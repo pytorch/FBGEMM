@@ -42,9 +42,13 @@ from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, on_arm_platform
+    from test_utils import gpu_available, on_arm_platform, running_on_github
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, on_arm_platform
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        on_arm_platform,
+        running_on_github,
+    )
 
 EMB_WEIGHT_UNIFORM_INIT_BOUND = 0.000316
 MAX_EXAMPLES = 40
@@ -239,6 +243,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*on_arm_platform)
+    @unittest.skipIf(*running_on_github)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.booleans() if test_utils.gpu_available else
     #  hypothesis.strategies.just(True)` to decorator factory `hypothesis.given`.

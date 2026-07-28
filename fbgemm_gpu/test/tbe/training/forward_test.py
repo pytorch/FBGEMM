@@ -17,7 +17,11 @@ from unittest.mock import MagicMock, patch
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    nfp8_dtype,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -53,7 +57,6 @@ if open_source:
     from test_utils import (
         additional_decorators,
         gpu_unavailable,
-        is_nvidia_device,
         optests,
         running_in_oss,
         TEST_WITH_ROCM,
@@ -62,7 +65,6 @@ else:
     from fbgemm_gpu.test.test_utils import (
         additional_decorators,
         gpu_unavailable,
-        is_nvidia_device,
         optests,
         running_in_oss,
         TEST_WITH_ROCM,
@@ -70,9 +72,7 @@ else:
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
-fp8_dtype: torch.dtype = (
-    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
-)
+fp8_dtype: torch.dtype = nfp8_dtype()
 
 # pyre-ignore
 additional_decorators.update(
@@ -827,10 +827,6 @@ class ForwardTest(unittest.TestCase):
         self,
         use_experimental_tbe: bool = False,  # TODO This does not yet work when True.
     ) -> None:
-        # Skip on rocm as fp8 is not supported for all versions.
-        if not is_nvidia_device:
-            return
-
         weights_precision = SparseType.NFP8
         use_cpu = False
         T = random.randint(1, 10)
@@ -1023,10 +1019,6 @@ class ForwardTest(unittest.TestCase):
         self,
         cache_algorithm: CacheAlgorithm,
     ) -> None:
-        # Skip tests on rocm since it does not work for all versions.
-        if not is_nvidia_device:
-            return
-
         weights_precision = SparseType.NFP8
         use_cpu = False
         T = random.randint(1, 10)
