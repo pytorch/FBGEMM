@@ -15,10 +15,8 @@ import unittest
 import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    CacheAlgorithm,
-    PoolingMode,
-)
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config.embedding_config import PoolingMode
 from hypothesis import given, settings, Verbosity
 
 from ..common import MAX_EXAMPLES, TEST_WITH_ROCM

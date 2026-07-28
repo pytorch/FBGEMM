@@ -14,14 +14,11 @@ from typing import Any
 import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    EmbeddingLocation,
-    PoolingMode,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
 from hypothesis import given, settings, Verbosity
 
 from ..common import gpu_unavailable

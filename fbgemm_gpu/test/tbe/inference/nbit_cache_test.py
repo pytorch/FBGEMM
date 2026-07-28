@@ -17,15 +17,16 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
+    IntNBitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
+from fbgemm_gpu.tbe.config.embedding_config import (
     EmbeddingLocation,
     EmbeddingSpecInfo,
     get_new_embedding_location,
     RecordCacheMetrics,
     tensor_to_device,
-)
-from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
-    IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.utils import get_table_batched_offsets_from_dense
 from hypothesis import given, settings, Verbosity

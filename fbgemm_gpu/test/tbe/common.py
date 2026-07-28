@@ -14,10 +14,6 @@ import fbgemm_gpu
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    EmbeddingLocation,
-    PoolingMode,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     CacheAlgorithm,
     ComputeDevice,
@@ -25,6 +21,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     is_torchdynamo_compiling,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
 from hypothesis import HealthCheck, settings, Verbosity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.

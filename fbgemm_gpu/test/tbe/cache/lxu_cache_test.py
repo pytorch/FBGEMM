@@ -16,8 +16,8 @@ from itertools import accumulate
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import CacheAlgorithm
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
 from fbgemm_gpu.tbe.utils import generate_requests, TBERequest, to_device
 from hypothesis import given, settings, Verbosity
 from torch import Tensor

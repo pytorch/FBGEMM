@@ -15,14 +15,11 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    CacheAlgorithm,
-    EmbeddingLocation,
-    PoolingMode,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     fake_quantize_embs,
