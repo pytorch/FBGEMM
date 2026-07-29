@@ -228,6 +228,16 @@ permute_1D_sparse_data_cuda(
         weights.has_value() ? std::make_optional(weights->clone())
                             : std::nullopt};
   }
+  int64_t debug_permuted_lengths_sum = 0;
+  if (is_debug_permute_enabled()) {
+    debug_check_permute_inputs(
+        "permute_1D",
+        permute_contig,
+        lengths_contig,
+        indices_contig,
+        lengths_size,
+        weights);
+  }
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
@@ -267,10 +277,21 @@ permute_1D_sparse_data_cuda(
             });
       });
 
+  if (is_debug_permute_enabled()) {
+    debug_permuted_lengths_sum = debug_check_permuted_lengths(
+        "permute_1D", permuted_lengths, indices_contig.numel());
+  }
+
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
       asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
+
+  if (is_debug_permute_enabled()) {
+    debug_check_output_offsets(
+        "permute_1D", output_offsets, debug_permuted_lengths_sum);
+  }
+
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
