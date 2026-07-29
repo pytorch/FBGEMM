@@ -57,10 +57,19 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   {% else %}
   const int32_t B = (offsets.size(0) - 1) / T;
   {% endif %}
+  // On ROCm the launch caps the grid to stay within the HIP 2^32
+  // threads-per-launch limit, so we grid-stride to cover the full workload.
+  // On CUDA the grid is not capped and the loop body runs once per warp.
+#ifdef USE_ROCM
+  for (auto bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+       bb_t < fd_B.D() * T;
+       bb_t += blockDim.y * gridDim.x) {
+#else
   const auto bb_t = blockIdx.x * blockDim.y + threadIdx.y;
   if (bb_t >= fd_B.D() * T) {
     return;
   }
+#endif
   static_assert(
     std::is_same_v<output_t, float> || std::is_same_v<output_t, at::BFloat16> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, uint8_t>,
     "output_t can only be float or half or bytes now"
@@ -77,14 +86,22 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   {% endif %}
   SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
   if (weight_ty != SparseType::{{ emb_weight_type.enum_name }}) {
+#ifdef USE_ROCM
+      continue;
+#else
       return;
+#endif
   }
 
   // default to 16 byte alignment for GPU TBE
   const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
   if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
+#ifdef USE_ROCM
+    continue;
+#else
     return;
+#endif
   }
   // Number of requests to row during accumulate and store stages w.r.t. different warp/wave sizes
   constexpr int32_t AccumulateStoreRequests = (kWarpSize == 64) ? (MaxNum128BRows + 1) / 2 : MaxNum128BRows;
@@ -550,6 +567,9 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     }
   }
   {% endif %}
+#ifdef USE_ROCM
+  } // for bb_t (grid-stride loop, ROCm only)
+#endif
 }
 
 // kWarpsPerBlock is defined in embedding_forward_quantized_split_nbit_host_template.cu
@@ -619,4 +639,4 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
 
 }
 
-                                                                            // clang-format on
+                                                                              // clang-format on
