@@ -31,7 +31,6 @@
 #pragma once
 
 #include <c10/util/BFloat16.h>
-#include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Float8_e4m3fnuz.h>
 #include <c10/util/Half.h>
 
@@ -152,8 +151,7 @@ struct load_row_per_warp {
     // unsupported type is guarded on host side
     if constexpr (
         std::is_same_v<emb_t, c10::BFloat16> ||
-        std::is_same_v<emb_t, c10::Float8_e4m3fnuz> ||
-        std::is_same_v<emb_t, c10::Float8_e4m3fn>) {
+        std::is_same_v<emb_t, c10::Float8_e4m3fnuz>) {
       __builtin_trap();
     } else {
       static_assert(
@@ -401,8 +399,7 @@ struct store_row_per_warp {
     // unsupported type is guarded on host function
     if constexpr (
         std::is_same_v<emb_t, c10::BFloat16> ||
-        std::is_same_v<emb_t, c10::Float8_e4m3fnuz> ||
-        std::is_same_v<emb_t, c10::Float8_e4m3fn>) {
+        std::is_same_v<emb_t, c10::Float8_e4m3fnuz>) {
       __builtin_trap();
     } else {
       static_assert(
