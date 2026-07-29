@@ -7,6 +7,7 @@
  */
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
@@ -31,75 +32,89 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
   // uint32_t capacity = hash_table.size(0);
+#ifdef USE_ROCM
+  for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < B * T;
+       b_t += blockDim.y * gridDim.x) {
+#else
   const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  const int32_t t = b_t / B;
-  const int32_t b = b_t % B;
   if (b_t >= B * T) {
     return;
   }
-  const auto indices_start = offsets[t * B + b];
-  const auto indices_end = offsets[t * B + b + 1];
-  const auto L = indices_end - indices_start;
+#endif
+    const int32_t t = b_t / B;
+    const int32_t b = b_t % B;
+    const auto indices_start = offsets[t * B + b];
+    const auto indices_end = offsets[t * B + b + 1];
+    const auto L = indices_end - indices_start;
 
-  const auto table_start = hash_table_offsets[t];
-  const auto table_end = hash_table_offsets[t + 1];
-  const auto capacity = table_end - table_start;
+    const auto table_start = hash_table_offsets[t];
+    const auto table_end = hash_table_offsets[t + 1];
+    const auto capacity = table_end - table_start;
 
-  if (capacity == 0) {
-    // No pruning applied on the indices associated with this table.
-    for (auto l = threadIdx.x; l < L; l += blockDim.x) {
-      dense_indices[indices_start + l] = indices[indices_start + l];
-    }
-    return;
-  }
-
-  using uidx_t =
-      std::conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
-
-  // Use nv type of size (hash_t x 2)
-  using nv_hash_t =
-      std::conditional_t<std::is_same_v<hash_t, int64_t>, longlong2, int2>;
-
-  const uint32_t subwarp_id = threadIdx.x / 4;
-  const uint32_t subwarp_tid = threadIdx.x % 4;
+    if (capacity == 0) {
+      // No pruning applied on the indices associated with this table.
+      for (auto l = threadIdx.x; l < L; l += blockDim.x) {
+        dense_indices[indices_start + l] = indices[indices_start + l];
+      }
 #ifdef USE_ROCM
-  // HIP __any_sync / __ballot_sync statically require a 64-bit mask type.
-  const uint64_t subwarp_mask = static_cast<uint64_t>(0xF) << (4 * subwarp_id);
+      continue;
+#else
+    return;
+#endif
+    }
+
+    using uidx_t = std::
+        conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
+
+    // Use nv type of size (hash_t x 2)
+    using nv_hash_t =
+        std::conditional_t<std::is_same_v<hash_t, int64_t>, longlong2, int2>;
+
+    const uint32_t subwarp_id = threadIdx.x / 4;
+    const uint32_t subwarp_tid = threadIdx.x % 4;
+#ifdef USE_ROCM
+    // HIP __any_sync / __ballot_sync statically require a 64-bit mask type.
+    const uint64_t subwarp_mask = static_cast<uint64_t>(0xF)
+        << (4 * subwarp_id);
 #else
   const uint32_t subwarp_mask = static_cast<uint32_t>(0xF) << (4 * subwarp_id);
 #endif
 
-  for (int32_t l_start = 0; l_start + subwarp_id < L;
-       l_start += kWarpSize / 4) {
-    const index_t idx = indices[indices_start + l_start + subwarp_id];
-    auto slot_start = pruned_hash_function(static_cast<uidx_t>(idx)) % capacity;
+    for (int32_t l_start = 0; l_start + subwarp_id < L;
+         l_start += kWarpSize / 4) {
+      const index_t idx = indices[indices_start + l_start + subwarp_id];
+      auto slot_start =
+          pruned_hash_function(static_cast<uidx_t>(idx)) % capacity;
 
-    while (true) {
-      const auto slot = (slot_start + subwarp_tid) % capacity;
+      while (true) {
+        const auto slot = (slot_start + subwarp_tid) % capacity;
 
-      const nv_hash_t val = *reinterpret_cast<const nv_hash_t*>(
-          &hash_table[table_start + static_cast<int64_t>(slot)][0]);
-      const auto slot_sparse_idx = val.x;
-      const auto slot_dense_idx = val.y;
+        const nv_hash_t val = *reinterpret_cast<const nv_hash_t*>(
+            &hash_table[table_start + static_cast<int64_t>(slot)][0]);
+        const auto slot_sparse_idx = val.x;
+        const auto slot_dense_idx = val.y;
 
-      bool found = false;
-      bool empty = false;
-      if (slot_sparse_idx == -1) {
-        empty = true;
-      } else if (slot_sparse_idx == idx) {
-        found = true;
-        dense_indices[indices_start + l_start + subwarp_id] = slot_dense_idx;
+        bool found = false;
+        bool empty = false;
+        if (slot_sparse_idx == -1) {
+          empty = true;
+        } else if (slot_sparse_idx == idx) {
+          found = true;
+          dense_indices[indices_start + l_start + subwarp_id] = slot_dense_idx;
+        }
+
+        if (__any_sync(subwarp_mask, found)) {
+          break;
+        } else if (__any_sync(subwarp_mask, empty)) {
+          dense_indices[indices_start + l_start + subwarp_id] = -1;
+          break;
+        }
+        slot_start += 4;
       }
-
-      if (__any_sync(subwarp_mask, found)) {
-        break;
-      } else if (__any_sync(subwarp_mask, empty)) {
-        dense_indices[indices_start + l_start + subwarp_id] = -1;
-        break;
-      }
-      slot_start += 4;
     }
-  }
+#ifdef USE_ROCM
+  } // for b_t (grid-stride loop, ROCm only)
+#endif
 }
 
 template <typename index_t, typename remap_t>
@@ -117,31 +132,39 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     const int32_t T,
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
+#ifdef USE_ROCM
+  for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < B * T;
+       b_t += blockDim.y * gridDim.x) {
+#else
   const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  const int32_t t = b_t / B;
-  const int32_t b = b_t % B;
   if (b_t >= B * T) {
     return;
   }
-  const auto indices_start = offsets[t * B + b];
-  const auto indices_end = offsets[t * B + b + 1];
-  const auto L = indices_end - indices_start;
+#endif
+    const int32_t t = b_t / B;
+    const int32_t b = b_t % B;
+    const auto indices_start = offsets[t * B + b];
+    const auto indices_end = offsets[t * B + b + 1];
+    const auto L = indices_end - indices_start;
 
-  const auto index_remappings_start = index_remappings_offsets[t];
-  const auto index_remappings_end = index_remappings_offsets[t + 1];
-  const auto capacity = index_remappings_end - index_remappings_start;
+    const auto index_remappings_start = index_remappings_offsets[t];
+    const auto index_remappings_end = index_remappings_offsets[t + 1];
+    const auto capacity = index_remappings_end - index_remappings_start;
 
-  if (capacity > 0) {
-    for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
-      const overflow_safe_int_t idx = indices[indices_start + l];
-      dense_indices[indices_start + l] =
-          static_cast<index_t>(index_remappings[index_remappings_start + idx]);
+    if (capacity > 0) {
+      for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
+        const overflow_safe_int_t idx = indices[indices_start + l];
+        dense_indices[indices_start + l] = static_cast<index_t>(
+            index_remappings[index_remappings_start + idx]);
+      }
+    } else {
+      for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
+        dense_indices[indices_start + l] = indices[indices_start + l];
+      }
     }
-  } else {
-    for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
-      dense_indices[indices_start + l] = indices[indices_start + l];
-    }
-  }
+#ifdef USE_ROCM
+  } // for b_t (grid-stride loop, ROCm only)
+#endif
 }
 
 } // namespace nbit
@@ -176,7 +199,11 @@ Tensor pruned_hashmap_lookup_cuda(
                   (int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<
                       index_t,
                       hash_t>),
-                  nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
+                  utils::cuda::cap_grid_dim_x(
+                      nbit::div_round_up(
+                          B * T + 1, kForwardMaxThreads / kWarpSize),
+                      kForwardMaxThreads,
+                      at::cuda::getCurrentCUDAStream()),
                   dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                   0,
                   at::cuda::getCurrentCUDAStream(),
@@ -237,8 +264,11 @@ Tensor pruned_array_lookup_cuda(
                   (int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<
                       index_t,
                       remap_t>),
-                  nbit::div_round_up(
-                      offsets.size(0), kForwardMaxThreads / kWarpSize),
+                  utils::cuda::cap_grid_dim_x(
+                      nbit::div_round_up(
+                          offsets.size(0), kForwardMaxThreads / kWarpSize),
+                      kForwardMaxThreads,
+                      at::cuda::getCurrentCUDAStream()),
                   dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                   0,
                   at::cuda::getCurrentCUDAStream(),
