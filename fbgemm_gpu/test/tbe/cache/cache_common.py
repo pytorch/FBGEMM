@@ -14,15 +14,13 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    CacheAlgorithm,
-    EmbeddingLocation,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     MultiPassPrefetchConfig,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation
 from fbgemm_gpu.tbe.monitoring import TBEStatsReporter, TBEStatsReporterConfig
 from fbgemm_gpu.tbe.utils import round_up
 from hypothesis import Verbosity

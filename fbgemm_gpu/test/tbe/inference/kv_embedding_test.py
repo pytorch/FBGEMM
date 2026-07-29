@@ -11,12 +11,12 @@ from unittest import skipIf, TestCase
 import fbgemm_gpu
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
     random_quant_scaled_tensor,
 )
 from fbgemm_gpu.tbe.cache.kv_embedding_ops_inference import KVEmbeddingInference
+from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation
 from fbgemm_gpu.tbe.utils import generate_requests
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.

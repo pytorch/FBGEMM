@@ -16,13 +16,13 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
-    PoolingMode,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     rounded_row_size_in_bytes,
     unpadded_row_size_in_bytes,
+)
+from fbgemm_gpu.tbe.config.embedding_config import (
+    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    PoolingMode,
 )
 from fbgemm_gpu.tbe.ssd import SSDIntNBitTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.common import ASSOC

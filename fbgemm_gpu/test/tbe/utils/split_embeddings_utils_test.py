@@ -20,10 +20,7 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu import sparse_ops  # noqa: F401
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
-    PoolingMode,
-)
+from fbgemm_gpu.tbe.config.embedding_config import BoundsCheckMode, PoolingMode
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402

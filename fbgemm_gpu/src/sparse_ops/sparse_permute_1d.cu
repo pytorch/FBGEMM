@@ -232,6 +232,13 @@ permute_1D_sparse_data_cuda(
   Tensor permuted_lengths;
   Tensor permuted_indices;
   Tensor permuted_weights;
+  TORCH_CHECK(
+      permuted_lengths_size >= 0 &&
+          permuted_lengths_size <= std::numeric_limits<int32_t>::max(),
+      "permuted_lengths_size must be >= 0 and within int32. permute.numel() = ",
+      permuted_lengths_size,
+      ", lengths.numel() = ",
+      lengths_size);
   permuted_lengths = at::empty({permuted_lengths_size}, lengths.options());
 
   constexpr int32_t threads_1 = kMaxThreads;
@@ -270,6 +277,12 @@ permute_1D_sparse_data_cuda(
   } else {
     permuted_indices_size = output_offsets[-1].item<int64_t>();
   }
+  TORCH_CHECK(
+      permuted_indices_size >= 0 &&
+          permuted_indices_size <= std::numeric_limits<int32_t>::max(),
+      "permuted_indices_size must be >= 0 and within int32. "
+      "permuted_indices_size = ",
+      permuted_indices_size);
 
   constexpr int32_t BT_blocks = 16;
   dim3 threads_2(64, BT_blocks);
@@ -306,6 +319,13 @@ permute_1D_sparse_data_cuda(
                           weights_value.contiguous();
                       int32_t weights_columns = 1;
                       if (weights_value.dense_dim() > 1) {
+                        TORCH_CHECK(
+                            weights_value.size(1) >= 0 &&
+                                weights_value.size(1) <=
+                                    std::numeric_limits<int32_t>::max(),
+                            "weights_columns must be >= 0 and within int32. "
+                            "weights.size(1) = ",
+                            weights_value.size(1));
                         weights_columns = weights_value.size(1);
                         permuted_weights = at::empty(
                             {permuted_indices_size, weights_columns},

@@ -192,7 +192,10 @@ void split_embedding_{{ optimizer }}_update(
                             kMaxVecsPerThread,
                             kThreadGroupSize,
                             4>),
-                        div_round_up(grad_dev_indices.numel(), kMaxThreads / kThreadGroupSize),
+                        utils::cuda::cap_grid_dim_x(
+                            div_round_up(grad_dev_indices.numel(), kMaxThreads / kThreadGroupSize),
+                            kMaxThreads,
+                            at::cuda::getCurrentCUDAStream()),
                         dim3(kThreadGroupSize, kMaxThreads / kThreadGroupSize, 1),
                         0, // Shared memory is not needed because uint8_t is not supported
                         at::cuda::getCurrentCUDAStream(),

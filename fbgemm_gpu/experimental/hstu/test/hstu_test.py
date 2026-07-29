@@ -45,6 +45,21 @@ from hypothesis import given, settings, strategies as st, Verbosity
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
+
+def has_sm80_hstu_support() -> bool:
+    """Whether the SM80 (Ampere) HSTU kernels are usable in this build.
+
+    The SM80 ``hstu_varlen_fwd_80`` op is only compiled when arch 8.0 is in the
+    build's ``TORCH_CUDA_ARCH_LIST`` (see the HSTU ``CMakeLists.txt``). OSS wheels
+    built without 8.0 (e.g. the GitHub CUDA CI lane) omit the Ampere sources, so
+    the op is unregistered at runtime even on an Ampere-class GPU. Requires both
+    an Ampere (major version 8) device and the op to be present in the build.
+    """
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] != 8:
+        return False
+    return hasattr(torch.ops.fbgemm, "hstu_varlen_fwd_80")
+
+
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -146,7 +161,7 @@ def construct_mask(
     seqused_k=None,
     num_contexts=None,
     num_targets=None,
-    device=torch.device("cuda"),
+    device=torch.accelerator.current_accelerator("cuda"),
 ):
     seqlen = seqlen_c + seqlen + seqlen_t
     bs = cu_seqlens_k.size(0) - 1
@@ -292,7 +307,9 @@ def generate_input(
         if full_batch:
             num_contexts = (
                 torch.ones(
-                    (batch_size,), device=torch.device("cuda"), dtype=torch.int32
+                    (batch_size,),
+                    device=torch.accelerator.current_accelerator("cuda"),
+                    dtype=torch.int32,
                 )
                 * max_context_len
             )
@@ -302,16 +319,18 @@ def generate_input(
                 max_context_len + 1,
                 size=(batch_size,),
                 dtype=torch.int32,
-                device=torch.device("cuda"),
+                device=torch.accelerator.current_accelerator("cuda"),
             )
     else:
         num_contexts = torch.zeros(
-            (batch_size,), dtype=torch.int32, device=torch.device("cuda")
+            (batch_size,),
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator("cuda"),
         )
     cu_seqlens_c = torch.zeros(
         (batch_size + 1,),
         dtype=torch.int32,
-        device=torch.device("cuda"),
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_c[1:] = torch.cumsum(num_contexts, dim=0)
 
@@ -320,7 +339,7 @@ def generate_input(
         lengths_k = (
             torch.ones(
                 (batch_size,),
-                device=torch.device("cuda"),
+                device=torch.accelerator.current_accelerator("cuda"),
                 dtype=torch.int32,
             )
             * max_seq_len_k
@@ -330,13 +349,13 @@ def generate_input(
             1,
             max_seq_len_k + 1,
             size=(batch_size,),
-            device=torch.device("cuda"),
+            device=torch.accelerator.current_accelerator("cuda"),
             dtype=torch.int32,
         )
     cu_seqlens_k = torch.zeros(
         (batch_size + 1,),
         dtype=torch.int32,
-        device=torch.device("cuda"),
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_k[1:] = torch.cumsum(lengths_k, dim=0)
 
@@ -345,7 +364,9 @@ def generate_input(
         if full_batch:
             num_targets = (
                 torch.ones(
-                    (batch_size,), device=torch.device("cuda"), dtype=torch.int32
+                    (batch_size,),
+                    device=torch.accelerator.current_accelerator("cuda"),
+                    dtype=torch.int32,
                 )
                 * max_target_len
             )
@@ -355,16 +376,18 @@ def generate_input(
                 max_target_len + 1,
                 size=(batch_size,),
                 dtype=torch.int32,
-                device=torch.device("cuda"),
+                device=torch.accelerator.current_accelerator("cuda"),
             )
     else:
         num_targets = torch.zeros(
-            (batch_size,), dtype=torch.int32, device=torch.device("cuda")
+            (batch_size,),
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator("cuda"),
         )
     cu_seqlens_t = torch.zeros(
         (batch_size + 1,),
         dtype=torch.int32,
-        device=torch.device("cuda"),
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_t[1:] = torch.cumsum(num_targets, dim=0)
 
@@ -373,26 +396,30 @@ def generate_input(
         if full_batch:
             lengths_q = (
                 torch.ones(
-                    (batch_size,), device=torch.device("cuda"), dtype=torch.int32
+                    (batch_size,),
+                    device=torch.accelerator.current_accelerator("cuda"),
+                    dtype=torch.int32,
                 )
                 * max_seq_len_q
             )
         else:
             # lengths_q[i] is an integer between 1 and min(max_seq_len_q, lengths_k[i])
             lengths_q = torch.zeros(
-                (batch_size,), device=torch.device("cuda"), dtype=torch.int32
+                (batch_size,),
+                device=torch.accelerator.current_accelerator("cuda"),
+                dtype=torch.int32,
             )
             for i in range(batch_size):
                 lengths_q[i] = torch.randint(
                     1,
                     min(max_seq_len_q, lengths_k[i]) + 1,  # pyre-ignore[6]
                     size=(1,),
-                    device=torch.device("cuda"),
+                    device=torch.accelerator.current_accelerator("cuda"),
                 )
         cu_seqlens_q = torch.zeros(
             (batch_size + 1,),
             dtype=torch.int32,
-            device=torch.device("cuda"),
+            device=torch.accelerator.current_accelerator("cuda"),
         )
         cu_seqlens_q[1:] = torch.cumsum(lengths_q, dim=0)
     else:
@@ -400,22 +427,34 @@ def generate_input(
 
     # Lengths for whole q, kv
     cu_seqlens_q_wt = torch.zeros(
-        (batch_size + 1,), dtype=torch.int32, device=torch.device("cuda")
+        (batch_size + 1,),
+        dtype=torch.int32,
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_q_wt = cu_seqlens_c + cu_seqlens_q + cu_seqlens_t
     cu_seqlens_k_wt = torch.zeros(
-        (batch_size + 1,), dtype=torch.int32, device=torch.device("cuda")
+        (batch_size + 1,),
+        dtype=torch.int32,
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_k_wt = cu_seqlens_c + cu_seqlens_k + cu_seqlens_t
 
     seqused_is_not_none = torch.rand(1) < 0.5
     seqused_q = (
-        torch.ones(batch_size, dtype=torch.int32, device=torch.device("cuda"))
+        torch.ones(
+            batch_size,
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator("cuda"),
+        )
         if seqused_is_not_none
         else None
     )
     seqused_k = (
-        torch.ones(batch_size, dtype=torch.int32, device=torch.device("cuda"))
+        torch.ones(
+            batch_size,
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator("cuda"),
+        )
         if seqused_is_not_none
         else None
     )
@@ -431,7 +470,7 @@ def generate_input(
                     seqlen_min,
                     seqlen_k_padded + 1,
                     size=(1,),
-                    device=torch.device("cuda"),
+                    device=torch.accelerator.current_accelerator("cuda"),
                 )
             )
             seqlen_max = min(seqlen_q_padded, seqused_k[i].item()) + 1
@@ -439,7 +478,10 @@ def generate_input(
                 seqlen_q_padded
                 if full_batch
                 else torch.randint(
-                    seqlen_min, seqlen_max, size=(1,), device=torch.device("cuda")
+                    seqlen_min,
+                    seqlen_max,
+                    size=(1,),
+                    device=torch.accelerator.current_accelerator("cuda"),
                 )
             )
     if not is_delta_q:
@@ -455,21 +497,27 @@ def generate_input(
     # Generate q, k, v for context + history + target
     q = (
         torch.empty(
-            (L_q, heads, attn_dim), dtype=dtype_init, device=torch.device("cuda")
+            (L_q, heads, attn_dim),
+            dtype=dtype_init,
+            device=torch.accelerator.current_accelerator("cuda"),
         )
         .uniform_(-1, 1)
         .requires_grad_()
     )
     k = (
         torch.empty(
-            (L_k, heads, attn_dim), dtype=dtype_init, device=torch.device("cuda")
+            (L_k, heads, attn_dim),
+            dtype=dtype_init,
+            device=torch.accelerator.current_accelerator("cuda"),
         )
         .uniform_(-1, 1)
         .requires_grad_()
     )
     v = (
         torch.empty(
-            (L_k, heads, hidden_dim), dtype=dtype_init, device=torch.device("cuda")
+            (L_k, heads, hidden_dim),
+            dtype=dtype_init,
+            device=torch.accelerator.current_accelerator("cuda"),
         )
         .uniform_(-1, 1)
         .requires_grad_()
@@ -478,7 +526,9 @@ def generate_input(
     if is_delta_q is False and dtype != torch.float8_e4m3fn:
         qkv = (
             torch.empty(
-                (L_q, 3, heads, attn_dim), dtype=dtype, device=torch.device("cuda")
+                (L_q, 3, heads, attn_dim),
+                dtype=dtype,
+                device=torch.accelerator.current_accelerator("cuda"),
             )
             .uniform_(-1, 1)
             .requires_grad_()
@@ -497,7 +547,7 @@ def generate_input(
             max_context_len + max_seq_len_k + max_target_len,
         ),
         dtype=dtype_init,
-        device=torch.device("cuda"),
+        device=torch.accelerator.current_accelerator("cuda"),
     ).uniform_(-1, 1)
 
     head_func = 1
@@ -509,14 +559,14 @@ def generate_input(
         func = torch.empty(
             (batch_func, head_func, n_func, max_seq_len_q),
             dtype=torch.int32,
-            device=torch.device("cuda"),
+            device=torch.accelerator.current_accelerator("cuda"),
         )
         for i in range(n_func):
             func[:, :, i, :] = torch.randint(
                 i * max_seq_split,
                 int((i + coef) * max_seq_split),
                 size=(batch_func, head_func, max_seq_len_q),
-                device=torch.device("cuda"),
+                device=torch.accelerator.current_accelerator("cuda"),
             )
 
         if example:
@@ -525,7 +575,7 @@ def generate_input(
             func = torch.empty(
                 (batch_func, head_func, n_func, max_seq_len_q),
                 dtype=torch.int32,
-                device=torch.device("cuda"),
+                device=torch.accelerator.current_accelerator("cuda"),
             )
             for token_id in range(max_seq_len_k):
                 func[:, :, 0, token_id] = token_id + 1
@@ -551,7 +601,7 @@ def generate_input(
             func = torch.empty(
                 (batch_func, head_func, n_func, max_seq_len_q),
                 dtype=torch.int32,
-                device=torch.device("cuda"),
+                device=torch.accelerator.current_accelerator("cuda"),
             )
             left_window_size = 2
             right_window_size = 12
@@ -583,7 +633,7 @@ def generate_input(
             func = torch.empty(
                 (batch_func, head_func, n_func, max_seq_len_q),
                 dtype=torch.int32,
-                device=torch.device("cuda"),
+                device=torch.accelerator.current_accelerator("cuda"),
             )
             left_window_size = 2
             right_window_size = 12
@@ -596,7 +646,10 @@ def generate_input(
 
             for token_id in range(casual_len, max_seq_len_k):
                 func[:, :, 0, token_id] = torch.randint(
-                    0, casual_len + 1, (1,), device=torch.device("cuda")
+                    0,
+                    casual_len + 1,
+                    (1,),
+                    device=torch.accelerator.current_accelerator("cuda"),
                 )
                 func[:, :, 1, token_id] = token_id
                 func[:, :, 2, token_id] = token_id + 1
@@ -618,7 +671,9 @@ def generate_input(
     L_func = L_q + 256
     if is_arbitrary:
         var_fun = torch.empty(
-            (head_func, n_func, L_func), dtype=torch.int32, device=torch.device("cuda")
+            (head_func, n_func, L_func),
+            dtype=torch.int32,
+            device=torch.accelerator.current_accelerator("cuda"),
         )
         for i in range(batch_func):
             for j in range(head_func):
@@ -1158,22 +1213,35 @@ def generate_paged_kv_input(
     # Generate lengths for new history qkv
     if full_batch:
         lengths_q = (
-            torch.ones((batch_size,), device=torch.device("cuda"), dtype=torch.int32)
+            torch.ones(
+                (batch_size,),
+                device=torch.accelerator.current_accelerator("cuda"),
+                dtype=torch.int32,
+            )
             * max_seq_len_q
         )
     else:
         lengths_q = torch.randint(
-            1, max_seq_len_q + 1, size=(batch_size,), device=torch.device("cuda")
+            1,
+            max_seq_len_q + 1,
+            size=(batch_size,),
+            device=torch.accelerator.current_accelerator("cuda"),
         )
     cu_seqlens_q = torch.zeros(
-        (batch_size + 1,), dtype=torch.int32, device=torch.device("cuda")
+        (batch_size + 1,),
+        dtype=torch.int32,
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_q[1:] = torch.cumsum(lengths_q, dim=0)
 
     # Generate lengths for target qkv
     if full_batch:
         num_targets = (
-            torch.ones((batch_size,), device=torch.device("cuda"), dtype=torch.int32)
+            torch.ones(
+                (batch_size,),
+                device=torch.accelerator.current_accelerator("cuda"),
+                dtype=torch.int32,
+            )
             * max_target_len
         )
     else:
@@ -1182,10 +1250,12 @@ def generate_paged_kv_input(
             max_target_len + 1,
             size=(batch_size,),
             dtype=torch.int32,
-            device=torch.device("cuda"),
+            device=torch.accelerator.current_accelerator("cuda"),
         )
     cu_seqlens_t = torch.zeros(
-        (batch_size + 1,), dtype=torch.int32, device=torch.device("cuda")
+        (batch_size + 1,),
+        dtype=torch.int32,
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_t[1:] = torch.cumsum(num_targets, dim=0)
 
@@ -1195,7 +1265,9 @@ def generate_paged_kv_input(
 
     # Generate q, k, v for new history + target
     M_uvqk = torch.empty(
-        (L_q, 4, heads, attn_dim), dtype=dtype, device=torch.device("cuda")
+        (L_q, 4, heads, attn_dim),
+        dtype=dtype,
+        device=torch.accelerator.current_accelerator("cuda"),
     ).uniform_(-1, 1)
     q = M_uvqk[:, 2, :, :]
     k = M_uvqk[:, 3, :, :]
@@ -1204,15 +1276,24 @@ def generate_paged_kv_input(
     # Generate user feature + previous history
     if full_batch:
         lengths_k = (
-            torch.ones((batch_size,), device=torch.device("cuda"), dtype=torch.int32)
+            torch.ones(
+                (batch_size,),
+                device=torch.accelerator.current_accelerator("cuda"),
+                dtype=torch.int32,
+            )
             * max_seq_len_k
         )
     else:
         lengths_k = torch.randint(
-            1, max_seq_len_k + 1, size=(batch_size,), device=torch.device("cuda")
+            1,
+            max_seq_len_k + 1,
+            size=(batch_size,),
+            device=torch.accelerator.current_accelerator("cuda"),
         )
     cu_seqlens_k = torch.zeros(
-        (batch_size + 1,), dtype=torch.int32, device=torch.device("cuda")
+        (batch_size + 1,),
+        dtype=torch.int32,
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     cu_seqlens_k[1:] = torch.cumsum(lengths_k, dim=0)
 
@@ -1220,19 +1301,23 @@ def generate_paged_kv_input(
     lengths_k_cache = lengths_k + lengths_q
     lengths_page = (lengths_k_cache + page_size - 1) // page_size
     page_offsets = torch.zeros(
-        (batch_size + 1,), dtype=torch.int32, device=torch.device("cuda")
+        (batch_size + 1,),
+        dtype=torch.int32,
+        device=torch.accelerator.current_accelerator("cuda"),
     )
     page_offsets[1:] = torch.cumsum(lengths_page, dim=0)
 
     total_page = int(page_offsets[-1].item())
     page_ids = torch.randperm(
-        total_page, device=torch.device("cuda"), dtype=torch.int32
+        total_page,
+        device=torch.accelerator.current_accelerator("cuda"),
+        dtype=torch.int32,
     )
     last_page_lens = ((lengths_k_cache - 1) % page_size + 1).to(torch.int32)
     kv_cache = torch.empty(
         (total_page, 2, page_size, heads, attn_dim),
         dtype=dtype,
-        device=torch.device("cuda"),
+        device=torch.accelerator.current_accelerator("cuda"),
     ).uniform_(-1, 1)
 
     mask = torch.zeros(
@@ -1242,7 +1327,7 @@ def generate_paged_kv_input(
             max_seq_len_q + max_seq_len_k + max_target_len,
             max_seq_len_q + max_seq_len_k + max_target_len,
         ),
-        device=torch.device("cuda"),
+        device=torch.accelerator.current_accelerator("cuda"),
         dtype=torch.float32,
     )
     for i in range(batch_size):
@@ -1356,8 +1441,11 @@ def _hstu_paged_kv_attention(
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available() or torch.cuda.get_device_capability() >= (9, 0),
-    "Skip when only Hopper GPU. This test is not supported.",
+    not has_sm80_hstu_support(),
+    "Skip when SM80 (Ampere) HSTU kernels are unavailable: paged-KV attention "
+    "is only supported on SM80, and requires the build to include the SM80 "
+    "kernels (arch 8.0). Non-Ampere GPUs and builds without arch 8.0 (e.g. the "
+    "OSS GitHub CUDA CI lane) do not register `fbgemm::hstu_varlen_fwd_80`.",
 )
 class HSTUPagedKVTest(unittest.TestCase):
     """Test HSTU paged kv attention."""
@@ -1518,8 +1606,17 @@ def P_blockwise_Vt_gemm_fp8(
     is_delta_q_m = (not swapQK) and (start_ids is not None)
     is_delta_q_n = swapQK and (start_ids is not None)
 
-    output = torch.zeros(B, H, seq_len_q, dim, dtype=torch.float, device="cuda")
-    descale_one = torch.tensor([1.0], dtype=torch.float32, device="cuda")
+    output = torch.zeros(
+        B,
+        H,
+        seq_len_q,
+        dim,
+        dtype=torch.float,
+        device=torch.accelerator.current_accelerator(),
+    )
+    descale_one = torch.tensor(
+        [1.0], dtype=torch.float32, device=torch.accelerator.current_accelerator()
+    )
     for bs in range(B):
         for h in range(H):
             start_q = start_ids[bs] if start_ids is not None else 0
@@ -1554,7 +1651,11 @@ def P_blockwise_Vt_gemm_fp8(
                     descale_Pblock = torch.max(P_block.abs()) / e4m3_max
                     descale_Pblock = torch.max(
                         descale_Pblock,
-                        torch.tensor([1e-6], dtype=torch.float32, device="cuda"),
+                        torch.tensor(
+                            [1e-6],
+                            dtype=torch.float32,
+                            device=torch.accelerator.current_accelerator(),
+                        ),
                     )
                     P_block = (P_block / descale_Pblock).to(torch.float8_e4m3fn)
                     Vt_block = (
@@ -1756,7 +1857,9 @@ def _hstu_attention_maybe_from_cache_fp8(
 
     padded_q = padded_q.reshape(-1, n_k, attention_dim)
     padded_k = padded_k.reshape(-1, n_k, attention_dim).permute(0, 2, 1)
-    descale_one = torch.tensor([1.0], dtype=torch.float32, device="cuda")
+    descale_one = torch.tensor(
+        [1.0], dtype=torch.float32, device=torch.accelerator.current_accelerator()
+    )
 
     # only support MK @ KN
     qk_attn = torch._scaled_mm(
@@ -2078,7 +2181,9 @@ def _bwd_reference_fp8(
     padded_q_for_dK = padded_q
     padded_q = padded_q.reshape(-1, n_k, attention_dim)
     padded_k = padded_k.reshape(-1, n_k, attention_dim).permute(0, 2, 1)
-    descale_one = torch.tensor([1.0], dtype=torch.float32, device="cuda")
+    descale_one = torch.tensor(
+        [1.0], dtype=torch.float32, device=torch.accelerator.current_accelerator()
+    )
     # only support MK @ KN
     qk_attn = torch._scaled_mm(
         padded_q[0],
