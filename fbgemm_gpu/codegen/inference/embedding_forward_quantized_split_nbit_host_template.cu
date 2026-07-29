@@ -9,6 +9,7 @@
 // clang-format off
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/config/feature_gates.h"
@@ -71,7 +72,10 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     #define X(DeviceOnly, PackedMode, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
       FBGEMM_LAUNCH_KERNEL( \
         ({{ func_name }}<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly, PackedMode>), \
-        nbit::div_round_up(T * nbit::div_round_up(B, num_packed_bags * OutputRowsPerThread), kWarpsPerBlock), \
+        utils::cuda::cap_grid_dim_x( \
+            nbit::div_round_up(T * nbit::div_round_up(B, num_packed_bags * OutputRowsPerThread), kWarpsPerBlock), \
+            kWarpSize * kWarpsPerBlock, \
+            at::cuda::getCurrentCUDAStream()), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream(), \
