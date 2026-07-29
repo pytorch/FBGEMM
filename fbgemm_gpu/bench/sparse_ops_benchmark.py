@@ -1684,6 +1684,12 @@ def cat_reorder_batched_ad_indices_bench(
 @click.option("--num-segments", default=100)
 @click.option("--max-segment-length", default=10000)
 @click.option(
+    "--emb-dim",
+    default=256,
+    help="Multiplier applied to each segment length (indices per segment). "
+    "Set to 1 to match prod pooling factors; larger values model wider rows.",
+)
+@click.option(
     "--index-dtype", type=click.Choice(["int", "int64", "float"]), default="float"
 )
 @click.option("--has-weight", is_flag=True, default=False)
@@ -1702,6 +1708,7 @@ def cat_reorder_batched_ad_indices_bench(
 def permute_1d_sparse_data_bench(
     num_segments: int,
     max_segment_length: int,
+    emb_dim: int,
     index_dtype: str,
     has_weight: bool,
     device: str,
@@ -1724,7 +1731,6 @@ def permute_1d_sparse_data_bench(
         raise RuntimeError(f"Does not support data type {index_dtype}")
 
     # Generate variable-length segments to test vectorization
-    emb_dim = 256
     lengths = (
         torch.randint(
             low=max_segment_length // 2,
@@ -1832,6 +1838,12 @@ def permute_1d_sparse_data_bench(
 @click.option("--batch-size", default=128)
 @click.option("--max-segment-length", default=2000)
 @click.option(
+    "--emb-dim",
+    default=256,
+    help="Multiplier applied to each segment length (indices per segment). "
+    "Set to 1 to match prod pooling factors; larger values model wider rows.",
+)
+@click.option(
     "--index-dtype",
     type=click.Choice(["int", "int64", "float", "bf16", "fp16"]),
     default="float",
@@ -1854,6 +1866,7 @@ def permute_2d_sparse_data_bench(
     num_segments: int,
     batch_size: int,
     max_segment_length: int,
+    emb_dim: int,
     index_dtype: str,
     has_weight: bool,
     device: str,
@@ -1885,7 +1898,6 @@ def permute_2d_sparse_data_bench(
     # Use int64 to avoid integer overflow when summing large configurations
     # (e.g., num_segments=40, batch_size=512, max_segment_length=2000, emb_dim=256
     # can exceed INT32_MAX ~2.1 billion)
-    emb_dim = 256
     lengths = (
         torch.randint(
             low=max_segment_length // 2,
