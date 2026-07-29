@@ -37,10 +37,19 @@ void split_{{ optimizer }}_update_kernel(
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {
+    // On ROCm the launch caps the grid to stay within the HIP 2^32
+    // threads-per-launch limit, so we grid-stride to cover the full workload.
+    // On CUDA the grid is not capped and the loop body runs once per warp.
+#ifdef USE_ROCM
+    for (auto run_id = blockIdx.x * blockDim.y + threadIdx.y;
+         run_id < grad_dev_indices.size(0);
+         run_id += blockDim.y * gridDim.x) {
+#else
     const auto run_id = blockIdx.x * blockDim.y + threadIdx.y;
     if (run_id >= grad_dev_indices.size(0)) {
       return;
     }
+#endif
 
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
     const unsigned int shfl_sync_mask =
@@ -99,6 +108,9 @@ void split_{{ optimizer }}_update_kernel(
           shfl_sync_mask,
           kMaxVecsPerThread,
           {{ args.split_kernel_arg_names | join(", ") }});
+#ifdef USE_ROCM
+    } // for run_id (grid-stride loop, ROCm only)
+#endif
 }
 
 {%- for use_subwarp in [True, False] %}
