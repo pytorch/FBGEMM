@@ -433,7 +433,12 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     const int32_t max_vecs_per_thread,
     {%- if is_gwd_kernel %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    {#- /* The top-level `const` here must match the kernel declaration above (no
+          `const`). Under CUDA 13, cudafe++ emits the device stub with by-reference
+          params, so a top-level `const` on this parameter would make the stub
+          `const T&` while the kernel definition yields `T&`, and the explicit
+          instantiation would fail to match the device-stub template. */ #}
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
