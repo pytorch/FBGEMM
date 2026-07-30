@@ -272,52 +272,66 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N =
       N_unique == nullptr ? linear_cache_indices.size(0) : *N_unique;
+  // On ROCm the launch caps the grid to stay within the HIP 2^32
+  // threads-per-launch limit, so we grid-stride to cover the full workload.
+  // On CUDA the grid is not capped and the loop body runs once per warp.
+  const auto n_stride = gridDim.x * blockDim.y * blockDim.x;
+#ifdef USE_ROCM
+  for (auto n0 =
+           blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
+       n0 < N;
+       n0 += n_stride) {
+#else
   const auto n0 =
       blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
   if (n0 >= N) {
     return;
   }
+#endif
 
-  int32_t cache_location = kCacheLocationMissing;
-  int32_t n_indices = 0;
-  int32_t n_hits = 0;
-  const auto slot = threadIdx.x;
-  for (int i = 0; i < blockDim.x; ++i) {
-    const auto n = n0 + i;
-    if (n >= N) {
-      continue;
-    }
-    const int64_t idx = linear_cache_indices[n];
-    if (idx == invalid_index) {
-      continue;
-    }
-    const int32_t cache_set = cache_slot(idx, C);
-    n_indices++;
-    const bool found =
-        (::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
-    // fbgemm_gpu::ballot_sync wraps __ballot (ROCm, unsynchronized) vs
-    // __ballot_sync (CUDA). Return type is uint64_t on ROCm and uint32_t
-    // on CUDA, so __ffsll handles both via implicit promotion.
-    const auto bitmap = fbgemm_gpu::ballot_sync(found);
-    if (bitmap) {
-      // LSB == 1 hence we need to subtract one to get lane ID.
-      const auto way = __ffsll(static_cast<long long>(bitmap)) - 1;
-      if (i == threadIdx.x) {
-        cache_location = cache_set * kWarpSize + way;
+    int32_t cache_location = kCacheLocationMissing;
+    int32_t n_indices = 0;
+    int32_t n_hits = 0;
+    const auto slot = threadIdx.x;
+    for (int i = 0; i < blockDim.x; ++i) {
+      const auto n = n0 + i;
+      if (n >= N) {
+        continue;
       }
-      n_hits++;
+      const int64_t idx = linear_cache_indices[n];
+      if (idx == invalid_index) {
+        continue;
+      }
+      const int32_t cache_set = cache_slot(idx, C);
+      n_indices++;
+      const bool found =
+          (::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
+      // fbgemm_gpu::ballot_sync wraps __ballot (ROCm, unsynchronized) vs
+      // __ballot_sync (CUDA). Return type is uint64_t on ROCm and uint32_t
+      // on CUDA, so __ffsll handles both via implicit promotion.
+      const auto bitmap = fbgemm_gpu::ballot_sync(found);
+      if (bitmap) {
+        // LSB == 1 hence we need to subtract one to get lane ID.
+        const auto way = __ffsll(static_cast<long long>(bitmap)) - 1;
+        if (i == threadIdx.x) {
+          cache_location = cache_set * kWarpSize + way;
+        }
+        n_hits++;
+      }
     }
-  }
 
-  const auto n = n0 + threadIdx.x;
-  if (n < N) {
-    lxu_cache_locations[n] = cache_location;
-  }
-  if (gather_cache_stats && threadIdx.x == 0 && n_indices > n_hits) {
-    atomicAdd(
-        &uvm_cache_stats[uvm_cache_stats_index::num_conflict_misses],
-        (n_indices - n_hits));
-  }
+    const auto n = n0 + threadIdx.x;
+    if (n < N) {
+      lxu_cache_locations[n] = cache_location;
+    }
+    if (gather_cache_stats && threadIdx.x == 0 && n_indices > n_hits) {
+      atomicAdd(
+          &uvm_cache_stats[uvm_cache_stats_index::num_conflict_misses],
+          (n_indices - n_hits));
+    }
+#ifdef USE_ROCM
+  } // for n0 (grid-stride loop, ROCm only)
+#endif
 }
 
 template <typename index_t>
@@ -447,7 +461,12 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
   }
 
   const dim3 threads(kWarpSizeHost(), kMaxThreads / kWarpSizeHost());
-  const dim3 blocks(div_round_up(N, kMaxThreads));
+  // HIP enforces a hard limit of 2^32 total threads per launch;
+  // lxu_cache_lookup_kernel grid-strides over n0, so capping is
+  // correctness-preserving. See: https://github.com/ROCm/hip/issues/2253
+  const dim3 blocks(
+      utils::cuda::cap_grid_dim_x_from_workload(
+          N, kMaxThreads, at::cuda::getCurrentCUDAStream()));
 
   AT_DISPATCH_INDEX_TYPES(
       linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&] {
