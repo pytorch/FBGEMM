@@ -89,7 +89,10 @@ auto raw_embedding_streamer =
                 int64_t,
                 std::vector<std::string>,
                 std::vector<int64_t>,
-                std::vector<int64_t>>(),
+                std::vector<int64_t>,
+                int64_t,
+                int64_t,
+                int64_t>(),
             "",
             {
                 torch::arg("unique_id") = 0,
@@ -99,6 +102,9 @@ auto raw_embedding_streamer =
                 torch::arg("table_names") = torch::List<std::string>(),
                 torch::arg("table_offsets") = torch::List<int64_t>(),
                 torch::arg("table_sizes") = torch::List<int64_t>(),
+                torch::arg("res_chunk_size") = 500000,
+                torch::arg("res_num_consumers") = 8,
+                torch::arg("res_num_copy_threads") = 4,
             })
         .def(
             "stream",
