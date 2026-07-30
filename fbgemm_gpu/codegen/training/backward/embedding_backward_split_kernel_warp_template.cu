@@ -433,7 +433,12 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     const int32_t max_vecs_per_thread,
     {%- if is_gwd_kernel %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    {#- /* The top-level `const` here must match the kernel declaration above (no
+          `const`). Under CUDA 13, cudafe++ emits the device stub with by-reference
+          params, so a top-level `const` on this parameter would make the stub
+          `const T&` while the kernel definition yields `T&`, and the explicit
+          instantiation would fail to match the device-stub template. */ #}
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
@@ -459,7 +464,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 
 {%- macro bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
-    {%- for emb_type in (['float', 'at::Half'] + emb_fp8_types) %}
+    {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for index_type in ['int32_t', 'int64_t'] %}
     {%- for ph_type_combo in args.placeholder_type_combos %}
@@ -767,7 +772,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
 
 {%- macro hip_bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
-    {%- for emb_type in (['float', 'at::Half'] + emb_fp8_types) %}
+    {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for index_type in ['int32_t', 'int64_t'] %}
     {%- for kEmbeddingDim in [64, 128, 160, 192, 256, 320] %}

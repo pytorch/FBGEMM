@@ -29,27 +29,6 @@ from torch.autograd.profiler import record_function  # usort:skip
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-
-try:
-    from fbgemm_gpu.split_embedding_configs import nfp8_dtype
-except ImportError:
-    # Forward-compat for torch.package re-export version blends (S685573): a
-    # model's frozen `split_embedding_configs`, bundled alongside this (newer)
-    # module at GMPP re-export time, may predate `nfp8_dtype` (added in
-    # D113263502). Import it defensively and fall back to the pre-arch-aware
-    # selection so this module finishes initializing regardless of the bundled
-    # `split_embedding_configs` version -- otherwise the failed top-level import
-    # leaves a poisoned partial module cached by the torch.package importer and
-    # a later `from ...ops_training import SplitTableBatchedEmbeddingBagsCodegen`
-    # fails. Mirrors the D110788115 `sparse_type_to_int` fallback pattern.
-    def nfp8_dtype() -> torch.dtype:
-        return (
-            torch.float8_e4m3fnuz
-            if torch.version.hip is not None
-            else torch.float8_e4m3fn
-        )
-
-
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -3363,7 +3342,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for param in splits:
                 tmp_param = torch.zeros(param.shape, device=self.current_device)
                 # Create initialized weights and cast to fp8.
-                fp8_dtype = nfp8_dtype()
+                fp8_dtype = (
+                    torch.float8_e4m3fnuz
+                    if torch.version.hip is not None
+                    else torch.float8_e4m3fn
+                )
                 tmp_param.uniform_(min_val, max_val).to(fp8_dtype)
                 param.data.copy_(tmp_param)
         else:

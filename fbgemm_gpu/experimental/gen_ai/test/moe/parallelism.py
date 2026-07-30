@@ -115,6 +115,9 @@ def init_parallel(
         ):
             ranks = list(range(base_rank, base_rank + mp_size_for_routed_experts))
             group = torch.distributed.new_group(ranks, timeout=timeout)
+            # new_group is typed Union[int, ProcessGroup] in the stubs; it returns a
+            # ProcessGroup here. Narrow it so the Optional[ProcessGroup] global assigns.
+            assert isinstance(group, ProcessGroup)
             if global_rank in ranks:
                 _ROUTED_EXPERTS_MP_GROUP = group
 
@@ -126,5 +129,8 @@ def init_parallel(
     for i in range(num_ep_groups):
         ranks = list(range(i, get_world_size(), num_ep_groups))
         group = torch.distributed.new_group(ranks, timeout=timeout)
+        # new_group is typed Union[int, ProcessGroup] in the stubs; it returns a
+        # ProcessGroup here. Narrow it so the Optional[ProcessGroup] global assigns.
+        assert isinstance(group, ProcessGroup)
         if global_rank in ranks:
             _EP_GROUP = group

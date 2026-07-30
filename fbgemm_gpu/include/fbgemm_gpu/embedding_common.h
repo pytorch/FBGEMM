@@ -10,9 +10,6 @@
 #include <ATen/ATen.h>
 #include <c10/macros/Macros.h>
 #include <cstdint>
-#ifdef USE_ROCM
-#include <ATen/detail/CUDAHooksInterface.h>
-#endif
 
 namespace fbgemm_gpu {
 
@@ -47,29 +44,6 @@ enum class BoundsCheckMode : uint8_t {
   IGNORE = 2,
 };
 
-// Resolves the native FP8 (e4m3) scalar type for the current runtime device.
-//
-// The FP8 encoding is hardware-specific: the gfx94x family (gfx940/941/942,
-// MI300) and gfx90a use the "fnuz" encoding, while gfx950 and CUDA use the OCP
-// "fn" encoding. Because a ROCm build can be a fat binary spanning multiple
-// archs, this cannot be a compile-time decision on the host: it must query the
-// device actually in use at runtime so the host-allocated tensor dtype matches
-// what device kernels (whose format is selected per-arch at device-compile
-// time) read and write.
-inline at::ScalarType getNFP8ScalarType() {
-#ifdef USE_ROCM
-  // fnuz archs: the gfx94x family (gfx940/941/942, MI300) and gfx90a. The
-  // substring match mirrors split_embedding_configs.py:_nfp8_is_fnuz; keep the
-  // two in sync. Query goes through the ATen-cpu CUDA hooks so this header is
-  // safe to compile into the CPU/meta libraries (no ATen/cuda/CUDAContext.h).
-  const auto& cuda_hooks = at::detail::getCUDAHooks();
-  if (cuda_hooks.hasCUDA() && cuda_hooks.isGPUArch({"gfx94", "gfx90a"})) {
-    return at::kFloat8_e4m3fnuz;
-  }
-#endif
-  return at::kFloat8_e4m3fn;
-}
-
 inline at::ScalarType getScalarType(SparseType dtype) {
   switch (dtype) {
     case SparseType::FP32:
@@ -85,7 +59,11 @@ inline at::ScalarType getScalarType(SparseType dtype) {
     case SparseType::INT2:
       return at::kQUInt2x4;
     case SparseType::NFP8:
-      return getNFP8ScalarType();
+#if (defined(USE_ROCM) && !HIP_FP8_TYPE_OCP)
+      return at::kFloat8_e4m3fnuz;
+#else
+      return at::kFloat8_e4m3fn;
+#endif
     default:
       return at::ScalarType::Undefined;
   }
