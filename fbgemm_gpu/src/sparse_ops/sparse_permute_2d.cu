@@ -258,6 +258,17 @@ permute_2D_sparse_preallocated_out_cuda(
       ", T = ",
       T);
 
+  int64_t debug_permuted_lengths_sum = 0;
+  if (is_debug_permute_enabled()) {
+    debug_check_permute_inputs(
+        "permute_2D",
+        permute_contig,
+        lengths_contig,
+        indices_contig,
+        lengths.size(0),
+        weights);
+  }
+
   Tensor permuted_lengths;
   Tensor permuted_indices;
   Tensor permuted_weights;
@@ -288,10 +299,21 @@ permute_2D_sparse_preallocated_out_cuda(
             permuted_lengths.data_ptr<index_t>());
       });
 
+  if (is_debug_permute_enabled()) {
+    debug_permuted_lengths_sum = debug_check_permuted_lengths(
+        "permute_2D", permuted_lengths, indices_contig.numel());
+  }
+
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
       asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
+
+  if (is_debug_permute_enabled()) {
+    debug_check_output_offsets(
+        "permute_2D", output_offsets, debug_permuted_lengths_sum);
+  }
+
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
