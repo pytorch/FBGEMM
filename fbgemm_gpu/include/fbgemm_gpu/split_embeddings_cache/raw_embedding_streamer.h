@@ -59,8 +59,8 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   /// from <weights> for the first <count> elements in the tensor.
   /// It spins up a dispatcher thread that copies the 4 tensors (indices,
   /// weights, and the optional identities / runtime_meta) to CPU and injects
-  /// them into the background queue, which is drained by the stream thread
-  /// that streams out to the thrift server (co-located on same host
+  /// them into the background queue, which is drained by a pool of consumer
+  /// threads that stream out to the thrift server (co-located on same host
   /// now). The copy is split into <= kChunkSize-row chunks across up to
   /// kNumCopyThreads threads.
   ///
@@ -102,8 +102,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> runtime_meta);
 
   /*
-   * FOR TESTING: Join the weight stream thread, make sure the thread is
-   * properly finished for destruction and testing.
+   * FOR TESTING ONLY: latches stop_ so the consumer threads exit, letting a
+   * test read a stable queue size. Not reversible -- the streamer stops
+   * consuming after this call.
    */
   void join_weights_stream_thread();
   // FOR TESTING: get queue size.
@@ -121,8 +122,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   std::vector<int64_t> table_offsets_;
   at::Tensor table_sizes_;
 #ifdef FBGEMM_FBCODE
-  std::unique_ptr<std::thread> weights_stream_thread_;
-  folly::UMPSCQueue<StreamQueueItem, true> weights_to_stream_queue_;
+  // Multi-threaded consumers for tensor_stream() RPCs.
+  std::vector<std::unique_ptr<std::thread>> consumer_threads_;
+  folly::UMPMCQueue<StreamQueueItem, true> weights_to_stream_queue_;
   // Copy threads for UVM cache (joined every iteration). Shared by the blocking
   // and non-blocking stream() paths; this assumes a given table streams in a
   // single mode at a time (blocking OR non-blocking), never concurrently.
@@ -136,6 +138,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       ods_logger_;
 
   void join_worker_threads();
+  void join_consumer_threads();
   void chunked_copy_and_enqueue(
       const at::Tensor& indices,
       const at::Tensor& weights,

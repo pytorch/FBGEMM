@@ -599,7 +599,85 @@ TEST(RawEmbeddingStreamerTest, TestStreamE2E) {
   streamer->join_weights_stream_thread();
 }
 
-TEST(RawEmbeddingStreamerTest, TestCoSetEmbeddingsThrowPropagates) {
+TEST(RawEmbeddingStreamerTest, TestNoCopyMultiItemConsumerDrain) {
+  // require_tensor_copy=false enqueues one raw item per stream() call (no D2H
+  // copy, no chunking). Enqueue several and let the N-thread consumer pool
+  // drain them concurrently through the UMPMC queue: every item must be
+  // shipped, so co_setEmbeddings runs (kNumItems * shards-per-item) times.
+  // Exercises the raw-enqueue (require_tensor_copy=false) branch and multi-item
+  // concurrent drain. Wait on the RPC count BEFORE stopping so no in-flight
+  // item is dropped.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  // Static storage duration so the co_setEmbeddings coroutine mock below can
+  // read it WITHOUT capturing -- a capturing coroutine lambda risks
+  // use-after-free once its closure is destroyed
+  // (cppcoreguidelines-avoid-capturing-lambda-coroutines). Reset per run.
+  static std::atomic<int> rpc_count;
+  rpc_count.store(0);
+  auto mock_service = std::make_shared<MockTrainingParameterServerService>();
+  auto mock_server =
+      std::make_shared<apache::thrift::ScopedServerInterfaceThread>(
+          mock_service,
+          "::1",
+          0,
+          facebook::services::TLSConfig::applyDefaultsToThriftServer);
+  auto& mock_client_factory =
+      facebook::servicerouter::getMockSRClientFactory(false /* strict */);
+  mock_client_factory.registerMockService(
+      "realtime.delta.publish.esr", mock_server);
+
+  auto counting_response =
+      [](std::unique_ptr<
+          aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest>)
+      -> folly::coro::Task<std::unique_ptr<
+          aiplatform::gmpp::experimental::training_ps::SetEmbeddingsResponse>> {
+    rpc_count.fetch_add(1);
+    co_return std::make_unique<
+        aiplatform::gmpp::experimental::training_ps::SetEmbeddingsResponse>();
+  };
+  EXPECT_CALL(*mock_service, co_setEmbeddings(_))
+      .WillRepeatedly(folly::coro::gmock_helpers::CoInvoke(counting_response));
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_nocopy_multi_item", true, table_names, table_offsets, table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  constexpr int kNumItems = 3;
+  // These 7 indices span the 3 tables, so each item ships 3 shards (matches the
+  // Times(3) in TestStreamE2E for a single item).
+  constexpr int kShardsPerItem = 3;
+  for (int i = 0; i < kNumItems; ++i) {
+    streamer->stream(
+        indices,
+        weights,
+        std::nullopt,
+        std::nullopt,
+        count,
+        /*require_tensor_copy=*/false);
+  }
+  // Bounded wait until every item has been shipped, then stop -- waiting on the
+  // count (not queue size) guarantees no dequeued-but-unprocessed item is
+  // dropped by stop_.
+  for (int i = 0; i < 1000 && rpc_count.load() < kNumItems * kShardsPerItem;
+       ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_EQ(rpc_count.load(), kNumItems * kShardsPerItem);
+  streamer->join_weights_stream_thread();
+}
+
+TEST(RawEmbeddingStreamerTest, TestCoSetEmbeddingsFailureIsSwallowed) {
   std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
   std::vector<int64_t> table_offsets = {0, 100, 300};
   std::vector<int64_t> table_sizes = {0, 50, 200, 300};
@@ -623,7 +701,9 @@ TEST(RawEmbeddingStreamerTest, TestCoSetEmbeddingsThrowPropagates) {
   mock_client_factory.registerMockService(
       "realtime.delta.publish.esr", mock_server);
 
+  // Every shard RPC fails.
   EXPECT_CALL(*mock_service, co_setEmbeddings(_))
+      .Times(3) // still attempts all 3 shards despite each failing
       .WillRepeatedly(
           folly::coro::gmock_helpers::CoInvoke(
               [](std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
@@ -644,12 +724,13 @@ TEST(RawEmbeddingStreamerTest, TestCoSetEmbeddingsThrowPropagates) {
       {indices.size(0), EMBEDDING_DIMENSION},
       at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
 
-  // Thrift repackages server-side exceptions into TApplicationException, so
-  // assert that the exception still propagates (preserved contract). The
-  // catch block bumps set_embeddings_rpc via the OBC logger before
-  // rethrowing; OBC counters are not in-process readable, so the bump itself
-  // is not unit-asserted here (the logger has no in-test sink).
-  EXPECT_ANY_THROW(
+  // A per-shard RPC failure must NOT propagate out of tensor_stream: it is
+  // caught, logged, and counted (set_embeddings_rpc_failure), and the coroutine
+  // completes normally so it can never escape a consumer thread and
+  // std::terminate the trainer. The counter bump is not unit-asserted here (the
+  // OBC logger has no in-test sink), so we verify the swallow behavior: all 3
+  // shards are attempted and no exception escapes.
+  EXPECT_NO_THROW(
       folly::coro::blockingWait(streamer->tensor_stream(
           indices, weights, std::nullopt, std::nullopt)));
 }
