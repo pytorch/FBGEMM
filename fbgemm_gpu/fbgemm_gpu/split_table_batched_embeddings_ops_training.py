@@ -144,6 +144,9 @@ class RESParams:
     table_sizes: list[int] = field(
         default_factory=list
     )  # table sizes for the global rows the TBE holds
+    res_chunk_size: int = 500000  # max rows copied into one enqueued chunk
+    res_num_consumers: int = 8  # threads draining the stream queue
+    res_num_copy_threads: int = 4  # parallel chunk-copy threads per stream() call
     res_enabled_tables: list[str] = field(
         default_factory=list
     )  # table names that are enabled for RES (empty means all enabled)
@@ -1563,6 +1566,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.res_params.table_names,
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
+                self.res_params.res_chunk_size,
+                self.res_params.res_num_consumers,
+                self.res_params.res_num_copy_threads,
             )
             self._register_res_enabled_feature_mask()
             logging.info(
