@@ -800,6 +800,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
+    const bool scale_bias_last,
     const bool no_bag,
     const bool is_bf16_out,
     const bool is_bf16_in) {
@@ -909,6 +910,13 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
     for (int i = 0; i < len; ++i) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
+        // Skip pruned rows. When scale_bias_last == false, this is a table
+        // batched embedding (TBE) forward where -1 marks a pruned row that
+        // contributes nothing to the pooled result.
+        if (idx == -1 && !scale_bias_last) {
+          ++current;
+          continue;
+        }
         return false;
       }
 
@@ -1436,6 +1444,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           use_offsets,
           output_stride,
           input_stride,
+          scale_bias_last,
           no_bag,
           is_bf16_out,
           is_bf16_in);
@@ -1519,6 +1528,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           kUseOffsets,
           output_stride,
           kInputStride,
+          ScaleBiasLast,
           kNoBag,
           is_bf16_out,
           is_bf16_in);
