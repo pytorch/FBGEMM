@@ -447,6 +447,162 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
       ? smem.getPointer() + threadIdx.y * grad_sum_stride
       : nullptr;
 
+    const int32_t hip_num_unique_runs = sorted_linear_indices_num_runs[0];
+    const int32_t hip_total_L =
+        sorted_linear_indices_cumulative_run_lengths[hip_num_unique_runs];
+    if (!(hip_num_unique_runs > 0 && hip_total_L <= 2 * hip_num_unique_runs)) {
+        for (uint32_t run_id = start_run_id;
+             run_id < sorted_linear_indices_run.size(0) && run_id < hip_num_unique_runs;
+                 run_id += gridDim.x * blockDim.y) {
+
+            const int64_t linear_index = sorted_linear_indices_run[run_id];
+            const int32_t segment_start =
+                sorted_linear_indices_cumulative_run_lengths[run_id];
+            const int32_t segment_end =
+                sorted_linear_indices_cumulative_run_lengths[run_id + 1];
+            const int32_t SL = segment_end - segment_start;
+
+            if (SL >= max_segment_length_per_warp) {
+                continue;
+            }
+
+            {%- if not nobag %}
+            const auto info_0 = reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start];
+            const auto t_0 = info_0 >> info_B_num_bits;
+            {%- else %}
+            const auto info_0 = sorted_infos[segment_start];
+            int32_t t_0 = info_0 % T;
+            {%- endif %}
+
+            int64_t hash_size = hash_size_cumsum[t_0];
+            {%- if not nobag or is_index_select %}
+            const auto D_start_t0 = D_offsets[t_0];
+            const int32_t D = D_offsets[t_0 + 1] - D_start_t0;
+            {%- if is_index_select %}
+            const auto grad_offset = permute_output_dim_0_1 ? D_start_t0 : grad_offsets[t_0];
+            const auto grad_stride = permute_output_dim_0_1 ? D_offsets[T] : D;
+            {%- endif %}
+            {%- endif %}
+            int64_t idx = linear_index - hash_size;
+
+            {{ compute_global_weight_decay(is_gwd_kernel) }}
+
+            const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
+            const int32_t sl_start = 0;
+            const int32_t sl_end = SL;
+            Vec4TAcc<cache_t> grad_sum[kFixedMaxVecsPerThread];
+            constexpr int32_t kGroupVecWidth = kThreadGroupSize * VEC_WIDTH;
+            const int32_t num_vecs = (D + kGroupVecWidth - 1) / kGroupVecWidth;
+
+            compute_grad_sum_{{ kdesc }}<
+              grad_t,
+              cache_t,
+              kFixedMaxVecsPerThread,
+              kThreadGroupSize,
+              VEC_WIDTH,
+              kUseVecBlocking>(
+                grad_sum,
+                smem_grad_sum,
+                grad_output,
+                {%- if not nobag or is_index_select %}
+                D_offsets,
+                {%- endif %}
+                D,
+                T,
+                sorted_infos,
+                {%- if weighted %}
+                sorted_indice_weights,
+                {%- endif %}
+                {%- if not nobag and vbe %}
+                B_offsets,
+                row_output_offsets,
+                {%- endif %}
+                {%- if is_index_select %}
+                grad_offset,
+                grad_stride,
+                {%- endif %}
+                {%- if not nobag %}
+                info_B_num_bits,
+                info_B_mask,
+                {%- endif %}
+                segment_start,
+                sl_start,
+                sl_end,
+                shfl_sync_mask,
+                num_vecs
+            );
+
+            const int32_t max_vecs =
+                kUseVecBlocking ? max_vecs_per_thread : kFixedMaxVecsPerThread;
+
+            {%- if not dense and optimizer != "none" %}
+            {{ mdesc }}_{{ optimizer }}_table_update_kernel<
+              emb_t,
+              cache_t,
+              {%- for ph_name in args.placeholder_tensor_names %}
+              {{ ph_name + "_ph_t" }},
+              {%- endfor %}
+              kFixedMaxVecsPerThread,
+              kThreadGroupSize,
+              VEC_WIDTH,
+              kUseVecBlocking>(
+                  dev_weights,
+                  uvm_weights,
+                  lxu_cache_weights,
+                  weights_placements,
+                  weights_offsets,
+                  sorted_{{ locs_or_addrs_tensor }},
+                  grad_sum,
+                  smem_grad_sum,
+                  smem_grad_sum, // shared_weight_update_row (reuse smem_grad_sum)
+                  stochastic_rounding,
+                  stochastic_rounding_philox_args,
+                  run_id,
+                  use_uniq_cache_locations
+                      ? (run_id - table_unique_indices_offsets[t_0])
+                      : segment_start,
+                  D,
+                  t_0,
+                  idx,
+                  {%- if is_gwd_kernel %}
+                  global_weight_decay,
+                  {%- elif has_global_weight_decay_support %}
+                  1, // global_weight_decay
+                  {%- endif %}
+                  shfl_sync_mask,
+                  max_vecs,
+                  {%- if ssd %}
+                  enable_optimizer_offloading,
+                  {%- endif %}
+                  {{ args.split_kernel_arg_names | join(", ") }}
+            );
+            {%- else %}
+            {%- if dense %}
+            const int64_t weights_offset = weights_offsets[t_0];
+            {%- else %}
+            const int64_t weights_offset = run_id * max_D;
+            idx = 0;
+            {%- endif %}
+            store_grad_sum<
+                emb_t,
+                cache_t,
+                kFixedMaxVecsPerThread,
+                kThreadGroupSize,
+                VEC_WIDTH,
+                kUseVecBlocking>(
+                  grad_dev_weights,
+                  grad_sum,
+                  kUseVecBlocking ? smem_grad_sum : nullptr,
+                  D,
+                  weights_offset,
+                  idx,
+                  max_vecs
+            );
+            {%- endif %} // if not dense and optimizer != "none"
+        }
+        return;
+    }
+
     constexpr int num_unroll = kThreadGroupSize;
 
     auto num_run_id = min(sorted_linear_indices_run.size(0), sorted_linear_indices_num_runs[0]);

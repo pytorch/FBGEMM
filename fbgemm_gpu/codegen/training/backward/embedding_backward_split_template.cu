@@ -843,18 +843,6 @@ Tensor {{ embedding_cuda_op }}(
 #endif
     const int used_shared_bytes = used_shared_kb << 10;
 
-#ifdef USE_ROCM
-    {%- if enable_optimized_hip_mixed_D_kernel %}
-    const bool use_hip_kernel_flag = fbgemm_gpu::config::is_feature_enabled(
-        fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
-    // Declared here so the dispatch lambdas below can capture it.
-    // Populated from the pinned buffer after transpose_embedding_input().
-    struct NumUniqueEntry { at::Tensor pinned_buf; };
-    static thread_local std::unordered_map<const void*, NumUniqueEntry>
-        s_num_unique_cache;
-    int64_t num_unique_prev = 0;
-    {%- endif %}
-#endif // USE_ROCM
 
     Tensor linear_indices, linear_indices_sorted, infos_sorted,
         sorted_linear_indices_run, sorted_linear_indices_run_lengths,
@@ -887,31 +875,6 @@ Tensor {{ embedding_cuda_op }}(
             false // is_index_select
             {%- endif %}
         );
-
-#ifdef USE_ROCM
-    {%- if enable_optimized_hip_mixed_D_kernel %}
-    if (use_hip_kernel_flag) {
-        auto& entry = s_num_unique_cache[hash_size_cumsum.data_ptr()];
-        if (entry.pinned_buf.defined()) {
-            // Read the exact num_unique from the previous backward call.
-            num_unique_prev =
-                static_cast<int64_t>(entry.pinned_buf.data_ptr<int32_t>()[0]);
-        } else {
-            // First call: allocate pinned buffer.
-            entry.pinned_buf = at::empty(
-                {1},
-                at::TensorOptions()
-                    .dtype(at::kInt)
-                    .device(at::kCPU)
-                    .pinned_memory(true));
-        }
-        // Schedule async D2H copy for the next backward call.
-        entry.pinned_buf.copy_(
-            sorted_linear_indices_num_runs.slice(0, 0, 1),
-            /*non_blocking=*/true);
-    }
-    {%- endif %}
-#endif // USE_ROCM
 
     {%- if not dense %}
     Tensor {{ locs_or_addrs_tensor }}_sorted = {{ locs_or_addrs_tensor }};
@@ -1409,13 +1372,9 @@ Tensor {{ embedding_cuda_op }}(
                     // condition 'use_hip_kernel' is True and "is_optimized_hip_kernel_supported_mode" is True. If no optimization is available for current
                     // condition , it will fallback to the default kernel.
                     {%- if vbe %}
-                    if (use_hip_kernel &&
-                        num_unique_prev > 0 &&
-                        total_L <= 2 * num_unique_prev) {
+                    if (use_hip_kernel) {
                     {%- else %}
-                    if (use_hip_kernel && mixed_D &&
-                        num_unique_prev > 0 &&
-                        total_L <= 2 * num_unique_prev) {
+                    if (use_hip_kernel && mixed_D) {
                     {%- endif %}
                         backward_warp_per_row_kernel =
                         {{ hip_mixed_d_warp_kernel }}
@@ -1500,7 +1459,7 @@ Tensor {{ embedding_cuda_op }}(
                             // did not apply get_max_thread_blocks_() cap.
                             warp_per_row_grid_size = utils::cuda::cap_grid_dim_x(
                                 cuda_calc_xblock_count(
-                                    sorted_linear_indices_num_runs[0].item<int32_t>(),
+                                    total_unique_indices,
                                     segments_per_workgroup),
                                 256, // blockSize = dim3(256) = 256 threads
                                 at::cuda::getCurrentCUDAStream(),
