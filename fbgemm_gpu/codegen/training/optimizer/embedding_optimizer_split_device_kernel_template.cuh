@@ -293,8 +293,6 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     }
     {%- for tensor in args.split_tensors %}
     {{ args.split_tensor_types[tensor] }}* __restrict__ {{ tensor }};
-    // const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t]);
-    // const int64_t {{ tensor }}_offset = {{ tensor }}_offsets[t];
     if (static_cast<PlacementType>({{ tensor }}_placement) == PlacementType::DEVICE) {
         {{ tensor }} = &{{ tensor }}_dev[{{ tensor }}_offset];
     } else {

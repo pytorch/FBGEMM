@@ -671,11 +671,6 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
             {{ args.split_tensor_types[tensor] }} {{tensor}}_val = SUBWARP_SHFL_SYNC(s_{{ tensor }}_val, i);
             {%- endfor %}
 
-            // const int64_t momentum1_offset = SHFL_SYNC(s_momentum1_offset, i);
-            // const auto momentum1_placement = static_cast<PlacementType>(SHFL_SYNC(s_momentum1_placement, i));
-            // auto momentum1 = reinterpret_cast<at::acc_type<cache_t, true>*>(SHFL_SYNC(reinterpret_cast<uint64_t>(s_momentum1), i));
-            // auto momentum1_val = momentum1[idx];
-
             // now, each segment corresponds to exactly one table `t` and row in
             // that table (`idx`). Thus, we can hoist out some of the book-keeping.
 
