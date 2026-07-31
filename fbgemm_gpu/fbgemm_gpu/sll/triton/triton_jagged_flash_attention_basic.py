@@ -362,6 +362,7 @@ def _jagged_flash_attention_bwd_basic_kernel(
         Di = tl.load(delta_ptr + offs_m_temp + begin, mask=offs_m_temp < M)
         dp_masked = dp
         if use_mask:
+            # pyrefly: ignore [unsupported-operation]
             dp_masked = tl.where(attn_mask > 0, dp, 0.0)
 
         ds = p * (dp_masked - Di[:, None] * max_seq_len)

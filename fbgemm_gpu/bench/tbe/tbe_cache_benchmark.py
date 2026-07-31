@@ -272,12 +272,14 @@ def lxu_cache_lookup(
     tbe: nn.Module = IntNBitTableBatchedEmbeddingBagsCodegen(
         embedding_specs, cache_load_factor=cache_load_factor
     )
+    # pyrefly: ignore [not-callable]
     tbe.fill_random_weights()
 
     # Imitate execution flow by performing prefetching once.
     indices, offsets = create_request(
         num_tables, num_embeddings, batch, avg_pooling_factor
     )
+    # pyrefly: ignore [not-callable]
     tbe.prefetch(indices, offsets)
 
     linearized_indices = torch.ops.fbgemm.linearize_cache_indices(
@@ -333,6 +335,7 @@ def lru_cache_populate_byte(
     cc: nn.Module = IntNBitTableBatchedEmbeddingBagsCodegen(
         embedding_specs, cache_load_factor=cache_load_factor
     )
+    # pyrefly: ignore [not-callable]
     cc.fill_random_weights()
 
     warm_up_requests = []
@@ -389,6 +392,7 @@ def lru_cache_populate_byte(
     replay_cc: nn.Module = IntNBitTableBatchedEmbeddingBagsCodegen(
         embedding_specs, cache_load_factor=cache_load_factor
     )
+    # pyrefly: ignore [not-callable]
     replay_cc.fill_random_weights()
 
     replay_timestep: int = 1
@@ -464,6 +468,7 @@ def lfu_cache_populate_byte(
         cache_load_factor=cache_load_factor,
         cache_algorithm=CacheAlgorithm.LFU,
     )
+    # pyrefly: ignore [not-callable]
     cc.fill_random_weights()
 
     warm_up_requests = []
@@ -517,6 +522,7 @@ def lfu_cache_populate_byte(
         cache_load_factor=cache_load_factor,
         cache_algorithm=CacheAlgorithm.LFU,
     )
+    # pyrefly: ignore [not-callable]
     replay_cc.fill_random_weights()
 
     def replay_populate(linear_indices: Tensor) -> None:

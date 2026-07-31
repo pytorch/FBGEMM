@@ -164,6 +164,7 @@ def generate_int_data_from_stats(
         lower_bound = mu
         # sigma represetns the upper bound when the uniform distribution is used
         upper_bound = sigma + 1
+        # pyrefly: ignore [no-matching-overload]
         return np.random.randint(
             lower_bound,
             upper_bound,
@@ -171,6 +172,7 @@ def generate_int_data_from_stats(
             dtype=np.int32,
         )
     else:  # normal dist
+        # pyrefly: ignore [missing-attribute]
         return np.random.normal(loc=mu, scale=sigma, size=size).astype(int)
 
 

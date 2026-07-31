@@ -37,6 +37,7 @@ default_settings: dict[str, Any] = {
 }
 
 
+# pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_in_oss)
 class KvTensorWrapperTest(TestCase):
 
@@ -116,11 +117,15 @@ class KvTensorWrapperTest(TestCase):
             weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
             padded_weights = torch.nn.functional.pad(weights, (0, max_D - D))
             count = torch.tensor([N])
+            # pyrefly: ignore [missing-attribute]
             ssd_db.set(indices, padded_weights, count)
 
             # create a view tensor wrapper
             snapshot = (
-                ssd_db.create_snapshot() if backend_type == BackendType.SSD else None
+                # pyrefly: ignore [missing-attribute]
+                ssd_db.create_snapshot()
+                if backend_type == BackendType.SSD
+                else None
             )
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
                 [E, D], weights.dtype, 0, snapshot
@@ -154,6 +159,7 @@ class KvTensorWrapperTest(TestCase):
             del tensor_wrapper
             del snapshot
             if backend_type == BackendType.SSD:
+                # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
     # pyre-ignore[56]
@@ -203,7 +209,10 @@ class KvTensorWrapperTest(TestCase):
 
             # create a view tensor wrapper
             snapshot = (
-                ssd_db.create_snapshot() if backend_type == BackendType.SSD else None
+                # pyrefly: ignore [missing-attribute]
+                ssd_db.create_snapshot()
+                if backend_type == BackendType.SSD
+                else None
             )
 
             for table_idx, offset in enumerate(table_offsets):
@@ -247,6 +256,7 @@ class KvTensorWrapperTest(TestCase):
 
             del snapshot
             if backend_type == BackendType.SSD:
+                # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
     # pyre-ignore[56]
@@ -301,7 +311,10 @@ class KvTensorWrapperTest(TestCase):
 
             # create a view tensor wrapper
             snapshot = (
-                ssd_db.create_snapshot() if backend_type == BackendType.SSD else None
+                # pyrefly: ignore [missing-attribute]
+                ssd_db.create_snapshot()
+                if backend_type == BackendType.SSD
+                else None
             )
 
             for table_idx, offset in enumerate(table_offsets):
@@ -352,6 +365,7 @@ class KvTensorWrapperTest(TestCase):
 
             del snapshot
             if backend_type == BackendType.SSD:
+                # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
     # pyre-ignore[56]
@@ -396,7 +410,10 @@ class KvTensorWrapperTest(TestCase):
 
             # create a view tensor wrapper
             snapshot = (
-                ssd_db.create_snapshot() if backend_type == BackendType.SSD else None
+                # pyrefly: ignore [missing-attribute]
+                ssd_db.create_snapshot()
+                if backend_type == BackendType.SSD
+                else None
             )
             tensor_wrapper0.set_weights_and_ids(new_weights_after_snapshot, indices)
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
@@ -441,6 +458,7 @@ class KvTensorWrapperTest(TestCase):
             del tensor_wrapper
             del snapshot
             if backend_type == BackendType.SSD:
+                # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
     # pyre-ignore[56]
@@ -477,6 +495,7 @@ class KvTensorWrapperTest(TestCase):
             padded_weights = torch.nn.functional.pad(weights, (0, max_D - D), value=1.0)
 
             count = torch.tensor([N])
+            # pyrefly: ignore [missing-attribute]
             ssd_db.set(indices, padded_weights, count)
 
             """
@@ -485,7 +504,10 @@ class KvTensorWrapperTest(TestCase):
             """
             # case 0
             snapshot = (
-                ssd_db.create_snapshot() if backend_type == BackendType.SSD else None
+                # pyrefly: ignore [missing-attribute]
+                ssd_db.create_snapshot()
+                if backend_type == BackendType.SSD
+                else None
             )
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
                 [E, D], weights.dtype, 0, snapshot
@@ -576,6 +598,7 @@ class KvTensorWrapperTest(TestCase):
             del tensor_wrapper
             del snapshot
             if backend_type == BackendType.SSD:
+                # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
     def test_dram_kv_and_rdb_snapshot_check(self) -> None:

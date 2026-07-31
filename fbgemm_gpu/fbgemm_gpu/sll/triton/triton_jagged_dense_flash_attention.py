@@ -228,6 +228,7 @@ def jagged_dense_flash_attention_fwd(
         attn_out.stride(2),
         D,
         T,
+        # pyrefly: ignore [bad-argument-type]
         allow_tf32,
         BLOCK_T,  # pyre-ignore
         BLOCK_L,  # pyre-ignore
@@ -737,6 +738,7 @@ def jagged_dense_flash_attention_bwd(
         BLOCK_T,  # pyre-ignore
         BLOCK_L,  # pyre-ignore
         BLOCK_D,
+        # pyrefly: ignore [bad-argument-type]
         allow_tf32,
     )
 
@@ -780,6 +782,7 @@ def jagged_dense_flash_attention_bwd(
         BLOCK_T,  # pyre-ignore
         BLOCK_L,  # pyre-ignore
         BLOCK_D,
+        # pyrefly: ignore [bad-argument-type]
         allow_tf32,
     )
 

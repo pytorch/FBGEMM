@@ -26,6 +26,7 @@ from fbgemm_gpu.tbe.bench.tbe_data_config import (
 
 
 @dataclasses.dataclass(frozen=True)
+# pyrefly: ignore [bad-class-definition]
 class TBEDataConfigHelperText(Enum):
     # Config File
     TBE_CONFIG = "TBE data configuration filepath.  If provided, all other `--tbe-*` options are ignored."

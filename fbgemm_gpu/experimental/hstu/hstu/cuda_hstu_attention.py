@@ -643,6 +643,7 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
             )
 
         # q & k grad shape
+        # pyrefly: ignore [bad-return]
         return (
             dq,
             dk,

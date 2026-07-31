@@ -21,7 +21,9 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
 
 
+# pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*gpu_unavailable)
+# pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_on_rocm)
 class JaggedSoftmaxTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
