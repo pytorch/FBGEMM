@@ -50,7 +50,7 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
         {{ arg }}.uvm,
         {{ arg }}.placements,
         {{ arg }}.offsets,
-    ] if not use_cpu else [
+    ] if not (use_cpu or use_mtia) else [
         {{ arg }}.host,
         {{ arg }}.placements,
         {{ arg }}.offsets,
@@ -152,7 +152,8 @@ def invoke(
     )
     {%- endif %}
     # host_weights is only used for CPU training
-    use_cpu = common_args.host_weights.numel() > 0
+    use_cpu = common_args.host_weights.numel() > 0 and common_args.host_weights.device == torch.device("cpu")
+    use_mtia = common_args.host_weights.is_mtia
     vbe_metadata = common_args.vbe_metadata
 
     {%- if has_cpu_support and not has_gpu_support %}
@@ -171,7 +172,7 @@ def invoke(
 
     # pack weights
     weights = [
-        common_args.dev_weights,
+        common_args.dev_weights if not use_mtia else common_args.host_weights,
         common_args.uvm_weights,
         common_args.weights_placements,
         common_args.weights_offsets,
