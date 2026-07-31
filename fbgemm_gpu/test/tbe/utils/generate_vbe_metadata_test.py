@@ -5,7 +5,9 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
+# pyre-strict
+
+from __future__ import annotations
 
 import unittest
 from itertools import accumulate
@@ -33,7 +35,7 @@ class GenerateVBEMetadataTest(unittest.TestCase):
         batch_size_per_feature_per_rank: list[list[int]],
         output_offset_feature_rank: torch.Tensor,
         feature_dims: torch.Tensor,
-    ):
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         b_t_map = torch.empty(offsets.numel() - 1, dtype=torch.int)
         row_output_offsets = torch.empty(*b_t_map.shape, dtype=torch.long)
         output_offset_feature_rank_cpu = output_offset_feature_rank.cpu()
@@ -152,7 +154,7 @@ class GenerateVBEMetadataTest(unittest.TestCase):
         assert torch.equal(b_t_map.cpu(), b_t_map_cpu)
 
     @unittest.skipIf(*gpu_unavailable)
-    def test_generate_vbe_metadata_kernel(self):
+    def test_generate_vbe_metadata_kernel(self) -> None:
         self.execute_generate_vbe_metadata_kernel(
             num_ranks=128,
             num_features=4,
@@ -160,7 +162,7 @@ class GenerateVBEMetadataTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    def test_generate_vbe_metadata_kernel_large(self):
+    def test_generate_vbe_metadata_kernel_large(self) -> None:
         self.execute_generate_vbe_metadata_kernel(
             num_ranks=1024,
             num_features=4,
