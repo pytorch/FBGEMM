@@ -137,6 +137,9 @@ class UVMCacheStatsIndex(enum.IntEnum):
 class RESParams:
     res_server_port: int = 0  # the port of the res server
     res_store_shards: int = 1  # the number of shards to store the raw embeddings
+    res_chunk_size: int = 500000  # max rows copied into one enqueued chunk
+    res_num_consumers: int = 8  # threads draining the stream queue
+    res_num_copy_threads: int = 4  # parallel chunk-copy threads per stream() call
     table_names: list[str] = field(default_factory=list)  # table names the TBE holds
     table_offsets: list[int] = field(
         default_factory=list
@@ -1560,6 +1563,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.enable_raw_embedding_streaming,
                 self.res_params.res_store_shards,
                 self.res_params.res_server_port,
+                self.res_params.res_chunk_size,
+                self.res_params.res_num_consumers,
+                self.res_params.res_num_copy_threads,
                 self.res_params.table_names,
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
@@ -4529,7 +4535,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"## uvm_lookup_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
             if not self._res_sync_copy and self._res_require_copy:
-                self._raw_embedding_streamer.join_stream_tensor_copy_thread()
+                self._raw_embedding_streamer.join_dispatch()
             prefetched_info = self.prefetched_info_list.pop(0)
             updated_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 prefetched_info.linear_unique_cache_indices,
@@ -4580,7 +4586,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         # Lazy resize: runtime_meta shape/dtype is not known until
                         # the first data arrives from the MC module. Must use UVM
                         # (new_unified_tensor) because the C++ RawEmbeddingStreamer
-                        # reads this buffer via raw CPU pointers in tensor_copy().
+                        # reads this buffer via raw CPU pointers in tensor_copy_chunk().
                         self.register_buffer(
                             "res_runtime_meta",
                             torch.ops.fbgemm.new_unified_tensor(
