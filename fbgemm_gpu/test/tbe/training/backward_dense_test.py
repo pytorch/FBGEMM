@@ -32,6 +32,7 @@ from ..common import (
     format_ref_tensors_in_mixed_B_layout,
     gen_mixed_B_batch_sizes,
     open_source,
+    suppressed_list,
 )
 
 if open_source:
@@ -78,6 +79,7 @@ class BackwardDenseTest(unittest.TestCase):
         verbosity=VERBOSITY,
         max_examples=10,
         deadline=None,
+        suppress_health_check=suppressed_list,
     )
     def test_backward_dense(  # noqa C901
         self,
