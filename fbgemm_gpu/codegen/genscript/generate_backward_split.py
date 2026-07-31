@@ -183,17 +183,25 @@ class BackwardSplitGenerator:
                     filename, is_forward=False, ssd=ssd, **kwargs
                 )
 
-                # Generate PT2 unified autograd, and PT2 backward wrapper for all optimizers
-                for template_filepath, filename in [
+                # PT2 unified autograd is generated for every optimizer to preserve
+                # backward compatibility (deprecated optimizers emit a throwing stub).
+                # The CUDA wrapper only has content when has_gpu_support is True; for
+                # deprecated optimizers it would render to a byte-identical empty TU,
+                # so skip it to avoid emitting redundant sources.
+                pt2_templates = [
                     (
                         "training/pt2/embedding_split_host_pt2_autograd_template.cpp",
                         f"gen_embedding_{desc}_{optimizer}_pt2_autograd.cpp",
                     ),
-                    (
-                        "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
-                        f"gen_embedding_backward_{desc}_{optimizer}_pt2_cuda_wrapper.cpp",
-                    ),
-                ]:
+                ]
+                if kwargs.get("has_gpu_support"):
+                    pt2_templates.append(
+                        (
+                            "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
+                            f"gen_embedding_backward_{desc}_{optimizer}_pt2_cuda_wrapper.cpp",
+                        )
+                    )
+                for template_filepath, filename in pt2_templates:
                     CodeTemplate.load(template_filepath).write(
                         filename,
                         is_forward=False,
@@ -247,16 +255,25 @@ class BackwardSplitGenerator:
 
         # Generate the backward splits (non-dense)
         if not kwargs.get("dense"):
-            for template_filepath, filename in [
+            # The host CPU source is generated for every optimizer to preserve
+            # backward compatibility (deprecated optimizers emit a throwing stub).
+            # The PT2 CPU wrapper only has content when has_cpu_support is True; for
+            # unsupported optimizers it would render to a byte-identical empty TU,
+            # so skip it to avoid emitting redundant sources.
+            cpu_templates = [
                 (
                     "training/backward/embedding_backward_split_host_cpu_template.cpp",
                     f"gen_embedding_backward_split_{optimizer}_cpu.cpp",
                 ),
-                (
-                    "training/pt2/embedding_split_host_pt2_cpu_wrapper_template.cpp",
-                    f"gen_embedding_backward_split_{optimizer}_pt2_cpu_wrapper.cpp",
-                ),
-            ]:
+            ]
+            if kwargs.get("has_cpu_support"):
+                cpu_templates.append(
+                    (
+                        "training/pt2/embedding_split_host_pt2_cpu_wrapper_template.cpp",
+                        f"gen_embedding_backward_split_{optimizer}_pt2_cpu_wrapper.cpp",
+                    )
+                )
+            for template_filepath, filename in cpu_templates:
                 CodeTemplate.load(template_filepath).write(
                     filename,
                     is_forward=False,
