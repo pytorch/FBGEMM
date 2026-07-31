@@ -224,7 +224,16 @@ def _kernel_quantize_mx4(
         group_exp = tl.clamp(group_exp, -127, 125)
 
         # Next we scale A in preparation for quantization.
-        scale = tl.exp2(group_exp.to(tl.float64)).to(tl.float32)
+        # Compute scale = 2^group_exp exactly via FP32 bit construction instead of a slow
+        # per-group FP64 exp2. group_exp is an integer in [-127, 125]; for e >= -126, 2^e is
+        # a normal fp32 (zero mantissa) so we set the exponent field directly. e == -127 ->
+        # 2^-127 is subnormal and cannot be built that way, so special-case it.
+        group_exp_int = group_exp.to(tl.int32)
+        scale = tl.where(
+            group_exp_int >= -126,
+            ((group_exp_int + 127) << 23).to(tl.float32, bitcast=True),
+            2.0**-127,
+        )
         # Apply scale to input. We do this by broadcasting scale.
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) / tl.reshape(
             scale, [GROUP_LOAD, 1]
