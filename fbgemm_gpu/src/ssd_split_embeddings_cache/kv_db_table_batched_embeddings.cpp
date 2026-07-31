@@ -92,6 +92,14 @@ EmbeddingKVDB::EmbeddingKVDB(
               enable_raw_embedding_streaming,
               res_store_shards,
               res_server_port,
+              // SSD/kv_db TBEs are intentionally left on the default RES ship/
+              // copy knobs: the config layer that makes these tunable is not
+              // threaded through the kv_db ctor. Plumb res_chunk_size/
+              // res_num_consumers/res_num_copy_threads here if SSD-backed
+              // tables ever need to tune them.
+              /*res_chunk_size=*/500000,
+              /*res_num_consumers=*/8,
+              /*res_num_copy_threads=*/4,
               std::move(table_names),
               std::move(table_offsets),
               table_sizes)) {
@@ -332,9 +340,8 @@ void EmbeddingKVDB::stream_sync_cuda() {
       "## EmbeddingKVDB::stream_sync_cuda ##");
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
-  std::function<void()>* functor = new std::function<void()>([=]() {
-    self->raw_embedding_streamer_->join_stream_tensor_copy_thread();
-  });
+  std::function<void()>* functor = new std::function<void()>(
+      [=]() { self->raw_embedding_streamer_->join_dispatch(); });
   AT_CUDA_CHECK(cudaLaunchHostFunc(
       at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
   rec->record.end();

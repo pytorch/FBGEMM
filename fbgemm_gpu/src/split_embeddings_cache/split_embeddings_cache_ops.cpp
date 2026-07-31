@@ -87,6 +87,9 @@ auto raw_embedding_streamer =
                 bool,
                 int64_t,
                 int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
                 std::vector<std::string>,
                 std::vector<int64_t>,
                 std::vector<int64_t>>(),
@@ -96,6 +99,9 @@ auto raw_embedding_streamer =
                 torch::arg("enable_raw_embedding_streaming") = false,
                 torch::arg("res_store_shards") = 0,
                 torch::arg("res_server_port") = 0,
+                torch::arg("res_chunk_size") = 500000,
+                torch::arg("res_num_consumers") = 8,
+                torch::arg("res_num_copy_threads") = 4,
                 torch::arg("table_names") = torch::List<std::string>(),
                 torch::arg("table_offsets") = torch::List<int64_t>(),
                 torch::arg("table_sizes") = torch::List<int64_t>(),
@@ -114,8 +120,6 @@ auto raw_embedding_streamer =
                 torch::arg("blocking_tensor_copy"),
                 torch::arg("copy_done_flag") = std::nullopt,
             })
-        .def(
-            "join_stream_tensor_copy_thread",
-            &fbgemm_gpu::RawEmbeddingStreamer::join_stream_tensor_copy_thread);
+        .def("join_dispatch", &fbgemm_gpu::RawEmbeddingStreamer::join_dispatch);
 
 } // namespace
