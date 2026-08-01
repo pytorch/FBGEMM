@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -24,36 +25,45 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
     pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
     const int64_t indices_base_offset) {
+#ifdef USE_ROCM
+  for (index_t index = blockIdx.x * blockDim.x + threadIdx.x;
+       index < indices.size(0);
+       index += blockDim.x * gridDim.x) {
+#else
   const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= indices.size(0)) {
     return;
   }
+#endif
 
-  // Perform binary search.
-  int left = 0;
-  int right = table_offsets.size(0);
-  const auto index_with_offset = index + indices_base_offset;
-  while (left != right) {
-    const int middle =
-        left + (right - left) / 2; // Avoid overflow in midpoint calculation
-    if (table_offsets[middle] <= index_with_offset) {
-      left = middle + 1;
-    } else {
-      right = middle;
+    // Perform binary search.
+    int left = 0;
+    int right = table_offsets.size(0);
+    const auto index_with_offset = index + indices_base_offset;
+    while (left != right) {
+      const int middle =
+          left + (right - left) / 2; // Avoid overflow in midpoint calculation
+      if (table_offsets[middle] <= index_with_offset) {
+        left = middle + 1;
+      } else {
+        right = middle;
+      }
     }
-  }
-  const int table_index = left;
+    const int table_index = left;
 
-  const auto max_offset =
-      ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
-  const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[table_index]);
-  if (curr_offset >= 0 && indices[index] >= 0) {
-    linear_cache_indices[index] = indices[index] + curr_offset;
-  } else {
-    // Either table index is wrong, or index value is negative (due to pruning):
-    // set it to invalid value.
-    linear_cache_indices[index] = max_offset;
-  }
+    const auto max_offset =
+        ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
+    const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[table_index]);
+    if (curr_offset >= 0 && indices[index] >= 0) {
+      linear_cache_indices[index] = indices[index] + curr_offset;
+    } else {
+      // Either table index is wrong, or index value is negative (due to
+      // pruning): set it to invalid value.
+      linear_cache_indices[index] = max_offset;
+    }
+#ifdef USE_ROCM
+  } // for index (grid-stride loop, ROCm only)
+#endif
 }
 
 } // namespace
@@ -107,7 +117,10 @@ DLL_PUBLIC Tensor linearize_cache_indices_cuda(
             indices.scalar_type(), "linearize_cache_indices_kernel_2", [&] {
               FBGEMM_LAUNCH_KERNEL(
                   (linearize_cache_indices_kernel<index_t, offset_t>),
-                  div_round_up(num_indices, kMaxThreads),
+                  utils::cuda::cap_grid_dim_x_from_workload(
+                      num_indices,
+                      kMaxThreads,
+                      at::cuda::getCurrentCUDAStream()),
                   kMaxThreads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
@@ -134,22 +147,31 @@ __launch_bounds__(kMaxThreads) void linearize_cache_indices_from_row_idx_kernel(
         update_row_indices,
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
+#ifdef USE_ROCM
+  for (index_t index = blockIdx.x * blockDim.x + threadIdx.x;
+       index < update_row_indices.size(0);
+       index += blockDim.x * gridDim.x) {
+#else
   const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= update_row_indices.size(0)) {
     return;
   }
-  const int table_index = update_table_indices[index];
+#endif
+    const int table_index = update_table_indices[index];
 
-  const auto max_offset =
-      ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
-  const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[table_index]);
-  if (curr_offset >= 0 && update_row_indices[index] >= 0) {
-    linear_cache_indices[index] = update_row_indices[index] + curr_offset;
-  } else {
-    // Either table index is wrong, or index value is negative (due to pruning):
-    // set it to invalid value.
-    linear_cache_indices[index] = max_offset;
-  }
+    const auto max_offset =
+        ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
+    const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[table_index]);
+    if (curr_offset >= 0 && update_row_indices[index] >= 0) {
+      linear_cache_indices[index] = update_row_indices[index] + curr_offset;
+    } else {
+      // Either table index is wrong, or index value is negative (due to
+      // pruning): set it to invalid value.
+      linear_cache_indices[index] = max_offset;
+    }
+#ifdef USE_ROCM
+  } // for index (grid-stride loop, ROCm only)
+#endif
 }
 
 } // namespace
@@ -178,7 +200,8 @@ DLL_PUBLIC Tensor linearize_cache_indices_from_row_idx_cuda(
       [&] {
         FBGEMM_LAUNCH_KERNEL(
             (linearize_cache_indices_from_row_idx_kernel<index_t>),
-            div_round_up(num_indices, kMaxThreads),
+            utils::cuda::cap_grid_dim_x_from_workload(
+                num_indices, kMaxThreads, at::cuda::getCurrentCUDAStream()),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream(),
