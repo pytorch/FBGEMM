@@ -83,61 +83,73 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     const uint32_t* const __restrict__ vbe_b_t_map,
     FixedDivisor fd) {
   const auto T = hash_size_cumsum.size(0) - 1;
-  auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto total_B = offsets.size(0) - 1;
+  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
   int32_t b;
   int32_t t;
-  const auto total_B = offsets.size(0) - 1;
-  bool valid = b_t < total_B;
-  // info must be uint32_t (using auto will assign int32_t to info)
-  uint32_t info = 0;
+  // Grid-stride over b_t so the kernel covers the whole workload even when the
+  // launch caps grid.x -- ROCm does that to stay within the HIP 2^32
+  // threads-per-launch limit. On CUDA the grid already spans total_B, so the
+  // body executes exactly once per thread.
+  //
+  // The bound is warp-aligned (b_t - lane_id) so whole warps iterate together
+  // and the shfl_sync collectives below always have every lane present; the
+  // per-lane `valid` masking keeps out-of-range lanes inert. The comparison is
+  // done in 64 bits so a large total_B cannot truncate.
+  for (auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+       static_cast<int64_t>(b_t - lane_id) < total_B;
+       b_t += gridDim.x * blockDim.x) {
+    const bool valid = b_t < total_B;
+    // info must be uint32_t (using auto will assign int32_t to info)
+    uint32_t info = 0;
 
-  if (vbe && valid) {
-    info = vbe_b_t_map[b_t];
-    reinterpret_cast<uint32_t*>(&t)[0] = info >> info_B_num_bits;
-    reinterpret_cast<uint32_t*>(&b)[0] = info & info_B_mask;
-  } else {
-    fd.DivMod(b_t, &t, &b);
-  }
+    if (vbe && valid) {
+      info = vbe_b_t_map[b_t];
+      reinterpret_cast<uint32_t*>(&t)[0] = info >> info_B_num_bits;
+      reinterpret_cast<uint32_t*>(&b)[0] = info & info_B_mask;
+    } else {
+      fd.DivMod(b_t, &t, &b);
+    }
 
-  const index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
-  const auto indices_start = valid ? offsets[b_t] : -1;
-  const auto L = valid ? offsets[b_t + 1] - indices_start : 0;
-  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+    const index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
+    const auto indices_start = valid ? offsets[b_t] : -1;
+    const auto L = valid ? offsets[b_t + 1] - indices_start : 0;
 
-  // Compile-time conditional
-  if (nobag) {
-    for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-      const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-      const auto t_warp = fbgemm_gpu::shfl_sync(t, j);
-      const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
-      const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-      for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
-        const index_t idx = __ldg(&indices[indices_start_warp + i]);
-        const auto l_t = (indices_start_warp + i) * T + t_warp;
-        infos[indices_start_warp + i] = l_t;
-        linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+    // Compile-time conditional
+    if (nobag) {
+      for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
+        const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
+        const auto t_warp = fbgemm_gpu::shfl_sync(t, j);
+        const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
+        const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
+        for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+          const index_t idx = __ldg(&indices[indices_start_warp + i]);
+          const auto l_t = (indices_start_warp + i) * T + t_warp;
+          infos[indices_start_warp + i] = l_t;
+          linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+        }
+      }
+    } else {
+      // Store t in upper (32 - DEFAULT_INFO_B_NUM_BITS).
+      // Store b in lower (DEFAULT_INFO_B_NUM_BITS).
+      if (!vbe && valid) {
+        info = (reinterpret_cast<uint32_t*>(&t)[0] << info_B_num_bits) |
+            reinterpret_cast<uint32_t*>(&b)[0];
+      }
+      for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
+        const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
+        const auto info_warp = fbgemm_gpu::shfl_sync(info, j);
+        const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
+        const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
+        for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+          const index_t idx = __ldg(&indices[indices_start_warp + i]);
+          reinterpret_cast<uint32_t*>(&infos[0])[indices_start_warp + i] =
+              info_warp;
+          linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+        }
       }
     }
-  } else {
-    // Store t in upper (32 - DEFAULT_INFO_B_NUM_BITS).
-    // Store b in lower (DEFAULT_INFO_B_NUM_BITS).
-    if (!vbe && valid) {
-      info = (reinterpret_cast<uint32_t*>(&t)[0] << info_B_num_bits) |
-          reinterpret_cast<uint32_t*>(&b)[0];
-    }
-    for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-      const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-      const auto info_warp = fbgemm_gpu::shfl_sync(info, j);
-      const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
-      const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-      for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
-        const index_t idx = __ldg(&indices[indices_start_warp + i]);
-        reinterpret_cast<uint32_t*>(&infos[0])[indices_start_warp + i] =
-            info_warp;
-        linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
-      }
-    }
-  }
+  } // for b_t (warp-aligned grid-stride loop)
 }
 
 template <typename index_t, typename info_acc_t>
@@ -155,46 +167,59 @@ __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
     FixedDivisor fd,
     int32_t fixed_L_per_warp) {
   const auto T = hash_size_cumsum.size(0) - 1;
-  auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  // Flattened (B * T) extent this kernel walks. Computed in 64 bits so it
+  // cannot truncate.
+  const auto total_b_t = static_cast<int64_t>(fd.D()) * T;
+  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
   int32_t b;
   int32_t t;
+  // Grid-stride over b_t so the kernel covers the whole workload even when the
+  // launch caps grid.x -- ROCm does that to stay within the HIP 2^32
+  // threads-per-launch limit. On CUDA the grid already spans the workload, so
+  // the body executes exactly once per thread.
+  //
+  // The bound is warp-aligned (b_t - lane_id) so whole warps iterate together
+  // and the shfl_sync collectives below always have every lane present; the
+  // per-lane `t < T` masking keeps out-of-range lanes inert.
+  for (auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+       static_cast<int64_t>(b_t - lane_id) < total_b_t;
+       b_t += gridDim.x * blockDim.x) {
+    fd.DivMod(b_t, &t, &b);
 
-  fd.DivMod(b_t, &t, &b);
-
-  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
-
-  index_t hash_offset = -1;
-  index_t indices_start = -1;
-  int32_t L = 0;
-  int32_t L_start = 0;
-  if (t < T) {
-    const auto total_L_start = total_L_offsets[t];
-    const auto total_L = total_L_offsets[t + 1] - total_L_start;
-    L_start = b * fixed_L_per_warp;
-    if (L_start < total_L) {
-      hash_offset = hash_size_cumsum[t];
-      indices_start = total_L_start + L_start;
-      L = (total_L - L_start >= fixed_L_per_warp) ? fixed_L_per_warp
-                                                  : (total_L - L_start);
+    index_t hash_offset = -1;
+    index_t indices_start = -1;
+    int32_t L = 0;
+    int32_t L_start = 0;
+    if (t < T) {
+      const auto total_L_start = total_L_offsets[t];
+      const auto total_L = total_L_offsets[t + 1] - total_L_start;
+      L_start = b * fixed_L_per_warp;
+      if (L_start < total_L) {
+        hash_offset = hash_size_cumsum[t];
+        indices_start = total_L_start + L_start;
+        L = (total_L - L_start >= fixed_L_per_warp) ? fixed_L_per_warp
+                                                    : (total_L - L_start);
+      }
     }
-  }
 
-  // Compile-time conditional
-  for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-    const index_t indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-    const auto t_warp = fbgemm_gpu::shfl_sync(t, j);
-    const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
-    const auto L_start_warp = fbgemm_gpu::shfl_sync(L_start, j);
-    const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-    for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
-      const index_t idx = __ldg(&indices[indices_start_warp + i]);
-      // l is the relative l in the feature (i.e., the first l in the feature
-      // is 0)
-      const int64_t l_t = (L_start_warp + i) * T + t_warp;
-      infos[indices_start_warp + i] = l_t;
-      linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+    // Compile-time conditional
+    for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
+      const index_t indices_start_warp =
+          fbgemm_gpu::shfl_sync(indices_start, j);
+      const auto t_warp = fbgemm_gpu::shfl_sync(t, j);
+      const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
+      const auto L_start_warp = fbgemm_gpu::shfl_sync(L_start, j);
+      const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
+      for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+        const index_t idx = __ldg(&indices[indices_start_warp + i]);
+        // l is the relative l in the feature (i.e., the first l in the feature
+        // is 0)
+        const int64_t l_t = (L_start_warp + i) * T + t_warp;
+        infos[indices_start_warp + i] = l_t;
+        linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+      }
     }
-  }
+  } // for b_t (warp-aligned grid-stride loop)
 }
 
 DLL_PUBLIC std::tuple<
@@ -234,6 +259,12 @@ transpose_embedding_input(
       (total_L_offsets.has_value() &&
        total_L_offsets.value().numel() == T + 1));
 
+  // The linearize_index kernels flatten (B, T) into a 32-bit thread index b_t
+  // and hand it to FixedDivisor::DivMod, which takes an int32_t. Assert the
+  // bound here so an oversized workload fails loudly instead of silently
+  // wrapping the grid-stride index inside the kernel.
+  TORCH_CHECK_LE(total_B, std::numeric_limits<int32_t>::max());
+
   auto infos = at::empty_like(
       indices,
       indices.options().dtype(
@@ -255,7 +286,8 @@ transpose_embedding_input(
              : linearize_index_kernel<index_t, INFO_ACC_T, NOBAG, false>); \
     FBGEMM_LAUNCH_KERNEL(                                                  \
         linearize_index_kernel_,                                           \
-        div_round_up(total_B, kMaxThreads),                                \
+        utils::cuda::cap_grid_dim_x_from_workload(                         \
+            total_B, kMaxThreads, at::cuda::getCurrentCUDAStream()),       \
         kMaxThreads,                                                       \
         0,                                                                 \
         at::cuda::getCurrentCUDAStream(),                                  \
@@ -289,7 +321,8 @@ transpose_embedding_input(
                 // fixed_L_per_warp)
                 FBGEMM_LAUNCH_KERNEL(
                     (linearize_index_index_select_kernel<index_t, int64_t>),
-                    div_round_up(total_B, kMaxThreads),
+                    utils::cuda::cap_grid_dim_x_from_workload(
+                        total_B, kMaxThreads, at::cuda::getCurrentCUDAStream()),
                     kMaxThreads,
                     0,
                     at::cuda::getCurrentCUDAStream(),
