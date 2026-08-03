@@ -116,6 +116,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
         # Delete the op to save space
         del op
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_forward_nobag_large_grid(self) -> None:
         """
@@ -186,6 +187,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
         torch.testing.assert_close(out[-1].cpu(), sentinel.cpu())
         del op, indices, offsets, out
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)
@@ -200,6 +202,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
             **kwargs,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)
@@ -214,6 +217,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
             **kwargs,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)
@@ -228,6 +232,7 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
             **kwargs,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @given(**common_st)
     @settings(**common_settings)

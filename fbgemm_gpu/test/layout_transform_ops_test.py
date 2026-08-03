@@ -31,6 +31,7 @@ MAX_EXAMPLES = 20
 
 
 class LayoutTransformOpsTest(unittest.TestCase):
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
     @given(
@@ -58,6 +59,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
     @given(
@@ -101,6 +103,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
     @given(
@@ -188,6 +191,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore[56]: Pyre cannot infer the type of `gpu_memory_lt_gb`
     # through the open-source / non-open-source import branch above.

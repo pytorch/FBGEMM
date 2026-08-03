@@ -1089,6 +1089,7 @@ def keyed_jagged_index_select_dim1(
         )
     if baseline:
         time_ref, _ = benchmark_torch_function(
+            # pyrefly: ignore [unbound-name]
             functools.partial(output_ref.backward, retain_graph=True),
             (grad,),
             iters=iters,

@@ -36,6 +36,7 @@ class EmbeddingOptimizerGenerator:
 
         optimizer = kwargs.get("optimizer")
         kwargs["optimizer_class_name"] = "".join(
+            # pyrefly: ignore [missing-attribute]
             [optim.capitalize() for optim in optimizer.split("_")]
         )
         kwargs["args"] = kwargs["args"].cuda

@@ -32,6 +32,7 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
         max_L=st.integers(1, 200),
         K=st.integers(1, 100),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @settings(deadline=30000)
     def test_triton_jagged_jagged_bmm_jagged_out(
@@ -107,6 +108,7 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
         K=st.integers(1, 100),
         device_type=st.sampled_from(["meta"]),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @settings(deadline=30000)
     def test_triton_jagged_jagged_bmm_jagged_out_meta_backend(
@@ -153,4 +155,5 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
         # pyre-fixme[16]: Optional type has no attribute `is_meta`.
         # pyre-fixme[16]: Optional type has no attribute `size`.
         assert jagged_A.grad.is_meta and jagged_A.grad.size() == jagged_A.size()
+        # pyrefly: ignore [missing-attribute]
         assert jagged_B.grad.is_meta and jagged_B.grad.size() == jagged_B.size()

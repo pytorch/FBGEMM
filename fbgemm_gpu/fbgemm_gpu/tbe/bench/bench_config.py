@@ -57,6 +57,7 @@ class TBEBenchmarkingConfig:
 
 
 @dataclasses.dataclass(frozen=True)
+# pyrefly: ignore [bad-class-definition]
 class TBEBenchmarkingHelperText(Enum):
     BENCH_ITERATIONS = "Number of benchmark iterations to run"
     BENCH_NUM_REQUESTS = "Number of input batches to generate. If the value is smaller than the number of benchmark iterations, input batches will be re-used"

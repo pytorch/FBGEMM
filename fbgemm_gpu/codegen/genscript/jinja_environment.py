@@ -58,20 +58,26 @@ else:
 # BT_block_size * 4 * 4 * 32 * (max_D // 128) <= 64 * 1024 (V100) or 96 * 1024 (A100)
 # Since BT_block_size >= 1, max_D <= 16K (V100) or 24K (A100).
 # Note that if we increase max_D, it will increase the compilation time significantly.
+# pyrefly: ignore [unsupported-operation]
 env.globals["max_embedding_dim"] = 2048
 
 # Max embedding dimension for legacy embedding kernels. TBE v2 can support
 # larger max embedding dimension.
+# pyrefly: ignore [unsupported-operation]
 env.globals["legacy_max_embedding_dim"] = 1024
 
 # An optimization for ROCm
+# pyrefly: ignore [unsupported-operation]
 env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
 
 # The fixed max vectors per thread for different kernels.  The numbers were
 # derived from empirical studies
+# pyrefly: ignore [unsupported-operation]
 env.globals["fixed_max_vecs_per_thread"] = {"backward": 2, "backward_indice_weights": 6}
 
+# pyrefly: ignore [unsupported-operation]
 env.globals["dense"] = False
+# pyrefly: ignore [unsupported-operation]
 env.globals["is_rocm"] = args.is_rocm
 
 
@@ -343,15 +349,24 @@ def compute_global_weight_decay(is_global_weight_decay_kernel: bool) -> str:
 ################################################################################
 
 env.globals["generate_optimized_grad_sum_loop_access"] = (
+    # pyrefly: ignore [unsupported-operation]
     generate_optimized_grad_sum_loop_access
 )
+# pyrefly: ignore [unsupported-operation]
 env.globals["get_max_vecs_template_configs"] = get_max_vecs_template_configs
+# pyrefly: ignore [unsupported-operation]
 env.globals["dispatch_optimal_kernel"] = dispatch_optimal_kernel
+# pyrefly: ignore [unsupported-operation]
 env.globals["dispatch_non_vec_blocking_kernel"] = dispatch_non_vec_blocking_kernel
+# pyrefly: ignore [unsupported-operation]
 env.globals["dispatch_vec_blocking_kernel"] = dispatch_vec_blocking_kernel
+# pyrefly: ignore [unsupported-operation]
 env.globals["is_valid_forward_config"] = is_valid_forward_config
+# pyrefly: ignore [unsupported-operation]
 env.globals["has_experimental_support"] = has_experimental_support
+# pyrefly: ignore [unsupported-operation]
 env.globals["is_valid_gwd_config"] = is_valid_gwd_config
+# pyrefly: ignore [unsupported-operation]
 env.globals["compute_global_weight_decay"] = compute_global_weight_decay
 
 ################################################################################

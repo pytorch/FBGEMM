@@ -147,6 +147,7 @@ def cpu_and_maybe_gpu() -> st.SearchStrategy[list[torch.device]]:
     # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
     # CUDA specifically required: GPU device strategy for FBGEMM tests
     gpu_devices = [torch.device("cuda")] if gpu_available else []
+    # pyrefly: ignore [bad-return]
     return st.sampled_from([torch.device("cpu")] + gpu_devices)
 
 
@@ -261,6 +262,7 @@ def gradcheck(
 
 
 def cpu_only() -> st.SearchStrategy[list[torch.device]]:
+    # pyrefly: ignore [bad-return]
     return st.sampled_from([torch.device("cpu")])
 
 
