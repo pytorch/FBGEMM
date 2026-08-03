@@ -15,7 +15,7 @@ for i in "${!batch_sizes[@]}"; do
   seq=${seq_lengths[i]}
   echo "Running with batch size $batch and sequence length $seq"
 
-  ~/fbsource/fbcode/triton/scripts/denoise.sh buck run @mode/opt -c fbcode.enable_gpu_sections=true -c fbcode.platform010_cuda_version=12.8 -c fbcode.nvcc_arch=b200a \
+  ~/fbsource/fbcode/triton/scripts/denoise.sh buck run @mode/opt -c fbcode.enable_gpu_sections=true -m ovr_config//third-party/cuda/constraints:12.8 -c fbcode.nvcc_arch=b200a \
     ai_acceleration/kernels/attentions/cutlass_blackwell_fmha:blackwell_fmha_${option} -- \
     --b=$batch --h=16 --d=128 --k=$seq >> ${option}.txt
 done
@@ -28,7 +28,7 @@ for i in "${!batch_sizes[@]}"; do
   seq=${seq_lengths[i]}
   echo "Running --mask=causal with batch size $batch and sequence length $seq"
 
-  ~/fbsource/fbcode/triton/scripts/denoise.sh buck run @mode/opt -c fbcode.enable_gpu_sections=true -c fbcode.platform010_cuda_version=12.8 -c fbcode.nvcc_arch=b200a \
+  ~/fbsource/fbcode/triton/scripts/denoise.sh buck run @mode/opt -c fbcode.enable_gpu_sections=true -m ovr_config//third-party/cuda/constraints:12.8 -c fbcode.nvcc_arch=b200a \
     ai_acceleration/kernels/attentions/cutlass_blackwell_fmha:blackwell_fmha_${option} -- \
     --b=$batch --h=16 --d=128 --mask=causal --k=$seq >> ${option}.txt
 done
