@@ -136,7 +136,10 @@ Tensor masked_index_impl(
   const int32_t tx = std::min<int32_t>(D / 4, kMaxThreads);
   const dim3 threads(tx, kMaxThreads / tx);
 
-  const auto full_grid_size = div_round_up(N, kMaxThreads / tx);
+  const auto full_grid_size = utils::cuda::cap_grid_dim_x(
+      div_round_up(N, kMaxThreads / tx),
+      kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
 
   static int masked_index_default_pipeline_sms =
       get_masked_index_default_pipeline_sms(at::cuda::current_device());
@@ -146,9 +149,12 @@ Tensor masked_index_impl(
   TORCH_CHECK(
       !use_pipeline || pipeline_grid_size >= 1, "preferred_sms must >= 1");
 
-  // Use a fraction of SMs if use_pipeline=true
+  // Use a fraction of SMs if use_pipeline=true.
+  // cap_grid_dim_x returns uint32_t, so pin the comparison type explicitly;
+  // pipeline_grid_size is >= 1 here (enforced by the TORCH_CHECK above) so the
+  // conversion to uint32_t is safe.
   const auto grid_size = use_pipeline
-      ? std::min(pipeline_grid_size, full_grid_size)
+      ? std::min<uint32_t>(pipeline_grid_size, full_grid_size)
       : full_grid_size;
 
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
@@ -747,19 +753,33 @@ __global__ __launch_bounds__(kMaxThreads) void compact_indices_kernel(
     const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> masks,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         count) {
-  const auto n = blockIdx.x * blockDim.x + threadIdx.x;
   const auto N = masks.size(0);
   const auto count_ = count[0];
   CUDA_KERNEL_ASSERT(count_ <= N);
-  if (n == count_) {
-    compact_count[0] = offsets[count_];
-  }
-  if (n >= N || n >= count[0]) {
+#ifdef USE_ROCM
+  // Cap the grid on ROCm (HIP 2^32 threads-per-launch limit); grid-stride over
+  // n (bound N + 1 to preserve the n == count_ side-effect write).
+  for (auto n = blockIdx.x * blockDim.x + threadIdx.x; n < N + 1;
+       n += blockDim.x * gridDim.x) {
+#else
+  const auto n = blockIdx.x * blockDim.x + threadIdx.x;
+#endif
+    if (n == count_) {
+      compact_count[0] = offsets[count_];
+    }
+    if (n >= N || n >= count[0]) {
+#ifdef USE_ROCM
+      continue;
+#else
     return;
-  }
-  if (masks[n] == 1) {
-    compact_indices[offsets[n]] = indices[n];
-  }
+#endif
+    }
+    if (masks[n] == 1) {
+      compact_indices[offsets[n]] = indices[n];
+    }
+#ifdef USE_ROCM
+  } // for n (grid-stride loop, ROCm only)
+#endif
 }
 
 void compact_indices_cuda(
@@ -806,7 +826,8 @@ void compact_indices_cuda(
                     (compact_indices_kernel<index_t, offset_t>),
                     // Launch N + 1 threads because we need at least one thread
                     // to set compact_count
-                    div_round_up(N + 1, kMaxThreads),
+                    utils::cuda::cap_grid_dim_x_from_workload(
+                        N + 1, kMaxThreads, at::cuda::getCurrentCUDAStream()),
                     kMaxThreads,
                     0,
                     at::cuda::getCurrentCUDAStream(),
