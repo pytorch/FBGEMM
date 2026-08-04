@@ -29,7 +29,7 @@ namespace {
 #ifdef FBGEMM_FBCODE
 
 // Timeout for copy_done_flag polling loop (microseconds).
-constexpr int64_t kCopyDonePollTimeoutUs = 10'000'000; // 10 seconds
+constexpr int64_t kCopyDonePollTimeoutUs = 10'000'000;
 
 /*
  * Get the thrift client to the training parameter server service
@@ -64,84 +64,112 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
 
 } // namespace
 
-fbgemm_gpu::StreamQueueItem tensor_copy(
+fbgemm_gpu::StreamQueueItem tensor_copy_chunk(
     const at::Tensor& indices,
     const at::Tensor& weights,
     std::optional<at::Tensor> identities,
     std::optional<at::Tensor> runtime_meta,
-    const at::Tensor& count) {
-  auto num_sets = get_maybe_uvm_scalar(count);
-  auto new_indices = at::empty(
-      num_sets, at::TensorOptions().device(at::kCPU).dtype(indices.dtype()));
+    int64_t start_row,
+    int64_t end_row) {
+  int64_t n = end_row - start_row;
+  auto new_indices =
+      at::empty(n, at::TensorOptions().device(at::kCPU).dtype(indices.dtype()));
   auto new_weights = at::empty(
-      {num_sets, weights.size(1)},
+      {n, weights.size(1)},
       at::TensorOptions().device(at::kCPU).dtype(weights.dtype()));
   std::optional<at::Tensor> new_identities = std::nullopt;
   if (identities.has_value()) {
     new_identities = at::empty(
-        {num_sets, identities->size(1)},
+        {n, identities->size(1)},
         at::TensorOptions().device(at::kCPU).dtype(identities->dtype()));
   }
   std::optional<at::Tensor> new_runtime_meta = std::nullopt;
   if (runtime_meta.has_value()) {
     new_runtime_meta = at::empty(
-        {num_sets, runtime_meta->size(1)},
+        {n, runtime_meta->size(1)},
         at::TensorOptions().device(at::kCPU).dtype(runtime_meta->dtype()));
   }
   auto new_count =
       at::empty({1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
-      weights.scalar_type(), "tensor_copy", [&] {
+      weights.scalar_type(), "tensor_copy_chunk", [&] {
         using value_t = scalar_t;
         FBGEMM_DISPATCH_INTEGRAL_TYPES(
-            indices.scalar_type(), "tensor_copy", [&] {
+            indices.scalar_type(), "tensor_copy_chunk", [&] {
               using index_t = scalar_t;
-              auto indices_addr = indices.const_data_ptr<index_t>();
-              auto new_indices_addr = new_indices.mutable_data_ptr<index_t>();
               std::copy(
-                  indices_addr,
-                  indices_addr + num_sets,
-                  new_indices_addr); // dst_start
-
-              auto weights_addr = weights.const_data_ptr<value_t>();
-              auto new_weights_addr = new_weights.mutable_data_ptr<value_t>();
+                  indices.const_data_ptr<index_t>() + start_row,
+                  indices.const_data_ptr<index_t>() + end_row,
+                  new_indices.mutable_data_ptr<index_t>());
               std::copy(
-                  weights_addr,
-                  weights_addr + num_sets * weights.size(1),
-                  new_weights_addr); // dst_start
+                  weights.const_data_ptr<value_t>() +
+                      start_row * weights.size(1),
+                  weights.const_data_ptr<value_t>() + end_row * weights.size(1),
+                  new_weights.mutable_data_ptr<value_t>());
               if (identities.has_value()) {
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
-                    identities->scalar_type(), "tensor_copy", [&] {
-                      using identities_t = scalar_t;
-                      const auto identities_addr =
-                          identities->const_data_ptr<identities_t>();
-                      auto new_identities_addr =
-                          new_identities->mutable_data_ptr<identities_t>();
+                    identities->scalar_type(), "tensor_copy_chunk", [&] {
+                      using id_t = scalar_t;
                       std::copy(
-                          identities_addr,
-                          identities_addr + num_sets * identities->size(1),
-                          new_identities_addr); // dst_start
+                          identities->const_data_ptr<id_t>() +
+                              start_row * identities->size(1),
+                          identities->const_data_ptr<id_t>() +
+                              end_row * identities->size(1),
+                          new_identities->mutable_data_ptr<id_t>());
                     });
               }
               if (runtime_meta.has_value()) {
                 FBGEMM_DISPATCH_ALL_TYPES(
-                    runtime_meta->scalar_type(), "tensor_copy", [&] {
-                      using runtime_meta_t = scalar_t;
-                      auto runtime_meta_addr =
-                          runtime_meta->const_data_ptr<runtime_meta_t>();
-                      auto new_runtime_meta_addr =
-                          new_runtime_meta->mutable_data_ptr<runtime_meta_t>();
+                    runtime_meta->scalar_type(), "tensor_copy_chunk", [&] {
+                      using rm_t = scalar_t;
                       std::copy(
-                          runtime_meta_addr,
-                          runtime_meta_addr + num_sets * runtime_meta->size(1),
-                          new_runtime_meta_addr); // dst_start
+                          runtime_meta->const_data_ptr<rm_t>() +
+                              start_row * runtime_meta->size(1),
+                          runtime_meta->const_data_ptr<rm_t>() +
+                              end_row * runtime_meta->size(1),
+                          new_runtime_meta->mutable_data_ptr<rm_t>());
                     });
               }
             });
       });
-  *new_count.mutable_data_ptr<int64_t>() = num_sets;
+  *new_count.mutable_data_ptr<int64_t>() = n;
   return fbgemm_gpu::StreamQueueItem{
       new_indices, new_weights, new_identities, new_runtime_meta, new_count};
+}
+
+std::vector<std::vector<std::pair<int64_t, int64_t>>>
+computeChunkRanges(int64_t num_rows, size_t chunk_size, size_t num_threads) {
+  // Split [0, num_rows) across up to num_threads contiguous per-thread bands,
+  // then split each band into <= chunk_size chunks. Returns one inner vector of
+  // [start, end) chunk ranges per thread (outer index = thread); ranges are
+  // contiguous, non-overlapping, and their union is the whole range. Empty
+  // bands produce no group.
+  std::vector<std::vector<std::pair<int64_t, int64_t>>> thread_chunks;
+  if (num_rows <= 0 || chunk_size == 0 || num_threads == 0) {
+    return thread_chunks;
+  }
+  // ceil-div (a + b - 1) / b: rounds up so a partial final chunk/band counts.
+  const size_t n_chunks =
+      (static_cast<size_t>(num_rows) + chunk_size - 1) / chunk_size;
+  const size_t n_threads = std::min(n_chunks, num_threads);
+  const size_t rows_per_thread =
+      (static_cast<size_t>(num_rows) + n_threads - 1) / n_threads;
+  for (size_t ti = 0; ti < n_threads; ++ti) {
+    const int64_t thread_start = static_cast<int64_t>(ti * rows_per_thread);
+    const int64_t thread_end =
+        std::min(static_cast<int64_t>((ti + 1) * rows_per_thread), num_rows);
+    std::vector<std::pair<int64_t, int64_t>> chunks;
+    for (int64_t s = thread_start; s < thread_end;
+         s += static_cast<int64_t>(chunk_size)) {
+      const int64_t e =
+          std::min(s + static_cast<int64_t>(chunk_size), thread_end);
+      chunks.emplace_back(s, e);
+    }
+    if (!chunks.empty()) {
+      thread_chunks.push_back(std::move(chunks));
+    }
+  }
+  return thread_chunks;
 }
 
 RawEmbeddingStreamer::RawEmbeddingStreamer(
@@ -151,7 +179,10 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     int64_t res_server_port [[maybe_unused]],
     std::vector<std::string> table_names,
     std::vector<int64_t> table_offsets,
-    const std::vector<int64_t>& table_sizes)
+    const std::vector<int64_t>& table_sizes,
+    int64_t res_chunk_size [[maybe_unused]],
+    int64_t res_num_consumers [[maybe_unused]],
+    int64_t res_num_copy_threads [[maybe_unused]])
     : unique_id_(std::move(unique_id)),
       enable_raw_embedding_streaming_(enable_raw_embedding_streaming),
 #ifdef FBGEMM_FBCODE
@@ -160,9 +191,30 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
 #endif
       table_names_(std::move(table_names)),
       table_offsets_(std::move(table_offsets)),
-      table_sizes_(at::tensor(table_sizes)) {
+      table_sizes_(at::tensor(table_sizes))
+#ifdef FBGEMM_FBCODE
+      ,
+      res_chunk_size_(res_chunk_size),
+      res_num_consumers_(res_num_consumers),
+      res_num_copy_threads_(res_num_copy_threads)
+#endif
+{
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
+    // Fail loud on a misconfigured knob. These are now caller-supplied (were
+    // compile-time constants), and 0 -- or a negative that wrapped to a huge
+    // size_t -- would silently break streaming: res_num_consumers=0 spawns no
+    // drain threads (queue grows unbounded), res_chunk_size=0 /
+    // res_num_copy_threads=0 make computeChunkRanges return empty (enqueues
+    // nothing). Reject rather than silently no-op.
+    TORCH_CHECK(
+        res_chunk_size > 0 && res_num_consumers > 0 && res_num_copy_threads > 0,
+        "RES config knobs must be > 0: res_chunk_size=",
+        res_chunk_size,
+        ", res_num_consumers=",
+        res_num_consumers,
+        ", res_num_copy_threads=",
+        res_num_copy_threads);
     XLOG(INFO) << "[TBE_ID" << unique_id_
                << "] Raw embedding streaming enabled with res_server_port at"
                << res_server_port_;
@@ -172,36 +224,59 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     ods_logger_ = std::make_unique<facebook::aiplatform::gmpp::experimental::
                                        training_ps::TrainingPsOdsLogger>();
 
-    weights_stream_thread_ = std::make_unique<std::thread>([this] {
-      while (!stop_) {
-        auto stream_item_ptr = weights_to_stream_queue_.try_peek();
-        if (!stream_item_ptr) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(10));
-          continue;
+    XLOG(INFO) << "[TBE_ID" << unique_id_ << "] Starting " << res_num_consumers_
+               << " consumer threads"
+               << ", chunk_size=" << res_chunk_size_
+               << ", copy_threads=" << res_num_copy_threads_;
+    // Ordering caveat: with res_num_consumers_ > 1, these consumers drain the
+    // queue concurrently, so arrival order at the PS is NOT enqueue (iteration)
+    // order. The store (TrainingPsHandler) applies same-(fqn,row_id) writes
+    // arrival-wins with no version compare, so a stale iter-i write can
+    // transiently clobber a fresh iter-(i+1) one for a hot row (self-heals on
+    // the row's next in-order update). A single consumer would be ordered/safe.
+    // TODO(T281413204): proper fix is to carry a per-row iteration/version and
+    // keep-newest in the store.
+    for (size_t ci = 0; ci < res_num_consumers_; ++ci) {
+      consumer_threads_.push_back(std::make_unique<std::thread>([this] {
+        while (!stop_) {
+          auto item = weights_to_stream_queue_.try_dequeue();
+          if (!item.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+          }
+          if (stop_) {
+            return;
+          }
+          // Guard the per-item body: a transient tensor_stream failure must log
+          // and move on to the next item, never escape and std::terminate the
+          // trainer.
+          try {
+            folly::stop_watch<std::chrono::milliseconds> stop_watch;
+            folly::coro::blockingWait(tensor_stream(
+                item->indices,
+                item->weights,
+                item->identities,
+                item->runtime_meta));
+            if (ods_logger_) {
+              ods_logger_->bumpKeyGauge(
+                  "tbe_stream_queue_depth",
+                  static_cast<double>(weights_to_stream_queue_.size()));
+            }
+            XLOG_EVERY_MS(INFO, 60000)
+                << "[TBE_ID" << unique_id_ << "] end stream queue size: "
+                << weights_to_stream_queue_.size() << " stream takes "
+                << stop_watch.elapsed().count() << "ms"
+                << " rows=" << item->indices.size(0);
+          } catch (const std::exception& e) {
+            XLOG(ERR) << "[TBE_ID" << unique_id_
+                      << "] consumer thread caught exception: " << e.what();
+          } catch (...) {
+            XLOG(ERR) << "[TBE_ID" << unique_id_
+                      << "] consumer thread caught unknown exception";
+          }
         }
-        if (stop_) {
-          return;
-        }
-        auto& indices = stream_item_ptr->indices;
-        auto& weights = stream_item_ptr->weights;
-        auto& identities = stream_item_ptr->identities;
-        auto& runtime_meta = stream_item_ptr->runtime_meta;
-        folly::stop_watch<std::chrono::milliseconds> stop_watch;
-        folly::coro::blockingWait(
-            tensor_stream(indices, weights, identities, runtime_meta));
-
-        weights_to_stream_queue_.dequeue();
-        auto post_dequeue_depth = weights_to_stream_queue_.size();
-        if (ods_logger_) {
-          ods_logger_->bumpKeyGauge(
-              "stream_mpsc_depth", static_cast<double>(post_dequeue_depth));
-        }
-        XLOG_EVERY_MS(INFO, 60000)
-            << "[TBE_ID" << unique_id_
-            << "] end stream queue size: " << post_dequeue_depth
-            << " stream takes " << stop_watch.elapsed().count() << "ms";
-      }
-    });
+      }));
+    }
   }
 #endif
 }
@@ -211,7 +286,8 @@ RawEmbeddingStreamer::~RawEmbeddingStreamer() {
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
     join_stream_tensor_copy_thread();
-    join_weights_stream_thread();
+    join_worker_threads();
+    join_consumer_threads();
   }
 #endif
 }
@@ -241,7 +317,7 @@ void RawEmbeddingStreamer::stream(
     weights_to_stream_queue_.enqueue(stream_item);
     return;
   }
-  if (blocking_tensor_copy) {
+  auto poll_flag = [this, copy_done_flag]() {
     if (copy_done_flag.has_value()) {
       auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
       folly::stop_watch<std::chrono::microseconds> poll_watch;
@@ -249,59 +325,58 @@ void RawEmbeddingStreamer::stream(
         std::this_thread::yield();
         if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
           LOG(ERROR) << "[TBE_ID" << unique_id_
-                     << "] copy_done_flag blocking: poll timed out after "
+                     << "] copy_done_flag poll timed out after "
                      << kCopyDonePollTimeoutUs / 1'000'000 << "s";
-          return;
+          return false;
         }
       }
-      *ptr = 0; // Reset for next iteration
-    } else {
-      XLOG_EVERY_MS(INFO, 60000)
-          << "[TBE_ID" << unique_id_
-          << "] copy_done_flag not provided, skipping wait (blocking)";
+      *ptr = 0;
     }
-    copy_and_enqueue_stream_tensors(
+    return true;
+  };
+
+  if (blocking_tensor_copy) {
+    if (!poll_flag()) {
+      return;
+    }
+    chunked_copy_and_enqueue(
         indices,
         weights,
         std::move(identities),
         std::move(runtime_meta),
-        count);
+        count,
+        chunk_copy_threads_);
+    join_worker_threads();
     return;
   }
-  // Make sure the previous thread is done before starting a new one
+  // Non-blocking: join the previous dispatch + copy threads, then spawn new
+  // ones. The join is the serializer: it guarantees iter i's copy finished
+  // reading the source cache rows before iter i+1 overwrites them.
   join_stream_tensor_copy_thread();
-  // Cuda dispatches the host callbacks all in the same CPU thread. But the
-  // callbacks don't need to be serialized.
-  // So, We need to spin up a new thread to unblock the CUDA stream, so the CUDA
-  // can continue executing other host callbacks, eg. get/evict.
-  stream_tensor_copy_thread_ = std::make_unique<std::thread>([this,
-                                                              copy_done_flag,
-                                                              indices,
-                                                              weights,
-                                                              identities,
-                                                              runtime_meta,
-                                                              count]() {
-    if (copy_done_flag.has_value()) {
-      auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
-      folly::stop_watch<std::chrono::microseconds> poll_watch;
-      while (*ptr == 0) {
-        std::this_thread::yield();
-        if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
-          LOG(ERROR) << "[TBE_ID" << unique_id_
-                     << "] copy_done_flag non-blocking: poll timed out after "
-                     << kCopyDonePollTimeoutUs / 1'000'000 << "s";
-          return;
+  dispatch_thread_ = std::make_unique<std::thread>(
+      [this, poll_flag, indices, weights, identities, runtime_meta, count]() {
+        // Guard the dispatcher body so a copy/enqueue failure logs instead of
+        // escaping the std::thread and calling std::terminate.
+        try {
+          if (!poll_flag()) {
+            return;
+          }
+          chunked_copy_and_enqueue(
+              indices,
+              weights,
+              identities,
+              runtime_meta,
+              count,
+              chunk_copy_threads_);
+        } catch (const std::exception& e) {
+          XLOG(ERR) << "[TBE_ID" << unique_id_
+                    << "] stream dispatcher thread caught exception: "
+                    << e.what();
+        } catch (...) {
+          XLOG(ERR) << "[TBE_ID" << unique_id_
+                    << "] stream dispatcher thread caught unknown exception";
         }
-      }
-      *ptr = 0; // Reset for next iteration
-    } else {
-      XLOG_EVERY_MS(INFO, 60000)
-          << "[TBE_ID" << unique_id_
-          << "] copy_done_flag not provided, skipping wait (non-blocking)";
-    }
-    copy_and_enqueue_stream_tensors(
-        indices, weights, identities, runtime_meta, count);
-  });
+      });
   rec->record.end();
 #endif
 }
@@ -310,15 +385,100 @@ void RawEmbeddingStreamer::join_stream_tensor_copy_thread() {
 #ifdef FBGEMM_FBCODE
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## RawEmbeddingStreamer::join_stream_tensor_copy_thread ##");
-  if (stream_tensor_copy_thread_ != nullptr &&
-      stream_tensor_copy_thread_->joinable()) {
-    stream_tensor_copy_thread_->join();
+  if (dispatch_thread_ != nullptr && dispatch_thread_->joinable()) {
+    dispatch_thread_->join();
   }
+  join_worker_threads();
   rec->record.end();
 #endif
 }
 
 #ifdef FBGEMM_FBCODE
+void RawEmbeddingStreamer::join_worker_threads() {
+  for (auto& t : chunk_copy_threads_) {
+    if (t && t->joinable()) {
+      t->join();
+    }
+  }
+  chunk_copy_threads_.clear();
+}
+
+void RawEmbeddingStreamer::join_consumer_threads() {
+  for (auto& t : consumer_threads_) {
+    if (t && t->joinable()) {
+      t->join();
+    }
+  }
+  consumer_threads_.clear();
+}
+
+void RawEmbeddingStreamer::chunked_copy_and_enqueue(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    std::optional<at::Tensor> identities,
+    std::optional<at::Tensor> runtime_meta,
+    const at::Tensor& count,
+    std::vector<std::unique_ptr<std::thread>>& target_copy_threads) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## RawEmbeddingStreamer::chunked_copy_and_enqueue ##");
+  const auto num_rows = get_maybe_uvm_scalar(count);
+  const auto thread_chunks =
+      computeChunkRanges(num_rows, res_chunk_size_, res_num_copy_threads_);
+
+  for (auto& t : target_copy_threads) { // join+clear the previous batch
+    if (t && t->joinable()) {
+      t->join();
+    }
+  }
+  target_copy_threads.clear();
+  if (thread_chunks.empty()) {
+    rec->record.end();
+    return;
+  }
+
+  // One copy thread per pre-computed group. Chunk boundaries and per-thread
+  // grouping live entirely in computeChunkRanges, so the enqueued row set is
+  // identical regardless of how threads are laid out here.
+  target_copy_threads.reserve(thread_chunks.size());
+  for (size_t ti = 0; ti < thread_chunks.size(); ++ti) {
+    target_copy_threads.push_back(
+        std::make_unique<std::thread>([this,
+                                       indices,
+                                       weights,
+                                       identities,
+                                       runtime_meta,
+                                       chunks = thread_chunks[ti],
+                                       ti]() {
+          // Guard the copy body so a per-chunk failure logs instead of escaping
+          // the std::thread and calling std::terminate.
+          try {
+            folly::stop_watch<std::chrono::milliseconds> thread_watch;
+            int64_t rows_done = 0;
+            for (const auto& [s, e] : chunks) {
+              auto chunk_item = tensor_copy_chunk(
+                  indices, weights, identities, runtime_meta, s, e);
+              weights_to_stream_queue_.enqueue(std::move(chunk_item));
+              rows_done += (e - s);
+            }
+            XLOG_EVERY_MS(INFO, 15000)
+                << "[TBE_ID" << unique_id_ << "] copy_thread tid=" << ti
+                << " rows=" << rows_done << " chunks=" << chunks.size()
+                << " copy_ms=" << thread_watch.elapsed().count();
+          } catch (const std::exception& e) {
+            XLOG(ERR) << "[TBE_ID" << unique_id_ << "] copy_thread tid=" << ti
+                      << " caught exception: " << e.what();
+          } catch (...) {
+            XLOG(ERR) << "[TBE_ID" << unique_id_ << "] copy_thread tid=" << ti
+                      << " caught unknown exception";
+          }
+        }));
+  }
+  XLOG_EVERY_MS(INFO, 15000)
+      << "[RES] chunked_copy tbe=" << unique_id_ << " rows=" << num_rows
+      << " threads=" << thread_chunks.size();
+  rec->record.end();
+}
+
 folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
     const at::Tensor& indices,
     const at::Tensor& weights,
@@ -439,37 +599,23 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
     try {
       co_await res_client->co_setEmbeddings(req);
     } catch (const std::exception& e) {
+      // A transient per-shard RPC failure must not propagate: it would tear
+      // down the consumer thread (std::terminate). Log, bump the counter, and
+      // move on to the next shard.
       if (ods_logger_) {
-        ods_logger_->bumpKey("set_embeddings_rpc", 1);
+        ods_logger_->bumpKey("set_embeddings_rpc_failure", 1);
       }
       XLOG(ERR) << "[TBE_ID" << unique_id_
                 << "] co_setEmbeddings threw on shard " << i << ": "
                 << e.what();
-      throw;
     }
   }
   co_return;
 }
 
-void RawEmbeddingStreamer::copy_and_enqueue_stream_tensors(
-    const at::Tensor& indices,
-    const at::Tensor& weights,
-    std::optional<at::Tensor> identities,
-    std::optional<at::Tensor> runtime_meta,
-    const at::Tensor& count) {
-  auto rec = torch::autograd::profiler::record_function_enter_new(
-      "## RawEmbeddingStreamer::copy_and_enqueue_stream_tensors ##");
-  auto stream_item = tensor_copy(
-      indices, weights, std::move(identities), std::move(runtime_meta), count);
-  weights_to_stream_queue_.enqueue(stream_item);
-  rec->record.end();
-}
-
 void RawEmbeddingStreamer::join_weights_stream_thread() {
-  if (weights_stream_thread_ != nullptr && weights_stream_thread_->joinable()) {
-    stop_ = true;
-    weights_stream_thread_->join();
-  }
+  stop_ = true;
+  join_consumer_threads();
 }
 
 uint64_t RawEmbeddingStreamer::get_weights_to_stream_queue_size() {
