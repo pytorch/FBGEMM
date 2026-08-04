@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -55,63 +56,75 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
     const int ncols,
     uint8_t* __restrict__ output,
     float* __restrict__ range_list) {
-  const int row = (int)blockIdx.x * blockDim.y + threadIdx.y;
-
   const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const int output_columns = ncols_aligned + 2 * sizeof(float);
 
-  // starting values for future reductions
+  // always a power of 2 up to size 32. Multiple rows can share the same warp
+  // when smaller than 32.
+  const auto lane_width = blockDim.x;
+
+  // On ROCm the launch caps the grid (HIP 2^32 threads-per-launch limit) and we
+  // grid-stride over rows. The loop bound (row - threadIdx.y) is uniform across
+  // the whole block, so every physical-warp lane iterates the same number of
+  // times -- required because the reduction below uses non-sync shfl_xor. On
+  // CUDA the grid is not capped and the body runs exactly once.
+#ifdef USE_ROCM
+  for (int row = (int)blockIdx.x * blockDim.y + threadIdx.y;
+       row - (int)threadIdx.y < nrows;
+       row += blockDim.y * gridDim.x) {
+#else
+  const int row = (int)blockIdx.x * blockDim.y + threadIdx.y;
+#endif
+
+    // starting values for future reductions
 #ifdef USE_ROCM
 #define HIPRT_INF_F __int_as_float(0x7f800000)
-  float minimum_element = HIPRT_INF_F;
-  float maximum_element = -HIPRT_INF_F;
+    float minimum_element = HIPRT_INF_F;
+    float maximum_element = -HIPRT_INF_F;
 #undef HIPRT_INF_F
 #else
   float minimum_element = CUDART_INF_F;
   float maximum_element = -CUDART_INF_F;
 #endif
 
-  // always a power of 2 up to size 32. Multiple rows can share the same warp
-  // when smaller than 32.
-  const auto lane_width = blockDim.x;
+    // March warp-wise through the row, doing thread local min and max
+    // reductions. This loop will only execute once when ncol <= 32
+    if (row < nrows) {
+      const input_t* const input_row = input + row * ncols;
 
-  // March warp-wise through the row, doing thread local min and max reductions.
-  // This loop will only execute once when ncol <= 32
-  if (row < nrows) {
-    const input_t* const input_row = input + row * ncols;
-
-    for (auto col = threadIdx.x; col < ncols; col += lane_width) {
-      // Get thread-local minmax. These are the smallest min and max ever seen
-      // by this thread.
-      minimum_element = fminf(minimum_element, input_row[col]);
-      maximum_element = fmaxf(maximum_element, input_row[col]);
+      for (auto col = threadIdx.x; col < ncols; col += lane_width) {
+        // Get thread-local minmax. These are the smallest min and max ever seen
+        // by this thread.
+        minimum_element = fminf(minimum_element, input_row[col]);
+        maximum_element = fmaxf(maximum_element, input_row[col]);
+      }
     }
-  }
 
-  // Perform warp-wide min and max reductions. All threads in the warp
-  // participate, even if they aren't assigned to a row, since we can't assume
-  // the existence of the `*_sync` warp primitives with support for masking.
-  for (int offset = lane_width >> 1; offset > 0; offset >>= 1) {
-    minimum_element =
-        fminf(minimum_element, shfl_xor(minimum_element, offset, lane_width));
-    maximum_element =
-        fmaxf(maximum_element, shfl_xor(maximum_element, offset, lane_width));
-  }
+    // Perform warp-wide min and max reductions. All threads in the warp
+    // participate, even if they aren't assigned to a row, since we can't assume
+    // the existence of the `*_sync` warp primitives with support for masking.
+    for (int offset = lane_width >> 1; offset > 0; offset >>= 1) {
+      minimum_element =
+          fminf(minimum_element, shfl_xor(minimum_element, offset, lane_width));
+      maximum_element =
+          fmaxf(maximum_element, shfl_xor(maximum_element, offset, lane_width));
+    }
 
-  // only the leading thread in the warp is needed to return the final result in
-  // output. Additionally, threads mapped to non-existent rows do not write to
-  // the output array.
-  if (threadIdx.x != 0 || row >= nrows) {
-    return;
-  }
+    // only the leading thread in the warp is needed to return the final result
+    // in output. Additionally, threads mapped to non-existent rows do not write
+    // to the output array.
+    if (threadIdx.x == 0 && row < nrows) {
+      const float range = maximum_element - minimum_element;
+      float* const output_row_qparams = reinterpret_cast<float*>(
+          output + row * output_columns + ncols_aligned);
 
-  const float range = maximum_element - minimum_element;
-  float* const output_row_qparams =
-      reinterpret_cast<float*>(output + row * output_columns + ncols_aligned);
-
-  output_row_qparams[0] = range / 255.0f;
-  output_row_qparams[1] = minimum_element;
-  range_list[row] = range;
+      output_row_qparams[0] = range / 255.0f;
+      output_row_qparams[1] = minimum_element;
+      range_list[row] = range;
+    }
+#ifdef USE_ROCM
+  } // for row (block-uniform grid-stride loop, ROCm only)
+#endif
 }
 
 template <typename input_t>
@@ -199,7 +212,6 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
     pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output) {
   const int batch_size = input.size(0);
 
-  const auto thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
   const int num_tables = D_offsets.size(0) - 1;
   const int qparam_size = 8;
 
@@ -207,29 +219,45 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
     return;
   }
 
-  // num_table * batch_size = total warps
-  // warp_id = num_tables * batch_idx + table_idx
-  const int table_idx = thread_idx % num_tables;
-  const int batch_idx = thread_idx / num_tables;
-  if (table_idx >= num_tables || batch_idx >= batch_size) {
+  // On ROCm the launch caps the grid (HIP 2^32 threads-per-launch limit); grid-
+  // stride over the (table, batch) warp index. On CUDA the loop runs once.
+#ifdef USE_ROCM
+  for (auto thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
+       thread_idx < static_cast<int64_t>(num_tables) * batch_size;
+       thread_idx += blockDim.y * gridDim.x) {
+#else
+  const auto thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
+#endif
+    // num_table * batch_size = total warps
+    // warp_id = num_tables * batch_idx + table_idx
+    const int table_idx = thread_idx % num_tables;
+    const int batch_idx = thread_idx / num_tables;
+    if (table_idx >= num_tables || batch_idx >= batch_size) {
+#ifdef USE_ROCM
+      continue;
+#else
     return;
-  }
-  const int table_qparam_offset = D_offsets[table_idx + 1] - qparam_size;
-  const int table_D =
-      D_offsets[table_idx + 1] - D_offsets[table_idx] - qparam_size;
+#endif
+    }
+    const int table_qparam_offset = D_offsets[table_idx + 1] - qparam_size;
+    const int table_D =
+        D_offsets[table_idx + 1] - D_offsets[table_idx] - qparam_size;
 
-  // int total_D = input.size(1);
-  // CUDA_KERNEL_ASSERT(table_qparam_offset <= total_D && "table_idx <
-  // total_D");
+    // int total_D = input.size(1);
+    // CUDA_KERNEL_ASSERT(table_qparam_offset <= total_D && "table_idx <
+    // total_D");
 
-  const float2 qparams =
-      *reinterpret_cast<const float2*>(&input[batch_idx][table_qparam_offset]);
-  const int64_t input_offset = D_offsets[table_idx];
-  const int64_t output_offset = input_offset - table_idx * qparam_size;
-  for (auto i = threadIdx.x; i < table_D; i += kWarpSize) {
-    output[batch_idx][i + output_offset] =
-        input[batch_idx][i + input_offset] * qparams.x + qparams.y;
-  }
+    const float2 qparams = *reinterpret_cast<const float2*>(
+        &input[batch_idx][table_qparam_offset]);
+    const int64_t input_offset = D_offsets[table_idx];
+    const int64_t output_offset = input_offset - table_idx * qparam_size;
+    for (auto i = threadIdx.x; i < table_D; i += kWarpSize) {
+      output[batch_idx][i + output_offset] =
+          input[batch_idx][i + input_offset] * qparams.x + qparams.y;
+    }
+#ifdef USE_ROCM
+  } // for thread_idx (grid-stride loop, ROCm only)
+#endif
 }
 
 } // namespace
@@ -310,7 +338,10 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
           input.scalar_type(), "_get_8bit_qparam_cuda_kernel", [&] {
             FBGEMM_LAUNCH_KERNEL(
                 (_get_8bit_qparam_cuda_kernel<scalar_t>),
-                num_blocks_warp,
+                utils::cuda::cap_grid_dim_x(
+                    num_blocks_warp,
+                    threads_per_block,
+                    at::cuda::getCurrentCUDAStream()),
                 dim3(blockDim_x, rows_per_block),
                 0,
                 at::cuda::getCurrentCUDAStream(),
@@ -326,7 +357,13 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const int blockDim_x = std::min(ncols, threads_per_block);
       dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
       const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
-      const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+      // Cap grid.y so total threads (gridDim.x * gridDim.y * threads_per_block)
+      // stay under the HIP 2^32 limit; the kernel grid-strides over rows.
+      // OverflowOnly => no-op on CUDA.
+      const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+          cuda_calc_block_count(nrows, blockDim.y),
+          static_cast<int64_t>(gridDim_x) * threads_per_block,
+          at::cuda::getCurrentCUDAStream());
       dim3 gridDim(gridDim_x, gridDim_y);
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
@@ -448,7 +485,13 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
   const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
 
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
-  const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+  // Cap grid.y so total threads (gridDim.x * gridDim.y * threads_per_block)
+  // stay under the HIP 2^32 limit; the kernel grid-strides over rows.
+  // OverflowOnly => no-op on CUDA.
+  const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+      cuda_calc_block_count(nrows, blockDim.y),
+      static_cast<int64_t>(gridDim_x) * threads_per_block,
+      at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
 #define DEQUANT_LAUNCH(scale_bias_last, quant_padding_float_type) \
@@ -601,7 +644,10 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
   constexpr int threads_per_block = 256;
   const dim3 blockDim(kWarpSizeHost(), threads_per_block / kWarpSizeHost());
   const dim3 gridDim(
-      cuda_calc_xblock_count(num_tables * batch_size, blockDim.y));
+      utils::cuda::cap_grid_dim_x(
+          cuda_calc_xblock_count(num_tables * batch_size, blockDim.y),
+          threads_per_block,
+          at::cuda::getCurrentCUDAStream()));
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       output.scalar_type(),
       "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel",
