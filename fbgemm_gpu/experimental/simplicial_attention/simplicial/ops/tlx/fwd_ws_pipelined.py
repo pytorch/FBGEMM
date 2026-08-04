@@ -53,7 +53,7 @@ def get_configs():
                 "BLOCK_SIZE_KV": BLOCK_SIZE_KV,
                 "NUM_BUFFERS": num_buffers,
             },
-            num_stages=0,
+            num_stages=1,
             num_warps=4,
             pre_hook=_host_descriptor_pre_hook,
         )
