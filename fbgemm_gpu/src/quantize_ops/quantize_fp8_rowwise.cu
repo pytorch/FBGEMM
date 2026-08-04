@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -66,8 +67,6 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
     const bool forward) {
   // Assert if index is out of bound
   CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
-  const int64_t row = blockIdx.x * blockDim.y + threadIdx.y;
-
   const int64_t ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const int64_t output_columns = ncols_aligned + 2 * sizeof(float);
 
@@ -77,44 +76,62 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
   } else {
     max_pos = 0.875;
   }
-  // starting values for future reductions
   constexpr float kEpsilon = 1e-20f;
-  float maximum_element = kEpsilon;
   // always a power of 2 up to size 32. Multiple rows can share the same warp
   // when smaller than 32.
   const auto lane_width = blockDim.x;
 
-  // March warp-wise through the row, doing thread local min and max reductions.
-  // This loop will only execute once when ncol <= 32
-  if (row < nrows) {
-    const input_t* input_row = &input[row * ncols];
-    for (int64_t col = threadIdx.x; col < ncols; col += lane_width) {
-      // Get thread-local minmax. These are the smallest min and max ever seen
-      // by this thread.
-      maximum_element = fmaxf(maximum_element, fabs(to_float(input_row[col])));
+  // On ROCm the launch caps the grid (HIP 2^32 threads-per-launch limit) and we
+  // grid-stride over rows. The loop bound (row - threadIdx.y) is uniform across
+  // the whole block, so every physical-warp lane iterates the same number of
+  // times -- required because the reduction below uses non-sync shfl_xor. On
+  // CUDA the grid is not capped and the body runs exactly once.
+#ifdef USE_ROCM
+  for (int64_t row = blockIdx.x * blockDim.y + threadIdx.y;
+       row - (int64_t)threadIdx.y < nrows;
+       row += blockDim.y * gridDim.x) {
+#else
+  const int64_t row = blockIdx.x * blockDim.y + threadIdx.y;
+#endif
+
+    // starting values for future reductions
+    float maximum_element = kEpsilon;
+
+    // March warp-wise through the row, doing thread local min and max
+    // reductions. This loop will only execute once when ncol <= 32
+    if (row < nrows) {
+      const input_t* input_row = &input[row * ncols];
+      for (int64_t col = threadIdx.x; col < ncols; col += lane_width) {
+        // Get thread-local minmax. These are the smallest min and max ever seen
+        // by this thread.
+        maximum_element =
+            fmaxf(maximum_element, fabs(to_float(input_row[col])));
+      }
     }
-  }
 
-  // Perform warp-wide min and max reductions. All threads in the warp
-  // participate, even if they aren't assigned to a row, since we can't assume
-  // the existence of the `*_sync` warp primitives with support for masking.
-  for (int offset = lane_width >> 1; offset > 0; offset >>= 1) {
-    maximum_element =
-        fmaxf(maximum_element, shfl_xor(maximum_element, offset, lane_width));
-  }
+    // Perform warp-wide min and max reductions. All threads in the warp
+    // participate, even if they aren't assigned to a row, since we can't assume
+    // the existence of the `*_sync` warp primitives with support for masking.
+    for (int offset = lane_width >> 1; offset > 0; offset >>= 1) {
+      maximum_element =
+          fmaxf(maximum_element, shfl_xor(maximum_element, offset, lane_width));
+    }
 
-  // only the leading thread in the warp is needed to return the final result in
-  // output. Additionally, threads mapped to non-existent rows do not write to
-  // the output array.
-  if (threadIdx.x != 0 || row >= nrows) {
-    return;
-  }
-  float* const output_row_qparams =
-      reinterpret_cast<float*>(&output[row * output_columns + ncols_aligned]);
+    // only the leading thread in the warp is needed to return the final result
+    // in output. Additionally, threads mapped to non-existent rows do not write
+    // to the output array. only the leading thread of each row-warp writes;
+    // threads mapped to non-existent rows do not write.
+    if (threadIdx.x == 0 && row < nrows) {
+      float* const output_row_qparams = reinterpret_cast<float*>(
+          &output[row * output_columns + ncols_aligned]);
 
-  output_row_qparams[0] = max_pos / (kEpsilon + maximum_element);
-  // Initialize it to make the output deterministic for PT2 compliance
-  output_row_qparams[1] = 0.0;
+      output_row_qparams[0] = max_pos / (kEpsilon + maximum_element);
+      // Initialize it to make the output deterministic for PT2 compliance
+      output_row_qparams[1] = 0.0;
+    }
+#ifdef USE_ROCM
+  } // for row (block-uniform grid-stride loop, ROCm only)
+#endif
 }
 
 template <typename input_t>
@@ -276,7 +293,10 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
           input.scalar_type(), "_get_FP8_qparam_cuda_kernel", [&] {
             FBGEMM_LAUNCH_KERNEL(
                 (_get_FP8_qparam_cuda_kernel<scalar_t>),
-                num_blocks_warp,
+                utils::cuda::cap_grid_dim_x(
+                    num_blocks_warp,
+                    threads_per_block,
+                    at::cuda::getCurrentCUDAStream()),
                 dim3(blockDim_x, rows_per_block),
                 0,
                 at::cuda::getCurrentCUDAStream(),
@@ -293,7 +313,10 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
           std::min(ncols, static_cast<int64_t>(threads_per_block));
       dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
       const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
-      const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+      const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+          cuda_calc_block_count(nrows, blockDim.y),
+          static_cast<int64_t>(gridDim_x) * threads_per_block,
+          at::cuda::getCurrentCUDAStream());
       dim3 gridDim(gridDim_x, gridDim_y);
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
@@ -384,7 +407,10 @@ Tensor _FP8rowwise_to_float_gpu_t(
   const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
 
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
-  const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+  const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+      cuda_calc_block_count(nrows, blockDim.y),
+      static_cast<int64_t>(gridDim_x) * threads_per_block,
+      at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
   const auto input_1D = input.flatten();
