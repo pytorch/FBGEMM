@@ -32,6 +32,7 @@ class JaggedDenseElementwiseAddTest(unittest.TestCase):
         use_fbgemm_kernel=st.booleans(),
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @settings(deadline=30000)
     def test_triton_jagged_dense_add(

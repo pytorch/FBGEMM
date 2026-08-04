@@ -244,6 +244,7 @@ class EmbOptimType(enum.Enum):
         embedding_specs: list[tuple[int, int]],  # Tuple of (rows, dims)
         optimizer_state_dtypes: dict[str, "SparseType"] = {},  # noqa: B006
         enable_optimizer_offloading: bool = False,
+        # pyrefly: ignore [not-a-type]
     ) -> list[tuple[SplitState, str, torch.dtype]]:
         """
         Returns the split planning for the optimizer states
@@ -278,6 +279,7 @@ class EmbOptimType(enum.Enum):
 
         return [
             (
+                # pyrefly: ignore [not-callable]
                 SplitState(
                     dev_size=(
                         cumsum_table[-1] if not enable_optimizer_offloading else 0

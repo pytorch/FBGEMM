@@ -203,7 +203,9 @@ def get_source_mask_meta(
 ) -> Tensor:
     if output_size is None:
         ctx = torch.library.get_ctx()
+        # pyrefly: ignore [bad-assignment]
         output_size = ctx.new_dynamic_size()
+    # pyrefly: ignore [no-matching-overload]
     return torch.empty([output_size], dtype=torch.bool)
 
 
@@ -954,7 +956,10 @@ def keyed_jagged_index_select_dim1_abstract(
             [indices + i * batch_size for i in range(num_batches)]
         )
         selected_lengths_sum = (
-            torch.index_select(lengths, 0, length_indices).sum().item()
+            # pyrefly: ignore [bad-assignment]
+            torch.index_select(lengths, 0, length_indices)
+            .sum()
+            .item()
         )
 
     ret: list[torch.Tensor] = [
@@ -1534,6 +1539,7 @@ def _setup() -> None:
         if key not in torch.library._impls:
             torch.library.register_autograd(op_name, fn, setup_context=setup_context)
 
+    # pyrefly: ignore [missing-attribute]
     if not _setup.done:
         impl_autograd(
             "fbgemm::permute_2D_sparse_data",
@@ -1746,6 +1752,7 @@ def _setup() -> None:
             "fbgemm::PaddedFP8RowwiseQuantizedToFloat",
             padded_fp8_rowwise_quantized_to_float,
         )
+        # pyrefly: ignore [missing-attribute]
         _setup.done = True
 
 

@@ -82,6 +82,7 @@ class EmbeddingConfigClassmethodTest(unittest.TestCase):
             EmbeddingLocation.HOST,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_cuda_managed(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
@@ -93,6 +94,7 @@ class EmbeddingConfigClassmethodTest(unittest.TestCase):
             EmbeddingLocation.MANAGED,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_cuda_device(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
@@ -104,6 +106,7 @@ class EmbeddingConfigClassmethodTest(unittest.TestCase):
             EmbeddingLocation.DEVICE,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_cuda_caching(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
@@ -115,6 +118,7 @@ class EmbeddingConfigClassmethodTest(unittest.TestCase):
             EmbeddingLocation.MANAGED_CACHING,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_embedding_location_from_device_and_clf_invalid_raises(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
@@ -176,6 +180,7 @@ class EmbeddingConfigJITTest(unittest.TestCase):
     3. Module-level references breaking due to import rewriting
     """
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_tbe_jit_script_with_new_import_paths(self) -> None:
         """Critical: Ensure TBE can still be JIT-scripted."""

@@ -31,7 +31,9 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         max_L=st.integers(1, 200),
         D=st.integers(1, 100),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*running_on_rocm)
     @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out(
@@ -157,7 +159,9 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         D=st.integers(1, 100),
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*running_on_rocm)
     @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out_with_grad(
@@ -244,7 +248,9 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         D=st.integers(1, 100),
         device_type=st.sampled_from(["meta"]),
     )
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*running_on_rocm)
     @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out_meta_backend(
@@ -323,12 +329,14 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         assert (
             # pyre-fixme[16]: Optional type has no attribute `is_meta`.
             array_x1.grad.is_meta
-            and array_x2.grad.is_meta
+            and array_x2.grad.is_meta  # pyrefly: ignore [missing-attribute]
             # pyre-fixme[16]: Optional type has no attribute `size`.
             and array_x1.grad.size() == array_x2.grad.size()
         )
         assert (
+            # pyrefly: ignore [missing-attribute]
             jagged_y1.grad.is_meta
-            and jagged_y2.grad.is_meta
-            and jagged_y1.grad.size() == jagged_y2.grad.size()
+            and jagged_y2.grad.is_meta  # pyrefly: ignore [missing-attribute]
+            and jagged_y1.grad.size()  # pyrefly: ignore [missing-attribute]
+            == jagged_y2.grad.size()  # pyrefly: ignore [missing-attribute]
         )

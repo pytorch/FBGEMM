@@ -147,6 +147,7 @@ def fake_quantize_mx(
 
 # @optests.generate_opcheck_tests()
 class TestMXQuantizationConversion(unittest.TestCase):
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
@@ -231,6 +232,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         assert check_diff_quantize(input, output_triton, output_cpu)
         assert check_diff_quantize(input, output_cuda, output_from_ops)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
@@ -287,6 +289,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         # I give quite a bit of wiggle room to make sure this isnt flaky.
         torch.testing.assert_close(input, mx_dequantized, rtol=1.0, atol=magnitude / 2)
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(

@@ -207,6 +207,7 @@ def benchmark_cpu_requests_mp(
     worker_pool.terminate()
 
     if start_script:
+        # pyrefly: ignore [unbound-name]
         p_start.terminate()
 
     if end_script:
@@ -310,6 +311,7 @@ def benchmark_requests(  # noqa: C901
             torch.cuda.nvtx.range_push(f"{nvtx_range}-{it}")
 
         if bwd_only:
+            # pyrefly: ignore [unbound-name]
             out.backward(grad)
         else:
             func(indices, offsets, weights)
@@ -504,6 +506,7 @@ def benchmark_requests_refer(
                     device=get_device(),
                 )
                 torch.cuda.synchronize()
+            # pyrefly: ignore [unbound-name]
             start_event.record()
 
         nn_embedding_output = (
@@ -540,6 +543,7 @@ def benchmark_requests_refer(
             )
 
         if torch.cuda.is_available():
+            # pyrefly: ignore [unbound-name]
             end_event.record()
             torch.cuda.synchronize()
             # pyre-fixme[61]: `end_event` is undefined, or not always defined.

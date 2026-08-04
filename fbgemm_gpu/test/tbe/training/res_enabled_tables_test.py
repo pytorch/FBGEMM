@@ -62,6 +62,7 @@ class ResEnabledTablesTest(unittest.TestCase):
             res_params=res_params,
         )
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_empty_allowlist_enables_all(self) -> None:
         # Empty allowlist => no scoping; preserves the pre-allowlist behavior.
@@ -70,6 +71,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         mask = tbe.get_buffer("res_enabled_feature_mask")
         self.assertEqual(mask.tolist(), [True, True, True])
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_all_tables_listed_short_circuits(self) -> None:
         # Listing every table is equivalent to the empty/all-enabled fast path.
@@ -78,6 +80,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         mask = tbe.get_buffer("res_enabled_feature_mask")
         self.assertEqual(mask.tolist(), [True, True, True])
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_subset_allowlist_builds_feature_mask(self) -> None:
         tbe = self._build_tbe(["t0", "t1", "t2"], res_enabled_tables=["t1"])
@@ -86,6 +89,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         # one feature per table => mask lines up with table order
         self.assertEqual(mask.tolist(), [False, True, False])
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_unknown_table_name_ignored(self) -> None:
         # A name not in this TBE contributes nothing (no error, not enabled) --
@@ -95,6 +99,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         mask = tbe.get_buffer("res_enabled_feature_mask")
         self.assertEqual(mask.tolist(), [False, True])
 
+    # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_get_enabled_feature_mask_and_indices(self) -> None:
         rows = 64
