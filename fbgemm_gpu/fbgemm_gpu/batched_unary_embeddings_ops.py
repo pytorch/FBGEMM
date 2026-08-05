@@ -38,17 +38,17 @@ class BatchedUnaryEmbeddingBag(torch.nn.Module):
         # [N][sum(E)][1]
         embedding_data = torch.randn(size=(num_tasks, sum(self.hash_sizes), 1))
         self.weight = torch.nn.Parameter(embedding_data)
+        # Keep the offsets as Python ints as well as a buffer. Slicing the
+        # weight with the buffer's elements would read values off a tensor,
+        # which yields empty slices on meta / fake tensors (they carry shape
+        # but no data); the Python copy keeps split_embedding_weights()
+        # statically shaped so the module is constructible on those devices.
+        table_offsets = [0]
+        for hash_size in self.hash_sizes:
+            table_offsets.append(table_offsets[-1] + hash_size)
+        self.table_offsets: list[int] = table_offsets
         index_dtype = torch.int64 if long_index else torch.int32
-        table_offsets_tensor = torch.cat(
-            [
-                torch.tensor([0], dtype=index_dtype),
-                torch.cumsum(
-                    torch.tensor(hash_sizes),
-                    dim=0,
-                    dtype=index_dtype,
-                ),
-            ]
-        )
+        table_offsets_tensor = torch.tensor(table_offsets, dtype=index_dtype)
         self.register_buffer("table_offsets_tensor", table_offsets_tensor)
         self.init_parameters()
 
@@ -71,7 +71,7 @@ class BatchedUnaryEmbeddingBag(torch.nn.Module):
                 embedding_weights.append(
                     self.weight.detach()[
                         n,
-                        self.table_offsets_tensor[t] : self.table_offsets_tensor[t + 1],
+                        self.table_offsets[t] : self.table_offsets[t + 1],
                         :,
                     ]
                 )

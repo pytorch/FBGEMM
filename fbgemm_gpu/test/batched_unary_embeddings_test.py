@@ -239,6 +239,52 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
     def test_cpu(self) -> None:
         self._test_main(gpu_infer=False)
 
+    def test_meta_device_construction(self) -> None:
+        """
+        Constructing on meta must work: split_embedding_weights() slices the
+        weight per table, and meta tensors carry shape but no data. Slicing
+        with elements of table_offsets_tensor would read values off a
+        value-less tensor, collapsing every slice to length 0 and tripping the
+        shape assert in init_parameters(). The Python-int offsets keep the
+        slices statically shaped.
+
+        Model-analysis tooling constructs modules under torch.device("meta")
+        to estimate FLOPs and parameter counts without allocating, which is
+        the path that motivated this test.
+        """
+        hash_sizes = [100, 200]
+        num_tasks = 3
+        with torch.device("meta"):
+            unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+                num_tasks=num_tasks, hash_sizes=hash_sizes, long_index=True
+            )
+
+        self.assertEqual(unary_emb.weight.shape, (num_tasks, sum(hash_sizes), 1))
+        split_weights = unary_emb.split_embedding_weights()
+        self.assertEqual(len(split_weights), num_tasks * len(hash_sizes))
+        # Order matches init_parameters()'s `hash_sizes * num_tasks` zip.
+        for i, param in enumerate(split_weights):
+            self.assertTrue(param.is_meta)
+            self.assertEqual(param.shape, (hash_sizes[i % len(hash_sizes)], 1))
+
+    def test_torchscript_scriptable(self) -> None:
+        """
+        split_embedding_weights() and init_parameters() are @torch.jit.export,
+        so the module must stay scriptable. Guards the Python-int
+        table_offsets attribute against TorchScript inference regressions.
+        """
+        hash_sizes = [100, 200]
+        num_tasks = 3
+        unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=num_tasks, hash_sizes=hash_sizes, long_index=True
+        )
+        scripted = torch.jit.script(unary_emb)
+
+        split_weights = scripted.split_embedding_weights()
+        self.assertEqual(len(split_weights), num_tasks * len(hash_sizes))
+        for i, param in enumerate(split_weights):
+            self.assertEqual(param.shape, (hash_sizes[i % len(hash_sizes)], 1))
+
     @unittest.skipIf(*gpu_unavailable)
     # This test exercises the HIP launch-side limit and requires a large
     # output tensor (~17 GiB) plus offsets (~4 GiB) — total ~22 GiB GPU
