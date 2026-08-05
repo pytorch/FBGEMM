@@ -8,6 +8,7 @@
 
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh" // @manual
 #include "fbgemm_gpu/utils/ops_utils.h" // @manual
@@ -37,8 +38,6 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
     const int32_t info_B_num_bits,
     const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         predefined_vbe_output_offsets) {
-  // Relative sample ID in the rank-table matrix
-  const auto b = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   // Rank ID
   const auto r = blockIdx.y;
   // Table ID
@@ -48,29 +47,44 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
 
   const auto B_start_r_t = B_offsets_rank_per_feature[t][r];
   const auto B_r_t = B_offsets_rank_per_feature[t][r + 1] - B_start_r_t;
+  // Relative sample ID in the rank-table matrix. On ROCm the grid.x is capped
+  // so total threads (grid.x * blockDim.x * grid.y * grid.z) stay under the HIP
+  // 2^32 limit, so we grid-stride over b. On CUDA the grid is not capped and
+  // the loop runs exactly once.
+#ifdef USE_ROCM
+  for (auto b = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       b < B_r_t;
+       b += static_cast<int64_t>(gridDim.x) * blockDim.x) {
+#else
+  const auto b = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (b >= B_r_t) {
     return;
   }
+#endif
 
-  const bool use_predefined_offsets = predefined_vbe_output_offsets.size(0) > 0;
+    const bool use_predefined_offsets =
+        predefined_vbe_output_offsets.size(0) > 0;
 
-  const auto* __restrict__ output_offsets_feature =
-      &output_offsets_feature_rank[r * T];
+    const auto* __restrict__ output_offsets_feature =
+        &output_offsets_feature_rank[r * T];
 
-  const auto B_start_t = B_offsets[t];
-  const auto b_t =
-      static_cast<int64_t>(B_start_t) + static_cast<int64_t>(B_start_r_t) + b;
-  const auto D_ = nobag ? D : (D_offsets[t + 1] - D_offsets[t]);
-  auto offset = use_predefined_offsets ? predefined_vbe_output_offsets[r][t]
-                                       : output_offsets_feature[t];
-  row_output_offsets[b_t] = offset + b * static_cast<int64_t>(D_);
+    const auto B_start_t = B_offsets[t];
+    const auto b_t =
+        static_cast<int64_t>(B_start_t) + static_cast<int64_t>(B_start_r_t) + b;
+    const auto D_ = nobag ? D : (D_offsets[t + 1] - D_offsets[t]);
+    auto offset = use_predefined_offsets ? predefined_vbe_output_offsets[r][t]
+                                         : output_offsets_feature[t];
+    row_output_offsets[b_t] = offset + b * static_cast<int64_t>(D_);
 
-  // Relative sample ID in the table
-  const auto b_ = B_start_r_t + b;
-  // b_t is always positive.
-  *reinterpret_cast<uint32_t*>(&b_t_map[b_t]) =
-      (reinterpret_cast<const uint32_t*>(&t)[0] << info_B_num_bits) |
-      reinterpret_cast<const uint32_t*>(&b_)[0];
+    // Relative sample ID in the table
+    const auto b_ = B_start_r_t + b;
+    // b_t is always positive.
+    *reinterpret_cast<uint32_t*>(&b_t_map[b_t]) =
+        (reinterpret_cast<const uint32_t*>(&t)[0] << info_B_num_bits) |
+        reinterpret_cast<const uint32_t*>(&b_)[0];
+#ifdef USE_ROCM
+  } // for b (grid-stride loop, ROCm only)
+#endif
 }
 
 } // namespace
@@ -187,7 +201,14 @@ generate_vbe_metadata(
       at::empty({total_B_}, output_offsets_feature_rank.options());
   Tensor b_t_map = at::empty({total_B_}, B_offsets.options());
 
-  const auto grid_dim_x = div_round_up(max_B_feature_rank_, kMaxThreads);
+  // Cap grid.x on ROCm so total threads (grid.x * kMaxThreads * num_ranks * T)
+  // stay under the HIP 2^32 threads-per-launch limit; the kernel grid-strides
+  // over b. grid.y (num_ranks) and grid.z (T) are factored into the per-x-block
+  // thread count for the overflow check. No-op on CUDA.
+  const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
+      div_round_up(max_B_feature_rank_, kMaxThreads),
+      static_cast<int64_t>(kMaxThreads) * num_ranks * T,
+      at::cuda::getCurrentCUDAStream());
   const dim3 grid_size(grid_dim_x, num_ranks, T);
   const auto& [max_grid_x, max_grid_y, max_grid_z] = get_max_grid_size();
   TORCH_CHECK(
