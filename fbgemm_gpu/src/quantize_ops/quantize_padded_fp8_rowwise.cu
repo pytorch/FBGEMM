@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -35,61 +36,88 @@ __global__ inline void _float_to_paddedFP8rowwise_cuda_kernel(
   const int output_columns =
       ncols_aligned + (ncols + row_dim - 1) / row_dim * 8;
 
+  // On ROCm the launch caps the grid (HIP 2^32 threads-per-launch limit); grid-
+  // stride over rows/buckets. On CUDA the grid is not capped and the loop runs
+  // exactly once.
+  const int64_t num_items =
+      (nrows == 1) ? ((ncols + row_dim - 1) / row_dim) : nrows;
+#ifdef USE_ROCM
+  for (int64_t row =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       row < num_items;
+       row += static_cast<int64_t>(gridDim.x) * blockDim.x) {
+#else
   const int64_t row =
       static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  // for 1D case, unsqueezing needed
-  if (nrows == 1) {
-    const auto threads = (ncols + row_dim - 1) / row_dim;
-    if (row >= threads) {
+#endif
+    // for 1D case, unsqueezing needed
+    if (nrows == 1) {
+      const auto threads = (ncols + row_dim - 1) / row_dim;
+      if (row >= threads) {
+#ifdef USE_ROCM
+        continue;
+#else
       return;
-    }
-    const input_t* const input_row = input + row * row_dim;
-    std::uint8_t* output_row = output + row * row_ext;
-    int last_buc_idx = row - (threads - 1);
-    float* output_row_scale = reinterpret_cast<float*>(output_row + row_dim);
-    const auto range = (row == threads - 1) ? row_dim - pad : row_dim;
-    float minimum_element = fbgemm_gpu::min(input_row, input_row + range);
-    float maximum_element = fbgemm_gpu::max(input_row, input_row + range);
-    auto scale =
-        max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
-    output_row_scale[0] = scale;
-    // if no padding, the pad value is negative to indicate where the next
-    // non-zero pad value is for output size counting in host
-    output_row_scale[1] =
-        *reinterpret_cast<float*>((row == threads - 1) ? &pad : &last_buc_idx);
-    for (int col = 0; col < range; col += 1) {
-      output_row[col] =
-          float_to_hfp8(to_float(input_row[col]) * scale, ebit, bias, max_pos);
-    }
+#endif
+      }
+      const input_t* const input_row = input + row * row_dim;
+      std::uint8_t* output_row = output + row * row_ext;
+      int last_buc_idx = row - (threads - 1);
+      float* output_row_scale = reinterpret_cast<float*>(output_row + row_dim);
+      const auto range = (row == threads - 1) ? row_dim - pad : row_dim;
+      float minimum_element = fbgemm_gpu::min(input_row, input_row + range);
+      float maximum_element = fbgemm_gpu::max(input_row, input_row + range);
+      auto scale =
+          max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
+      output_row_scale[0] = scale;
+      // if no padding, the pad value is negative to indicate where the next
+      // non-zero pad value is for output size counting in host
+      output_row_scale[1] = *reinterpret_cast<float*>(
+          (row == threads - 1) ? &pad : &last_buc_idx);
+      for (int col = 0; col < range; col += 1) {
+        output_row[col] = float_to_hfp8(
+            to_float(input_row[col]) * scale, ebit, bias, max_pos);
+      }
+#ifdef USE_ROCM
+      continue;
+#else
     return;
-  }
-  // for 2D case
+#endif
+    }
+    // for 2D case
 
-  if (row >= nrows) {
+    if (row >= nrows) {
+#ifdef USE_ROCM
+      continue;
+#else
     return;
-  }
-  const input_t* input_row = input + row * ncols;
-  std::uint8_t* output_row = output + row * output_columns;
-  for (int col = 0; col < ncols; col += row_dim) {
-    int col_offset = col / row_dim * 8;
-    int last_buc_idx = (ncols - col) / row_dim * -1;
-    float* output_row_scale =
-        reinterpret_cast<float*>(output_row + col + col_offset + row_dim);
-    int buc_end = (row_dim < ncols - col) ? row_dim : ncols - col;
-    float minimum_element =
-        fbgemm_gpu::min(input_row + col, input_row + buc_end + col);
-    float maximum_element =
-        fbgemm_gpu::max(input_row + col, input_row + buc_end + col);
-    auto scale =
-        max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
-    output_row_scale[0] = scale;
-    output_row_scale[1] = *reinterpret_cast<float*>(
-        (ncols - col > row_dim) ? &last_buc_idx : &pad);
-    for (int bi = 0; bi < std::min(row_dim, (int)(ncols - col)); ++bi) {
-      output_row[col + bi + col_offset] = float_to_hfp8(
-          to_float(input_row[col + bi]) * scale, ebit, bias, max_pos);
+#endif
     }
-  }
+    const input_t* input_row = input + row * ncols;
+    std::uint8_t* output_row = output + row * output_columns;
+    for (int col = 0; col < ncols; col += row_dim) {
+      int col_offset = col / row_dim * 8;
+      int last_buc_idx = (ncols - col) / row_dim * -1;
+      float* output_row_scale =
+          reinterpret_cast<float*>(output_row + col + col_offset + row_dim);
+      int buc_end = (row_dim < ncols - col) ? row_dim : ncols - col;
+      float minimum_element =
+          fbgemm_gpu::min(input_row + col, input_row + buc_end + col);
+      float maximum_element =
+          fbgemm_gpu::max(input_row + col, input_row + buc_end + col);
+      auto scale =
+          max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
+      output_row_scale[0] = scale;
+      output_row_scale[1] = *reinterpret_cast<float*>(
+          (ncols - col > row_dim) ? &last_buc_idx : &pad);
+      for (int bi = 0; bi < std::min(row_dim, (int)(ncols - col)); ++bi) {
+        output_row[col + bi + col_offset] = float_to_hfp8(
+            to_float(input_row[col + bi]) * scale, ebit, bias, max_pos);
+      }
+    }
+#ifdef USE_ROCM
+  } // for row (grid-stride loop, ROCm only)
+#endif
 }
 
 __global__ inline void _get_padding_value_kernel(
@@ -97,16 +125,26 @@ __global__ inline void _get_padding_value_kernel(
     const int row_dim,
     const std::uint8_t* const __restrict__ input,
     int* const __restrict__ offsets) {
-  const int64_t row =
-      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   const int row_ext = row_dim + 8;
   const auto threads = (ncols + row_ext - 1) / row_ext;
+#ifdef USE_ROCM
+  for (int64_t row =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       row < threads;
+       row += static_cast<int64_t>(gridDim.x) * blockDim.x) {
+#else
+  const int64_t row =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (row >= threads)
     return;
-  const std::uint8_t* const input_row = input + row * row_ext;
-  int pad = *reinterpret_cast<const int*>(input_row + row_dim + 4);
-  pad = (pad > 0) ? pad : 0;
-  offsets[row] = pad;
+#endif
+    const std::uint8_t* const input_row = input + row * row_ext;
+    int pad = *reinterpret_cast<const int*>(input_row + row_dim + 4);
+    pad = (pad > 0) ? pad : 0;
+    offsets[row] = pad;
+#ifdef USE_ROCM
+  } // for row (grid-stride loop, ROCm only)
+#endif
 }
 
 __global__ inline void _single_thread_sum_padding_kernel(
@@ -183,28 +221,38 @@ __global__ inline void _PaddedFP8rowwise_to_float_2d_cuda_kernel(
   const int ebit = forward ? 4 : 5;
   const int bias = forward ? 15 : 31;
 
+#ifdef USE_ROCM
+  for (int64_t row =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       row < nrows;
+       row += static_cast<int64_t>(gridDim.x) * blockDim.x) {
+#else
   const int64_t row =
       static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (row >= nrows) {
     return;
   }
-  const std::uint8_t* const input_row = input + row * ncols;
-  output_t* output_row = output + row * output_columns;
-  int col_offset = 0;
-  for (int col = 0; col < ncols; col = col + row_ext) {
-    const float* input_row_scale =
-        reinterpret_cast<const float*>(input_row + col + row_ext - 8);
-    int pad = *reinterpret_cast<const int*>(&input_row_scale[1]);
-    // if pad is negative it's used to indidate indices of the next padded
-    // bucket
-    pad = ::max(0, ::min(pad, row_dim));
-    for (int bi = 0; bi < row_dim - pad; ++bi) {
-      const auto output_ =
-          hfp8_to_float(input_row[col + bi], ebit, bias) / input_row_scale[0];
-      quantize_float_store(&output_row[col + bi - col_offset], output_);
+#endif
+    const std::uint8_t* const input_row = input + row * ncols;
+    output_t* output_row = output + row * output_columns;
+    int col_offset = 0;
+    for (int col = 0; col < ncols; col = col + row_ext) {
+      const float* input_row_scale =
+          reinterpret_cast<const float*>(input_row + col + row_ext - 8);
+      int pad = *reinterpret_cast<const int*>(&input_row_scale[1]);
+      // if pad is negative it's used to indidate indices of the next padded
+      // bucket
+      pad = ::max(0, ::min(pad, row_dim));
+      for (int bi = 0; bi < row_dim - pad; ++bi) {
+        const auto output_ =
+            hfp8_to_float(input_row[col + bi], ebit, bias) / input_row_scale[0];
+        quantize_float_store(&output_row[col + bi - col_offset], output_);
+      }
+      col_offset = col_offset + 8 + pad;
     }
-    col_offset = col_offset + 8 + pad;
-  }
+#ifdef USE_ROCM
+  } // for row (grid-stride loop, ROCm only)
+#endif
 }
 
 } // namespace
@@ -247,8 +295,12 @@ Tensor _float_to_paddedFP8rowwise_gpu_t(
   }
 
   constexpr int threads_per_block = 256;
-  const auto num_blocks = cuda_calc_xblock_count(
-      nrows == 1 ? (ncols + row_dim - 1) / row_dim : nrows, threads_per_block);
+  const auto num_blocks = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(
+          nrows == 1 ? (ncols + row_dim - 1) / row_dim : nrows,
+          threads_per_block),
+      threads_per_block,
+      at::cuda::getCurrentCUDAStream());
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
@@ -306,8 +358,11 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
   auto output_dims = input_sizes.vec();
 
   constexpr int threads_per_block = 256;
-  const auto num_blocks = cuda_calc_xblock_count(
-      (nrows == 1) ? num_buckets : nrows, threads_per_block);
+  const auto num_blocks = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(
+          (nrows == 1) ? num_buckets : nrows, threads_per_block),
+      threads_per_block,
+      at::cuda::getCurrentCUDAStream());
   Tensor offsets = at::empty(
       (nrows == 1) ? num_buckets : 0, input.options().dtype(at::kInt));
   int total_pad = 0;
