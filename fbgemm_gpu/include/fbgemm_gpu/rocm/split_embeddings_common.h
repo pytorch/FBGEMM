@@ -88,6 +88,12 @@ __device__ float llvm_amdgcn_raw_buffer_load_fp32(
     int32_t soffset = 0,
     int32_t glc_slc = 0) __asm("llvm.amdgcn.raw.buffer.load.f32");
 
+__device__ floatx2_t llvm_amdgcn_raw_buffer_load_fp32x2(
+    int32x4_t srsrc,
+    int32_t voffset,
+    int32_t soffset = 0,
+    int32_t glc_slc = 0) __asm("llvm.amdgcn.raw.buffer.load.v2f32");
+
 __device__ half2 llvm_amdgcn_raw_buffer_load_fp16x2(
     int32x4_t srsrc,
     int32_t voffset,
@@ -160,81 +166,27 @@ struct load_row_per_warp {
   }
 };
 
-template <typename index_t>
-struct load_row_per_warp<half, 64, index_t> {
-  static __device__ void
-  run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 64);
-    emb_data[0] =
-        llvm_amdgcn_raw_buffer_load_fp16(emb_res, lane_id * sizeof(half));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<half, 128, index_t> {
-  static __device__ void
-  run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 128);
-    *reinterpret_cast<half2*>(emb_data) =
-        llvm_amdgcn_raw_buffer_load_fp16x2(emb_res, lane_id * sizeof(half2));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<half, 160, index_t> {
+template <int32_t embedding_dim, typename index_t>
+struct load_row_per_warp<half, embedding_dim, index_t> {
+  static constexpr int dword_per_row =
+      (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
+  static constexpr int half2_pairs_per_row = dword_per_row / 2;
+  static constexpr bool has_scalar_tail = dword_per_row % 2 == 1;
   static __device__ void
   run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
     int32x4_t emb_res = amdgcn_make_buffer_resource(
-        p_emb_table + row_index * 160, sizeof(half) * 160);
-    *reinterpret_cast<half2*>(emb_data) =
-        llvm_amdgcn_raw_buffer_load_fp16x2(emb_res, lane_id * sizeof(half2));
-    emb_data[2] = llvm_amdgcn_raw_buffer_load_fp16(
-        emb_res, (lane_id + 128) * sizeof(half));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<half, 192, index_t> {
-  static __device__ void
-  run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 192);
-    *reinterpret_cast<half2*>(emb_data) =
-        llvm_amdgcn_raw_buffer_load_fp16x2(emb_res, lane_id * sizeof(half2));
-    emb_data[2] = llvm_amdgcn_raw_buffer_load_fp16(
-        emb_res, (lane_id + 128) * sizeof(half));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<half, 256, index_t> {
-  static __device__ void
-  run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 256);
-    *reinterpret_cast<half2*>(&emb_data[0]) =
-        llvm_amdgcn_raw_buffer_load_fp16x2(emb_res, lane_id * sizeof(half2));
-    *reinterpret_cast<half2*>(&emb_data[2]) =
-        llvm_amdgcn_raw_buffer_load_fp16x2(
-            emb_res, (lane_id + 64) * sizeof(half2));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<half, 320, index_t> {
-  static __device__ void
-  run(half* emb_data, index_t row_index, const half* p_emb_table, int lane_id) {
-    int32x4_t emb_res = amdgcn_make_buffer_resource(
-        p_emb_table + row_index * 320, sizeof(half) * 320);
-    *reinterpret_cast<half2*>(&emb_data[0]) =
-        llvm_amdgcn_raw_buffer_load_fp16x2(emb_res, lane_id * sizeof(half2));
-    *reinterpret_cast<half2*>(&emb_data[2]) =
-        llvm_amdgcn_raw_buffer_load_fp16x2(
-            emb_res, (lane_id + 64) * sizeof(half2));
-    emb_data[4] = llvm_amdgcn_raw_buffer_load_fp16(
-        emb_res, (lane_id + 256) * sizeof(half));
+        p_emb_table + row_index * embedding_dim, sizeof(half) * embedding_dim);
+#pragma unroll
+    for (int p = 0; p < half2_pairs_per_row; p++) {
+      *reinterpret_cast<half2*>(&emb_data[2 * p]) =
+          llvm_amdgcn_raw_buffer_load_fp16x2(
+              emb_res, (lane_id + p * 64) * sizeof(half2));
+    }
+    if constexpr (has_scalar_tail) {
+      constexpr int tail = dword_per_row - 1;
+      emb_data[tail] = llvm_amdgcn_raw_buffer_load_fp16(
+          emb_res, (lane_id + tail * 64) * sizeof(half));
+    }
   }
 };
 
@@ -253,111 +205,45 @@ struct load_row_per_warp<c10::Half, embedding_dim, index_t> {
   }
 };
 
-template <typename index_t>
-struct load_row_per_warp<float, 64, index_t> {
+template <int32_t embedding_dim, typename index_t>
+struct load_row_per_warp<c10::BFloat16, embedding_dim, index_t> {
   static __device__ void run(
-      float* emb_data,
+      c10::BFloat16* emb_data,
       index_t row_index,
-      const float* p_emb_table,
+      const c10::BFloat16* p_emb_table,
       int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 64);
-    emb_data[0] =
-        llvm_amdgcn_raw_buffer_load_fp32(emb_res, lane_id * sizeof(float));
+    load_row_per_warp<half, embedding_dim, index_t>::run(
+        reinterpret_cast<half*>(emb_data),
+        row_index,
+        reinterpret_cast<const half*>(p_emb_table),
+        lane_id);
   }
 };
 
-template <typename index_t>
-struct load_row_per_warp<float, 128, index_t> {
-  static __device__ void run(
-      float* emb_data,
-      index_t row_index,
-      const float* p_emb_table,
-      int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 128);
-    emb_data[0] =
-        llvm_amdgcn_raw_buffer_load_fp32(emb_res, lane_id * sizeof(float));
-    emb_data[1] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 64) * sizeof(float));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<float, 160, index_t> {
+template <int32_t embedding_dim, typename index_t>
+struct load_row_per_warp<float, embedding_dim, index_t> {
+  static constexpr int dword_per_row =
+      (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
+  static constexpr int float2_pairs_per_row = dword_per_row / 2;
+  static constexpr bool has_scalar_tail = dword_per_row % 2 == 1;
   static __device__ void run(
       float* emb_data,
       index_t row_index,
       const float* p_emb_table,
       int lane_id) {
     int32x4_t emb_res = amdgcn_make_buffer_resource(
-        p_emb_table + row_index * 160, sizeof(float) * 160);
-    emb_data[0] =
-        llvm_amdgcn_raw_buffer_load_fp32(emb_res, lane_id * sizeof(float));
-    emb_data[1] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 64) * sizeof(float));
-    emb_data[2] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 128) * sizeof(float));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<float, 192, index_t> {
-  static __device__ void run(
-      float* emb_data,
-      index_t row_index,
-      const float* p_emb_table,
-      int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 192);
-    emb_data[0] =
-        llvm_amdgcn_raw_buffer_load_fp32(emb_res, lane_id * sizeof(float));
-    emb_data[1] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 64) * sizeof(float));
-    emb_data[2] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 128) * sizeof(float));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<float, 256, index_t> {
-  static __device__ void run(
-      float* emb_data,
-      index_t row_index,
-      const float* p_emb_table,
-      int lane_id) {
-    int32x4_t emb_res =
-        amdgcn_make_buffer_resource(p_emb_table + row_index * 256);
-    emb_data[0] =
-        llvm_amdgcn_raw_buffer_load_fp32(emb_res, lane_id * sizeof(float));
-    emb_data[1] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 64) * sizeof(float));
-    emb_data[2] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 128) * sizeof(float));
-    emb_data[3] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 192) * sizeof(float));
-  }
-};
-
-template <typename index_t>
-struct load_row_per_warp<float, 320, index_t> {
-  static __device__ void run(
-      float* emb_data,
-      index_t row_index,
-      const float* p_emb_table,
-      int lane_id) {
-    int32x4_t emb_res = amdgcn_make_buffer_resource(
-        p_emb_table + row_index * 320, sizeof(float) * 320);
-    emb_data[0] =
-        llvm_amdgcn_raw_buffer_load_fp32(emb_res, lane_id * sizeof(float));
-    emb_data[1] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 64) * sizeof(float));
-    emb_data[2] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 128) * sizeof(float));
-    emb_data[3] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 192) * sizeof(float));
-    emb_data[4] = llvm_amdgcn_raw_buffer_load_fp32(
-        emb_res, (lane_id + 256) * sizeof(float));
+        p_emb_table + row_index * embedding_dim, sizeof(float) * embedding_dim);
+#pragma unroll
+    for (int p = 0; p < float2_pairs_per_row; p++) {
+      *reinterpret_cast<floatx2_t*>(&emb_data[2 * p]) =
+          llvm_amdgcn_raw_buffer_load_fp32x2(
+              emb_res, (lane_id + p * 64) * sizeof(floatx2_t));
+    }
+    if constexpr (has_scalar_tail) {
+      constexpr int tail = dword_per_row - 1;
+      emb_data[tail] = llvm_amdgcn_raw_buffer_load_fp32(
+          emb_res, (lane_id + tail * 64) * sizeof(float));
+    }
   }
 };
 
@@ -408,72 +294,27 @@ struct store_row_per_warp {
   }
 };
 
-template <>
-struct store_row_per_warp<half, 64> {
-  static __device__ void run(const half* acc, half* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp16(acc[0], out_res, lane_id * sizeof(half));
-  }
-};
-
-template <>
-struct store_row_per_warp<half, 128> {
-  static __device__ void run(const half* acc, half* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp16x2(
-        *reinterpret_cast<const half2*>(acc), out_res, lane_id * sizeof(half2));
-  }
-};
-
-template <>
-struct store_row_per_warp<half, 160> {
+template <int32_t embedding_dim>
+struct store_row_per_warp<half, embedding_dim> {
+  static constexpr int dword_per_row =
+      (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
+  static constexpr int half2_pairs_per_row = dword_per_row / 2;
+  static constexpr bool has_scalar_tail = dword_per_row % 2 == 1;
   static __device__ void run(const half* acc, half* p_output, int lane_id) {
     int32x4_t out_res =
-        amdgcn_make_buffer_resource(p_output, 160 * sizeof(half));
-    llvm_amdgcn_raw_buffer_store_fp16x2(
-        *reinterpret_cast<const half2*>(acc), out_res, lane_id * sizeof(half2));
-    llvm_amdgcn_raw_buffer_store_fp16(
-        acc[2], out_res, (lane_id + 128) * sizeof(half));
-  }
-};
-
-template <>
-struct store_row_per_warp<half, 192> {
-  static __device__ void run(const half* acc, half* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp16x2(
-        *reinterpret_cast<const half2*>(acc), out_res, lane_id * sizeof(half2));
-    llvm_amdgcn_raw_buffer_store_fp16(
-        acc[2], out_res, (lane_id + 128) * sizeof(half));
-  }
-};
-
-template <>
-struct store_row_per_warp<half, 256> {
-  static __device__ void run(const half* acc, half* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp16x2(
-        *reinterpret_cast<const half2*>(acc), out_res, lane_id * sizeof(half2));
-    llvm_amdgcn_raw_buffer_store_fp16x2(
-        *reinterpret_cast<const half2*>(acc + 2),
-        out_res,
-        (lane_id + 64) * sizeof(half2));
-  }
-};
-
-template <>
-struct store_row_per_warp<half, 320> {
-  static __device__ void run(const half* acc, half* p_output, int lane_id) {
-    int32x4_t out_res =
-        amdgcn_make_buffer_resource(p_output, 320 * sizeof(half));
-    llvm_amdgcn_raw_buffer_store_fp16x2(
-        *reinterpret_cast<const half2*>(acc), out_res, lane_id * sizeof(half2));
-    llvm_amdgcn_raw_buffer_store_fp16x2(
-        *reinterpret_cast<const half2*>(acc + 2),
-        out_res,
-        (lane_id + 64) * sizeof(half2));
-    llvm_amdgcn_raw_buffer_store_fp16(
-        acc[4], out_res, (lane_id + 256) * sizeof(half));
+        amdgcn_make_buffer_resource(p_output, sizeof(half) * embedding_dim);
+#pragma unroll
+    for (int p = 0; p < half2_pairs_per_row; p++) {
+      llvm_amdgcn_raw_buffer_store_fp16x2(
+          *reinterpret_cast<const half2*>(acc + 2 * p),
+          out_res,
+          (lane_id + p * 64) * sizeof(half2));
+    }
+    if constexpr (has_scalar_tail) {
+      constexpr int tail = dword_per_row - 1;
+      llvm_amdgcn_raw_buffer_store_fp16(
+          acc[tail], out_res, (lane_id + tail * 64) * sizeof(half));
+    }
   }
 };
 
@@ -488,77 +329,27 @@ struct store_row_per_warp<c10::Half, embedding_dim> {
   }
 };
 
-template <>
-struct store_row_per_warp<float, 64> {
-  static __device__ void run(const float* acc, float* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
-  }
-};
-
-template <>
-struct store_row_per_warp<float, 128> {
-  static __device__ void run(const float* acc, float* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[1], out_res, (lane_id + 64) * sizeof(float));
-  }
-};
-
-template <>
-struct store_row_per_warp<float, 160> {
+template <int32_t embedding_dim>
+struct store_row_per_warp<float, embedding_dim> {
+  static constexpr int dword_per_row =
+      (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
+  static constexpr int float2_pairs_per_row = dword_per_row / 2;
+  static constexpr bool has_scalar_tail = dword_per_row % 2 == 1;
   static __device__ void run(const float* acc, float* p_output, int lane_id) {
     int32x4_t out_res =
-        amdgcn_make_buffer_resource(p_output, sizeof(float) * 160);
-    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[1], out_res, (lane_id + 64) * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[2], out_res, (lane_id + 128) * sizeof(float));
-  }
-};
-
-template <>
-struct store_row_per_warp<float, 192> {
-  static __device__ void run(const float* acc, float* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[1], out_res, (lane_id + 64) * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[2], out_res, (lane_id + 128) * sizeof(float));
-  }
-};
-
-template <>
-struct store_row_per_warp<float, 256> {
-  static __device__ void run(const float* acc, float* p_output, int lane_id) {
-    int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[1], out_res, (lane_id + 64) * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[2], out_res, (lane_id + 128) * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[3], out_res, (lane_id + 192) * sizeof(float));
-  }
-};
-
-template <>
-struct store_row_per_warp<float, 320> {
-  static __device__ void run(const float* acc, float* p_output, int lane_id) {
-    int32x4_t out_res =
-        amdgcn_make_buffer_resource(p_output, sizeof(float) * 320);
-    llvm_amdgcn_raw_buffer_store_fp32(acc[0], out_res, lane_id * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[1], out_res, (lane_id + 64) * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[2], out_res, (lane_id + 128) * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[3], out_res, (lane_id + 192) * sizeof(float));
-    llvm_amdgcn_raw_buffer_store_fp32(
-        acc[4], out_res, (lane_id + 256) * sizeof(float));
+        amdgcn_make_buffer_resource(p_output, sizeof(float) * embedding_dim);
+#pragma unroll
+    for (int p = 0; p < float2_pairs_per_row; p++) {
+      llvm_amdgcn_raw_buffer_store_fp32x2(
+          *reinterpret_cast<const floatx2_t*>(acc + 2 * p),
+          out_res,
+          (lane_id + p * 64) * sizeof(floatx2_t));
+    }
+    if constexpr (has_scalar_tail) {
+      constexpr int tail = dword_per_row - 1;
+      llvm_amdgcn_raw_buffer_store_fp32(
+          acc[tail], out_res, (lane_id + tail * 64) * sizeof(float));
+    }
   }
 };
 

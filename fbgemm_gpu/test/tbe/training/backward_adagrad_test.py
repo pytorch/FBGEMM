@@ -13,7 +13,7 @@ import logging
 import os
 import time
 import unittest
-from typing import Any
+from typing import Any, Optional
 
 import torch
 from fbgemm_gpu.split_embedding_configs import (
@@ -247,6 +247,7 @@ class BackwardAdagradTest(unittest.TestCase):
         weights_precision: SparseType,
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
+        output_dtype: Optional[SparseType] = None,
     ) -> None:
         """Helper method for ROCm backward kernel tests."""
         execute_backward_adagrad(
@@ -266,7 +267,9 @@ class BackwardAdagradTest(unittest.TestCase):
             cache_algorithm=CacheAlgorithm.LRU,
             pooling_mode=PoolingMode.SUM,
             use_cpu=False,
-            output_dtype=weights_precision,
+            output_dtype=(
+                output_dtype if output_dtype is not None else weights_precision
+            ),
             weight_decay_mode=weight_decay_mode,
         )
 
@@ -277,6 +280,9 @@ class BackwardAdagradTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=2, max_value=20),
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         weighted=st.booleans(),
         weight_decay_mode=st.sampled_from(
             [
@@ -297,6 +303,7 @@ class BackwardAdagradTest(unittest.TestCase):
         log_E: int,
         L: int,
         weights_precision: SparseType,
+        output_dtype: SparseType,
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
@@ -315,6 +322,7 @@ class BackwardAdagradTest(unittest.TestCase):
                 weights_precision=weights_precision,
                 weighted=weighted,
                 weight_decay_mode=weight_decay_mode,
+                output_dtype=output_dtype,
             )
 
     @given(
@@ -324,6 +332,9 @@ class BackwardAdagradTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=2, max_value=20),
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         weighted=st.booleans(),
         weight_decay_mode=st.sampled_from(
             [
@@ -344,6 +355,7 @@ class BackwardAdagradTest(unittest.TestCase):
         log_E: int,
         L: int,
         weights_precision: SparseType,
+        output_dtype: SparseType,
         weighted: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
@@ -362,6 +374,7 @@ class BackwardAdagradTest(unittest.TestCase):
                 weights_precision=weights_precision,
                 weighted=weighted,
                 weight_decay_mode=weight_decay_mode,
+                output_dtype=output_dtype,
             )
 
     @given(
