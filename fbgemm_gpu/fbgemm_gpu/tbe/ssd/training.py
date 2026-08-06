@@ -599,6 +599,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.last_flush_step = -1
 
         # Set prefetch pipeline
+        # Prefetch pipelining is not supported in embedding cache mode: the TBE
+        # forward runs under no_grad (see ZeroCollisionEmbeddingCache), so the
+        # backward hooks that drain ssd_location_update_data and unlock cache
+        # lines never fire, and their UVA scratch pads leak one per iteration.
+        if self._enrichment_enabled:
+            if prefetch_pipeline:
+                logging.warning(
+                    "prefetch_pipeline is not supported in embedding_cache_mode; "
+                    "disabling it"
+                )
+            prefetch_pipeline = False
         self.prefetch_pipeline: bool = prefetch_pipeline
         self.prefetch_stream: torch.cuda.Stream | None = None
 
