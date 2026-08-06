@@ -270,7 +270,10 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
   const int blockDim_x = std::min(output_columns, threads_per_block);
   const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
-  const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+  const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+      cuda_calc_block_count(nrows, blockDim.y),
+      static_cast<int64_t>(gridDim_x) * threads_per_block,
+      at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
 #define DEQUANT_LAUNCH_NBIT(scale_bias_last)                               \
