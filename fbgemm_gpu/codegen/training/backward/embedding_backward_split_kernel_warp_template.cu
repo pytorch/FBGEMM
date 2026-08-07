@@ -75,7 +75,7 @@ template <
     typename {{ ph_name + "_ph_t"}},
     {%- endfor %}
     int32_t kFixedMaxVecsPerThread,
-    int32_t kThreadGroupSize,
+    int32_t kSubwarpDivisor,
     bool kUseVecBlocking>
 __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
@@ -151,6 +151,10 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
     {%- endif %}
 ) {
+    // kThreadGroupSize derived per-arch from the device-pass kWarpSize.
+    // The template's mangled name carries kSubwarpDivisor, not kThreadGroupSize,
+    // so host and every per-arch device pass agree on the wrapper symbol.
+    constexpr int32_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
     {%- if not nobag %}
     int32_t T = D_offsets.size(0) - 1;
     {%- else %}
@@ -359,7 +363,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
       index_type,
       ph_type_combo,
       kFixedMaxVecsPerThread,
-      kThreadGroupSize,
+      kSubwarpDivisor,
       kUseVecBlocking
     )
 %}
@@ -379,7 +383,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
   {{ ph_type_combo[ph_name].primitive_type }},
   {%- endfor %}
   {{ kFixedMaxVecsPerThread }},
-  {{ kThreadGroupSize }},
+  {{ kSubwarpDivisor }},
   {{ kUseVecBlocking }}
 > (
     const pta::PackedTensorAccessor64<{{ grad_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
@@ -462,7 +466,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 );
 {%- endmacro %}
 
-{%- macro bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
+{%- macro bulk_template_instantiations(kFixedMaxVecsPerThread, kSubwarpDivisor, kUseVecBlocking) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
@@ -475,7 +479,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
             index_type,
             ph_type_combo,
             kFixedMaxVecsPerThread,
-            kThreadGroupSize,
+            kSubwarpDivisor,
             kUseVecBlocking
           )
         }}
@@ -492,7 +496,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 {{
   bulk_template_instantiations(
     fixed_max_vecs_per_thread["backward"],
-    'kWarpSize',
+    '1',
     'true'
   )
 }}
@@ -500,9 +504,8 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 {%- else %}
 
 {%- macro instantiate_templates(use_subwarp_shuffle) %}
-{%- for (kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking)
-    in get_max_vecs_template_configs(
-        items_per_warp,
+{%- for (kFixedMaxVecsPerThread, kSubwarpDivisor, kUseVecBlocking)
+    in get_max_vecs_template_configs_union(
         fixed_max_vecs_per_thread["backward"],
         use_subwarp_shuffle,
         use_vec_blocking=True,
@@ -511,7 +514,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     {{
       bulk_template_instantiations(
         kFixedMaxVecsPerThread,
-        kThreadGroupSize,
+        kSubwarpDivisor,
         kUseVecBlocking,
       )
     }}
@@ -563,7 +566,7 @@ template <
     typename cache_t,
     typename index_t,
     int32_t kFixedMaxVecsPerThread,
-    int32_t kThreadGroupSize,
+    int32_t kSubwarpDivisor,
     bool kUseVecBlocking,
     int32_t embedding_dim,
     int32_t weight_decay_mode_v>
@@ -694,7 +697,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
       cache_type,
       index_type,
       kFixedMaxVecsPerThread,
-      kThreadGroupSize,
+      kSubwarpDivisor,
       kUseVecBlocking,
       kEmbeddingDim,
       kWeighDecayMode
@@ -707,7 +710,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
   {{ cache_type }},
   {{ index_type }},
   {{ kFixedMaxVecsPerThread }},
-  {{ kThreadGroupSize }},
+  {{ kSubwarpDivisor }},
   {{ kUseVecBlocking }},
   {{ kEmbeddingDim }},
   {{ kWeighDecayMode }}
@@ -770,7 +773,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
 );
 {%- endmacro %}
 
-{%- macro hip_bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
+{%- macro hip_bulk_template_instantiations(kFixedMaxVecsPerThread, kSubwarpDivisor, kUseVecBlocking) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
@@ -783,7 +786,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
             cache_type,
             index_type,
             kFixedMaxVecsPerThread,
-            kThreadGroupSize,
+            kSubwarpDivisor,
             kUseVecBlocking,
             kEmbeddingDim,
             kWeighDecayMode
@@ -798,9 +801,8 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
 {%- endmacro %}
 
 {%- macro hip_instantiate_templates(use_subwarp_shuffle) %}
-{%- for (kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking)
-    in get_max_vecs_template_configs(
-        items_per_warp,
+{%- for (kFixedMaxVecsPerThread, kSubwarpDivisor, kUseVecBlocking)
+    in get_max_vecs_template_configs_union(
         fixed_max_vecs_per_thread["backward"],
         use_subwarp_shuffle,
         use_vec_blocking=True,
@@ -809,7 +811,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {{
       hip_bulk_template_instantiations(
         kFixedMaxVecsPerThread,
-        kThreadGroupSize,
+        kSubwarpDivisor,
         kUseVecBlocking,
       )
     }}

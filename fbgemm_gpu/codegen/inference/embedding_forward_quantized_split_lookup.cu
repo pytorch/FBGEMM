@@ -201,10 +201,10 @@ Tensor pruned_hashmap_lookup_cuda(
                       hash_t>),
                   utils::cuda::cap_grid_dim_x(
                       nbit::div_round_up(
-                          B * T + 1, kForwardMaxThreads / kWarpSize),
+                          B * T + 1, kForwardMaxThreads / kWarpSizeHost()),
                       kForwardMaxThreads,
                       at::cuda::getCurrentCUDAStream()),
-                  dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                  dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
                   0,
                   at::cuda::getCurrentCUDAStream(),
                   PTA_B(indices, index_t, 1, 32),
@@ -266,10 +266,10 @@ Tensor pruned_array_lookup_cuda(
                       remap_t>),
                   utils::cuda::cap_grid_dim_x(
                       nbit::div_round_up(
-                          offsets.size(0), kForwardMaxThreads / kWarpSize),
+                          offsets.size(0), kForwardMaxThreads / kWarpSizeHost()),
                       kForwardMaxThreads,
                       at::cuda::getCurrentCUDAStream()),
-                  dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                  dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
                   0,
                   at::cuda::getCurrentCUDAStream(),
                   PTA_B(indices, index_t, 1, 32),
