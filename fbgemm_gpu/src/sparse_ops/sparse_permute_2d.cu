@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <cstdlib>
+
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -18,7 +20,8 @@ template <
     bool has_weight,
     typename offsets_t,
     typename indices_t,
-    typename weights_t>
+    typename weights_t,
+    bool debug = false>
 __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
     int64_t len,
     int32_t T,
@@ -44,6 +47,21 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
       segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
     }
     offsets_t input_start = input_offsets[permute[t] * B + b];
+    if constexpr (debug) {
+      const bool in_bounds = output_start >= 0 && segment_length >= 0 &&
+          static_cast<int64_t>(output_start) +
+                  static_cast<int64_t>(segment_length) <=
+              len;
+      CUDA_KERNEL_ASSERT_PRINTF(
+          in_bounds,
+          "permute_2D_data_kernel: output segment out of bounds of "
+          "permuted_indices (b_t=%d, output_start=%lld, segment_length=%lld, "
+          "len=%lld)",
+          b_t,
+          static_cast<long long>(output_start),
+          static_cast<long long>(segment_length),
+          static_cast<long long>(len));
+    }
     for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
@@ -111,7 +129,8 @@ template <
     bool has_weight,
     typename offsets_t,
     typename indices_t,
-    typename weights_t>
+    typename weights_t,
+    bool debug = false>
 __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
     int64_t len,
     int32_t T,
@@ -137,6 +156,22 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
     const int32_t segment_length =
         static_cast<int32_t>(output_end - output_start);
     const offsets_t input_start = input_offsets[permute[t] * B + b];
+
+    if constexpr (debug) {
+      // output_end wrapping negative (int32 offsets overflow) is caught by the
+      // output_end >= output_start term.
+      const bool in_bounds =
+          output_start >= 0 && output_end >= output_start && output_end <= len;
+      CUDA_KERNEL_ASSERT_PRINTF(
+          in_bounds,
+          "permute_2D_data_kernel_vec: output segment out of bounds of "
+          "permuted_indices (b_t=%d, output_start=%lld, output_end=%lld, "
+          "len=%lld)",
+          b_t,
+          static_cast<long long>(output_start),
+          static_cast<long long>(output_end),
+          static_cast<long long>(len));
+    }
 
     indices_t* __restrict__ indices_dst = permuted_indices + output_start;
     const indices_t* __restrict__ indices_src = indices + input_start;
@@ -213,6 +248,23 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_lengths_kernel(
     permuted_lengths[b_t] = lengths[permute[t] * B + b];
   }
 }
+
+// Launch a permute kernel, picking the debug instantiation at runtime.
+// debug=false does not instantiate the bounds assert at all, which is what
+// keeps the fused two-stream copy optimizable (see is_debug_permute_enabled).
+#define FBGEMM_LAUNCH_PERMUTE_2D(                                       \
+    DEBUG, KERNEL, HAS_WEIGHT, OFFSETS_T, INDICES_T, WEIGHTS_T, ...)    \
+  do {                                                                  \
+    if (DEBUG) {                                                        \
+      FBGEMM_LAUNCH_KERNEL(                                             \
+          (KERNEL<HAS_WEIGHT, OFFSETS_T, INDICES_T, WEIGHTS_T, true>),  \
+          __VA_ARGS__);                                                 \
+    } else {                                                            \
+      FBGEMM_LAUNCH_KERNEL(                                             \
+          (KERNEL<HAS_WEIGHT, OFFSETS_T, INDICES_T, WEIGHTS_T, false>), \
+          __VA_ARGS__);                                                 \
+    }                                                                   \
+  } while (0)
 
 DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
 permute_2D_sparse_preallocated_out_cuda(
@@ -305,6 +357,8 @@ permute_2D_sparse_preallocated_out_cuda(
   }
 
   // convert lengths to offsets
+  const bool debug_permute = is_debug_permute_enabled();
+
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
       asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
@@ -314,9 +368,24 @@ permute_2D_sparse_preallocated_out_cuda(
         "permute_2D", output_offsets, debug_permuted_lengths_sum);
   }
 
+  // The hint only sizes permuted_indices; the kernels address writes via
+  // output_offsets, so a hint that disagrees causes out-of-bounds writes.
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
+    if (debug_permute) {
+      const int64_t true_size = output_offsets[-1].item<int64_t>();
+      TORCH_CHECK(
+          permuted_indices_size == true_size,
+          "permute_2D_sparse_data: permuted_lengths_sum hint (",
+          permuted_indices_size,
+          ") != actual sum of permuted lengths (",
+          true_size,
+          "). The preallocated permuted_indices buffer is undersized and the "
+          "permute kernel would write out of bounds. This usually means the "
+          "caller's cached length metadata is stale relative to the GPU lengths "
+          "tensor.");
+    }
   } else {
     permuted_indices_size = output_offsets[-1].item<int64_t>();
   }
@@ -372,12 +441,13 @@ permute_2D_sparse_preallocated_out_cuda(
                     [&] {
                       using weights_t = scalar_t;
                       if (weights_columns == 1) {
-                        FBGEMM_LAUNCH_KERNEL(
-                            (permute_2D_data_kernel_vec<
-                                true,
-                                offsets_t,
-                                indices_t,
-                                weights_t>),
+                        FBGEMM_LAUNCH_PERMUTE_2D(
+                            debug_permute,
+                            permute_2D_data_kernel_vec,
+                            true,
+                            offsets_t,
+                            indices_t,
+                            weights_t,
                             blocks_2,
                             threads_2,
                             0,
@@ -393,12 +463,13 @@ permute_2D_sparse_preallocated_out_cuda(
                             permuted_indices.data_ptr<indices_t>(),
                             permuted_weights.data_ptr<weights_t>());
                       } else {
-                        FBGEMM_LAUNCH_KERNEL(
-                            (permute_2D_data_kernel<
-                                true,
-                                offsets_t,
-                                indices_t,
-                                weights_t>),
+                        FBGEMM_LAUNCH_PERMUTE_2D(
+                            debug_permute,
+                            permute_2D_data_kernel,
+                            true,
+                            offsets_t,
+                            indices_t,
+                            weights_t,
                             blocks_2,
                             threads_2,
                             0,
@@ -417,12 +488,13 @@ permute_2D_sparse_preallocated_out_cuda(
                       }
                     }); // for each weights_t
               } else {
-                FBGEMM_LAUNCH_KERNEL(
-                    (permute_2D_data_kernel_vec<
-                        false,
-                        offsets_t,
-                        indices_t,
-                        std::nullptr_t>),
+                FBGEMM_LAUNCH_PERMUTE_2D(
+                    debug_permute,
+                    permute_2D_data_kernel_vec,
+                    false,
+                    offsets_t,
+                    indices_t,
+                    std::nullptr_t,
                     blocks_2,
                     threads_2,
                     0,
@@ -440,8 +512,11 @@ permute_2D_sparse_preallocated_out_cuda(
               }
             }); // for each indices_t
       }); // for each offsets_t
+
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
+
+#undef FBGEMM_LAUNCH_PERMUTE_2D
 
 // Functional (allocating) entry point. Delegates to the shared implementation
 // with no pre-allocated output buffers.
