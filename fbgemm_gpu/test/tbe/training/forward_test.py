@@ -53,6 +53,7 @@ if open_source:
         is_nvidia_device,
         optests,
         running_in_oss,
+        skipIfNotRocm,
         TEST_WITH_ROCM,
     )
 else:
@@ -62,6 +63,7 @@ else:
         is_nvidia_device,
         optests,
         running_in_oss,
+        skipIfNotRocm,
         TEST_WITH_ROCM,
     )
 
@@ -875,6 +877,56 @@ class ForwardTest(unittest.TestCase):
             use_cpu,
             SparseType.FP32,
             use_experimental_tbe,
+        )
+
+    @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("NFP8 format-selection corner case is ROCm-specific")
+    def test_forward_gpu_nfp8_format_matches_host_decode(self) -> None:
+        # Pins that the device NFP8 decode matches a host decode through the same
+        # dtype. Fails when the arch-native FP8 format (OCP on gfx950) disagrees
+        # with the Python-selected fnuz storage dtype.
+        E, D = 64, 8
+        dev = torch.device("cuda:0")
+
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),
+            ],
+            weights_precision=SparseType.NFP8,
+            pooling_mode=PoolingMode.NONE,
+            output_dtype=SparseType.FP32,
+            device=dev,
+        )
+
+        # Finite values whose fnuz and OCP decodes differ.
+        ref = (
+            torch.arange(1, E * D + 1, dtype=torch.float32, device=dev).view(E, D)
+            * 0.05
+        )
+        stored = ref.to(fp8_dtype)
+        cc.split_embedding_weights()[0].data.copy_(stored)
+
+        indices = torch.arange(E, dtype=torch.int64, device=dev)
+        offsets = torch.arange(0, E + 1, dtype=torch.int64, device=dev)
+        out = cc(indices, offsets).detach().float()
+
+        host_decode = stored.view(torch.uint8).view(fp8_dtype).float()
+
+        arch = getattr(
+            torch.cuda.get_device_properties(dev), "gcnArchName", "unknown"
+        )
+        max_err = (out - host_decode).abs().max().item()
+        torch.testing.assert_close(
+            out,
+            host_decode,
+            atol=1.0e-2,
+            rtol=1.0e-2,
+            msg=(
+                f"NFP8 TBE forward on {arch} decoded weights stored as "
+                f"{fp8_dtype} inconsistently with the host decode of the same "
+                f"dtype (max abs err {max_err:.4g})."
+            ),
         )
 
     @unittest.skipIf(*gpu_unavailable)
