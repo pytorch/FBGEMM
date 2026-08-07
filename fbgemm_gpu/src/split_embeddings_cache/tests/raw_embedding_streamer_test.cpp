@@ -8,7 +8,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h" // @manual=//deeplearning/fbgemm/fbgemm_gpu/src/split_embeddings_cache:raw_embedding_streamer
+#include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
 #ifdef FBGEMM_FBCODE
 #include <folly/coro/GmockHelpers.h>
 #include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
@@ -35,6 +35,11 @@ class MockTrainingParameterServerService
 };
 #endif
 
+// These object-constructing tests run in BOTH targets: the fbcode target links
+// the flag-on :raw_embedding_streamer, and the no-fbcode target links the
+// flag-off :raw_embedding_streamer_no_fbcode -- so each test's flag view of the
+// header layout matches its library, avoiding the sizeof mismatch (an all-off
+// test linked against the always-flag-on library would overrun the object).
 static std::unique_ptr<fbgemm_gpu::RawEmbeddingStreamer>
 getRawEmbeddingStreamer(
     const std::string& unique_id,
