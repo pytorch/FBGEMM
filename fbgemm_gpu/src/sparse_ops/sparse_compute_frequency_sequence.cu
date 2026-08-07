@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -19,13 +20,20 @@ __launch_bounds__(kMaxThreads) void compute_frequency_sequence_kernel(
     int64_t* output,
     index_t start_input,
     const int input_size) {
+#ifdef USE_ROCM
+  for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < input_size;
+       i += blockDim.x * gridDim.x) {
+#else
   const auto i = blockDim.x * blockIdx.x + threadIdx.x;
-
   if (i >= input_size) {
     return;
   }
-  // Atomic could become a bottleneck if frequencies are very skew
-  atomicAdd(&output[input[i] - start_input], 1);
+#endif
+    // Atomic could become a bottleneck if frequencies are very skew
+    atomicAdd(&output[input[i] - start_input], 1);
+#ifdef USE_ROCM
+  } // for i (grid-stride loop, ROCm only)
+#endif
 }
 
 DLL_PUBLIC void compute_frequency_sequence(
@@ -39,7 +47,10 @@ DLL_PUBLIC void compute_frequency_sequence(
       input.scalar_type(), "compute_frequency_sequence_kernel_1", [&] {
         FBGEMM_LAUNCH_KERNEL(
             (compute_frequency_sequence_kernel<index_t>),
-            cuda_calc_xblock_count(input.numel(), kWarpSizeHost()),
+            utils::cuda::cap_grid_dim_x_from_workload(
+                input.numel(),
+                kWarpSizeHost(),
+                at::cuda::getCurrentCUDAStream()),
             kWarpSizeHost(),
             0,
             at::cuda::getCurrentCUDAStream(),
