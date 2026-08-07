@@ -10,6 +10,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_utils.h"
@@ -32,25 +33,34 @@ __launch_bounds__(kMaxThreads) void histogram_binning_calibration_kernel(
     const double* const bin_num_positives_data,
     T* const calibrated_prediction_data,
     int64_t* const bin_ids_data) {
+#ifdef USE_ROCM
+  for (auto index = blockIdx.x * blockDim.x + threadIdx.x; index < num_logits;
+       index += blockDim.x * gridDim.x) {
+#else
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_logits) {
     return;
   }
+#endif
 
-  const T pre_sigmoid = logit_data[index] + recalibrate_value;
-  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
+    const T pre_sigmoid = logit_data[index] + recalibrate_value;
+    const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
 
-  bin_ids_data[index] = ceil(uncalibrated / step) - 1;
+    bin_ids_data[index] = ceil(uncalibrated / step) - 1;
 
-  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
-  if (curr_bin_num_examples > bin_ctr_in_use_after) {
-    const auto curr_bin_ctr =
-        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
-    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
-        uncalibrated * (1.0 - bin_ctr_weight_value);
-  } else {
-    calibrated_prediction_data[index] = uncalibrated;
-  }
+    const auto curr_bin_num_examples =
+        bin_num_examples_data[bin_ids_data[index]];
+    if (curr_bin_num_examples > bin_ctr_in_use_after) {
+      const auto curr_bin_ctr =
+          bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
+      calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
+          uncalibrated * (1.0 - bin_ctr_weight_value);
+    } else {
+      calibrated_prediction_data[index] = uncalibrated;
+    }
+#ifdef USE_ROCM
+  } // for index (grid-stride loop, ROCm only)
+#endif
 }
 
 std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
@@ -81,7 +91,8 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
       logit.scalar_type(), "histogram_binning_calibration_cuda", [&] {
         FBGEMM_LAUNCH_KERNEL(
             (histogram_binning_calibration_kernel<scalar_t>),
-            fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+            utils::cuda::cap_grid_dim_x_from_workload(
+                logit.numel(), kMaxThreads, at::cuda::getCurrentCUDAStream()),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream(),
@@ -107,20 +118,29 @@ __global__ __launch_bounds__(kMaxThreads) void to_dense_segment_value_kernel(
     const ValueType* const segment_value_data,
     const OffsetType* const segment_offsets_data,
     ValueType* const dense_segment_value_data) {
+#ifdef USE_ROCM
+  for (auto index = blockIdx.x * blockDim.x + threadIdx.x;
+       index < num_lengths - 1;
+       index += blockDim.x * gridDim.x) {
+#else
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_lengths - 1) {
     return;
   }
+#endif
 
-  const auto curr_offset = segment_offsets_data[index];
-  const auto next_offset = segment_offsets_data[index + 1];
-  if (next_offset == curr_offset + 1) {
-    // Add 1 to distinguish between 0 inserted by densification vs. original
-    // value.
-    dense_segment_value_data[index] = segment_value_data[curr_offset] + 1;
-  } else {
-    dense_segment_value_data[index] = 0;
-  }
+    const auto curr_offset = segment_offsets_data[index];
+    const auto next_offset = segment_offsets_data[index + 1];
+    if (next_offset == curr_offset + 1) {
+      // Add 1 to distinguish between 0 inserted by densification vs. original
+      // value.
+      dense_segment_value_data[index] = segment_value_data[curr_offset] + 1;
+    } else {
+      dense_segment_value_data[index] = 0;
+    }
+#ifdef USE_ROCM
+  } // for index (grid-stride loop, ROCm only)
+#endif
 }
 
 template <typename LogitType, typename SegmentValueType>
@@ -139,30 +159,39 @@ __launch_bounds__(kMaxThreads) void histogram_binning_calibration_by_feature_ker
     const double* const bin_num_positives_data,
     LogitType* const calibrated_prediction_data,
     int64_t* const bin_ids_data) {
+#ifdef USE_ROCM
+  for (auto index = blockIdx.x * blockDim.x + threadIdx.x; index < num_logits;
+       index += blockDim.x * gridDim.x) {
+#else
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_logits) {
     return;
   }
+#endif
 
-  const LogitType pre_sigmoid = logit_data[index] + recalibrate_value;
-  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
+    const LogitType pre_sigmoid = logit_data[index] + recalibrate_value;
+    const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
 
-  const int64_t curr_segment_value =
-      dense_segment_value_data[index] > num_segments
-      ? 0
-      : std::max(0L, dense_segment_value_data[index] * num_bins);
+    const int64_t curr_segment_value =
+        dense_segment_value_data[index] > num_segments
+        ? 0
+        : std::max(0L, dense_segment_value_data[index] * num_bins);
 
-  bin_ids_data[index] = ceil(uncalibrated / step) - 1 + curr_segment_value;
+    bin_ids_data[index] = ceil(uncalibrated / step) - 1 + curr_segment_value;
 
-  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
-  if (curr_bin_num_examples > bin_ctr_in_use_after) {
-    const auto curr_bin_ctr =
-        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
-    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
-        uncalibrated * (1.0 - bin_ctr_weight_value);
-  } else {
-    calibrated_prediction_data[index] = uncalibrated;
-  }
+    const auto curr_bin_num_examples =
+        bin_num_examples_data[bin_ids_data[index]];
+    if (curr_bin_num_examples > bin_ctr_in_use_after) {
+      const auto curr_bin_ctr =
+          bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
+      calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
+          uncalibrated * (1.0 - bin_ctr_weight_value);
+    } else {
+      calibrated_prediction_data[index] = uncalibrated;
+    }
+#ifdef USE_ROCM
+  } // for index (grid-stride loop, ROCm only)
+#endif
 }
 
 std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
@@ -209,8 +238,10 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
 
               FBGEMM_LAUNCH_KERNEL(
                   (to_dense_segment_value_kernel<offset_t, value_t>),
-                  fbgemm_gpu::div_round_up(
-                      segment_offsets.numel(), kMaxThreads),
+                  utils::cuda::cap_grid_dim_x_from_workload(
+                      segment_offsets.numel(),
+                      kMaxThreads,
+                      at::cuda::getCurrentCUDAStream()),
                   kMaxThreads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
@@ -245,7 +276,10 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
                   (histogram_binning_calibration_by_feature_kernel<
                       logit_t,
                       segment_value_t>),
-                  fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+                  utils::cuda::cap_grid_dim_x_from_workload(
+                      logit.numel(),
+                      kMaxThreads,
+                      at::cuda::getCurrentCUDAStream()),
                   kMaxThreads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
@@ -284,43 +318,52 @@ __launch_bounds__(kMaxThreads) void generic_histogram_binning_calibration_by_fea
     const double* const bin_boundaries,
     LogitType* const calibrated_prediction_data,
     int64_t* const bin_ids_data) {
+#ifdef USE_ROCM
+  for (auto index = blockIdx.x * blockDim.x + threadIdx.x; index < num_logits;
+       index += blockDim.x * gridDim.x) {
+#else
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_logits) {
     return;
   }
+#endif
 
-  const LogitType pre_sigmoid = logit_data[index] + recalibrate_value;
-  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
+    const LogitType pre_sigmoid = logit_data[index] + recalibrate_value;
+    const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
 
-  // Perform binary search.
-  int left = 0;
-  int right = num_bins - 1;
-  while (left != right) {
-    const int middle = (left + right) >> 1;
-    if (bin_boundaries[middle] < uncalibrated) {
-      left = middle + 1;
-    } else {
-      right = middle;
+    // Perform binary search.
+    int left = 0;
+    int right = num_bins - 1;
+    while (left != right) {
+      const int middle = (left + right) >> 1;
+      if (bin_boundaries[middle] < uncalibrated) {
+        left = middle + 1;
+      } else {
+        right = middle;
+      }
     }
-  }
-  const int curr_bin_id = left;
+    const int curr_bin_id = left;
 
-  const int64_t curr_segment_value =
-      dense_segment_value_data[index] > num_segments
-      ? 0
-      : std::max(0L, dense_segment_value_data[index] * num_bins);
+    const int64_t curr_segment_value =
+        dense_segment_value_data[index] > num_segments
+        ? 0
+        : std::max(0L, dense_segment_value_data[index] * num_bins);
 
-  bin_ids_data[index] = curr_bin_id + curr_segment_value;
+    bin_ids_data[index] = curr_bin_id + curr_segment_value;
 
-  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
-  if (curr_bin_num_examples > bin_ctr_in_use_after) {
-    const auto curr_bin_ctr =
-        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
-    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
-        uncalibrated * (1.0 - bin_ctr_weight_value);
-  } else {
-    calibrated_prediction_data[index] = uncalibrated;
-  }
+    const auto curr_bin_num_examples =
+        bin_num_examples_data[bin_ids_data[index]];
+    if (curr_bin_num_examples > bin_ctr_in_use_after) {
+      const auto curr_bin_ctr =
+          bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
+      calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
+          uncalibrated * (1.0 - bin_ctr_weight_value);
+    } else {
+      calibrated_prediction_data[index] = uncalibrated;
+    }
+#ifdef USE_ROCM
+  } // for index (grid-stride loop, ROCm only)
+#endif
 }
 
 std::tuple<Tensor, Tensor>
@@ -370,8 +413,10 @@ generic_histogram_binning_calibration_by_feature_cuda(
 
               FBGEMM_LAUNCH_KERNEL(
                   (to_dense_segment_value_kernel<offset_t, value_t>),
-                  fbgemm_gpu::div_round_up(
-                      segment_offsets.numel(), kMaxThreads),
+                  utils::cuda::cap_grid_dim_x_from_workload(
+                      segment_offsets.numel(),
+                      kMaxThreads,
+                      at::cuda::getCurrentCUDAStream()),
                   kMaxThreads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
@@ -405,7 +450,10 @@ generic_histogram_binning_calibration_by_feature_cuda(
                   (generic_histogram_binning_calibration_by_feature_kernel<
                       logit_t,
                       segment_value_t>),
-                  fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+                  utils::cuda::cap_grid_dim_x_from_workload(
+                      logit.numel(),
+                      kMaxThreads,
+                      at::cuda::getCurrentCUDAStream()),
                   kMaxThreads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
