@@ -177,6 +177,10 @@ void lfu_cache_insert_cuda(
 
   CUDA_DEVICE_GUARD(weights);
 
+  // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
+  // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
+  weights = fbgemm_gpu::relabel_nfp8_for_dispatch(weights);
+
   const int32_t N = cache_set_sorted_unique_indices.numel();
 
   fbgemm_gpu::dispatch_emb_cache_types(

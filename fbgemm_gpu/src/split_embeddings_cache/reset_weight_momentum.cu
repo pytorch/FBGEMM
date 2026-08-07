@@ -236,6 +236,11 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
       lxu_cache_state);
   CUDA_DEVICE_GUARD(dev_weights);
 
+  // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
+  // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
+  dev_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
+  uvm_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
+
   const int64_t num_pruned_indices = pruned_indices.size(0);
   const int32_t num_pruned_tables = buffer_ids.size(0);
   const int32_t blocks_per_table = get_sm_count_();

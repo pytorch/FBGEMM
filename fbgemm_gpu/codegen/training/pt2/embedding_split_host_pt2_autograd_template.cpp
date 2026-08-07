@@ -152,7 +152,7 @@ enum SSDTensor {
     auto output = embedding_codegen_forward_op.call(
       weights_host,
       flatten_weights_dev,
-      weights_uvm,
+      relabeled_weights_uvm,
       weights_lxu_cache,
       weights_placements,
       weights_offsets,
@@ -931,10 +931,16 @@ class {{ autograd_func }} :
 
     {%- if optimizer == "none" %}
     // Flatten
-    const auto& flatten_weights_dev = weights_dev.flatten();
+    const auto flatten_weights_dev =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(weights_dev.flatten());
     {%- else %}
-    const auto& flatten_weights_dev = weights_dev;
+    const auto flatten_weights_dev =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(weights_dev);
     {%- endif %}
+    // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
+    // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
+    const auto relabeled_weights_uvm =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(weights_uvm);
     {%- if nobag %}
     // nobag
       {{
@@ -981,6 +987,10 @@ static torch::autograd::variable_list backward(
     auto weights_host = *savedItr++;
     auto weights_dev = *savedItr++;
     auto weights_uvm = *savedItr++;
+    // Mirror the forward-side relabel: on ROCm a gfx950 NFP8 tensor is labeled
+    // fn, but only the fnuz kernel variant is instantiated. No-op elsewhere.
+    weights_dev = fbgemm_gpu::relabel_nfp8_for_dispatch(weights_dev);
+    weights_uvm = fbgemm_gpu::relabel_nfp8_for_dispatch(weights_uvm);
     auto weights_lxu_cache = *savedItr++;
     auto weights_placements = *savedItr++;
     auto weights_offsets = *savedItr++;
