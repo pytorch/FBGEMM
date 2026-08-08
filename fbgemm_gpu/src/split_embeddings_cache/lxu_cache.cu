@@ -103,6 +103,10 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
 
   CUDA_DEVICE_GUARD(lxu_cache_weights);
 
+  // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
+  // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
+  uvm_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
+
   const int32_t T = D_offsets.numel() - 1;
   TORCH_CHECK(
       T > 0,

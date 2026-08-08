@@ -67,7 +67,7 @@ enum SSDTensor {
     auto output = embedding_codegen_forward_op.call(
       flatten_dev_weights,
       {%- if not dense %}
-      uvm_weights,
+      relabeled_uvm_weights,
       lxu_cache_weights,
       weights_placements,
       {%- endif %}
@@ -827,9 +827,17 @@ class {{ autograd_func }} :
 
     {%- if optimizer == "none" %}
     // Flatten
-    const auto& flatten_dev_weights = dev_weights.flatten();
+    const auto flatten_dev_weights =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights.flatten());
     {%- else %}
-    const auto& flatten_dev_weights = dev_weights;
+    const auto flatten_dev_weights =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
+    {%- endif %}
+    {%- if not dense %}
+    // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
+    // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
+    const auto relabeled_uvm_weights =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
     {%- endif %}
 
     {%- if nobag %}
@@ -874,6 +882,12 @@ class {{ autograd_func }} :
     auto uvm_weights = *savedItr++;
     auto lxu_cache_weights = *savedItr++;
     auto weights_placements = *savedItr++;
+    {%- endif %}
+    // Mirror the forward-side relabel: on ROCm a gfx950 NFP8 tensor is labeled
+    // fn, but only the fnuz kernel variant is instantiated. No-op elsewhere.
+    dev_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
+    {%- if not dense %}
+    uvm_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
     {%- endif %}
     auto weights_offsets = *savedItr++;
     {%- if not nobag %}

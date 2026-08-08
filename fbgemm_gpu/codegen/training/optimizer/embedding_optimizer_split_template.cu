@@ -144,9 +144,13 @@ void split_embedding_{{ optimizer }}_update(
 
     CUDA_DEVICE_GUARD(dev_weights);
 
-    // Flatten dev_weights because it is currrently 2D
-    dev_weights = dev_weights.flatten();
-    const auto& flatten_grad_dev_weights = grad_dev_weights.flatten();
+    // Flatten dev_weights because it is currrently 2D.
+    // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
+    // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
+    dev_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights.flatten());
+    uvm_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
+    const auto flatten_grad_dev_weights =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(grad_dev_weights.flatten());
     const auto& flatten_grad_dev_indices = grad_dev_indices.flatten();
 
     fbgemm_gpu::dispatch_emb_cache_types(

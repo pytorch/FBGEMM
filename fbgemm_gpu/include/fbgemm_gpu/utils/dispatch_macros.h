@@ -61,6 +61,28 @@ decltype(auto) dispatch_emb_cache_types(
       return dispatch_cache.template operator()<at::Half>();
     case c10::CppTypeToScalarType<fp8_e4m3_t>::value:
       return dispatch_cache.template operator()<fp8_e4m3_t>();
+#if defined(USE_ROCM)
+    // On gfx950 an NFP8 tensor is labeled fn (getNFP8ScalarType / nfp8_dtype),
+    // but only the fnuz emb_t variant is instantiated, so every host entry
+    // point must call fbgemm_gpu::relabel_nfp8_for_dispatch() on the embedding
+    // weight tensors first -- see the "NFP8 dtype flow" block in
+    // fbgemm_gpu/embedding_common.h.
+    //
+    // Reaching here still labeled fn means that call was missed. Fail now, with
+    // that explanation, instead of routing into the fnuz instantiation and
+    // dying further downstream inside TensorAccessorBuilder or
+    // data_ptr<emb_t>() with a bare scalar-type mismatch that points at the
+    // symptom rather than the omission.
+    case at::ScalarType::Float8_e4m3fn:
+      TORCH_CHECK(
+          false,
+          name,
+          ": embedding weights reached dispatch still labeled ",
+          toString(emb_type),
+          ". Call fbgemm_gpu::relabel_nfp8_for_dispatch() on them at the host "
+          "boundary first; see the NFP8 dtype flow note in "
+          "fbgemm_gpu/embedding_common.h.");
+#endif
     default:
       TORCH_CHECK(
           false, name, " not implemented for emb_t '", toString(emb_type), "'");
@@ -200,10 +222,13 @@ decltype(auto) dispatch_index_types(
 
 #if defined(USE_ROCM)
 
-#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)   \
-  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
-  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
-  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fnuz, __VA_ARGS__)
+// Both FP8 labels are dispatchable on ROCm because getNFP8ScalarType() picks
+// fnuz on gfx94x/gfx90a and fn on gfx950.
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_FP8_CASE(...)             \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)           \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)            \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fnuz, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Float8_e4m3fn, __VA_ARGS__)
 
 #else
 

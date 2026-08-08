@@ -1302,6 +1302,25 @@ Tensor {{ embedding_cuda_op }}(
                     constexpr bool supported_grad_type = std::is_same_v<grad_t, float> || std::is_same_v<grad_t, at::Half> || std::is_same_v<grad_t, at::BFloat16>;
                     const bool cached = uvm_weights.numel() > 0 || lxu_cache_weights.numel() > 0;
 
+                    // FP8 must stay out of supported_weights_type. Unlike the generic
+                    // backward, this path converts emb_t through the *c10* FP8 types
+                    // (nearest_rounding_store_vector in
+                    // rocm/embedding_backward_split_device_kernel_template.hip,
+                    // accumulate_row_per_warp in rocm/split_embeddings_common.h) rather
+                    // than the arch-bound __nv_fp8_e4m3 alias. c10::Float8_e4m3fnuz uses
+                    // exponent bias 8 and c10::Float8_e4m3fn uses bias 7, so the
+                    // conversion is label-bound. dispatch_emb_cache_types() routes the
+                    // gfx950 "fn" tensor label into the single at::Float8_e4m3fnuz
+                    // instantiation, so admitting FP8 here would apply bias-8 math to OCP
+                    // data on gfx950, silently. Move those device sites onto the alias
+                    // before relaxing this.
+                    static_assert(
+                        !supported_weights_type ||
+                            (!std::is_same_v<emb_t, at::Float8_e4m3fnuz> &&
+                             !std::is_same_v<emb_t, at::Float8_e4m3fn>),
+                        "ROCm optimized backward converts emb_t via the label-bound c10 FP8 types; "
+                        "admitting FP8 emb_t here is incorrect on gfx950. See comment above.");
+
                     // The optimized HIP backward kernel uses warpSize-64-only
                     // intrinsics; it must only be dispatched on warpSize 64
                     // devices. warpSize 32 devices fall through to the generic
