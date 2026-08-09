@@ -283,7 +283,7 @@ def gpu_memory_lt_gb(x: int) -> tuple[bool, str]:
     return (
         torch.cuda.is_available()
         and (torch.cuda.get_device_properties(0).total_memory / (1024**3)) < x,
-        "GPU memory < 40GB",
+        f"GPU memory < {x}GB",
     )
 
 

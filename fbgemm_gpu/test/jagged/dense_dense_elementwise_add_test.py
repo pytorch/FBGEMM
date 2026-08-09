@@ -380,7 +380,7 @@ class DenseDenseElementwiseAddTest(unittest.TestCase):
         torch.testing.assert_close(small_output_gpu[0].cpu(), small_output_cpu[0])
 
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*gpu_memory_lt_gb(40))
+    @unittest.skipIf(*gpu_memory_lt_gb(4))
     def test_jagged_dense_dense_elementwise_add_jagged_output_opt_search_large_grid(
         self,
     ) -> None:
