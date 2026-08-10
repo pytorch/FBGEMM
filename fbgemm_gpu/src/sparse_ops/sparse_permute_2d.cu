@@ -14,31 +14,6 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-// Whether the permute_2D kernels instantiate their device-side bounds asserts.
-// This is a COMPILE-time switch, not a runtime one. Selecting it at runtime
-// forces the compiler to emit both the debug and non-debug specialization of
-// every kernel in the dispatch matrix -- offsets(2) x indices(5) x weights(6)
-// = 60 for each of the two weighted data launches, plus offsets(2) x
-// indices(5) = 10 for the unweighted one, so 130 kernels become 260. That
-// doubling pushed large PyTorch test binaries past the 2 GiB PC-relative
-// relocation limit (T283951345).
-//
-// permute_2D_lengths_kernel hangs off the same constant. Its own matrix is just
-// indices(2), so its doubling is not what blew the limit, but keeping a second
-// runtime-selected switch beside this one would reintroduce the same pattern
-// and leave the two asserts toggled by different mechanisms.
-//
-// Build with -DFBGEMM_DEBUG_PERMUTE_DEVICE_ASSERT to instantiate the asserts;
-// leaving it out keeps the fused two-stream copy optimizable. The host-side
-// TORCH_CHECK stays runtime-gated on FBGEMM_DEBUG_PERMUTE=1 and costs no
-// instantiations -- it is the check to reach for first, since it fails fast at
-// the offending call and names both values.
-#ifdef FBGEMM_DEBUG_PERMUTE_DEVICE_ASSERT
-inline constexpr bool kPermuteDeviceAssert = true;
-#else
-inline constexpr bool kPermuteDeviceAssert = false;
-#endif
-
 // Kernel for permuting the indices and weights. Used for permutation of sparse
 // data
 template <
@@ -262,7 +237,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
 // Kernel for permuting the lengths. Used for permutation of sparse features.
 //
 // The bounds checks are compiled in only for debug=true, which defaults to the
-// compile-time kPermuteDeviceAssert above.
+// compile-time kPermuteDeviceAssert (see common.cuh).
 template <typename index_t, bool debug = kPermuteDeviceAssert>
 __global__ __launch_bounds__(kMaxThreads) void permute_2D_lengths_kernel(
     int32_t T,
