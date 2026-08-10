@@ -12,15 +12,70 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
+// Launch permute_1D_lengths_kernel, picking the debug instantiation at runtime.
+// debug=false does not instantiate the bounds asserts at all, so the default
+// kernel carries no terminating path.
+#define FBGEMM_LAUNCH_PERMUTE_1D_LENGTHS(DEBUG, INDEX_T, PERMUTE_T, ...)       \
+  do {                                                                         \
+    if (DEBUG) {                                                               \
+      FBGEMM_LAUNCH_KERNEL(                                                    \
+          (permute_1D_lengths_kernel<INDEX_T, PERMUTE_T, true>), __VA_ARGS__); \
+    } else {                                                                   \
+      FBGEMM_LAUNCH_KERNEL(                                                    \
+          (permute_1D_lengths_kernel<INDEX_T, PERMUTE_T, false>),              \
+          __VA_ARGS__);                                                        \
+    }                                                                          \
+  } while (0)
+
 // Kernel for permuting 1D lengths. Used for permutation of sparse features.
-template <typename index_t, typename permute_t = int32_t>
+//
+// The bounds checks are compiled in only for debug=true (selected at launch
+// from FBGEMM_DEBUG_PERMUTE): a terminating failure path costs on the healthy
+// path even when it never fires, so the default instantiation carries no check.
+// See permute_2D_data_kernel_vec for the measurement.
+template <typename index_t, typename permute_t = int32_t, bool debug = false>
 __global__ __launch_bounds__(kMaxThreads) void permute_1D_lengths_kernel(
     const index_t* __restrict__ lengths,
     int32_t permuted_lengths_size,
     const permute_t* __restrict__ permute,
+    int64_t lengths_size,
+    int64_t indices_size,
     index_t* __restrict__ permuted_lengths) {
   CUDA_KERNEL_LOOP(i, permuted_lengths_size) {
-    permuted_lengths[i] = lengths[permute[i]];
+    const auto permute_idx = permute[i];
+    if constexpr (debug) {
+      // An out-of-range permute index makes lengths[permute[i]] read out of
+      // bounds and silently poisons permuted_lengths; the corruption only
+      // surfaces much later as a non-deterministic CUDA illegal memory access
+      // in the data kernel. Asserting at the read site localizes the fault to
+      // its true origin.
+      CUDA_KERNEL_ASSERT_PRINTF(
+          permute_idx >= 0 && static_cast<int64_t>(permute_idx) < lengths_size,
+          "permute_1D_lengths_kernel: permute index out of bounds "
+          "(i=%d, permute[i]=%lld, lengths_size=%lld)",
+          i,
+          static_cast<long long>(permute_idx),
+          static_cast<long long>(lengths_size));
+    }
+    const index_t length = lengths[permute_idx];
+    if constexpr (debug) {
+      // A corrupt length *value* even when the index is in range: a valid
+      // per-feature length is in [0, indices_size], since one feature cannot
+      // own more elements than the total input indices. Out of that range means
+      // the lengths contents were poisoned (e.g. a concurrent write/free),
+      // which otherwise surfaces only as a garbage output_offsets sum. Firing
+      // here rather than the index assert distinguishes the two causes.
+      CUDA_KERNEL_ASSERT_PRINTF(
+          static_cast<int64_t>(length) >= 0 &&
+              static_cast<int64_t>(length) <= indices_size,
+          "permute_1D_lengths_kernel: length value out of range "
+          "(i=%d, permute[i]=%lld, length=%lld, indices_size=%lld)",
+          i,
+          static_cast<long long>(permute_idx),
+          static_cast<long long>(length),
+          static_cast<long long>(indices_size));
+    }
+    permuted_lengths[i] = length;
   }
 }
 
@@ -259,13 +314,16 @@ permute_1D_sparse_data_cuda(
   // See: https://github.com/ROCm/hip/issues/2253
   const auto blocks_1 = utils::cuda::cap_grid_dim_x_from_workload(
       permuted_lengths_size, threads_1, at::cuda::getCurrentCUDAStream());
+  const bool debug_permute = is_debug_permute_enabled();
   AT_DISPATCH_INDEX_TYPES(
       permute.scalar_type(), "permute_1D_lengths_permute_type", [&] {
         using permute_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
             lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
-              FBGEMM_LAUNCH_KERNEL(
-                  (permute_1D_lengths_kernel<index_t, permute_t>),
+              FBGEMM_LAUNCH_PERMUTE_1D_LENGTHS(
+                  debug_permute,
+                  index_t,
+                  permute_t,
                   blocks_1,
                   threads_1,
                   0,
@@ -273,6 +331,8 @@ permute_1D_sparse_data_cuda(
                   lengths_contig.data_ptr<index_t>(),
                   permuted_lengths_size,
                   permute_contig.data_ptr<permute_t>(),
+                  lengths_size,
+                  indices_contig.numel(),
                   permuted_lengths.data_ptr<index_t>());
             });
       });
@@ -411,6 +471,8 @@ permute_1D_sparse_data_cuda(
 
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
+
+#undef FBGEMM_LAUNCH_PERMUTE_1D_LENGTHS
 
 } // namespace fbgemm_gpu
 
