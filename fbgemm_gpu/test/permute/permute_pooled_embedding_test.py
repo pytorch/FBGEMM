@@ -11,12 +11,7 @@ import inspect
 import sys
 import unittest
 
-# Import for its side effect of registering the Python abstract (fake-tensor)
-# impls for the split permute ops (e.g. fbgemm::permute_pooled_embs_split).
-# Without this, generate_opcheck_tests' faketensor / aot_dispatch variants of
-# test_permute_pooled_embedding_split_large_grid fail with "could not find the
-# abstract impl". The non-split ops register their meta impl in C++, so they do
-# not need this.
+# Import for its side effect of registering the split permute ops used below.
 import fbgemm_gpu.sparse_ops  # noqa: F401
 import hypothesis.strategies as st
 import torch
@@ -80,7 +75,8 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
     def test_permutation_autograd(self) -> None:
         net = Net().to(self.device)
 
-        input = torch.randn(2, 1).to(self.device)
+        # Citrine C3: create the random input directly on the target device.
+        input = torch.randn(2, 1, device=self.device)
         input_sum = input.sum().item()
 
         output = net(input)
@@ -168,6 +164,9 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
 
     @unittest.skipIf(*typed_gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(8))
+    @optests.dontGenerateOpCheckTests(
+        "the 8-GiB grid-overflow regression is covered by the direct GPU test"
+    )
     def test_permute_pooled_embedding_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in permute_pooled_embs_kernel
@@ -221,6 +220,9 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
 
     @unittest.skipIf(*typed_gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(8))
+    @optests.dontGenerateOpCheckTests(
+        "the 8-GiB grid-overflow regression is covered by the direct GPU test"
+    )
     def test_permute_pooled_embedding_split_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in the split frontend of

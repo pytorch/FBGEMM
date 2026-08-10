@@ -280,6 +280,9 @@ class ElementwiseBinaryTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(32))
+    @optests.dontGenerateOpCheckTests(
+        "the 32-GiB grid-overflow regression is covered by the direct GPU test"
+    )
     def test_jagged_dense_elementwise_mul_backward_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in
