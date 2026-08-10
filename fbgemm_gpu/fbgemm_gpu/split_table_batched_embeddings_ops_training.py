@@ -4580,7 +4580,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         # Lazy resize: runtime_meta shape/dtype is not known until
                         # the first data arrives from the MC module. Must use UVM
                         # (new_unified_tensor) because the C++ RawEmbeddingStreamer
-                        # reads this buffer via raw CPU pointers in tensor_copy().
+                        # reads this buffer via raw CPU pointers in tensor_copy_chunk().
                         self.register_buffer(
                             "res_runtime_meta",
                             torch.ops.fbgemm.new_unified_tensor(
