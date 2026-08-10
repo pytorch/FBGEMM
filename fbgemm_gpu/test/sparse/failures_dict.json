@@ -12,12 +12,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::asynchronous_batched_complete_cumsum": {
-      "CumSumTest.test_aot_dispatch_dynamic__test_batched_complete_cumsum": {
-        "comment": "Test builds output via a dynamic Python loop + torch.stack; incompatible with aot_dispatch_dynamic. Under aot_dispatch_dynamic it recompiles per example and exceeds the 600s tpx timeout (xfail does not catch a timeout), so skip. C++ symbolic meta is correct; eager + faketensor variants still cover the op. T191384137",
-        "status": "skip"
-      }
-    },
+    "fbgemm::asynchronous_batched_complete_cumsum": {},
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},

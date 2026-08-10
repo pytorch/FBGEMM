@@ -60,8 +60,11 @@ class CumSumTest(unittest.TestCase):
         ):
             return
 
+        # Citrine C3: create random input directly on the target device.
         # pyre-ignore-errors[16]
-        x = torch.randint(low=0, high=100, size=(n,)).type(pt_index_dtype).to(device)
+        x = torch.randint(low=0, high=100, size=(n,), device=device).type(
+            pt_index_dtype
+        )
         ze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(x)
         zi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(x)
         zc = torch.ops.fbgemm.asynchronous_complete_cumsum(x)
@@ -84,8 +87,11 @@ class CumSumTest(unittest.TestCase):
         )
 
         # meta tests
+        # Citrine C3: create random input directly on the meta device.
         # pyre-ignore-errors[16]
-        mx = torch.randint(low=0, high=100, size=(n,)).type(pt_index_dtype).to("meta")
+        mx = torch.randint(low=0, high=100, size=(n,), device="meta").type(
+            pt_index_dtype
+        )
 
         mze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(mx)
         self.assertEqual(ze.size(), mze.size())
@@ -127,8 +133,11 @@ class CumSumTest(unittest.TestCase):
         ):
             return
 
+        # Citrine C3: create random input directly on the target device.
         # pyre-ignore-errors[16]
-        x = torch.randint(low=0, high=100, size=(b, n)).type(pt_index_dtype).to(device)
+        x = torch.randint(low=0, high=100, size=(b, n), device=device).type(
+            pt_index_dtype
+        )
 
         zc = torch.ops.fbgemm.asynchronous_complete_cumsum(x)
         zeros = torch.zeros(b, 1)
@@ -159,18 +168,17 @@ class CumSumTest(unittest.TestCase):
         dtype: torch.dtype,
         device: torch.device,
     ) -> None:
-        def cumsum_base(values: torch.Tensor) -> torch.Tensor:
-            out = [
-                torch.ops.fbgemm.asynchronous_complete_cumsum(values[i])
-                for i in range(values.shape[0])
-            ]
-            return torch.stack(out, dim=0)
-
         values = torch.randint(
             0, 1000, (batch_size, max_len), device=device, dtype=dtype
         )
         out = torch.ops.fbgemm.asynchronous_batched_complete_cumsum(values)
-        out2 = cumsum_base(values)
+        out2 = torch.cat(
+            [
+                torch.zeros_like(values[:, :1]),
+                torch.cumsum(values, dim=1, dtype=values.dtype),
+            ],
+            dim=1,
+        )
         torch.testing.assert_close(out, out2)
 
     @unittest.skipIf(*gpu_unavailable)
