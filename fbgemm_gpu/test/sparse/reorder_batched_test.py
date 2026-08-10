@@ -614,6 +614,9 @@ class ReorderBatchedTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @optests.dontGenerateOpCheckTests(
+        "the 4-GiB grid-overflow regression is covered by the direct GPU test"
+    )
     def test_reorder_batched_ad_lengths_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in reorder_batched_ad_lengths_kernel
@@ -661,6 +664,9 @@ class ReorderBatchedTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @optests.dontGenerateOpCheckTests(
+        "the 4-GiB grid-overflow regression is covered by the direct GPU test"
+    )
     def test_reorder_batched_ad_indices_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in
@@ -719,6 +725,9 @@ class ReorderBatchedTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @optests.dontGenerateOpCheckTests(
+        "the 4-GiB grid-overflow regression is covered by the direct GPU test"
+    )
     def test_reorder_batched_sequence_embeddings_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in
