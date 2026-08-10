@@ -141,13 +141,24 @@ endif()
 # Source Includes
 ################################################################################
 
+# First-party include directories.  Warnings MUST apply to code found here.
 set(fbgemm_sources_include_directories
   # FBGEMM
   ${FBGEMM}/include
   # FBGEMM_GPU
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+
+# Third-party include directories.  These are passed to targets as SYSTEM
+# includes (`-isystem`) so that diagnostics originating inside them are
+# suppressed wholesale.  Without this, enabling a high-volume warning flag
+# produces a wall of unfixable third-party output, and the natural response is a
+# blanket `-Wno-*` that also disables the flag for our own code.
+#
+# Do NOT add first-party paths to this list: doing so silently disables all
+# warnings for that code.
+set(fbgemm_thirdparty_include_directories
   # PyTorch
   ${TORCH_INCLUDE_DIRS}
   # Third-party
