@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -35,7 +36,8 @@ DLL_PUBLIC Tensor invert_permute_cuda(const Tensor& permute) {
   }
 
   constexpr int32_t threads_1 = kMaxThreads;
-  const auto blocks_1 = cuda_calc_xblock_count(permute_size, threads_1);
+  const auto blocks_1 = utils::cuda::cap_grid_dim_x_from_workload(
+      permute_size, threads_1, at::cuda::getCurrentCUDAStream());
   AT_DISPATCH_INDEX_TYPES(permute.scalar_type(), "invert_permute_kernel", [&] {
     FBGEMM_LAUNCH_KERNEL(
         (invert_permute_kernel<index_t>),
