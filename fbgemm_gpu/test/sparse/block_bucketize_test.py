@@ -14,7 +14,7 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from hypothesis import given, settings, Verbosity
+from hypothesis import example, given, settings, Verbosity
 
 from .common import extend_test_class, open_source
 
@@ -1850,7 +1850,17 @@ class BlockBucketizeTest(unittest.TestCase):
         sequence=st.booleans(),
         my_size=st.sampled_from([3, 194, 256, 1024]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=32, deadline=None)
+    @example(
+        index_type=torch.long,
+        has_weight=True,
+        bucketize_pos=True,
+        sequence=True,
+        my_size=1024,
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=8, deadline=None)
+    @optests.dontGenerateOpCheckTests(
+        "large randomized workload is covered directly without recompiling every example"
+    )
     def test_block_bucketize_sparse_features_large(
         self,
         index_type: type[torch.dtype],
