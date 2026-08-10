@@ -450,6 +450,10 @@ if(NOT TARGET asmjit)
   endif()
 endif()
 
+# asmjit is third-party code we do not modify; treat its headers as system
+# headers so its diagnostics do not surface in FBGEMM targets.
+fbgemm_mark_target_includes_system(asmjit)
+
 ################################################################################
 # Cpuinfo Target
 ################################################################################
@@ -469,6 +473,10 @@ if(NOT TARGET cpuinfo)
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
+
+# cpuinfo is third-party code we do not modify; treat its headers as system
+# headers so its diagnostics do not surface in FBGEMM targets.
+fbgemm_mark_target_includes_system(cpuinfo)
 
 ################################################################################
 # Optional Targets
