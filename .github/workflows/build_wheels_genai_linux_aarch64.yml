@@ -50,13 +50,14 @@ jobs:
         MAT: ${{ needs.generate-matrix.outputs.matrix }}
       # Nova Coordinate Filters:
       # cuda/13.0-aarch64: Not supported in FBGEMM CI yet
-      # cuda 13.2 (cu132): not supported by FBGEMM yet; validate step fails with
-      #   "Unknown distribution". Drop until 13.2 is supported.
+      # cuda 13.2 (cu132), 13.4 (cu134): not supported by FBGEMM yet; validate step
+      #   fails with "Unknown distribution". 13.4 is still on toolkit 13.4.0rc1
+      #   (not GA). Drop until each is supported.
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_version:13.2' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_version:13.2,13.4' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
