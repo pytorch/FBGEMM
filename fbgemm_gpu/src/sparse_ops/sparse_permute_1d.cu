@@ -12,28 +12,17 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-// Launch permute_1D_lengths_kernel, picking the debug instantiation at runtime.
-// debug=false does not instantiate the bounds asserts at all, so the default
-// kernel carries no terminating path.
-#define FBGEMM_LAUNCH_PERMUTE_1D_LENGTHS(DEBUG, INDEX_T, PERMUTE_T, ...)       \
-  do {                                                                         \
-    if (DEBUG) {                                                               \
-      FBGEMM_LAUNCH_KERNEL(                                                    \
-          (permute_1D_lengths_kernel<INDEX_T, PERMUTE_T, true>), __VA_ARGS__); \
-    } else {                                                                   \
-      FBGEMM_LAUNCH_KERNEL(                                                    \
-          (permute_1D_lengths_kernel<INDEX_T, PERMUTE_T, false>),              \
-          __VA_ARGS__);                                                        \
-    }                                                                          \
-  } while (0)
-
 // Kernel for permuting 1D lengths. Used for permutation of sparse features.
 //
-// The bounds checks are compiled in only for debug=true (selected at launch
-// from FBGEMM_DEBUG_PERMUTE): a terminating failure path costs on the healthy
-// path even when it never fires, so the default instantiation carries no check.
-// See permute_2D_data_kernel_vec for the measurement.
-template <typename index_t, typename permute_t = int32_t, bool debug = false>
+// The bounds checks are compiled in only for debug=true, which defaults to the
+// compile-time kPermuteDeviceAssert (see common.cuh): a terminating failure
+// path costs on the healthy path even when it never fires, so the default
+// instantiation carries no check. See permute_2D_data_kernel_vec for the
+// measurement.
+template <
+    typename index_t,
+    typename permute_t = int32_t,
+    bool debug = kPermuteDeviceAssert>
 __global__ __launch_bounds__(kMaxThreads) void permute_1D_lengths_kernel(
     const index_t* __restrict__ lengths,
     int32_t permuted_lengths_size,
@@ -314,16 +303,13 @@ permute_1D_sparse_data_cuda(
   // See: https://github.com/ROCm/hip/issues/2253
   const auto blocks_1 = utils::cuda::cap_grid_dim_x_from_workload(
       permuted_lengths_size, threads_1, at::cuda::getCurrentCUDAStream());
-  const bool debug_permute = is_debug_permute_enabled();
   AT_DISPATCH_INDEX_TYPES(
       permute.scalar_type(), "permute_1D_lengths_permute_type", [&] {
         using permute_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
             lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
-              FBGEMM_LAUNCH_PERMUTE_1D_LENGTHS(
-                  debug_permute,
-                  index_t,
-                  permute_t,
+              FBGEMM_LAUNCH_KERNEL(
+                  (permute_1D_lengths_kernel<index_t, permute_t>),
                   blocks_1,
                   threads_1,
                   0,
@@ -471,8 +457,6 @@ permute_1D_sparse_data_cuda(
 
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
-
-#undef FBGEMM_LAUNCH_PERMUTE_1D_LENGTHS
 
 } // namespace fbgemm_gpu
 
