@@ -14,6 +14,31 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
+// Whether the permute_2D kernels instantiate their device-side bounds asserts.
+// This is a COMPILE-time switch, not a runtime one. Selecting it at runtime
+// forces the compiler to emit both the debug and non-debug specialization of
+// every kernel in the dispatch matrix -- offsets(2) x indices(5) x weights(6)
+// = 60 for each of the two weighted data launches, plus offsets(2) x
+// indices(5) = 10 for the unweighted one, so 130 kernels become 260. That
+// doubling pushed large PyTorch test binaries past the 2 GiB PC-relative
+// relocation limit (T283951345).
+//
+// permute_2D_lengths_kernel hangs off the same constant. Its own matrix is just
+// indices(2), so its doubling is not what blew the limit, but keeping a second
+// runtime-selected switch beside this one would reintroduce the same pattern
+// and leave the two asserts toggled by different mechanisms.
+//
+// Build with -DFBGEMM_DEBUG_PERMUTE_DEVICE_ASSERT to instantiate the asserts;
+// leaving it out keeps the fused two-stream copy optimizable. The host-side
+// TORCH_CHECK stays runtime-gated on FBGEMM_DEBUG_PERMUTE=1 and costs no
+// instantiations -- it is the check to reach for first, since it fails fast at
+// the offending call and names both values.
+#ifdef FBGEMM_DEBUG_PERMUTE_DEVICE_ASSERT
+inline constexpr bool kPermuteDeviceAssert = true;
+#else
+inline constexpr bool kPermuteDeviceAssert = false;
+#endif
+
 // Kernel for permuting the indices and weights. Used for permutation of sparse
 // data
 template <
@@ -21,7 +46,7 @@ template <
     typename offsets_t,
     typename indices_t,
     typename weights_t,
-    bool debug = false>
+    bool debug = kPermuteDeviceAssert>
 __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
     int64_t len,
     int32_t T,
@@ -130,7 +155,7 @@ template <
     typename offsets_t,
     typename indices_t,
     typename weights_t,
-    bool debug = false>
+    bool debug = kPermuteDeviceAssert>
 __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
     int64_t len,
     int32_t T,
@@ -234,24 +259,11 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
   }
 }
 
-// Launch permute_2D_lengths_kernel, picking the debug instantiation at runtime.
-// See FBGEMM_LAUNCH_PERMUTE_1D_LENGTHS in sparse_permute_1d.cu.
-#define FBGEMM_LAUNCH_PERMUTE_2D_LENGTHS(DEBUG, INDEX_T, ...)        \
-  do {                                                               \
-    if (DEBUG) {                                                     \
-      FBGEMM_LAUNCH_KERNEL(                                          \
-          (permute_2D_lengths_kernel<INDEX_T, true>), __VA_ARGS__);  \
-    } else {                                                         \
-      FBGEMM_LAUNCH_KERNEL(                                          \
-          (permute_2D_lengths_kernel<INDEX_T, false>), __VA_ARGS__); \
-    }                                                                \
-  } while (0)
-
 // Kernel for permuting the lengths. Used for permutation of sparse features.
 //
-// The bounds checks are compiled in only for debug=true (selected at launch
-// from FBGEMM_DEBUG_PERMUTE); see permute_1D_lengths_kernel.
-template <typename index_t, bool debug = false>
+// The bounds checks are compiled in only for debug=true, which defaults to the
+// compile-time kPermuteDeviceAssert above.
+template <typename index_t, bool debug = kPermuteDeviceAssert>
 __global__ __launch_bounds__(kMaxThreads) void permute_2D_lengths_kernel(
     int32_t T,
     int32_t B,
@@ -305,23 +317,6 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_lengths_kernel(
   }
 }
 
-// Launch a permute kernel, picking the debug instantiation at runtime.
-// debug=false does not instantiate the bounds assert at all, which is what
-// keeps the fused two-stream copy optimizable (see is_debug_permute_enabled).
-#define FBGEMM_LAUNCH_PERMUTE_2D(                                       \
-    DEBUG, KERNEL, HAS_WEIGHT, OFFSETS_T, INDICES_T, WEIGHTS_T, ...)    \
-  do {                                                                  \
-    if (DEBUG) {                                                        \
-      FBGEMM_LAUNCH_KERNEL(                                             \
-          (KERNEL<HAS_WEIGHT, OFFSETS_T, INDICES_T, WEIGHTS_T, true>),  \
-          __VA_ARGS__);                                                 \
-    } else {                                                            \
-      FBGEMM_LAUNCH_KERNEL(                                             \
-          (KERNEL<HAS_WEIGHT, OFFSETS_T, INDICES_T, WEIGHTS_T, false>), \
-          __VA_ARGS__);                                                 \
-    }                                                                   \
-  } while (0)
-
 DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
 permute_2D_sparse_preallocated_out_cuda(
     const Tensor& permute,
@@ -336,8 +331,6 @@ permute_2D_sparse_preallocated_out_cuda(
   TORCH_CHECK(lengths.dim() == 2);
 
   CUDA_DEVICE_GUARD(indices);
-
-  const bool debug_permute = is_debug_permute_enabled();
 
   const auto permute_contig = permute.contiguous();
   const auto lengths_contig = lengths.contiguous();
@@ -396,9 +389,8 @@ permute_2D_sparse_preallocated_out_cuda(
       B * T, threads_1, at::cuda::getCurrentCUDAStream());
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "permute_2D_lengths_kernel", [&] {
-        FBGEMM_LAUNCH_PERMUTE_2D_LENGTHS(
-            debug_permute,
-            index_t,
+        FBGEMM_LAUNCH_KERNEL(
+            (permute_2D_lengths_kernel<index_t>),
             blocks_1,
             threads_1,
             0,
@@ -432,7 +424,7 @@ permute_2D_sparse_preallocated_out_cuda(
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
-    if (debug_permute) {
+    if (is_debug_permute_enabled()) {
       const int64_t true_size = output_offsets[-1].item<int64_t>();
       TORCH_CHECK(
           permuted_indices_size == true_size,
@@ -500,13 +492,12 @@ permute_2D_sparse_preallocated_out_cuda(
                     [&] {
                       using weights_t = scalar_t;
                       if (weights_columns == 1) {
-                        FBGEMM_LAUNCH_PERMUTE_2D(
-                            debug_permute,
-                            permute_2D_data_kernel_vec,
-                            true,
-                            offsets_t,
-                            indices_t,
-                            weights_t,
+                        FBGEMM_LAUNCH_KERNEL(
+                            (permute_2D_data_kernel_vec<
+                                true,
+                                offsets_t,
+                                indices_t,
+                                weights_t>),
                             blocks_2,
                             threads_2,
                             0,
@@ -522,13 +513,12 @@ permute_2D_sparse_preallocated_out_cuda(
                             permuted_indices.data_ptr<indices_t>(),
                             permuted_weights.data_ptr<weights_t>());
                       } else {
-                        FBGEMM_LAUNCH_PERMUTE_2D(
-                            debug_permute,
-                            permute_2D_data_kernel,
-                            true,
-                            offsets_t,
-                            indices_t,
-                            weights_t,
+                        FBGEMM_LAUNCH_KERNEL(
+                            (permute_2D_data_kernel<
+                                true,
+                                offsets_t,
+                                indices_t,
+                                weights_t>),
                             blocks_2,
                             threads_2,
                             0,
@@ -547,13 +537,12 @@ permute_2D_sparse_preallocated_out_cuda(
                       }
                     }); // for each weights_t
               } else {
-                FBGEMM_LAUNCH_PERMUTE_2D(
-                    debug_permute,
-                    permute_2D_data_kernel_vec,
-                    false,
-                    offsets_t,
-                    indices_t,
-                    std::nullptr_t,
+                FBGEMM_LAUNCH_KERNEL(
+                    (permute_2D_data_kernel_vec<
+                        false,
+                        offsets_t,
+                        indices_t,
+                        std::nullptr_t>),
                     blocks_2,
                     threads_2,
                     0,
@@ -574,9 +563,6 @@ permute_2D_sparse_preallocated_out_cuda(
 
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
-
-#undef FBGEMM_LAUNCH_PERMUTE_2D
-#undef FBGEMM_LAUNCH_PERMUTE_2D_LENGTHS
 
 // Functional (allocating) entry point. Delegates to the shared implementation
 // with no pre-allocated output buffers.
