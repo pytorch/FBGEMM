@@ -23,6 +23,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   OTHER_SRCS
     ${asmjit_sources}
   DESTINATION

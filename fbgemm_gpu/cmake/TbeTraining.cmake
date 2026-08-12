@@ -73,6 +73,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     src/config/feature_gates.cpp
     src/config/feature_gates_torch_op.cpp
@@ -86,6 +88,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
     src/split_embeddings_utils/split_embeddings_utils_meta.cpp
@@ -105,6 +109,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     src/sparse_ops/sparse_async_cumsum.cpp
   GPU_SRCS
@@ -121,6 +127,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${static_cpu_files_common}
   GPU_SRCS
@@ -140,6 +148,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   GPU_SRCS
     ${gen_defused_optim_src_files}
   NVCC_FLAGS
@@ -154,6 +164,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${gen_cpu_files_forward_split}
   GPU_SRCS
@@ -172,6 +184,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${gen_cpu_files_training_pt2}
   GPU_SRCS
@@ -195,6 +209,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${static_cpu_files_training}
     ${gen_cpu_files_training}
@@ -221,6 +237,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   GPU_SRCS
     ${gen_gpu_files_training_gwd}
   NVCC_FLAGS
@@ -237,6 +255,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   GPU_SRCS
     ${gen_gpu_files_training_vbe}
   NVCC_FLAGS
@@ -253,6 +273,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   GPU_SRCS
     ${gen_gpu_files_training_dense}
   NVCC_FLAGS
@@ -270,6 +292,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   GPU_SRCS
     ${gen_gpu_files_training_split_host}
   NVCC_FLAGS
@@ -287,6 +311,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${static_cpu_files_index_select}
   GPU_SRCS

@@ -35,6 +35,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   GPU_SRCS
     ${experimental_example_cpp_source_files})
 
