@@ -31,16 +31,6 @@ namespace {
 // Timeout for copy_done_flag polling loop (microseconds).
 constexpr int64_t kCopyDonePollTimeoutUs = 10'000'000;
 
-// Max rows copied into one enqueued chunk.
-constexpr size_t kChunkSize = 500000;
-// Threads draining the queue and shipping via co_setEmbeddings.
-// TODO(T282801601): 8 was an arbitrary high value picked during
-// experimentation; too many consumer threads per TBE may be wasteful -- tune
-// via experiments.
-constexpr size_t kNumConsumerThreads = 8;
-// Parallel chunk-copy threads spawned per non-blocking stream() call.
-constexpr size_t kNumCopyThreads = 4;
-
 /*
  * Get the thrift client to the training parameter server service
  * There is a destruction double free issue when wrapping the member
@@ -189,7 +179,10 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     int64_t res_server_port [[maybe_unused]],
     std::vector<std::string> table_names,
     std::vector<int64_t> table_offsets,
-    const std::vector<int64_t>& table_sizes)
+    const std::vector<int64_t>& table_sizes,
+    int64_t res_chunk_size [[maybe_unused]],
+    int64_t res_num_consumers [[maybe_unused]],
+    int64_t res_num_copy_threads [[maybe_unused]])
     : unique_id_(std::move(unique_id)),
       enable_raw_embedding_streaming_(enable_raw_embedding_streaming),
 #ifdef FBGEMM_FBCODE
@@ -198,9 +191,30 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
 #endif
       table_names_(std::move(table_names)),
       table_offsets_(std::move(table_offsets)),
-      table_sizes_(at::tensor(table_sizes)) {
+      table_sizes_(at::tensor(table_sizes))
+#ifdef FBGEMM_FBCODE
+      ,
+      res_chunk_size_(res_chunk_size),
+      res_num_consumers_(res_num_consumers),
+      res_num_copy_threads_(res_num_copy_threads)
+#endif
+{
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
+    // Fail loud on a misconfigured knob. These are now caller-supplied (were
+    // compile-time constants), and 0 -- or a negative that wrapped to a huge
+    // size_t -- would silently break streaming: res_num_consumers=0 spawns no
+    // drain threads (queue grows unbounded), res_chunk_size=0 /
+    // res_num_copy_threads=0 make computeChunkRanges return empty (enqueues
+    // nothing). Reject rather than silently no-op.
+    TORCH_CHECK(
+        res_chunk_size > 0 && res_num_consumers > 0 && res_num_copy_threads > 0,
+        "RES config knobs must be > 0: res_chunk_size=",
+        res_chunk_size,
+        ", res_num_consumers=",
+        res_num_consumers,
+        ", res_num_copy_threads=",
+        res_num_copy_threads);
     XLOG(INFO) << "[TBE_ID" << unique_id_
                << "] Raw embedding streaming enabled with res_server_port at"
                << res_server_port_;
@@ -210,11 +224,11 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     ods_logger_ = std::make_unique<facebook::aiplatform::gmpp::experimental::
                                        training_ps::TrainingPsOdsLogger>();
 
-    XLOG(INFO) << "[TBE_ID" << unique_id_ << "] Starting "
-               << kNumConsumerThreads << " consumer threads"
-               << ", chunk_size=" << kChunkSize
-               << ", copy_threads=" << kNumCopyThreads;
-    // Ordering caveat: with kNumConsumerThreads > 1, these consumers drain the
+    XLOG(INFO) << "[TBE_ID" << unique_id_ << "] Starting " << res_num_consumers_
+               << " consumer threads"
+               << ", chunk_size=" << res_chunk_size_
+               << ", copy_threads=" << res_num_copy_threads_;
+    // Ordering caveat: with res_num_consumers_ > 1, these consumers drain the
     // queue concurrently, so arrival order at the PS is NOT enqueue (iteration)
     // order. The store (TrainingPsHandler) applies same-(fqn,row_id) writes
     // arrival-wins with no version compare, so a stale iter-i write can
@@ -222,7 +236,7 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     // the row's next in-order update). A single consumer would be ordered/safe.
     // TODO(T281413204): proper fix is to carry a per-row iteration/version and
     // keep-newest in the store.
-    for (size_t ci = 0; ci < kNumConsumerThreads; ++ci) {
+    for (size_t ci = 0; ci < res_num_consumers_; ++ci) {
       consumer_threads_.push_back(std::make_unique<std::thread>([this] {
         while (!stop_) {
           auto item = weights_to_stream_queue_.try_dequeue();
@@ -409,7 +423,7 @@ void RawEmbeddingStreamer::chunked_copy_and_enqueue(
       "## RawEmbeddingStreamer::chunked_copy_and_enqueue ##");
   const auto num_rows = get_maybe_uvm_scalar(count);
   const auto thread_chunks =
-      computeChunkRanges(num_rows, kChunkSize, kNumCopyThreads);
+      computeChunkRanges(num_rows, res_chunk_size_, res_num_copy_threads_);
 
   for (auto& t : target_copy_threads) { // join+clear the previous batch
     if (t && t->joinable()) {
