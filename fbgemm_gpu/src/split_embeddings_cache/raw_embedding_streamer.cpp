@@ -61,8 +61,6 @@ get_res_client(int64_t res_server_port) {
       "realtime.delta.publish.esr", params);
 }
 
-#endif
-
 /// Read a scalar value from a tensor that is maybe a UVM tensor
 /// Note that `tensor.item<type>()` is not allowed on a UVM tensor in
 /// PyTorch
@@ -71,6 +69,8 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
       ? *(tensor.const_data_ptr<int64_t>())
       : *(tensor.const_data_ptr<int32_t>());
 }
+
+#endif
 
 } // namespace
 

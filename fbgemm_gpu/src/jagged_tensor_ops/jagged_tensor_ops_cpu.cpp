@@ -12,6 +12,7 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <functional>
 #include "ATen/Parallel.h"
@@ -1026,14 +1027,15 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
       lengths.scalar_type(), "mask_select_jagged_1d_kernel1", [&] {
         FBGEMM_DISPATCH_ALL_TYPES(
             values.scalar_type(), "mask_select_jagged_1d_kernel2", [&] {
-              const int32_t num_outputs = mask.sum().item<int32_t>();
+              const auto mask_ptr = mask_contiguous->const_data_ptr<bool>();
+              const int64_t num_outputs =
+                  std::count(mask_ptr, mask_ptr + mask.numel(), true);
               masked_values = at::empty({num_outputs}, values.options());
 
               const auto values_ptr =
                   values_contiguous->const_data_ptr<scalar_t>();
               const auto lengths_ptr =
                   lengths_contiguous->const_data_ptr<index_t>();
-              const auto mask_ptr = mask_contiguous->const_data_ptr<bool>();
 
               auto masked_values_ptr =
                   masked_values.mutable_data_ptr<scalar_t>();

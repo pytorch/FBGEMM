@@ -58,6 +58,34 @@ namespace fbgemm_gpu {
 
 constexpr int MAX_ELEMENTS_PER_THREAD = 4;
 
+// Whether the sparse permute kernels instantiate their device-side bounds
+// asserts. This is a COMPILE-time switch, not a runtime one. Selecting it at
+// runtime forces the compiler to emit both the debug and the non-debug
+// specialization of every kernel in the dispatch matrix. For the permute_2D
+// data kernels that is offsets(2) x indices(5) x weights(6) = 60 for each of
+// the two weighted launches, plus offsets(2) x indices(5) = 10 for the
+// unweighted one, so 130 kernels become 260 -- and that doubling pushed large
+// PyTorch test binaries past the 2 GiB PC-relative relocation limit
+// (T283951345).
+//
+// The lengths kernels have much smaller matrices (permute_2D: indices(2),
+// permute_1D: permute(2) x indices(2)), so their doubling is not what blew the
+// limit. They share this constant anyway so that every device assert in the
+// sparse permute ops is toggled by one mechanism rather than each growing its
+// own runtime-selected launch macro.
+//
+// Build with -DFBGEMM_DEBUG_PERMUTE_DEVICE_ASSERT to instantiate the asserts;
+// leaving it out keeps the fused two-stream copy optimizable. The host-side
+// checks stay runtime-gated on FBGEMM_DEBUG_PERMUTE=1 (see
+// is_debug_permute_enabled below) and cost no instantiations -- they are the
+// checks to reach for first, since they fail fast at the offending call and
+// name both values.
+#ifdef FBGEMM_DEBUG_PERMUTE_DEVICE_ASSERT
+inline constexpr bool kPermuteDeviceAssert = true;
+#else
+inline constexpr bool kPermuteDeviceAssert = false;
+#endif
+
 // Opt-in host-side validation for the sparse permute ops. Every check below
 // performs a D2H sync, so it is gated behind an env var which is off by
 // default. Enable with FBGEMM_DEBUG_PERMUTE=1 for additional debugging with a
