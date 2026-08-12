@@ -23,6 +23,29 @@ macro(handle_genfiles variable)
   list(TRANSFORM ${variable} PREPEND "${CMAKE_BINARY_DIR}/")
 endmacro()
 
+# Re-export a third-party target's public include directories as SYSTEM
+# includes, so that warnings originating inside its headers are suppressed in
+# every target that consumes it.
+#
+# This is needed for dependencies pulled in via `add_subdirectory()` (asmjit,
+# cpuinfo), whose INTERFACE_INCLUDE_DIRECTORIES propagate as plain `-I` and
+# therefore leak their diagnostics into FBGEMM targets.  We cannot fix those
+# projects, so we mark their headers system instead of blanket-disabling the
+# warning for our own code as well.
+function(fbgemm_mark_target_includes_system target_name)
+  if(NOT TARGET ${target_name})
+    return()
+  endif()
+
+  get_target_property(_includes ${target_name} INTERFACE_INCLUDE_DIRECTORIES)
+  # The property is `<name>-NOTFOUND` when unset; passing that through produces
+  # a confusing configure-time error.
+  if(_includes)
+    set_target_properties(${target_name} PROPERTIES
+      INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_includes}")
+  endif()
+endfunction()
+
 macro(handle_genfiles_rocm variable)
   if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     handle_genfiles(${variable})
