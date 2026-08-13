@@ -158,6 +158,8 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/hstu_ampere
     ${CMAKE_CURRENT_SOURCE_DIR}/src/hstu_hopper
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${hstu_cpp_source_files}
   GPU_SRCS

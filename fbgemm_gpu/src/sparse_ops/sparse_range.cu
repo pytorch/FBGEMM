@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -91,6 +92,11 @@ offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
       calc_offsets_range_thread_block(range_size, N);
 
   dim3 threads(vector_size, rows_per_block);
+  // HIP 2^32 threads-per-launch cap; the kernel grid-strides over rows.
+  num_blocks = utils::cuda::cap_grid_dim_x(
+      num_blocks,
+      vector_size * rows_per_block,
+      at::cuda::getCurrentCUDAStream());
 
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig.scalar_type(), "offsets_range_kernel", [&] {
@@ -148,6 +154,11 @@ DLL_PUBLIC Tensor lengths_range_cuda(
       calc_offsets_range_thread_block(output_size, num_seq);
 
   dim3 threads(vector_size, rows_per_block);
+  // HIP 2^32 threads-per-launch cap; the kernel grid-strides over rows.
+  num_blocks = utils::cuda::cap_grid_dim_x(
+      num_blocks,
+      vector_size * rows_per_block,
+      at::cuda::getCurrentCUDAStream());
 
   AT_DISPATCH_INDEX_TYPES(
       t_in_contig.scalar_type(), "lengths_range_compute", [&] {

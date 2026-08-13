@@ -91,7 +91,8 @@ function(cpp_library)
         CC_FLAGS        # General compilation flags applicable to all build variants
         MSVC_FLAGS      # Compilation flags specific to MSVC
         DEFINITIONS     # Preprocessor definitions
-        INCLUDE_DIRS    # Include directories for compilation
+        INCLUDE_DIRS    # First-party include directories for compilation
+        SYSTEM_INCLUDE_DIRS # Third-party include directories, passed as SYSTEM to suppress their warnings
         DEPS            # Target dependencies, i.e. built STATIC targets
     )
 
@@ -177,6 +178,11 @@ function(cpp_library)
     target_include_directories(${lib_name} PUBLIC
         ${args_INCLUDE_DIRS})
 
+    # Third-party include directories are marked SYSTEM so their diagnostics do
+    # not surface in this target.
+    target_include_directories(${lib_name} SYSTEM PUBLIC
+        ${args_SYSTEM_INCLUDE_DIRS})
+
     # Link against the external libraries as needed
     target_link_libraries(${lib_name} PUBLIC ${args_DEPS})
 
@@ -256,6 +262,9 @@ function(cpp_library)
         " "
         "INCLUDE_DIRS:"
         "${args_INCLUDE_DIRS}"
+        " "
+        "SYSTEM_INCLUDE_DIRS:"
+        "${args_SYSTEM_INCLUDE_DIRS}"
         " "
         "Library Dependencies:"
         "${args_DEPS}"

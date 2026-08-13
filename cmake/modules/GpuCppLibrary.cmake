@@ -168,7 +168,8 @@ function(gpu_cpp_library)
         CC_FLAGS            # General compilation flags applicable to all build variants
         NVCC_FLAGS          # Compilation flags specific to NVCC
         HIPCC_FLAGS         # Compilation flags specific to HIPCC
-        INCLUDE_DIRS        # Include directories for compilation
+        INCLUDE_DIRS        # First-party include directories for compilation
+        SYSTEM_INCLUDE_DIRS # Third-party include directories, passed as SYSTEM to suppress their warnings
         DEPS                # Target dependencies, i.e. built STATIC targets
         TORCH_LIBS          # PyTorch libraries to link against. Note that we provide the TORCH_LIBS automatically - this is for PyTorch build.
     )
@@ -184,6 +185,12 @@ function(gpu_cpp_library)
 
     # Take all the sources, and filter them into CPU and GPU buckets depending
     # on the source type and build mode
+    # NOTE: Only first-party include dirs are set as source file properties here.
+    # Third-party dirs are attached at the target level as SYSTEM includes; see
+    # gpu_cpp_library() below.  They must NOT also appear as plain `-I` entries:
+    # clang de-duplicates header search paths keeping the first occurrence, so a
+    # directory listed under both `-I` and `-isystem` stays non-system and its
+    # warnings are NOT suppressed.
     prepare_target_sources(
         PREFIX ${args_PREFIX}
         CPU_SRCS ${args_CPU_SRCS}
@@ -233,20 +240,37 @@ function(gpu_cpp_library)
                 HIP_SOURCE_PROPERTY_FORMAT 1)
         endif()
 
-        # Set the include directories for HIP
+        # Set the include directories for HIP.  First-party only: the legacy
+        # FindHIP `hip_include_directories()` has no SYSTEM variant and emits
+        # plain `-I`, so third-party dirs are passed separately as `-isystem`
+        # entries in HIPCC_OPTIONS below.
         hip_include_directories("${args_INCLUDE_DIRS}")
+
+        # Build `-isystem` flags for the third-party include dirs.  hipcc is
+        # clang, and clang de-duplicates header search paths keeping the first
+        # occurrence, so these directories must appear ONLY here and never in
+        # `hip_include_directories()` -- otherwise the `-I` entry wins and the
+        # directory is not treated as a system header path.
+        set(lib_hipcc_system_includes "")
+        foreach(include_dir IN LISTS args_SYSTEM_INCLUDE_DIRS)
+            list(APPEND lib_hipcc_system_includes "-isystem${include_dir}")
+        endforeach()
 
         # Create the HIP library
         hip_add_library(${lib_name} ${args_TYPE}
             ${lib_sources_hipified}
             ${args_OTHER_SRCS}
             ${FBGEMM_HIP_HCC_LIBRARIES}
-            HIPCC_OPTIONS ${HIP_HCC_FLAGS} ${args_HIPCC_FLAGS})
+            HIPCC_OPTIONS ${HIP_HCC_FLAGS} ${lib_hipcc_system_includes} ${args_HIPCC_FLAGS})
 
         # Append ROCM includes
         target_include_directories(${lib_name} PUBLIC
-            ${FBGEMM_HIP_INCLUDE}
             ${args_INCLUDE_DIRS})
+
+        # ROCm toolchain and third-party headers are system headers
+        target_include_directories(${lib_name} SYSTEM PUBLIC
+            ${FBGEMM_HIP_INCLUDE}
+            ${args_SYSTEM_INCLUDE_DIRS})
 
     else()
         # Create the CPU-only / CUDA library
@@ -289,10 +313,11 @@ function(gpu_cpp_library)
     # Library Includes and Linking
     ############################################################################
 
-    # Add external include directories
-    target_include_directories(${lib_name} PRIVATE
-        ${TORCH_INCLUDE_DIRS}
-        ${NCCL_INCLUDE_DIRS})
+    # Add external include directories.  These are third-party (PyTorch, NCCL,
+    # CUTLASS, CK, asmjit, ...) and are marked SYSTEM so their diagnostics do not
+    # surface in FBGEMM targets that consume them.
+    target_include_directories(${lib_name} SYSTEM PRIVATE
+        ${args_SYSTEM_INCLUDE_DIRS})
 
     # Set additional target properties
     if(NOT args_KEEP_PREFIX)
@@ -427,6 +452,9 @@ function(gpu_cpp_library)
         " "
         "INCLUDE_DIRS:"
         "${args_INCLUDE_DIRS}"
+        " "
+        "SYSTEM_INCLUDE_DIRS:"
+        "${args_SYSTEM_INCLUDE_DIRS}"
         " "
         "Selected Source Files:"
         "${lib_sources}"

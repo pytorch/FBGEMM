@@ -137,12 +137,18 @@ gpu_cpp_library(
     ${KEEP_PREFIX}
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/attention/cuda/cutlass_blackwell_fmha
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kv_cache
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
+    # Vendored upstream CUTLASS example code -- treated as third-party so that
+    # upstream re-syncs stay clean.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/attention/cuda/cutlass_blackwell_fmha
+    # Injected externally when building as part of PyTorch; points at
+    # PyTorch-side paths.
     ${FBGEMM_GENAI_INCLUDE_DIRS}
   CPU_SRCS
     ${experimental_gen_ai_cpp_source_files_cpu}

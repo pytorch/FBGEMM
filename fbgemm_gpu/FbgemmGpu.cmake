@@ -148,6 +148,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
   GPU_SRCS
@@ -190,6 +192,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${fbgemm_gpu_sources_cpu_static}
   GPU_SRCS

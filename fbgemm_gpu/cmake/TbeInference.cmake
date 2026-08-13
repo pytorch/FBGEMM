@@ -16,6 +16,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${FBGEMM_GPU}/src/split_embeddings_cache/lfu_cache_populate_byte.cpp
     ${FBGEMM_GPU}/src/split_embeddings_cache/linearize_cache_indices.cpp
@@ -58,6 +60,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  SYSTEM_INCLUDE_DIRS
+    ${fbgemm_thirdparty_include_directories}
   CPU_SRCS
     ${static_cpu_files_inference}
     ${gen_cpu_files_inference}
