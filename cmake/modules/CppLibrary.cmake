@@ -59,7 +59,8 @@ function(fbgemm_get_warning_flags)
     list(APPEND _cc
       -Wno-error=unused-but-set-parameter
       -Wno-error=unused-but-set-variable
-      -Wno-error=array-bounds)
+      -Wno-error=array-bounds
+      -Wno-error=maybe-uninitialized)
   endif()
 
   set(${ARG_MSVC_FLAGS_VAR} ${_msvc} PARENT_SCOPE)
