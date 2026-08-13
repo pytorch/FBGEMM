@@ -741,3 +741,9 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), False)
         _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), True, device="cpu")
         _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), True, device="cpu")
+        # K values that leave a partial trailing scale block while still being a
+        # multiple of the tile BLOCK_K. The K=5 shapes above are not a multiple of
+        # any BLOCK_K, so they exercise a different path through the scale guard.
+        _test_matmul_fp8_block((256, 256, 640), (256, 256, 256), True)
+        _test_matmul_fp8_block((256, 256, 64), (128, 128, 128), True)
+        _test_matmul_fp8_block((256, 256, 192), (128, 128, 128), True)
