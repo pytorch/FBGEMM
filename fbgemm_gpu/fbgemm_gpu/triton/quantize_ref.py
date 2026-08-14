@@ -254,9 +254,10 @@ def py_dequantize_mx4(
     num_groups = a.numel() // ((group_size // 2) + 1)
     packed_input = a[:, :-1]
     shared_exp = a[:, -1:]
-    # Remove fp32 exponent bias
+    # Remove fp32 exponent bias.
+    # View as uint8 first to avoid sign-extension for biased exponents >= 128.
     FP32_EXP_BIAS = 127
-    shared_exp = shared_exp - FP32_EXP_BIAS
+    shared_exp = shared_exp.view(torch.uint8).to(torch.int32) - FP32_EXP_BIAS
     # First pull shared exponent off the end of each row.
     M, K_2 = packed_input.shape
 
