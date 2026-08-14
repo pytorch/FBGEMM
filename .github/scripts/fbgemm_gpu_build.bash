@@ -281,7 +281,7 @@ __configure_fbgemm_gpu_build_cuda () {
   else
     # Build only against the CUDA architectures that the latest PyTorch
     # supports, i.e.:
-    #   7.0 (V100), 8.0 (A100), 9.0,9.0a (H100), 10.0,10.0a,12.0,12.0a (B100)
+    #   7.0, 8.0, 9.0/9.0a, 10.0/10.0a/10.0f, 12.0/12.0a/12.0f
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
     echo "[BUILD] Using the default architectures for CUDA $cuda_version_nvcc ..."
 
@@ -299,8 +299,10 @@ __configure_fbgemm_gpu_build_cuda () {
     # appending 7.0/7.5 to the back of the list mysteriously results in
     # undefined symbol errors on .SO loads
     if [[ $fbgemm_build_target == "hstu" ]]; then
-      if  [[ $cuda_version_nvcc == *"V13"* ]] ||
-          [[ $cuda_version_nvcc == *"V12"* ]]; then
+      if [[ $cuda_version_nvcc == *"V13"* ]]; then
+        local arch_list="9.0a;10.0f;12.0f"
+
+      elif [[ $cuda_version_nvcc == *"V12"* ]]; then
         # NOTE: Compiling 9.0a code will fail if sm_80 output is also is also
         # enabled, bc the code relies on the following function that is not
         # supported in sm_80:
@@ -310,13 +312,23 @@ __configure_fbgemm_gpu_build_cuda () {
         # See:
         #   https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html?highlight=atomicAdd#atomicadd
         local arch_list="9.0a;10.0a;12.0a"
+
       else
         # NOTE: HSTU requires sm_75 or higher
         local arch_list="9.0a"
       fi
 
-    elif  [[ $cuda_version_nvcc == *"V13.0"* ]] ||
-          [[ $cuda_version_nvcc == *"V12.9"* ]] ||
+    elif  [[ $cuda_version_nvcc == *"V13"* ]]; then
+      # Starting from CUDA 13, a distinction is made between architecture and
+      # family-specific feature sets, i.e. 10.0a vs 10.0f.  We use 10.0f to
+      # support both B200 (10.0) and B300 (10.3).
+      #
+      # See:
+      #   https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html#feature-set-compiler-targets
+      #   https://github.com/vllm-project/vllm/issues/45260
+      local arch_list="8.0;9.0a;10.0f"
+
+    elif  [[ $cuda_version_nvcc == *"V12.9"* ]] ||
           [[ $cuda_version_nvcc == *"V12.8"* ]]; then
       # NOTE: If we reach this point, then we are building the package for
       # publishing to PyPI.  12.0a arch is excluded to maintain
