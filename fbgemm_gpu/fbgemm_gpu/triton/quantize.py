@@ -570,9 +570,22 @@ def _kernel_dequantize_mx4(
         exp = exp.to(tl.int16) - FP32_EXP_BIAS
 
         # Convert exponent to scale and apply to input.
-        # Requires higher precision to avoid rounding out small values.
-        # This might be slow so we should consider just letting them round away.
-        scale = tl.exp2(exp.to(tl.float64)).to(tl.float32)
+        # Same exact FP32 bit construction the quantize kernel uses, rather than a
+        # per-element FP64 exp2. exp is an integer in [-127, 125] (written by
+        # _kernel_quantize_mx4 as exp + FP32_EXP_BIAS in a uint8); for e >= -126,
+        # 2^e is a normal fp32 (zero mantissa) so the exponent field can be set
+        # directly. e == -127 -> 2^-127 is subnormal and cannot be built that way,
+        # so it is special-cased.
+        #
+        # This matters far more here than in the quantizer: exp is loaded at the
+        # packed-byte width (each group exponent repeated across its GROUP_SIZE/2
+        # bytes), so the FP64 tile was 16x wider than the quantizer's per-group one.
+        exp_int = exp.to(tl.int32)
+        scale = tl.where(
+            exp_int >= -126,
+            ((exp_int + 127) << 23).to(tl.float32, bitcast=True),
+            2.0**-127,
+        )
         scaled_low_fp32 = scale * low_fp32
         scaled_high_fp32 = scale * high_fp32
 
