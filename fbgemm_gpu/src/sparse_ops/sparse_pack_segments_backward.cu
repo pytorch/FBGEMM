@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -102,7 +103,10 @@ DLL_PUBLIC Tensor pack_segments_backward_cuda(
 
           FBGEMM_LAUNCH_KERNEL(
               (unpack_segments_cuda_kernel<index_t, scalar_t>),
-              cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+              utils::cuda::cap_grid_dim_x_from_workload(
+                  num_seq * max_length * cell_size,
+                  128,
+                  at::cuda::getCurrentCUDAStream()),
               128,
               0,
               at::cuda::getCurrentCUDAStream(),

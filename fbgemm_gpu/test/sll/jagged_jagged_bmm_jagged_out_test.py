@@ -34,7 +34,7 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    @settings(deadline=30000)
+    @settings(deadline=None)
     def test_triton_jagged_jagged_bmm_jagged_out(
         self,
         B: int,

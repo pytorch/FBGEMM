@@ -80,7 +80,7 @@ __global__ __launch_bounds__(kMaxThreads) void _batched_complete_cumsum_kernel(
       }
       BlockScan(temp_storage).InclusiveSum(data, data, prefix_op);
 
-#if CUDA_VERSION >= 13000
+#if defined(USE_ROCM) || CUDA_VERSION >= 13000
       __syncthreads();
 #else
       cub::CTA_SYNC();
@@ -93,7 +93,7 @@ __global__ __launch_bounds__(kMaxThreads) void _batched_complete_cumsum_kernel(
 
     // Ensure all threads finished using temp_storage before the next
     // outer-iteration's BlockScan overwrites it.
-#if CUDA_VERSION >= 13000
+#if defined(USE_ROCM) || CUDA_VERSION >= 13000
     __syncthreads();
 #else
     cub::CTA_SYNC();
