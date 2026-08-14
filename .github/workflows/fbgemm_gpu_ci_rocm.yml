@@ -80,7 +80,7 @@ jobs:
         python-version: [ "3.14" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
-        rocm-version: [ "7.0", "7.1" ]
+        rocm-version: [ "7.1", "7.14" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -166,7 +166,7 @@ jobs:
         build-target: [ "default", "genai" ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.14" ]
-        rocm-version: [ "7.1" ]
+        rocm-version: [ "7.14" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
