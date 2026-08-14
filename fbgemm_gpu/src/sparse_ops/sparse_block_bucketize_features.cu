@@ -81,7 +81,10 @@ void adjust_block_bucketize_sparse_features_kernel_launch_configs_based_on_smem(
       block_dims->y > 0,
       "block_bucketize_sparse_features does not have sufficient shared memory."
       "Please contact the FBGEMM team.")
-  grid_dims->x = cuda_calc_xblock_count(lengths_size, block_dims->y);
+  grid_dims->x = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(lengths_size, block_dims->y),
+      block_dims->x * block_dims->y,
+      at::cuda::getCurrentCUDAStream());
 }
 
 // Kernel for bucketize lengths, with the Block distribution (vs. cyclic,
@@ -934,7 +937,11 @@ _block_bucketize_sparse_features_cuda(
   }
   static_assert(kMaxThreads % kWarpSize == 0);
   dim3 block_dims(kWarpSizeHost(), kMaxThreads / kWarpSizeHost());
-  dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
+  dim3 grid_dims(
+      utils::cuda::cap_grid_dim_x(
+          cuda_calc_xblock_count(lengths_size, block_dims.y),
+          block_dims.x * block_dims.y,
+          at::cuda::getCurrentCUDAStream()));
   const auto smem_adjust_threshold =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
   AT_DISPATCH_INDEX_TYPES(
@@ -979,8 +986,8 @@ _block_bucketize_sparse_features_cuda(
             });
       });
   constexpr auto threads_per_block = 256;
-  const auto num_blocks =
-      cuda_calc_xblock_count(lengths_size, threads_per_block);
+  const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+      lengths_size, threads_per_block, at::cuda::getCurrentCUDAStream());
   // bucketize nonzeros
   new_offsets = asynchronous_exclusive_cumsum_gpu(new_lengths);
   if (sequence) {
@@ -1236,7 +1243,10 @@ DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
                 // Fall back to original kernel for larger bucket counts
                 constexpr auto threads_per_block = 256;
                 const auto num_blocks =
-                    cuda_calc_xblock_count(lengths_size, threads_per_block);
+                    utils::cuda::cap_grid_dim_x_from_workload(
+                        lengths_size,
+                        threads_per_block,
+                        at::cuda::getCurrentCUDAStream());
                 FBGEMM_LAUNCH_KERNEL(
                     (_populate_bucketized_permute_cuda_kernel<
                         offset_t,
