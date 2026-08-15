@@ -567,12 +567,17 @@ def _kernel_dequantize_mx4(
             other=0.0,
         )
         # Remove fp32 exponent bias.
-        exp = exp.to(tl.int16) - FP32_EXP_BIAS
+        exp = exp.to(tl.int32) - FP32_EXP_BIAS
 
-        # Convert exponent to scale and apply to input.
-        # Requires higher precision to avoid rounding out small values.
-        # This might be slow so we should consider just letting them round away.
-        scale = tl.exp2(exp.to(tl.float64)).to(tl.float32)
+        # Compute scale = 2^exp exactly via FP32 bit construction instead of a slow
+        # FP64 exp2. exp is an integer in [-127, 125]; for e >= -126, 2^e is a normal
+        # fp32 (zero mantissa) so we set the exponent field directly. e == -127 ->
+        # 2^-127 is subnormal and cannot be built that way, so special-case it.
+        scale = tl.where(
+            exp >= -126,
+            ((exp + 127) << 23).to(tl.float32, bitcast=True),
+            2.0**-127,
+        )
         scaled_low_fp32 = scale * low_fp32
         scaled_high_fp32 = scale * high_fp32
 
