@@ -198,7 +198,7 @@ class TuningCache final {
       kernel(std::forward<Args>(args)...);
     } catch (const std::exception&) {
       std::cout << "Warmup iteration failed for " << kernel_name
-                << " it will be skipped." << '\n';
+                << ", it will be skipped." << '\n';
       return FLT_MAX;
     }
 
