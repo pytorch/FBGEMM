@@ -63,8 +63,10 @@ def compute_writeback_indices(
     non_empty_index = (offsets[1:] - offsets[:-1]).nonzero().flatten()
     # disable dedup across different table
     indices = ((offsets[non_empty_index]) // batch_size) * (1 + max_indices) + indices
+    # indices is 1D (TBE input); use 1D unique. dim=0 forces a row-wise merge_sort
+    # that faults under CUDA 13 and is redundant here.
     _, idx, counts = torch.unique(
-        indices, dim=0, sorted=True, return_inverse=True, return_counts=True
+        indices, sorted=True, return_inverse=True, return_counts=True
     )
     _, ind_sorted = torch.sort(idx, stable=True)
     cum_sum = counts.cumsum(0)
@@ -101,8 +103,10 @@ def compute_writeback_indices_first_feature_only(
         "num_of_tables * max_indices exceeds dtype max",
     )
 
+    # shrink_indices is 1D (slice of the 1D TBE input); use 1D unique. dim=0 forces
+    # a row-wise merge_sort that faults under CUDA 13 and is redundant here.
     _, idx, counts = torch.unique(
-        shrink_indices, dim=0, sorted=True, return_inverse=True, return_counts=True
+        shrink_indices, sorted=True, return_inverse=True, return_counts=True
     )
     _, ind_sorted = torch.sort(idx, stable=True)
     cum_sum = counts.cumsum(0)
@@ -145,8 +149,10 @@ def compute_writeback_indices_nobag(
     # disable dedup across different table
     indices = ((offsets[non_empty_index]) // batch_size) * (1 + max_indices) + indices
     # TODO: revisit if dedup is needed when EC dedup is enabled.
+    # indices is 1D (TBE input); use 1D unique. dim=0 forces a row-wise merge_sort
+    # that faults under CUDA 13 and is redundant here.
     _, idx, counts = torch.unique(
-        indices, dim=0, sorted=True, return_inverse=True, return_counts=True
+        indices, sorted=True, return_inverse=True, return_counts=True
     )
     _, ind_sorted = torch.sort(idx, stable=True)
     cum_sum = counts.cumsum(0)
