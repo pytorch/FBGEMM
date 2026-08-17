@@ -57,6 +57,73 @@ get_res_client(int64_t res_server_port) {
       "realtime.delta.publish.esr", params);
 }
 
+// One shard's prepared request, built up front so the ship section is pure I/O.
+struct ShardReq {
+  int shard_id{0};
+  ::aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest req;
+};
+
+// Per-shard RPC timing recorded by ship_one_shard for the tensor_stream
+// breakdown log.
+struct ShardTiming {
+  int shard_id{0};
+  int64_t rpc_ms{0};
+};
+
+// Ship one shard's SetEmbeddingsRequest and record its timing. A named
+// coroutine (not a capturing lambda) so every input is owned by the coroutine
+// frame and nothing dangles across the co_await -- the capture-free form the
+// cppcoreguidelines-avoid-capturing-lambda-coroutines rule requires. Isolates
+// its own failure: an RPC throw is logged/counted and swallowed, so it neither
+// cancels its still-in-flight siblings under collectAllRange nor escapes the
+// ship task.
+folly::coro::Task<void> ship_one_shard(
+    apache::thrift::Client<::aiplatform::gmpp::experimental::training_ps::
+                               TrainingParameterServerService>* client,
+    ::aiplatform::gmpp::experimental::training_ps::SetEmbeddingsRequest req,
+    int shard_id,
+    std::string unique_id,
+    facebook::aiplatform::gmpp::experimental::training_ps::TrainingPsOdsLogger*
+        ods_logger,
+    std::shared_ptr<std::vector<ShardTiming>> timings,
+    size_t idx) {
+  folly::stop_watch<std::chrono::milliseconds> sw;
+  try {
+    co_await client->co_setEmbeddings(req);
+  } catch (const std::exception& e) {
+    if (ods_logger != nullptr) {
+      ods_logger->bumpKey("set_embeddings_rpc_failure", 1);
+    }
+    XLOG(ERR) << "[TBE_ID" << unique_id << "] co_setEmbeddings threw on shard "
+              << shard_id << ": " << e.what();
+  }
+  (*timings)[idx] = ShardTiming{shard_id, sw.elapsed().count()};
+}
+
+// Find the slowest shard and emit a rate-limited tensor_stream timing
+// breakdown.
+void log_shard_ship_breakdown(
+    const std::string& unique_id,
+    const std::vector<ShardTiming>& shard_timings,
+    int64_t total_rpc_ms,
+    int64_t total_rows,
+    int64_t num_shards) {
+  int64_t max_shard_ms = 0;
+  std::optional<int> max_shard_id;
+  for (const auto& st : shard_timings) {
+    if (!max_shard_id || st.rpc_ms > max_shard_ms) {
+      max_shard_ms = st.rpc_ms;
+      max_shard_id = st.shard_id;
+    }
+  }
+  XLOG_EVERY_MS(INFO, 15000)
+      << "[TBE_ID" << unique_id
+      << "] tensor_stream breakdown: total_rpc_ms=" << total_rpc_ms
+      << " max_shard_ms=" << max_shard_ms
+      << " max_shard_id=" << max_shard_id.value_or(-1) << " rows=" << total_rows
+      << " shards=" << num_shards << " parallel_rpcs=" << shard_timings.size();
+}
+
 /// Read a scalar value from a tensor that is maybe a UVM tensor
 /// Note that `tensor.item<type>()` is not allowed on a UVM tensor in
 /// PyTorch
@@ -679,7 +746,10 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
   stop_watch.reset();
 
   auto res_client = get_res_client(res_server_port_);
-  // 2. Split by shards
+  // 2. Split by shards -- prepare every shard's request up front so the
+  // subsequent ship section is pure I/O with nothing serialized between RPCs.
+  std::vector<ShardReq> shard_requests;
+  shard_requests.reserve(res_store_shards_);
   for (int i = 0; i < res_store_shards_; ++i) {
     auto shard_mask = shard_indices_tensor.eq(i).nonzero().squeeze();
     auto table_indices_masked = table_indices.index_select(0, shard_mask);
@@ -722,20 +792,36 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
       req.runtimeMeta() =
           torch::distributed::wireDumpTensor(runtime_meta_masked);
     }
-    try {
-      co_await res_client->co_setEmbeddings(req);
-    } catch (const std::exception& e) {
-      // A transient per-shard RPC failure must not propagate: it would tear
-      // down the consumer thread (std::terminate). Log, bump the counter, and
-      // move on to the next shard.
-      if (ods_logger_) {
-        ods_logger_->bumpKey("set_embeddings_rpc_failure", 1);
-      }
-      XLOG(ERR) << "[TBE_ID" << unique_id_
-                << "] co_setEmbeddings threw on shard " << i << ": "
-                << e.what();
-    }
+    shard_requests.push_back(ShardReq{i, std::move(req)});
   }
+
+  // 3. Ship every shard RPC in parallel (all suspended on co_setEmbeddings at
+  // once, so their round-trips overlap), tracking per-shard timing. Each task
+  // isolates its own failure: a shard whose RPC throws is logged and counted,
+  // and the task completes normally WITHOUT propagating -- so one dead shard
+  // neither cancels its still-in-flight siblings (as a bare collectAllRange
+  // over throwing tasks would) nor escapes the ship task.
+  auto shard_timings =
+      std::make_shared<std::vector<ShardTiming>>(shard_requests.size());
+  folly::stop_watch<std::chrono::milliseconds> rpc_sw;
+  std::vector<folly::coro::Task<void>> rpc_tasks;
+  rpc_tasks.reserve(shard_requests.size());
+  for (size_t idx = 0; idx < shard_requests.size(); ++idx) {
+    auto& shard_request = shard_requests[idx];
+    rpc_tasks.push_back(ship_one_shard(
+        res_client.get(),
+        std::move(shard_request.req),
+        shard_request.shard_id,
+        unique_id_,
+        ods_logger_.get(),
+        shard_timings,
+        idx));
+  }
+  co_await folly::coro::collectAllRange(std::move(rpc_tasks));
+  const auto total_rpc_ms = rpc_sw.elapsed().count();
+
+  log_shard_ship_breakdown(
+      unique_id_, *shard_timings, total_rpc_ms, total_rows, res_store_shards_);
   co_return;
 }
 
