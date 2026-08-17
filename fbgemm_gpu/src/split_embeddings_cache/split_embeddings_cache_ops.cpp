@@ -120,8 +120,13 @@ auto raw_embedding_streamer =
                 torch::arg("blocking_tensor_copy"),
                 torch::arg("copy_done_flag") = std::nullopt,
             })
+        // The exposed name is kept as-is for backward compatibility: frozen
+        // fbgemm clones bundled with published models (pyper_models/.../
+        // archive/) still call join_stream_tensor_copy_thread() and are never
+        // updated. Only the C++ method name changes to reflect that it joins
+        // the dispatch, which in turn joins the copy threads.
         .def(
             "join_stream_tensor_copy_thread",
-            &fbgemm_gpu::RawEmbeddingStreamer::join_stream_tensor_copy_thread);
+            &fbgemm_gpu::RawEmbeddingStreamer::join_dispatch_and_workers);
 
 } // namespace
