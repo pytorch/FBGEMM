@@ -219,6 +219,34 @@ function(gpu_cpp_library)
     endif()
 
     ############################################################################
+    # Compilation Flags
+    ############################################################################
+
+    # Computed BEFORE the library is created, because `hip_add_library()` takes
+    # HIPCC_OPTIONS as a creation-time argument (it is a legacy FindHIP concept,
+    # not a target property that can be set afterwards), so the HIPCC list has to
+    # exist by then. A follow-up applies these lists; this block only computes
+    # them, and nothing consumes the NVCC/HIPCC ones yet.
+    #
+    # Only the flag computation moved here. The MSVC `target_compile_definitions`
+    # that used to sit in the same block stays after library creation, because it
+    # needs ${lib_name} to exist.
+
+    fbgemm_get_warning_flags(
+        MSVC_FLAGS_VAR  _msvc_flags
+        CC_FLAGS_VAR    _cc_flags
+        NVCC_FLAGS_VAR  _nvcc_warning_flags
+        HIPCC_FLAGS_VAR _hipcc_warning_flags
+        EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
+        EXTRA_CC_FLAGS   ${args_CC_FLAGS})
+
+    if(MSVC)
+        set(lib_cc_flags ${_msvc_flags})
+    else()
+        set(lib_cc_flags ${_cc_flags})
+    endif()
+
+    ############################################################################
     # Build the Library
     ############################################################################
 
@@ -280,36 +308,18 @@ function(gpu_cpp_library)
     endif()
 
     ############################################################################
-    # Compilation Flags and Definitions
+    # Compilation Definitions
     ############################################################################
 
-    if(MSVC)
+    # The flag computation that used to be here moved above the "Build the
+    # Library" section -- see the note there. This part cannot move, because it
+    # operates on the target.
+    if(MSVC AND args_TYPE STREQUAL STATIC)
         # MSVC needs to define these variables to avoid generating _dllimport
         # functions.
-        if(args_TYPE STREQUAL STATIC)
-            target_compile_definitions(${lib_name}
-                PUBLIC ASMJIT_STATIC
-                PUBLIC FBGEMM_STATIC)
-        endif()
-
-        fbgemm_get_warning_flags(
-            MSVC_FLAGS_VAR  _msvc_flags
-            CC_FLAGS_VAR    _cc_flags
-            NVCC_FLAGS_VAR  _nvcc_warning_flags
-            HIPCC_FLAGS_VAR _hipcc_warning_flags
-            EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
-            EXTRA_CC_FLAGS   ${args_CC_FLAGS})
-        set(lib_cc_flags ${_msvc_flags})
-
-    else()
-        fbgemm_get_warning_flags(
-            MSVC_FLAGS_VAR  _msvc_flags
-            CC_FLAGS_VAR    _cc_flags
-            NVCC_FLAGS_VAR  _nvcc_warning_flags
-            HIPCC_FLAGS_VAR _hipcc_warning_flags
-            EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
-            EXTRA_CC_FLAGS   ${args_CC_FLAGS})
-        set(lib_cc_flags ${_cc_flags})
+        target_compile_definitions(${lib_name}
+            PUBLIC ASMJIT_STATIC
+            PUBLIC FBGEMM_STATIC)
     endif()
 
 
