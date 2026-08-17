@@ -92,6 +92,7 @@ auto raw_embedding_streamer =
                 std::vector<int64_t>,
                 int64_t,
                 int64_t,
+                int64_t,
                 int64_t>(),
             "",
             {
@@ -105,6 +106,7 @@ auto raw_embedding_streamer =
                 torch::arg("res_chunk_size") = 500000,
                 torch::arg("res_num_consumers") = 8,
                 torch::arg("res_num_copy_threads") = 4,
+                torch::arg("res_num_hbm_copy_threads") = 4,
             })
         .def(
             "stream",
@@ -119,6 +121,7 @@ auto raw_embedding_streamer =
                 torch::arg("require_tensor_copy"),
                 torch::arg("blocking_tensor_copy"),
                 torch::arg("copy_done_flag") = std::nullopt,
+                torch::arg("use_hbm") = false,
             })
         // The exposed name is kept as-is for backward compatibility: frozen
         // fbgemm clones bundled with published models (pyper_models/.../
@@ -127,6 +130,9 @@ auto raw_embedding_streamer =
         // the dispatch, which in turn joins the copy threads.
         .def(
             "join_stream_tensor_copy_thread",
-            &fbgemm_gpu::RawEmbeddingStreamer::join_dispatch_and_workers);
+            &fbgemm_gpu::RawEmbeddingStreamer::join_dispatch_and_workers)
+        .def(
+            "join_hbm_dispatch_and_workers",
+            &fbgemm_gpu::RawEmbeddingStreamer::join_hbm_dispatch_and_workers);
 
 } // namespace
