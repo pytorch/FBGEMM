@@ -7,8 +7,24 @@
 include_guard(GLOBAL)
 
 # Shared compiler warning flags for both CPU and GPU builds
+#
+# Produces up to four lists from ONE source of truth:
+#
+#   MSVC_FLAGS_VAR   MSVC warning flags
+#   CC_FLAGS_VAR     host C/C++ flags (gcc or clang, per CMAKE_CXX_COMPILER_ID)
+#   NVCC_FLAGS_VAR   the CC list, each entry wrapped as -Xcompiler=<flag>
+#   HIPCC_FLAGS_VAR  the clang-shaped list, for hipcc
+#
+# Adding a warning to `_cc_common` (or, when it is populated, `_cc_clang_only`)
+# must automatically reach CXX, nvcc and hipcc with no further edits. That is the
+# entire point of deriving them here rather than at the call sites.
+#
+# NOTE: this function PRODUCES the nvcc/hipcc lists; it does not apply them.
+# Wiring them into COMPILE_OPTIONS / HIPCC_OPTIONS is deliberately separate, so a
+# bad activation can be reverted without losing this refactor.
 function(fbgemm_get_warning_flags)
-  cmake_parse_arguments(ARG "" "MSVC_FLAGS_VAR;CC_FLAGS_VAR"
+  cmake_parse_arguments(ARG ""
+    "MSVC_FLAGS_VAR;CC_FLAGS_VAR;NVCC_FLAGS_VAR;HIPCC_FLAGS_VAR"
     "EXTRA_MSVC_FLAGS;EXTRA_CC_FLAGS" ${ARGN})
 
   # MSVC flags
@@ -19,12 +35,20 @@ function(fbgemm_get_warning_flags)
     /wd4305
     /wd4309)
 
-  # Common GCC/Clang flags
-  set(_cc
-    ${ARG_EXTRA_CC_FLAGS}
+  # Portable warning flags. Additions that apply to every compiler go here.
+  set(_cc_common
     -Wall
     -Wextra
-    -Werror
+    -Werror)
+
+  # Clang-only warning flags. Intentionally empty; populated in Phases A/B.
+  set(_cc_clang_only)
+
+  # Suppressions. These are appended LAST so they win over everything above.
+  #
+  # To ENABLE a warning suppressed here, DELETE it from these lists. Adding the
+  # positive flag to `_cc_common` will not work; these come later.
+  set(_cc_suppressions_common
     -Wno-deprecated-declarations
     -Wno-deprecated-enum-enum-conversion
     -Wno-strict-aliasing
@@ -34,37 +58,122 @@ function(fbgemm_get_warning_flags)
     -Wno-error=unknown-pragmas
     -Wno-error=attributes)
 
-  # Clang-specific
+  # Clang suppressions, split by the clang version that made them necessary.
+  # The CXX path applies these conditionally on the HOST clang version (below);
+  # the hipcc path takes all of them, because hipcc is always a recent clang.
+  set(_cc_suppressions_clang_base
+    -Wno-unused-command-line-argument
+    -Wno-c99-extensions
+    -Wno-gnu-zero-variadic-macro-arguments)
+
+  set(_cc_suppressions_clang_gt13
+    -Wno-error=unused-but-set-parameter
+    -Wno-error=unused-but-set-variable)
+
+  set(_cc_suppressions_clang_gt17
+    -Wno-vla-cxx-extension
+    -Wno-error=global-constructors
+    -Wno-error=shadow)
+
+  # Full clang-shaped suppression set, assembled unconditionally so it is
+  # available even when the HOST compiler is GCC. Used only for the hipcc list.
+  set(_cc_suppressions_clang
+    ${_cc_suppressions_clang_base}
+    ${_cc_suppressions_clang_gt13}
+    ${_cc_suppressions_clang_gt17})
+
+  set(_cc_suppressions_gcc
+    -Wno-error=unused-but-set-parameter
+    -Wno-error=unused-but-set-variable
+    -Wno-error=array-bounds
+    -Wno-error=maybe-uninitialized)
+
+  # Host-compiler-conditional suppression set for the CXX path. The version gates
+  # are preserved exactly as before this refactor.
+  set(_cc_suppressions ${_cc_suppressions_common})
+
   if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
-    list(APPEND _cc
-      -Wno-unused-command-line-argument
-      -Wno-c99-extensions
-      -Wno-gnu-zero-variadic-macro-arguments)
+    list(APPEND _cc_suppressions ${_cc_suppressions_clang_base})
 
     if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
-      list(APPEND _cc
-        -Wno-error=unused-but-set-parameter
-        -Wno-error=unused-but-set-variable)
+      list(APPEND _cc_suppressions ${_cc_suppressions_clang_gt13})
     endif()
 
     if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-      list(APPEND _cc
-        -Wno-vla-cxx-extension
-        -Wno-error=global-constructors
-        -Wno-error=shadow)
+      list(APPEND _cc_suppressions ${_cc_suppressions_clang_gt17})
     endif()
 
   # GNU-specific
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
-    list(APPEND _cc
-      -Wno-error=unused-but-set-parameter
-      -Wno-error=unused-but-set-variable
-      -Wno-error=array-bounds
-      -Wno-error=maybe-uninitialized)
+    list(APPEND _cc_suppressions ${_cc_suppressions_gcc})
   endif()
+
+  # NOTE: ARG_EXTRA_CC_FLAGS stays FIRST, preserving the pre-refactor behaviour
+  # that per-target extras are overridable by the shared suppressions.
+  #
+  # `_cc_clang_only` is guarded: it must not reach a gcc command line. The list is
+  # empty today, so the guard is a no-op -- but expanding it unconditionally would
+  # break the OSS gcc leg the moment the list is populated, and the breakage would
+  # stay invisible until then. The guard belongs with the list that introduces it,
+  # not with the first flag that needs it.
+  set(_cc
+    ${ARG_EXTRA_CC_FLAGS}
+    ${_cc_common})
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
+    list(APPEND _cc ${_cc_clang_only})
+  endif()
+
+  list(APPEND _cc ${_cc_suppressions})
+
+  # nvcc does not understand host warning flags directly; they must be forwarded
+  # to the host compiler. Use the `-Xcompiler=<flag>` single-token form: the
+  # two-token `-Xcompiler <flag>` form can be split or de-duplicated when CMake
+  # expands a `;`-separated list into COMPILE_OPTIONS.
+  set(_nvcc "")
+  foreach(_flag IN LISTS _cc)
+    list(APPEND _nvcc "-Xcompiler=${_flag}")
+  endforeach()
+
+  # hipcc is ALWAYS clang, regardless of CMAKE_CXX_COMPILER_ID -- the OSS ROCm CI
+  # matrix builds with both gcc and clang as the HOST compiler
+  # (.github/workflows/fbgemm_gpu_ci_rocm.yml). So this list is built from the
+  # clang-shaped inputs unconditionally. Deriving it from `_cc` would silently
+  # drop every clang-only flag on the gcc leg, with no failure to signal it.
+  #
+  # Unlike nvcc, these reach DEVICE code -- the only surface where they do.
+  #
+  # ⚠ `_cc_suppressions_clang` here is the FULL clang set, including the entries
+  # the CXX path gates behind CMAKE_CXX_COMPILER_VERSION. Those gates describe the
+  # HOST compiler and say nothing about hipcc's clang, which is a separate and
+  # generally newer toolchain. Before these flags are ever applied, confirm the
+  # hipcc in the supported ROCm versions accepts all of them -- an unknown
+  # `-Wno-*` becomes an error under `-Werror`. Producing the list is harmless;
+  # applying it is not.
+  # `_cc_suppressions_common` is included deliberately. Omitting it would give
+  # hipcc `-Werror` while withholding -Wno-deprecated-declarations,
+  # -Wno-strict-aliasing, -Wno-sign-compare, -Wno-vla and the -Wno-error=*
+  # entries that the host path relies on, and applying such a list would fail
+  # immediately. The common suppressions are portable `-Wno-*` that hipcc, being
+  # clang, accepts. Including them makes `_hipcc` the clang analogue of `_cc`:
+  # everything except the caller's EXTRA_CC_FLAGS, with the FULL clang
+  # suppression set in place of the host-conditional one.
+  set(_hipcc
+    ${_cc_common}
+    ${_cc_clang_only}
+    ${_cc_suppressions_common}
+    ${_cc_suppressions_clang})
 
   set(${ARG_MSVC_FLAGS_VAR} ${_msvc} PARENT_SCOPE)
   set(${ARG_CC_FLAGS_VAR}   ${_cc}   PARENT_SCOPE)
+
+  if(ARG_NVCC_FLAGS_VAR)
+    set(${ARG_NVCC_FLAGS_VAR} ${_nvcc} PARENT_SCOPE)
+  endif()
+
+  if(ARG_HIPCC_FLAGS_VAR)
+    set(${ARG_HIPCC_FLAGS_VAR} ${_hipcc} PARENT_SCOPE)
+  endif()
 endfunction()
 
 function(cpp_library)
@@ -148,16 +257,20 @@ function(cpp_library)
         endif()
 
         fbgemm_get_warning_flags(
-            MSVC_FLAGS_VAR _msvc_flags
-            CC_FLAGS_VAR   _cc_flags
+            MSVC_FLAGS_VAR  _msvc_flags
+            CC_FLAGS_VAR    _cc_flags
+            NVCC_FLAGS_VAR  _nvcc_warning_flags
+            HIPCC_FLAGS_VAR _hipcc_warning_flags
             EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
             EXTRA_CC_FLAGS   ${args_CC_FLAGS})
         set(lib_cc_flags ${_msvc_flags})
 
     else()
         fbgemm_get_warning_flags(
-            MSVC_FLAGS_VAR _msvc_flags
-            CC_FLAGS_VAR   _cc_flags
+            MSVC_FLAGS_VAR  _msvc_flags
+            CC_FLAGS_VAR    _cc_flags
+            NVCC_FLAGS_VAR  _nvcc_warning_flags
+            HIPCC_FLAGS_VAR _hipcc_warning_flags
             EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
             EXTRA_CC_FLAGS   ${args_CC_FLAGS})
         set(lib_cc_flags ${_cc_flags})
@@ -251,6 +364,15 @@ function(cpp_library)
         " "
         "CC_FLAGS:"
         "${args_CC_FLAGS}"
+        " "
+        "RESOLVED WARNING FLAGS (CC):"
+        "${_cc_flags}"
+        " "
+        "RESOLVED WARNING FLAGS (NVCC, produced not applied):"
+        "${_nvcc_warning_flags}"
+        " "
+        "RESOLVED WARNING FLAGS (HIPCC, produced not applied):"
+        "${_hipcc_warning_flags}"
         " "
         "MSVC_FLAGS:"
         "${args_MSVC_FLAGS}"
