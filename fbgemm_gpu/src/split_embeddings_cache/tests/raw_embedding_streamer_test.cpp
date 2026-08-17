@@ -612,8 +612,8 @@ TEST(RawEmbeddingStreamerTest, TestStreamE2E) {
   streamer->stream(
       indices, weights, std::nullopt, std::nullopt, count, true, true);
   // Bounded wait for the consumer to drain the enqueued item (so
-  // co_setEmbeddings has run) before stopping the thread -- avoids a
-  // fixed-sleep flake and the stop_-between-peek-and-process race.
+  // co_setEmbeddings has run) before dropping the ship workers -- waiting on
+  // the actual queue size avoids a fixed-sleep flake.
   for (int i = 0; i < 1000 && streamer->get_weights_to_stream_queue_size() > 0;
        ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -623,9 +623,9 @@ TEST(RawEmbeddingStreamerTest, TestStreamE2E) {
 
 TEST(RawEmbeddingStreamerTest, TestNoCopyMultiItemConsumerDrain) {
   // require_tensor_copy=false enqueues one raw item per stream() call (no D2H
-  // copy, no chunking). Enqueue several and let the N-thread consumer pool
-  // drain them concurrently through the UMPMC queue: every item must be
-  // shipped, so co_setEmbeddings runs (kNumItems * shards-per-item) times.
+  // copy, no chunking). Enqueue several and let the N-worker consumer executor
+  // drain them concurrently: every item must be shipped, so co_setEmbeddings
+  // runs (kNumItems * shards-per-item) times.
   // Exercises the raw-enqueue (require_tensor_copy=false) branch and multi-item
   // concurrent drain. Wait on the RPC count BEFORE stopping so no in-flight
   // item is dropped.
@@ -689,8 +689,8 @@ TEST(RawEmbeddingStreamerTest, TestNoCopyMultiItemConsumerDrain) {
         /*require_tensor_copy=*/false);
   }
   // Bounded wait until every item has been shipped, then stop -- waiting on the
-  // count (not queue size) guarantees no dequeued-but-unprocessed item is
-  // dropped by stop_.
+  // count (not queue size) guarantees no submitted-but-unshipped item is
+  // dropped when join_weights_stream_thread() drops the ship workers.
   for (int i = 0; i < 1000 && rpc_count.load() < kNumItems * kShardsPerItem;
        ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));

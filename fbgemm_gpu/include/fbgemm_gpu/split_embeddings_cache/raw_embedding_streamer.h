@@ -113,16 +113,15 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> runtime_meta);
 
   /*
-   * FOR TESTING ONLY: latches stop_ so the consumer threads exit, letting a
-   * test read a stable queue size. Not reversible -- the streamer stops
-   * consuming after this call.
+   * FOR TESTING ONLY: drops the ship executor to 0 worker threads so a test can
+   * read a stable queue size (via get_weights_to_stream_queue_size()). Not
+   * reversible -- the executor stops shipping after this call.
    */
   void join_weights_stream_thread();
   // FOR TESTING: get queue size.
   uint64_t get_weights_to_stream_queue_size();
 #endif
  private:
-  std::atomic<bool> stop_{false};
   std::string unique_id_;
   bool enable_raw_embedding_streaming_;
 #ifdef FBGEMM_FBCODE
@@ -138,9 +137,10 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   size_t res_num_copy_threads_;
 #endif
 #ifdef FBGEMM_FBCODE
-  // Multi-threaded consumers for tensor_stream() RPCs.
-  std::vector<std::unique_ptr<std::thread>> consumer_threads_;
-  folly::UMPMCQueue<StreamQueueItem, true> weights_to_stream_queue_;
+  // Named executor that ships enqueued StreamQueueItems to the PS. Push model:
+  // producers submit one ship task per item and workers wake on submit (no
+  // polling). Sized to res_num_consumers_.
+  std::unique_ptr<folly::CPUThreadPoolExecutor> consumer_executor_;
   // Copy threads for UVM cache (joined every iteration). Shared by the blocking
   // and non-blocking stream() paths; this assumes a given table streams in a
   // single mode at a time (blocking OR non-blocking), never concurrently.
@@ -157,7 +157,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       ods_logger_;
 
   void join_worker_threads();
-  void join_consumer_threads();
+  // Submit one ship task (blockingWait(tensor_stream(...))) for `item` onto
+  // consumer_executor_.
+  void submit_stream_item(StreamQueueItem item);
   void chunked_copy_and_enqueue(
       const at::Tensor& indices,
       const at::Tensor& weights,
