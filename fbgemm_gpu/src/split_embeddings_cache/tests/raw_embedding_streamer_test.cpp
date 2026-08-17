@@ -512,11 +512,11 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithCopy) {
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
 
   // Test non-blocking tensor copy. The copy runs on the dispatcher, so we must
-  // join_stream_tensor_copy_thread() before checking the queue -- asserting the
-  // size before the join would race the background copy.
+  // join_dispatch_and_workers() before checking the queue -- asserting the size
+  // before the join would race the background copy.
   streamer->stream(
       indices, weights, std::nullopt, std::nullopt, count, true, false);
-  streamer->join_stream_tensor_copy_thread();
+  streamer->join_dispatch_and_workers();
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 2);
 }
 
@@ -894,7 +894,7 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithCopyDoneFlagNonBlockingCopy) {
       copy_done_flag);
 
   // Wait for the async thread to complete
-  streamer->join_stream_tensor_copy_thread();
+  streamer->join_dispatch_and_workers();
   EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
   // poll_flag() must have observed the flag (1) and reset it to 0; without the
   // reset the next iteration would stream before the D2H copy finished.

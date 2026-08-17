@@ -340,9 +340,8 @@ void EmbeddingKVDB::stream_sync_cuda() {
       "## EmbeddingKVDB::stream_sync_cuda ##");
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
-  std::function<void()>* functor = new std::function<void()>([=]() {
-    self->raw_embedding_streamer_->join_stream_tensor_copy_thread();
-  });
+  std::function<void()>* functor = new std::function<void()>(
+      [=]() { self->raw_embedding_streamer_->join_dispatch_and_workers(); });
   AT_CUDA_CHECK(cudaLaunchHostFunc(
       at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
   rec->record.end();
