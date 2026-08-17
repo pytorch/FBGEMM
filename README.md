@@ -81,6 +81,22 @@ For contributions, please see the [`CONTRIBUTING`](./CONTRIBUTING.md) file for
 ways to help out.
 
 
+## Community Ports
+
+### Huawei Ascend NPU
+
+[fbgemm-ascend](https://gitcode.com/Ascend/fbgemm-ascend) provides
+community-maintained NPU implementations for selected FBGEMM_GPU operators.
+
+* **Prebuilt wheels:** Install from [PyPI](https://pypi.org/project/fbgemm-ascend/)
+  with `python -m pip install fbgemm-ascend`, or download a wheel from
+  [GitCode Releases](https://gitcode.com/Ascend/fbgemm-ascend/releases).
+
+* **Build from source:** See the
+  [fbgemm-ascend README](https://gitcode.com/Ascend/fbgemm-ascend) for source
+  build instructions.
+
+
 ## License
 
 FBGEMM is BSD licensed, as found in the [`LICENSE`](LICENSE) file.
