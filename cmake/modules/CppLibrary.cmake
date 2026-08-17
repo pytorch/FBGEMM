@@ -60,7 +60,12 @@ function(fbgemm_get_warning_flags)
     # `_cc_clang_only`, buying coverage on the gcc leg.
     -Wpessimizing-move
     -Wunused-label
-    -Wunused-local-typedefs)
+    -Wunused-local-typedefs
+    # `-Wall`-implied and therefore inert on the host surface (clang enables it
+    # by default; gcc via -Wall). Its value is on DEVICE code, which reaches it
+    # via `_hipcc` -- but only once that list is applied. Until then this is
+    # host-only and should produce nothing.
+    -Wunused-value)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
