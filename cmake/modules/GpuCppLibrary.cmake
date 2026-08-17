@@ -293,16 +293,20 @@ function(gpu_cpp_library)
         endif()
 
         fbgemm_get_warning_flags(
-            MSVC_FLAGS_VAR _msvc_flags
-            CC_FLAGS_VAR   _cc_flags
+            MSVC_FLAGS_VAR  _msvc_flags
+            CC_FLAGS_VAR    _cc_flags
+            NVCC_FLAGS_VAR  _nvcc_warning_flags
+            HIPCC_FLAGS_VAR _hipcc_warning_flags
             EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
             EXTRA_CC_FLAGS   ${args_CC_FLAGS})
         set(lib_cc_flags ${_msvc_flags})
 
     else()
         fbgemm_get_warning_flags(
-            MSVC_FLAGS_VAR _msvc_flags
-            CC_FLAGS_VAR   _cc_flags
+            MSVC_FLAGS_VAR  _msvc_flags
+            CC_FLAGS_VAR    _cc_flags
+            NVCC_FLAGS_VAR  _nvcc_warning_flags
+            HIPCC_FLAGS_VAR _hipcc_warning_flags
             EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
             EXTRA_CC_FLAGS   ${args_CC_FLAGS})
         set(lib_cc_flags ${_cc_flags})
@@ -443,6 +447,15 @@ function(gpu_cpp_library)
         " "
         "CC_FLAGS:"
         "${args_CC_FLAGS}"
+        " "
+        "RESOLVED WARNING FLAGS (CC):"
+        "${_cc_flags}"
+        " "
+        "RESOLVED WARNING FLAGS (NVCC, produced not applied):"
+        "${_nvcc_warning_flags}"
+        " "
+        "RESOLVED WARNING FLAGS (HIPCC, produced not applied):"
+        "${_hipcc_warning_flags}"
         " "
         "NVCC_FLAGS:"
         "${args_NVCC_FLAGS}"
