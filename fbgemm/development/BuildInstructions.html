@@ -592,8 +592,8 @@ make<span class="w"> </span>install
 To work around the issue, append the following exports prior to running CMake:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
-<span class="nb">export</span><span class="w"> </span><span class="nv">CFLAGS</span><span class="o">+=</span><span class="s2">&quot; -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict&quot;</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CXXFLAGS</span><span class="o">+=</span><span class="s2">&quot; -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CFLAGS</span><span class="o">+=</span><span class="s2">" -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict"</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CXXFLAGS</span><span class="o">+=</span><span class="s2">" -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict"</span>
 </pre></div>
 </div>
 <p>Please see GitHub issues
@@ -616,10 +616,10 @@ CMake invocation to specify the Clang path, the LLVM-based C++ standard library
 
 <span class="c1"># Append to the CMake build arguments</span>
 <span class="nv">build_args</span><span class="o">+=(</span>
-<span class="w">  </span>-DCMAKE_C_COMPILER<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cc_path</span><span class="si">}</span><span class="s2">&quot;</span>
-<span class="w">  </span>-DCMAKE_CXX_COMPILER<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cxx_path</span><span class="si">}</span><span class="s2">&quot;</span>
-<span class="w">  </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="se">\&quot;</span>-fopenmp<span class="o">=</span>libomp<span class="w"> </span>-stdlib<span class="o">=</span>libc++<span class="w"> </span>-I<span class="w"> </span><span class="nv">$CONDA_PREFIX</span>/include<span class="se">\&quot;</span>
-<span class="w">  </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="se">\&quot;</span>-fopenmp<span class="o">=</span>libomp<span class="w"> </span>-stdlib<span class="o">=</span>libc++<span class="w"> </span>-I<span class="w"> </span><span class="nv">$CONDA_PREFIX</span>/include<span class="se">\&quot;</span>
+<span class="w">  </span>-DCMAKE_C_COMPILER<span class="o">=</span><span class="s2">"</span><span class="si">${</span><span class="nv">cc_path</span><span class="si">}</span><span class="s2">"</span>
+<span class="w">  </span>-DCMAKE_CXX_COMPILER<span class="o">=</span><span class="s2">"</span><span class="si">${</span><span class="nv">cxx_path</span><span class="si">}</span><span class="s2">"</span>
+<span class="w">  </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="se">\"</span>-fopenmp<span class="o">=</span>libomp<span class="w"> </span>-stdlib<span class="o">=</span>libc++<span class="w"> </span>-I<span class="w"> </span><span class="nv">$CONDA_PREFIX</span>/include<span class="se">\"</span>
+<span class="w">  </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="se">\"</span>-fopenmp<span class="o">=</span>libomp<span class="w"> </span>-stdlib<span class="o">=</span>libc++<span class="w"> </span>-I<span class="w"> </span><span class="nv">$CONDA_PREFIX</span>/include<span class="se">\"</span>
 <span class="o">)</span>
 </pre></div>
 </div>
@@ -640,13 +640,13 @@ bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span
 <section id="building-on-windows">
 <h3>Building on Windows<a class="headerlink" href="#building-on-windows" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-powershell notranslate"><div class="highlight"><pre><span></span><span class="c"># Specify the target architecture to bc x64</span>
-<span class="n">call</span> <span class="s2">&quot;C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat&quot;</span> <span class="n">x64</span>
+<span class="n">call</span> <span class="s2">"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"</span> <span class="n">x64</span>
 
 <span class="c"># Create a build directory</span>
 <span class="n">mkdir</span> <span class="k">%</span><span class="n">BUILD_DIR</span><span class="p">%</span>
 <span class="nb">cd </span><span class="k">%</span><span class="n">BUILD_DIR</span><span class="p">%</span>
 
-<span class="n">cmake</span> <span class="n">-G</span> <span class="n">Ninja</span> <span class="n">-DFBGEMM_BUILD_BENCHMARKS</span><span class="p">=</span><span class="n">OFF</span> <span class="n">-DFBGEMM_LIBRARY_TYPE</span><span class="p">=${{</span> <span class="n">matrix</span><span class="p">.</span><span class="n">library-type</span> <span class="p">}}</span> <span class="n">-DCMAKE_BUILD_TYPE</span><span class="p">=</span><span class="n">Release</span> <span class="n">-DCMAKE_C_COMPILER</span><span class="p">=</span><span class="s2">&quot;cl.exe&quot;</span> <span class="n">-DCMAKE_CXX_COMPILER</span><span class="p">=</span><span class="s2">&quot;cl.exe&quot;</span> <span class="p">..</span>
+<span class="n">cmake</span> <span class="n">-G</span> <span class="n">Ninja</span> <span class="n">-DFBGEMM_BUILD_BENCHMARKS</span><span class="p">=</span><span class="n">OFF</span> <span class="n">-DFBGEMM_LIBRARY_TYPE</span><span class="p">=${{</span> <span class="n">matrix</span><span class="p">.</span><span class="n">library-type</span> <span class="p">}}</span> <span class="n">-DCMAKE_BUILD_TYPE</span><span class="p">=</span><span class="n">Release</span> <span class="n">-DCMAKE_C_COMPILER</span><span class="p">=</span><span class="s2">"cl.exe"</span> <span class="n">-DCMAKE_CXX_COMPILER</span><span class="p">=</span><span class="s2">"cl.exe"</span> <span class="p">..</span>
 <span class="n">ninja</span> <span class="n">-v</span> <span class="n">all</span>
 </pre></div>
 </div>

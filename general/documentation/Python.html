@@ -479,7 +479,7 @@ minimum, please add descriptions of:</p>
 as needed.</p>
 <p>Here is an example Python docstring:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">example_method</span><span class="p">(</span><span class="n">alignment</span><span class="p">:</span> <span class="n">c_size_t</span><span class="p">,</span> <span class="n">param</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    This class is an example of how you can write docstrings.</span>
 <span class="sd">    You can add multiple lines of those descriptions. Make sure to include</span>
 <span class="sd">    useful information about your method.</span>
@@ -507,9 +507,9 @@ as needed.</p>
 <span class="sd">        | Next | Prev |   usable space           | Next | Prev | usable space..</span>
 <span class="sd">        +------+------+--------------------------+------+--+---+---------------</span>
 <span class="sd">        ^  |                                     ^         |</span>
-<span class="sd">        |  &#39;-------------------------------------&#39;         |</span>
+<span class="sd">        |  '-------------------------------------'         |</span>
 <span class="sd">        |                                                  |</span>
-<span class="sd">        &#39;----------- Block B&#39;s prev points to Block A -----&#39;</span>
+<span class="sd">        '----------- Block B's prev points to Block A -----'</span>
 
 <span class="sd">    Todo:</span>
 <span class="sd">        * This is a TODO item.</span>
@@ -520,7 +520,7 @@ as needed.</p>
 <span class="sd">        param (float): Description of `param1`.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        Description of the method&#39;s return value.</span>
+<span class="sd">        Description of the method's return value.</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        AttributeError: If there is an error with the attributes.</span>
@@ -529,14 +529,14 @@ as needed.</p>
 <span class="sd">    Example:</span>
 <span class="sd">        This is how you can use this function</span>
 
-<span class="sd">        &gt;&gt;&gt; print(&quot;Code blocks are supported&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print("Code blocks are supported")</span>
 
 <span class="sd">    Note:</span>
 <span class="sd">        For more info on reStructuredText docstrings, see</span>
 <span class="sd">        `here &lt;https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html&gt;`__</span>
 <span class="sd">        and</span>
 <span class="sd">        `here &lt;https://peps.python.org/pep-0287/&gt;`__.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">return</span> <span class="mi">42</span>
 
 
@@ -582,9 +582,9 @@ useful information about your method.</p>
 | Next | Prev |   usable space           | Next | Prev | usable space..
 +------+------+--------------------------+------+--+---+---------------
 ^  |                                     ^         |
-|  &#39;-------------------------------------&#39;         |
+|  '-------------------------------------'         |
 |                                                  |
-&#39;----------- Block B&#39;s prev points to Block A -----&#39;
+'----------- Block B's prev points to Block A -----'
 </pre></div>
 </div>
 <div class="admonition-todo admonition" id="id1">
@@ -613,7 +613,7 @@ useful information about your method.</p>
 </dl>
 <p class="rubric">Example</p>
 <p>This is how you can use this function</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Code blocks are supported&quot;</span><span class="p">)</span>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Code blocks are supported"</span><span class="p">)</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -644,7 +644,7 @@ auto-generated method by method name.  Here is an example from the codebase:</p>
 
 <span class="n">add_docs</span><span class="p">(</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">jagged_2d_to_dense</span><span class="p">,</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">jagged_2d_to_dense(values, x_offsets, max_sequence_length) -&gt; Tensor</span>
 
 <span class="sd">Converts a jagged tensor, with a 2D values array into a dense tensor, padding with zeros.</span>
@@ -670,7 +670,7 @@ auto-generated method by method name.  Here is an example from the codebase:</p>
 <span class="sd">             [3, 3],</span>
 <span class="sd">             [0, 0]]])</span>
 
-<span class="sd">&quot;&quot;&quot;</span><span class="p">,</span>
+<span class="sd">"""</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>

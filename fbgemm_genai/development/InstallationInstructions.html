@@ -497,7 +497,7 @@ pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> 
 pip<span class="w"> </span>install<span class="w"> </span>fbgemm-genai<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu126/
 
 <span class="c1"># Test the installation</span>
-python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu.experimental.gen_ai&quot;</span>
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; import fbgemm_gpu.experimental.gen_ai"</span>
 </pre></div>
 </div>
 </section>
@@ -520,7 +520,7 @@ pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu-genai
 linked and set up.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
-python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu.experimental.gen_ai; print(torch.ops.fbgemm.quantize_fp8_per_row)&quot;</span>
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; import fbgemm_gpu.experimental.gen_ai; print(torch.ops.fbgemm.quantize_fp8_per_row)"</span>
 </pre></div>
 </div>
 <p>Please refer to <a class="reference internal" href="../../fbgemm_gpu/development/InstallationInstructions.html#fbgemm-gpu-install-post-install-checks"><span class="std std-ref">Post-Installation Checks</span></a> for information

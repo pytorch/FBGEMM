@@ -464,14 +464,14 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="k">try</span><span class="p">:</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">load_library</span><span class="p">(</span><span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu:config_cpp_torch_op&quot;</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">load_library</span><span class="p">(</span><span class="s2">"//deeplearning/fbgemm/fbgemm_gpu:config_cpp_torch_op"</span><span class="p">)</span>
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
     <span class="kn">import</span><span class="w"> </span><span class="nn">fbgemm_gpu</span>  <span class="c1"># noqa F401</span>
 
 
 <span class="c1"># Note: ENUM name must match EXACTLY with the JK knob name in the UI</span>
 <div class="viewcode-block" id="FeatureGateName"><a class="viewcode-back" href="../../../fbgemm_gpu/python-api/feature_gates.html#fbgemm_gpu.config.FeatureGateName">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FeatureGateName</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    FBGEMM_GPU feature gates enum (Python).</span>
 
 <span class="sd">    **Code Example:**</span>
@@ -494,9 +494,9 @@
 <span class="sd">        in `fbgemm_gpu/config/feature_gates.h`.</span>
 
 <span class="sd">        For fbcode: The ENUM name must match EXACTLY with the JK knob name in the UI</span>
-<span class="sd">        For OSS: The environment variable will be evaluated as f&quot;FBGEMM_{ENUM}&quot;</span>
+<span class="sd">        For OSS: The environment variable will be evaluated as f"FBGEMM_{ENUM}"</span>
 
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="c1"># Enable TBE V2 APIs</span>
     <span class="n">TBE_V2</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
@@ -530,7 +530,7 @@
 
 
 <div class="viewcode-block" id="FeatureGate"><a class="viewcode-back" href="../../../fbgemm_gpu/python-api/feature_gates.html#fbgemm_gpu.config.FeatureGate">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FeatureGate</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    FBGEMM_GPU feature gate.</span>
 
 <span class="sd">    This class exists because methods defined on enums cannot be invoked when</span>
@@ -543,7 +543,7 @@
 <span class="sd">        from deeplearning.fbgemm.fbgemm_gpu.config import FeatureGate, FeatureGateName</span>
 
 <span class="sd">        FeatureGate.is_enabled(FeatureGateName.TBE_V2)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">feature</span><span class="p">:</span> <span class="n">FeatureGateName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>

@@ -618,7 +618,7 @@ for installing PyTorch inside a Conda environment.</p>
 <span id="fbgemm-gpu-install-triton"></span><h2>Install Triton<a class="headerlink" href="#install-triton" title="Permalink to this heading">¶</a></h2>
 <p>Triton should already come packaged with the PyTOrch installation.
 This can be verified with:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import triton&quot;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import triton"</span>
 </pre></div>
 </div>
 <p>If Triton is not available, it can be installed through PyTorch PIP:</p>
@@ -661,7 +661,7 @@ pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> 
 pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm7.1/
 
 <span class="c1"># Test the installation</span>
-python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu&quot;</span>
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; import fbgemm_gpu"</span>
 </pre></div>
 </div>
 </section>
@@ -692,7 +692,7 @@ released to public PyPI.</p>
 linked and set up.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
-python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu; print(torch.ops.fbgemm.merge_pooled_embeddings)&quot;</span>
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import torch; import fbgemm_gpu; print(torch.ops.fbgemm.merge_pooled_embeddings)"</span>
 </pre></div>
 </div>
 <section id="undefined-symbols">
@@ -700,19 +700,19 @@ python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;i
 <p>A common error that is encountered is the failure to import FBGEMM_GPU in
 Python, which has the following error signature:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>Traceback<span class="w"> </span><span class="o">(</span>most<span class="w"> </span>recent<span class="w"> </span>call<span class="w"> </span>last<span class="o">)</span>:
-<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/torch/_ops.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">565</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>__getattr__
+<span class="w">  </span>File<span class="w"> </span><span class="s2">"/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/torch/_ops.py"</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">565</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>__getattr__
 <span class="w">    </span>op,<span class="w"> </span><span class="nv">overload_names</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>torch._C._jit_get_operation<span class="o">(</span>qualified_op_name<span class="o">)</span>
 RuntimeError:<span class="w"> </span>No<span class="w"> </span>such<span class="w"> </span>operator<span class="w"> </span>fbgemm::jagged_2d_to_dense
 The<span class="w"> </span>above<span class="w"> </span>exception<span class="w"> </span>was<span class="w"> </span>the<span class="w"> </span>direct<span class="w"> </span>cause<span class="w"> </span>of<span class="w"> </span>the<span class="w"> </span>following<span class="w"> </span>exception:
 Traceback<span class="w"> </span><span class="o">(</span>most<span class="w"> </span>recent<span class="w"> </span>call<span class="w"> </span>last<span class="o">)</span>:
-<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;&lt;string&gt;&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">1</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
-<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/__init__.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">21</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
+<span class="w">  </span>File<span class="w"> </span><span class="s2">"&lt;string&gt;"</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">1</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
+<span class="w">  </span>File<span class="w"> </span><span class="s2">"/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/__init__.py"</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">21</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
 <span class="w">    </span>from<span class="w"> </span>.<span class="w"> </span>import<span class="w"> </span>_fbgemm_gpu_docs<span class="w">  </span><span class="c1"># noqa: F401, E402</span>
-<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/_fbgemm_gpu_docs.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">18</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
+<span class="w">  </span>File<span class="w"> </span><span class="s2">"/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/_fbgemm_gpu_docs.py"</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">18</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
 <span class="w">    </span>torch.ops.fbgemm.jagged_2d_to_dense,
-<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/torch/_ops.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">569</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>__getattr__
+<span class="w">  </span>File<span class="w"> </span><span class="s2">"/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/torch/_ops.py"</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">569</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>__getattr__
 <span class="w">    </span>raise<span class="w"> </span>AttributeError<span class="o">(</span>
-AttributeError:<span class="w"> </span><span class="s1">&#39;_OpNamespace&#39;</span><span class="w"> </span><span class="s1">&#39;fbgemm&#39;</span><span class="w"> </span>object<span class="w"> </span>has<span class="w"> </span>no<span class="w"> </span>attribute<span class="w"> </span><span class="s1">&#39;jagged_2d_to_dense&#39;</span>
+AttributeError:<span class="w"> </span><span class="s1">'_OpNamespace'</span><span class="w"> </span><span class="s1">'fbgemm'</span><span class="w"> </span>object<span class="w"> </span>has<span class="w"> </span>no<span class="w"> </span>attribute<span class="w"> </span><span class="s1">'jagged_2d_to_dense'</span>
 ERROR<span class="w"> </span>conda.cli.main_run:execute<span class="o">(</span><span class="m">47</span><span class="o">)</span>:<span class="w"> </span><span class="sb">`</span>conda<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span>import<span class="w"> </span>fbgemm_gpu<span class="sb">`</span><span class="w"> </span>failed.<span class="w"> </span><span class="o">(</span>See<span class="w"> </span>above<span class="w"> </span><span class="k">for</span><span class="w"> </span>error<span class="o">)</span>
 /root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/fbgemm_gpu_py.so:<span class="w"> </span>undefined<span class="w"> </span>symbol:<span class="w"> </span>_ZN6fbgemm48FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2ItLi2EEEvPKT_miPh
 </pre></div>
