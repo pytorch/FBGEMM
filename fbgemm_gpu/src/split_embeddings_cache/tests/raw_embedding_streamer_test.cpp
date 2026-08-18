@@ -57,7 +57,7 @@ getRawEmbeddingStreamer(
       table_sizes,
       500000, // res_chunk_size
       8, // res_num_consumers
-      4); // res_num_copy_threads
+      4); // res_num_uvm_hit_copy_threads
 }
 
 TEST(RawEmbeddingStreamerTest, TestConstructorAndDestructor) {
@@ -339,9 +339,9 @@ TEST(RawEmbeddingStreamerTest, ComputeChunksZeroChunkSizeIsEmpty) {
 #ifdef FBGEMM_FBCODE
 TEST(RawEmbeddingStreamerTest, CtorRejectsZeroKnob) {
   // A 0-valued RES knob would silently disable streaming (0 consumers never
-  // drain the queue; res_chunk_size/res_num_copy_threads=0 make chunk ranges
-  // empty), so the ctor must reject it loudly. The TORCH_CHECK fires before any
-  // thrift client is created, so no mock server is needed.
+  // drain the queue; res_chunk_size/res_num_uvm_hit_copy_threads=0 make chunk
+  // ranges empty), so the ctor must reject it loudly. The TORCH_CHECK fires
+  // before any thrift client is created, so no mock server is needed.
   EXPECT_ANY_THROW(
       fbgemm_gpu::RawEmbeddingStreamer(
           "test_zero_knob",
@@ -353,20 +353,20 @@ TEST(RawEmbeddingStreamerTest, CtorRejectsZeroKnob) {
           /*table_sizes=*/{},
           /*res_chunk_size=*/0,
           /*res_num_consumers=*/8,
-          /*res_num_copy_threads=*/4));
+          /*res_num_uvm_hit_copy_threads=*/4));
 }
 
 TEST(RawEmbeddingStreamerTest, TestMultiChunkFanOutShipsEveryChunk) {
   // The stream()/tensor_stream tests all run at the default res_chunk_size (one
-  // chunk), so the chunked_copy_and_enqueue -> computeChunks -> copy_executor_
-  // fan-out -> collectAllRange -> per-chunk submit_stream_item composition is
-  // otherwise never exercised with >1 chunk. Here res_chunk_size=4 over 10 rows
-  // tiles into ceil(10/4)=3 chunks; with a single shard each chunk ships
-  // exactly one co_setEmbeddings, so RPC count == chunk count proves every
-  // chunk is copied and shipped -- a dropped/duplicated chunk future or an
-  // off-by-one in the fan-out would change the count. computeChunks' partition
-  // correctness (no gap/dup/overflow) is covered by the ComputeChunks* unit
-  // tests above.
+  // chunk), so the chunked_copy_and_enqueue -> computeChunks ->
+  // uvm_hit_copy_executor_ fan-out -> collectAllRange -> per-chunk
+  // submit_stream_item composition is otherwise never exercised with >1 chunk.
+  // Here res_chunk_size=4 over 10 rows tiles into ceil(10/4)=3 chunks; with a
+  // single shard each chunk ships exactly one co_setEmbeddings, so RPC count ==
+  // chunk count proves every chunk is copied and shipped -- a
+  // dropped/duplicated chunk future or an off-by-one in the fan-out would
+  // change the count. computeChunks' partition correctness (no
+  // gap/dup/overflow) is covered by the ComputeChunks* unit tests above.
   std::vector<std::string> table_names = {"tb1"};
   std::vector<int64_t> table_offsets = {0};
   std::vector<int64_t> table_sizes = {0, 300};
@@ -411,7 +411,7 @@ TEST(RawEmbeddingStreamerTest, TestMultiChunkFanOutShipsEveryChunk) {
       table_sizes,
       /*res_chunk_size=*/4,
       /*res_num_consumers=*/2,
-      /*res_num_copy_threads=*/3,
+      /*res_num_uvm_hit_copy_threads=*/3,
       /*res_num_hbm_copy_threads=*/4);
 
   constexpr int64_t kNumRows = 10;
@@ -1067,8 +1067,8 @@ TEST(RawEmbeddingStreamerTest, TestStreamHbmLaneE2E) {
 
 TEST(RawEmbeddingStreamerTest, TestStreamHbmLaneNonBlockingCopy) {
   // A non-blocking HBM stream dispatches its copy onto the shared
-  // copy_executor_, so join_hbm_dispatch_and_workers() must drain the HBM
-  // path's dispatch future before the queue is read -- asserting before the
+  // uvm_hit_copy_executor_, so join_hbm_dispatch_and_workers() must drain the
+  // HBM path's dispatch future before the queue is read -- asserting before the
   // join would race the background copy. One item lands in the shared queue.
   std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
   std::vector<int64_t> table_offsets = {0, 100, 300};
@@ -1119,9 +1119,9 @@ TEST(RawEmbeddingStreamerTest, TestStreamMainAndHbmLanesIndependent) {
   // A blocking main-lane stream (use_hbm=false) and a blocking
   // HBM-path stream (use_hbm=true) each enqueue one item into the
   // shared consumer queue: two items total. Both lanes feed the same shared
-  // ship path (consumer_executor_) and copy pool (copy_executor_); the blocking
-  // path is lane-agnostic, so this exercises the shared plumbing, not the
-  // per-lane dispatch futures (those are covered by
+  // ship path (consumer_executor_) and copy pool (uvm_hit_copy_executor_); the
+  // blocking path is lane-agnostic, so this exercises the shared plumbing, not
+  // the per-lane dispatch futures (those are covered by
   // TestStreamHbmLaneNonBlockingCopy and TestStreamHbmLaneDestructorJoins).
   std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
   std::vector<int64_t> table_offsets = {0, 100, 300};
@@ -1184,8 +1184,8 @@ TEST(RawEmbeddingStreamerTest, TestStreamMainAndHbmLanesIndependent) {
 TEST(RawEmbeddingStreamerTest, TestStreamHbmLaneDestructorJoins) {
   // A non-blocking stream on BOTH lanes leaves a pending dispatch future on
   // each lane. The destructor must join both futures -- and the shared
-  // dispatch_executor_ / copy_executor_ / consumer_executor_ -- without hanging
-  // or leaking. Reaching the end is the assertion.
+  // uvm_hit_dispatch_executor_ / uvm_hit_copy_executor_ / consumer_executor_ --
+  // without hanging or leaking. Reaching the end is the assertion.
   std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
   std::vector<int64_t> table_offsets = {0, 100, 300};
   std::vector<int64_t> table_sizes = {0, 50, 200, 300};
