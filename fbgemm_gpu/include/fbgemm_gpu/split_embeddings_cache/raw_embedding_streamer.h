@@ -10,12 +10,17 @@
 #include <ATen/ATen.h>
 #ifdef FBGEMM_FBCODE
 #include <folly/coro/Task.h>
+#include <folly/futures/Future.h>
 #endif
 
 #include <utility>
 #include <vector>
 
 #ifdef FBGEMM_FBCODE
+namespace folly {
+class CPUThreadPoolExecutor;
+} // namespace folly
+
 namespace facebook::aiplatform::gmpp::experimental::training_ps {
 class TrainingPsOdsLogger;
 } // namespace facebook::aiplatform::gmpp::experimental::training_ps
@@ -98,7 +103,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
    * Join the pending dispatch (and the copy threads it spawned), making sure it
    * is properly finished before creating new.
    */
-  void join_stream_tensor_copy_thread();
+  void join_dispatch_and_workers();
 
 #ifdef FBGEMM_FBCODE
   folly::coro::Task<void> tensor_stream(
@@ -140,7 +145,10 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   // and non-blocking stream() paths; this assumes a given table streams in a
   // single mode at a time (blocking OR non-blocking), never concurrently.
   std::vector<std::unique_ptr<std::thread>> chunk_copy_threads_;
-  std::unique_ptr<std::thread> dispatch_thread_;
+  // Persistent size-1 executor that runs the per-iteration dispatch (poll_flag
+  // + chunked_copy_and_enqueue). Named so its thread is identifiable in traces.
+  std::unique_ptr<folly::CPUThreadPoolExecutor> dispatch_executor_;
+  folly::SemiFuture<folly::Unit> dispatch_future_{folly::makeSemiFuture()};
   // OBC logger for RES silent-failure counters (res.fail.*). Emits to the
   // host-level OBC agent, so it reaches ODS from the trainer process without
   // per-process fb303 scrape config. Only constructed when streaming is on.
@@ -157,6 +165,24 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> runtime_meta,
       const at::Tensor& count,
       std::vector<std::unique_ptr<std::thread>>& target_copy_threads);
+
+  // Waits (spinning) for copy_done_flag to signal the source tensors are safe
+  // to read, resetting it. Returns false on timeout. Shared by the blocking
+  // stream() path and dispatch_copy_task.
+  bool poll_copy_done_flag(const std::optional<at::Tensor>& copy_done_flag);
+
+  // Coroutine form of the non-blocking dispatch (poll_copy_done_flag +
+  // chunked_copy_and_enqueue). Args are taken by value so nothing dangles once
+  // it is scheduled on dispatch_executor_ -- a capturing lambda coroutine would
+  // risk a use-after-free (clang-tidy cppcoreguidelines-avoid-capturing-lambda-
+  // coroutines).
+  folly::coro::Task<void> dispatch_copy_task(
+      at::Tensor indices,
+      at::Tensor weights,
+      std::optional<at::Tensor> identities,
+      std::optional<at::Tensor> runtime_meta,
+      at::Tensor count,
+      std::optional<at::Tensor> copy_done_flag);
 #endif
 };
 
