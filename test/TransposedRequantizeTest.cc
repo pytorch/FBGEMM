@@ -48,6 +48,13 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(qGranularityVals))); // requantization granularity
 
 TEST_P(RequantizeTest, reqTest) {
+#ifdef __aarch64__
+  // The implementation under test, trRequantizeOpt, is written entirely in AVX2
+  // intrinsics (src/spmmUtilsAvx2.cc) and has no portable or arm counterpart.
+  // Skip rather than run: the test cannot compare against something that does
+  // not exist here.
+  GTEST_SKIP() << "trRequantizeOpt is AVX2-only; no aarch64 implementation";
+#endif
   auto [rows, cols, fuse_relu, use_bias, q_gran] = GetParam();
 
   int numElements = rows * cols;
@@ -123,6 +130,9 @@ TEST_P(RequantizeTest, reqTest) {
 
 #ifdef __aarch64__
 
+// Unreachable at run time (the GTEST_SKIP above returns first), but this body
+// still has to compile: trRequantizeOpt is declared and defined only for x86,
+// so it must not be referenced here.
 #define TESTCODE(FUSE_RELU, ACT_SYMMETRIC, WEIGHT_SYMMETRIC, HAS_BIAS, Q_GRAN) \
   trRequantizeRef<FUSE_RELU, Q_GRAN>(                                          \
       output_ref.data(), input.data(), block, cols, cols, reqParams);
