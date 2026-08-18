@@ -16,7 +16,6 @@ import numpy as np
 import torch
 from hypothesis import given, settings, Verbosity
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
@@ -55,7 +54,6 @@ def make_pitched_tensor(
 # @unittest.skipIf(open_source, "Not supported in open source yet")
 @unittest.skipIf(*typed_gpu_unavailable)
 class MergePooledEmbeddingsTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
     #  10)` to decorator factory `hypothesis.given`.
     @given(
@@ -125,7 +123,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(output_ref, output.cpu())
         torch.testing.assert_close(output_ref, output_cpu)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         num_inputs=st.integers(min_value=1, max_value=10),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
@@ -173,7 +170,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         )
         torch.testing.assert_close(output, ref_output)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         num_inputs=st.integers(min_value=1, max_value=8),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
@@ -225,7 +221,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         self.assertFalse(output_meta.is_cpu)
         self.assertTrue(output_meta.is_meta)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
     #  10)` to decorator factory `hypothesis.given`.
     @given(

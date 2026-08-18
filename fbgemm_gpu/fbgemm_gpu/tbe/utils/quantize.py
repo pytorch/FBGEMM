@@ -111,8 +111,6 @@ def dequantize_embs(
         E, D_4 = th_weights.shape
         D = D_4 * 4
 
-        # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
-        # pyre-fixme[53]: Captured variable `weights` is not annotated.
         def comp(i: int) -> torch.Tensor:
             subs = th_weights.view(torch.uint8) >> (i * 2)
             sub_mask = subs & 0x3
@@ -153,7 +151,6 @@ def dequantize_embs(
     elif weight_ty == SparseType.FP32:
         assert scale_shift is None
         comps = th_weights.view(torch.float32)
-        # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
         return to_device(torch.tensor(comps), use_cpu)
 
 
@@ -197,8 +194,6 @@ def fake_quantize_embs(
         E, D_4 = th_weights.shape
         D = D_4 * 4
 
-        # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
-        # pyre-fixme[53]: Captured variable `weights` is not annotated.
         def comp(i: int) -> torch.Tensor:
             subs = th_weights.view(torch.uint8) >> (i * 2)
             sub_mask = subs & 0x3

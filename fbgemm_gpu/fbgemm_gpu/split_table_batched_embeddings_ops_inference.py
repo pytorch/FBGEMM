@@ -196,7 +196,6 @@ def inputs_to_device(
     return indices, offsets, per_sample_weights
 
 
-# pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
@@ -345,15 +344,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     embedding_specs: list[tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
-    # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
     cache_miss_counter: torch.Tensor
-    # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
-    # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
     local_uvm_cache_stats: torch.Tensor
-    # pyre-fixme[13]: Attribute `weights_offsets` is never initialized.
     weights_offsets: torch.Tensor
-    # pyre-fixme[13]: Attribute `weights_placements` is never initialized.
     weights_placements: torch.Tensor
 
     def __init__(  # noqa C901
@@ -843,7 +837,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
             return
@@ -1100,7 +1093,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if self.lxu_cache_weights.numel() > 0:
             if self.timestep_prefetch_size.get() <= 0:
@@ -1293,7 +1285,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # pyre-fixme[16]: `IntNBitTableBatchedEmbeddingBagsCodegen` has no attribute
         #  `lxu_cache_weights`.
         self.lxu_cache_weights = torch.empty_like(
-            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
             #  `Module | Tensor`.
             self.lxu_cache_weights,
             device=self.current_device,
@@ -1587,7 +1578,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.reset_uvm_cache_stats()
 
     def reset_cache_states(self) -> None:
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
             return
@@ -1623,7 +1613,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 for i, weight in enumerate(weights):
                     weights[i] = (
                         weight[0].to(device),
-                        # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `to`.
                         weight[1].to(device) if weight[1] is not None else None,
                     )
             (
@@ -1989,7 +1978,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             if self.use_cpu:
                 self.index_remapping_hash_table_cpu = (
-                    # pyre-ignore[16]
                     torch.classes.fbgemm.PrunedMapCPU()
                 )
                 self.index_remapping_hash_table_cpu.insert(
@@ -2106,7 +2094,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         lxu_cache_locations = None
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if self.lxu_cache_weights.numel() > 0:
             linear_cache_indices = (

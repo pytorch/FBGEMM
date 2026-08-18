@@ -58,7 +58,6 @@ from fbgemm_gpu.sll.triton.triton_multi_head_jagged_flash_attention import (  # 
     MultiHeadJaggedFlashAttention,  # noqa F401
 )
 
-# pyre-ignore[5]
 op_registrations = {
     "sll_dense_jagged_cat_jagged_out": {
         "CUDA": dense_jagged_cat_jagged_out,

@@ -116,7 +116,6 @@ def benchmark_eval_compression(
     compressed_bwd = statistics.median(bwd_times)
 
     return EvalCompressionBenchmarkOutput(
-        # pyrefly: ignore [bad-argument-type]
         avg,
         fwd,
         bwd,

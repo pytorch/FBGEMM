@@ -86,10 +86,7 @@ def jagged_dense_flash_attention_fwd_kernel(
 
         # Load a block of K into [BLOCK_L, BLOCK_D]
         qj_ptrs = (
-            q_start_ptr
-            # pyre-fixme[16]: `int` has no attribute `__getitem__`.
-            + offs_l[:, None] * stride_ql
-            + offs_d[None, :] * stride_qd
+            q_start_ptr + offs_l[:, None] * stride_ql + offs_d[None, :] * stride_qd
         )
 
         qj = tl.load(

@@ -666,14 +666,12 @@ def benchmark_vbe(
     for i, (indices, offsets, weights) in enumerate(requests):
         # forward
         if use_cuda:
-            # pyre-ignore[61]
             fwd_start_events[i].record()
         else:
             start_time = time.time()
 
         out = func(indices, offsets, weights)
         if use_cuda:
-            # pyre-ignore[61]
             fwd_end_events[i].record()
         else:
             # pyre-ignore[61]
@@ -682,14 +680,12 @@ def benchmark_vbe(
         grad = torch.rand_like(out)
 
         if use_cuda:
-            # pyre-ignore[61]
             bwd_start_events[i].record()
         else:
             start_time = time.time()
         # backward
         out.backward(grad)
         if use_cuda:
-            # pyre-ignore[61]
             bwd_end_events[i].record()
         else:
             # pyre-ignore[61]
@@ -701,12 +697,10 @@ def benchmark_vbe(
     if use_cuda:
         fwd_times_sec = [
             start_event.elapsed_time(end_event) * 1.0e-3
-            # pyre-ignore[61]
             for start_event, end_event in zip(fwd_start_events, fwd_end_events)
         ]
         bwd_times_sec = [
             start_event.elapsed_time(end_event) * 1.0e-3
-            # pyre-ignore[61]
             for start_event, end_event in zip(bwd_start_events, bwd_end_events)
         ]
 
