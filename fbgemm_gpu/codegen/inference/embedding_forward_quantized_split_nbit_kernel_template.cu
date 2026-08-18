@@ -342,13 +342,6 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     cp_async_wait<0>();
     syncwarp();
 
-    if constexpr (PackedMode) {
-      // Since in PackedMode one warp/wave may contain different bags with different sizes,
-      // the permutation should be done after switching from uint4 processing during load stage
-      // to uint processing during accumulate and store.
-      input_rows_in_flight = shfl_sync(input_rows_in_flight, packed_bag_acc_idx * uint4_loads_per_row);
-    }
-
     {% if not nobag %}
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
