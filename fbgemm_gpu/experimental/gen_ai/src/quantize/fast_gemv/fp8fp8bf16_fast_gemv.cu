@@ -214,7 +214,12 @@ at::Tensor fp8fp8bf16_fast_gemv(
     at::Tensor x_scale,
     at::Tensor w_scale,
     bool is_batched) {
-  unsigned int b, m, n, k;
+  // `b` is initialized here rather than left indeterminate: it is assigned only
+  // on the `is_batched` path and read only on the same condition, so the code
+  // is correct -- but gcc's `-Wmaybe-uninitialized` cannot correlate the two
+  // checks and reports a false positive. That became fatal once `-Wall -Werror`
+  // was forwarded to nvcc's host compiler, which is gcc in OSS CI.
+  unsigned int b = 0, m, n, k;
   if (is_batched) {
     TORCH_CHECK(XQ.dim() == 3 && WQ.dim() == 3);
     b = XQ.size(0);

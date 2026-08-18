@@ -391,9 +391,35 @@ function(gpu_cpp_library)
     ############################################################################
 
     # Set the additional compilation flags
+    #
+    # ⚠ `args_CC_FLAGS` is applied to EVERY language, unwrapped. No current caller
+    # passes a `-W` flag through it (audited), and one that did would
+    # reach nvcc raw and fail the build. Keep it that way.
     target_compile_options(${lib_name} PRIVATE
         ${args_CC_FLAGS}
         $<$<COMPILE_LANGUAGE:CXX>:${lib_cc_flags}>)
+
+    # Forward the host warning set to nvcc's host compiler.
+    #
+    # `_nvcc_warning_flags` is the CXX warning set with every entry wrapped as
+    # `-Xcompiler=<flag>` (see fbgemm_get_warning_flags). nvcc rejects a bare
+    # `-W...`, so the wrapping is mandatory, not cosmetic -- and it must be the
+    # single-token `-Xcompiler=<flag>` form, because the two-token
+    # `-Xcompiler <flag>` form can be split when CMake expands a `;`-list.
+    #
+    # The list form inside the genex is deliberate and matches the CXX line above:
+    # a `;`-list inside `$<...>` was measured NOT to leak to other languages, so
+    # a per-flag `foreach` would be a no-op.
+    #
+    # Skipped under MSVC: `_nvcc_warning_flags` is derived from the gcc/clang list
+    # regardless of host compiler, so on Windows nvcc would forward `-Wextra`,
+    # `-Wno-strict-aliasing` and friends to cl.exe, which does not accept them.
+    # The host CXX path already handles this by selecting `_msvc_flags` into
+    # `lib_cc_flags`; there is no MSVC-shaped equivalent for the nvcc list today.
+    if(NOT MSVC)
+        target_compile_options(${lib_name} PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:${_nvcc_warning_flags}>)
+    endif()
 
     ############################################################################
     # Post-Build Steps
