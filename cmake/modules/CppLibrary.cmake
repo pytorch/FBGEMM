@@ -36,10 +36,24 @@ function(fbgemm_get_warning_flags)
     /wd4309)
 
   # Portable warning flags. Additions that apply to every compiler go here.
+  #
+  # The `-Wall`-implied group below is redundant with `-Wall` today. It is listed
+  # explicitly on purpose: the flags survive any future narrowing of `-Wall`.
+  # Do not "clean up" as redundant.
+  #
+  # Every flag here must be accepted by BOTH gcc and clang -- the OSS CI matrix
+  # builds with each. A clang-only flag belongs in `_cc_clang_only`; putting one
+  # here makes gcc emit "unrecognized command line option", which `-Werror`
+  # turns into a build failure.
   set(_cc_common
     -Wall
     -Wextra
-    -Werror)
+    -Werror
+    # -Wall-implied
+    -Waddress
+    -Wenum-compare
+    -Wmisleading-indentation
+    -Wparentheses)
 
   # Clang-only warning flags. Intentionally empty; populated in Phases A/B.
   set(_cc_clang_only)
