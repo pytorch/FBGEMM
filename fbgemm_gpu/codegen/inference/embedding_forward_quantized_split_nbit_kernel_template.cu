@@ -139,6 +139,28 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     Ls[i] = indices_end - indices_start;
     max_Ls = max(max_Ls, Ls[i]);
   }
+
+  if constexpr (PackedMode) {
+    // Each lane's max_Ls covers only its own bags, but the L_start loop below is
+    // wave-collective (syncwarp, shfl_sync), so a per-lane bound would let the
+    // short-bag lanes exit while the rest still shuffle against them.  Adds no
+    // iterations: a divergent wave already runs the union of all lanes'.
+    #pragma unroll
+    for (uint32_t lane_mask = kWarpSize / 2; lane_mask > 0; lane_mask >>= 1) {
+      max_Ls = max(max_Ls, shfl_xor(max_Ls, lane_mask));
+    }
+  }
+
+  // Accumulate and store map lanes to bags at uint granularity, the load stage
+  // at uint4 granularity, so they need a different bag's pooling length.  Ls[]
+  // must stay intact for the load stage: overwriting it corrupts later loads
+  // and the shuffle sources themselves.  Loop-invariant, so broadcast once.
+  int32_t Ls_acc[OutputRowsPerThread];
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    Ls_acc[i] = PackedMode ? shfl_sync(Ls[i], packed_bag_acc_idx * uint4_loads_per_row) : Ls[i];
+  }
+
   const index_t* indices_ = &indices[0];
 
   const uint8_t* __restrict__ weights;
@@ -325,19 +347,13 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       // the permutation should be done after switching from uint4 processing during load stage
       // to uint processing during accumulate and store.
       input_rows_in_flight = shfl_sync(input_rows_in_flight, packed_bag_acc_idx * uint4_loads_per_row);
-
-      #pragma unroll OutputRowsPerThread
-      for(uint32_t i = 0; i < OutputRowsPerThread; ++i)
-      {
-        Ls[i] = shfl_sync(Ls[i], packed_bag_acc_idx * uint4_loads_per_row);
-      }
     }
 
     {% if not nobag %}
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
+        bool valid = L_start + input_row_idx < Ls_acc[i];
         if (!valid) {
           continue;
         }
@@ -375,7 +391,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
         for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-          bool valid = L_start + input_row_idx < Ls[i];
+          bool valid = L_start + input_row_idx < Ls_acc[i];
           if (!valid) {
             continue;
           }
@@ -426,7 +442,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
         for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-          bool valid = L_start + input_row_idx < Ls[i];
+          bool valid = L_start + input_row_idx < Ls_acc[i];
           if (!valid) {
             continue;
           }
@@ -505,7 +521,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     const uint32_t b = min(static_cast<uint32_t>(bb * num_packed_bags * OutputRowsPerThread + i * num_packed_bags + packed_bag_store_idx), static_cast<uint32_t>(B - 1));
-    const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i] : static_cast<float>(1.0);
+    const float inv_L = (mean_pooling && Ls_acc[i] != 0) ? static_cast<float>(1.0) / Ls_acc[i] : static_cast<float>(1.0);
 
     if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
       #pragma unroll AccumulateStoreRequests
