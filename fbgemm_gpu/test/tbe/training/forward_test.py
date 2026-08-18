@@ -17,7 +17,11 @@ from unittest.mock import MagicMock, patch
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    nfp8_dtype,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     RESParams,
@@ -69,9 +73,7 @@ else:
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
-fp8_dtype: torch.dtype = (
-    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
-)
+fp8_dtype: torch.dtype = nfp8_dtype()
 
 # pyre-ignore
 additional_decorators.update(
