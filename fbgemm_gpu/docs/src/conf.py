@@ -137,7 +137,12 @@ exclude_patterns = [
 ]
 
 # Ignore false-negative broken links
-linkcheck_ignore = [r"https://gcc.gnu.org/bugzilla/show_bug.cgi\?id=105593"]
+linkcheck_ignore = [
+    r"https://gcc\.gnu\.org/bugzilla/show_bug\.cgi\?id=105593",
+    # rocm.docs.amd.com rate-limits the shared-IP GitHub runners (429 Too Many
+    # Requests), intermittently failing the docs job on unrelated PRs.
+    r"https://rocm\.docs\.amd\.com/.*",
+]
 
 # -- Breathe configuration ---------------------------------------------------
 
