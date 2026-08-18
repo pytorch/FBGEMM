@@ -494,6 +494,80 @@ TEST(RawEmbeddingStreamerTest, TestTensorStream) {
       valid_indices, weights, std::nullopt, std::nullopt));
 }
 
+TEST(
+    RawEmbeddingStreamerTest,
+    TestTensorStreamPartialShardFailureShipsSiblings) {
+  // The shards ship in parallel and each isolates its own failure: when one
+  // shard's RPC throws, the other shards must still ship (per-shard isolation)
+  // and no exception escapes tensor_stream.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_partial_shard_failure",
+      true,
+      table_names,
+      table_offsets,
+      table_sizes);
+
+  auto mock_service = std::make_shared<MockTrainingParameterServerService>();
+  auto mock_server =
+      std::make_shared<apache::thrift::ScopedServerInterfaceThread>(
+          mock_service,
+          "::1",
+          0,
+          facebook::services::TLSConfig::applyDefaultsToThriftServer);
+  auto& mock_client_factory =
+      facebook::servicerouter::getMockSRClientFactory(false /* strict */);
+  mock_client_factory.registerMockService(
+      "realtime.delta.publish.esr", mock_server);
+
+  // Same indices as TestTensorStream: consistent hashing populates all 3
+  // shards.
+  auto valid_indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {valid_indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+
+  // Exactly one of the three shard RPCs throws; the other two succeed. gmock
+  // serializes action selection, so this holds regardless of which shard maps
+  // where or the order the parallel RPCs arrive.
+  std::atomic<int> succeeded{0};
+  EXPECT_CALL(*mock_service, co_setEmbeddings(_))
+      .Times(3)
+      .WillOnce(
+          folly::coro::gmock_helpers::CoInvoke(
+              [](std::unique_ptr<aiplatform::gmpp::experimental::training_ps::
+                                     SetEmbeddingsRequest>)
+                  -> folly::coro::Task<
+                      std::unique_ptr<aiplatform::gmpp::experimental::
+                                          training_ps::SetEmbeddingsResponse>> {
+                throw std::runtime_error("one shard down");
+              }))
+      .WillRepeatedly(
+          ::testing::DoAll(
+              ::testing::InvokeWithoutArgs([&succeeded]() { ++succeeded; }),
+              folly::coro::gmock_helpers::CoInvoke(
+                  [](std::unique_ptr<aiplatform::gmpp::experimental::
+                                         training_ps::SetEmbeddingsRequest>)
+                      -> folly::coro::Task<std::unique_ptr<
+                          aiplatform::gmpp::experimental::training_ps::
+                              SetEmbeddingsResponse>> {
+                    co_return std::make_unique<
+                        aiplatform::gmpp::experimental::training_ps::
+                            SetEmbeddingsResponse>();
+                  })));
+
+  // One shard throwing must not cancel the siblings nor escape tensor_stream.
+  EXPECT_NO_THROW(
+      folly::coro::blockingWait(streamer->tensor_stream(
+          valid_indices, weights, std::nullopt, std::nullopt)));
+  EXPECT_EQ(succeeded.load(), 2); // the two healthy shards still shipped
+}
+
 TEST(RawEmbeddingStreamerTest, TestStreamWithCopy) {
   std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
   std::vector<int64_t> table_offsets = {0, 100, 300};
