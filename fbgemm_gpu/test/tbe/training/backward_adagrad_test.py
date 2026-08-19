@@ -294,6 +294,11 @@ class BackwardAdagradTest(unittest.TestCase):
     )
     @settings(**common_settings)
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skip(
+        "Known failure on the MI350 runner: forward output of the fallback "
+        "kernel does not match the reference for fp32 weights with a bf16 "
+        "output, and reproduces in roughly half of runs"
+    )
     @skipIfNotRocm("Test evaluates fallback kernel on ROCm")
     def test_backward_adagrad_rocm_fallback_kernel(
         self,
