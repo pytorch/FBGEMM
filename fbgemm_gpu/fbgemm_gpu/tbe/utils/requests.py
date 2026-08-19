@@ -649,7 +649,7 @@ def maybe_to_dtype(tensor: torch.Tensor, dtype: torch.dtype | None) -> torch.Ten
 
 def generate_requests_for_grouped_tables(  # noqa C901
     iters: int,
-    B: int,
+    B: int | list[int],
     T: int,
     L: int,
     E: int,
@@ -660,11 +660,9 @@ def generate_requests_for_grouped_tables(  # noqa C901
     alpha: float = 1.0,
     weighted: bool = False,
 ) -> list[TBERequest]:
-    """Generate fixed-batch requests with multiple features per physical table."""
+    """Generate requests with multiple features per physical table."""
     if T <= 0:
         raise ValueError(f"T must be positive, got {T}")
-    if B <= 0:
-        raise ValueError(f"B must be positive, got {B}")
     if iters <= 0:
         raise ValueError(f"iters must be positive, got {iters}")
     if len(Es) != T:
@@ -687,6 +685,21 @@ def generate_requests_for_grouped_tables(  # noqa C901
             f"Each physical table must have at least one feature; "
             f"missing tables: {missing_tables}"
         )
+    if isinstance(B, int):
+        if B <= 0:
+            raise ValueError(f"B must be positive, got {B}")
+        Bs = [B] * len(feature_table_map)
+        Bs_feature_rank = None
+    else:
+        if len(B) != len(feature_table_map):
+            raise ValueError(
+                f"len(Bs)={len(B)} must equal "
+                f"len(feature_table_map)={len(feature_table_map)}"
+            )
+        if any(batch_size <= 0 for batch_size in B):
+            raise ValueError(f"Bs must be positive, got {B}")
+        Bs = B
+        Bs_feature_rank = [[batch_size] for batch_size in Bs]
     if any(length < 0 for length in Ls):
         raise ValueError(f"Ls must be non-negative, got {Ls}")
     if any(num_embeddings <= 0 for num_embeddings in Es):
@@ -698,8 +711,7 @@ def generate_requests_for_grouped_tables(  # noqa C901
 
     device = get_device()
     feature_Es = [Es[table] for table in feature_table_map]
-    Bs = [B] * len(feature_table_map)
-    lengths = np.repeat(np.array(Ls, dtype=np.int32), B)
+    lengths = np.repeat(np.array(Ls, dtype=np.int32), Bs)
     lengths = np.tile(lengths, iters)
     L_offsets = torch.from_numpy(np.insert(lengths.cumsum(), 0, 0)).to(torch.long)
 
@@ -750,6 +762,7 @@ def generate_requests_for_grouped_tables(  # noqa C901
                 all_indices[start_offset : L_offsets[(it + 1) * total_B]],
                 request_offsets.to(device),
                 per_sample_weights,
+                Bs_feature_rank,
             )
         )
     return requests
