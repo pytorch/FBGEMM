@@ -25,12 +25,10 @@ except Exception:
 
 
 try:
-    # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
     open_source = bool(getattr(fbgemm_gpu, "open_source", False))
 except NotImplementedError:
     open_source = False
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 if not open_source:
     # The MTIA mx4 kernels dep is gated to MTIA builds (see BUCK), so on
     # non-MTIA builds the module is entirely absent and the import raises

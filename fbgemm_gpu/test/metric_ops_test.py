@@ -37,7 +37,6 @@ class MetricOpsTest(unittest.TestCase):
         True,
         "Test is sometimes failed due to issues with Flaky. Skipping until the issues are resolved. ",
     )
-    # pyre-ignore [56]
     @given(
         n_tasks=st.integers(1, 5),
         batch_size=st.integers(1, 1024),

@@ -75,7 +75,6 @@ class EmptyWeightsTest(unittest.TestCase):
 
         return (arg0, arg1, arg2)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
     def test_tbe_input_combine_with_length_partially_empty_weights(
@@ -93,7 +92,6 @@ class EmptyWeightsTest(unittest.TestCase):
         # per sample weights
         self.assertTrue(ref_outputs[2].allclose(outputs[2]))
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
     def test_tbe_input_combine_with_length_all_empty_weights(

@@ -376,21 +376,18 @@ class InputCombineTest(unittest.TestCase):
     ) -> None:
         self._run_test_with_prepadded_indices_weights_without_last_offsets()
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `test_utils.cpu_and_maybe_gpu()` to decorator factory `hypothesis.given`.
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
     def test_input_combine_int64_with_length(self, device: torch.device) -> None:
         self._run_test_with_length((torch.int64, torch.int64), device=device)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `test_utils.cpu_and_maybe_gpu()` to decorator factory `hypothesis.given`.
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
     def test_input_combine_int32_with_length(self, device: torch.device) -> None:
         self._run_test_with_length((torch.int32, torch.int32), device=device)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `test_utils.cpu_and_maybe_gpu()` to decorator factory `hypothesis.given`.
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
@@ -415,7 +412,6 @@ class InputCombineTest(unittest.TestCase):
     def test_padding_fused_input_combined_mix_with_length(self) -> None:
         self._run_padding_fused_test_with_length((torch.int64, torch.int32), 64)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `torch.cuda.is_available()` to decorator factory `unittest.skipUnless`.
     @unittest.skipUnless(torch.cuda.is_available(), "GPU not available")
     def test_tbe_input_combine_with_length_correctness_large(self) -> None:

@@ -75,7 +75,6 @@ running_on_github: tuple[bool, str] = (
 )
 
 running_in_oss: tuple[bool, str] = (
-    # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
     getattr(fbgemm_gpu, "open_source", False),
     "Test is currently known to fail in OSS mode",
 )
@@ -202,7 +201,6 @@ class optests:
                 test_class,
                 ["fb", "fbgemm"],
                 failures_dict_path,
-                # pyre-ignore[6]
                 additional_decorators,
                 tests_to_run,
             )

@@ -228,7 +228,6 @@ class EmbOptimType(enum.Enum):
                     torch.empty(
                         # If the state size is 1, then fix tensor to 1D to be
                         # consistent with training.py code
-                        # pyre-ignore [6]
                         (r, d) if d > 1 else r,
                         dtype=self._extract_dtype(optimizer_state_dtypes, state_name),
                         device="cpu",
