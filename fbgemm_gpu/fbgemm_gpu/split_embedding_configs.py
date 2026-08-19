@@ -23,25 +23,18 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 @torch.jit.ignore
 def _nfp8_is_fnuz() -> bool:
     """
-    Whether the current runtime device uses the FP8 "fnuz" e4m3 encoding.
+    Whether the runtime device uses the FP8 "fnuz" e4m3 encoding.
 
-    The FP8 e4m3 encoding is hardware specific on AMD GPUs: the gfx94x family
-    (gfx940/941/942, MI300) and gfx90a use the "fnuz" encoding, while gfx950 and
-    CUDA use the OCP "fn" encoding. A single ROCm build can be a fat binary
-    spanning multiple archs, so this must be resolved at runtime from the actual
-    device in use, mirroring the C++ getNFP8ScalarType() helper in
-    embedding_common.h. Keep the arch to encoding mapping identical between the
-    two.
-
-    Marked @torch.jit.ignore because the arch query is not TorchScript-able;
-    scripted callers get the eager result at runtime.
+    gfx94x (MI300) and gfx90a use "fnuz"; gfx950 and CUDA use OCP "fn". A ROCm
+    build can be a fat binary spanning both, so resolve it per-device at runtime.
+    Mirrors getNFP8ScalarType() in embedding_common.h - keep the two arch
+    mappings in sync. @torch.jit.ignore because the query is not scriptable.
     """
-    if torch.version.hip is not None and torch.cuda.is_available():
-        arch = torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName
-        # fnuz archs: the gfx94x family (gfx940/941/942, MI300) and gfx90a.
-        if "gfx94" in arch or "gfx90a" in arch:
-            return True
-    return False
+    # Non-ROCm is always OCP "fn"; return before touching the device.
+    if torch.version.hip is None or not torch.cuda.is_available():
+        return False
+    arch = torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName
+    return "gfx94" in arch or "gfx90a" in arch
 
 
 def nfp8_dtype() -> torch.dtype:
@@ -467,9 +460,8 @@ class SparseType(enum.Enum):
             raise ValueError(f"Unsupported sparse dtype: {dtype}")
 
     def as_dtype(self) -> torch.dtype:
-        # Resolved ahead of the table below: the NFP8 encoding is arch-dependent,
-        # and the table is rebuilt on every call, so leaving it inline would run
-        # a device query for every lookup - including the non-FP8 ones.
+        # Resolved before the table: the table is rebuilt per call, so an inline
+        # nfp8_dtype() would run a device query for every lookup.
         if self == SparseType.NFP8:
             return nfp8_dtype()
         return {
