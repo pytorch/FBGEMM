@@ -388,7 +388,7 @@ def sparse_type_int_to_dtype(ty: int) -> torch.dtype:
     elif ty == 7:  # mx4
         return torch.uint8
     elif ty == 9:
-        return torch.float8_e4m3fnuz if _nfp8_is_fnuz() else torch.float8_e4m3fn
+        return nfp8_dtype()
     else:  # Invalid is 7 or non enumerated.
         raise ValueError(f"Unsupported sparse type: {ty}")
 
