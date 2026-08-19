@@ -145,10 +145,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     // wave-collective (syncwarp, shfl_sync), so a per-lane bound would let the
     // short-bag lanes exit while the rest still shuffle against them.  Adds no
     // iterations: a divergent wave already runs the union of all lanes'.
-    #pragma unroll
-    for (uint32_t lane_mask = kWarpSize / 2; lane_mask > 0; lane_mask >>= 1) {
-      max_Ls = max(max_Ls, shfl_xor(max_Ls, lane_mask));
-    }
+    max_Ls = warp_reduce_max(max_Ls);
   }
 
   // Accumulate and store map lanes to bags at uint granularity, the load stage

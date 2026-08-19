@@ -48,9 +48,14 @@ from .common import get_nbit_weights_ty, NBitFowardTestCommon
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import gpu_unavailable, optests, skipIfNotRocm, TEST_WITH_ROCM
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from fbgemm_gpu.test.test_utils import (
+        gpu_unavailable,
+        optests,
+        skipIfNotRocm,
+        TEST_WITH_ROCM,
+    )
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -587,6 +592,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 self._execute_nan_zero_fill(weights_ty, D, output_dtype, weighted)
 
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("Bag packing is a ROCm-only kernel path")
     def test_nbit_forward_packed_bags_uneven_pooling(self) -> None:
         """Verify pooling when bags packed into one warp/wave have unequal Ls.
 
@@ -602,9 +608,9 @@ class NBitFowardTest(NBitFowardTestCommon):
 
         NOTE (ROCm-specific): bag packing is gated on
         TBE_ROCM_INFERENCE_PACKED_BAGS, and INT4 with D=160 is a shape small
-        enough for more than one bag to fit a wave. On CUDA, and on ROCm with
-        packing disabled, this degrades to an ordinary uneven-length pooled
-        forward, which is still a valid thing to check.
+        enough for more than one bag to fit a wave. Nothing packs elsewhere, so
+        the test is skipped there rather than silently checking something other
+        than what its name describes.
         """
         device = torch.cuda.current_device()
         E = 100
