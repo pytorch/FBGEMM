@@ -14,7 +14,7 @@ try:
     from .jinja_environment import generate_optimized_grad_sum_loop_access
     from .optimizer_args import OptimizerArgsSet, OptimizerArgsSetItem as OptimItem
     from .torch_type_utils import ArgType
-except:
+except Exception:
     # pyre-ignore[21]
     from jinja_environment import generate_optimized_grad_sum_loop_access
 
