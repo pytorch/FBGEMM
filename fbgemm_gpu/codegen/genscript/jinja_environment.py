@@ -17,7 +17,7 @@ import jinja2
 try:
     from .scripts_argsparse import args
     from .torch_type_utils import TensorType
-except:
+except Exception:
     # pyre-ignore[21]
     from scripts_argsparse import args
 

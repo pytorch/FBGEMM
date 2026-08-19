@@ -105,7 +105,7 @@ auto raw_embedding_streamer =
                 torch::arg("table_sizes") = torch::List<int64_t>(),
                 torch::arg("res_chunk_size") = 500000,
                 torch::arg("res_num_consumers") = 8,
-                torch::arg("res_num_copy_threads") = 4,
+                torch::arg("res_num_uvm_hit_copy_threads") = 4,
                 torch::arg("res_num_hbm_copy_threads") = 4,
             })
         .def(

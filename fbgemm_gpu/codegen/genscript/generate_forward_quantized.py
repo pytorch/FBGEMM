@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 try:
     from .common import CodeTemplate
-except:
+except Exception:
     # pyre-ignore[21]
     from common import CodeTemplate
 

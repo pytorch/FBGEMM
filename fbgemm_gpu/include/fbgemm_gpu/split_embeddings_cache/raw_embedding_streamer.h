@@ -62,7 +62,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       // experimentation; too many consumer threads per TBE may be wasteful --
       // tune via experiments.
       int64_t res_num_consumers = 8,
-      int64_t res_num_copy_threads = 4,
+      int64_t res_num_uvm_hit_copy_threads = 4,
       int64_t res_num_hbm_copy_threads = 4);
 
   ~RawEmbeddingStreamer() override;
@@ -74,7 +74,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   /// them into the background queue, which is drained by a pool of consumer
   /// threads that stream out to the thrift server (co-located on same host
   /// now). The copy is split into <= res_chunk_size-row chunks that run
-  /// concurrently across the res_num_copy_threads-worker copy pool.
+  /// concurrently across the res_num_uvm_hit_copy_threads-worker copy pool.
   ///
   /// This is used in cuda stream callback, which doesn't require to be
   /// serialized with other callbacks, thus a separate thread is used to
@@ -92,10 +92,10 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   /// non-blocking path joins/assigns the separate HBM dispatch future
   /// (hbm_dispatch_future_) on hbm_dispatch_executor_ instead of the main
   /// cache-hit one, and the copies fan out on the dedicated hbm_copy_executor_
-  /// instead of the shared copy_executor_, so HBM/UVM-miss drain does not
-  /// interfere with cache-hit streaming at the dispatch or copy level. Only the
-  /// ship path (consumer_executor_) stays shared. Defaults false (main path) --
-  /// inert until an out-of-scope caller opts in.
+  /// instead of the shared uvm_hit_copy_executor_, so HBM/UVM-miss drain does
+  /// not interfere with cache-hit streaming at the dispatch or copy level. Only
+  /// the ship path (consumer_executor_) stays shared. Defaults false (main
+  /// path) -- inert until an out-of-scope caller opts in.
   ///
   /// @return None
   void stream(
@@ -154,7 +154,7 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
 #ifdef FBGEMM_FBCODE
   size_t res_chunk_size_;
   size_t res_num_consumers_;
-  size_t res_num_copy_threads_;
+  size_t res_num_uvm_hit_copy_threads_;
   size_t res_num_hbm_copy_threads_;
 #endif
 #ifdef FBGEMM_FBCODE
@@ -163,18 +163,18 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   // polling). Sized to res_num_consumers_.
   std::unique_ptr<folly::CPUThreadPoolExecutor> consumer_executor_;
   // Persistent pool that runs the per-chunk tensor copies (CPU-bound
-  // std::copy), sized res_num_copy_threads_ so chunks run concurrently. Used by
-  // the blocking and non-blocking main (cache-hit) stream() paths; this assumes
-  // a given table streams in a single mode at a time (blocking OR
+  // std::copy), sized res_num_uvm_hit_copy_threads_ so chunks run concurrently.
+  // Used by the blocking and non-blocking main (cache-hit) stream() paths; this
+  // assumes a given table streams in a single mode at a time (blocking OR
   // non-blocking), never concurrently.
-  std::unique_ptr<folly::CPUThreadPoolExecutor> copy_executor_;
+  std::unique_ptr<folly::CPUThreadPoolExecutor> uvm_hit_copy_executor_;
   // Dedicated HBM copy pool sized res_num_hbm_copy_threads_, so HBM copies
   // don't contend with hit copies for the shared pool and delay the other
   // lane's read-before-overwrite barrier.
   std::unique_ptr<folly::CPUThreadPoolExecutor> hbm_copy_executor_;
   // Persistent size-1 executor that runs the per-iteration dispatch (poll_flag
   // + chunked_copy_and_enqueue). Named so its thread is identifiable in traces.
-  std::unique_ptr<folly::CPUThreadPoolExecutor> dispatch_executor_;
+  std::unique_ptr<folly::CPUThreadPoolExecutor> uvm_hit_dispatch_executor_;
   // Size-1 executor dedicated to the HBM path's dispatch coroutine, so a
   // hit-path poll_copy_done_flag spin can't hold the only dispatch worker and
   // stall HBM drain.
@@ -198,10 +198,10 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   void submit_stream_item(StreamQueueItem item);
   // Copies `count` rows of the source tensors into CPU chunks and enqueues each
   // via submit_stream_item, fanning the per-chunk copies out across the
-  // selected copy pool (hbm_copy_executor_ when use_hbm, else copy_executor_)
-  // and awaiting them all (the read-before-overwrite barrier). A coroutine so
-  // the non-blocking dispatch can co_await it; tensor args are by value so
-  // nothing dangles once a chunk is scheduled.
+  // selected copy pool (hbm_copy_executor_ when use_hbm, else
+  // uvm_hit_copy_executor_) and awaiting them all (the read-before-overwrite
+  // barrier). A coroutine so the non-blocking dispatch can co_await it; tensor
+  // args are by value so nothing dangles once a chunk is scheduled.
   folly::coro::Task<void> chunked_copy_and_enqueue(
       at::Tensor indices,
       at::Tensor weights,
@@ -210,10 +210,10 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       at::Tensor count,
       bool use_hbm);
   // Copies one chunk [start, end) and enqueues it via submit_stream_item. Runs
-  // to completion on a single copy_executor_ worker; the per-chunk try/catch
-  // keeps an exception from escaping into collectAllRange (which awaits every
-  // sibling to completion and then rethrows one exception onto the blocking
-  // caller / dispatch future). By value for the same reason as
+  // to completion on a single uvm_hit_copy_executor_ worker; the per-chunk
+  // try/catch keeps an exception from escaping into collectAllRange (which
+  // awaits every sibling to completion and then rethrows one exception onto the
+  // blocking caller / dispatch future). By value for the same reason as
   // chunked_copy_and_enqueue.
   folly::coro::Task<void> copy_chunk_task(
       at::Tensor indices,
@@ -230,9 +230,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
 
   // Coroutine form of the non-blocking dispatch (poll_copy_done_flag +
   // chunked_copy_and_enqueue). Args are taken by value so nothing dangles once
-  // it is scheduled on dispatch_executor_ -- a capturing lambda coroutine would
-  // risk a use-after-free (clang-tidy cppcoreguidelines-avoid-capturing-lambda-
-  // coroutines).
+  // it is scheduled on uvm_hit_dispatch_executor_ -- a capturing lambda
+  // coroutine would risk a use-after-free
+  // (clang-tidy cppcoreguidelines-avoid-capturing-lambda-coroutines).
   folly::coro::Task<void> dispatch_copy_task(
       at::Tensor indices,
       at::Tensor weights,
@@ -254,8 +254,8 @@ fbgemm_gpu::StreamQueueItem tensor_copy_chunk(
 
 // Tiles [0, num_rows) into flat [start, end) chunks of size <= chunk_size,
 // contiguous and non-overlapping (their union is the whole range). One task per
-// chunk is submitted to copy_executor_, which load-balances them across its
-// workers. Pure/build-agnostic so it is unit-testable without a GPU or
+// chunk is submitted to uvm_hit_copy_executor_, which load-balances them across
+// its workers. Pure/build-agnostic so it is unit-testable without a GPU or
 // FBGEMM_FBCODE.
 std::vector<std::pair<int64_t, int64_t>> computeChunks(
     int64_t num_rows,

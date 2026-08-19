@@ -234,7 +234,7 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     const std::vector<int64_t>& table_sizes,
     int64_t res_chunk_size [[maybe_unused]],
     int64_t res_num_consumers [[maybe_unused]],
-    int64_t res_num_copy_threads [[maybe_unused]],
+    int64_t res_num_uvm_hit_copy_threads [[maybe_unused]],
     int64_t res_num_hbm_copy_threads [[maybe_unused]])
     : unique_id_(std::move(unique_id)),
       enable_raw_embedding_streaming_(enable_raw_embedding_streaming),
@@ -249,7 +249,7 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
       ,
       res_chunk_size_(res_chunk_size),
       res_num_consumers_(res_num_consumers),
-      res_num_copy_threads_(res_num_copy_threads),
+      res_num_uvm_hit_copy_threads_(res_num_uvm_hit_copy_threads),
       res_num_hbm_copy_threads_(res_num_hbm_copy_threads)
 #endif
 {
@@ -259,18 +259,18 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     // compile-time constants), and 0 -- or a negative that wrapped to a huge
     // size_t -- would silently break streaming: res_num_consumers=0 spawns no
     // drain threads (queue grows unbounded), res_chunk_size=0 makes
-    // computeChunks return empty (enqueues nothing), res_num_copy_threads=0
-    // sizes copy_executor_ to zero workers (copy tasks never run). Reject
-    // rather than silently no-op.
+    // computeChunks return empty (enqueues nothing),
+    // res_num_uvm_hit_copy_threads=0 sizes uvm_hit_copy_executor_ to zero
+    // workers (copy tasks never run). Reject rather than silently no-op.
     TORCH_CHECK(
         res_chunk_size > 0 && res_num_consumers > 0 &&
-            res_num_copy_threads > 0 && res_num_hbm_copy_threads > 0,
+            res_num_uvm_hit_copy_threads > 0 && res_num_hbm_copy_threads > 0,
         "RES config knobs must be > 0: res_chunk_size=",
         res_chunk_size,
         ", res_num_consumers=",
         res_num_consumers,
-        ", res_num_copy_threads=",
-        res_num_copy_threads,
+        ", res_num_uvm_hit_copy_threads=",
+        res_num_uvm_hit_copy_threads,
         ", res_num_hbm_copy_threads=",
         res_num_hbm_copy_threads);
     XLOG(INFO) << "[TBE_ID" << unique_id_
@@ -288,7 +288,7 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
     // prefix is kept short because Linux caps thread names at 15 chars
     // (pthread_setname_np) and NamedThreadFactory still appends a suffix, so a
     // longer prefix would truncate unique_id_ away.
-    dispatch_executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+    uvm_hit_dispatch_executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
         1,
         std::make_unique<folly::NamedThreadFactory>(
             fmt::format("RESDisp{}", unique_id_)));
@@ -297,7 +297,7 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
                << "] Starting RES ship executor with " << res_num_consumers_
                << " threads"
                << ", chunk_size=" << res_chunk_size_
-               << ", copy_threads=" << res_num_copy_threads_;
+               << ", copy_threads=" << res_num_uvm_hit_copy_threads_;
     // Push model: ship tasks are submitted onto this executor (one per enqueued
     // StreamQueueItem) and its workers wake on submit -- no polled queue, no
     // raw std::thread that could std::terminate on an escaped exception.
@@ -316,11 +316,11 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
             fmt::format("RESShip.{}", unique_id_)));
 
     // Persistent pool that runs the per-chunk tensor copies (CPU-bound
-    // std::copy) off the trainer thread. Sized res_num_copy_threads_ so N
-    // chunks run concurrently -- the same N-way parallelism the old
+    // std::copy) off the trainer thread. Sized res_num_uvm_hit_copy_threads_ so
+    // N chunks run concurrently -- the same N-way parallelism the old
     // one-std::thread-per-group model gave.
-    copy_executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
-        res_num_copy_threads_,
+    uvm_hit_copy_executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        res_num_uvm_hit_copy_threads_,
         std::make_unique<folly::NamedThreadFactory>(
             fmt::format("RESCopy.{}", unique_id_)));
 
@@ -344,22 +344,22 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
 RawEmbeddingStreamer::~RawEmbeddingStreamer() {
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
-    // Drain in producer order: dispatch schedules onto copy_executor_, and copy
-    // groups submit ship tasks onto consumer_executor_, so join dispatch ->
-    // copy -> consumer. A wrong order risks joining an executor while a
-    // producer still schedules onto it.
+    // Drain in producer order: dispatch schedules onto uvm_hit_copy_executor_,
+    // and copy groups submit ship tasks onto consumer_executor_, so join
+    // dispatch -> copy -> consumer. A wrong order risks joining an executor
+    // while a producer still schedules onto it.
     join_dispatch_and_workers();
     // The HBM path has its own dispatch + copy executors; drain its dispatch
     // future too before joining those executors.
     join_hbm_dispatch_and_workers();
-    if (dispatch_executor_ != nullptr) {
-      dispatch_executor_->join();
+    if (uvm_hit_dispatch_executor_ != nullptr) {
+      uvm_hit_dispatch_executor_->join();
     }
     if (hbm_dispatch_executor_ != nullptr) {
       hbm_dispatch_executor_->join();
     }
-    if (copy_executor_ != nullptr) {
-      copy_executor_->join();
+    if (uvm_hit_copy_executor_ != nullptr) {
+      uvm_hit_copy_executor_->join();
     }
     if (hbm_copy_executor_ != nullptr) {
       hbm_copy_executor_->join();
@@ -415,7 +415,7 @@ void RawEmbeddingStreamer::stream(
   // transition) and rely on the arrival-wins / versioned store (T281413204) for
   // cross-lane freshness.
   auto* dispatch_exec =
-      use_hbm ? hbm_dispatch_executor_.get() : dispatch_executor_.get();
+      use_hbm ? hbm_dispatch_executor_.get() : uvm_hit_dispatch_executor_.get();
 
   if (blocking_tensor_copy) {
     if (!poll_flag()) {
@@ -595,9 +595,10 @@ folly::coro::Task<void> RawEmbeddingStreamer::chunked_copy_and_enqueue(
   }
 
   // Pick the copy pool for this stream's path: the dedicated hbm_copy_executor_
-  // for HBM drain, else the main copy_executor_. Only the ship path
+  // for HBM drain, else the main uvm_hit_copy_executor_. Only the ship path
   // (consumer_executor_) is shared between the two.
-  auto* copy_exec = use_hbm ? hbm_copy_executor_.get() : copy_executor_.get();
+  auto* copy_exec =
+      use_hbm ? hbm_copy_executor_.get() : uvm_hit_copy_executor_.get();
 
   // One copy task per chunk. Chunk boundaries live entirely in computeChunks,
   // so the enqueued row set is identical regardless of how the tasks run.

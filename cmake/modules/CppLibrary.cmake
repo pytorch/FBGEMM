@@ -53,10 +53,34 @@ function(fbgemm_get_warning_flags)
     -Waddress
     -Wenum-compare
     -Wmisleading-indentation
-    -Wparentheses)
+    -Wparentheses
+    # -Wall-implied. Note the PLURAL -Wunused-local-typedefs: clang's singular
+    # spelling is rejected by g++ outright. The plural is accepted by both and
+    # produces the same diagnostic, so it goes here rather than in
+    # `_cc_clang_only`, buying coverage on the gcc leg.
+    -Wpessimizing-move
+    -Wunused-label
+    -Wunused-local-typedefs
+    # `-Wall`-implied and therefore inert on the host surface (clang enables it
+    # by default; gcc via -Wall). Its value is on DEVICE code, which reaches it
+    # via `_hipcc` -- but only once that list is applied. Until then this is
+    # host-only and should produce nothing.
+    -Wunused-value)
 
-  # Clang-only warning flags. Intentionally empty; populated in Phases A/B.
-  set(_cc_clang_only)
+  # Clang-only warning flags. These are appended to `_cc` ONLY when the host
+  # compiler is clang (see the guarded append below), because the OSS CI matrix
+  # builds with gcc on half its legs and g++ treats an unknown `-W` as a hard
+  # error -- not a warning, so `-Werror` is not even required to break the build.
+  #
+  # They ARE included unconditionally in `_hipcc`, because hipcc is always clang.
+  #
+  # Prefer a portable spelling in `_cc_common` over a clang-only one here when
+  # both exist: `-Wunused-local-typedefs` (plural) is accepted and diagnoses on
+  # both compilers, whereas clang's `-Wunused-local-typedef` (singular) is a hard
+  # error on gcc. Verified by compiling a probe with each.
+  set(_cc_clang_only
+    # clang has no gcc equivalent for this one.
+    -Wmove)
 
   # Suppressions. These are appended LAST so they win over everything above.
   #
@@ -125,11 +149,9 @@ function(fbgemm_get_warning_flags)
   # NOTE: ARG_EXTRA_CC_FLAGS stays FIRST, preserving the pre-refactor behaviour
   # that per-target extras are overridable by the shared suppressions.
   #
-  # `_cc_clang_only` is guarded: it must not reach a gcc command line. The list is
-  # empty today, so the guard is a no-op -- but expanding it unconditionally would
-  # break the OSS gcc leg the moment the list is populated, and the breakage would
-  # stay invisible until then. The guard belongs with the list that introduces it,
-  # not with the first flag that needs it.
+  # `_cc_clang_only` is guarded: it must not reach a gcc command line. Now that
+  # the list is populated the guard is load-bearing -- `-Wmove` is clang-only and
+  # g++ rejects it outright.
   set(_cc
     ${ARG_EXTRA_CC_FLAGS}
     ${_cc_common})
