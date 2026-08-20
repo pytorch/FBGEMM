@@ -647,6 +647,127 @@ def maybe_to_dtype(tensor: torch.Tensor, dtype: torch.dtype | None) -> torch.Ten
     return tensor if dtype is None else tensor.to(dtype)
 
 
+def generate_requests_for_grouped_tables(  # noqa C901
+    iters: int,
+    B: int | list[int],
+    T: int,
+    L: int,
+    E: int,
+    *,
+    Ls: list[int],
+    feature_table_map: list[int],
+    Es: list[int],
+    alpha: float = 1.0,
+    weighted: bool = False,
+) -> list[TBERequest]:
+    """Generate requests with multiple features per physical table."""
+    if T <= 0:
+        raise ValueError(f"T must be positive, got {T}")
+    if iters <= 0:
+        raise ValueError(f"iters must be positive, got {iters}")
+    if len(Es) != T:
+        raise ValueError(f"len(Es)={len(Es)} must equal T={T}")
+    if len(Ls) != len(feature_table_map):
+        raise ValueError(
+            f"len(Ls)={len(Ls)} must equal "
+            f"len(feature_table_map)={len(feature_table_map)}"
+        )
+    if not feature_table_map:
+        raise ValueError("feature_table_map must not be empty")
+    if any(table < 0 or table >= T for table in feature_table_map):
+        raise ValueError(
+            f"feature_table_map entries must be in [0, {T}), "
+            f"got {feature_table_map}"
+        )
+    missing_tables = sorted(set(range(T)) - set(feature_table_map))
+    if missing_tables:
+        raise ValueError(
+            f"Each physical table must have at least one feature; "
+            f"missing tables: {missing_tables}"
+        )
+    if isinstance(B, int):
+        if B <= 0:
+            raise ValueError(f"B must be positive, got {B}")
+        Bs = [B] * len(feature_table_map)
+        Bs_feature_rank = None
+    else:
+        if len(B) != len(feature_table_map):
+            raise ValueError(
+                f"len(Bs)={len(B)} must equal "
+                f"len(feature_table_map)={len(feature_table_map)}"
+            )
+        if any(batch_size <= 0 for batch_size in B):
+            raise ValueError(f"Bs must be positive, got {B}")
+        Bs = B
+        Bs_feature_rank = [[batch_size] for batch_size in Bs]
+    if any(length < 0 for length in Ls):
+        raise ValueError(f"Ls must be non-negative, got {Ls}")
+    if any(num_embeddings <= 0 for num_embeddings in Es):
+        raise ValueError(f"Es must be positive, got {Es}")
+    if L != max(Ls):
+        raise ValueError(f"L={L} must equal max(Ls)={max(Ls)}")
+    if E != max(Es):
+        raise ValueError(f"E={E} must equal max(Es)={max(Es)}")
+
+    device = get_device()
+    feature_Es = [Es[table] for table in feature_table_map]
+    lengths = np.repeat(np.array(Ls, dtype=np.int32), Bs)
+    lengths = np.tile(lengths, iters)
+    L_offsets = torch.from_numpy(np.insert(lengths.cumsum(), 0, 0)).to(torch.long)
+
+    if alpha <= 1.0:
+        all_indices = generate_indices_uniform(
+            iters,
+            Bs,
+            L,
+            E,
+            True,
+            L_offsets,
+            device=device,
+            Es=feature_Es,
+        )
+    else:
+        all_indices = generate_indices_zipf(
+            iters,
+            Bs,
+            L,
+            E,
+            alpha,
+            3,
+            True,
+            L_offsets,
+            False,
+            device=device,
+            Es=feature_Es,
+        )
+
+    total_B = sum(Bs)
+    all_indices = all_indices.flatten()
+    requests = []
+    for it in range(iters):
+        start_offset = L_offsets[it * total_B]
+        request_offsets = torch.concat(
+            [
+                torch.zeros(1, dtype=L_offsets.dtype, device=L_offsets.device),
+                L_offsets[it * total_B + 1 : (it + 1) * total_B + 1] - start_offset,
+            ]
+        )
+        per_sample_weights = (
+            torch.randn(int(request_offsets[-1].item()), device=device)
+            if weighted
+            else None
+        )
+        requests.append(
+            TBERequest(
+                all_indices[start_offset : L_offsets[(it + 1) * total_B]],
+                request_offsets.to(device),
+                per_sample_weights,
+                Bs_feature_rank,
+            )
+        )
+    return requests
+
+
 def generate_requests(  # noqa C901
     iters: int,
     B: int,

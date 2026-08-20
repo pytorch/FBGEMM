@@ -59,9 +59,6 @@ constexpr uint32_t LXU_PARAMS_CNT = 2;
 #define SMEM_CACHE_WEIGHT_DATA(SMEM_IDX, WEIGHT_IDX) \
   (SMEM_PTR_BASE(const cache_vec_t**)[SMEM_IDX])[WEIGHT_IDX]
 
-// This avoid type conversion of denom in div_round_up
-#define DIV_ROUND_UP(numer, denom) ((numer + denom - 1) / denom)
-
 #define ACC_ADD_OR_FMA(WEIGHT, INDEX_WEIGHT) \
   {%- if weighted %}
   accumulator.fma(WEIGHT, INDEX_WEIGHT);

@@ -49,7 +49,9 @@ logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 
-def kineto_trace_profiler(p: profile, trace_info: tuple[str, str, str, str]) -> float:
+def kineto_trace_profiler(
+    p: profile, trace_info: tuple[str, str, str, str], print_summary: bool = False
+) -> float:
     phase, trace_url, tbe_type, kern_name = trace_info
     p.export_chrome_trace(
         trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
@@ -59,8 +61,10 @@ def kineto_trace_profiler(p: profile, trace_info: tuple[str, str, str, str]) -> 
         # Sum the total time of forward kernel runs
         if kern_name in event.key:
             kernel_time += event.device_time
-    assert kernel_time > 0
+    assert kernel_time > 0, f"No kernel time found in {kern_name}."
     print(f"Total CUDA time: {kernel_time:.2f} ")
+    if print_summary:
+        print(p.key_averages().table(sort_by="cuda_time_total", row_limit=10))
     return kernel_time
 
 
@@ -285,8 +289,6 @@ def nbit_cpu(  # noqa C901
 @click.option("--check-median", is_flag=True, default=True)
 @click.option("--iters", default=100)
 @click.option("--runs-of-iters", default=5)
-@click.option("--warmup-runs", default=2)
-@click.option("--warmup-ms", type=int, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--report-aibench", is_flag=True)
 @click.option("--run-reference", is_flag=True, default=False)
@@ -295,6 +297,12 @@ def nbit_cpu(  # noqa C901
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 @click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--print-kernel-summary",
+    is_flag=True,
+    default=False,
+    help="Whether to print a summary of kernel execution times",
+)
 @click.option(
     "--trace-url",
     type=str,
@@ -339,6 +347,7 @@ def nbit_device(  # noqa C901
     fp8_exponent_bits: int | None,
     fp8_exponent_bias: int | None,
     export_trace: bool,
+    print_kernel_summary: bool,
     trace_url: str,
     warmup_runs: int,
     warmup_ms: int | None,
@@ -346,6 +355,13 @@ def nbit_device(  # noqa C901
     np.random.seed(42)
     torch.manual_seed(42)
     reporter = BenchmarkReporter(report_aibench)
+
+    if warmup_runs >= runs_of_iters:
+        logging.warning(
+            f"warmup_runs ({warmup_runs}) >= runs_of_iters ({runs_of_iters}), "
+            f"adjusting runs_of_iters to {warmup_runs + 1}"
+        )
+        runs_of_iters = warmup_runs + 1
 
     B = batch_size
     D = embedding_dim
@@ -513,7 +529,7 @@ def nbit_device(  # noqa C901
     # Get trace for one run of iter
     tbe_type: str = "split"
     # input of the kineto_trace_profiler
-    trace_info = ("fwd", trace_url, tbe_type, "embedding_codegen_forward")
+    trace_info = ("fwd", trace_url, tbe_type, "codegen_forward")
     time_dict = {"kernel_time": None}  # dict to hold the kernel time
 
     # warm-up right before profiling
@@ -533,7 +549,9 @@ def nbit_device(  # noqa C901
 
     with context_factory(
         # pyre-ignore[6]
-        lambda p: time_dict.update(kernel_time=kineto_trace_profiler(p, trace_info))
+        lambda p: time_dict.update(
+            kernel_time=kineto_trace_profiler(p, trace_info, print_kernel_summary)
+        )
     ):
         # forward
         time_per_iter = benchmark_requests(
@@ -661,6 +679,12 @@ def nbit_device(  # noqa C901
 @click.option("--use-cpu", is_flag=True, default=False)
 @click.option("--export-trace", is_flag=True, default=False)
 @click.option(
+    "--print-kernel-summary",
+    is_flag=True,
+    default=False,
+    help="Whether to print a summary of kernel execution times",
+)
+@click.option(
     "--trace-url",
     type=str,
     default="{tbe_type}_tbe_spec_{phase}_trace_{ospid}.json",
@@ -707,6 +731,7 @@ def nbit_device_with_spec(  # noqa C901
     fp8_exponent_bias: int | None,
     use_cpu: bool,
     export_trace: bool,
+    print_kernel_summary: bool,
     trace_url: str,
     warmup_runs: int,
     warmup_ms: int | None,
@@ -715,6 +740,14 @@ def nbit_device_with_spec(  # noqa C901
     np.random.seed(42)
     torch.manual_seed(42)
     reporter = BenchmarkReporter(report_aibench)
+
+    if warmup_runs >= runs_of_iters:
+        logging.warning(
+            f"warmup_runs ({warmup_runs}) >= runs_of_iters ({runs_of_iters}), "
+            f"adjusting runs_of_iters to {warmup_runs + 1}"
+        )
+        runs_of_iters = warmup_runs + 1
+
     B = batch_size
     Ds = [int(D) for D in embedding_dim_list.split(",")]
     Ls = [int(L) for L in bag_size_list.split(",")]
@@ -949,7 +982,7 @@ def nbit_device_with_spec(  # noqa C901
         # profile with kineto
         tbe_type: str = "split"
         time_dict = {"kernel_time": None}  # Shared variable to hold the kernel time
-        trace_info = ("fwd", trace_url, tbe_type, "embedding_codegen_forward")
+        trace_info = ("fwd", trace_url, tbe_type, "codegen_forward")
 
         # warm-up right before profiling
         # warmup_ms prioritized over warmup_runs
@@ -968,7 +1001,9 @@ def nbit_device_with_spec(  # noqa C901
 
         with context_factory(
             # pyre-ignore[6]
-            lambda p: time_dict.update(kernel_time=kineto_trace_profiler(p, trace_info))
+            lambda p: time_dict.update(
+                kernel_time=kineto_trace_profiler(p, trace_info, print_kernel_summary)
+            )
         ):
             # forward
             time_per_iter = benchmark_requests(

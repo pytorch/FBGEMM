@@ -16,7 +16,7 @@ import jinja2
 try:
     from .jinja_environment import env
     from .scripts_argsparse import args
-except:
+except Exception:
     # pyre-ignore[21]
     from jinja_environment import env
 

@@ -58,7 +58,7 @@ namespace fbgemm_gpu {
     assert(err == cudaError::cudaSuccess); \
   } while (0)
 
-#define DIV_ROUND_UP(a, b) (a + b - 1) / b
+#define DIV_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
 
 // Warp size -- device-pass constant
 //
