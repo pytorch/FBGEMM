@@ -11,6 +11,7 @@
 #ifdef FBGEMM_FBCODE
 #include <folly/coro/Task.h>
 #include <folly/futures/Future.h>
+#include <atomic>
 #endif
 
 #include <utility>
@@ -158,6 +159,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   size_t res_num_hbm_copy_threads_;
 #endif
 #ifdef FBGEMM_FBCODE
+  // Set by the destructor before any join, so shutdown-observing loops bail out
+  // instead of running to their timeouts.
+  std::atomic<bool> stop_{false};
   // Named executor that ships enqueued StreamQueueItems to the PS. Push model:
   // producers submit one ship task per item and workers wake on submit (no
   // polling). Sized to res_num_consumers_.
