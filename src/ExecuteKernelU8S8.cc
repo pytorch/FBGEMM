@@ -13,6 +13,10 @@
 #include <type_traits>
 #include <vector>
 
+#ifdef __aarch64__
+#include <arm_neon.h>
+#endif
+
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double kernel_time = 0.0;
 double postprocessing_time = 0.0;
@@ -28,7 +32,7 @@ std::int16_t satInt16(std::int32_t v) {
   return static_cast<std::int16_t>(std::clamp(v, -32768, 32767));
 }
 
-// Portable reference implementation of the u8s8 GEMM micro-kernel for aarch64.
+// NEON implementation of the u8s8 GEMM micro-kernel for aarch64.
 //
 // On x86 the compute kernel is JIT-generated assembly (see
 // GenerateKernelU8S8*.cc); no such kernel exists for arm, so we compute the
@@ -50,14 +54,13 @@ std::int16_t satInt16(std::int32_t v) {
 // `accum` selects overwrite vs. accumulate into the int32 C buffer, matching
 // the JIT store path (used across successive K-blocks).
 //
-// Loop order mirrors the register blocking of the JIT kernel: one row of
-// accumulators is held across the whole K sweep, so the inner loop walks the
-// packed B block and the accumulators contiguously. Reversing it (accumulating
-// a single C element at a time) strides B by row_interleave * NCB per step and
-// re-reads the whole block for every column, which costs well over an order of
-// magnitude.
+// NEON mapping, exact by construction: the interleaved layout makes vld2/vld4
+// de-interleave a K-pair/quad for 8 columns per load; vpmaddubsw is
+// vmull/vmlal into int32 lanes followed by the saturating narrow vqmovn_s32;
+// vpaddsw is vqaddq_s16; vpmaddwd+vpaddd is vaddl_s16 into a non-saturating
+// vaddq_s32. Columns beyond the last multiple of 8 take the scalar tail.
 template <typename accT>
-void computeBlockRef(
+void computeBlockNeon(
     const uint8_t* aBuf,
     const int8_t* bBuf,
     int32_t* cBuf,
@@ -69,49 +72,97 @@ void computeBlockRef(
     bool accum,
     int ldc) {
   constexpr int row_interleave = std::is_same_v<accT, std::int16_t> ? 2 : 4;
-  static thread_local std::vector<accT> acc;
-  acc.resize(nc);
 
   for (int i = 0; i < mc; ++i) {
-    std::fill(acc.begin(), acc.end(), accT{0});
-    for (int k = 0; k < kc; k += row_interleave) {
-      const uint8_t* aPtr = aBuf + i * kBlock + k;
-      const int8_t* bPtr = bBuf + k * nBlock;
-      if constexpr (std::is_same_v<accT, std::int16_t>) {
-        const std::int32_t a0 = aPtr[0];
-        const std::int32_t a1 = aPtr[1];
-        for (int n = 0; n < nc; ++n) {
-          // vpmaddubsw: (u8 * s8) + (u8 * s8) saturated to int16.
-          const std::int16_t prod =
-              satInt16(a0 * bPtr[2 * n] + a1 * bPtr[2 * n + 1]);
-          // vpaddsw: saturating int16 accumulate.
-          acc[n] = satInt16(acc[n] + prod);
-        }
-      } else {
-        const std::int32_t a0 = aPtr[0];
-        const std::int32_t a1 = aPtr[1];
-        const std::int32_t a2 = aPtr[2];
-        const std::int32_t a3 = aPtr[3];
-        for (int n = 0; n < nc; ++n) {
-          const std::int16_t p01 =
-              satInt16(a0 * bPtr[4 * n] + a1 * bPtr[4 * n + 1]);
-          const std::int16_t p23 =
-              satInt16(a2 * bPtr[4 * n + 2] + a3 * bPtr[4 * n + 3]);
-          // vpmaddwd (widen+add) followed by vpaddd (non-saturating int32).
-          acc[n] += p01 + p23;
-        }
-      }
-    }
-    // Sign-extend the accumulator to int32 to match vpmovsxwd (acc16) / the
-    // native int32 register (acc32).
+    const uint8_t* aRow = aBuf + i * kBlock;
     int32_t* cRow = cBuf + i * ldc;
-    if (accum) {
-      for (int n = 0; n < nc; ++n) {
-        cRow[n] += acc[n];
+    int n = 0;
+
+    if constexpr (std::is_same_v<accT, std::int16_t>) {
+      for (; n + 8 <= nc; n += 8) {
+        int16x8_t acc = vdupq_n_s16(0);
+        for (int k = 0; k < kc; k += 2) {
+          const std::int16_t a0 = aRow[k];
+          const std::int16_t a1 = aRow[k + 1];
+          const int8x8x2_t b = vld2_s8(bBuf + k * nBlock + 2 * n);
+          const int16x8_t b0 = vmovl_s8(b.val[0]);
+          const int16x8_t b1 = vmovl_s8(b.val[1]);
+          int32x4_t lo = vmull_n_s16(vget_low_s16(b0), a0);
+          lo = vmlal_n_s16(lo, vget_low_s16(b1), a1);
+          int32x4_t hi = vmull_n_s16(vget_high_s16(b0), a0);
+          hi = vmlal_n_s16(hi, vget_high_s16(b1), a1);
+          const int16x8_t prod = vcombine_s16(vqmovn_s32(lo), vqmovn_s32(hi));
+          acc = vqaddq_s16(acc, prod);
+        }
+        int32x4_t outLo = vmovl_s16(vget_low_s16(acc));
+        int32x4_t outHi = vmovl_s16(vget_high_s16(acc));
+        if (accum) {
+          outLo = vaddq_s32(outLo, vld1q_s32(cRow + n));
+          outHi = vaddq_s32(outHi, vld1q_s32(cRow + n + 4));
+        }
+        vst1q_s32(cRow + n, outLo);
+        vst1q_s32(cRow + n + 4, outHi);
+      }
+      for (; n < nc; ++n) {
+        std::int16_t acc = 0;
+        for (int k = 0; k < kc; k += 2) {
+          const int8_t* bPtr = bBuf + k * nBlock + 2 * n;
+          const std::int16_t prod =
+              satInt16(aRow[k] * bPtr[0] + aRow[k + 1] * bPtr[1]);
+          acc = satInt16(acc + prod);
+        }
+        cRow[n] = accum ? cRow[n] + acc : acc;
       }
     } else {
-      for (int n = 0; n < nc; ++n) {
-        cRow[n] = acc[n];
+      static_assert(row_interleave == 4);
+      for (; n + 8 <= nc; n += 8) {
+        int32x4_t accLo = vdupq_n_s32(0);
+        int32x4_t accHi = vdupq_n_s32(0);
+        for (int k = 0; k < kc; k += 4) {
+          const std::int16_t a0 = aRow[k];
+          const std::int16_t a1 = aRow[k + 1];
+          const std::int16_t a2 = aRow[k + 2];
+          const std::int16_t a3 = aRow[k + 3];
+          const int8x8x4_t b = vld4_s8(bBuf + k * nBlock + 4 * n);
+          const int16x8_t b0 = vmovl_s8(b.val[0]);
+          const int16x8_t b1 = vmovl_s8(b.val[1]);
+          const int16x8_t b2 = vmovl_s8(b.val[2]);
+          const int16x8_t b3 = vmovl_s8(b.val[3]);
+          int32x4_t lo01 = vmull_n_s16(vget_low_s16(b0), a0);
+          lo01 = vmlal_n_s16(lo01, vget_low_s16(b1), a1);
+          int32x4_t hi01 = vmull_n_s16(vget_high_s16(b0), a0);
+          hi01 = vmlal_n_s16(hi01, vget_high_s16(b1), a1);
+          const int16x8_t p01 =
+              vcombine_s16(vqmovn_s32(lo01), vqmovn_s32(hi01));
+          int32x4_t lo23 = vmull_n_s16(vget_low_s16(b2), a2);
+          lo23 = vmlal_n_s16(lo23, vget_low_s16(b3), a3);
+          int32x4_t hi23 = vmull_n_s16(vget_high_s16(b2), a2);
+          hi23 = vmlal_n_s16(hi23, vget_high_s16(b3), a3);
+          const int16x8_t p23 =
+              vcombine_s16(vqmovn_s32(lo23), vqmovn_s32(hi23));
+          accLo =
+              vaddq_s32(accLo, vaddl_s16(vget_low_s16(p01), vget_low_s16(p23)));
+          accHi = vaddq_s32(
+              accHi, vaddl_s16(vget_high_s16(p01), vget_high_s16(p23)));
+        }
+        if (accum) {
+          accLo = vaddq_s32(accLo, vld1q_s32(cRow + n));
+          accHi = vaddq_s32(accHi, vld1q_s32(cRow + n + 4));
+        }
+        vst1q_s32(cRow + n, accLo);
+        vst1q_s32(cRow + n + 4, accHi);
+      }
+      for (; n < nc; ++n) {
+        std::int32_t acc = 0;
+        for (int k = 0; k < kc; k += 4) {
+          const int8_t* bPtr = bBuf + k * nBlock + 4 * n;
+          const std::int16_t p01 =
+              satInt16(aRow[k] * bPtr[0] + aRow[k + 1] * bPtr[1]);
+          const std::int16_t p23 =
+              satInt16(aRow[k + 2] * bPtr[2] + aRow[k + 3] * bPtr[3]);
+          acc += p01 + p23;
+        }
+        cRow[n] = accum ? cRow[n] + acc : acc;
       }
     }
   }
@@ -435,11 +486,11 @@ void ExecuteKernel<
     }
 
 #ifdef __aarch64__
-    // No JIT micro-kernel exists for arm; compute this block with the portable
-    // reference kernel. `fn` bakes mc/nc/kc into the JIT'd code, so the
-    // reference kernel takes them as arguments instead.
-    (void)bBuf_pf; // prefetch hint is unused on the reference path
-    computeBlockRef<typename packingAMatrix::accType>(
+    // No JIT micro-kernel exists for arm; compute this block with the NEON
+    // kernel. `fn` bakes mc/nc/kc into the JIT'd code, so the NEON kernel
+    // takes them as arguments instead.
+    (void)bBuf_pf; // prefetch hint is unused on the NEON path
+    computeBlockNeon<typename packingAMatrix::accType>(
         aBuf,
         bBuf,
         C_buffer_start,
