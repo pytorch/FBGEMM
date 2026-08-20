@@ -48,22 +48,25 @@ using namespace fbgemm_gpu;
     has_global_weight_decay_support,
     ssd) %}
 {%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
-{%- set has_hip_optimized_nonvbe_support = is_rocm and
-                                                 optimizer == "rowwise_adagrad" and
-                                                 not dense and
-                                                 not nobag and
-                                                 not is_index_select and
-                                                 not is_gwd_kernel and
-                                                 not vbe and
-                                                 not ssd %}
-
-{%- set has_hip_optimized_support  = is_rocm and
-                                               optimizer == "rowwise_adagrad" and
-                                               not dense and
-                                               not is_index_select and
-                                               not is_gwd_kernel and
-                                               not nobag and
-                                               not ssd %}
+{#- /* This jinja flag only gates the code generation, i.e.,
+    whether to add code chunks for hip_mixed_d WARP kernel
+    used in mixed D and VBE cases.
+    The feature-gate TBE_ROCM_HIP_BACKWARD_KERNEL
+    decides whether the optimized hip_mixed_d_warp kernel will
+    be launched. */ #}
+{%- set has_hip_optimized_support = is_rocm and
+                                    optimizer == "rowwise_adagrad" and
+                                    not dense and
+                                    not is_index_select and
+                                    not is_gwd_kernel and
+                                    not nobag and
+                                    not ssd %}
+{#- /* This jinja flag only gates the code generation, i.e.,
+    whether to add code chunks for hip_warp kernel.
+    The feature-gate TBE_ROCM_HIP_BACKWARD_KERNEL
+    decides whether the optimized hip_warp kernel will
+    be launched. */ #}
+{%- set has_hip_optimized_nonvbe_support = has_hip_optimized_support and not vbe %}
 
 template <
     typename emb_t,
@@ -314,6 +317,74 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
     {%- endif %}
 );
+{%- endif %}
+{%- if has_hip_optimized_support  %}
+
+template <
+    typename emb_t,
+    typename grad_t,
+    typename cache_t,
+    typename index_t,
+    {%- for ph_name in args.placeholder_tensor_names %}
+    typename {{ ph_name + "_ph_t" }},
+    {%- endfor %}
+    int32_t kFixedMaxVecsPerThread,
+    int32_t kThreadGroupSize,
+    bool kUseVecBlocking>
+__global__ __launch_bounds__(kBackwardMaxThreads) void
+hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1(
+    const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag or is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- else %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> sorted_{{ locs_or_addrs_tensor }},
+    const bool use_uniq_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
+    {%- endif %}
+    {%- if weighted %}
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
+    int32_t max_segment_length_per_warp,
+    {%- if not dense and optimizer != "none" %}
+    bool stochastic_rounding,
+    at::PhiloxCudaState stochastic_rounding_philox_args,
+    {%- else %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- endif %} // if not dense and optimizer != "none"
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- endif %}
+    const int32_t max_D,
+    const int32_t max_vecs_per_thread,
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
+);
+
 {%- endif %}
 {% if is_index_select %}
 namespace index_select {
@@ -888,7 +959,17 @@ Tensor {{ embedding_cuda_op }}(
             wdesc,
             vdesc,
             )
-     %}
+    %}
+    {%- endif %}
+
+    {%- if has_hip_optimized_support  %}
+    {%- set hip_mixed_d_warp_kernel = "hip_mixed_d_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
+            ndesc,
+            optimizer,
+            wdesc,
+            vdesc,
+            )
+    %}
     {%- endif %}
 
     fbgemm_gpu::dispatch_index_types(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&]<typename index_t>() {
@@ -1059,6 +1140,10 @@ Tensor {{ embedding_cuda_op }}(
                 auto temp_grad_accum = at::zeros(
                     {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
                     aligned_grad_output.options().dtype(std::is_same_v<cache_t, double> ? at::kDouble : at::kFloat));
+
+                {%- if has_hip_optimized_support  %}
+                const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
+                {%- endif %}
 
                 DISPATCH_PLACEHOLDER_TYPES(
                   {%- for ph_name in args.placeholder_tensor_names %}
@@ -1245,6 +1330,9 @@ Tensor {{ embedding_cuda_op }}(
                             desc_suffix,
                         )
                     %}
+                    {%- if is_rocm %}
+                    // When both 'has_hip_optimized_support' and 'has_hip_optimized_nonvbe_support' are False, we use the default kernel.
+                    {%- endif %}
                     auto backward_warp_per_row_kernel =
                         {{ warp_kernel }}
                             <emb_t,
@@ -1270,8 +1358,54 @@ Tensor {{ embedding_cuda_op }}(
                     {%- else %}
                         int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
                     {%- endif %}
+                    {%- if is_rocm %}
+                    // In ROCm, we override the thread group size when max_D <= 128.
+                    auto warp_thread_group_size = kThreadGroupSize;
+                    {%- endif %}
+                    {%- if has_hip_optimized_support %}
+                    // If the flag is set (use_hip_kernel=true), hip_warp kernel is launched for uniform D with certain conditions and hip_mixed_d is launched
+                    // for mixed D and vbe. Otherwise, the regular warp kernel will be launched.
+                    {%- if vbe %}
+                    if (use_hip_kernel) {
+                    {%- else %}
+                    if (use_hip_kernel && mixed_D) {
+                    {%- endif %}
+                        backward_warp_per_row_kernel =
+                        {{ hip_mixed_d_warp_kernel }}
+                            <emb_t,
+                             grad_t,
+                             cache_t,
+                             index_t,
+                             {%- for ph_name in args.placeholder_tensor_names %}
+                             {{ ph_name + "_ph_t" }},
+                             {%- endfor %}
+                             kFixedMaxVecsPerThread,
+                             kThreadGroupSize,
+                             kUseVecBlocking>;
+                        if (max_D <= 128) {
+                            backward_warp_per_row_kernel =
+                            {{ hip_mixed_d_warp_kernel }}
+                                <emb_t,
+                                grad_t,
+                                cache_t,
+                                index_t,
+                                {%- for ph_name in args.placeholder_tensor_names %}
+                                {{ ph_name + "_ph_t" }},
+                                {%- endfor %}
+                                1,
+                                32,
+                                false>;
+                            // Notice that, kThreadGroupSize * kFixedMaxVecsPerThread * vec_width should >= max_D
+                            // Use (kBackwardMaxThreads/2)/32 instead of previous num_warp_per_row_groups to maintain
+                            // 4 AMD wavefronts per block (kThreadGroupSize=32 is half a wavefront, so we need
+                            // 8 warp groups to fill 4 physical wavefronts, matching the baseline blockDim.y=4
+                            // with kThreadGroupSize=64)
+                            num_warp_per_row_groups = (kBackwardMaxThreads / 2) / 32;
+                            warp_thread_group_size = 32;
+                        }
+                    }
+                    {%- endif %}
                     int32_t warp_per_row_smem_bytes = 0;
-
                     if constexpr (kUseVecBlocking) {
                       warp_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                           &num_warp_per_row_groups,
@@ -1285,19 +1419,19 @@ Tensor {{ embedding_cuda_op }}(
                           used_shared_bytes);
                     }
 
-                    auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
+                    auto blockSize = dim3({{ "warp_thread_group_size" if is_rocm else "kThreadGroupSize" }}, num_warp_per_row_groups);
 
                     auto warp_per_row_grid_size = utils::cuda::cap_grid_dim_x(
                         cuda_calc_xblock_count(total_unique_indices, num_warp_per_row_groups),
-                        kThreadGroupSize * num_warp_per_row_groups, // block size
+                        {{ "blockSize.x * blockSize.y" if is_rocm else "kThreadGroupSize * num_warp_per_row_groups" }}, // block size
                         at::cuda::getCurrentCUDAStream(),
                         utils::cuda::BlockCapPolicy::Always);
 
 #ifdef USE_ROCM
                     {%- if has_hip_optimized_nonvbe_support %}
 
-                    const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
-
+                    {#- /* use_hip_kernel is declared once above, outside DISPATCH_PLACEHOLDER_TYPES,
+                          and captured by reference here; re-declaring it would shadow it. */ #}
                     constexpr bool supported_weights_type = std::is_same_v<emb_t, float> || std::is_same_v<emb_t, at::Half>;
                     constexpr bool supported_grad_type = std::is_same_v<grad_t, float> || std::is_same_v<grad_t, at::Half> || std::is_same_v<grad_t, at::BFloat16>;
                     const bool cached = uvm_weights.numel() > 0 || lxu_cache_weights.numel() > 0;
@@ -1326,7 +1460,7 @@ Tensor {{ embedding_cuda_op }}(
                     // devices. warpSize 32 devices fall through to the generic
                     // shuffle-based backward kernel.
 
-                    if (use_hip_kernel && at::cuda::warp_size() == 64 && !mixed_D && !cached && supported_weights_type && supported_grad_type && rocm::is_supported_cdna())
+                    if (use_hip_kernel && !mixed_D && !cached && supported_weights_type && supported_grad_type && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256, 320] %}
@@ -1338,7 +1472,7 @@ Tensor {{ embedding_cuda_op }}(
                             // did not apply get_max_thread_blocks_() cap.
                             warp_per_row_grid_size = utils::cuda::cap_grid_dim_x(
                                 cuda_calc_xblock_count(
-                                    sorted_linear_indices_num_runs[0].item<int32_t>(),
+                                    total_unique_indices,
                                     segments_per_workgroup),
                                 256, // blockSize = dim3(256) = 256 threads
                                 at::cuda::getCurrentCUDAStream(),
@@ -1543,4 +1677,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     );
 }
 {%- endif %} {#-/* if not is_index_select */#}
-// clang-format on
+    // clang-format on
