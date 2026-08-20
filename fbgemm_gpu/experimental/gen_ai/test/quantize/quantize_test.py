@@ -767,6 +767,12 @@ class FP8Tests(unittest.TestCase):
         not torch.version.cuda and torch.version.hip < "6.2",
         "Skip on AMD with < RoCM 6.2",
     )
+    @unittest.skipIf(
+        torch.version.hip and not SUPPORTS_FP8,
+        "Skip on AMD archs without FNUZ FP8: the host instantiates the stochastic "
+        "rounding kernel on the FNUZ type while the device compiles the OCP one, "
+        "so the symbol is missing at launch and the process aborts",
+    )
     @settings(deadline=None)
     @given(
         B_T=st.sampled_from([2048, 4096]),
