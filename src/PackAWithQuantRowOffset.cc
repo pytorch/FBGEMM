@@ -58,10 +58,12 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
   if (std::isinf(1.0f / scale_)) {
     throw std::runtime_error("scale's reciprocal cannot be infinity");
   }
+#ifndef __aarch64__
   if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
        !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
   }
+#endif
 
   if (params) {
     BaseType::brow_ = params->MCB;
@@ -93,6 +95,12 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
                 getMatrixPackAParams();
         break;
 
+#ifdef __aarch64__
+      // aarch64 has no int8-specific packing layout; reuse avx2 blocking
+      // params (the reference compute path consumes the same layout).
+      case inst_set_t::sve:
+      case inst_set_t::anyarch:
+#endif
       case inst_set_t::avx2:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackAParams();
@@ -257,8 +265,13 @@ int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize(
       } else if (fbgemmHasAvx2Support()) {
         return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
       } else {
+#ifdef __aarch64__
+        // aarch64 reuses the avx2 blocking params for the reference path.
+        return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+#else
         assert(0 && "unsupported architecture");
         return -1;
+#endif
       }
     }
   } else {

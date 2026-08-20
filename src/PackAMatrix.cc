@@ -38,10 +38,12 @@ PackAMatrix<T, accT>::PackAMatrix(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+#ifndef __aarch64__
   if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
        !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
   }
+#endif
 
   if (params) {
     BaseType::brow_ = params->MCB;
@@ -73,6 +75,12 @@ PackAMatrix<T, accT>::PackAMatrix(
                 getMatrixPackAParams();
         break;
 
+#ifdef __aarch64__
+      // aarch64 has no int8-specific packing layout; reuse avx2 blocking
+      // params (the reference compute path consumes the same layout).
+      case inst_set_t::sve:
+      case inst_set_t::anyarch:
+#endif
       case inst_set_t::avx2:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackAParams();

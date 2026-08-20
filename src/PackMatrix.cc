@@ -37,10 +37,12 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+#ifndef __aarch64__
   if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
        !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
   }
+#endif
 
   int MCB = 0, KCB = 0, NCB = 0;
   if (params) {
@@ -74,6 +76,12 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
         KCB = PackingTraits<inpType, accType, inst_set_t::avx512_ymm>::KCB;
         break;
 
+#ifdef __aarch64__
+      // aarch64 has no int8-specific packing layout; reuse avx2 blocking
+      // params (the reference compute path consumes the same layout).
+      case inst_set_t::sve:
+      case inst_set_t::anyarch:
+#endif
       case inst_set_t::avx2:
         MCB = PackingTraits<inpType, accType, inst_set_t::avx2>::MCB;
         NCB = PackingTraits<inpType, accType, inst_set_t::avx2>::NCB;

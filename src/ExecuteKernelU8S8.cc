@@ -8,6 +8,10 @@
 
 #include "./ExecuteKernelU8S8.h" // @manual
 #include <cpuinfo.h>
+#include <algorithm>
+#include <cstdint>
+#include <type_traits>
+#include <vector>
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double kernel_time = 0.0;
@@ -15,6 +19,105 @@ double postprocessing_time = 0.0;
 #endif
 
 namespace fbgemm {
+
+#ifdef __aarch64__
+namespace {
+
+// Saturating narrow to int16, i.e. what every x86 "s"-suffixed pack/add does.
+std::int16_t satInt16(std::int32_t v) {
+  return static_cast<std::int16_t>(std::clamp(v, -32768, 32767));
+}
+
+// Portable reference implementation of the u8s8 GEMM micro-kernel for aarch64.
+//
+// On x86 the compute kernel is JIT-generated assembly (see
+// GenerateKernelU8S8*.cc); no such kernel exists for arm, so we compute the
+// mc x nc x kc block directly from the packed A/B buffers. Both the packed
+// layout and the integer arithmetic mirror the avx2 kernel exactly:
+//   - A is packed row-major with row stride kBlock (== KCB); element A[i][k]
+//     lives at aBuf[i * kBlock + k] and is unsigned 8-bit.
+//   - B is packed with row_interleave consecutive K values adjacent per column;
+//     element B[k][n] lives at
+//       bBuf[k * nBlock + n * row_interleave + (k % row_interleave)]
+//     (k here is already a multiple of row_interleave) and is signed 8-bit.
+//   - acc16 (accT == int16_t, row_interleave == 2): vpmaddubsw multiplies the
+//     unsigned A byte by the signed B byte and horizontally adds the pair into
+//     an int16 that saturates; the running accumulator is a saturating int16
+//     add (vpaddsw). The int16 result is sign-extended to int32 on store.
+//   - acc32 (accT == int32_t, row_interleave == 4): each pair is reduced with
+//     the saturating int16 vpmaddubsw, then widened and summed to int32
+//     (vpmaddwd) and accumulated without saturation (vpaddd).
+// `accum` selects overwrite vs. accumulate into the int32 C buffer, matching
+// the JIT store path (used across successive K-blocks).
+//
+// Loop order mirrors the register blocking of the JIT kernel: one row of
+// accumulators is held across the whole K sweep, so the inner loop walks the
+// packed B block and the accumulators contiguously. Reversing it (accumulating
+// a single C element at a time) strides B by row_interleave * NCB per step and
+// re-reads the whole block for every column, which costs well over an order of
+// magnitude.
+template <typename accT>
+void computeBlockRef(
+    const uint8_t* aBuf,
+    const int8_t* bBuf,
+    int32_t* cBuf,
+    int mc,
+    int nc,
+    int kc,
+    int kBlock,
+    int nBlock,
+    bool accum,
+    int ldc) {
+  constexpr int row_interleave = std::is_same_v<accT, std::int16_t> ? 2 : 4;
+  static thread_local std::vector<accT> acc;
+  acc.resize(nc);
+
+  for (int i = 0; i < mc; ++i) {
+    std::fill(acc.begin(), acc.end(), accT{0});
+    for (int k = 0; k < kc; k += row_interleave) {
+      const uint8_t* aPtr = aBuf + i * kBlock + k;
+      const int8_t* bPtr = bBuf + k * nBlock;
+      if constexpr (std::is_same_v<accT, std::int16_t>) {
+        const std::int32_t a0 = aPtr[0];
+        const std::int32_t a1 = aPtr[1];
+        for (int n = 0; n < nc; ++n) {
+          // vpmaddubsw: (u8 * s8) + (u8 * s8) saturated to int16.
+          const std::int16_t prod =
+              satInt16(a0 * bPtr[2 * n] + a1 * bPtr[2 * n + 1]);
+          // vpaddsw: saturating int16 accumulate.
+          acc[n] = satInt16(acc[n] + prod);
+        }
+      } else {
+        const std::int32_t a0 = aPtr[0];
+        const std::int32_t a1 = aPtr[1];
+        const std::int32_t a2 = aPtr[2];
+        const std::int32_t a3 = aPtr[3];
+        for (int n = 0; n < nc; ++n) {
+          const std::int16_t p01 =
+              satInt16(a0 * bPtr[4 * n] + a1 * bPtr[4 * n + 1]);
+          const std::int16_t p23 =
+              satInt16(a2 * bPtr[4 * n + 2] + a3 * bPtr[4 * n + 3]);
+          // vpmaddwd (widen+add) followed by vpaddd (non-saturating int32).
+          acc[n] += p01 + p23;
+        }
+      }
+    }
+    // Sign-extend the accumulator to int32 to match vpmovsxwd (acc16) / the
+    // native int32 register (acc32).
+    int32_t* cRow = cBuf + i * ldc;
+    if (accum) {
+      for (int n = 0; n < nc; ++n) {
+        cRow[n] += acc[n];
+      }
+    } else {
+      for (int n = 0; n < nc; ++n) {
+        cRow[n] = acc[n];
+      }
+    }
+  }
+}
+} // namespace
+#endif // __aarch64__
 
 template <typename packingAMatrix, typename cT, typename processOutputType>
 ExecuteKernel<
@@ -48,6 +151,13 @@ ExecuteKernel<
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if (params) {
+#ifdef __aarch64__
+    // aarch64 reference compute path consumes the avx2/user-provided blocking.
+    mbSize_ = params->MCB;
+    nbSize_ = params->NCB;
+    nrMinSize_ = params->NR_MIN;
+    nrSize_ = params->NR;
+#else
     if (fbgemmHasAvx2Support()) {
       mbSize_ = params->MCB;
       nbSize_ = params->NCB;
@@ -58,6 +168,7 @@ ExecuteKernel<
       assert(0 && "unsupported architecure");
       throw std::runtime_error("unsupported architecure");
     }
+#endif
   } else {
     const inst_set_t isa = fbgemmInstructionSet();
     switch (isa) {
@@ -89,6 +200,11 @@ ExecuteKernel<
             inst_set_t::avx512_ymm>::getKernelParams();
         break;
 
+#ifdef __aarch64__
+      // aarch64 reference compute path reuses the avx2 kernel blocking params.
+      case inst_set_t::sve:
+      case inst_set_t::anyarch:
+#endif
       case inst_set_t::avx2:
         std::tie(mbSize_, nbSize_, nrMinSize_, nrSize_) = PackingTraits<
             typename packingAMatrix::inpType,
@@ -137,6 +253,13 @@ void ExecuteKernel<
   if (jb_end == jb_begin) {
     return;
   }
+
+#ifdef __aarch64__
+  // OutputProcessing-inl.h forces its generic implementation on aarch64, so the
+  // avx2 tag below resolves to portable code and needs no x86 SIMD support.
+  constexpr bool hasOutputProcessingKernel = true;
+#else
+  const bool hasOutputProcessingKernel = fbgemmHasAvx2Support();
 
   typename BaseType::jit_micro_kernel_fp fn;
 
@@ -211,6 +334,7 @@ void ExecuteKernel<
       assert(0 && "unsupported architecture");
       throw std::runtime_error("unsupported architecure");
   }
+#endif // __aarch64__
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   std::chrono::time_point<std::chrono::high_resolution_clock> t_end;
@@ -219,60 +343,66 @@ void ExecuteKernel<
 #endif
 
   for (int jb = jb_begin; jb < jb_end; ++jb) {
-    if (jb == bColBlocks - 1) {
-      int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
-      if (nc != nbSize_) {
-        switch (isa) {
-          case inst_set_t::avx512_vnni:
-            if constexpr (std::is_same_v<
-                              typename packingAMatrix::accType,
-                              std::int16_t>) {
-              // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
-              CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
-              fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
-                  accum, packed_rows_A, nc, packedA_.numPackedCols());
-            } else {
-              fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
-                  accum, packed_rows_A, nc, packedA_.numPackedCols());
-            }
-            break;
+    // Columns actually computed for this block: the last one is rounded up to
+    // NR_MIN. The JIT bakes this into the generated code; the aarch64 reference
+    // kernel takes it as an argument, so it is computed once here for both.
+    const int nc = jb == bColBlocks - 1
+        ? ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_
+        : nbSize_;
 
-          case inst_set_t::avx512_vnni_ymm:
-            if constexpr (std::is_same_v<
-                              typename packingAMatrix::accType,
-                              std::int16_t>) {
-              // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
-              CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
-              fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(
-                  accum, packed_rows_A, nc, packedA_.numPackedCols());
-            } else {
-              fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni_ymm>(
-                  accum, packed_rows_A, nc, packedA_.numPackedCols());
-            }
-            break;
-
-          case inst_set_t::avx512:
-            fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+#ifndef __aarch64__
+    if (nc != nbSize_) {
+      switch (isa) {
+        case inst_set_t::avx512_vnni:
+          if constexpr (std::is_same_v<
+                            typename packingAMatrix::accType,
+                            std::int16_t>) {
+            // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
+            CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
+            fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols());
-            break;
-
-          case inst_set_t::avx512_ymm:
-            fn = BaseType::template getOrCreate<inst_set_t::avx512_ymm>(
+          } else {
+            fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols());
-            break;
+          }
+          break;
 
-          case inst_set_t::avx2:
-            fn = BaseType::template getOrCreate<inst_set_t::avx2>(
+        case inst_set_t::avx512_vnni_ymm:
+          if constexpr (std::is_same_v<
+                            typename packingAMatrix::accType,
+                            std::int16_t>) {
+            // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
+            CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
+            fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols());
-            break;
+          } else {
+            fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni_ymm>(
+                accum, packed_rows_A, nc, packedA_.numPackedCols());
+          }
+          break;
 
-          default:
-            // TODO: Have default slower path
-            assert(0 && "unsupported architecture");
-            throw std::runtime_error("unsupported architecure");
-        }
+        case inst_set_t::avx512:
+          fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+              accum, packed_rows_A, nc, packedA_.numPackedCols());
+          break;
+
+        case inst_set_t::avx512_ymm:
+          fn = BaseType::template getOrCreate<inst_set_t::avx512_ymm>(
+              accum, packed_rows_A, nc, packedA_.numPackedCols());
+          break;
+
+        case inst_set_t::avx2:
+          fn = BaseType::template getOrCreate<inst_set_t::avx2>(
+              accum, packed_rows_A, nc, packedA_.numPackedCols());
+          break;
+
+        default:
+          // TODO: Have default slower path
+          assert(0 && "unsupported architecture");
+          throw std::runtime_error("unsupported architecure");
       }
     }
+#endif // __aarch64__
 
     bBuf = packedB_.getBuf(jb, kBlock);
     // prefetch addr of the next packed block of B matrix
@@ -304,12 +434,30 @@ void ExecuteKernel<
       leadingDim = nbSize_;
     }
 
+#ifdef __aarch64__
+    // No JIT micro-kernel exists for arm; compute this block with the portable
+    // reference kernel. `fn` bakes mc/nc/kc into the JIT'd code, so the
+    // reference kernel takes them as arguments instead.
+    (void)bBuf_pf; // prefetch hint is unused on the reference path
+    computeBlockRef<typename packingAMatrix::accType>(
+        aBuf,
+        bBuf,
+        C_buffer_start,
+        packed_rows_A, // mc
+        nc,
+        packedA_.numPackedCols(), // kc
+        packedA_.blockColSize(), // kBlock == A row stride (KCB)
+        packedB_.blockColSize(), // nBlock == NCB
+        accum,
+        leadingDim);
+#else
     fn(aBuf,
        bBuf,
        bBuf_pf,
        C_buffer_start,
        packedA_.numPackedCols(),
        leadingDim);
+#endif
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
     t_end = std::chrono::high_resolution_clock::now();
@@ -328,7 +476,7 @@ void ExecuteKernel<
           (C_buffer_start == C_tile_.data() ? (jb - jb_begin) * nbSize_
                                             : (jb_end - jb_begin) * nbSize_);
       if (nSize) {
-        if (fbgemmHasAvx2Support()) {
+        if (hasOutputProcessingKernel) {
           // TODO: avx512 path
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
@@ -350,7 +498,7 @@ void ExecuteKernel<
       if (C_buffer_start == C_tile_.data()) {
         // When C_tile_ scratchpad was used to avoid accessing memory past
         // C_buffer_ .
-        if (fbgemmHasAvx2Support()) {
+        if (hasOutputProcessingKernel) {
           // TODO: avx512 path
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
