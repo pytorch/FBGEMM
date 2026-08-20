@@ -1028,14 +1028,12 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
         FBGEMM_DISPATCH_ALL_TYPES(
             values.scalar_type(), "mask_select_jagged_1d_kernel2", [&] {
               const auto mask_ptr = mask_contiguous->const_data_ptr<bool>();
-              const int64_t num_outputs =
-                  std::count(mask_ptr, mask_ptr + mask.numel(), true);
-              masked_values = at::empty({num_outputs}, values.options());
-
               const auto values_ptr =
                   values_contiguous->const_data_ptr<scalar_t>();
               const auto lengths_ptr =
                   lengths_contiguous->const_data_ptr<index_t>();
+
+              masked_values = at::empty({values.numel()}, values.options());
 
               auto masked_values_ptr =
                   masked_values.mutable_data_ptr<scalar_t>();
@@ -1057,6 +1055,10 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
                 input_offset += input_len;
                 masked_lengths_ptr[b] = output_len;
               }
+              // Clone so the result owns a right-sized buffer; a bare narrow()
+              // view would keep the full values.numel() allocation alive for
+              // the lifetime of the returned tensor.
+              masked_values = masked_values.narrow(0, 0, output_offset).clone();
             });
       });
 
