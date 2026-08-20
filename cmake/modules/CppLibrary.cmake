@@ -65,7 +65,11 @@ function(fbgemm_get_warning_flags)
     # by default; gcc via -Wall). Its value is on DEVICE code, which reaches it
     # via `_hipcc` -- but only once that list is applied. Until then this is
     # host-only and should produce nothing.
-    -Wunused-value)
+    -Wunused-value
+    # Init and control flow. `-Winfinite-recursion` and `-Wself-assign` are
+    # g++-rejected and live in `_cc_clang_only`.
+    -Wimplicit-fallthrough
+    -Wuninitialized)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
@@ -80,7 +84,14 @@ function(fbgemm_get_warning_flags)
   # error on gcc. Verified by compiling a probe with each.
   set(_cc_clang_only
     # clang has no gcc equivalent for this one.
-    -Wmove)
+    -Wmove
+    # g++ rejects both of these outright.
+    #
+    # `-Winfinite-recursion` is `-Wall`-implied in clang (measured: 0 diagnostics
+    # at baseline, 1 with `-Wall`), so the OSS clang leg already has it and is
+    # green. No suppression is needed.
+    -Winfinite-recursion
+    -Wself-assign)
 
   # Suppressions. These are appended LAST so they win over everything above.
   #
