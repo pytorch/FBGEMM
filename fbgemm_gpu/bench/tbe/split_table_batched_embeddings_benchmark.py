@@ -1606,7 +1606,7 @@ def device_with_spec(  # noqa C901
     "--print-kernel-summary",
     is_flag=True,
     default=False,
-    help="Whether the table is weighted or not",
+    help="Whether to print a summary of kernel execution times",
 )
 @click.option("--ssd", is_flag=True, default=False)
 @click.option(
