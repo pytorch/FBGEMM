@@ -69,7 +69,10 @@ function(fbgemm_get_warning_flags)
     # Init and control flow. `-Winfinite-recursion` and `-Wself-assign` are
     # g++-rejected and live in `_cc_clang_only`.
     -Wimplicit-fallthrough
-    -Wuninitialized)
+    -Wuninitialized
+    # g++ accepts `-Wvexing-parse`, so it goes in the portable bucket for
+    # gcc-leg coverage.
+    -Wvexing-parse)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
@@ -91,7 +94,10 @@ function(fbgemm_get_warning_flags)
     # at baseline, 1 with `-Wall`), so the OSS clang leg already has it and is
     # green. No suppression is needed.
     -Winfinite-recursion
-    -Wself-assign)
+    -Wself-assign
+    # g++ rejects these two; only `-Wvexing-parse` is portable.
+    -Wnull-conversion
+    -Wstring-concatenation)
 
   # Suppressions. These are appended LAST so they win over everything above.
   #
