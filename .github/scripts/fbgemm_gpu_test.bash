@@ -174,6 +174,9 @@ __configure_fbgemm_gpu_test_rocm () {
     ./moe/layers_test.py  # Not a python unittest file
     ./attention/blackwell_fmha_test.py
     ./attention/blackwell_attention_splitk_test.py
+    # Several tests in this file hang on the MI350 runner and take out the job
+    # timeout, so the whole file is excluded until they are fixed.
+    ./tbe/cache/uvm_test.py
   )
 }
 
