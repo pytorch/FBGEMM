@@ -27,6 +27,15 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/torch_library.h"
+{#-/* pt2_arg_utils*.h is emitted by generate_backward_split.py, so it is on the
+      include path only for the backward render of this shared template. */#}
+{%- if not is_forward %}
+{%- if ssd %}
+#include "pt2_arg_utils_ssd.h"
+{%- else %}
+#include "pt2_arg_utils.h"
+{%- endif %}
+{%- endif %}
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -224,12 +233,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
 {#-/* PT2 wrapper function for backward CUDA */#}
 Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_pt2_{{ dispatch_type }}_wrapper(
     const Tensor& grad_output,
-    const Tensor& /*host_weights*/,
-    const Tensor& dev_weights,
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
-    const Tensor& weights_offsets,
+    const at::TensorList weights,
     {%- if nobag %}
     const c10::SymInt D,
     {%- else %}
@@ -245,11 +249,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     const int64_t pooling_mode,
     const Tensor& indice_weights, // currently supports no bag with unweighted
     {%- endif %}
-    {%- if ssd %}
-    const Tensor& ssd_row_addrs,
-    {%- elif not dense %}
-    const Tensor& lxu_cache_locations,
-    {%- endif %}
+    const at::TensorList aux_tensor_bwd,
     const int64_t BT_block_size,
     const int64_t max_segment_length_per_warp,
     {%- if optimizer != "none" %}
@@ -258,10 +258,6 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
     {%- if vbe %}
-    const Tensor& B_offsets,
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    const Tensor& vbe_B_offsets_rank_per_feature,
     const c10::SymInt max_B,
     {%- endif %}
     const bool use_uniq_cache_locations,
@@ -282,6 +278,33 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     {%- if not nobag %}
     , const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {%- endif %}){
+        TORCH_CHECK(
+            weights.size() == 5,
+            "CUDA weights must contain dev, placements, offsets, uvm, lxu_cache");
+        const auto& dev_weights = weights[0];
+        const auto& weights_placements = weights[1];
+        const auto& weights_offsets = weights[2];
+        const auto& uvm_weights = weights[3];
+        const auto& lxu_cache_weights = weights[4];
+        // IDX_BWD_VBE_B_OFFSETS_RANK_PER_FEATURE is packed for the CPU reshape
+        // and is unused here.
+        {%- if not vbe %}
+        // Non-VBE packs only lxu_cache_locations, so aux_tensor_bwd holds 1 tensor.
+        {%- endif %}
+        TORCH_CHECK(
+            aux_tensor_bwd.size() == {{ "AUX_TENSOR_BWD_SIZE" if vbe else "1" }},
+            "aux_tensor_bwd must contain {{ "AUX_TENSOR_BWD_SIZE" if vbe else "1" }} tensor(s), got ",
+            aux_tensor_bwd.size());
+        {%- if ssd %}
+        const auto& ssd_row_addrs = aux_tensor_bwd[IDX_BWD_LXU_CACHE_LOCATIONS];
+        {%- else %}
+        const auto& lxu_cache_locations = aux_tensor_bwd[IDX_BWD_LXU_CACHE_LOCATIONS];
+        {%- endif %}
+        {%- if vbe %}
+        const auto& B_offsets = aux_tensor_bwd[IDX_BWD_B_OFFSETS];
+        const auto& vbe_row_output_offsets = aux_tensor_bwd[IDX_BWD_VBE_ROW_OUTPUT_OFFSETS];
+        const auto& vbe_b_t_map = aux_tensor_bwd[IDX_BWD_VBE_B_T_MAP];
+        {%- endif %}
         {%- set backward_op = "{}_embedding{}_backward_codegen_{}_{}_exact_cuda".format(
                 bwd_mdesc, ndesc, optimizer, desc_suffix
             )
@@ -607,12 +630,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_backward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
-        "    Tensor{{ schema_annotation['weights_host'] }} host_weights, "
-        "    Tensor{{ schema_annotation['weights_dev'] }} dev_weights, "
-        "    Tensor{{ schema_annotation['weights_uvm'] }} uvm_weights, "
-        "    Tensor{{ schema_annotation['weights_lxu_cache'] }} lxu_cache_weights, "
-        "    Tensor weights_placements, "
-        "    Tensor weights_offsets, "
+        "    Tensor[]{{ schema_annotation['weights'] }} weights, "
         {%- if nobag %}
         "    SymInt D, "
         {%- else %}
@@ -628,11 +646,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int pooling_mode, "
         "    Tensor indice_weights, "
         {%- endif %}
-        {%- if ssd %}
-        "    Tensor ssd_row_addrs, "
-        {%- else %}
-        "    Tensor lxu_cache_locations, "
-        {%- endif %}
+        "    Tensor[] aux_tensor_bwd, "
         "    int BT_block_size, "
         "    int max_segment_length_per_warp, "
         {%- if optimizer != "none" %}
@@ -641,10 +655,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int info_B_num_bits, "
         "    int info_B_mask_int64, "
         {%- if vbe %}
-        "    Tensor B_offsets, "
-        "    Tensor vbe_row_output_offsets, "
-        "    Tensor vbe_b_t_map, "
-        "    Tensor vbe_B_offsets_rank_per_feature, "
         "    SymInt max_B, "
         {%- endif %}
         "    bool use_uniq_cache_locations, "

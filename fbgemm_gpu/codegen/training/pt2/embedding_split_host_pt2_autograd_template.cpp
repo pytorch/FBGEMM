@@ -229,12 +229,11 @@ enum SSDTensor {
             .findSchemaOrThrow("fbgemm::{{ backward_op }}", "")
             .typed<Tensor(
                 const Tensor& /*grad_output*/,
-                const Tensor& /*weights_host*/,
-                const Tensor& /*weights_dev*/,
-                const Tensor& /*weights_uvm*/,
-                const Tensor& /*lxu_cache_weight*/,
-                const Tensor& /*weights_placements*/,
-                const Tensor& /*weights_offsets*/,
+                {%- if dense %}
+                const Tensor& /*dev_weights*/,
+                {%- else %}
+                const at::TensorList /*weights*/,
+                {%- endif %}
                 {%- if nobag %}
                 const c10::SymInt /*D*/,
                 {%- else %}
@@ -250,27 +249,25 @@ enum SSDTensor {
                 const int64_t /*pooling_mode*/,
                 const Tensor& /*indice_weights*/, // currently supports no bag with unweighted
                 {%- endif %}
-                {%- if ssd %}
-                const Tensor& /*ssd_row_addrs*/,
-                {%- else %}
-                const Tensor& /*lxu_cache_locations*/,
+                {%- if not dense %}
+                const at::TensorList /*aux_tensor_bwd*/,
                 {%- endif %}
                 const int64_t /*BT_block_size*/,
                 const int64_t /*max_segment_length_per_warp*/,
+                {%- if not dense %}
                 {%- if optimizer != "none" %}
                 const bool /*stochastic_rounding*/,
                 {%- endif %}
                 const int64_t /*info_B_num_bits*/,
                 const int64_t /*info_B_mask_int64*/,
+                {%- endif %}
                 {%- if vbe %}
-                const Tensor& /*B_offsets*/,
-                const Tensor& /*vbe_row_output_offsets*/,
-                const Tensor& /*vbe_b_t_map*/,
-                const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu offsets and grad output
                 const c10::SymInt /*max_B*/, // for reshaping vbe cpu offsets
                 {%- endif %}
+                {%- if not dense %}
                 const bool /*use_uniq_cache_locations_bwd*/,
                 const bool /*use_homogeneous_placements*/,
+                {%- endif %}
                 {%- if ssd %}
                 const bool /*enable_optimizer_offloading*/,
                 {%- endif %}
@@ -283,25 +280,51 @@ enum SSDTensor {
                 {%- endif %}
                 const double /*gwd_lower_bound*/,
                 {%- endif %} {# /* if is_gwd */ #}
+                {%- if dense %}
+                const int64_t /*unused*/
+                {%- else %}
                 {%- for arg_type in args_pt2.split_function_args %}
                 {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
                 {%- endfor %}
+                {%- endif %}
                 {%- if not nobag %}
                 , const int64_t /*output_dtype*/
                 {%- endif %}
             )>();
 
+    {%- if not dense %}
+    // Mirrors the `weights` layout unpack_tensorlist() consumes in forward.
+    // MTIA-with-UVM takes the 5-slot layout but puts host_weights in slot 0.
+    const bool use_cpu_weights_layout = !weights_dev.defined() &&
+        !weights_uvm.defined() && !weights_lxu_cache.defined();
+    TORCH_CHECK(
+        !use_cpu_weights_layout || weights_host.defined(),
+        "weights_host must be defined when none of weights_dev/weights_uvm/weights_lxu_cache are");
+    const std::vector<Tensor> weights = use_cpu_weights_layout
+        ? std::vector<Tensor>{weights_host, weights_placements, weights_offsets}
+        : std::vector<Tensor>{
+            weights_dev.defined() ? weights_dev : weights_host, // CUDA, or MTIA with UVM
+            weights_placements,
+            weights_offsets,
+            weights_uvm,
+            weights_lxu_cache};
+    // Owned std::vector -- a TensorList over the brace temporary would dangle.
+    const std::vector<Tensor> aux_tensor_bwd = {
+        {{ "ssd_row_addrs" if ssd else "lxu_cache_locations" }}
+        {%- if vbe %}
+        , B_offsets,
+        vbe_row_output_offsets,
+        vbe_b_t_map,
+        vbe_B_offsets_rank_per_feature
+        {%- endif %}
+    };
+    {%- endif %}
     grad_weights_dev = embedding_codegen{{ wdesc }}_backward_op.call(
           grad_output,
           {% if dense %}
           dev_weights,
           {% else %}
-          weights_host,
-          weights_dev,
-          weights_uvm,
-          weights_lxu_cache,
-          weights_placements,
-          weights_offsets,
+          weights,
           {% endif %}
           {% if nobag %}
           D,
@@ -318,10 +341,8 @@ enum SSDTensor {
           pooling_mode,
           indice_weights,
           {%- endif %} {# /* if not nobag */ #}
-          {%- if ssd %}
-          ssd_row_addrs,
-          {%- elif not dense %}
-          lxu_cache_locations,
+          {%- if not dense %}
+          aux_tensor_bwd,
           {%- endif %}
           BT_block_size,
           max_segment_length_per_warp,
@@ -333,10 +354,6 @@ enum SSDTensor {
           info_B_mask_int64,
           {%- endif %} {# /* if not dense */ #}
           {%- if vbe %}
-          B_offsets,
-          vbe_row_output_offsets,
-          vbe_b_t_map,
-          vbe_B_offsets_rank_per_feature, // for reshaping vbe cpu offsets and grad output
           max_B, // for reshaping vbe cpu offsets
           {%- endif %} {# /* if vbe */ #}
           {%- if not dense %}
@@ -566,21 +583,51 @@ enum SSDTensor {
 
 /* This macro generates a code blob for creating tensor that is unpacked from list of optional tensors*/
 {%- macro get_optional_optim_tensor(name, suffix, idx, options) %}
-  auto {{ name }}_{{ suffix }} = GET_OPTIONAL_TENSOR_VALUE(optim_tensor[{{ idx }}], at::empty({0}, {{ options }}));
+  {{ name }}_{{ suffix }} = GET_OPTIONAL_TENSOR_VALUE(optim_tensor[{{ idx }}], at::empty({0}, {{ options }}));
+{%- endmacro %}
+
+/* This macro sets a dummy (empty) tensor. Used for backward compatibility when the
+   frontend package does not supply the optional optimizer tensors (see below). */
+{%- macro set_dummy_tensor(name, suffix, options) %}
+  {{ name }}_{{ suffix }} = at::empty({0}, {{ options }});
 {%- endmacro %}
 
 /* This macro generates a code blob for unpacking a list of optional tensors
     We cannot do list of optional tensorlist. We need to pack optimizer optional tensors in a flatten manner.
     For readability and programmability, we pass all unified args (i.e., 5 items), as opposed to passing per device (like above)
     which needs to be determined at runtime.
+    The 5 tensors are declared up front (so they stay in scope for the backward op
+    call below) and assigned conditionally: when the frontend supplies this optimizer's
+    optional tensors we unpack them, otherwise we fall back to dummy empty tensors for
+    backward compatibility with old frontend packages that predate these args.
 */
 {%- macro unpack_tensorlist_optional(name, arg_index) %}
+  at::Tensor {{ name }}_host, {{ name }}_dev, {{ name }}_uvm, {{ name }}_placements, {{ name }}_offsets;
+  if (optim_tensor.size() >= {{ arg_index * 5 + 5 }}) {
   {{ get_optional_optim_tensor(name, "host", arg_index * 5, "options") }}
   {{ get_optional_optim_tensor(name, "dev", arg_index * 5 + 1, "options") }}
   // optional optimizer states will be on HOST/DEVICE and not UVM.
   {{ get_optional_optim_tensor(name, "uvm", arg_index * 5 + 2, "options") }}
   {{ get_optional_optim_tensor(name, "placements", arg_index * 5 + 3, "weights_placements.options()") }}
   {{ get_optional_optim_tensor(name, "offsets", arg_index * 5 + 4, "weights_offsets.options()") }}
+  } else {
+  // Backward compat: frontend package lacks these optional tensors. Warn once so
+  // version skew is visible rather than silently dropping optional optimizer state.
+  TORCH_WARN_ONCE(
+      "TBE backward: frontend package did not supply optional optimizer tensors for '{{ name }}' "
+      "(optim_tensor.size() = ",
+      optim_tensor.size(),
+      ", expected at least ",
+      {{ arg_index * 5 + 5 }},
+      "). Falling back to empty tensors for backward compatibility; update the frontend "
+      "package to clear this warning.");
+  {{ set_dummy_tensor(name, "host", "options") }}
+  {{ set_dummy_tensor(name, "dev", "options") }}
+  // optional optimizer states will be on HOST/DEVICE and not UVM.
+  {{ set_dummy_tensor(name, "uvm", "options") }}
+  {{ set_dummy_tensor(name, "placements", "weights_placements.options()") }}
+  {{ set_dummy_tensor(name, "offsets", "weights_offsets.options()") }}
+  }
 {%- endmacro %}
 
 ////////////////////////////////////////////////////////////////////////////////
