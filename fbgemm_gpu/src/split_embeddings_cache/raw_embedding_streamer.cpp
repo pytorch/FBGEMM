@@ -343,6 +343,9 @@ RawEmbeddingStreamer::RawEmbeddingStreamer(
 
 RawEmbeddingStreamer::~RawEmbeddingStreamer() {
 #ifdef FBGEMM_FBCODE
+  // Signal shutdown before any join so spin loops bail out instead of waiting
+  // out their timeouts.
+  stop_.store(true, std::memory_order_relaxed);
   if (enable_raw_embedding_streaming_) {
     // Drain in producer order: dispatch schedules onto uvm_hit_copy_executor_,
     // and copy groups submit ship tasks onto consumer_executor_, so join
@@ -365,10 +368,12 @@ RawEmbeddingStreamer::~RawEmbeddingStreamer() {
       hbm_copy_executor_->join();
     }
     // Producers (dispatch + copy) are all joined above, so no further ship
-    // tasks will be submitted. join() drains the in-flight ones before the
-    // executor's threads stop, then destroys members in a safe order.
+    // tasks will be submitted. stop(), not join(): each queued item is a
+    // blocking co_setEmbeddings carrying no RpcOptions timeout, so draining the
+    // backlog would stall teardown behind a wedged PS. The threads are still
+    // joined, so in-flight ships finish; only the queued backlog is discarded.
     if (consumer_executor_ != nullptr) {
-      consumer_executor_->join();
+      consumer_executor_->stop();
     }
   }
 #endif
@@ -628,6 +633,11 @@ bool RawEmbeddingStreamer::poll_copy_done_flag(
     folly::stop_watch<std::chrono::microseconds> poll_watch;
     while (*ptr == 0) {
       std::this_thread::yield();
+      // At shutdown the producing GPU work is abandoned, so the flag may never
+      // be set.
+      if (stop_.load(std::memory_order_relaxed)) {
+        return false;
+      }
       if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
         LOG(ERROR) << "[TBE_ID" << unique_id_
                    << "] copy_done_flag poll timed out after "
