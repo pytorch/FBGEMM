@@ -56,11 +56,14 @@ jobs:
       #   fails with "Unknown distribution". 13.4 is still on toolkit 13.4.0rc1
       #   (not GA). Drop until each is supported.
       # rocm/3.13t: causes segfaults at runtime
+      # rocm/7.14: not supported in the Nova scripts yet (nova_dir.bash knows
+      #   rocm 7.0/6.4/6.3/6.2); the build produces no wheel and the job fails
+      #   on the empty dist/. Drop until supported.
       run: |
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' --filter 'gpu_arch_type:rocm;gpu_arch_version:7.14' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
