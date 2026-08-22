@@ -147,6 +147,9 @@ class RESParams:
     res_enabled_tables: list[str] = field(
         default_factory=list
     )  # table names that are enabled for RES (empty means all enabled)
+    # Streams DEVICE-placed tables named in `res_enabled_tables`, which the
+    # cache lane cannot reach. Costs a byte per row of the shard, so it is opt-in.
+    enable_hbm_streaming: bool = False
 
 
 class PrefetchedInfo:
@@ -1565,6 +1568,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.res_params.table_sizes,
             )
             self._register_res_enabled_feature_mask()
+            if self.res_params.enable_hbm_streaming:
+                self._register_res_hbm_buffers()
             logging.info(
                 f"{self.uuid} raw embedding streaming enabled with {self.res_params=}, {self._res_require_copy=}, {self._res_sync_copy=}"
             )
@@ -1749,6 +1754,66 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "res_enabled_feature_mask", enabled_feature_mask, persistent=False
         )
         self._res_all_features_enabled: bool = bool(enabled_feature_mask.all())
+
+    @torch.jit.ignore
+    def _register_res_hbm_buffers(self) -> None:
+        """Allocate the map of rows touched since the last drain.
+
+        Written during prefetch from the unfiltered `linearize_cache_indices`
+        output, so every looked-up row lands here whatever its placement or
+        allowlist status. Narrowing that down is the drain's job.
+        """
+        assert (
+            self.enable_raw_embedding_streaming
+        ), "Should not register res hbm buffers when raw embedding streaming is not enabled"
+
+        # +1: the kernel dumps indices it cannot place -- pruned rows among
+        # them -- on total_hash_size, so that slot gets written and has to exist.
+        linear_size = self.total_hash_size + 1
+        self.register_buffer(
+            "_res_rows_seen",
+            torch.zeros(linear_size, device=self.current_device, dtype=torch.bool),
+            persistent=False,  # RES buffer is not checkpointed
+        )
+
+    @torch.jit.ignore
+    def _mark_res_hbm_rows(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        vbe_metadata: invokers.lookup_args.VBEMetadata | None,
+    ) -> None:
+        """Record every row this lookup touched, whatever its placement.
+
+        Must run before `_prefetch`'s `lxu_cache_weights.numel()` guard: a TBE
+        holding only DEVICE tables has an empty `lxu_cache_weights`, so nothing
+        past that guard runs for DEVICE-placed tables.
+        """
+        if not (
+            self.enable_raw_embedding_streaming and self.res_params.enable_hbm_streaming
+        ):
+            return
+        # hash_size_cumsum, not cache_hash_size_cumsum: the latter is a
+        # 1-element stub on a cacheless TBE and holds -1 for every non-cached
+        # feature, which the kernel routes to the sentinel -- a whole DEVICE
+        # table collapsing onto one slot. It is also the index space
+        # `_res_rows_seen` is sized against.
+        linearize_indices = torch.ops.fbgemm.linearize_cache_indices(
+            self.hash_size_cumsum,
+            indices,
+            offsets,
+            vbe_metadata.B_offsets if vbe_metadata is not None else None,
+            vbe_metadata.max_B if vbe_metadata is not None else -1,
+        )
+        # index_fill_ asserts on out-of-range indices in release builds, so an
+        # unclamped index kills the rank instead of writing a wrong row.
+        # Reachable only under bounds_check_mode=NONE. Upper bound only: the
+        # kernel already routes negatives to the sentinel. In place -- the
+        # tensor is local and feeds nothing but the fill.
+        linearize_indices.clamp_(max=self.total_hash_size)
+        # index_fill_ rather than setitem: assigning a Python scalar into a
+        # CUDA tensor forces a host sync.
+        self._res_rows_seen.index_fill_(0, linearize_indices, True)
 
     @torch.jit.ignore
     def _get_enabled_feature_mask_and_indices(
@@ -3123,6 +3188,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
+
+        self._mark_res_hbm_rows(indices, offsets, vbe_metadata)
 
         # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
