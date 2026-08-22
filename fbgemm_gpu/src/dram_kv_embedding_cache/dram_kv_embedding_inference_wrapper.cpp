@@ -165,6 +165,9 @@ c10::List<at::Tensor> DramKVEmbeddingInferenceWrapper::serialize() const {
   results.push_back(
       torch::tensor(
           {uniform_init_lower_, uniform_init_upper_}, torch::kDouble));
+  results.push_back(
+      torch::tensor(
+          {static_cast<int64_t>(disable_random_init_)}, torch::kInt64));
   return results;
 }
 
@@ -183,6 +186,12 @@ void DramKVEmbeddingInferenceWrapper::deserialize(
   const auto* floatPtr = states[1].const_data_ptr<double>();
   uniform_init_lower_ = floatPtr[0];
   uniform_init_upper_ = floatPtr[1];
+
+  // Payloads published before disable_random_init_ was serialized carry only
+  // the two entries above; leave the constructor default in place for those.
+  if (states.size() >= 3 && states[2].numel() >= 1) {
+    disable_random_init_ = states[2].const_data_ptr<int64_t>()[0] != 0;
+  }
 }
 
 } // namespace fbgemm_gpu
