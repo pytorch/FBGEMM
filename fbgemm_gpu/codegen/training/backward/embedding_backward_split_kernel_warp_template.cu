@@ -808,6 +808,8 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
     embedding_backward_split_template.cu
 */
 
+{#- /* hip_mixed_d_only emits only the hip_mixed_d kernel, for configs that the
+      generic warp kernel is never dispatched with. */ #}
 {%- macro template_instantiation(
       emb_type,
       grad_type,
@@ -816,11 +818,13 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
       ph_type_combo,
       kFixedMaxVecsPerThread,
       kThreadGroupSize,
-      kUseVecBlocking
+      kUseVecBlocking,
+      hip_mixed_d_only=False
     )
 %}
 
 {%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+{%- if not hip_mixed_d_only %}
 template __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row
@@ -916,7 +920,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     }}
     {%- endif %}
 );
-
+{%- endif %}
 {%- if has_hip_optimized_support  %}
 
 template __global__ __launch_bounds__(kBackwardMaxThreads) void
@@ -997,7 +1001,7 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
 {%- endif %}
 {%- endmacro %}
 
-{%- macro bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
+{%- macro bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking, hip_mixed_d_only=False) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
@@ -1011,7 +1015,8 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
             ph_type_combo,
             kFixedMaxVecsPerThread,
             kThreadGroupSize,
-            kUseVecBlocking
+            kUseVecBlocking,
+            hip_mixed_d_only
           )
         }}
     {%- endfor %}
@@ -1077,15 +1082,16 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
     Please see get_max_vecs_template_configs in
     codegen/embedding_common_code_generator.py for more details
 */ #}
-
-{#- /* ROCm never defines FBGEMM_USE_SUBWARP_SHUFFLE, so this is the branch it compiles.
-      It still needs the sub-warp configs: the max_D <= 128 override in the dispatch
-      selects the <1, 32, false> instantiation of hip_mixed_d_warp, which only exists
-      when use_subwarp_shuffle=True. Mirrors the CTA template's is_rocm split. */ #}
-{%- if is_rocm %}
-{{ instantiate_templates(use_subwarp_shuffle=True) }}
-{%- else %}
 {{ instantiate_templates(use_subwarp_shuffle=False) }}
+{#- /* ROCm never defines FBGEMM_USE_SUBWARP_SHUFFLE, so the dispatch macro only ever
+      selects kThreadGroupSize == kWarpSize. The one exception is the max_D <= 128
+      override, which hardcodes the <1, 32, false> instantiation of hip_mixed_d_warp,
+      so that single config is emitted here. Requesting it via
+      use_subwarp_shuffle=True instead would also emit the unreachable group sizes
+      8 and 16, and the generic warp kernel for all three -- ~19 MB of dead device
+      code per backend, enough to overflow PC32 relocations when linked. */ #}
+{%- if is_rocm %}
+{{ bulk_template_instantiations(1, 32, 'false', hip_mixed_d_only=True) }}
 {%- endif %}
 
 ////////////////////////////////////////////////////////////////////////////////
