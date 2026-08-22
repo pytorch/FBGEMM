@@ -346,7 +346,8 @@ FBGEMM_API bool EmbeddingSpMDMBlockSize1_(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
-    bool use_offsets = true);
+    bool use_offsets = true,
+    bool is_bf16 = false);
 
 #if !defined(__aarch64__)
 template <typename IndexType, bool HAS_WEIGHTS>
@@ -383,7 +384,8 @@ FBGEMM_API bool EmbeddingSpMDM8Bit_Sve(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const bool scale_bias_last);
+    const bool scale_bias_last,
+    const bool is_bf16_out);
 
 } // namespace internal
 

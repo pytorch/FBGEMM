@@ -25,7 +25,8 @@ bool EmbeddingSpMDMBlockSize1_(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional,
-    bool use_offsets) {
+    bool use_offsets,
+    [[maybe_unused]] bool is_bf16) {
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     out[m] = 0;
@@ -137,7 +138,8 @@ bool EmbeddingSpMDMBlockSize1_(
       bool normalize_by_lengths,                                 \
       float* out,                                                \
       bool is_weight_positional,                                 \
-      bool use_offsets);
+      bool use_offsets,                                          \
+      bool is_bf16);
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)     \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, std::int32_t) \

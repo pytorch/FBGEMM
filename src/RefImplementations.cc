@@ -1204,7 +1204,9 @@ bool EmbeddingSpMDM_ref(
     int64_t output_stride /*=-1*/,
     int64_t input_stride /*=-1*/,
     bool scale_bias_last /*=true*/,
-    bool no_bag /*=false*/) {
+    bool no_bag /*=false*/,
+    [[maybe_unused]] bool is_bf16_out /*=false*/,
+    [[maybe_unused]] bool is_bf16_in /*=false*/) {
   constexpr bool isWeight8bit = is_same_v<InType, uint8_t>;
   constexpr bool isOutput8bit = is_same_v<OutType, uint8_t>;
   if (output_stride == -1) {
@@ -1430,7 +1432,7 @@ bool EmbeddingSpMDMNBit_ref(
     int64_t output_stride /*=-1*/,
     int64_t input_stride /*=-1*/,
     const bool scale_bias_last /*=true*/,
-
+    [[maybe_unused]] const bool is_bf16_out /*=false*/,
     const bool no_bag /*=false*/,
     int output_bit_rate /*=-1*/) {
   if (output_bit_rate == -1) {
@@ -1545,7 +1547,8 @@ bool EmbeddingSpMDMFP8_ref(
     int64_t output_stride,
     int64_t input_stride,
     int exponent_bits,
-    int exponent_bias) {
+    int exponent_bias,
+    [[maybe_unused]] bool is_bf16_out /*=false*/) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -2021,7 +2024,7 @@ int rowwise_sparse_adagrad_fused_ref(
 
         for (int v = 0; v < cur_vlen; ++v) {
           int j = n * vlen + v;
-          if (isFloat16w) {
+          if constexpr (isFloat16w) {
             union {
               float w_f32;
               uint32_t w_i32;
@@ -2076,7 +2079,9 @@ template FBGEMM_API void transposeConvWeights(
       int64_t input_stride,                                                \
       int64_t output_stride,                                               \
       bool scale_bias_last,                                                \
-      bool no_bag);
+      bool no_bag,                                                         \
+      bool is_bf16_out,                                                    \
+      bool is_bf16_in);
 
 #define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
@@ -2134,6 +2139,7 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       int64_t output_stride,                                           \
       int64_t input_stride,                                            \
       const bool scale_bias_last,                                      \
+      const bool is_bf16_out,                                          \
       const bool no_bag,                                               \
       int output_bit_rate);
 #define INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
@@ -2153,7 +2159,8 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       int64_t output_stride,                                          \
       int64_t input_stride,                                           \
       int exponent_bits,                                              \
-      int exponent_bias);
+      int exponent_bias,                                              \
+      bool is_bf16_out);
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)          \
   INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float)     \

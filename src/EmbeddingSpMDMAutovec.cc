@@ -1399,7 +1399,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
             specialize(OUTPUT_STRIDE, output_stride),                      \
             specialize(INPUT_STRIDE, input_stride),                        \
             specialize(SCALE_BIAS_LAST, scale_bias_last),                  \
-            specialize(NO_BAG, no_bag),                                    \
+            specialize(NO_BAG, no_bag));                                   \
       } else {                                                             \
         return EmbeddingSpMDM_autovec(                                     \
             /*block_size=*/specialize(BLOCK_SIZE, block_size),             \
@@ -1416,7 +1416,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
             /*use_offsets=*/specialize(USE_OFFSETS, use_offsets),          \
             /*output_stride=*/specialize(OUTPUT_STRIDE, output_stride),    \
             /*input_stride=*/specialize(INPUT_STRIDE, input_stride),       \
-            /*no_bag=*/specialize(NO_BAG, no_bag),                         \
+            /*no_bag=*/specialize(NO_BAG, no_bag));                        \
       }                                                                    \
     };                                                                     \
   }
@@ -1709,6 +1709,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int64_t output_stride,
     int64_t input_stride,
     bool scale_bias_last,
+    [[maybe_unused]] bool is_bf16_out,
     bool no_bag = false,
     int output_bit_rate = -1) {
   if (output_bit_rate == -1) {
@@ -2170,6 +2171,7 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
       int64_t output_stride,                                                   \
       int64_t input_stride,                                                    \
       bool scale_bias_last,                                                    \
+      bool is_bf16_out,                                                        \
       bool no_bag,                                                             \
       int output_bit_rate);
 

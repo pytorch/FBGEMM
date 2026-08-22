@@ -394,7 +394,7 @@ GenEmbeddingSpMDMLookup<
           a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
         }
 
-        if constexpr (is_8bit_in || is_16bit_in ||
+        if (is_8bit_in || is_16bit_in ||
             (remainder && instSet == inst_set_t::avx2)) {
           --unroll_factor;
           src_vreg = vec_reg_t(unroll_factor);
@@ -1005,7 +1005,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
     const inst_set_t isa = fbgemmInstructionSet();
-    if constexpr ((std::is_same_v<inType, float> || std::is_same_v<inType, float16> || std::is_same_v<inType, bfloat16>) &&
+    if ((std::is_same_v<inType, float> || std::is_same_v<inType, float16> ||
+         std::is_same_v<inType, bfloat16>) &&
         block_size == 1 && isYmm(isa) && output_stride == block_size &&
         input_stride == block_size && std::is_same_v<outType, float> &&
         !is_asmjit_disabled()) {
@@ -1152,8 +1153,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                 use_offsets,
                 output_stride,
                 input_stride,
-                scale_bias_last,
-                /*is_bf16_out=*/false);
+                scale_bias_last);
           }
         }
         return internal::
@@ -1172,7 +1172,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                 use_offsets,
                 output_stride,
                 input_stride,
-                scale_bias_last);
+                scale_bias_last,
+                std::is_same_v<outType, bfloat16>);
       };
     } else {
       return [=](int64_t output_size,
@@ -1209,8 +1210,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                 use_offsets,
                 output_stride,
                 input_stride,
-                scale_bias_last,
-                /*is_bf16_out=*/false);
+                scale_bias_last);
           }
         }
         return internal::
@@ -1229,7 +1229,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                 use_offsets,
                 output_stride,
                 input_stride,
-                scale_bias_last);
+                scale_bias_last,
+                std::is_same_v<outType, bfloat16>);
       };
     };
   }

@@ -183,7 +183,7 @@ static int run_benchmark(
         /*output_stride=*/-1,
         /*input_stride=*/-1,
         /*scale_bias_last=*/true,
-
+        /*is_bf16_out=*/std::is_same_v<OutType, bfloat16>,
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
     auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
@@ -200,6 +200,7 @@ static int run_benchmark(
         /*output_stride=*/-1,
         /*input_stride=*/-1,
         /*scale_bias_last=*/true,
+        /*is_bf16_out=*/std::is_same_v<OutType, bfloat16>,
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
 #endif

@@ -991,7 +991,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         [[maybe_unused]] const bool is_bf16_out_unused /*=false*/,
         const bool no_bag /*=false*/,
         int output_bit_rate /*=-1*/) {
-  constexpr bool is_bf16_out = std::is_same_v<outType, bfloat16>;
+  [[maybe_unused]] constexpr bool is_bf16_out =
+      std::is_same_v<outType, bfloat16>;
   if (output_bit_rate == -1) {
     output_bit_rate = sizeof(outType) * 8;
   }
@@ -1137,8 +1138,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
               use_offsets,
               output_stride,
               input_stride,
-              scale_bias_last,
-              is_bf16_out);
+              scale_bias_last);
         }
         return internal::EmbeddingSpMDMNBit_Sve_Fp16<
             indxType,
@@ -1161,8 +1161,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
             use_offsets,
             output_stride,
             input_stride,
-            scale_bias_last,
-            is_bf16_out);
+            scale_bias_last);
       };
     }
   }
@@ -1189,6 +1188,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         /*output_stride=*/output_stride,
         /*input_stride=*/input_stride,
         /*scale_bias_last=*/scale_bias_last,
+        /*is_bf16_out=*/is_bf16_out,
         /*no_bag=*/no_bag,
         /*output_bit_rate=*/output_bit_rate);
   }

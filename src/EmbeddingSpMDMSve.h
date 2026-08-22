@@ -339,7 +339,8 @@ bool EmbeddingSpMDM8Bit_Sve(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const bool scale_bias_last) {
+    const bool scale_bias_last,
+    [[maybe_unused]] const bool is_bf16_out) {
   constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
@@ -811,10 +812,9 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const bool scale_bias_last,
-    const bool /*is_bf16_out*/) {
-  // This kernel is only dispatched for fp16 output (OutType == uint16_t,
-  // !is_bf16_out). All paths produce fp16 directly — no fp32 widening.
+    const bool scale_bias_last) {
+  // This kernel is only dispatched for fp16 output (OutType == uint16_t).
+  // All paths produce fp16 directly — no fp32 widening.
   if constexpr (!std::is_same_v<OutType, uint16_t>) {
     return false;
   }
@@ -1822,10 +1822,9 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const bool scale_bias_last,
-    const bool /*is_bf16_out*/) {
-  // This kernel is only dispatched for fp16 output (OutType == uint16_t
-  // && !is_bf16_out). All paths produce fp16 directly — no fp32 widening.
+    const bool scale_bias_last) {
+  // This kernel is only dispatched for fp16 output (OutType == uint16_t).
+  // All paths produce fp16 directly — no fp32 widening.
   if constexpr (!std::is_same_v<OutType, uint16_t>) {
     return false;
   }
