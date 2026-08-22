@@ -137,6 +137,10 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(1, 2, 3, 4, 5, 9, 10, 11, 27)));
 
 TEST_P(FBGemmDepthWiseTest, Test2D) {
+  if (!hasDepthwiseKernels()) {
+    // depthwise_{2,3}d_same_pad would throw here, aborting the whole binary.
+    GTEST_SKIP() << "i8 depthwise convolution needs the x86 AVX2 JIT kernels";
+  }
   auto [a_symmetric, b_symmetric, oc_per_g] = GetParam();
 
   for (auto shape : shapes) {
@@ -272,6 +276,10 @@ TEST_P(FBGemmDepthWiseTest, Test2D) {
 } // Test3x3
 
 TEST_P(FBGemmDepthWiseTest, Test3D) {
+  if (!hasDepthwiseKernels()) {
+    // depthwise_{2,3}d_same_pad would throw here, aborting the whole binary.
+    GTEST_SKIP() << "i8 depthwise convolution needs the x86 AVX2 JIT kernels";
+  }
   auto [a_symmetric, b_symmetric, oc_per_g] = GetParam();
 
   // 3D tests take a long time so for a symmetric quantization, we only
@@ -413,6 +421,10 @@ TEST_P(FBGemmDepthWiseTest, Test3D) {
 TEST_P(
     FBGemmDepthWisePerChannelQuantizationTest,
     Test2DPerChannelQuantization) {
+  if (!hasDepthwiseKernels()) {
+    // depthwise_{2,3}d_same_pad would throw here, aborting the whole binary.
+    GTEST_SKIP() << "i8 depthwise convolution needs the x86 AVX2 JIT kernels";
+  }
   int oc_per_g = GetParam();
 
   for (auto shape : shapes) {
@@ -554,6 +566,10 @@ TEST_P(
 TEST_P(
     FBGemmDepthWisePerChannelQuantizationTest,
     Test3DPerChannelQuantization) {
+  if (!hasDepthwiseKernels()) {
+    // depthwise_{2,3}d_same_pad would throw here, aborting the whole binary.
+    GTEST_SKIP() << "i8 depthwise convolution needs the x86 AVX2 JIT kernels";
+  }
   int oc_per_g = GetParam();
 
   for (auto shape : shapes_3d) {

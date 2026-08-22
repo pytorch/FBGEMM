@@ -7,8 +7,10 @@
  */
 
 #pragma once
+#include <exception>
 #include <future>
 #include <map>
+#include <optional>
 #include <shared_mutex>
 
 #ifdef FBCODE_CAFFE2
@@ -64,10 +66,29 @@ class CodeCache {
         values_[key] = returnPromise.get_future().share();
 
         uniqueLock.unlock();
-        // The value (code) generation is not happening under a lock
-        VALUE val = generatorFunction();
-        returnPromise.set_value(val);
-        return val;
+        // Generation runs outside the lock. Only the generator call may sit in
+        // the try: a throw from set_value() would hit set_exception() on an
+        // already-satisfied promise.
+        std::optional<VALUE> val;
+        try {
+          val = generatorFunction();
+        } catch (...) {
+          // The future is already published, so hand waiters the generator's
+          // exception (a destroyed unfulfilled promise means broken_promise),
+          // then erase so a later call retries. set_exception() first: a
+          // waiter parked in get() still holds mutex_.
+          returnPromise.set_exception(std::current_exception());
+          try {
+            std::unique_lock<std::shared_timed_mutex> eraseLock(mutex_);
+            values_.erase(key);
+            // Cleanup must not displace the generator's exception.
+            // NOLINTNEXTLINE(bugprone-empty-catch)
+          } catch (...) {
+          }
+          throw;
+        }
+        returnPromise.set_value(*val);
+        return *val;
       } else {
         return it->second.get();
       }

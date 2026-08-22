@@ -164,8 +164,12 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
     } else
 #endif
     {
-      // TODO: Have default slower path
+      // Callers dereference the returned pointer; returning nullptr here
+      // would fault at address 0, and the assert is a no-op under NDEBUG.
       assert(0 && "unsupported architecture");
+      throw runtime_error(
+          "[FBGEMM_CONV_ERROR] groupwise convolution kernel generation is not "
+          "implemented for this architecture (JIT-generated x86 assembly)");
     }
   } else {
     throw runtime_error("Failed to initialize cpuinfo!");
@@ -962,7 +966,12 @@ static void dispatchOutputProcessing(
     } else
 #endif
     {
+      // The assert alone is a no-op under NDEBUG, which silently produced
+      // all-zero results in opt builds; the throw makes it diagnosable.
       assert(0 && "unsupported architecture");
+      throw runtime_error(
+          "[FBGEMM_CONV_ERROR] groupwise per-group requantization is not "
+          "implemented for this architecture");
     }
   } else {
     throw runtime_error("Failed to initialize cpuinfo!");
@@ -998,6 +1007,19 @@ void fbgemmGroupwiseConv(
   if (!cpuinfo_initialize()) {
     throw runtime_error("Failed to initialize cpuinfo!");
   }
+
+  // The compute kernel is JIT-generated x86 assembly; off x86 this function
+  // used to return normally with the output buffer never written -- silently
+  // all-zero results, far worse than refusing to run. An early throw, not an
+  // #if around the body: the body's own per-block x86 guards would nest
+  // redundantly inside an identical outer #if (clang-tidy, 10 hits).
+#if !(                                          \
+    defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))))
+  throw runtime_error(
+      "[FBGEMM_CONV_ERROR] groupwise convolution is not implemented for this "
+      "architecture (the compute kernel is JIT-generated x86 assembly)");
+#endif // !x86
 
   int MB = conv_param.MB;
   int OT = SPATIAL_DIM <= 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
