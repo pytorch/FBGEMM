@@ -569,8 +569,10 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
       }
     }
 
-    float minimum_element = *std::ranges::min_element(input_row_float);
-    float maximum_element = *std::ranges::max_element(input_row_float);
+    float minimum_element =
+        *std::min_element(input_row_float.begin(), input_row_float.end());
+    float maximum_element =
+        *std::max_element(input_row_float.begin(), input_row_float.end());
     // Truncate since bias will be represented by fp16. Keep higher precision
     // max untouched.
     float16 minimum_element_fp16 = cpu_float2half_rn(minimum_element);
@@ -703,8 +705,10 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
       }
     }
 
-    float minimum_element = *std::ranges::min_element(input_row_float);
-    float maximum_element = *std::ranges::max_element(input_row_float);
+    float minimum_element =
+        *std::min_element(input_row_float.begin(), input_row_float.end());
+    float maximum_element =
+        *std::max_element(input_row_float.begin(), input_row_float.end());
     float range = maximum_element - minimum_element;
 
     output_row_scale_bias[0] = range / 255.0f;
@@ -749,9 +753,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     OutputType* output,
     bool scale_bias_last) {
   static_assert(
-      std::is_same_v<OutputType, float> ||
-          std::is_same_v<OutputType, float16> ||
-          std::is_same_v<OutputType, bfloat16>,
+      std::is_same_v<OutputType, float> || std::is_same_v<OutputType, float16>
+          || std::is_same_v<OutputType, bfloat16>,
       "Only float, float16 or bfloat16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
   const int64_t output_columns =
@@ -796,11 +799,6 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     int input_columns,
     OutputType* output,
     bool scale_bias_last [[maybe_unused]]) {
-  auto ref_fallback = [&]() {
-    FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
-        bit_rate, input, input_rows, input_columns, output);
-  };
-
 #if HAVE_SVE
   switch (bit_rate) {
     case 2:
@@ -816,9 +814,11 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
           input, input_rows, input_columns, output);
       break;
     default:
-      ref_fallback();
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+          bit_rate, input, input_rows, input_columns, output);
   }
 #else
+
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     switch (bit_rate) {
@@ -835,12 +835,14 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
             input, input_rows, input_columns, output);
         break;
       default:
-        ref_fallback();
+        FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+            bit_rate, input, input_rows, input_columns, output);
     }
-    return;
 #endif
+  } else {
+    FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+        bit_rate, input, input_rows, input_columns, output);
   }
-  ref_fallback();
 #endif
 }
 
@@ -919,30 +921,32 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     if constexpr (std::is_same_v<OutputType, bfloat16>) {
-      if (fbgemmHasAvx512Bf16Support()) {
+    if (fbgemmHasAvx512Bf16Support()) {
+#ifdef FBGEMM_FBCODE
 #define DEQUANT_LAUNCH_AVX512_BF16(scale_bias_last, quant_padding_float_type) \
   Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512<                           \
       scale_bias_last,                                                        \
       quant_padding_float_type>(                                              \
       input, input_rows, input_columns, reinterpret_cast<bfloat16*>(output));
 
-        if (scale_bias_last) {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH_AVX512_BF16(true, true);
-          } else {
-            DEQUANT_LAUNCH_AVX512_BF16(true, false);
-          }
+      if (scale_bias_last) {
+        if (quant_padding_float_type) {
+          DEQUANT_LAUNCH_AVX512_BF16(true, true);
         } else {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH_AVX512_BF16(false, true);
-          } else {
-            DEQUANT_LAUNCH_AVX512_BF16(false, false);
-          }
+          DEQUANT_LAUNCH_AVX512_BF16(true, false);
         }
-#undef DEQUANT_LAUNCH_AVX512_BF16
-        return;
+      } else {
+        if (quant_padding_float_type) {
+          DEQUANT_LAUNCH_AVX512_BF16(false, true);
+        } else {
+          DEQUANT_LAUNCH_AVX512_BF16(false, false);
+        }
       }
+#undef DEQUANT_LAUNCH_AVX512_BF16
+      return;
+#endif
     }
+    } else {
 
 #define DEQUANT_LAUNCH_AVX2(scale_bias_last, quant_padding_float_type) \
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<                   \
@@ -950,22 +954,23 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
       scale_bias_last,                                                 \
       quant_padding_float_type>(input, input_rows, input_columns, output);
 
-    if (scale_bias_last) {
-      if (quant_padding_float_type) {
-        DEQUANT_LAUNCH_AVX2(true, true);
+      if (scale_bias_last) {
+        if (quant_padding_float_type) {
+          DEQUANT_LAUNCH_AVX2(true, true);
+        } else {
+          DEQUANT_LAUNCH_AVX2(true, false);
+        }
       } else {
-        DEQUANT_LAUNCH_AVX2(true, false);
+        if (quant_padding_float_type) {
+          DEQUANT_LAUNCH_AVX2(false, true);
+        } else {
+          DEQUANT_LAUNCH_AVX2(false, false);
+        }
       }
-    } else {
-      if (quant_padding_float_type) {
-        DEQUANT_LAUNCH_AVX2(false, true);
-      } else {
-        DEQUANT_LAUNCH_AVX2(false, false);
-      }
-    }
 #undef DEQUANT_LAUNCH_AVX2
 
-    return;
+      return;
+    }
 #endif
   }
   Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<OutputType>(
