@@ -221,6 +221,15 @@ PackBMatrix<T, accT>::PackBMatrix(
                 getMatrixPackBParams();
         break;
 
+#ifdef __aarch64__
+      // No aarch64-specific int8 packing layout exists yet; the NEON/SVE
+      // reference compute path (see ExecuteKernelU8S8) consumes the same
+      // interleaved layout the avx2 packing produces, so reuse its blocking
+      // params. Mirrors the sve/anyarch -> avx2 fall-through in FbgemmFP16.cc
+      // and FbgemmFP32.cc.
+      case inst_set_t::sve:
+      case inst_set_t::anyarch:
+#endif
       case inst_set_t::avx2:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackBParams();

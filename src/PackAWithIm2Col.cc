@@ -51,10 +51,12 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+#ifndef __aarch64__
   if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
        !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
   }
+#endif
 
   if (params) {
     BaseType::brow_ = params->MCB;
@@ -86,6 +88,12 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
                 getMatrixPackAParams();
         break;
 
+#ifdef __aarch64__
+      // aarch64 has no int8-specific packing layout; reuse avx2 blocking
+      // params (the reference compute path consumes the same layout).
+      case inst_set_t::sve:
+      case inst_set_t::anyarch:
+#endif
       case inst_set_t::avx2:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackAParams();
@@ -737,9 +745,19 @@ int PackAWithIm2Col<T, accT, SPATIAL_DIM>::rowOffsetBufferSize(
       } else if (fbgemmHasAvx2Support()) {
         return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
       } else {
+#ifdef __aarch64__
+        // The packing ctor above routes sve/anyarch to the avx2 blocking
+        // params, so the row-offset buffer must be sized to match. Returning
+        // -1 here is not merely wrong, it is silent: with NDEBUG set (opt
+        // builds) the assert vanishes and callers do
+        // `vector<int32_t> buf(rowOffsetBufferSize())`, so -1 becomes a huge
+        // size_t and throws std::length_error.
+        return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+#else
         // TODO: Have default slower path
         assert(0 && "unsupported architecture");
         return -1;
+#endif
       }
     }
   } else {
