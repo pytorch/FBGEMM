@@ -64,18 +64,24 @@ inline void parallel_for_table_threads(
   bool have_err = false;
   std::exception_ptr eptr;
 
+  #ifdef _OPENMP
   #pragma omp parallel num_threads(num_threads)
+  #endif
   {
     try {
         const at::ThreadLocalStateGuard tls_guard(tls);
+        #ifdef _OPENMP
         #pragma omp for schedule(dynamic) nowait
+        #endif
         for (int t = begin; t < end; ++t) {
             try {
                 f(t, t + 1);
             } catch (...) {
                 // std::exception_ptr is not atomic,
                 // hence we need a critical section here in case multiple threads have exceptions
+                #ifdef _OPENMP
                 #pragma omp critical(tbe_table_threads_err)
+                #endif
                 {
                     if (!have_err) {
                         have_err = true;
@@ -85,7 +91,9 @@ inline void parallel_for_table_threads(
             }
         }
     } catch (...) {
+        #ifdef _OPENMP
         #pragma omp critical(tbe_table_threads_err)
+        #endif
         {
             if (!have_err) {
                 have_err = true;

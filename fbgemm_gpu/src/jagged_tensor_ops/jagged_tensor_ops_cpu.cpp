@@ -47,7 +47,6 @@ inline bool walk_down_tensor_storage_tree_except_last_(
   // compute coorindates
   int jagged_coords[NUM_JAGGED_DIM];
   int j_temp = flattened_jagged_idx;
-#pragma unroll
   for (int d = NUM_JAGGED_DIM - 2; d >= 0; --d) {
     const auto jagged_size = jagged_dims[d + 1];
     jagged_coords[d] = j_temp % jagged_size;
@@ -55,7 +54,6 @@ inline bool walk_down_tensor_storage_tree_except_last_(
   }
 
   bool is_zero = false;
-#pragma unroll
   for (int d = 0; d < NUM_JAGGED_DIM - 1; ++d) {
     const auto begin = x_offsets[d][offset];
     const auto end = x_offsets[d][offset + 1];
