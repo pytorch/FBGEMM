@@ -44,7 +44,6 @@ void split_embedding_forward_cpu_kernel(
     Tensor weights,
     Tensor weights_offsets,
     Tensor D_offsets,
-    c10::SymInt total_D,
     Tensor hash_size_cumsum,
     Tensor indices,
     Tensor offsets,
@@ -241,7 +240,6 @@ Tensor split_embedding_codegen_forward_cpu(
                               weights,
                               weights_offsets,
                               D_offsets,
-                              total_D,
                               hash_size_cumsum,
                               indices,
                               offsets,
@@ -257,13 +255,13 @@ Tensor split_embedding_codegen_forward_cpu(
 
 Tensor split_embedding_codegen_forward_cpu_meta(
     Tensor weights,
-    Tensor weights_offsets,
+    [[maybe_unused]] Tensor weights_offsets,
     Tensor D_offsets,
     c10::SymInt total_D,
-    Tensor hash_size_cumsum,
-    Tensor indices,
+    [[maybe_unused]] Tensor hash_size_cumsum,
+    [[maybe_unused]] Tensor indices,
     Tensor offsets,
-    int64_t pooling_mode,
+    [[maybe_unused]] int64_t pooling_mode,
     Tensor indice_weights,
     int64_t output_dtype) {
   c10::SymInt T = D_offsets.sym_numel() - 1;

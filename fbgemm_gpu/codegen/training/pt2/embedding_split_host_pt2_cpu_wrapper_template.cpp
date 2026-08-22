@@ -57,10 +57,13 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cpu_wrapper(
     const Tensor& /*lxu_cache_locations*/,
     {%- if vbe %}
     const Tensor& feature_requires_grad,
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64,
+    {#- /* The CPU path reshapes its own VBE offsets from
+          vbe_B_offsets_rank_per_feature and max_B; the flattened row layout
+          and the packed (b, t) bit widths are CUDA-side metadata. */ #}
+    [[maybe_unused]] const Tensor& vbe_row_output_offsets,
+    [[maybe_unused]] const Tensor& vbe_b_t_map,
+    [[maybe_unused]] const int64_t info_B_num_bits,
+    [[maybe_unused]] const int64_t info_B_mask_int64,
     const Tensor& vbe_B_offsets_rank_per_feature,
     const c10::SymInt max_B
     {%- else %}
@@ -132,20 +135,23 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu
     const Tensor& /*lxu_cache_locations*/,
     const Tensor& /*uvm_cache_stats*/,
     {%- if vbe %}
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
+    {#- /* As above: the CPU forward reshapes from
+          vbe_B_offsets_rank_per_feature and max_B, and allocates its own
+          output rather than writing into a caller-supplied one. */ #}
+    [[maybe_unused]] const Tensor& vbe_row_output_offsets,
+    [[maybe_unused]] const Tensor& vbe_b_t_map,
     const c10::SymInt vbe_output_size,
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64,
+    [[maybe_unused]] const int64_t info_B_num_bits,
+    [[maybe_unused]] const int64_t info_B_mask_int64,
     const Tensor& vbe_B_offsets_rank_per_feature,
     const Tensor& vbe_output_offsets_feature_rank,
     const c10::SymInt max_B,
-    const Tensor& B_offsets,
+    [[maybe_unused]] const Tensor& B_offsets,
     {%- endif %}
     const bool /*is_experimental = false*/,
     {%- if vbe %}
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
-    std::optional<Tensor> vbe_output = std::nullopt
+    [[maybe_unused]] std::optional<Tensor> vbe_output = std::nullopt
     {%- else %}
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {%- endif %}
@@ -258,7 +264,9 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{
     {%- else %}
     const Tensor& D_offsets,
     const c10::SymInt max_D,
-    const bool mixed_D,
+    {#- /* Mixed-D dispatch and the packed (b, t) bit layout exist for the CUDA
+          backward; the CPU backward walks the tables directly. */ #}
+    [[maybe_unused]] const bool mixed_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -272,18 +280,20 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{
     const int64_t /*BT_block_size*/,
     const int64_t /*max_segment_length_per_warp*/,
     const bool stochastic_rounding,
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64,
+    [[maybe_unused]] const int64_t info_B_num_bits,
+    [[maybe_unused]] const int64_t info_B_mask_int64,
     {%- if vbe %}
-    const Tensor& B_offsets,
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
+    {#- /* The CPU backward reconstructs its own VBE row layout from
+          vbe_B_offsets_rank_per_feature and max_B below. */ #}
+    [[maybe_unused]] const Tensor& B_offsets,
+    [[maybe_unused]] const Tensor& vbe_row_output_offsets,
+    [[maybe_unused]] const Tensor& vbe_b_t_map,
     const Tensor& vbe_B_offsets_rank_per_feature,
     const c10::SymInt max_B,
     {%- endif %}
     const bool /*use_uniq_cache_locations*/,
     const bool /*use_homogeneous_placements*/,
-    {{ args_pt2.split_function_args | join(", ") }}
+    {{ args_pt2.split_function_args_by_surface["pt2_cpu"] | join(", ") }}
     {%- if not nobag %}
     , const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {%- endif %})

@@ -12,8 +12,9 @@
 
 
 import itertools
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 
@@ -23,6 +24,90 @@ try:
 except ImportError:
     # pyre-ignore[21]
     from torch_type_utils import arg_type_to_tensor_type, ArgType, TensorType
+
+
+######################################################################
+# Declaration Surfaces
+######################################################################
+
+
+class DeclSurface(str, Enum):
+    """The C++ declaration surfaces an optimizer argument is projected onto.
+
+    One optimizer argument spec is rendered into several different C++
+    declarations, and an argument that a contract requires is not necessarily
+    read by every one of them: a meta function must accept the same arguments
+    as the CUDA op it shadows without touching optimizer state, and the PT2
+    CUDA wrapper accepts the host-side tensors of the unified argument list
+    without forwarding them. Naming the surfaces makes that difference
+    expressible in the argument metadata instead of in per-template text.
+    """
+
+    CPU_KERNEL = "cpu_kernel"
+    GPU_KERNEL = "gpu_kernel"
+    HOST_FUNCTION = "host_function"
+    META = "meta"
+    AUTOGRAD = "autograd"
+    PT2_CPU = "pt2_cpu"
+    PT2_CUDA = "pt2_cuda"
+
+
+def decl_surfaces(
+    values: Iterable[DeclSurface | str] | None,
+) -> frozenset[DeclSurface]:
+    """Normalize a declaration-surface policy, rejecting unknown surfaces."""
+    if values is None:
+        return frozenset()
+    known = {surface.value: surface for surface in DeclSurface}
+    resolved = set()
+    for value in values:
+        if isinstance(value, DeclSurface):
+            resolved.add(value)
+            continue
+        if value not in known:
+            raise ValueError(
+                f"unknown declaration surface {value!r}; "
+                f"expected one of {sorted(known)}"
+            )
+        resolved.add(known[value])
+    return frozenset(resolved)
+
+
+# A meta function shadows a CUDA op so that shape propagation can run without a
+# device. It must accept the op's whole argument list, including the optimizer
+# state, but it only computes output shapes and never reads an optimizer
+# argument. That is a property of the declaration surface rather than of any one
+# argument, so it is stated once here instead of on every optimizer spec.
+SURFACES_NOT_READING_OPTIMIZER_ARGS: frozenset[DeclSurface] = frozenset(
+    {DeclSurface.META}
+)
+
+
+def annotate_unused_declaration(
+    declaration: str,
+    unused_on: frozenset[DeclSurface],
+    surface: DeclSurface,
+) -> str:
+    """Prefix a C++ optimizer-argument declaration that `surface` does not read.
+
+    Either the argument's own policy names the surface, or the surface reads no
+    optimizer argument at all.
+    """
+    unused = surface in unused_on or surface in SURFACES_NOT_READING_OPTIMIZER_ARGS
+    return f"[[maybe_unused]] {declaration}" if unused else declaration
+
+
+def maybe_unused_args(args_str: str, apply: bool = True) -> str:
+    """Prefix every parameter of an already-rendered argument list.
+
+    The V1 optimizer argument lists reach the templates as one pre-joined
+    string, so a declaration that reads none of them -- a deprecation stub --
+    cannot annotate them individually. `apply` is the generated variant's
+    predicate, so a variant that does read the arguments renders unchanged.
+    """
+    if not apply:
+        return args_str
+    return ", ".join(f"[[maybe_unused]] {arg.strip()}" for arg in args_str.split(","))
 
 
 ######################################################################
@@ -38,6 +123,15 @@ class OptimizerArgsSetItem:
     default: float | ArgType = 0  # DEFAULT_ARG_VAL
     ph_tys: list[ArgType] | None = None  # placeholder types
     is_optional: bool = False  # optional variable
+    # Declaration surfaces on which this argument is intentionally not read.
+    # Empty (the default) means the argument is used everywhere it appears.
+    unused_on: frozenset[DeclSurface] = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        self.unused_on = decl_surfaces(self.unused_on)
+
+    def is_unused_on(self, surface: DeclSurface) -> bool:
+        return surface in self.unused_on
 
 
 # Alias b/c the name is too long
@@ -305,6 +399,20 @@ def make_kernel_arg(
     name: str,
     default: int | float | None,
     pass_by_ref: bool = False,
+    *,
+    unused_on: frozenset[DeclSurface] = frozenset(),
+    surface: DeclSurface = DeclSurface.GPU_KERNEL,
+) -> str:
+    return annotate_unused_declaration(
+        _kernel_arg(ty, name, default, pass_by_ref), unused_on, surface
+    )
+
+
+def _kernel_arg(
+    ty: ArgType,
+    name: str,
+    default: int | float | None,
+    pass_by_ref: bool = False,
 ) -> str:
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg(x, pass_by_ref=pass_by_ref),
@@ -349,7 +457,20 @@ def make_kernel_arg_constructor(ty: ArgType, name: str) -> str:
     }[ty](name)
 
 
-def make_cpu_kernel_arg(ty: ArgType, name: str, default: int | float) -> str:
+def make_cpu_kernel_arg(
+    ty: ArgType,
+    name: str,
+    default: int | float,
+    *,
+    unused_on: frozenset[DeclSurface] = frozenset(),
+    surface: DeclSurface = DeclSurface.CPU_KERNEL,
+) -> str:
+    return annotate_unused_declaration(
+        _cpu_kernel_arg(ty, name, default), unused_on, surface
+    )
+
+
+def _cpu_kernel_arg(ty: ArgType, name: str, default: int | float) -> str:
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg(x, gpu=False),
         ArgType.INT_TENSOR: lambda x: int_tensor_arg(x, gpu=False),
@@ -378,6 +499,20 @@ def make_cpu_kernel_arg_constructor(ty: ArgType, name: str) -> str:
 
 
 def make_function_arg(
+    ty: ArgType,
+    name: str,
+    default: int | float | None,
+    is_optional: bool = False,
+    *,
+    unused_on: frozenset[DeclSurface] = frozenset(),
+    surface: DeclSurface = DeclSurface.HOST_FUNCTION,
+) -> str:
+    return annotate_unused_declaration(
+        _function_arg(ty, name, default, is_optional), unused_on, surface
+    )
+
+
+def _function_arg(
     ty: ArgType,
     name: str,
     default: int | float | None,
@@ -804,6 +939,13 @@ class OptimizerArgs:
     split_function_args_autograd: list[str]
     split_function_arg_names_autograd: list[str]
     split_saved_tensors_optional: list[str]
+    # `split_function_args` / `split_function_args_no_defaults` rendered once
+    # per DeclSurface, keyed by the surface's value. A template that shares a
+    # projection with another surface -- the meta shadow of the CUDA host
+    # function, or the PT2 CPU and CUDA wrappers over the unified argument list
+    # -- reads its own entry here so the two can annotate differently.
+    split_function_args_by_surface: dict[str, list[str]]
+    split_function_args_no_defaults_by_surface: dict[str, list[str]]
     split_function_args_v1: str | None = None
     split_function_schemas_v1: str | None = None
 
@@ -827,7 +969,9 @@ class OptimizerArgs:
         for i, s in enumerate(kernel_split_arg_spec):
             if s.name == "learning_rate_tensor":
                 # pyre-ignore[6]
-                kernel_split_arg_spec[i] = OptimItem(ArgType.FLOAT, "learning_rate")
+                kernel_split_arg_spec[i] = OptimItem(
+                    ArgType.FLOAT, "learning_rate", unused_on=s.unused_on
+                )
             if s.is_optional:
                 has_optional_tensors = True
 
@@ -924,17 +1068,19 @@ class OptimizerArgs:
         return OptimizerArgs(
             # GPU kernel args
             split_kernel_args=[
-                make_kernel_arg(s.ty, s.name, s.default) for s in kernel_split_arg_spec
+                make_kernel_arg(s.ty, s.name, s.default, unused_on=s.unused_on)
+                for s in kernel_split_arg_spec
             ],
             split_kernel_args_no_defaults=[
-                make_kernel_arg(s.ty, s.name, None) for s in kernel_split_arg_spec
+                make_kernel_arg(s.ty, s.name, None, unused_on=s.unused_on)
+                for s in kernel_split_arg_spec
             ],
             split_kernel_arg_constructors=[
                 make_kernel_arg_constructor(s.ty, s.name) for s in kernel_split_arg_spec
             ],
             # CPU kernel args
             split_cpu_kernel_args=[
-                make_cpu_kernel_arg(s.ty, s.name, s.default)
+                make_cpu_kernel_arg(s.ty, s.name, s.default, unused_on=s.unused_on)
                 for s in kernel_split_arg_spec
             ],
             split_cpu_kernel_arg_constructors=[
@@ -943,11 +1089,35 @@ class OptimizerArgs:
             ],
             # Function args
             split_function_args=[
-                make_function_arg(s.ty, s.name, s.default) for s in split_arg_spec
+                make_function_arg(s.ty, s.name, s.default, unused_on=s.unused_on)
+                for s in split_arg_spec
             ],
             split_function_args_no_defaults=[
-                make_function_arg(s.ty, s.name, None) for s in split_arg_spec
+                make_function_arg(s.ty, s.name, None, unused_on=s.unused_on)
+                for s in split_arg_spec
             ],
+            split_function_args_by_surface={
+                surface.value: [
+                    make_function_arg(
+                        s.ty,
+                        s.name,
+                        s.default,
+                        unused_on=s.unused_on,
+                        surface=surface,
+                    )
+                    for s in split_arg_spec
+                ]
+                for surface in DeclSurface
+            },
+            split_function_args_no_defaults_by_surface={
+                surface.value: [
+                    make_function_arg(
+                        s.ty, s.name, None, unused_on=s.unused_on, surface=surface
+                    )
+                    for s in split_arg_spec
+                ]
+                for surface in DeclSurface
+            },
             # Helper values
             split_tensors=[
                 s.name
@@ -984,7 +1154,9 @@ class OptimizerArgs:
             ],
             split_variables=["Variable()" for _ in split_arg_spec],
             split_ref_kernel_args=[
-                make_kernel_arg(s.ty, s.name, s.default, pass_by_ref=True)
+                make_kernel_arg(
+                    s.ty, s.name, s.default, pass_by_ref=True, unused_on=s.unused_on
+                )
                 for s in kernel_split_arg_spec
             ],
             placeholder_tensor_names=ph_tensor_names,
@@ -996,7 +1168,14 @@ class OptimizerArgs:
                 for s in kernel_split_arg_spec
             ],
             split_function_args_autograd=[
-                make_function_arg(s.ty, s.name, s.default, s.is_optional)
+                make_function_arg(
+                    s.ty,
+                    s.name,
+                    s.default,
+                    s.is_optional,
+                    unused_on=s.unused_on,
+                    surface=DeclSurface.AUTOGRAD,
+                )
                 for s in frontend_split_arg_spec
             ],
             split_function_arg_names_autograd=[s.name for s in frontend_split_arg_spec],
@@ -1032,7 +1211,9 @@ class OptimizerArgsSet:
                 or s.name == "learning_rate_tensor"
             ):
                 # pyre-fixme[19]: Expected 1 positional argument.
-                split_arg_spec.append(OptimItem(s.ty, s.name, s.default))
+                split_arg_spec.append(
+                    OptimItem(s.ty, s.name, s.default, unused_on=s.unused_on)
+                )
             else:
                 assert s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)
                 # Treat PLACEHOLDER_TENSOR as TENSOR for CPU
@@ -1044,19 +1225,35 @@ class OptimizerArgsSet:
         name = spec.name
         default = spec.default
         is_optional = spec.is_optional
+        unused_on = spec.unused_on
         return [
             # pyre-fixme[19]: Expected 1 positional argument.
-            OptimItem(ArgType.TENSOR, f"{name}_host", default, is_optional=is_optional),
+            OptimItem(
+                ArgType.TENSOR,
+                f"{name}_host",
+                default,
+                is_optional=is_optional,
+                unused_on=unused_on,
+            ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.INT_TENSOR,
                 f"{name}_placements",
                 default,
                 is_optional=is_optional,
+                # A placements tensor tells the CUDA path which of the device,
+                # UVM, or cache copies to read. The CPU kernel only ever has
+                # the host copy, so it forwards the tensor to keep the
+                # signature uniform and never dereferences it.
+                unused_on=unused_on | {DeclSurface.CPU_KERNEL},
             ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
-                ArgType.LONG_TENSOR, f"{name}_offsets", default, is_optional=is_optional
+                ArgType.LONG_TENSOR,
+                f"{name}_offsets",
+                default,
+                is_optional=is_optional,
+                unused_on=unused_on,
             ),
         ]
 
@@ -1067,21 +1264,27 @@ class OptimizerArgsSet:
         ty = spec.ty
         ph_tys = spec.ph_tys
         is_optional = spec.is_optional
+        unused_on = spec.unused_on
         return [
             # pyre-fixme[19]: Expected 1 positional argument.
-            OptimItem(ty, f"{name}_dev", default, ph_tys, is_optional),
+            OptimItem(ty, f"{name}_dev", default, ph_tys, is_optional, unused_on),
             # pyre-fixme[19]: Expected 1 positional argument.
-            OptimItem(ty, f"{name}_uvm", default, ph_tys, is_optional),
+            OptimItem(ty, f"{name}_uvm", default, ph_tys, is_optional, unused_on),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.INT_TENSOR,
                 f"{name}_placements",
                 default,
                 is_optional=is_optional,
+                unused_on=unused_on,
             ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
-                ArgType.LONG_TENSOR, f"{name}_offsets", default, is_optional=is_optional
+                ArgType.LONG_TENSOR,
+                f"{name}_offsets",
+                default,
+                is_optional=is_optional,
+                unused_on=unused_on,
             ),
         ]
 
@@ -1092,23 +1295,49 @@ class OptimizerArgsSet:
         ty = spec.ty
         ph_tys = spec.ph_tys
         is_optional = spec.is_optional
+        unused_on = spec.unused_on
         return [
             # pyre-fixme[19]: Expected 1 positional argument.
-            OptimItem(ArgType.TENSOR, f"{name}_host", default, is_optional=is_optional),
+            OptimItem(
+                ArgType.TENSOR,
+                f"{name}_host",
+                default,
+                is_optional=is_optional,
+                unused_on=unused_on | {DeclSurface.PT2_CUDA},
+            ),
             # pyre-fixme[19]: Expected 1 positional argument.
-            OptimItem(ty, f"{name}_dev", default, ph_tys, is_optional=is_optional),
+            OptimItem(
+                ty,
+                f"{name}_dev",
+                default,
+                ph_tys,
+                is_optional=is_optional,
+                unused_on=unused_on | {DeclSurface.PT2_CPU},
+            ),
             # pyre-fixme[19]: Expected 1 positional argument.
-            OptimItem(ty, f"{name}_uvm", default, ph_tys, is_optional=is_optional),
+            OptimItem(
+                ty,
+                f"{name}_uvm",
+                default,
+                ph_tys,
+                is_optional=is_optional,
+                unused_on=unused_on | {DeclSurface.PT2_CPU},
+            ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.INT_TENSOR,
                 f"{name}_placements",
                 default,
                 is_optional=is_optional,
+                unused_on=unused_on,
             ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
-                ArgType.LONG_TENSOR, f"{name}_offsets", default, is_optional=is_optional
+                ArgType.LONG_TENSOR,
+                f"{name}_offsets",
+                default,
+                is_optional=is_optional,
+                unused_on=unused_on,
             ),
         ]
 

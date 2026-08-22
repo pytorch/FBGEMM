@@ -12,14 +12,22 @@ from typing import Any
 
 try:
     from .jinja_environment import generate_optimized_grad_sum_loop_access
-    from .optimizer_args import OptimizerArgsSet, OptimizerArgsSetItem as OptimItem
+    from .optimizer_args import (
+        DeclSurface,
+        OptimizerArgsSet,
+        OptimizerArgsSetItem as OptimItem,
+    )
     from .torch_type_utils import ArgType
 except Exception:
     # pyre-ignore[21]
     from jinja_environment import generate_optimized_grad_sum_loop_access
 
     # pyre-ignore[21]
-    from optimizer_args import OptimizerArgsSet, OptimizerArgsSetItem as OptimItem
+    from optimizer_args import (
+        DeclSurface,
+        OptimizerArgsSet,
+        OptimizerArgsSetItem as OptimItem,
+    )
 
     # pyre-ignore[21]
     from torch_type_utils import ArgType
@@ -35,7 +43,16 @@ def dense() -> dict[str, Any]:
         "dense": True,
         "args": OptimizerArgsSet.create(
             [
-                OptimItem(ArgType.FLOAT, "unused"),
+                # The dense backward has no optimizer state; this placeholder
+                # exists so the shared TBE templates have an argument list to
+                # render. No CPU declaration reads it.
+                OptimItem(
+                    ArgType.FLOAT,
+                    "unused",
+                    unused_on=frozenset(
+                        {DeclSurface.CPU_KERNEL, DeclSurface.HOST_FUNCTION}
+                    ),
+                ),
             ],
             {
                 "v1": "float unused = 0",
@@ -277,7 +294,14 @@ def rowwise_adagrad() -> dict[str, Any]:
                 OptimItem(ArgType.FLOAT, "eps"),
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "weight_decay_mode", 0),
-                OptimItem(ArgType.FLOAT, "max_norm", 0.0),
+                # Max-norm clipping is implemented in the CUDA weight update
+                # only; the CPU kernel never reads it.
+                OptimItem(
+                    ArgType.FLOAT,
+                    "max_norm",
+                    0.0,
+                    unused_on=frozenset({DeclSurface.CPU_KERNEL}),
+                ),
             ],
             {
                 "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0, float max_norm = 0.0"
@@ -721,7 +745,14 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
                 OptimItem(ArgType.FLOAT, "adjustment_ub", 1.0),
                 OptimItem(ArgType.INT, "learning_rate_mode", -1),
                 OptimItem(ArgType.INT, "weight_decay_mode", 1),
-                OptimItem(ArgType.INT, "grad_sum_decay", -1),
+                # The gradient-sum decay schedule is applied in the CUDA
+                # counter update only; the CPU kernel never reads it.
+                OptimItem(
+                    ArgType.INT,
+                    "grad_sum_decay",
+                    -1,
+                    unused_on=frozenset({DeclSurface.CPU_KERNEL}),
+                ),
                 OptimItem(ArgType.FLOAT, "max_counter"),
                 OptimItem(ArgType.FLOAT, "tail_id_threshold", 0.0),
                 OptimItem(ArgType.INT, "is_tail_id_thresh_ratio", 0),

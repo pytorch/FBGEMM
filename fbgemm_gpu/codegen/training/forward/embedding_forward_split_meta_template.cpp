@@ -64,7 +64,9 @@ Tensor
     const Tensor& lxu_cache_weights [[maybe_unused]],
     const Tensor& weights_placements [[maybe_unused]],
     {%- endif %}
-    const Tensor& weights_offsets,
+    {#- /* The bagged path takes its table count from D_offsets and its total
+          length from offsets; only the nobag path reads these two. */ #}
+    {{ "" if nobag else "[[maybe_unused]] " }}const Tensor& weights_offsets,
     {%- if not nobag %}
     const Tensor& D_offsets,
     {%- else %}
@@ -76,7 +78,7 @@ Tensor
     {%- if not nobag %}
     const c10::SymInt max_D,
     {% endif %}
-    const Tensor& indices,
+    {{ "" if nobag else "[[maybe_unused]] " }}const Tensor& indices,
     const Tensor& offsets,
     {%- if not nobag %}
     const int64_t pooling_mode [[maybe_unused]],
