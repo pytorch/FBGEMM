@@ -45,10 +45,10 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
   const vector<array<int, 3>> shapes = {
       //   M,    N,    K
-      {1024, 1024, 1024},
-      {511, 512, 512},
-      {111, 111, 111},
-      {14 * 14 * 2, 4, 2},
+      {{1024, 1024, 1024}},
+      {{511, 512, 512}},
+      {{111, 111, 111}},
+      {{14 * 14 * 2, 4, 2}},
   };
 
   float density = NAN;

@@ -261,7 +261,7 @@ void cblas_gemm_compute(
               // required kernel_nrow x kernel_ncols elements computed in the
               // registers.
               static constexpr size_t C_TMP_SIZE = MAX_KERNEL_NROWS * 32;
-              std::array<float, C_TMP_SIZE> c_tmp{0.f};
+              std::array<float, C_TMP_SIZE> c_tmp{};
 
               gp.B = &(Bp(k_ind, last_blk_col));
               gp.C = c_tmp.data();

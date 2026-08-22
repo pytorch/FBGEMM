@@ -1156,16 +1156,16 @@ void fbgemmGroupwiseConv(
         conv_param.MB,
         conv_param.IC,
         conv_param.OC,
-        {conv_param.IN_DIM[SPATIAL_DIM - 2],
-         conv_param.IN_DIM[SPATIAL_DIM - 1]},
+        {{conv_param.IN_DIM[SPATIAL_DIM - 2],
+          conv_param.IN_DIM[SPATIAL_DIM - 1]}},
         conv_param.G,
-        {conv_param.K[SPATIAL_DIM - 2], conv_param.K[SPATIAL_DIM - 1]},
-        {conv_param.stride[SPATIAL_DIM - 2],
-         conv_param.stride[SPATIAL_DIM - 1]},
-        {conv_param.pad[1],
-         conv_param.pad[2],
-         conv_param.pad[4],
-         conv_param.pad[5]});
+        {{conv_param.K[SPATIAL_DIM - 2], conv_param.K[SPATIAL_DIM - 1]}},
+        {{conv_param.stride[SPATIAL_DIM - 2],
+          conv_param.stride[SPATIAL_DIM - 1]}},
+        {{conv_param.pad[1],
+          conv_param.pad[2],
+          conv_param.pad[4],
+          conv_param.pad[5]}});
 
     // Parallelization:
     int64_t batch_start = 0;
