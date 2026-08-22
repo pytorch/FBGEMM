@@ -996,6 +996,313 @@ TEST(RawEmbeddingStreamerTest, TestStreamWithCopyDoneFlagNonBlockingCopy) {
   EXPECT_EQ(copy_done_flag.item<int32_t>(), 0);
 }
 
+TEST(RawEmbeddingStreamerTest, TestExpectedFlagValueSequenceIsNotReset) {
+  // Sequence protocol: the producer writes a monotonically increasing value and
+  // the poll waits for that exact value, leaving it in place. A reset here
+  // would reopen the stale-flag window the sequence protocol closes.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_sequence", true, table_names, table_offsets, table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  // A sequence value that is neither 0 nor 1, so a legacy "wait nonzero, then
+  // reset" poll would be visibly wrong.
+  constexpr int32_t kSeq = 7;
+  auto copy_done_flag =
+      at::full({1}, kSeq, at::TensorOptions().device(at::kCPU).dtype(at::kInt));
+
+  // Stop the dequeue thread to get an accurate, stable queue size.
+  streamer->join_weights_stream_thread();
+
+  streamer->stream(
+      indices,
+      weights,
+      std::nullopt,
+      std::nullopt,
+      count,
+      /*require_tensor_copy=*/true,
+      /*blocking_tensor_copy=*/false,
+      copy_done_flag,
+      /*use_hbm=*/false,
+      /*expected_flag_value=*/kSeq);
+
+  streamer->join_dispatch_and_workers();
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
+  EXPECT_EQ(copy_done_flag.item<int32_t>(), kSeq);
+}
+
+TEST(RawEmbeddingStreamerTest, TestExpectedFlagValueSequenceOnBlockingPath) {
+  // The blocking path polls the flag inline rather than on the dispatch
+  // coroutine, so it needs its own coverage that the sequence value is matched
+  // and left in place.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_sequence_block",
+      true,
+      table_names,
+      table_offsets,
+      table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  constexpr int32_t kSeq = 42;
+  auto copy_done_flag =
+      at::full({1}, kSeq, at::TensorOptions().device(at::kCPU).dtype(at::kInt));
+
+  streamer->join_weights_stream_thread();
+
+  streamer->stream(
+      indices,
+      weights,
+      std::nullopt,
+      std::nullopt,
+      count,
+      /*require_tensor_copy=*/true,
+      /*blocking_tensor_copy=*/true,
+      copy_done_flag,
+      /*use_hbm=*/false,
+      /*expected_flag_value=*/kSeq);
+
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
+  EXPECT_EQ(copy_done_flag.item<int32_t>(), kSeq);
+}
+
+TEST(RawEmbeddingStreamerTest, TestExpectedFlagValueWaitsForWrongNonzero) {
+  // The other sequence tests pre-arm the flag with the awaited value, so they
+  // pass even against a poll that only tests "nonzero". Start at a nonzero
+  // value that is NOT the awaited one -- the only state where the two differ.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_sequence_wait", true, table_names, table_offsets, table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  constexpr int32_t kSeq = 7;
+  auto copy_done_flag = at::full(
+      {1}, kSeq - 1, at::TensorOptions().device(at::kCPU).dtype(at::kInt));
+
+  streamer->join_weights_stream_thread();
+
+  streamer->stream(
+      indices,
+      weights,
+      std::nullopt,
+      std::nullopt,
+      count,
+      /*require_tensor_copy=*/true,
+      /*blocking_tensor_copy=*/false,
+      copy_done_flag,
+      /*use_hbm=*/false,
+      /*expected_flag_value=*/kSeq);
+
+  // Fixed wait rather than a poll loop: the assertion is a negative, so there
+  // is nothing to poll for. Failing to wait long enough can only make this
+  // test pass spuriously, never fail spuriously.
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 0);
+
+  // Release the poll before joining -- join_dispatch_and_workers() waits on
+  // the dispatch coroutine, which is still spinning until the flag matches.
+  copy_done_flag.fill_(kSeq);
+  streamer->join_dispatch_and_workers();
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
+  EXPECT_EQ(copy_done_flag.item<int32_t>(), kSeq);
+}
+
+TEST(RawEmbeddingStreamerTest, TestExpectedFlagValueRejectsOutOfRange) {
+  // Both bounds of stream()'s [1, int32 max] guard.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_range", true, table_names, table_offsets, table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto copy_done_flag =
+      at::full({1}, 1, at::TensorOptions().device(at::kCPU).dtype(at::kInt));
+
+  const auto stream_with = [&](int64_t expected_flag_value,
+                               bool blocking_tensor_copy = true) {
+    streamer->stream(
+        indices,
+        weights,
+        std::nullopt,
+        std::nullopt,
+        count,
+        /*require_tensor_copy=*/true,
+        blocking_tensor_copy,
+        copy_done_flag,
+        /*use_hbm=*/false,
+        expected_flag_value);
+  };
+
+  EXPECT_THROW(stream_with(0), c10::Error);
+  // Narrows to 5, which is in range: rejecting it is what pins the check
+  // ahead of the cast rather than after it.
+  EXPECT_THROW(stream_with((int64_t{1} << 32) + 5), c10::Error);
+  // Non-blocking too, so the check cannot be moved into poll_copy_done_flag --
+  // there it would be swallowed by the dispatch coroutine.
+  EXPECT_THROW(stream_with(0, /*blocking_tensor_copy=*/false), c10::Error);
+}
+
+TEST(RawEmbeddingStreamerTest, TestExpectedFlagValueRequiresCopyDoneFlag) {
+  // An expected value with no flag to read it from polls nothing: the caller
+  // believes it is synchronised and is not.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_required", true, table_names, table_offsets, table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  EXPECT_THROW(
+      streamer->stream(
+          indices,
+          weights,
+          std::nullopt,
+          std::nullopt,
+          count,
+          /*require_tensor_copy=*/true,
+          /*blocking_tensor_copy=*/true,
+          /*copy_done_flag=*/std::nullopt,
+          /*use_hbm=*/false,
+          /*expected_flag_value=*/1),
+      c10::Error);
+}
+
+TEST(RawEmbeddingStreamerTest, TestCopyDoneFlagRejectsWrongShapeOrDtype) {
+  // The poll reinterprets the buffer as int32 and reads one element, so a flag
+  // of another dtype or width is read as garbage. Checked for both protocols;
+  // this drives the boolean one, which is the live path.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_dtype", true, table_names, table_offsets, table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  const auto stream_with_flag = [&](const at::Tensor& copy_done_flag) {
+    streamer->stream(
+        indices,
+        weights,
+        std::nullopt,
+        std::nullopt,
+        count,
+        /*require_tensor_copy=*/true,
+        /*blocking_tensor_copy=*/true,
+        copy_done_flag,
+        /*use_hbm=*/false,
+        /*expected_flag_value=*/std::nullopt);
+  };
+
+  EXPECT_THROW(
+      stream_with_flag(
+          at::full(
+              {1}, 1, at::TensorOptions().device(at::kCPU).dtype(at::kLong))),
+      c10::Error);
+  EXPECT_THROW(
+      stream_with_flag(
+          at::full(
+              {2}, 1, at::TensorOptions().device(at::kCPU).dtype(at::kInt))),
+      c10::Error);
+}
+
+TEST(RawEmbeddingStreamerTest, TestExpectedFlagValueAcceptsLowerBound) {
+  // 1 is in range and must be accepted: a sequence counter starts there, so a
+  // guard that rejected it would throw on the first drain of every process.
+  // The other sequence tests all use larger values and miss that.
+  std::vector<std::string> table_names = {"tb1", "tb2", "tb3"};
+  std::vector<int64_t> table_offsets = {0, 100, 300};
+  std::vector<int64_t> table_sizes = {0, 50, 200, 300};
+
+  auto streamer = getRawEmbeddingStreamer(
+      "test_flag_lower_bound", true, table_names, table_offsets, table_sizes);
+
+  auto indices = at::tensor(
+      {10, 2, 1, 150, 170, 230, 280},
+      at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+  auto weights = at::randn(
+      {indices.size(0), EMBEDDING_DIMENSION},
+      at::TensorOptions().device(at::kCPU).dtype(c10::kFloat));
+  auto count = at::tensor(
+      {indices.size(0)}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+
+  constexpr int32_t kSeq = 1;
+  auto copy_done_flag =
+      at::full({1}, kSeq, at::TensorOptions().device(at::kCPU).dtype(at::kInt));
+
+  streamer->join_weights_stream_thread();
+
+  EXPECT_NO_THROW(streamer->stream(
+      indices,
+      weights,
+      std::nullopt,
+      std::nullopt,
+      count,
+      /*require_tensor_copy=*/true,
+      /*blocking_tensor_copy=*/true,
+      copy_done_flag,
+      /*use_hbm=*/false,
+      /*expected_flag_value=*/kSeq));
+
+  EXPECT_EQ(streamer->get_weights_to_stream_queue_size(), 1);
+  EXPECT_EQ(copy_done_flag.item<int32_t>(), kSeq);
+}
+
 TEST(RawEmbeddingStreamerTest, TestStreamHbmLaneE2E) {
   // The blocking copy path is lane-agnostic: passing use_hbm=true
   // still ships through the SAME consumer_executor_ as the main path (blocking
