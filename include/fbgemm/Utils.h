@@ -31,6 +31,15 @@
 #endif
 #endif
 
+// FEAT_I8MM: the Arm Int8 Matrix Multiplication extension (USMMLA et al.).
+#ifndef FEAT_I8MM
+#if defined(__aarch64__) && defined(__ARM_FEATURE_MATMUL_INT8)
+#define FEAT_I8MM 1
+#else
+#define FEAT_I8MM 0
+#endif
+#endif
+
 namespace fbgemm {
 
 /**

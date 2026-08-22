@@ -51,11 +51,13 @@ void fbgemmPacked(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+#ifndef __aarch64__
   if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
        !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
     throw std::runtime_error("unknown architecure");
   }
+#endif
 
   int64_t MCB = 0;
   int KCB = 0;
@@ -96,6 +98,13 @@ void fbgemmPacked(
             inst_set_t::avx512_ymm>::getCacheBlockParams();
         break;
 
+#ifdef __aarch64__
+      // aarch64 has no int8-specific cache-blocking params; reuse avx2 (the
+      // reference compute path consumes the same layout). Mirrors the
+      // sve/anyarch -> avx2 fall-through in FbgemmFP16.cc / FbgemmFP32.cc.
+      case inst_set_t::sve:
+      case inst_set_t::anyarch:
+#endif
       case inst_set_t::avx2:
         std::tie(MCB, KCB, MR) = PackingTraits<
             typename packingAMatrix::inpType,
