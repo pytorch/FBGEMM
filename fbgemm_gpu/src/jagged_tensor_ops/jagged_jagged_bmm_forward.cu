@@ -79,7 +79,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
           const auto B_TILE_ROW_STRIDE = THREADS_PER_BLOCK / BLOCK_TILE_N;
 
           // Registers for C
-          scalar_t accum[THREAD_TILE_M][THREAD_TILE_N] = {0};
+          scalar_t accum[THREAD_TILE_M][THREAD_TILE_N] = {};
 
           // Registers for As and Bs
           scalar_t fragment_a[THREAD_TILE_M] = {0};

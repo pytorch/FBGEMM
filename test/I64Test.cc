@@ -30,7 +30,7 @@ class Int64GemmTest : public testing::Test {
     shapes.reserve(256);
     for (int i = 0; i < 256; ++i) {
       shapes.push_back(
-          {dist_dim(generator), dist_dim(generator), dist_dim(generator)});
+          {{dist_dim(generator), dist_dim(generator), dist_dim(generator)}});
     }
     return shapes;
   }

@@ -31,7 +31,7 @@ namespace {
 // 2 in ?x2 should be the same as kernel_ncol_blocks.
 // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
 // the restrictions of ymm register numbers (16).
-constexpr kernel_array_t<float> kernel_f32_avx2 = {
+constexpr kernel_array_t<float> kernel_f32_avx2 = {{
 #ifndef __aarch64__
     nullptr,
     gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
@@ -39,12 +39,12 @@ constexpr kernel_array_t<float> kernel_f32_avx2 = {
     gemmkernel_3x2_Avx2_fp32_fA0fB0fC0,
     gemmkernel_4x2_Avx2_fp32_fA0fB0fC0,
     gemmkernel_5x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp32_fA0fB0fC0};
+    gemmkernel_6x2_Avx2_fp32_fA0fB0fC0}};
 #else
-    nullptr};
+    nullptr}};
 #endif
 
-constexpr kernel_array_t<float> kernel_f32_avx512 = {
+constexpr kernel_array_t<float> kernel_f32_avx512 = {{
 #ifndef __aarch64__
     nullptr,
     gemmkernel_1x2_Avx512_fp32_fA0fB0fC0,
@@ -60,13 +60,13 @@ constexpr kernel_array_t<float> kernel_f32_avx512 = {
     gemmkernel_11x2_Avx512_fp32_fA0fB0fC0,
     gemmkernel_12x2_Avx512_fp32_fA0fB0fC0,
     gemmkernel_13x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_fp32_fA0fB0fC0};
+    gemmkernel_14x2_Avx512_fp32_fA0fB0fC0}};
 #else
-    nullptr};
+    nullptr}};
 #endif
 
 // clang-format on
-constexpr kernel_array_t<float> kernel_f32_avx512_256 = {
+constexpr kernel_array_t<float> kernel_f32_avx512_256 = {{
 #ifndef __aarch64__
     nullptr,
     gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
@@ -82,14 +82,14 @@ constexpr kernel_array_t<float> kernel_f32_avx512_256 = {
     gemmkernel_11x2_Avx512_256_fp32_fA0fB0fC0,
     gemmkernel_12x2_Avx512_256_fp32_fA0fB0fC0,
     gemmkernel_13x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_256_fp32_fA0fB0fC0};
+    gemmkernel_14x2_Avx512_256_fp32_fA0fB0fC0}};
 #else
-    nullptr};
+    nullptr}};
 #endif
 
 #ifdef __aarch64__
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-constexpr kernel_array_t<float> kernel_fp32_neon = {
+constexpr kernel_array_t<float> kernel_fp32_neon = {{
     nullptr,
     kleidiai::gemmkernel_1x2_Neon_fp32_fA0fB0fC0,
     kleidiai::gemmkernel_2x2_Neon_fp32_fA0fB0fC0,
@@ -97,7 +97,7 @@ constexpr kernel_array_t<float> kernel_fp32_neon = {
     kleidiai::gemmkernel_4x2_Neon_fp32_fA0fB0fC0,
     kleidiai::gemmkernel_5x2_Neon_fp32_fA0fB0fC0,
     kleidiai::gemmkernel_6x2_Neon_fp32_fA0fB0fC0,
-};
+}};
 #endif
 #endif
 } // namespace

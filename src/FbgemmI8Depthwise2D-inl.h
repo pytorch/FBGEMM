@@ -61,7 +61,7 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
       ? *pregenerated_kernel
       : GenI8Depthwise().getOrCreate(
             /*D=*/2,
-            {1, S, S},
+            {{1, S, S}},
             OC / IC,
             /*compute_a_sum=*/!B_SYMMETRIC,
             remainder,
@@ -328,7 +328,7 @@ static ALWAYS_INLINE void depthwise_2d_(
           }
           middle_kernel = GenI8Depthwise().getOrCreate(
               /*D=*/2,
-              {1, S, S},
+              {{1, S, S}},
               OC / IC,
               /*compute_a_sum=*/!B_SYMMETRIC,
               remainder,

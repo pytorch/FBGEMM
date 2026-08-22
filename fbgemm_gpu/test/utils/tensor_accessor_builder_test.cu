@@ -87,9 +87,9 @@ std::array<T, 3> special_values() {
       std::is_floating_point_v<T>, "Only floating point types supported");
 
   return {
-      std::numeric_limits<T>::quiet_NaN(),
-      std::numeric_limits<T>::infinity(),
-      -std::numeric_limits<T>::infinity()};
+      {std::numeric_limits<T>::quiet_NaN(),
+       std::numeric_limits<T>::infinity(),
+       -std::numeric_limits<T>::infinity()}};
 }
 
 template <typename T>

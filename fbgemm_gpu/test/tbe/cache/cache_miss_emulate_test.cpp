@@ -65,7 +65,7 @@ TEST(UvmCacheMissEmulateTest, enforced_cache_miss) {
   constexpr int64_t num_sets = 32768;
   constexpr int64_t associativity = 32;
   constexpr std::array<int64_t, 6> enforced_misses_per_256_for_testing = {
-      1, 5, 7, 33, 100, 256};
+      {1, 5, 7, 33, 100, 256}};
 
   for (const bool miss_in_lxu_cache_locations : {false, true}) {
     for (const bool gather_cache_stats : {false, true}) {

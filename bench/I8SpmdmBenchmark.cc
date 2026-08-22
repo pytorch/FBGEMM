@@ -36,8 +36,8 @@ int main() {
 
   const vector<array<int, 3>> shapes = {
       //   M,    N,    K
-      {1024, 1024, 1024},
-      {511, 512, 512},
+      {{1024, 1024, 1024}},
+      {{511, 512, 512}},
   };
 
   // SpMDM is often memory BW bound so we want to flush LLC.

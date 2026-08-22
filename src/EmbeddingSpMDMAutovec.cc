@@ -1557,24 +1557,24 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
   // Block sizes that get a compile-time-specialized kernel. Listing them as
   // data lets the fold below enumerate them instead of a macro per value.
   static constexpr std::array<int64_t, 18> kBlockSizes{
-      4,
-      24,
-      32,
-      36,
-      64,
-      72,
-      96,
-      124,
-      128,
-      252,
-      256,
-      320,
-      384,
-      508,
-      512,
-      576,
-      768,
-      1024};
+      {4,
+       24,
+       32,
+       36,
+       64,
+       72,
+       96,
+       124,
+       128,
+       252,
+       256,
+       320,
+       384,
+       508,
+       512,
+       576,
+       768,
+       1024}};
   using KernelType = typename EmbeddingSpMDMKernelSignature<
       InType,
       IndexType,
@@ -1871,7 +1871,7 @@ try_nbit_fixed_block_size(
     int output_bit_rate,
     bool is_bf16_out) {
   static constexpr std::array<int64_t, 14> kBlockSizes{
-      32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024};
+      {32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024}};
   using KernelType = typename EmbeddingSpMDMKernelSignature<
       uint8_t,
       IndexType,
