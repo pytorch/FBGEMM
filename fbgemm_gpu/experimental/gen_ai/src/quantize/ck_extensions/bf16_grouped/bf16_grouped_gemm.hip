@@ -479,7 +479,6 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
   int64_t group_count = A.size(0);
   int64_t M = A.size(1);
   int64_t N = B.size(1);
-  int64_t K = B.size(2);
   TORCH_CHECK(A.is_cuda() && A.is_contiguous());
   TORCH_CHECK(A.dim() == 3, "Inputs must be 3D [G, M, K].");
   TORCH_CHECK(A.dtype() == at::kBFloat16, "Inputs must be type bfloat16.");
