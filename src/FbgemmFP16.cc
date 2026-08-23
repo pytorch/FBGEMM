@@ -34,19 +34,19 @@ namespace {
 // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
 // the restrictions of ymm register numbers (16).
 constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
-    nullptr,
+    {nullptr,
 #if !defined(__aarch64__)
-    gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp16_fA0fB0fC0
+     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_6x2_Avx2_fp16_fA0fB0fC0
 #endif
-};
+    }};
 
 #if defined(__aarch64__) && defined(FBGEMM_ENABLE_FP16_SVE128)
-constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
+constexpr kernel_array_t<float16> kernel_fp16_sve128 = {{
     nullptr,
     gemmkernel_1x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_2x2_Sve128_fp16_fA0fB0fC0,
@@ -60,11 +60,11 @@ constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
     nullptr,
     nullptr,
     nullptr,
-};
+}};
 #endif
 
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-constexpr kernel_array_t<float16> kernel_fp16_neon = {
+constexpr kernel_array_t<float16> kernel_fp16_neon = {{
     nullptr,
     kleidiai::gemmkernel_1x1_Neon_fp16_fA0fB0fC0,
     kleidiai::gemmkernel_2x1_Neon_fp16_fA0fB0fC0,
@@ -74,48 +74,48 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {
     kleidiai::gemmkernel_6x1_Neon_fp16_fA0fB0fC0,
     kleidiai::gemmkernel_7x1_Neon_fp16_fA0fB0fC0,
     kleidiai::gemmkernel_8x1_Neon_fp16_fA0fB0fC0,
-};
+}};
 #endif
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
-    nullptr,
+    {nullptr,
 #if !defined(__aarch64__)
-    gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0
+     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_6x2_Avx2_fp16_fA0fB0fC0,
+     gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0,
+     gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0,
+     gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0,
+     gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0,
+     gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0,
+     gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0,
+     gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0,
+     gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0
 #endif
-};
+    }};
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
-    nullptr,
+    {nullptr,
 #if !defined(__aarch64__)
-    gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_4x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_5x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_6x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_7x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_8x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_9x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_10x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_11x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_12x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_13x2_Avx512_fp16_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_fp16_fA0fB0fC0
+     gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_4x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_5x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_6x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_7x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_8x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_9x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_10x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_11x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_12x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_13x2_Avx512_fp16_fA0fB0fC0,
+     gemmkernel_14x2_Avx512_fp16_fA0fB0fC0
 #endif
-};
+    }};
 
 } // namespace
 

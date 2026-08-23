@@ -31,7 +31,7 @@ static void performance_test() {
   cout << setw(4) << "M" << " elements_per_ns_ref" << " elements_per_ns_simd"
        << '\n';
 
-  array<int, 8> dims{1, 10, 32, 40, 129, 256, 1024, 8000};
+  array<int, 8> dims{{1, 10, 32, 40, 129, 256, 1024, 8000}};
 
   for (int M : dims) {
     vector<float> a(M);
