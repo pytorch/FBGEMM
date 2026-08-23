@@ -82,7 +82,7 @@ void BCSRMatrix<T, RB, CB>::pack(const DTYPE* src, size_t ld) {
     for (int i = 0; i < rowBlocks; ++i) {
       int curCols = min(C - jt * COLTILE, COLTILE);
       int curColBlocks = (curCols + CB - 1) / CB;
-      std::array<int32_t, RB> rowSum = {0};
+      std::array<int32_t, RB> rowSum{};
       for (int j = 0; j < curColBlocks; ++j) {
         // is the whole block zero?
         bool isCurrentBlockNonZero = false;

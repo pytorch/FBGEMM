@@ -609,9 +609,9 @@ cat_dim_2d_output_shape(
   // default shape for concatenating on dim 1
   std::array<int64_t, 2> output_shape;
   if (cat_dim == 0) {
-    output_shape = {total_cat_dim, uncat_dim_size};
+    output_shape = {{total_cat_dim, uncat_dim_size}};
   } else {
-    output_shape = {uncat_dim_size, total_cat_dim};
+    output_shape = {{uncat_dim_size, total_cat_dim}};
   }
 
   return std::tuple{output_shape, cumulative_dims, total_cat_dim};

@@ -5,6 +5,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
 #undef __HIP_NO_HALF_CONVERSIONS__
 #include <ATen/ATen.h>
 #include <c10/hip/HIPStream.h>
@@ -192,7 +193,7 @@ struct DeviceGemmHelper {
       A_args.push_back(a_ptr);
       B_args.push_back(b_ptr);
       C_args.push_back(c_ptr);
-      D_args.emplace_back(std::array<const void*, 2>{d0_ptr, d1_ptr});
+      D_args.emplace_back(std::array<const void*, 2>{{d0_ptr, d1_ptr}});
     }
 
     // Create gemm launcher and arguments.

@@ -23,7 +23,7 @@ int main() {
   vector<char> llc(128 * 1024 * 1024);
   // clang-format off
   const vector<array<int, 3>> shapes = {
-      {1024, 1024, 1024}
+      {{1024, 1024, 1024}}
   };
   // clang-format on
 
