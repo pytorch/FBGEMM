@@ -20,7 +20,7 @@ from collections.abc import Callable
 from enum import Enum
 from functools import cached_property
 from math import floor, log2
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 import torch  # usort:skip
 import weakref
 
@@ -600,6 +600,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # Set prefetch pipeline
         self.prefetch_pipeline: bool = prefetch_pipeline
+
+        # Reusable UVA scratch pads, enrichment mode only. See _get_scratch_pad.
+        self._scratch_pad_ring: list[Optional[Tensor]] = [None, None, None]
+
+        # Scratch for _invalidate_zero_rows, allocated on first use and reused:
+        # it is sized off lxu_cache_state, which never changes.
+        self._zero_row_invalidation_hits: Optional[Tensor] = None
         self.prefetch_stream: torch.cuda.Stream | None = None
 
         # Cache locking counter for pipeline prefetching
@@ -1387,6 +1394,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.register_full_backward_pre_hook(
                 self._update_cache_counter_and_pointers
             )
+            if self._enrichment_enabled:
+                # The backward pre-hook above never fires in enrichment mode, so
+                # release the L1 locks at the end of forward instead.
+                self.register_forward_hook(self._release_iteration_locks)
 
         # stats reporter
         self.gather_ssd_cache_stats = gather_ssd_cache_stats
@@ -2093,6 +2104,112 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self.prefetch_stream:
                 self.prefetch_stream.wait_stream(current_stream)
 
+    def _get_scratch_pad(self, num_rows: int) -> Tensor:
+        """Grow-only UVA scratch pad, reused instead of reallocated per iteration.
+
+        Allocating is cheap (~140us); freeing is not. cudaFree on managed memory
+        syncs the whole device, and the previous pad is released just after this
+        iteration's prefetch is enqueued -- so it waits for that prefetch. A
+        trace measured 264ms/iteration, which is what serializes prefetch
+        against backward.
+        """
+        slot = self.timestep % len(self._scratch_pad_ring)
+        buf = self._scratch_pad_ring[slot]
+        if buf is None or buf.size(0) < num_rows:
+            # Only on growth, so this converges and then stops.
+            self._scratch_pad_ring[slot] = torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(
+                    1,
+                    device=self.current_device,
+                    dtype=self.lxu_cache_weights.dtype,
+                ),
+                (num_rows, self.cache_row_dim),
+                is_host_mapped=self.uvm_host_mapped,
+            )
+            buf = self._scratch_pad_ring[slot]
+        return buf[:num_rows]
+
+    def _invalidate_zero_rows(
+        self,
+        assigned_cache_slots: Tensor,
+        actions_count_gpu: Tensor,
+    ) -> None:
+        """Invalidate L1 slots that came back all-zero, i.e. rows the DRAM store
+        did not have, so the next prefetch re-fetches them.
+
+        Same logic as before, expressed as arithmetic rather than control flow.
+        The previous form asked Python three times whether a GPU tensor was
+        non-empty (`.item()`, two `.any()`), and each of those blocks the only
+        thread that enqueues work -- so under the prefetch pipeline the backward
+        pass never gets queued while the DRAM fetch runs, and the overlap is
+        lost. Nothing here reads a value back: every shape is fixed and every
+        condition stays a mask.
+        """
+        with record_function("## ssd_invalidate_zero_rows ##"):
+            state = self.lxu_cache_state.view(-1)
+            num_slots = assigned_cache_slots.numel()
+            positions = torch.arange(
+                num_slots, device=assigned_cache_slots.device, dtype=torch.long
+            )
+            # Replaces `[:n]` plus the `slots >= 0` filter, without needing n on
+            # the host.
+            active = (positions < actions_count_gpu) & (assigned_cache_slots >= 0)
+            rows = self.lxu_cache_weights[assigned_cache_slots.clamp(min=0)]
+            invalidate = active & (rows == 0).all(dim=1)
+
+            # Park inactive entries on a trailing trash slot. Clamping them to 0
+            # instead would let them race a genuine invalidation of slot 0.
+            trash = state.numel()
+            scatter_idx = torch.where(
+                active,
+                assigned_cache_slots.to(torch.long),
+                positions.new_full((), trash),
+            )
+            hits = self._zero_row_invalidation_hits
+            if hits is None or hits.numel() != trash + 1:
+                hits = torch.zeros(trash + 1, device=state.device, dtype=torch.int32)
+                self._zero_row_invalidation_hits = hits
+            hits.zero_()
+            # Plain scatter, NOT index_put_(accumulate=True): accumulate sorts
+            # the 1.4M index tensor via indexing_backward_kernel -- 88ms/iter,
+            # 97% of this function. It only guards duplicate indices, and there
+            # are none (active slots are unique, max_dup=1 measured; inactive
+            # entries all write 0 to the trash slot).
+            hits[scatter_idx] = invalidate.to(torch.int32)
+            state.masked_fill_(hits[:trash] > 0, -1)
+
+    def _release_iteration_locks(
+        self,
+        module: nn.Module,
+        args: tuple[Any, ...],
+        output: Tensor,
+    ) -> None:
+        """Release the L1 cache lines locked by the iteration that just ran.
+
+        Forward hook. In enrichment mode the TBE forward runs under `no_grad`, so
+        `_update_cache_counter_and_pointers` -- which normally calls
+        `lxu_cache_locking_counter_decrement` -- never fires. Without this the
+        counter only ever increments, every way ends up reporting
+        `is_slot_locked`, and L1 can no longer accept any row.
+
+        Forward hooks are not autograd-dependent, so this fires under `no_grad`.
+        Running at the end of forward keeps the release ordered behind this
+        iteration's reads on the same stream; releasing any earlier would let a
+        concurrent prefetch overwrite a row still being read.
+
+        Deliberately does not call `ssd_update_row_addrs`: that repairs the
+        backward kernel's stale row pointers, and nothing reads `lxu_cache_ptrs`
+        once forward returns here.
+        """
+        curr_data = self.current_iter_data
+        if curr_data is None or curr_data.lxu_cache_locations.numel() == 0:
+            return
+        with record_function("## ssd_release_iteration_locks ##"):
+            torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
+                self.lxu_cache_locking_counter,
+                curr_data.lxu_cache_locations,
+            )
+
     def _update_cache_counter_and_pointers(
         self,
         module: nn.Module,
@@ -2377,16 +2494,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             evict_idx = self._evict_buf_idx
             if not self._embedding_cache_mode:
                 current_stream.wait_event(self.ssd_event_cache_evict[evict_idx])
-            torch.ops.fbgemm.compact_indices(
-                compact_indices=[
-                    self.lxu_cache_evicted_indices_list[evict_idx],
-                    self.lxu_cache_evicted_slots_list[evict_idx],
-                ],
-                compact_count=self.lxu_cache_evicted_count_list[evict_idx],
-                indices=[evicted_indices, assigned_cache_slots],
-                masks=torch.where(evicted_indices != -1, 1, 0),
-                count=actions_count_gpu,
-            )
+                torch.ops.fbgemm.compact_indices(
+                    compact_indices=[
+                        self.lxu_cache_evicted_indices_list[evict_idx],
+                        self.lxu_cache_evicted_slots_list[evict_idx],
+                    ],
+                    compact_count=self.lxu_cache_evicted_count_list[evict_idx],
+                    indices=[evicted_indices, assigned_cache_slots],
+                    masks=torch.where(evicted_indices != -1, 1, 0),
+                    count=actions_count_gpu,
+                )
             has_raw_embedding_streaming = False
             if self._enable_ssd_raw_embedding_streaming:
                 # when pipelining is enabled
@@ -2476,29 +2593,37 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     )
                 )
 
-            # Copy rows to be evicted into a separate buffer (will be evicted
-            # later in the prefetch step)
-            with record_function("## ssd_compute_evicted_rows ##"):
-                torch.ops.fbgemm.masked_index_select(
-                    self.lxu_cache_evicted_weights_list[evict_idx],
-                    self.lxu_cache_evicted_slots_list[evict_idx],
-                    self.lxu_cache_weights,
-                    self.lxu_cache_evicted_count_list[evict_idx],
-                )
+            if not self._embedding_cache_mode:
+                # Copy rows to be evicted into a separate buffer (will be evicted
+                # later in the prefetch step)
+                with record_function("## ssd_compute_evicted_rows ##"):
+                    torch.ops.fbgemm.masked_index_select(
+                        self.lxu_cache_evicted_weights_list[evict_idx],
+                        self.lxu_cache_evicted_slots_list[evict_idx],
+                        self.lxu_cache_weights,
+                        self.lxu_cache_evicted_count_list[evict_idx],
+                    )
 
             # Allocation a scratch pad for the current iteration. The scratch
             # pad is a UVA tensor
             inserted_rows_shape = (assigned_cache_slots.numel(), self.cache_row_dim)
             if linear_cache_indices.numel() > 0:
-                inserted_rows = torch.ops.fbgemm.new_unified_tensor(
-                    torch.zeros(
-                        1,
-                        device=self.current_device,
-                        dtype=self.lxu_cache_weights.dtype,
-                    ),
-                    inserted_rows_shape,
-                    is_host_mapped=self.uvm_host_mapped,
-                )
+                if self.prefetch_pipeline and self._embedding_cache_mode:
+                    # Assumes enrichment. Without it, ssd_location_update_data
+                    # and ssd_scratch_pad_eviction_data retain inserted_rows and
+                    # are drained by backward hooks that never fire under
+                    # no_grad, outliving a ring slot.
+                    inserted_rows = self._get_scratch_pad(assigned_cache_slots.numel())
+                else:
+                    inserted_rows = torch.ops.fbgemm.new_unified_tensor(
+                        torch.zeros(
+                            1,
+                            device=self.current_device,
+                            dtype=self.lxu_cache_weights.dtype,
+                        ),
+                        inserted_rows_shape,
+                        is_host_mapped=self.uvm_host_mapped,
+                    )
             else:
                 inserted_rows = torch.empty(
                     inserted_rows_shape,
@@ -2583,24 +2708,26 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         use_pipeline=self.prefetch_pipeline,
                     )
 
-                    # Record the tensors that will be pushed into a queue
-                    # on the forward stream
-                    if forward_stream:
-                        sp_curr_prev_map_gpu.record_stream(forward_stream)
+                    if not self._enrichment_enabled:
+                        # Record the tensors that will be pushed into a queue
+                        # on the forward stream
+                        if forward_stream:
+                            sp_curr_prev_map_gpu.record_stream(forward_stream)
 
-                    # Store info for evicting the previous iteration's
-                    # scratch pad after the corresponding backward pass is
-                    # done
-                    if self.training:
-                        self.ssd_location_update_data.append(
-                            (
-                                sp_curr_prev_map_gpu,
-                                inserted_rows,
+                        # Store info for evicting the previous iteration's
+                        # scratch pad after the corresponding backward pass is
+                        # done
+                        if self.training:
+                            self.ssd_location_update_data.append(
+                                (
+                                    sp_curr_prev_map_gpu,
+                                    inserted_rows,
+                                )
                             )
-                        )
 
             # Ensure the previous iterations eviction is complete
-            current_stream.wait_event(self.ssd_event_sp_evict)
+            if not self._enrichment_enabled:
+                current_stream.wait_event(self.ssd_event_sp_evict)
             # Ensure that D2H is done
             current_stream.wait_event(self.ssd_event_get_inputs_cpy)
 
@@ -2677,17 +2804,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # When enrichment is enabled, invalidate L1 slots that received all-zero
             # rows from DRAM so they will be re-fetched next prefetch
             if self._enrichment_enabled:
-                n = actions_count_gpu.item()
-                if n > 0:
-                    slots = assigned_cache_slots[:n]
-                    valid_mask = slots >= 0
-                    if valid_mask.any():
-                        valid_slots = slots[valid_mask]
-                        rows = self.lxu_cache_weights[valid_slots]
-                        zero_rows = (rows == 0).all(dim=1)
-                        if zero_rows.any():
-                            zero_slots = valid_slots[zero_rows]
-                            self.lxu_cache_state.view(-1)[zero_slots] = -1
+                self._invalidate_zero_rows(assigned_cache_slots, actions_count_gpu)
 
             if self.training:
                 if linear_cache_indices.numel() > 0 and not self._embedding_cache_mode:
