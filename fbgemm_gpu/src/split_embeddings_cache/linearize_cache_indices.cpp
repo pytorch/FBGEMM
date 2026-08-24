@@ -196,4 +196,43 @@ get_unique_indices_with_inverse_cpu(
       linear_indices, max_indices, compute_count, compute_inverse_indices);
 }
 
+DLL_PUBLIC
+std::tuple<Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
+get_unique_indices_with_inverse_meta(
+    const Tensor& linear_indices,
+    const int64_t /*max_indices*/,
+    const bool compute_count,
+    const bool compute_inverse_indices) {
+  TORCH_CHECK(linear_indices.dim() == 1, "linear_indices must be 1D");
+
+  // The unique count is data-dependent, but the buffers are not: both the CPU
+  // and CUDA kernels size unique_indices/count/inverse to the full input length
+  // and report the real count separately via unique_indices_length.
+  const auto N = linear_indices.numel();
+  const auto int_options = linear_indices.options().dtype(at::kInt);
+
+  return std::tuple{
+      at::empty_like(linear_indices),
+      at::empty({1}, int_options),
+      compute_count ? std::optional<Tensor>(at::empty({N}, int_options))
+                    : std::nullopt,
+      compute_inverse_indices
+          ? std::optional<Tensor>(at::empty({N}, int_options))
+          : std::nullopt};
+}
+
+DLL_PUBLIC
+std::tuple<Tensor, Tensor, std::optional<Tensor>> get_unique_indices_meta(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count) {
+  const auto ret = get_unique_indices_with_inverse_meta(
+      linear_indices,
+      max_indices,
+      compute_count,
+      /*compute_inverse_indices=*/false);
+
+  return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+}
+
 } // namespace fbgemm_gpu
