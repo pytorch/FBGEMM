@@ -15,7 +15,6 @@ from fbgemm_gpu.sll.meta.meta_sll import (  # noqa F401
     meta_jagged_self_substraction_jagged_out,
 )
 
-# pyre-ignore[5]
 op_registrations = {
     "sll_jagged_self_substraction_jagged_out": {
         "Meta": meta_jagged_self_substraction_jagged_out,

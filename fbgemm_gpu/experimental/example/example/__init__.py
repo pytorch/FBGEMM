@@ -18,7 +18,6 @@ try:
 except Exception:
     open_source: bool = False
 
-# pyre-ignore[16]
 if open_source:
     torch.ops.load_library(
         os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_example_py.so")

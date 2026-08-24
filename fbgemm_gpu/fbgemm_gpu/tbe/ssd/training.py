@@ -380,18 +380,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
-            self.load_ckpt_without_opt = (
-                # pyre-ignore [16]
-                self.kv_zch_params.load_ckpt_without_opt
-            )
+            self.load_ckpt_without_opt = self.kv_zch_params.load_ckpt_without_opt
             self.enable_optimizer_offloading = (
-                # pyre-ignore [16]
                 self.kv_zch_params.enable_optimizer_offloading
             )
-            self.backend_return_whole_row = (
-                # pyre-ignore [16]
-                self.kv_zch_params.backend_return_whole_row
-            )
+            self.backend_return_whole_row = self.kv_zch_params.backend_return_whole_row
 
             if self.enable_optimizer_offloading:
                 logging.info("Optimizer state offloading is enabled")
@@ -403,7 +396,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 logging.info(
                     "Backend will return whole row including metaheader, weight and optimizer for checkpoint"
                 )
-            # pyre-ignore [16]
             self._embedding_cache_mode = self.kv_zch_params.embedding_cache_mode
             if self._embedding_cache_mode:
                 logging.info("KVZCH is in embedding_cache_mode")
@@ -419,13 +411,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # paths (early-return flush, async enrichment writeback) that would
             # otherwise cause fp16 weight overflow on unrelated tables.
             self._enrichment_enabled = (
-                # pyre-ignore [16]
                 self.kv_zch_params.enrichment_policy is not None
                 and self._embedding_cache_mode
             )
             if self.load_ckpt_without_opt:
                 if (
-                    # pyre-ignore [16]
                     self.kv_zch_params.optimizer_type_for_st
                     == OptimType.PARTIAL_ROWWISE_ADAM.value
                 ):
@@ -433,11 +423,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     logging.info(
                         f"Override optimizer type with {self.optimizer=} for st publish"
                     )
-                if (
-                    # pyre-ignore [16]
-                    self.kv_zch_params.optimizer_state_dtypes_for_st
-                    is not None
-                ):
+                if self.kv_zch_params.optimizer_state_dtypes_for_st is not None:
                     optimizer_state_dtypes = {}
                     for k, v in dict(
                         self.kv_zch_params.optimizer_state_dtypes_for_st
@@ -1681,7 +1667,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         if self.bulk_init_chunk_size > 0:
             self.lazy_init_thread = threading.Thread(target=self._insert_all_kv)
-            # pyre-ignore
             self.lazy_init_thread.start()
             logging.info(
                 f"lazy ssd tbe initialization started since bulk_init_chunk_size is set to {self.bulk_init_chunk_size}"
@@ -3193,7 +3178,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             itertools.accumulate([r * d for r, d in self.embedding_specs])
         )
 
-        # pyre-ignore[53]
         def _slice(tensor: Tensor, t: int, rowwise: bool) -> Tensor:
             d: int = dims[t]
             e: int = rows[t]
@@ -3256,7 +3240,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             itertools.accumulate([r * d for r, d in self.embedding_specs])
         )
 
-        # pyre-ignore[53]
         def _slice(state_name: str, tensor: Tensor, t: int, rowwise: bool) -> Tensor:
             d: int = dims[t]
 
@@ -3349,7 +3332,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             should_flush=should_flush,
         )
 
-        # pyre-ignore[53]
         def _fetch_offloaded_optimizer_states(
             t: int,
         ) -> list[Tensor]:
@@ -3553,7 +3535,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 for _ in dims_
             ]
 
-        # pyre-ignore[53]
         def _fetch_offloaded_optimizer_states(
             t: int,
         ) -> list[Tensor]:
@@ -3567,12 +3548,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             # When backend returns whole row, the optimizer will be returned as
             # PMT directly
-            # pyre-ignore[16]
             if sorted_ids[t].size(0) == 0 and self.local_weight_counts[t] > 0:
                 logging.info(
                     f"Before opt PMT loading, resetting id tensor with {self.local_weight_counts[t]}"
                 )
-                # pyre-ignore[16]
                 sorted_ids[t] = torch.zeros(
                     (self.local_weight_counts[t], 1),
                     device=torch.device("cpu"),
@@ -3734,7 +3713,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         logging.info(
             f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
-            # pyre-ignore[16]
             f"num ids list: {None if not sorted_id_tensor else [ids.numel() for ids in sorted_id_tensor]}"
         )
 
@@ -4385,7 +4363,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.local_weight_counts[i] > 0
             ), f"local_weight_counts for table {i} is not set"
 
-        # pyre-ignore [16]
         self._cached_kvzch_data.cached_optimizer_states_per_table = (
             self.optimizer.empty_states(
                 self.local_weight_counts,
@@ -4399,15 +4376,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[i]
             rows = self.local_weight_counts[i]
             weight_state = torch.empty(rows, emb_dim, dtype=dtype, device="cpu")
-            # pyre-ignore [16]
             self._cached_kvzch_data.cached_weight_tensor_per_table.append(weight_state)
             logging.info(
                 f"for checkpoint loading, table {i}, weight_state shape is {weight_state.shape}"
             )
             id_tensor = torch.zeros((rows, 1), dtype=torch.int64, device="cpu")
-            # pyre-ignore [16]
             self._cached_kvzch_data.cached_id_tensor_per_table.append(id_tensor)
-            # pyre-ignore [16]
             self._cached_kvzch_data.cached_bucket_splits.append(
                 torch.empty(
                     (bucket_id_end - bucket_id_start, 1),

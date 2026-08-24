@@ -11,7 +11,6 @@ import fbgemm_gpu
 import torch
 from fbgemm_gpu.utils.loader import load_torch_module
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:

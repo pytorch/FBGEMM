@@ -5615,15 +5615,12 @@ def get_nvfp4_global_scales_naive(
     w_global_scales = []
 
     for x, w in zip(xs, ws):
-        # pyre-ignore
         x_global_scale: torch.Tensor = (448.0 * 6.0) / torch.amax(
             torch.abs(x.flatten()), dim=-1
         ).to(torch.float32)
-        # pyre-ignore
         w_global_scale: torch.Tensor = (448.0 * 6.0) / torch.amax(
             torch.abs(w.flatten()), dim=-1
         ).to(torch.float32)
-        # pyre-ignore
         global_scale: torch.Tensor = 1 / (x_global_scale * w_global_scale)
 
         global_scales.append(global_scale)

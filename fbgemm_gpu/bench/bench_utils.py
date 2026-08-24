@@ -75,7 +75,6 @@ def benchmark_torch_function(  # noqa: C901
             f_list.append(copy.deepcopy(f) if copy_f_for_multi_thread_test else f)
 
         @torch.inference_mode()
-        # pyre-ignore[53]
         def forward(idx: int) -> None:
             stream = torch.cuda.Stream()
             f_temp = f_list[idx]
