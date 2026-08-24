@@ -126,7 +126,20 @@ function(fbgemm_get_warning_flags)
     # fires, the fix is `[=, this]` or an explicit capture list -- not a
     # suppression.
     -Wdeprecated-this-capture
-    -Wdeprecated-copy-with-user-provided-copy)
+    -Wdeprecated-copy-with-user-provided-copy
+    # ---- A2.2: type and template hygiene -------------------------------
+    # g++ 11.5 rejects all three (probed). `-Wmismatched-tags`, the fourth
+    # member of this chunk in subplan 04, is portable and lives in
+    # `_cc_common` instead.
+    #
+    # `-Wundefined-var-template` may fire where an explicit instantiation lives
+    # in a different TU; the fix is an explicit instantiation declaration, not
+    # a suppression.
+    -Wundefined-var-template
+    # Warns where clang accepts something gcc will not. Genuinely useful here
+    # because OSS builds with both, and this flag is the only one in the set
+    # that actively protects the gcc leg from clang-only constructs.
+    -Wgcc-compat)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`
@@ -137,7 +150,9 @@ function(fbgemm_get_warning_flags)
   set(_cc_clang_only_gt17
     # clang 17 added this flag. clang 16 and older stop with an error. No older
     # clang has a flag with the same meaning, so a gate is the only repair.
-    -Wdeprecated-redundant-constexpr-static-def)
+    -Wdeprecated-redundant-constexpr-static-def
+    # clang 17 added this flag too. clang 16 and older stop with an error.
+    -Wpacked-non-pod)
 
   # Suppressions. These are appended LAST so they win over everything above.
   #
