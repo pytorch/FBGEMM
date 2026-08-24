@@ -634,7 +634,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
   kernel = (void*)index_shuffling_kernel<DataType, IndexType, E, B, K>; \
   smem_size = sizeof(SharedStorage<DataType, IndexType, E, B, K>);
 
-        int storage_factor = top_k * num_experts;
+        // Used only by the CUDA `num_tokens_per_tile` computation below; the
+        // ROCm DISPATCH_E_* macros take it and discard it, so it is unused
+        // there. Marked rather than moved because both paths still name it
+        // as a macro argument.
+        [[maybe_unused]] int storage_factor = top_k * num_experts;
 
         if (num_experts == 16) {
           DISPATCH_E_16(kNumTokensPerTileFewExperts, top_k, storage_factor)

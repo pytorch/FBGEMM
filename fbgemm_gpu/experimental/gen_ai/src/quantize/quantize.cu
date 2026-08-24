@@ -1128,8 +1128,8 @@ void invokeComputeScalesAndQuantizeMatrix(
 #endif
   auto const shmem_size = lda * sizeof(T_IN);
   if (shmem_size >= (48 << 10)) {
-    cudaError_t ret;
 #ifndef USE_ROCM
+    cudaError_t ret;
     if (stochastic_rounding) {
       ret = cudaFuncSetAttribute(
           dynamicQuantizeMatrixRowwiseStoc<SCALE, T_OUT, T_S, T_IN>,
