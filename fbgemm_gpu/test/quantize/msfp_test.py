@@ -10,7 +10,7 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from hypothesis import given, HealthCheck, settings
+from hypothesis import given, settings
 
 from . import common  # noqa E402
 
@@ -34,7 +34,7 @@ class TestMSFPQuantizationConversion(unittest.TestCase):
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
     )
-    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None)
     def test_quantize_op(self, nrows: int, ncols: int) -> None:
         ebits = 8
         mbits = 7
