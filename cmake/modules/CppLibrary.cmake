@@ -80,7 +80,12 @@ function(fbgemm_get_warning_flags)
     #
     # It is portable, so `_cc_common` is the correct bucket. HIP is unaffected,
     # because hipcc is clang and `_hipcc` already carries `-Wall`.
-    -Wmissing-braces)
+    -Wmissing-braces
+    # Portable: accepted and diagnosing on BOTH g++ 11.5 and clang 22
+    # (probed). Subplan 04 grouped it with the clang-only A2.2 flags, which
+    # would have stranded it behind the clang guard and silently lost gcc-leg
+    # coverage. It belongs here.
+    -Wmismatched-tags)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
