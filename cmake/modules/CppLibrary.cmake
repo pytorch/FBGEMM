@@ -72,7 +72,15 @@ function(fbgemm_get_warning_flags)
     -Wuninitialized
     # g++ accepts `-Wvexing-parse`, so it goes in the portable bucket for
     # gcc-leg coverage.
-    -Wvexing-parse)
+    -Wvexing-parse
+    # This one is NOT free. `-Wall` implies it on clang but NOT on gcc
+    # (measured: g++ -Wall gives 0 diagnostics on a missing-braces probe, 1 only
+    # when the flag is explicit), so it genuinely enables a new warning on the
+    # OSS gcc host leg, under `-Werror`.
+    #
+    # It is portable, so `_cc_common` is the correct bucket. HIP is unaffected,
+    # because hipcc is clang and `_hipcc` already carries `-Wall`.
+    -Wmissing-braces)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix

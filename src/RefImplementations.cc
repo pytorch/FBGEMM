@@ -1903,7 +1903,7 @@ int rowwise_sparse_adagrad_ref(
     //   final_sum += gj * gj;
     // }
     constexpr int VLEN = 8;
-    array<float, VLEN> partial_sum = {0.0f};
+    array<float, VLEN> partial_sum{};
     for (auto j = 0; j < block_size; ++j) {
       float gj = std::fma(weight_decay * freq, w_[j], g_[j]);
       partial_sum[j % VLEN] += gj * gj;
@@ -1974,7 +1974,7 @@ int rowwise_sparse_adagrad_fused_ref(
     //   final_sum += gj * gj;
     // }
     constexpr int VLEN_AVX2 = 8;
-    array<float, VLEN_AVX2> partial_sum = {0.0f};
+    array<float, VLEN_AVX2> partial_sum{};
     for (auto j = 0; j < block_size; ++j) {
       float gj = g_[j];
       partial_sum[j % VLEN_AVX2] += gj * gj;

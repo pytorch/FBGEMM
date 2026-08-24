@@ -245,12 +245,12 @@ static void performance_test(
     if ((nops / ttot) > giga_ops) {
       giga_ops = nops / ttot;
       best_config = {
-          tuning_params->MCB,
-          tuning_params->NCB,
-          tuning_params->KCB,
-          tuning_params->MR,
-          tuning_params->NR,
-          tuning_params->ROW_INTERLEAVE};
+          {tuning_params->MCB,
+           tuning_params->NCB,
+           tuning_params->KCB,
+           tuning_params->MR,
+           tuning_params->NR,
+           tuning_params->ROW_INTERLEAVE}};
     }
   }
 }
@@ -345,7 +345,7 @@ int main(int /* unused */, char** /* unused */) {
 
   set<vector<int>> incorrect_configs;
   float giga_ops = 0.0;
-  array<int, 6> best_config = {0, 0, 0, 0, 0, 0};
+  array<int, 6> best_config{};
   BlockingFactors params;
   for (auto const& shape : shapes) {
     for (auto const& mcb : MCBs) {
