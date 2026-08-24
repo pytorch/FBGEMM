@@ -965,6 +965,10 @@ static void runRequantizeTest(
 }
 
 TEST_P(UniConvQGranTest, requantizeTest) {
+  if (!hasGroupwiseKernels()) {
+    // fbgemmGroupwiseConv would throw here, aborting the whole binary.
+    GTEST_SKIP() << "groupwise convolution needs the x86 AVX2 JIT kernels";
+  }
   auto [q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias] =
       GetParam();
 

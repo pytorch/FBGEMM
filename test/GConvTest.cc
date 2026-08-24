@@ -487,6 +487,10 @@ static void runRequantizeTest(matrix_op_t /* unused */,
 }
 
 TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
+  if (!hasGroupwiseKernels()) {
+    // fbgemmGroupwiseConv would throw here, aborting the whole binary.
+    GTEST_SKIP() << "groupwise convolution needs the x86 AVX2 JIT kernels";
+  }
   auto [atrans, btrans, q_granularity, a_symmetric, b_symmetric] = GetParam();
 
   runRequantizeTest<2>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
