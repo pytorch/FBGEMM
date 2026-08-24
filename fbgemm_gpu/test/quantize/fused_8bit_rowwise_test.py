@@ -12,7 +12,7 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from hypothesis import assume, given, HealthCheck, settings
+from hypothesis import assume, given, settings
 
 from . import common  # noqa E402
 
@@ -50,7 +50,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         is_half=st.booleans(),
         test_float_or_half_op=st.booleans(),
     )
-    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None)
     def test_quantize_op(
         self,
         nrows: int,
@@ -337,7 +337,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         ),
         test_generic_op=st.booleans(),
     )
-    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None)
     def test_quantize_and_dequantize_op_cpu(  # noqa: C901
         self,
         nrows: int,
@@ -362,7 +362,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         ),
         test_generic_op=st.booleans(),
     )
-    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None)
     def test_quantize_and_dequantize_op_cuda(  # noqa: C901
         self,
         nrows: int,

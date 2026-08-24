@@ -12,7 +12,7 @@ import unittest
 import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from hypothesis import given, HealthCheck, settings
+from hypothesis import given, settings
 
 from . import common  # noqa E402
 
@@ -56,7 +56,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
         min_dim=st.just(1),
         max_dim=st.just(100),
     )
-    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None)
     def test_mixed_dim_8bit_dequantize_op(
         self,
         B: int,
@@ -79,7 +79,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
         min_dim=st.just(100),
         max_dim=st.just(1000),
     )
-    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None)
     def test_mixed_dim_8bit_dequantize_op_large_dims(
         self,
         B: int,
@@ -102,7 +102,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
         min_dim=st.just(1),
         max_dim=st.just(100),
     )
-    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(deadline=None)
     def test_mixed_dim_8bit_dequantize_op_large_rows(
         self,
         B: int,
