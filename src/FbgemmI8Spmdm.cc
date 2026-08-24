@@ -73,7 +73,15 @@ void CompressedSparseColumn::SpMDM(
   // This results in strided access, which we want to avoid.
   // Instead, we pre-transpose A and C, and compute C = (C^T + B^T * A^T)^T
 
-  if (IsHyperSparse()) {
+#ifdef __aarch64__
+  // aarch64 has no AVX2 transpose/compute kernels for the denser SpMDM path;
+  // the scalar loop below is a correct general fallback (it is what x86 uses
+  // for hyper-sparse inputs), so always take it here.
+  constexpr bool kForceScalarSpMDM = true;
+#else
+  constexpr bool kForceScalarSpMDM = false;
+#endif
+  if (kForceScalarSpMDM || IsHyperSparse()) {
     // The cost of transpose is O(K*N) and we do O(NNZ*N) multiplications.
     // If NNZ/K is small, it's not worth doing transpose so we just use this
     // scalar loop.
@@ -144,10 +152,9 @@ void CompressedSparseColumn::SpMDM(
     return;
   }
 
-#ifdef __aarch64__
-  throw std::runtime_error(
-      "No fallback for fbgemm::SpMDM when AVX2 is not available");
-#else
+// Everything below is unreachable on aarch64: kForceScalarSpMDM makes the
+// scalar path above handle every request.
+#ifndef __aarch64__
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   t_end = std::chrono::high_resolution_clock::now();
@@ -275,7 +282,7 @@ void CompressedSparseColumn::SpMDM(
   t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-#endif // __aarch64__
+#endif // !__aarch64__
 }
 
 void CompressedSparseColumn::SparseConv(
