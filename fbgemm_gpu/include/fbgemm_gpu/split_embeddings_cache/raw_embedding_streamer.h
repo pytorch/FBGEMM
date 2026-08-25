@@ -97,6 +97,9 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
   /// not interfere with cache-hit streaming at the dispatch or copy level. Only
   /// the ship path (consumer_executor_) stays shared. Defaults false (main
   /// path) -- inert until an out-of-scope caller opts in.
+  /// @param expected_flag_value when set, wait for copy_done_flag to equal
+  /// exactly this value and do not reset it, instead of waiting for any
+  /// nonzero and resetting. Must be in [1, 2^31-1]. See poll_copy_done_flag.
   ///
   /// @return None
   void stream(
@@ -108,7 +111,8 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       bool require_tensor_copy,
       bool blocking_tensor_copy = true,
       std::optional<at::Tensor> copy_done_flag = std::nullopt,
-      bool use_hbm = false);
+      bool use_hbm = false,
+      std::optional<int64_t> expected_flag_value = std::nullopt);
 
   /*
    * Join the pending dispatch future (which resolves only after all copies for
@@ -228,9 +232,19 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       int64_t end);
 
   // Waits (spinning) for copy_done_flag to signal the source tensors are safe
-  // to read, resetting it. Returns false on timeout. Shared by the blocking
-  // stream() path and dispatch_copy_task.
-  bool poll_copy_done_flag(const std::optional<at::Tensor>& copy_done_flag);
+  // to read. Returns false on timeout. Shared by the blocking stream() path and
+  // dispatch_copy_task.
+  //
+  // By default the flag is a boolean: the producer writes any nonzero and this
+  // resets it to 0. Passing expected_flag_value instead waits for the flag to
+  // equal exactly that value and leaves it in place. Prefer that where
+  // possible -- a boolean poll that times out leaves the flag set, so the next
+  // drain reads it as already signalled and copies the source tensors while
+  // they are still being written. The boolean form is kept for backward
+  // compatibility.
+  bool poll_copy_done_flag(
+      const std::optional<at::Tensor>& copy_done_flag,
+      std::optional<int64_t> expected_flag_value);
 
   // Coroutine form of the non-blocking dispatch (poll_copy_done_flag +
   // chunked_copy_and_enqueue). Args are taken by value so nothing dangles once
@@ -244,7 +258,8 @@ class RawEmbeddingStreamer : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> runtime_meta,
       at::Tensor count,
       std::optional<at::Tensor> copy_done_flag,
-      bool use_hbm);
+      bool use_hbm,
+      std::optional<int64_t> expected_flag_value);
 #endif
 };
 
