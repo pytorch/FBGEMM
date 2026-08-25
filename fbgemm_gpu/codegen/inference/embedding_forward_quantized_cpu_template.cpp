@@ -388,11 +388,19 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const int32_t output_stride = {{ "total_D" if not nobag else "adjusted_D" }};
 
                 {% if nobag %}
-                // Create virtual offsets for the nobag case. Lengths are all ones.
-                const auto offsets_nobag = at::arange(*offsets_begin_ptr, offsets_acc[(t + 1) * B] + 1, offsets.options());
-                const index_t* offsets_nobag_ptr = offsets_nobag.const_data_ptr<index_t>();
-                TORCH_CHECK(offsets_nobag.numel() == index_size + 1);
-                TORCH_CHECK(offsets_nobag_ptr[index_size] - offsets_nobag_ptr[0] == index_size);
+                TORCH_CHECK(index_size >= 0, "offsets must be non-decreasing, got index_size ", index_size, " for table ", t);
+                // Virtual offsets for the nobag case. Lengths are all ones. Materialized
+                // lazily: a kernel generated with no_bag gathers rows straight from
+                // `indices` and never dereferences offsets, so building them for those
+                // kernels is an allocation plus an index_size-sized fill of pure overhead.
+                Tensor offsets_nobag;
+                const auto make_virtual_offsets = [&]() {
+                  offsets_nobag = at::arange(*offsets_begin_ptr, offsets_acc[(t + 1) * B] + 1, offsets.options());
+                  const index_t* offsets_nobag_ptr = offsets_nobag.const_data_ptr<index_t>();
+                  TORCH_CHECK(offsets_nobag.numel() == index_size + 1);
+                  TORCH_CHECK(offsets_nobag_ptr[index_size] - offsets_nobag_ptr[0] == index_size);
+                  return offsets_nobag_ptr;
+                };
                 {% endif %}
 
                 const float* indice_weights_ptr = nullptr;
@@ -414,7 +422,16 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 {% endif %}
                 // TODO: merge nobag int8 path with normal asmjit dispatch
                 {% if nobag %}
-                    const index_t* offset_ptr = (output_is_int8)? offsets_begin_ptr: offsets_nobag_ptr;
+                    {% if use_fp8 %}
+                    // {{ kernel_name }} takes no no_bag argument, so it always runs the
+                    // bagged path and always dereferences offsets.
+                    const index_t* offset_ptr = make_virtual_offsets();
+                    {% else %}
+                    // {{ kernel_name }} is generated with /*no_bag=*/nobag_op below. Under
+                    // no_bag it ignores offsets, so hand it the real (unused) ones rather
+                    // than paying to build the virtual ones.
+                    const index_t* offset_ptr = nobag_op ? offsets_begin_ptr : make_virtual_offsets();
+                    {% endif %}
                 {% else %}
                     const index_t* offset_ptr = offsets_begin_ptr;
                 {% endif %}
