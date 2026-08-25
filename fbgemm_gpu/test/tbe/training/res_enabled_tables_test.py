@@ -43,8 +43,10 @@ class ResEnabledTablesTest(unittest.TestCase):
         res_enabled_tables: list[str],
         rows: int = 64,
         dim: int = 16,
+        location: EmbeddingLocation = EmbeddingLocation.DEVICE,
+        uvm_host_mapped: bool = False,
     ) -> SplitTableBatchedEmbeddingBagsCodegen:
-        """One DEVICE table per name (one feature per table), RES enabled."""
+        """One table per name (one feature per table), RES enabled."""
         n = len(table_names)
         res_params = RESParams(
             res_store_shards=1,
@@ -55,12 +57,36 @@ class ResEnabledTablesTest(unittest.TestCase):
         )
         return SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
-                (rows, dim, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)
-                for _ in range(n)
+                (rows, dim, location, ComputeDevice.CUDA) for _ in range(n)
             ],
             enable_raw_embedding_streaming=True,
             res_params=res_params,
+            uvm_host_mapped=uvm_host_mapped,
         )
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_res_count_and_copy_done_start_zero(self) -> None:
+        # new_unified_tensor hands back an unzeroed allocation. res_count is
+        # read as a row count by a std::copy that does not bound check, and any
+        # nonzero copy_done reads as "the GPU is done writing" -- so an unzeroed
+        # pair makes the first drain over-read and ship mid-write.
+        # Both arguments are load-bearing, and the test is vacuous without
+        # either. MANAGED_CACHING, not DEVICE: a DEVICE table has no UVM cache,
+        # so cache_size is 0 and _register_res_buffers takes the empty branch,
+        # which allocates with plain torch.zeros. uvm_host_mapped, because only
+        # that branch of new_unified_tensor allocates with malloc; the default
+        # cudaMallocManaged branch hands back fresh zeroed pages, so the
+        # unzeroed value is never observed there.
+        tbe = self._build_tbe(
+            ["t0"],
+            ["t0"],
+            location=EmbeddingLocation.MANAGED_CACHING,
+            uvm_host_mapped=True,
+        )
+        self.assertGreater(tbe.get_buffer("lxu_cache_weights").size(0), 0)
+        self.assertEqual(tbe.get_buffer("res_count").tolist(), [0])
+        self.assertEqual(tbe.get_buffer("res_copy_done").tolist(), [0])
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
