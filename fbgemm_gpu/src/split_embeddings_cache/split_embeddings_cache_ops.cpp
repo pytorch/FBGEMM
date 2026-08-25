@@ -125,6 +125,7 @@ auto raw_embedding_streamer =
                 torch::arg("blocking_tensor_copy"),
                 torch::arg("copy_done_flag") = std::nullopt,
                 torch::arg("use_hbm") = false,
+                torch::arg("expected_flag_value") = std::nullopt,
             })
         // The exposed name is kept as-is for backward compatibility: frozen
         // fbgemm clones bundled with published models (pyper_models/.../
