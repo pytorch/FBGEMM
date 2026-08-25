@@ -24,6 +24,7 @@ from fbgemm_gpu.tbe.utils import (
     b_indices,
     fake_quantize_embs,
     get_table_batched_offsets_from_dense,
+    quantize_embs,
     round_up,
     to_device,
 )
@@ -52,6 +53,19 @@ def get_nbit_weights_ty(draw) -> SparseType | None:
             ]
         )
     )
+
+
+FP8_EXPONENT_BITS: int = 4
+FP8_EXPONENT_BIAS: int = 7
+
+
+def nbit_output_to_float(output: torch.Tensor) -> torch.Tensor:
+    """Bring a TBE output tensor into a dtype that compares elementwise."""
+    if output.dtype == torch.quint4x2:
+        return torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfFrontToFloatOrHalf(
+            output.cpu(), bit_rate=4, output_dtype=0
+        )
+    return output.cpu().float()
 
 
 class NBitFowardTestCommon(unittest.TestCase):
@@ -357,3 +371,116 @@ class NBitFowardTestCommon(unittest.TestCase):
             atol=1.0e-2,
             rtol=1.0e-2,
         )
+
+    def _make_cpu_seq_op(
+        self,
+        weights_ty: SparseType,
+        output_dtype: SparseType,
+        T: int,
+        E: int,
+        D: int,
+    ) -> IntNBitTableBatchedEmbeddingBagsCodegen:
+        """A CPU sequence-mode TBE whose rows hold finite, reproducible values.
+
+        ``fill_random_weights`` writes random *bytes*, and for the float weight
+        types those decode to NaN often enough that an exact output comparison
+        is meaningless. Quantizing a fixed pseudo-random float matrix instead
+        keeps every row finite.
+        """
+        fp8_config = (
+            FP8QuantizationConfig(FP8_EXPONENT_BITS, FP8_EXPONENT_BIAS)
+            if weights_ty == SparseType.FP8
+            else None
+        )
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                ("", E, D, weights_ty, EmbeddingLocation.HOST) for _ in range(T)
+            ],
+            pooling_mode=PoolingMode.NONE,
+            output_dtype=output_dtype,
+            device="cpu",
+            fp8_exponent_bits=FP8_EXPONENT_BITS if fp8_config is not None else None,
+            fp8_exponent_bias=FP8_EXPONENT_BIAS if fp8_config is not None else None,
+        )
+        op.fill_random_weights()
+
+        generator = torch.Generator().manual_seed(0)
+        for t in range(T):
+            quant_weights, quant_scale_shift = quantize_embs(
+                torch.rand((E, D), generator=generator) * 2 - 1,
+                weights_ty,
+                fp8_config,
+            )
+            weights, scale_shift = op.split_embedding_weights()[t]
+            weights.copy_(quant_weights)
+            if quant_scale_shift is not None:
+                self.assertIsNotNone(scale_shift)
+                scale_shift.copy_(quant_scale_shift)
+        return op
+
+    def _check_nbit_forward_cpu_seq_ragged_matches_flat(
+        self,
+        weights_ty: SparseType,
+        output_dtype: SparseType,
+    ) -> None:
+        """A sequence forward depends only on the flat index sequence.
+
+        How those indices are grouped into bags must not change the result. The
+        CPU nobag path hands some kernels the real per-bag offsets (their no_bag
+        fast path never dereferences offsets) and others a virtual offsets
+        tensor whose lengths are all ones. Feeding the same indices first as
+        ragged bags and then one index per bag makes those two tensors differ in
+        length and in content, so a kernel handed the wrong one cannot agree
+        with itself across the two groupings.
+        """
+        T, E, D = 3, 64, 32
+        # Ragged, including empty bags. Every table must see the same number of
+        # indices, otherwise the two groupings would not slice the flat index
+        # sequence into the same per-table ranges.
+        lengths = [[0, 3, 1, 4], [2, 0, 1, 5], [4, 4, 0, 0]]
+        indices_per_table = sum(lengths[0])
+        self.assertTrue(all(sum(row) == indices_per_table for row in lengths))
+
+        op = self._make_cpu_seq_op(weights_ty, output_dtype, T, E, D)
+
+        indices = torch.tensor(
+            [(i * 7 + 3) % E for i in range(T * indices_per_table)], dtype=torch.int
+        )
+        ragged_offsets: list[int] = [0]
+        for table_lengths in lengths:
+            for length in table_lengths:
+                ragged_offsets.append(ragged_offsets[-1] + length)
+        self.assertEqual(ragged_offsets[-1], indices.numel())
+
+        ragged_output = op(indices, torch.tensor(ragged_offsets, dtype=torch.int))
+        flat_output = op(indices, torch.arange(indices.numel() + 1, dtype=torch.int))
+
+        self.assertEqual(ragged_output.shape, flat_output.shape)
+        torch.testing.assert_close(
+            nbit_output_to_float(ragged_output),
+            nbit_output_to_float(flat_output),
+            rtol=0,
+            atol=0,
+            equal_nan=False,
+        )
+
+    def _check_nbit_forward_cpu_seq_no_indices(
+        self,
+        weights_ty: SparseType,
+        output_dtype: SparseType,
+    ) -> None:
+        """A sequence forward whose bags are all empty returns an empty output.
+
+        Every table has an index range of length zero here, which is the
+        boundary at which the nobag path decides whether to build virtual
+        offsets at all.
+        """
+        T, E, D, B = 2, 64, 32, 4
+
+        op = self._make_cpu_seq_op(weights_ty, output_dtype, T, E, D)
+
+        output = op(
+            torch.empty(0, dtype=torch.int), torch.zeros(T * B + 1, dtype=torch.int)
+        )
+
+        self.assertEqual(output.shape[0], 0)
