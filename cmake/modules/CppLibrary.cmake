@@ -80,7 +80,12 @@ function(fbgemm_get_warning_flags)
     #
     # It is portable, so `_cc_common` is the correct bucket. HIP is unaffected,
     # because hipcc is clang and `_hipcc` already carries `-Wall`.
-    -Wmissing-braces)
+    -Wmissing-braces
+    # Portable: accepted and diagnosing on BOTH g++ 11.5 and clang 22
+    # (probed). Subplan 04 grouped it with the clang-only A2.2 flags, which
+    # would have stranded it behind the clang guard and silently lost gcc-leg
+    # coverage. It belongs here.
+    -Wmismatched-tags)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
@@ -105,7 +110,49 @@ function(fbgemm_get_warning_flags)
     -Wself-assign
     # g++ rejects these two; only `-Wvexing-parse` is portable.
     -Wnull-conversion
-    -Wstring-concatenation)
+    -Wstring-concatenation
+    # ---- A2.1: deprecated C++ constructs -------------------------------
+    # All four are rejected outright by g++ 11.5 ("unrecognized command line
+    # option"), so they must stay behind the clang guard. Probed, not assumed.
+    #
+    # `-Wdeprecated-dynamic-exception-spec` is NOT on by default: measured
+    # `-Wall -Wextra -Werror` against a `throw()` declaration and got a clean
+    # compile, so this flag genuinely enables a new diagnostic rather than
+    # restating one. See the paired `-Wno-error=` escape in
+    # `_cc_suppressions_clang_base` for why it is demoted.
+    -Wdeprecated-dynamic-exception-spec
+    # `[=]` implicitly capturing `this` is deprecated in C++20 and FBGEMM is a
+    # C++20 codebase with heavy lambda use around kernel dispatch. If this
+    # fires, the fix is `[=, this]` or an explicit capture list -- not a
+    # suppression.
+    -Wdeprecated-this-capture
+    -Wdeprecated-copy-with-user-provided-copy
+    # ---- A2.2: type and template hygiene -------------------------------
+    # g++ 11.5 rejects all three (probed). `-Wmismatched-tags`, the fourth
+    # member of this chunk in subplan 04, is portable and lives in
+    # `_cc_common` instead.
+    #
+    # `-Wundefined-var-template` may fire where an explicit instantiation lives
+    # in a different TU; the fix is an explicit instantiation declaration, not
+    # a suppression.
+    -Wundefined-var-template
+    # Warns where clang accepts something gcc will not. Genuinely useful here
+    # because OSS builds with both, and this flag is the only one in the set
+    # that actively protects the gcc leg from clang-only constructs.
+    -Wgcc-compat)
+
+  # Clang-only flags that also need a RECENT clang. An older clang does not
+  # know these flags, and an unknown `-W` option stops the build when `-Werror`
+  # is present. The CXX path adds them only when the host clang is new enough.
+  #
+  # Use `VERSION_GREATER_EQUAL`. `VERSION_GREATER 16.0.0` is true for clang
+  # 16.0.6, so that form does not exclude clang 16.
+  set(_cc_clang_only_gt17
+    # clang 17 added this flag. clang 16 and older stop with an error. No older
+    # clang has a flag with the same meaning, so a gate is the only repair.
+    -Wdeprecated-redundant-constexpr-static-def
+    # clang 17 added this flag too. clang 16 and older stop with an error.
+    -Wpacked-non-pod)
 
   # Suppressions. These are appended LAST so they win over everything above.
   #
@@ -127,7 +174,23 @@ function(fbgemm_get_warning_flags)
   set(_cc_suppressions_clang_base
     -Wno-unused-command-line-argument
     -Wno-c99-extensions
-    -Wno-gnu-zero-variadic-macro-arguments)
+    -Wno-gnu-zero-variadic-macro-arguments
+    # CUDA 13.3's `crt/host_runtime.h` declares `atexit(...) throw()`, a
+    # deprecated dynamic exception spec. It is an NVIDIA system header we
+    # cannot edit, and since 02c.1 forwards the host warning set to nvcc via
+    # `-Xcompiler=`, nvcc's host pass sees it too. fbcode carries the identical
+    # escape in `buck2/platform/cxx/fbcode/warnings.bzl`
+    # (`CLANG_WARNINGS_TO_DISABLE`), so fbcode is not clean for this flag
+    # either -- it is enabled and demoted, exactly as here.
+    #
+    # This MUST live in the clang-guarded list. g++ hard-errors on
+    # `-Wno-error=<warning it does not know>`:
+    #   cc1plus: error: '-Wno-error=deprecated-dynamic-exception-spec':
+    #                   no option '-Wdeprecated-dynamic-exception-spec'
+    # Note that this is stricter than a bare unknown `-Wno-<name>`, which g++
+    # accepts silently. The leniency does not extend to the `=` form.
+    # TODO(T169200065): drop once the toolchain stops surfacing this header.
+    -Wno-error=deprecated-dynamic-exception-spec)
 
   set(_cc_suppressions_clang_gt13
     -Wno-error=unused-but-set-parameter
@@ -183,6 +246,9 @@ function(fbgemm_get_warning_flags)
 
   if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
     list(APPEND _cc ${_cc_clang_only})
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 17.0.0)
+      list(APPEND _cc ${_cc_clang_only_gt17})
+    endif()
   endif()
 
   list(APPEND _cc ${_cc_suppressions})
@@ -222,6 +288,10 @@ function(fbgemm_get_warning_flags)
   set(_hipcc
     ${_cc_common}
     ${_cc_clang_only}
+    # hipcc is a recent clang in every supported ROCm version, so it also gets
+    # the gated flags. The same rule already applies to the gated suppressions
+    # in `_cc_suppressions_clang` below.
+    ${_cc_clang_only_gt17}
     ${_cc_suppressions_common}
     ${_cc_suppressions_clang})
 

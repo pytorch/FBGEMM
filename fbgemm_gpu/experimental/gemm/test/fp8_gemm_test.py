@@ -434,6 +434,13 @@ class TestFp8Matmul(unittest.TestCase):
 
         _test_scale_fp8_row((2, 3), torch.device("cuda"))
         _test_scale_fp8_row((2, 3), torch.device("cpu"))
+        # Shapes whose last block of columns is partial, including ones that
+        # take more than one iteration of the kernel's column loop.
+        for shape in [(4, 513), (3, 1000), (2, 1025)]:
+            # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+            # CUDA specifically required: only the CUDA path reaches the Triton
+            # kernel whose partial trailing column block these shapes exercise.
+            _test_scale_fp8_row(shape, torch.device("cuda"))
 
     def test_matmul_fp8_row(self) -> None:
         def _test_matmul_fp8_row(
@@ -741,3 +748,12 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), False)
         _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), True, device="cpu")
         _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), True, device="cpu")
+        # K values that leave a partial trailing scale block while still making
+        # EVEN_K true, so the last iteration is reached with
+        # k_remaining == BLOCK_K * SPLIT_K. The K=5 shapes above make EVEN_K
+        # false, which is why they already took the tail branch and never
+        # covered this case. scale_block_m/n are kept at M/N so that no tile can
+        # span two M/N scale blocks whichever BLOCK_M/BLOCK_N autotuning picks.
+        _test_matmul_fp8_block((256, 256, 640), (256, 256, 256), True)
+        _test_matmul_fp8_block((256, 256, 64), (256, 256, 256), True)
+        _test_matmul_fp8_block((256, 256, 192), (256, 256, 128), True)

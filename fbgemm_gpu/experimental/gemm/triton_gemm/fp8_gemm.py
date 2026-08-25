@@ -1851,7 +1851,7 @@ def _kernel_matmul_fp8_block_fastacc(
         # And have s_k+1 be 1.
         # Scale_i = pid_i * BLOCK_I / scale_block_i
         pid_k = k * SPLIT_K + pid_z
-        if ((pid_k + 1) % k_multiple == 0) or (k_remaining < BLOCK_K * SPLIT_K):
+        if ((pid_k + 1) % k_multiple == 0) or (k + 1 == tl.cdiv(K, BLOCK_K * SPLIT_K)):
             # Note: Due to split_k access "pid_k" = k * SPLIT_K + pid_z
             # Access a_scale[pid_m, k * SPLIT_K + pid_z]
             # and b_scale[k * SPLIT_K + pid_z, pid_n]
@@ -3073,7 +3073,7 @@ def _kernel_scale_fp8_row(
         a = tl.load(
             A + pid * stride_am + n_offset * stride_an, mask=n_offset < N, other=0.0
         )
-        col_scale = tl.load(w_scale + n_offset)
+        col_scale = tl.load(w_scale + n_offset, mask=n_offset < N, other=0.0)
         scaled_a = a * row_scale * col_scale
         tl.store(
             scaled_out + pid * stride_om + n_offset * stride_on,

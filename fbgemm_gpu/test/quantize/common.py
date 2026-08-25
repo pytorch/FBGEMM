@@ -14,6 +14,7 @@ import fbgemm_gpu
 import numpy as np
 import numpy.typing as npt
 import torch
+from hypothesis import HealthCheck, settings
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 # pyre-fixme[35]: Target cannot be annotated.
@@ -25,6 +26,25 @@ try:
 
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
+suppressed_list: list[HealthCheck] = [
+    HealthCheck.filter_too_much,
+    HealthCheck.data_too_large,
+] + (
+    [HealthCheck.differing_executors]
+    if getattr(HealthCheck, "differing_executors", False)
+    else []
+)
+
+# Only the health checks are set here, deliberately. Registering this as the
+# `derandomize` profile (as `test/tbe/common.py` and `test/test_utils.py` do)
+# would also force `derandomize=True` onto `bfloat16_test` and `hfp8_test`,
+# the two quantize modules that do not import `test_utils` and therefore never
+# ran derandomized. Seeding behavior is unrelated to the health check fix.
+settings.register_profile(
+    "suppress_differing_executors_check", suppress_health_check=suppressed_list
+)
+settings.load_profile("suppress_differing_executors_check")
 
 # Eigen/Python round 0.5 away from 0, Numpy rounds to even
 round_to_nearest: Callable[[npt.NDArray], npt.NDArray] = np.vectorize(round)

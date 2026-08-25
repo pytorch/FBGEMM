@@ -139,4 +139,16 @@ get_unique_indices_with_inverse_cpu(
     const bool compute_count,
     const bool compute_inverse_indices);
 
+std::tuple<Tensor, Tensor, std::optional<Tensor>> get_unique_indices_meta(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count);
+
+std::tuple<Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
+get_unique_indices_with_inverse_meta(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count,
+    const bool compute_inverse_indices);
+
 } // namespace fbgemm_gpu

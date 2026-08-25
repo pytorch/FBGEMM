@@ -417,7 +417,7 @@ class BackwardSplitGenerator:
             "actions_count",
         ]
 
-        aux_names = ["aux_tensor", "aux_int", "aux_float", "aux_bool"]
+        aux_names = ["aux_tensor", "aux_tensor_bwd", "aux_int", "aux_float", "aux_bool"]
         # This is a dict of auxilary arguments used in TBE PT2 interface where the aux
         # arguments of a type are packed into a list for that type. This dict maintains the
         # order of the arguments of each type.
@@ -430,6 +430,16 @@ class BackwardSplitGenerator:
                 "uvm_cache_stats",  # 4
                 "prev_iter_dev",  # 5
                 "vbe_output_offsets",  # 6
+            ],
+            # Slot 0 is always packed; slots 1-4 are VBE-only. The `bwd_` prefix is
+            # required: these enumerators share namespace fbgemm_gpu with the
+            # forward `aux_tensor` ones above.
+            "aux_tensor_bwd": [
+                "bwd_lxu_cache_locations",  # 0 (ssd_row_addrs for SSD)
+                "bwd_B_offsets",  # 1
+                "bwd_vbe_row_output_offsets",  # 2
+                "bwd_vbe_b_t_map",  # 3
+                "bwd_vbe_B_offsets_rank_per_feature",  # 4
             ],
             "aux_int": [
                 "iter",  # 0
