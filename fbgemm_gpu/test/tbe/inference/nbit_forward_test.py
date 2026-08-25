@@ -1450,6 +1450,31 @@ class NBitFowardTest(NBitFowardTestCommon):
             output_dtype=SparseType.INT4,
         )
 
+    def test_nbit_forward_cpu_seq_ragged_matches_flat(self) -> None:
+        for weights_ty, output_dtype in [
+            # One pair per kernel family the offsets predicate branches on:
+            # nbit taking the no_bag fast path (offsets ignored), nbit bagged
+            # and FP8 bagged (offsets dereferenced), and the base family, which
+            # the other three do not reach.
+            (SparseType.INT4, SparseType.INT4),
+            (SparseType.INT4, SparseType.FP16),
+            (SparseType.FP8, SparseType.FP16),
+            (SparseType.INT8, SparseType.FP32),
+        ]:
+            with self.subTest(weights_ty=weights_ty, output_dtype=output_dtype):
+                self._check_nbit_forward_cpu_seq_ragged_matches_flat(
+                    weights_ty, output_dtype
+                )
+
+    def test_nbit_forward_cpu_seq_no_indices(self) -> None:
+        for weights_ty, output_dtype in [
+            (SparseType.INT4, SparseType.INT4),
+            (SparseType.INT4, SparseType.FP16),
+            (SparseType.FP8, SparseType.FP16),
+        ]:
+            with self.subTest(weights_ty=weights_ty, output_dtype=output_dtype):
+                self._check_nbit_forward_cpu_seq_no_indices(weights_ty, output_dtype)
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         nbit_weights_ty=st.sampled_from(
