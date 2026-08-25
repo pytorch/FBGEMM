@@ -133,6 +133,41 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
       : *(tensor.const_data_ptr<int32_t>());
 }
 
+/// Called from stream(), not poll_copy_done_flag: the non-blocking path polls
+/// from a coroutine that swallows exceptions.
+void validate_copy_done_flag(
+    const std::optional<at::Tensor>& copy_done_flag,
+    std::optional<int64_t> expected_flag_value) {
+  // 0 is the boolean reset value and the state of an untouched buffer; past
+  // int32 max the comparison narrows.
+  constexpr int64_t kMaxFlagValue = 2147483647;
+  if (expected_flag_value.has_value()) {
+    TORCH_CHECK(
+        *expected_flag_value >= 1 && *expected_flag_value <= kMaxFlagValue,
+        "expected_flag_value must be in [1, ",
+        kMaxFlagValue,
+        "], got ",
+        *expected_flag_value);
+    // Without a flag there is nothing to wait on: poll_copy_done_flag returns
+    // true immediately, so a caller that set only this would get no
+    // synchronisation and no log.
+    TORCH_CHECK(
+        copy_done_flag.has_value(),
+        "expected_flag_value requires copy_done_flag");
+  }
+  // No device check: the production flag is host-mapped and need not report
+  // device CPU.
+  if (copy_done_flag.has_value()) {
+    TORCH_CHECK(
+        copy_done_flag->scalar_type() == at::kInt &&
+            copy_done_flag->numel() == 1,
+        "copy_done_flag must be a 1-element int32 tensor, got ",
+        copy_done_flag->numel(),
+        " element(s) of ",
+        copy_done_flag->scalar_type());
+  }
+}
+
 #endif
 
 } // namespace
@@ -388,7 +423,8 @@ void RawEmbeddingStreamer::stream(
     bool require_tensor_copy [[maybe_unused]],
     bool blocking_tensor_copy [[maybe_unused]],
     std::optional<at::Tensor> copy_done_flag [[maybe_unused]],
-    bool use_hbm [[maybe_unused]]) {
+    bool use_hbm [[maybe_unused]],
+    std::optional<int64_t> expected_flag_value [[maybe_unused]]) {
   if (!enable_raw_embedding_streaming_) {
     return;
   }
@@ -404,8 +440,10 @@ void RawEmbeddingStreamer::stream(
         count));
     return;
   }
-  auto poll_flag = [this, copy_done_flag]() {
-    return poll_copy_done_flag(copy_done_flag);
+  validate_copy_done_flag(copy_done_flag, expected_flag_value);
+
+  auto poll_flag = [this, copy_done_flag, expected_flag_value]() {
+    return poll_copy_done_flag(copy_done_flag, expected_flag_value);
   };
 
   // Select the lane's executors once: the HBM path runs on its own dispatch +
@@ -468,7 +506,8 @@ void RawEmbeddingStreamer::stream(
                             std::move(runtime_meta),
                             count,
                             std::move(copy_done_flag),
-                            use_hbm))
+                            use_hbm,
+                            expected_flag_value))
                         .start();
   rec->record.end();
 #endif
@@ -627,24 +666,41 @@ folly::coro::Task<void> RawEmbeddingStreamer::chunked_copy_and_enqueue(
 }
 
 bool RawEmbeddingStreamer::poll_copy_done_flag(
-    const std::optional<at::Tensor>& copy_done_flag) {
-  if (copy_done_flag.has_value()) {
-    auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
-    folly::stop_watch<std::chrono::microseconds> poll_watch;
-    while (*ptr == 0) {
-      std::this_thread::yield();
-      // At shutdown the producing GPU work is abandoned, so the flag may never
-      // be set.
-      if (stop_.load(std::memory_order_relaxed)) {
-        return false;
-      }
-      if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
-        LOG(ERROR) << "[TBE_ID" << unique_id_
-                   << "] copy_done_flag poll timed out after "
-                   << kCopyDonePollTimeoutUs / 1'000'000 << "s";
-        return false;
-      }
+    const std::optional<at::Tensor>& copy_done_flag,
+    std::optional<int64_t> expected_flag_value) {
+  if (!copy_done_flag.has_value()) {
+    return true;
+  }
+  auto* ptr = static_cast<volatile int32_t*>(copy_done_flag->data_ptr());
+  // Sequence protocol waits for one exact value; boolean protocol waits for any
+  // nonzero.
+  const auto signalled = [ptr, expected_flag_value]() {
+    return expected_flag_value.has_value()
+        ? *ptr == static_cast<int32_t>(*expected_flag_value)
+        : *ptr != 0;
+  };
+  folly::stop_watch<std::chrono::microseconds> poll_watch;
+  while (!signalled()) {
+    std::this_thread::yield();
+    // At shutdown the producing GPU work is abandoned, so the flag may never
+    // be set.
+    if (stop_.load(std::memory_order_relaxed)) {
+      return false;
     }
+    if (poll_watch.elapsed().count() > kCopyDonePollTimeoutUs) {
+      LOG(ERROR) << "[TBE_ID" << unique_id_
+                 << "] copy_done_flag poll timed out after "
+                 << kCopyDonePollTimeoutUs / 1'000'000 << "s, expected "
+                 << (expected_flag_value.has_value()
+                         ? std::to_string(*expected_flag_value)
+                         : "nonzero")
+                 << ", observed " << *ptr;
+      return false;
+    }
+  }
+  // Only the boolean protocol consumes the signal; resetting a sequence value
+  // would reopen the stale-flag window the sequence exists to close.
+  if (!expected_flag_value.has_value()) {
     *ptr = 0;
   }
   return true;
@@ -657,8 +713,9 @@ folly::coro::Task<void> RawEmbeddingStreamer::dispatch_copy_task(
     std::optional<at::Tensor> runtime_meta,
     at::Tensor count,
     std::optional<at::Tensor> copy_done_flag,
-    bool use_hbm) {
-  if (!poll_copy_done_flag(copy_done_flag)) {
+    bool use_hbm,
+    std::optional<int64_t> expected_flag_value) {
+  if (!poll_copy_done_flag(copy_done_flag, expected_flag_value)) {
     co_return;
   }
   // Log at failure time instead of letting the exception ride dispatch_future_
