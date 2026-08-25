@@ -1851,7 +1851,7 @@ def _kernel_matmul_fp8_block_fastacc(
         # And have s_k+1 be 1.
         # Scale_i = pid_i * BLOCK_I / scale_block_i
         pid_k = k * SPLIT_K + pid_z
-        if ((pid_k + 1) % k_multiple == 0) or (k_remaining < BLOCK_K * SPLIT_K):
+        if ((pid_k + 1) % k_multiple == 0) or (k + 1 == tl.cdiv(K, BLOCK_K * SPLIT_K)):
             # Note: Due to split_k access "pid_k" = k * SPLIT_K + pid_z
             # Access a_scale[pid_m, k * SPLIT_K + pid_z]
             # and b_scale[k * SPLIT_K + pid_z, pid_n]
