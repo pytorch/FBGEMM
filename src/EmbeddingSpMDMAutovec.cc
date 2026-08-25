@@ -374,15 +374,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
   const bool use_tuned_l1_prefetch = l1_distance > 0;
   const bool use_l2_prefetch =
       tbe_use_l2_prefetch(l2_distance, input_stride, data_size);
-  constexpr int64_t max_prefetch_bytes = 4096; // cap based on CPU cache size
-  // L1 look-ahead: tuned distance if set, default if unset, 0 if disabled.
-  const int64_t l1_prefetch_distance = std::min(
-      use_tuned_l1_prefetch ? l1_distance
-          : l1_distance == -1
-          ? std::min(
-                DEFAULT_L1_PREFETCH_DISTANCE, max_prefetch_bytes / input_stride)
-          : 0,
-      index_size);
+  const int64_t l1_prefetch_distance =
+      tbe_resolve_l1_prefetch_distance(l1_distance, input_stride, index_size);
   const int64_t l2_prefetch_distance = std::min(l2_distance, index_size);
   const int64_t last_index = std::max<int64_t>(index_size - 1, 0);
 
@@ -423,10 +416,29 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
       return false;
     }
 
+    // The preamble above only warms indices [0, l1_prefetch_distance), so
+    // without a rolling prefetch every row past that is a cold, dependent load:
+    // the gather is one scattered row per iteration over a table far larger
+    // than the TLB reach, with no arithmetic to hide the latency behind.
     for (int64_t i = 0; i < output_size; ++i) {
       const auto idx = indices[i];
       if (idx < 0 || idx > data_size) {
         return false;
+      }
+      // Stop once there is no row left to look ahead to: tbe_prefetch_row
+      // clamps to last_index, so past this point every iteration would
+      // re-prefetch the final row for no benefit. The preamble above has
+      // already warmed indices [0, l1_prefetch_distance), so between them every
+      // row is prefetched exactly once.
+      if (l1_prefetch_distance > 0 && i + l1_prefetch_distance < output_size) {
+        tbe_prefetch_row<prefetch_row_l1>(
+            input,
+            indices,
+            i,
+            last_index,
+            input_stride,
+            data_size,
+            l1_prefetch_distance);
       }
       const uint8_t* input_row = input + input_stride * idx;
       memcpy(out, input_row, sizeof(uint8_t) * input_stride);
