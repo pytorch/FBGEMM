@@ -1575,6 +1575,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self._register_res_enabled_feature_mask()
             if self.res_params.enable_hbm_streaming:
+                self._precompute_res_gather_layout()
                 self._register_res_hbm_buffers()
             logging.info(
                 f"{self.uuid} raw embedding streaming enabled with {self.res_params=}, {self._res_require_copy=}, {self._res_sync_copy=}"
@@ -1762,6 +1763,129 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._res_all_features_enabled: bool = bool(enabled_feature_mask.all())
 
     @torch.jit.ignore
+    def _precompute_res_gather_layout(self) -> None:
+        """Decide the gather path once, at construction."""
+        pool_dims = {
+            spec[1]
+            for spec in self.embedding_specs
+            if spec[2] == EmbeddingLocation.DEVICE
+        }
+        # Empty and one-width both count as uniform.
+        self._res_hbm_dims_equal: bool = len(pool_dims) <= 1
+        self._res_hbm_dim: int = next(iter(pool_dims)) if len(pool_dims) == 1 else 0
+        self._res_device_features: set[int] = {
+            f
+            for f, t in enumerate(self.feature_table_map)
+            if self.embedding_specs[t][2] == EmbeddingLocation.DEVICE
+        }
+        n_features = len(self.feature_table_map)
+        self._res_all_features_device_placed: bool = (
+            len(self._res_device_features) == n_features
+        )
+        # Differing widths are handled a table at a time, and that loop needs
+        # each feature's width, offset and row count as plain numbers. Reading
+        # them off the device there would sync three times per feature per
+        # drain, and they are table layout, so read them once. One entry per
+        # FEATURE, not per table.
+        self._res_weights_offsets_cpu: torch.Tensor = self.weights_offsets.cpu()
+        self._res_rows_per_table_cpu: torch.Tensor = self.rows_per_table.cpu()
+        self._res_D_offsets_cpu: torch.Tensor = self.D_offsets.cpu()
+
+    @torch.jit.ignore
+    def _gather_res_rows(
+        self,
+        res_indices: torch.Tensor,
+        res_weights: torch.Tensor,
+        weights: torch.Tensor,
+    ) -> None:
+        """Gather the rows named by `res_indices` out of `weights` into `res_weights`.
+
+        `res_indices` are in the TBE's linear index space and must exclude the
+        pruning sentinel: clamped to the last feature it becomes a row one past
+        that table's end, which device-asserts.
+
+        Zero-padding covers COLUMNS, not rows. Rows past `len(res_indices)` keep
+        the previous drain's values -- the staging buffers are grow-and-keep, so
+        callers must slice to the count.
+        """
+        if weights.numel() == 0:
+            return
+        num_indices = res_indices.size(0)
+        if num_indices == 0:
+            return
+
+        max_D = res_weights.shape[1]
+
+        uniform_device = (
+            self._res_hbm_dims_equal and self._res_all_features_device_placed
+        )
+        self.log(
+            f"[RES] gather: path={'uniform_device' if uniform_device else 'per_feature'} "
+            f"rows={num_indices}"
+        )
+
+        # Shortcut, and it needs both: one width across the pool, and every
+        # feature DEVICE-placed. Together they make a linear row id already BE
+        # the pool row, so the index goes in unmodified. Relaxing either half
+        # silently breaks that.
+        if uniform_device:
+            dim = self._res_hbm_dim
+            torch.index_select(
+                weights.view(-1, dim),
+                0,
+                res_indices.long(),
+                out=res_weights[:num_indices, :dim],
+            )
+            if dim < max_D:
+                res_weights[:num_indices, dim:].zero_()
+            return
+
+        # Flat because the loop slices by ELEMENT offset; on a 2-D weights_dev
+        # (dev_reshape, OptimType.NONE) a slice would take rows instead.
+        weights_flat = weights.flatten() if weights.dim() == 2 else weights
+        feature_indices = self._res_feature_of(res_indices)
+        # One index_select per run rather than per row. `unique_consecutive`,
+        # not `unique`: it collapses only ADJACENT equals and keeps input order,
+        # which is what lets `pos` below walk input and output together.
+        unique_features, counts = torch.unique_consecutive(
+            feature_indices, return_counts=True
+        )
+        local_indices_all = (
+            res_indices - self.hash_size_cumsum[feature_indices]
+        ).long()
+        # The syncs are here, not in the loop: the body reads host values only.
+        features: list[int] = unique_features.tolist()
+        # Free: `features` is already on the host.
+        non_device_features: list[int] = [
+            f for f in features if f not in self._res_device_features
+        ]
+        if non_device_features:
+            logging.error(
+                f"[TBE={self.uuid}] [RES] gather: SHOULD NOT HAPPEN -- features "
+                f"{non_device_features} are not DEVICE-placed, so their rows read "
+                f"from the wrong offset. _res_hbm_linear_mask marks only allowlisted "
+                f"DEVICE rows, so a drain cannot select them."
+            )
+        pos = 0
+        for feature_idx, cnt in zip(features, counts.tolist()):
+            dim = int(
+                self._res_D_offsets_cpu[feature_idx + 1]
+                - self._res_D_offsets_cpu[feature_idx]
+            )
+            w_start = int(self._res_weights_offsets_cpu[feature_idx])
+            nrows = int(self._res_rows_per_table_cpu[feature_idx])
+            table_view = weights_flat[w_start : w_start + nrows * dim].view(-1, dim)
+            torch.index_select(
+                table_view,
+                0,
+                local_indices_all[pos : pos + cnt],
+                out=res_weights[pos : pos + cnt, :dim],
+            )
+            if dim < max_D:
+                res_weights[pos : pos + cnt, dim:].zero_()
+            pos += cnt
+
+    @torch.jit.ignore
     def _register_res_hbm_buffers(self) -> None:
         """Allocate the map of rows touched since the last drain.
 
@@ -1839,6 +1963,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Tensor | Module); tensor indexing is valid at runtime.
         enabled_mask = self.res_enabled_feature_mask[valid_feature_indices]
         return enabled_mask, feature_indices
+
+    @torch.jit.ignore
+    def _res_feature_of(self, linear_indices: torch.Tensor) -> torch.Tensor:
+        """Feature id owning each linear row id, clamped to a real feature.
+
+        `right=True` so a table's first row resolves to that table, not the one
+        before. The clamp catches the pruning sentinel, which owns no feature.
+        Assumes `feature_table_map` is non-decreasing, as TorchRec emits.
+        """
+        last_feature = self._res_num_features - 1
+        return torch.searchsorted(
+            self.hash_size_cumsum[1:], linear_indices, right=True
+        ).clamp(0, last_feature)
 
     @torch.jit.ignore
     def log(self, msg: str) -> None:
