@@ -422,7 +422,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     // than the TLB reach, with no arithmetic to hide the latency behind.
     for (int64_t i = 0; i < output_size; ++i) {
       const auto idx = indices[i];
-      if (idx < 0 || idx > data_size) {
+      if (idx < 0 || idx >= data_size) {
         return false;
       }
       // Stop once there is no row left to look ahead to: tbe_prefetch_row

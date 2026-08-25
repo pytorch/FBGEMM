@@ -1227,6 +1227,69 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagNegativeIndexTest) {
                         << " bit_rate=" << bit_rate;
 }
 
+// int4 -> int4 is the only combination the nbit no_bag gather supports, so it
+// is the one configuration whose bounds check is reachable. Regression guard
+// for an off-by-one: the check read `idx > data_size`, so `idx == data_size`
+// passed and the gather memcpy'd a row from one past the end of the table.
+TEST(
+    FusedNBitRowwiseEmbeddingLookupBoundsTest,
+    NoBagRejectsIndexEqualToRowCount) {
+  constexpr int kBitRate = 4;
+  constexpr int64_t kNumRows = 100;
+  constexpr int64_t kEmbeddingDim = 32;
+  constexpr int64_t kOutputSize = 10;
+  constexpr int64_t kPackedDim = kEmbeddingDim / (8 / kBitRate);
+  constexpr int64_t kFusedDim = kPackedDim + 2 * sizeof(float16);
+
+  const vector<uint8_t> table(kNumRows * kFusedDim, 1);
+  vector<int64_t> offsets(kOutputSize + 1);
+  iota(offsets.begin(), offsets.end(), 0);
+  vector<uint8_t> output(kOutputSize * kFusedDim);
+
+  // DISPATCH_DEFAULT reaches EmbeddingSpMDMNBit_ref here, since the asmjit
+  // generator is gated on !no_bag; DISPATCH_AUTOVEC reaches the autovec copy of
+  // the same loop. Both carried the off-by-one.
+  for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
+    ScopedKernelOverride kernel_override(kernel_choice);
+    const auto kernel =
+        GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+            kBitRate,
+            kEmbeddingDim,
+            /*has_weight=*/false,
+            /*normalize_by_lengths=*/false,
+            /*prefetch=*/16,
+            /*is_weight_positional=*/false,
+            /*use_offsets=*/true,
+            /*output_stride=*/-1,
+            /*input_stride=*/-1,
+            /*scale_bias_last=*/true,
+            /*is_bf16_out=*/false,
+            /*no_bag=*/true,
+            /*output_bit_rate=*/kBitRate);
+
+    const auto gather_with = [&](int64_t probe_index) {
+      vector<int64_t> indices(kOutputSize, 0);
+      indices[kOutputSize / 2] = probe_index;
+      return kernel(
+          kOutputSize,
+          kOutputSize,
+          kNumRows,
+          table.data(),
+          indices.data(),
+          offsets.data(),
+          nullptr,
+          output.data());
+    };
+
+    EXPECT_TRUE(gather_with(kNumRows - 1))
+        << "last valid row was rejected, kernel_choice=" << kernel_choice;
+    EXPECT_FALSE(gather_with(kNumRows))
+        << "row one past the end was accepted, kernel_choice=" << kernel_choice;
+    EXPECT_FALSE(gather_with(-1))
+        << "negative index was accepted, kernel_choice=" << kernel_choice;
+  }
+}
+
 TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
 
