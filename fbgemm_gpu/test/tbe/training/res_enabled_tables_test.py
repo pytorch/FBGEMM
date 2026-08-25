@@ -115,10 +115,12 @@ class ResEnabledTablesTest(unittest.TestCase):
         heights: list[int] | None = None,
         feature_table_map: list[int] | None = None,
         dim: int = 16,
+        dims: list[int] | None = None,
     ) -> SplitTableBatchedEmbeddingBagsCodegen:
-        """One table per name, each with its own placement and row count."""
+        """One table per name, each with its own placement, row count and dim."""
         n = len(table_names)
         rows = heights if heights is not None else [64] * n
+        widths = dims if dims is not None else [dim] * n
         offsets = []
         running = 0
         for h in rows:
@@ -134,7 +136,8 @@ class ResEnabledTablesTest(unittest.TestCase):
         )
         return SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
-                (h, dim, loc, ComputeDevice.CUDA) for h, loc in zip(rows, locations)
+                (h, w, loc, ComputeDevice.CUDA)
+                for h, w, loc in zip(rows, widths, locations)
             ],
             enable_raw_embedding_streaming=True,
             res_params=res_params,
@@ -232,6 +235,151 @@ class ResEnabledTablesTest(unittest.TestCase):
                     ],
                     [3],
                 )
+
+    def _device_tbe(
+        self, heights: list[int], dims: list[int]
+    ) -> SplitTableBatchedEmbeddingBagsCodegen:
+        """All-DEVICE TBE whose flat weights are filled with arange."""
+        names = [f"t{i}" for i in range(len(heights))]
+        tbe = self._build_mixed_tbe(
+            names,
+            [EmbeddingLocation.DEVICE] * len(heights),
+            res_enabled_tables=names,
+            heights=heights,
+            dims=dims,
+        )
+        flat = tbe.get_buffer("weights_dev")
+        flat.copy_(torch.arange(flat.numel(), device=flat.device, dtype=flat.dtype))
+        return tbe
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_dim_uniformity_records_per_feature_layout(self) -> None:
+        # feature_table_map duplicates t0, so the cached layout tensors are 3
+        # long (per feature), not 2 (per table) -- rows_per_table included.
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.DEVICE, EmbeddingLocation.DEVICE],
+            res_enabled_tables=["t0", "t1"],
+            heights=[4, 3],
+            dims=[8, 4],
+            feature_table_map=[0, 0, 1],
+        )
+        self.assertFalse(tbe._res_hbm_dims_equal)
+        self.assertEqual(tbe._res_hbm_dim, 0)
+        self.assertEqual(tbe._res_rows_per_table_cpu.tolist(), [4, 4, 3])
+        self.assertEqual(tbe._res_D_offsets_cpu.tolist(), [0, 8, 16, 20])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_copy_weights_uniform_dim(self) -> None:
+        tbe = self._device_tbe(heights=[4, 3], dims=[8, 8])
+        self.assertTrue(tbe._res_hbm_dims_equal)
+        device = torch.cuda.current_device()
+        res_indices = torch.tensor([1, 5], device=device, dtype=torch.int64)
+        out = torch.full((2, 8), -1.0, device=device)
+        tbe._gather_res_rows(res_indices, out, tbe.get_buffer("weights_dev"))
+        self.assertEqual(out[0].tolist(), list(range(8, 16)))
+        self.assertEqual(out[1].tolist(), list(range(40, 48)))
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_copy_weights_mixed_dim_zero_pads_narrow_table(self) -> None:
+        # Without the zero pad the receiver would ship whatever `out` held.
+        tbe = self._device_tbe(heights=[4, 3], dims=[8, 4])
+        self.assertFalse(tbe._res_hbm_dims_equal)
+        device = torch.cuda.current_device()
+        # t0 row 1, then t1 row 1 (linear 5) -- ascending, as the gather requires.
+        res_indices = torch.tensor([1, 5], device=device, dtype=torch.int64)
+        out = torch.full((2, 8), -1.0, device=device)
+        tbe._gather_res_rows(res_indices, out, tbe.get_buffer("weights_dev"))
+        self.assertEqual(out[0].tolist(), list(range(8, 16)))
+        # t1's region starts at element 4*8=32; its row 1 is elements 36..39.
+        self.assertEqual(out[1].tolist(), [36.0, 37.0, 38.0, 39.0, 0.0, 0.0, 0.0, 0.0])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_gather_uniformity_counts_non_allowlisted_pool_tables(self) -> None:
+        # `pad0`/`pad1` are DEVICE and share `weights_dev` with the allowlisted
+        # table, but are not themselves allowlisted. Their widths still decide
+        # whether `view(-1, dim)` is a legal reinterpretation of the pool, and
+        # their elements still push `t1` off a `dim` boundary.
+        #
+        # Sized so the pool DIVIDES: 4 + 64 + 4 = 72 elements and 72 % 8 == 0,
+        # so a uniform path here would not raise -- it would return wrong rows.
+        # The non-dividing case is the safe one, since `view` catches it.
+        tbe = self._build_mixed_tbe(
+            ["pad0", "t1", "pad1"],
+            [EmbeddingLocation.DEVICE] * 3,
+            res_enabled_tables=["t1"],
+            heights=[1, 8, 1],
+            dims=[4, 8, 4],
+        )
+        flat = tbe.get_buffer("weights_dev")
+        self.assertEqual(flat.numel(), 72)
+        flat.copy_(torch.arange(flat.numel(), device=flat.device, dtype=flat.dtype))
+
+        device = torch.cuda.current_device()
+        # t1 row 0 is linear 1, since pad0 holds linear 0. Its elements start at
+        # 1*4 = 4, but a uniform path would read row 1 of an 8-wide grid --
+        # elements 8..15 -- because pad0's 4 elements shifted the grid.
+        # Asserted before the mechanism below so that a regression fails on the
+        # WRONG VALUES, which is the bug, rather than on the flag that causes it.
+        res_indices = torch.tensor([1], device=device, dtype=torch.int64)
+        out = torch.full((1, 8), -1.0, device=device)
+        tbe._gather_res_rows(res_indices, out, flat)
+        self.assertEqual(out[0].tolist(), [float(v) for v in range(4, 12)])
+
+        # Uniformity is a property of the pool, not of the allowlist.
+        self.assertFalse(tbe._res_hbm_dims_equal)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_gather_logs_cached_feature_ids(self) -> None:
+        # weights_offsets restarts at zero per placement pool, so a cached id
+        # resolves to an offset INSIDE weights_dev and returns a DEVICE row
+        # under a cached row's name -- in range, no error. t0 and t1 are the
+        # same shape so the aliasing is exact.
+        #
+        # The drain cannot produce this: _res_hbm_linear_mask marks only
+        # allowlisted DEVICE rows. So it is logged rather than raised, and the
+        # aliased row is asserted here because that is what the log is warning
+        # about -- a silent wrong row, not a crash.
+        rows = 4
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.DEVICE, EmbeddingLocation.MANAGED_CACHING],
+            res_enabled_tables=["t0", "t1"],
+            heights=[rows, rows],
+            dims=[8, 8],
+        )
+        flat = tbe.get_buffer("weights_dev")
+        flat.copy_(torch.arange(flat.numel(), device=flat.device, dtype=flat.dtype))
+        device = torch.cuda.current_device()
+        out = torch.full((1, 8), -1.0, device=device)
+        # Linear id `rows` is t1 row 0 -- a cached feature.
+        cached_id = torch.tensor([rows], device=device, dtype=torch.int64)
+        with self.assertLogs(level="ERROR") as logs:
+            tbe._gather_res_rows(cached_id, out, flat)
+        self.assertIn("not DEVICE-placed", "\n".join(logs.output))
+        # t1 row 0 aliased onto t0 row 0, which is elements 0..7.
+        self.assertEqual(out[0].tolist(), list(range(8)))
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_gather_empty_indices_is_a_noop(self) -> None:
+        # An empty drain is the normal condition, not an edge case: on a real
+        # model most TBEs mark nothing most iterations.
+        tbe = self._device_tbe(heights=[4], dims=[8])
+        device = torch.cuda.current_device()
+        out = torch.full((2, 8), -1.0, device=device)
+        tbe._gather_res_rows(
+            torch.empty(0, device=device, dtype=torch.int64),
+            out,
+            tbe.get_buffer("weights_dev"),
+        )
+        # Untouched, not zeroed: callers slice to the count.
+        self.assertEqual(out.unique().tolist(), [-1.0])
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
