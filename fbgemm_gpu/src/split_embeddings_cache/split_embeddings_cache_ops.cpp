@@ -75,6 +75,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
   DISPATCH_TO_META("linearize_cache_indices", linearize_cache_indices_meta);
   DISPATCH_TO_META("lxu_cache_lookup", lxu_cache_lookup_meta);
+  DISPATCH_TO_META("get_unique_indices", get_unique_indices_meta);
+  DISPATCH_TO_META(
+      "get_unique_indices_with_inverse", get_unique_indices_with_inverse_meta);
 }
 
 auto raw_embedding_streamer =
