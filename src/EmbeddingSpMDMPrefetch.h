@@ -65,6 +65,30 @@ inline void do_tlb_prime([[maybe_unused]] const void* addr) {
 }
 #endif
 
+// L1 look-ahead in rows: the tuned distance when
+// FBGEMM_TBE_L1_PREFETCH_DISTANCE is set, DEFAULT_L1_PREFETCH_DISTANCE when it
+// is unset (-1), 0 when it is explicitly disabled. The default is capped so the
+// rows in flight stay within about one 4 KiB page's worth of line fills, which
+// matters for wide rows where 16 rows would be far more than the L1 can hold.
+inline int64_t tbe_resolve_l1_prefetch_distance(
+    int64_t l1_distance,
+    int64_t input_stride,
+    int64_t index_size) {
+  // Guards the division below, and a non-positive row size means there is
+  // nothing to prefetch anyway.
+  if (input_stride <= 0) {
+    return 0;
+  }
+  constexpr int64_t max_prefetch_bytes = 4096;
+  return std::min(
+      l1_distance > 0 ? l1_distance
+          : l1_distance == -1
+          ? std::min(
+                DEFAULT_L1_PREFETCH_DISTANCE, max_prefetch_bytes / input_stride)
+          : 0,
+      index_size);
+}
+
 template <void (*PrefetchRow)(const uint8_t*, int64_t), typename IndexType>
 inline void tbe_prefetch_row(
     const uint8_t* input,
