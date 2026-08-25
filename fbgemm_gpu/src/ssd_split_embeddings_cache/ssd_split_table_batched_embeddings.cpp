@@ -1556,6 +1556,18 @@ static auto kv_tensor_wrapper =
             "delete_rocksdb_checkpoint_dir",
             &KVTensorWrapper::delete_rocksdb_checkpoint_dir);
 
+// `masked_index_select` writes into `self` and returns it, so the Meta kernel
+// only has to propagate the alias -- there is nothing shape-dependent to model.
+Tensor masked_index_select_meta(
+    Tensor self,
+    Tensor /*indices*/,
+    Tensor /*values*/,
+    Tensor /*count*/,
+    const bool /*use_pipeline*/,
+    const int64_t /*preferred_sms*/) {
+  return self;
+}
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "create_kv_tensor_wrapper_from_serialized("
@@ -1588,14 +1600,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("masked_index_put", masked_index_put_cuda);
   m.def(
       "masked_index_select("
-      "    Tensor self, "
+      "    Tensor(a!) self, "
       "    Tensor indices, "
       "    Tensor values, "
       "    Tensor count, "
       "    bool use_pipeline=False, "
       "    int preferred_sms=-1"
-      ") -> Tensor");
+      ") -> Tensor(a!)");
   DISPATCH_TO_CUDA("masked_index_select", masked_index_select_cuda);
+  DISPATCH_TO_META("masked_index_select", masked_index_select_meta);
   m.def(
       "ssd_cache_populate_actions("
       "    Tensor linear_indices, "
