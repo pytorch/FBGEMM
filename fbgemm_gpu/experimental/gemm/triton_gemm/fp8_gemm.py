@@ -3073,7 +3073,7 @@ def _kernel_scale_fp8_row(
         a = tl.load(
             A + pid * stride_am + n_offset * stride_an, mask=n_offset < N, other=0.0
         )
-        col_scale = tl.load(w_scale + n_offset)
+        col_scale = tl.load(w_scale + n_offset, mask=n_offset < N, other=0.0)
         scaled_a = a * row_scale * col_scale
         tl.store(
             scaled_out + pid * stride_om + n_offset * stride_on,
