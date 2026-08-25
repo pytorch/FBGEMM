@@ -27,6 +27,14 @@ namespace profiler = torch::autograd::profiler;
 {%- set fwd_mdesc = "ssd" if ssd else ("dense" if dense else "split") %}
 {%- set bwd_mdesc = "ssd" if ssd else "split" %}
 
+{#- /* An optimizer without GPU support still registers the full V1 schema, but
+      its lookup function body is only a deprecation TORCH_CHECK, so none of
+      its arguments is read. VBE and global-weight-decay arguments are likewise
+      always declared and only read by optimizers that support them. */ #}
+{%- set mu_stub = "" if has_gpu_support else "[[maybe_unused]] " %}
+{%- set mu_vbe = "" if (has_gpu_support and has_vbe_support) else "[[maybe_unused]] " %}
+{%- set mu_gwd = "" if (has_gpu_support and has_global_weight_decay_support and not ssd) else "[[maybe_unused]] " %}
+
 
 {%- if ssd %}
 enum SSDTensor {
@@ -572,10 +580,16 @@ class {{ autograd_func }} :
  public:
   static constexpr bool is_traceable = true;
 
+  {#- /* `is_experimental` selects the TBE v2 forward, which exists only for
+        the bagged, non-VBE, non-SSD, non-GWD configuration. The placeholder
+        tensor exists only to give autograd a differentiable input. */ #}
+  {%- set mu_experimental = "" if (has_experimental_support(
+        dense, nobag, vbe, is_index_select=False, ssd=ssd
+      ) and not is_gwd) else "[[maybe_unused]] " %}
   static torch::autograd::variable_list forward(
     torch::autograd::AutogradContext* ctx,
     {%- if not dense %}
-    const Tensor& placeholder_autograd_tensor,
+    [[maybe_unused]] const Tensor& placeholder_autograd_tensor,
     {%- endif %}
     const int64_t output_dtype,
     const Tensor& dev_weights,
@@ -626,7 +640,7 @@ class {{ autograd_func }} :
     const c10::SymInt max_B_feature_rank,
     const c10::SymInt vbe_output_size,
     {%- endif %}
-    const bool is_experimental,
+    {{ mu_experimental }}const bool is_experimental,
     const bool use_uniq_cache_locations_bwd,
     const bool use_homogeneous_placements,
     {%- if ssd %}
@@ -1076,64 +1090,64 @@ class {{ autograd_func }} :
 ///@ingroup embedding-cuda
 Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- if dense %}
-    const Tensor& dev_weights,
+    {{ mu_stub }}const Tensor& dev_weights,
     {%- else %}
-    const Tensor& placeholder_autograd_tensor,
-    const Tensor& dev_weights,
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
+    {{ mu_stub }}const Tensor& placeholder_autograd_tensor,
+    {{ mu_stub }}const Tensor& dev_weights,
+    {{ mu_stub }}const Tensor& uvm_weights,
+    {{ mu_stub }}const Tensor& lxu_cache_weights,
+    {{ mu_stub }}const Tensor& weights_placements,
     {%- endif %}
-    const Tensor& weights_offsets,
-    const Tensor& D_offsets,
-    const c10::SymInt total_D,
-    const c10::SymInt max_D,
-    const Tensor& hash_size_cumsum,
-    const int64_t total_hash_size_bits,
-    const Tensor& indices,
-    const Tensor& offsets,
-    const int64_t pooling_mode,
-    const std::optional<Tensor>& indice_weights,
-    const std::optional<Tensor>& feature_requires_grad,
+    {{ mu_stub }}const Tensor& weights_offsets,
+    {{ mu_stub }}const Tensor& D_offsets,
+    {{ mu_stub }}const c10::SymInt total_D,
+    {{ mu_stub }}const c10::SymInt max_D,
+    {{ mu_stub }}const Tensor& hash_size_cumsum,
+    {{ mu_stub }}const int64_t total_hash_size_bits,
+    {{ mu_stub }}const Tensor& indices,
+    {{ mu_stub }}const Tensor& offsets,
+    {{ mu_stub }}const int64_t pooling_mode,
+    {{ mu_stub }}const std::optional<Tensor>& indice_weights,
+    {{ mu_stub }}const std::optional<Tensor>& feature_requires_grad,
     {%- if not dense %}
-    const Tensor& lxu_cache_locations,
+    {{ mu_stub }}const Tensor& lxu_cache_locations,
     {%- if optimizer != "none"%}
-    const bool gradient_clipping,
-    const double max_gradient,
-    const bool stochastic_rounding,
+    {{ mu_stub }}const bool gradient_clipping,
+    {{ mu_stub }}const double max_gradient,
+    {{ mu_stub }}const bool stochastic_rounding,
     {%- endif %}
-    {{ args.split_function_args_v1 }},
+    {{ args.split_function_args_v1 | maybe_unused_args(not has_gpu_support) }},
     {%- endif %}
-    const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
-    const std::optional<Tensor>& B_offsets = std::nullopt,
-    const std::optional<Tensor>& vbe_output_offsets_feature_rank = std::nullopt,
-    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature = std::nullopt,
-    const c10::SymInt max_B = -1,
-    const c10::SymInt max_B_feature_rank = -1,
+    {{ mu_stub }}const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
+    {{ mu_vbe }}const std::optional<Tensor>& B_offsets = std::nullopt,
+    {{ mu_vbe }}const std::optional<Tensor>& vbe_output_offsets_feature_rank = std::nullopt,
+    {{ mu_vbe }}const std::optional<Tensor>& vbe_B_offsets_rank_per_feature = std::nullopt,
+    {{ mu_vbe }}const c10::SymInt max_B = -1,
+    {{ mu_vbe }}const c10::SymInt max_B_feature_rank = -1,
     {%- if not dense %}
-    const c10::SymInt vbe_output_size = -1,
-    const bool is_experimental_tbe = false, // formerly named is_experimental
-    const bool use_uniq_cache_locations_bwd = false,
-    const bool use_homogeneous_placements = false,
+    {{ mu_vbe }}const c10::SymInt vbe_output_size = -1,
+    {{ mu_stub }}const bool is_experimental_tbe = false, // formerly named is_experimental
+    {{ mu_stub }}const bool use_uniq_cache_locations_bwd = false,
+    {{ mu_stub }}const bool use_homogeneous_placements = false,
     {%- if ssd %}
-    const bool enable_optimizer_offloading = false,
+    {{ mu_stub }}const bool enable_optimizer_offloading = false,
     {%- endif %}
-    const std::optional<Tensor>& uvm_cache_stats = std::nullopt,
+    {{ mu_stub }}const std::optional<Tensor>& uvm_cache_stats = std::nullopt,
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    const std::optional<Tensor>& prev_iter_dev = std::nullopt,
+    {{ mu_gwd }}const std::optional<Tensor>& prev_iter_dev = std::nullopt,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
-    const int64_t iter = 0,
+    {{ mu_gwd }}const int64_t iter = 0,
     {%- endif %}
-    const bool apply_global_weight_decay = false,
+    {{ mu_gwd }}const bool apply_global_weight_decay = false,
     {%- if ssd %}
-    const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
+    {{ mu_stub }}const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
     {%- endif %}
-    const double gwd_lower_bound = 0,
+    {{ mu_gwd }}const double gwd_lower_bound = 0,
     {%- else %}
-    const c10::SymInt vbe_output_size = -1,
+    {{ mu_vbe }}const c10::SymInt vbe_output_size = -1,
     {%- endif %}
-    const bool mixed_D = false
+    {{ mu_stub }}const bool mixed_D = false
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
@@ -1200,6 +1214,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
 }
 {%- endif %} {#-/* if args.split_function_args_v1 is not none */#}
 
+{%- if dense or args.split_function_args_v1 is not none %}
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 {%- for lib_name in ["fb", "fbgemm"] %}
 TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
@@ -1302,4 +1317,5 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
     {%- endif %} {#-/* if dense or args.split_function_args_v1 is not none */#}
 }
 {%- endfor %} {#-/* for lib_name */#}
+{%- endif %} {#-/* if dense or args.split_function_args_v1 is not none */#}
     // clang-format on

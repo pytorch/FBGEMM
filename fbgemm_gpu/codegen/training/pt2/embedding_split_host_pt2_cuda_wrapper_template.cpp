@@ -88,12 +88,14 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
     const c10::SymInt total_D,
     const c10::SymInt max_D,
     {%- endif %}
-    const Tensor& hash_size_cumsum,
+    {#- /* The forward op reads the hash size cumsum only on the global
+          weight decay path. */ #}
+    {{ "" if is_gwd else "[[maybe_unused]] " }}const Tensor& hash_size_cumsum,
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not nobag %}
     const int64_t pooling_mode,
-    const Tensor& indice_weights, // CPU always takes indice_weights
+    {{ "" if weighted else "[[maybe_unused]] " }}const Tensor& indice_weights, // CPU always takes indice_weights
     {%- endif %}
     const Tensor& {{ "ssd_row_addrs" if ssd else "lxu_cache_locations" }},
     const Tensor& uvm_cache_stats,
@@ -103,10 +105,13 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
     const c10::SymInt vbe_output_size,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
-    const Tensor& vbe_B_offsets_rank_per_feature,
-    const Tensor& vbe_output_offsets_feature_rank,
-    const c10::SymInt max_B,
-    const Tensor& B_offsets,
+    {#- /* The rank-per-feature VBE metadata is used by the CPU wrapper to
+          reshape its output; the CUDA forward op takes the flattened form
+          above. */ #}
+    [[maybe_unused]] const Tensor& vbe_B_offsets_rank_per_feature,
+    [[maybe_unused]] const Tensor& vbe_output_offsets_feature_rank,
+    [[maybe_unused]] const c10::SymInt max_B,
+    [[maybe_unused]] const Tensor& B_offsets,
     {%- endif %}
     {%- if is_gwd %}
     const Tensor& prev_iter_dev,
@@ -247,7 +252,8 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     const Tensor& offsets,
     {%- if not nobag %}
     const int64_t pooling_mode,
-    const Tensor& indice_weights, // currently supports no bag with unweighted
+    {#- /* Only the weighted backward forwards the indice weights. */ #}
+    {{ "" if weighted else "[[maybe_unused]] " }}const Tensor& indice_weights, // currently supports no bag with unweighted
     {%- endif %}
     const at::TensorList aux_tensor_bwd,
     const int64_t BT_block_size,
@@ -274,9 +280,11 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     {%- endif %}
     const double gwd_lower_bound,
     {%- endif %}
-    {{ args_pt2.split_function_args | join(", ") }}
+    {{ args_pt2.split_function_args_by_surface["pt2_cuda"] | join(", ") }}
     {%- if not nobag %}
-    , const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
+    {#- /* Present so the PT2 backward schema mirrors the forward one; the
+          backward op derives its own output type. */ #}
+    , [[maybe_unused]] const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {%- endif %}){
         TORCH_CHECK(
             weights.size() == 5,
@@ -458,8 +466,10 @@ Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_{{ d
     const Tensor& vbe_b_t_map,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
-    const Tensor& vbe_B_offsets_rank_per_feature,
-    const c10::SymInt max_B
+    {#- /* The CPU wrapper reshapes its offsets from these two; the CUDA
+          grad-indice-weights op takes the flattened row layout above. */ #}
+    [[maybe_unused]] const Tensor& vbe_B_offsets_rank_per_feature,
+    [[maybe_unused]] const c10::SymInt max_B
     {%- else %}
     const Tensor& feature_requires_grad
     {%- endif %}

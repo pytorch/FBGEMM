@@ -33,6 +33,10 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+{#- /* Only this optimizer has an fbgemm fast path on CPU, and it is the
+      sole reader of the raw momentum1 offsets accessor. */ #}
+{%- set uses_fbgemm_rowwise_adagrad = optimizer == "rowwise_adagrad" %}
+
 namespace internal {
 template <typename T>
 struct half2float16 {
@@ -61,7 +65,7 @@ void split_embedding_backward_exact_cpu_kernel(
     int B,
     const int* table_to_feature_offset,
     {% if "momentum1_offsets" in args.split_function_arg_names %}
-    const at::TensorAccessor<int64_t, 1> momentum1_offsets_data,
+    {{ "" if uses_fbgemm_rowwise_adagrad else "[[maybe_unused]] " }}const at::TensorAccessor<int64_t, 1> momentum1_offsets_data,
     {% endif %}
     {% if "momentum2_offsets" in args.split_function_arg_names %}
     const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
@@ -252,11 +256,9 @@ void split_embedding_nobag_backward_exact_cpu_kernel(
     const Tensor& hash_size_cumsum,
     const Tensor& indices,
     const Tensor& offsets,
-    int num_tables,
     int B,
-    const int* table_to_feature_offset,
     {% if "momentum1_offsets" in args.split_function_arg_names %}
-    const at::TensorAccessor<int64_t, 1> momentum1_offsets_data,
+    {{ "" if uses_fbgemm_rowwise_adagrad else "[[maybe_unused]] " }}const at::TensorAccessor<int64_t, 1> momentum1_offsets_data,
     {% endif %}
     {% if "momentum2_offsets" in args.split_function_arg_names %}
     const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
@@ -410,17 +412,17 @@ for (const auto d : c10::irange(D)) {
     Tensor grad_output,
     Tensor host_weights,
     {% if not dense %}
-    Tensor weights_placements,
+    [[maybe_unused]] Tensor weights_placements,
     {% endif %}
     Tensor weights_offsets,
     {% if nobag %}
     int64_t D,
     {% else %}
     Tensor D_offsets,
-    int64_t max_D,
+    [[maybe_unused]] int64_t max_D,
     {% endif %}
     Tensor hash_size_cumsum,
-    int64_t total_hash_size_bits,
+    [[maybe_unused]] int64_t total_hash_size_bits,
     Tensor indices,
     Tensor offsets,
     {% if not nobag %}
@@ -428,10 +430,10 @@ for (const auto d : c10::irange(D)) {
     Tensor indice_weights,
     {% endif %}
     {% if not dense %}
-    bool stochastic_rounding,
+    [[maybe_unused]] bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }}
     {%- if not nobag %}
-    , int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
+    , [[maybe_unused]] int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {%- endif %}
     {% else %}
     {{ args.split_function_args | join(", ") }}
@@ -512,10 +514,12 @@ for (const auto d : c10::irange(D)) {
               {% if not nobag %}
               pooling_mode,
               indice_weights,
-              {% endif %}
               num_tables,
+              {% endif %}
               B,
+              {% if not nobag %}
               table_to_feature_offset,
+              {% endif %}
               {% if "momentum1_offsets" in args.split_function_arg_names %}
               momentum1_offsets_data,
               {% endif %}
@@ -586,13 +590,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     "Tensor indice_weights, "
     {%- endif %}
     "bool stochastic_rounding, "
-    "{{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}"
+    "{{ args.split_function_schemas | join(", ") }}"
     {%- if not nobag %}
     ", int output_dtype = 0"
     {%- endif %}
     ") -> ()");
   {% else %}
-  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}) -> Tensor");
+  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ args.split_function_schemas | join(", ") }}) -> Tensor");
   {% endif %}
   DISPATCH_TO_CPU("split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu", split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu);
 

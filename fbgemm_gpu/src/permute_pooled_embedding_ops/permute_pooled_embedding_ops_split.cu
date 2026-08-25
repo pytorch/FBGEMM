@@ -65,7 +65,7 @@ Tensor permute_pooled_embs_split_gpu_impl(
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list,
+    [[maybe_unused]] const Tensor& inv_permute_list,
     const bool& allow_duplicates) {
   if (pooled_embs.numel() == 0) {
     return pooled_embs;

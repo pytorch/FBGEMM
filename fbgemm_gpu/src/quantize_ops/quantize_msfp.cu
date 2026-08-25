@@ -207,9 +207,9 @@ DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
 /// @return A new tensor with values from the input tensor converted to `float`.
 DLL_PUBLIC at::Tensor _msfp_to_float_gpu(
     const at::Tensor& input,
-    const int64_t ebits,
-    const int64_t mbits,
-    const int64_t bias) {
+    [[maybe_unused]] const int64_t ebits,
+    [[maybe_unused]] const int64_t mbits,
+    [[maybe_unused]] const int64_t bias) {
   TENSOR_ON_CUDA_GPU(input);
 
   // Because float_to_msfp is a fakequant operator,

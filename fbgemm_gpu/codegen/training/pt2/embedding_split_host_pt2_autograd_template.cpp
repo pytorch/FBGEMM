@@ -680,7 +680,8 @@ class {{ autograd_func }} :
   static torch::autograd::variable_list forward(
     torch::autograd::AutogradContext* ctx,
     {%- if not dense %}
-    const Tensor& placeholder_autograd_tensor,
+    {#- /* Exists only to give autograd a differentiable leaf input. */ #}
+    [[maybe_unused]] const Tensor& placeholder_autograd_tensor,
     {%- endif %}
     const int64_t output_dtype,
     {%- if dense %}
@@ -721,7 +722,10 @@ class {{ autograd_func }} :
     {%- if not dense %}
     std::vector<std::optional<at::Tensor>> aux_tensor,
     std::vector<int64_t> aux_int,
-    std::vector<double> aux_float,
+    {#- /* The packed float auxiliaries are the gradient clip bound and the
+          global-weight-decay lower bound; the `none` optimizer applies
+          neither. */ #}
+    {{ "" if ((optimizer != "none" and not dense) or is_gwd) else "[[maybe_unused]] " }}std::vector<double> aux_float,
     c10::List<bool> aux_bool,
     {%- endif %}
     {%- if ssd %}
@@ -1368,17 +1372,21 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     c10::List<bool> aux_bool,
     {%- endif %} {#-/* if not dense */#}
     {{ args_pt2.unified_pt2.split_function_args | join(", ") }},
-    const c10::SymInt max_B = -1,
-    const c10::SymInt max_B_feature_rank = -1,
+    {#- /* The VBE arguments are on every unified lookup signature so the PT2
+          schema is one shape for all optimizers, and are forwarded only by
+          optimizers that support VBE. */ #}
+    {%- set mu_vbe = "" if has_vbe_support else "[[maybe_unused]] " %}
+    {{ mu_vbe }}const c10::SymInt max_B = -1,
+    {{ mu_vbe }}const c10::SymInt max_B_feature_rank = -1,
     {%- if not dense %}
-    const c10::SymInt vbe_output_size = -1,
+    {{ mu_vbe }}const c10::SymInt vbe_output_size = -1,
     {%- if ssd %}
     const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
     {%- endif %} {#-/* if ssd */#}
-    std::optional<Tensor> vbe_output = std::nullopt
+    {{ mu_vbe }}std::optional<Tensor> vbe_output = std::nullopt
     {%- else %}
     {#- /* ssd and pre-allocated vbe_output is not yet supported in Dense TBE */ -#}
-    const c10::SymInt vbe_output_size = -1
+    {{ mu_vbe }}const c10::SymInt vbe_output_size = -1
     {%- endif %} {#-/* if not dense */#}
 ) {
 
