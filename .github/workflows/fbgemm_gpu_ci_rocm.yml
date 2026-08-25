@@ -237,7 +237,23 @@ jobs:
       timeout-minutes: 40
       continue-on-error: true
       run: |
-        "${HOME}/miniconda/envs/${BUILD_ENV}/bin/python" -u .github/scripts/vf_latency_probe.py
+        # Resolve the interpreter explicitly; conda is not reliably on PATH in a
+        # fresh step, and a wrong interpreter is the easiest way to waste a round.
+        PY="${HOME}/miniconda/envs/${BUILD_ENV}/bin/python"
+        if [ ! -x "$PY" ]; then
+          echo "[PROBE] $PY not found, falling back to conda run"
+          PY=""
+        fi
+        echo "[PROBE] interpreter: ${PY:-conda run -n $BUILD_ENV python}"
+        ls -la "$(dirname "$PY")" 2>/dev/null | head -5 || true
+        echo "[PROBE] candidate HIP libraries visible:"
+        ls -la /opt/rocm/lib/libamdhip64* 2>/dev/null || echo "  none under /opt/rocm/lib"
+        if [ -n "$PY" ]; then
+          "$PY" -u .github/scripts/vf_latency_probe.py
+        else
+          . $PRELUDE
+          conda run --no-capture-output -n "$BUILD_ENV" python -u .github/scripts/vf_latency_probe.py
+        fi
 
     # DEBUG PR: everything below is disabled.  No wheel exists to install, and the
     # test suite is not what this run is measuring.

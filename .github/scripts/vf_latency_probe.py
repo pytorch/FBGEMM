@@ -28,19 +28,69 @@ import time
 # HIP bindings via ctypes - keeps this independent of any compiler or framework
 # --------------------------------------------------------------------------- #
 
-hip = ctypes.CDLL("libamdhip64.so")
+def _load_hip():
+    """Locate libamdhip64 without assuming the loader path resolves it.
+
+    The unversioned .so is often only present in the -dev package, so the plain
+    soname can fail on a runtime-only image.  Prefer the copy PyTorch bundles:
+    it is guaranteed to exist wherever this script can run at all, and because
+    torch has already dlopen'd it, we get the same handle and therefore the same
+    HIP context rather than a second runtime in the process.
+
+    Returns (handle, description).  A None handle is not fatal - the tests that
+    need raw HIP report themselves skipped, and the torch-only tests, which are
+    the ones that matter most, still run.
+    """
+    candidates = []
+    try:
+        import torch
+        candidates.append(os.path.join(os.path.dirname(torch.__file__), "lib",
+                                       "libamdhip64.so"))
+    except Exception:
+        pass
+    candidates += [
+        "/opt/rocm/lib/libamdhip64.so",
+        "libamdhip64.so",
+        "libamdhip64.so.7",
+        "libamdhip64.so.6",
+    ]
+    for path in candidates:
+        try:
+            return ctypes.CDLL(path), path
+        except OSError:
+            continue
+    # Last resort: torch links against it, so the symbols may already be global.
+    try:
+        h = ctypes.CDLL(None)
+        h.hipMalloc  # probe for the symbol; raises AttributeError if absent
+        return h, "(already-loaded global symbols)"
+    except Exception as e:
+        return None, f"NOT FOUND ({e})"
+
+
+hip, HIP_LIB_PATH = _load_hip()
 
 hipMemAdviseSetPreferredLocation = 3
 hipMemAdviseSetAccessedBy = 5
 hipMemcpyDeviceToHost = 2
 hipCpuDeviceId = -1
 
-hip.hipMalloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
-hip.hipMallocManaged.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t, ctypes.c_uint]
-hip.hipFree.argtypes = [ctypes.c_void_p]
-hip.hipMemcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
-hip.hipMemAdvise.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int]
-hip.hipDeviceSynchronize.argtypes = []
+if hip is not None:
+    hip.hipMalloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
+    hip.hipMallocManaged.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t, ctypes.c_uint]
+    hip.hipFree.argtypes = [ctypes.c_void_p]
+    hip.hipMemcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    hip.hipMemAdvise.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int]
+    hip.hipDeviceSynchronize.argtypes = []
+
+
+def require_hip(tag):
+    """Report a raw-HIP test as skipped rather than crashing the run."""
+    if hip is None:
+        result(tag, status=f"SKIPPED - libamdhip64 unavailable: {HIP_LIB_PATH}")
+        print()
+        return False
+    return True
 
 
 def hip_check(rc, what):
@@ -96,6 +146,7 @@ def fingerprint():
     print("=" * 78)
     print("ENVIRONMENT")
     print("=" * 78)
+    print(f"  libamdhip64     : {HIP_LIB_PATH}")
     import torch
     dev = torch.cuda.current_device()
     props = torch.cuda.get_device_properties(dev)
@@ -276,6 +327,8 @@ def h3_interrupt_vs_polling():
 
 def h4_small_copy(iters=1000):
     print("-- H4  4-byte device->host copy " + "-" * 44)
+    if not require_hip("H4_d2h_4B"):
+        return
     dptr = ctypes.c_void_p()
     hip_check(hip.hipMalloc(ctypes.byref(dptr), 4), "hipMalloc")
     host = ctypes.create_string_buffer(4)
@@ -310,6 +363,8 @@ def h5_managed_host_access(pages=4096):
     Both configurations are measured so the advises can be shown to matter or not.
     """
     print("-- H5  host access to managed memory " + "-" * 39)
+    if not require_hip("H5_managed"):
+        return
     PAGE = 4096
     size = pages * PAGE
 
@@ -359,6 +414,8 @@ def h5_managed_host_access(pages=4096):
 
 def h7_alloc(iters=200):
     print("-- H7  allocation latency " + "-" * 50)
+    if not require_hip("H7_alloc"):
+        return
     for label, fn, sz in (("hipMalloc_1MiB", "malloc", 1 << 20),
                           ("hipMallocManaged_1MiB", "managed", 1 << 20)):
         samples = []
