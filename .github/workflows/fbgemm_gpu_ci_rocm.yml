@@ -255,6 +255,31 @@ jobs:
           conda run --no-capture-output -n "$BUILD_ENV" python -u .github/scripts/vf_latency_probe.py
         fi
 
+    # DEBUG PR: replicate the conditions of the hanging UVM tests directly -
+    # the real shapes from the CI log, the same HIP call sequence, per-step
+    # timing, plus the guest and cgroup memory limits that nothing in this
+    # pipeline has ever reported.
+    - name: UVM Allocation Reproduction
+      timeout-minutes: 30
+      continue-on-error: true
+      env:
+        # Deliberately bounded.  Allocation cost is linear in size on bare metal
+        # (55 ms/GiB from 8 to 58 GiB), so the slope measured at safe sizes
+        # extrapolates to the 786 GiB shapes the real test uses.  Running those
+        # directly would burn the step budget - a 415 GiB allocation blocked for
+        # over 12 minutes on bare metal - and tell us nothing extra.
+        VF_REPRO_BAIL_SECONDS: "30"
+        VF_REPRO_MAX_GIB: "32"
+      run: |
+        PY="${HOME}/miniconda/envs/${BUILD_ENV}/bin/python"
+        [ -x "$PY" ] || PY=""
+        if [ -n "$PY" ]; then
+          "$PY" -u .github/scripts/vf_uvm_repro.py
+        else
+          . $PRELUDE
+          conda run --no-capture-output -n "$BUILD_ENV" python -u .github/scripts/vf_uvm_repro.py
+        fi
+
     # DEBUG PR: everything below is disabled.  No wheel exists to install, and the
     # test suite is not what this run is measuring.
     - name: Prepare FBGEMM_GPU Build
