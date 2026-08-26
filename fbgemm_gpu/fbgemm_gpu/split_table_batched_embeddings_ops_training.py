@@ -377,6 +377,32 @@ def get_available_compute_device() -> ComputeDevice:
         return ComputeDevice.CPU
 
 
+def res_bitmap_compact(selected: Tensor) -> tuple[Tensor, Tensor]:
+    """Turn the boolean mask `selected` into the ascending positions where it
+    is True.
+
+    Returns `(rows, count)`. `count` is a 0-dim int64 device tensor; the
+    entries of `rows` past it are uninitialised. Nothing here reads the device,
+    which is the point -- `nonzero()` and friends must size their output before
+    they can allocate.
+    """
+    n = selected.numel()
+    device = selected.device
+    # The + 1 is a junk slot, used below.
+    rows = torch.empty(n + 1, dtype=torch.long, device=device)
+    # Traced for selected = [F, T, F, T, T], so n = 5:
+    #
+    # produces each True's destination index; a False repeats the one before it
+    pos = torch.cumsum(selected, 0, dtype=torch.long).sub_(1)  # [-1, 0, 0, 1, 2]
+    # every False redirected to the junk slot at index n
+    pos.masked_fill_(selected.logical_not(), n)  # [5, 0, 5, 1, 2]
+    # scatter PUSHES a value into a slot: rows[pos[i]] = src[i]. `pos` is the
+    # slot, and src is `arange` = [0, 1, 2, 3, 4], the positions themselves:
+    # 1 -> rows[0], 3 -> rows[1], 4 -> rows[2], and both Falses onto rows[5].
+    rows.scatter_(0, pos, torch.arange(n, device=device))  # rows = [1, 3, 4, _, _, _]
+    return rows, selected.sum()  # 3
+
+
 # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
 # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
 class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
