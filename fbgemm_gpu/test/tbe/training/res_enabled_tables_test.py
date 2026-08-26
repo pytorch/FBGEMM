@@ -16,6 +16,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     EmbeddingLocation,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    _next_copy_done_token,
     RESParams,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
@@ -71,9 +72,10 @@ class ResEnabledTablesTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     def test_res_count_and_copy_done_start_zero(self) -> None:
         # new_unified_tensor hands back an unzeroed allocation. res_count is
-        # read as a row count by a std::copy that does not bound check, and any
-        # nonzero copy_done reads as "the GPU is done writing" -- so an unzeroed
-        # pair makes the first drain over-read and ship mid-write.
+        # read as a row count by a std::copy that does not bound check, and the
+        # first drain's poll awaits exactly 1, which is the value that malloc
+        # was measured handing back -- so an unzeroed pair makes the first drain
+        # over-read and ship mid-write.
         # Both arguments are load-bearing, and the test is vacuous without
         # either. MANAGED_CACHING, not DEVICE: a DEVICE table has no UVM cache,
         # so cache_size is 0 and _register_res_buffers takes the empty branch,
@@ -656,8 +658,9 @@ class ResEnabledTablesTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     def test_hbm_flag_is_not_the_cache_lane_flag(self) -> None:
         # The protocol is chosen per stream() call, so the two lanes cannot
-        # share a flag: the poller clears it once it has consumed a signal, so
-        # one lane's poll would swallow the other's.
+        # share a flag: a call passing no expected_flag_value would reset a
+        # shared flag to 0 and strand the other lane's poll until its full
+        # timeout.
         tbe = self._drain_tbe()
         hbm_flag = tbe.get_buffer("_res_hbm_copy_done")
         cache_flag = tbe.get_buffer("res_copy_done")
@@ -748,6 +751,93 @@ class ResEnabledTablesTest(unittest.TestCase):
         self.assertEqual(tbe.get_buffer("_res_hbm_copy_done").tolist(), [1])
         self.assertIsNone(hbm["identities"])
         self.assertFalse(hbm["blocking_tensor_copy"])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_both_lanes_pass_their_own_token(self) -> None:
+        # The protocol is per call. If either lane passed None the poller would
+        # fall back to boolean and clear that lane's flag, so both values must
+        # be present and distinct from each other's flag.
+        rows = ROWS
+        tbe = self._drain_tbe()
+        tbe.res_params.res_use_copy_done_token = True
+        streamer = MagicMock()
+        tbe._raw_embedding_streamer = streamer
+        # Seeded apart and asserted against literals: from zero both tokens
+        # reach 1 on the first drain, where a hard-coded constant or a swap of
+        # the two lanes satisfies every assertion below.
+        tbe._res_cache_copy_done_token = 41
+        tbe._res_hbm_copy_done_token = 7
+        self._prefetch_until_pending(tbe, 3, rows)
+        tbe.raw_embedding_stream()
+
+        # Keyed by use_hbm, so a second call on one lane would overwrite the
+        # first and go unnoticed. One call per lane is the contract.
+        self.assertEqual(streamer.stream.call_count, 2)
+        calls = {
+            c.kwargs.get("use_hbm", False): c.kwargs
+            for c in streamer.stream.call_args_list
+        }
+        self.assertEqual(calls[False]["expected_flag_value"], 42)
+        self.assertEqual(calls[True]["expected_flag_value"], 8)
+        # Each flag holds its own lane's value; neither lane wrote the other's.
+        self.assertEqual(tbe.get_buffer("_res_hbm_copy_done").tolist(), [8])
+        self.assertEqual(tbe.get_buffer("res_copy_done").tolist(), [42])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_copy_done_token_is_off_by_default(self) -> None:
+        # The default must not switch an existing caller's protocol: this
+        # asserts the opt-in, so flipping the field's default turns it red.
+        # The knob lives on RESParams rather than as a plain attribute because
+        # RESParams is base-layer -- the field has to exist here before an
+        # app-layer caller can set it.
+        #
+        # None, not omitted: the C++ arg defaults to nullopt and branches on
+        # has_value(), so passing None is byte-for-byte the old handshake.
+        rows = ROWS
+        tbe = self._drain_tbe()
+        streamer = MagicMock()
+        tbe._raw_embedding_streamer = streamer
+        self._prefetch_until_pending(tbe, 3, rows)
+        tbe.raw_embedding_stream()
+
+        calls = {
+            c.kwargs.get("use_hbm", False): c.kwargs
+            for c in streamer.stream.call_args_list
+        }
+        self.assertEqual(calls[False]["expected_flag_value"], None)
+        self.assertEqual(calls[True]["expected_flag_value"], None)
+        # The off branch is the whole pre-token protocol, not just a different
+        # expectation: the flags are filled with 1 and the tokens are untouched.
+        self.assertEqual(tbe.get_buffer("res_copy_done").tolist(), [1])
+        self.assertEqual(tbe.get_buffer("_res_hbm_copy_done").tolist(), [1])
+        self.assertEqual(tbe._res_cache_copy_done_token, 0)
+        self.assertEqual(tbe._res_hbm_copy_done_token, 0)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_tokens_advance_per_drain(self) -> None:
+        rows = ROWS
+        tbe = self._drain_tbe()
+        tbe.res_params.res_use_copy_done_token = True
+        tbe._raw_embedding_streamer = MagicMock()
+        for expected in (1, 2, 3):
+            self._prefetch_until_pending(tbe, expected, rows)
+            tbe.raw_embedding_stream()
+            self.assertEqual(tbe._res_hbm_copy_done_token, expected)
+            self.assertEqual(tbe._res_cache_copy_done_token, expected)
+            self.assertEqual(tbe.get_buffer("_res_hbm_copy_done").tolist(), [expected])
+            # The cache lane too: its write is the one live in production.
+            self.assertEqual(tbe.get_buffer("res_copy_done").tolist(), [expected])
+
+    def test_token_wraps_below_int32(self) -> None:
+        # 0 is the resting value of an untouched flag, and the C++ guard in
+        # stream() rejects anything outside [1, 2**31 - 1]. No TBE: this is a
+        # pure function of an int.
+        self.assertEqual(_next_copy_done_token(0), 1)
+        self.assertEqual(_next_copy_done_token(1_999_999_999), 2_000_000_000)
+        self.assertEqual(_next_copy_done_token(2_000_000_000), 1)
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)

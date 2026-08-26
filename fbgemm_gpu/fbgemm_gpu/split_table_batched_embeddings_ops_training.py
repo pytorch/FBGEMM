@@ -162,6 +162,8 @@ class RESParams:
     # per interval. That is what it is for: it stops a hot row flooding the
     # downstream, which has to absorb everything a drain sends.
     res_hbm_drain_interval: int = 1
+    # Opt in to the per-drain token protocol.
+    res_use_copy_done_token: bool = False
 
 
 class PrefetchedInfo:
@@ -385,6 +387,16 @@ def get_available_compute_device() -> ComputeDevice:
         return ComputeDevice.MTIA
     else:
         return ComputeDevice.CPU
+
+
+def _next_copy_done_token(prev: int) -> int:
+    """Next value to write into a copy_done flag, for the poller to wait on.
+
+    Never 0: that is the resting value of an untouched flag, so a lane
+    producing it would leave every poll already satisfied. Wraps well below the
+    int32 the flag holds.
+    """
+    return (prev % 2_000_000_000) + 1
 
 
 def res_bitmap_compact(selected: Tensor) -> tuple[Tensor, Tensor]:
@@ -1613,6 +1625,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self._res_require_copy: bool = True
             self._res_sync_copy: bool = False
+            # One token each, so neither poll can be satisfied by the other's
+            # write.
+            self._res_cache_copy_done_token: int = 0
+            self._res_hbm_copy_done_token: int = 0
             self._register_res_buffers()
 
             # pyre-fixme[4]: Attribute must be annotated.
@@ -1719,10 +1735,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "res_copy_done",
-            # Unzeroed for the same reason as res_count above. The C++ poll
-            # reads any nonzero as "the GPU is done writing the RES buffers"
-            # and then resets it, so garbage here desyncs the handshake by one
-            # iteration for the rest of the run, not just the first drain.
+            # `.zero_()` for the same reason as res_count above.
             torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
                     1,
@@ -4968,7 +4981,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     # pyre-ignore[29]: `...` is not a function.
                     self.res_runtime_meta[: runtime_meta.size(0)].copy_(runtime_meta)
 
-            self.res_copy_done.fill_(1)
+            # A fresh token per drain, not a constant: the poller waits for
+            # this exact value and no longer clears the flag, so a constant
+            # would leave every later poll already satisfied and read the
+            # buffers mid-write.
+            if self.res_params.res_use_copy_done_token:
+                self._res_cache_copy_done_token = _next_copy_done_token(
+                    self._res_cache_copy_done_token
+                )
+                expected_flag = self._res_cache_copy_done_token
+                self.res_copy_done.fill_(expected_flag)
+            else:
+                # Pre-token protocol: any nonzero means done, and the poller
+                # clears the flag itself.
+                expected_flag = None
+                self.res_copy_done.fill_(1)
 
             # stream weights
             self._raw_embedding_streamer.stream(
@@ -4988,6 +5015,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self._res_require_copy,  # require_tensor_copy
                 self._res_sync_copy,  # blocking_tensor_copy
                 self.res_copy_done,  # copy_done_flag - UVA flag tensor for GPU-CPU sync
+                expected_flag_value=expected_flag,
             )
 
             self._ship_hbm_rows(prefetched_info)
@@ -5047,11 +5075,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights_dev,
             )
 
-            self._res_hbm_copy_done.fill_(1)
-            # TODO: migrate to the sequence protocol once a training_platform
-            # package containing it has rolled out -- pass expected_flag_value
-            # here instead. Until then a poll that times out leaves the flag set
-            # and the next drain can read the source tensors mid-write.
+            if self.res_params.res_use_copy_done_token:
+                self._res_hbm_copy_done_token = _next_copy_done_token(
+                    self._res_hbm_copy_done_token
+                )
+                expected_flag = self._res_hbm_copy_done_token
+                self._res_hbm_copy_done.fill_(expected_flag)
+            else:
+                # Pre-token protocol: any nonzero means done, and the poller
+                # clears the flag itself.
+                expected_flag = None
+                self._res_hbm_copy_done.fill_(1)
             self._raw_embedding_streamer.stream(
                 indices=self._res_hbm_indices_buf[:num_drained_rows],
                 weights=self._res_hbm_weights_buf[:num_drained_rows],
@@ -5066,6 +5100,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 blocking_tensor_copy=False,
                 copy_done_flag=self._res_hbm_copy_done,
                 use_hbm=True,
+                expected_flag_value=expected_flag,
             )
 
     @staticmethod
