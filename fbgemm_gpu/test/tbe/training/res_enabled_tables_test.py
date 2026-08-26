@@ -8,6 +8,7 @@
 # pyre-strict
 
 import unittest
+from unittest.mock import MagicMock
 
 import torch
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
@@ -283,6 +284,12 @@ class ResEnabledTablesTest(unittest.TestCase):
         self.assertFalse(hasattr(tbe, "_res_rows_seen"))
         self.assertFalse(hasattr(tbe, "_res_hbm_linear_mask"))
         self.assertFalse(hasattr(tbe, "_res_drain_count_cpu"))
+        self.assertFalse(hasattr(tbe, "_res_hbm_copy_done"))
+        # The staging buffers are the largest thing the lane allocates, and
+        # they ratchet to the biggest drain the run has seen.
+        self.assertFalse(hasattr(tbe, "_res_hbm_indices_buf"))
+        self.assertFalse(hasattr(tbe, "_res_hbm_weights_buf"))
+        self.assertFalse(hasattr(tbe, "_res_hbm_count_buf"))
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
@@ -443,6 +450,22 @@ class ResEnabledTablesTest(unittest.TestCase):
         drained = tbe.prefetched_info_list[-1].res_hbm_indices
         return None if drained is None else drained.tolist()
 
+    def _prefetch_until_pending(
+        self,
+        tbe: SplitTableBatchedEmbeddingBagsCodegen,
+        t1_row: int,
+        rows: int = 64,
+    ) -> None:
+        """Leave one prefetched_info, carrying `t1_row` for the ship to send.
+
+        The prefetch that marks a row and the one that ships it are different
+        iterations, and ``raw_embedding_stream`` pops the oldest entry -- so the
+        marking prefetch has to be dropped or the ship would pop an empty one.
+        """
+        self._mark_and_store_one_row(tbe, t1_row, rows)
+        tbe.prefetched_info_list.clear()
+        self._idle_iteration(tbe)
+
     def _device_tbe(
         self, heights: list[int], dims: list[int]
     ) -> SplitTableBatchedEmbeddingBagsCodegen:
@@ -481,6 +504,137 @@ class ResEnabledTablesTest(unittest.TestCase):
         present = tbe.get_buffer("_res_rows_seen")
         mask = tbe.get_buffer("_res_hbm_linear_mask")
         self.assertFalse(bool((present & mask).any()))
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_flag_is_not_the_cache_lane_flag(self) -> None:
+        # The protocol is chosen per stream() call, so the two lanes cannot
+        # share a flag: the poller clears it once it has consumed a signal, so
+        # one lane's poll would swallow the other's.
+        tbe = self._drain_tbe()
+        hbm_flag = tbe.get_buffer("_res_hbm_copy_done")
+        cache_flag = tbe.get_buffer("res_copy_done")
+        self.assertIsNot(hbm_flag, cache_flag)
+        self.assertNotEqual(hbm_flag.data_ptr(), cache_flag.data_ptr())
+        # Allocated at construction rather than on first ship, and zeroed. This
+        # flag is allocated is_host_mapped=True unconditionally, which is the
+        # malloc branch of new_unified_tensor -- the one that comes back
+        # unzeroed -- and 1 is the value the first ship waits for. The cache
+        # lane's flag follows uvm_host_mapped, so asserting its zero here would
+        # be reading a fresh cudaMallocManaged page;
+        # test_res_count_and_copy_done_start_zero covers it where it is malloc.
+        self.assertEqual(hbm_flag.tolist(), [0])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_res_host_buf_grows_and_keeps(self) -> None:
+        tbe = self._build_mixed_tbe(
+            ["t0"], [EmbeddingLocation.DEVICE], res_enabled_tables=["t0"]
+        )
+        first = tbe._grown_res_host_buf_if_needed(None, 4, (), torch.int64)
+        self.assertEqual(list(first.shape), [4])
+        # A smaller ask reuses the buffer rather than shrinking it.
+        self.assertIs(
+            tbe._grown_res_host_buf_if_needed(first, 2, (), torch.int64), first
+        )
+        grown = tbe._grown_res_host_buf_if_needed(first, 9, (), torch.int64)
+        self.assertIsNot(grown, first)
+        self.assertEqual(list(grown.shape), [9])
+        weights_buf = tbe._grown_res_host_buf_if_needed(None, 3, (8,), torch.float32)
+        self.assertEqual(list(weights_buf.shape), [3, 8])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_joins_previous_copy_before_reusing_buffers(self) -> None:
+        # Structural, not behavioural. The hazard is a write-after-read race:
+        # this drain overwrites the grow-and-keep staging buffers while the
+        # previous drain's copy pool may still be reading them. It cannot be
+        # reproduced here -- the harness is synchronous, so drain i finishes
+        # before i+1 starts, and a MagicMock streamer never has an in-flight
+        # reader. So assert the call exists instead, which is what makes
+        # deleting it fail rather than pass silently.
+        rows = ROWS
+        tbe = self._drain_tbe()
+        # One parent, so the join and the buffer writes land on a single
+        # timeline. Pinning the join against `stream()` is too weak: the writes
+        # sit between the two, so the join can be moved down to just above
+        # `stream()` -- fully restoring the race -- with that assert still green.
+        parent = MagicMock()
+        tbe._raw_embedding_streamer = parent.streamer
+        parent.attach_mock(
+            MagicMock(side_effect=tbe._grown_res_host_buf_if_needed), "alloc"
+        )
+        tbe._grown_res_host_buf_if_needed = parent.alloc
+        self._prefetch_until_pending(tbe, 3, rows)
+        tbe.raw_embedding_stream()
+
+        parent.streamer.join_hbm_dispatch_and_workers.assert_called_once()
+        names = [c[0] for c in parent.mock_calls]
+        join_at = names.index("streamer.join_hbm_dispatch_and_workers")
+        first_write_at = names.index("alloc")
+        self.assertLess(join_at, first_write_at)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_leaves_cache_lane_flag_undisturbed(self) -> None:
+        # A drain must not touch res_copy_done. Mocking only the C++ streamer
+        # keeps the real gather and the real flag writes in the path.
+        rows = ROWS
+        tbe = self._drain_tbe()
+        streamer = MagicMock()
+        tbe._raw_embedding_streamer = streamer
+        self._prefetch_until_pending(tbe, 3, rows)
+        tbe.raw_embedding_stream()
+
+        calls = {
+            c.kwargs.get("use_hbm", False): c.kwargs
+            for c in streamer.stream.call_args_list
+        }
+        # Keyed by use_hbm, so the dict keeps only the last call per lane and
+        # would look identical with twenty calls. Count them too.
+        self.assertEqual(streamer.stream.call_count, 2)
+        self.assertEqual(sorted(calls), [False, True])
+        hbm = calls[True]
+        # Each lane polls its own flag.
+        self.assertIs(hbm["copy_done_flag"], tbe.get_buffer("_res_hbm_copy_done"))
+        self.assertIsNot(hbm["copy_done_flag"], tbe.get_buffer("res_copy_done"))
+        self.assertEqual(tbe.get_buffer("_res_hbm_copy_done").tolist(), [1])
+        self.assertIsNone(hbm["identities"])
+        self.assertFalse(hbm["blocking_tensor_copy"])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_gathers_the_drained_rows(self) -> None:
+        # End to end: the weights handed to stream() are the rows the drain
+        # named, read out of weights_dev.
+        rows, dim = 8, 16
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.MANAGED_CACHING, EmbeddingLocation.DEVICE],
+            res_enabled_tables=["t1"],
+            heights=[rows, rows],
+            dims=[dim, dim],
+        )
+        flat = tbe.get_buffer("weights_dev")
+        flat.copy_(torch.arange(flat.numel(), device=flat.device, dtype=flat.dtype))
+        streamer = MagicMock()
+        tbe._raw_embedding_streamer = streamer
+        self._prefetch_until_pending(tbe, 2, rows)
+        tbe.raw_embedding_stream()
+
+        hbm = next(
+            c.kwargs
+            for c in streamer.stream.call_args_list
+            if c.kwargs.get("use_hbm", False)
+        )
+        self.assertEqual(hbm["indices"].tolist(), [rows + 2])
+        self.assertEqual(hbm["count"].tolist(), [1])
+        # t1 is DEVICE-placed, so weights_dev holds only t1: row 2 is elements
+        # 2*dim .. 3*dim - 1.
+        self.assertEqual(
+            hbm["weights"][0].tolist(),
+            list(range(2 * dim, 3 * dim)),
+        )
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)

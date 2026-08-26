@@ -685,6 +685,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     last_uvm_cache_print_state: torch.Tensor
     _vbe_B_offsets: torch.Tensor | None
     _res_compacted_rows: torch.Tensor | None
+    _res_hbm_indices_buf: torch.Tensor | None
+    _res_hbm_weights_buf: torch.Tensor | None
     _vbe_max_B: int
 
     def __init__(  # noqa C901
@@ -1970,6 +1972,30 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._res_drain_event: torch.cuda.Event = torch.cuda.Event()
         self._res_drain_count_cpu: Tensor = torch.zeros(
             1, dtype=torch.int64, pin_memory=True
+        )
+        # .zero_() is not redundant: is_host_mapped backs onto malloc, so the
+        # flag can be born already signalled.
+        self.register_buffer(
+            "_res_hbm_copy_done",
+            torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(1, device=self.current_device, dtype=torch.int32),
+                (1,),
+                is_host_mapped=True,
+            ).zero_(),
+            persistent=False,  # RES buffer is not checkpointed
+        )
+        self._res_hbm_indices_buf = None
+        self._res_hbm_weights_buf = None
+        # One element whatever the drain size, so it is allocated here rather
+        # than grown alongside the two above.
+        self.register_buffer(
+            "_res_hbm_count_buf",
+            torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(1, device=self.current_device, dtype=torch.int32),
+                (1,),
+                is_host_mapped=True,
+            ),
+            persistent=False,  # RES buffer is not checkpointed
         )
 
     @torch.jit.ignore
@@ -4946,6 +4972,84 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self._res_require_copy,  # require_tensor_copy
                 self._res_sync_copy,  # blocking_tensor_copy
                 self.res_copy_done,  # copy_done_flag - UVA flag tensor for GPU-CPU sync
+            )
+
+            self._ship_hbm_rows(prefetched_info)
+
+    @torch.jit.ignore
+    def _grown_res_host_buf_if_needed(
+        self,
+        buf: torch.Tensor | None,
+        num_rows: int,
+        row_shape: tuple[int, ...],
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Return `buf` if it already holds `num_rows` rows, else a larger one.
+
+        Never shrunk, and reused across drains. Host-mapped regardless of
+        `self.uvm_host_mapped`: the C++ streamer reads these through raw CPU
+        pointers.
+        """
+        if buf is not None and buf.shape[0] >= num_rows:
+            return buf
+
+        return torch.ops.fbgemm.new_unified_tensor(
+            torch.zeros(1, device=self.current_device, dtype=dtype),
+            (max(num_rows, 1), *row_shape),
+            is_host_mapped=True,
+        )
+
+    @torch.jit.ignore
+    def _ship_hbm_rows(self, prefetched_info: PrefetchedInfo) -> None:
+        """Gather and ship the rows this iteration's drain selected."""
+        drained_rows = prefetched_info.res_hbm_indices
+        if drained_rows is None:
+            return
+        num_drained_rows = drained_rows.size(0)
+
+        with record_function(f"## res_hbm_ship {self.timestep} {self.uuid} ##"):
+            # The staging buffers below are grow-and-keep, so this drain must
+            # not overwrite them while the previous drain's copy pool is still
+            # reading. stream()'s own join cannot cover it: that one runs at the
+            # start of the ship, after the caller has already written.
+            self._raw_embedding_streamer.join_hbm_dispatch_and_workers()
+
+            self._res_hbm_indices_buf = self._grown_res_host_buf_if_needed(
+                self._res_hbm_indices_buf, num_drained_rows, (), torch.long
+            )
+            self._res_hbm_weights_buf = self._grown_res_host_buf_if_needed(
+                self._res_hbm_weights_buf,
+                num_drained_rows,
+                (self.max_D,),
+                self.weights_dev.dtype,
+            )
+            self._res_hbm_indices_buf[:num_drained_rows].copy_(drained_rows)
+            self._res_hbm_count_buf[:1].fill_(num_drained_rows)
+            self._gather_res_rows(
+                drained_rows,
+                self._res_hbm_weights_buf[:num_drained_rows],
+                self.weights_dev,
+            )
+
+            self._res_hbm_copy_done.fill_(1)
+            # TODO: migrate to the sequence protocol once a training_platform
+            # package containing it has rolled out -- pass expected_flag_value
+            # here instead. Until then a poll that times out leaves the flag set
+            # and the next drain can read the source tensors mid-write.
+            self._raw_embedding_streamer.stream(
+                indices=self._res_hbm_indices_buf[:num_drained_rows],
+                weights=self._res_hbm_weights_buf[:num_drained_rows],
+                # The HBM path ships no per-row ZCH state, identity or runtime
+                # metadata. A chunk mixing rows that have one with rows that do
+                # not makes the PS discard the whole FQN, and the cache path's
+                # buffers describe other rows.
+                identities=None,
+                runtime_meta=None,
+                count=self._res_hbm_count_buf[:1],
+                require_tensor_copy=self._res_require_copy,
+                blocking_tensor_copy=False,
+                copy_done_flag=self._res_hbm_copy_done,
+                use_hbm=True,
             )
 
     @staticmethod
