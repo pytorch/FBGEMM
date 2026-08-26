@@ -151,6 +151,11 @@ class ResEnabledTablesTest(unittest.TestCase):
         )
         return tbe
 
+    @staticmethod
+    def _marked_rows(tbe: SplitTableBatchedEmbeddingBagsCodegen) -> list[int]:
+        """Linear row ids the mark has set and no drain has cleared."""
+        return [i for i, p in enumerate(tbe.get_buffer("_res_rows_seen").tolist()) if p]
+
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_hbm_linear_mask_covers_disjoint_device_tables(self) -> None:
@@ -313,9 +318,8 @@ class ResEnabledTablesTest(unittest.TestCase):
             torch.tensor([0, 1, 2], device=device, dtype=torch.int64),
         )
         self.assertEqual(self._idle_iteration(tbe), [rows + 5])
-        present = tbe.get_buffer("_res_rows_seen").tolist()
-        self.assertEqual(len(present), 2 * rows + 1)
-        self.assertEqual([i for i, p in enumerate(present) if p], [3])
+        self.assertEqual(len(tbe.get_buffer("_res_rows_seen").tolist()), 2 * rows + 1)
+        self.assertEqual(self._marked_rows(tbe), [3])
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
@@ -342,34 +346,174 @@ class ResEnabledTablesTest(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    def test_hbm_mark_fires_through_prefetch(self) -> None:
-        # Drives _prefetch rather than calling _store_prefetched_tensors by
-        # hand: the mark has to survive the cacheless early-return, and a test
-        # that invokes the inner method directly cannot see that guard at all.
-        # The DEVICE-only TBE is the shape TorchRec actually builds for a
-        # DEVICE table, and the only shape this lane exists to serve.
+    def test_hbm_lane_reaches_the_drain_through_prefetch(self) -> None:
+        # Drives a real `_prefetch`: everything asserted here lives past the
+        # HBM-only early return, which a direct call to the inner method
+        # cannot see.
+        #
+        # Asserted by what the drain CLEARS, not what the mark sets -- a mark
+        # assert passes whether or not the drain is reachable, which is how an
+        # unreachable drain went unnoticed. But [] is also what a mark that
+        # never fired leaves, so the two arms are each other's control: the
+        # DEVICE arm's [] means nothing without the UVM-cached arm's surviving
+        # [3, 5] in the same invocation, and the reverse. Interval 3 because
+        # the compact fires one call BEFORE the interval -- the smallest value
+        # that marks on the first prefetch and drains on the second.
         rows = ROWS
         device = torch.cuda.current_device()
-        indices = torch.tensor([3], device=device, dtype=torch.int64)
-        offsets = torch.tensor([0, 1], device=device, dtype=torch.int64)
+        # TWO indices: N == 1 is the one width where the zero-width UVM mask
+        # broadcasts instead of raising.
+        indices = torch.tensor([3, 5], device=device, dtype=torch.int64)
+        # Both indices go to feature 0, so both placements mark t0's rows 3
+        # and 5 and the two arms differ only in where the mask sits.
+        offsets = torch.tensor([0, 2, 2], device=device, dtype=torch.int64)
 
-        for location in (
-            EmbeddingLocation.MANAGED_CACHING,  # positive control: has a cache
-            EmbeddingLocation.DEVICE,  # no cache, so no _prefetch tail
+        for locations, allowlist, after_drain in (
+            # UVM-cached: the mark fires on t0, but the HBM mask spans t1, so
+            # the drain selects nothing and the bits survive.
+            (
+                [EmbeddingLocation.MANAGED_CACHING, EmbeddingLocation.DEVICE],
+                ["t1"],
+                [3, 5],
+            ),
+            # DEVICE: the HBM-only branch carries it to the drain, which
+            # compacts the rows and clears them. An unreachable drain leaves
+            # [3, 5] -- exactly what the first assertion has just required.
+            ([EmbeddingLocation.DEVICE, EmbeddingLocation.DEVICE], ["t0"], []),
         ):
-            with self.subTest(location=location):
+            with self.subTest(locations=locations):
                 tbe = self._build_mixed_tbe(
-                    ["t0"], [location], res_enabled_tables=["t0"], heights=[rows]
+                    ["t0", "t1"],
+                    locations,
+                    res_enabled_tables=allowlist,
+                    heights=[rows, rows],
+                    res_hbm_drain_interval=3,
                 )
+                # The second prefetch reaches the ship with the first
+                # iteration's PrefetchedInfo, so the streamer must not be real.
+                tbe._raw_embedding_streamer = MagicMock()
+
                 tbe._prefetch(indices, offsets)
-                self.assertEqual(
-                    [
-                        i
-                        for i, p in enumerate(tbe.get_buffer("_res_rows_seen").tolist())
-                        if p
-                    ],
-                    [3],
-                )
+                self.assertEqual(self._marked_rows(tbe), [3, 5])
+
+                tbe._prefetch(indices, offsets)
+                self.assertEqual(self._marked_rows(tbe), after_drain)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_cacheless_prefetch_ships_the_drained_rows(self) -> None:
+        # The production shape end to end: no UVM cache anywhere, so every step
+        # runs on the HBM-only branch and reaches the streamer. The test above
+        # stops at the drain, leaving the ship -- and the guard that skips the
+        # UVM path inside `raw_embedding_stream` -- unasserted.
+        #
+        # Three prefetches, because the drain queues its count for the next
+        # iteration and the ship reads it the iteration after that.
+        rows, dim = 8, 16
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.DEVICE, EmbeddingLocation.DEVICE],
+            # Partial, not every table: with both tables allowlisted the drain
+            # would ship every marked row and the indices assertion below could
+            # not tell "the HBM mask was applied" from "everything was shipped".
+            res_enabled_tables=["t1"],
+            heights=[rows, rows],
+            dims=[dim, dim],
+        )
+        # The guard in _store_prefetched_tensors exists because this attribute
+        # is an int on a UVM-cached TBE and a CUDA tensor here. The HBM-only
+        # branch returns before the call that takes it as an int, which would
+        # sync the prefetch stream with no .item() to grep for.
+        self.assertIsInstance(tbe.total_cache_hash_size, torch.Tensor)
+        flat = tbe.get_buffer("weights_dev")
+        flat.copy_(torch.arange(flat.numel(), device=flat.device, dtype=flat.dtype))
+        streamer = MagicMock()
+        tbe._raw_embedding_streamer = streamer
+
+        device = torch.cuda.current_device()
+        # TWO indices: N == 1 is the one width where the zero-width UVM mask
+        # broadcasts instead of raising.
+        indices = torch.tensor([3, 2], device=device, dtype=torch.int64)
+        offsets = torch.tensor([0, 1, 2], device=device, dtype=torch.int64)
+        for _ in range(3):
+            tbe._prefetch(indices, offsets)
+
+        hbm = next(
+            c.kwargs
+            for c in streamer.stream.call_args_list
+            if c.kwargs.get("use_hbm", False)
+        )
+        # t0 row 3 is marked too, but only t1 is allowlisted.
+        self.assertEqual(hbm["indices"].tolist(), [rows + 2])
+        self.assertEqual(
+            hbm["weights"][0].tolist(),
+            list(range((rows + 2) * dim, (rows + 3) * dim)),
+        )
+        # No UVM cache here, so every stream() is the HBM one.
+        self.assertTrue(
+            all(c.kwargs.get("use_hbm", False) for c in streamer.stream.call_args_list)
+        )
+        # That join is the UVM path's (the torchbind name binds to
+        # join_dispatch_and_workers). _res_require_copy is True and
+        # _res_sync_copy False here, so its own condition is satisfied and only
+        # the cache guard suppresses it -- move it back out and this fails.
+        streamer.join_stream_tensor_copy_thread.assert_not_called()
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_cacheless_prefetch_with_streaming_off(self) -> None:
+        # `res_params` is only assigned when streaming is on, and `_prefetch`
+        # runs on every TBE, so anything there that reaches for it is an
+        # AttributeError on every non-RES model with a DEVICE-only TBE. Every
+        # other test in this file enables RES, so this is the only one that can
+        # see it -- and `_prefetch` is compiled, so it must also stay
+        # scriptable.
+        tbe = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (ROWS, 16, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),
+            ],
+            enable_raw_embedding_streaming=False,
+        )
+        self.assertEqual(tbe.get_buffer("lxu_cache_weights").numel(), 0)
+        self.assertFalse(hasattr(tbe, "res_params"))
+        device = torch.cuda.current_device()
+        tbe._prefetch(
+            torch.tensor([3, 5], device=device, dtype=torch.int64),
+            torch.tensor([0, 1, 2], device=device, dtype=torch.int64),
+        )
+        # `_prefetch` has no `@torch.jit.ignore` and is reached from `forward`.
+        # Reading `res_params` there compiles fine until a TBE is scripted, and
+        # nothing else in this file scripts one.
+        torch.jit.script(tbe)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_first_prefetch_does_not_sync(self) -> None:
+        # Three lines on this path keep the host off the device and none of
+        # them changes a value: the mark's index_fill_, the count copy's
+        # non_blocking, and returning before the cacheless
+        # total_cache_hash_size tensor reaches an int parameter. Reverting any
+        # of them leaves every other test green, so only the debug mode can see
+        # it. First prefetch only: from the second on, _pickup_drained_rows
+        # reads the count and is meant to sync.
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.DEVICE, EmbeddingLocation.DEVICE],
+            res_enabled_tables=["t1"],
+        )
+        tbe._raw_embedding_streamer = MagicMock()
+        device = torch.cuda.current_device()
+        indices = torch.tensor([3, 5], device=device, dtype=torch.int64)
+        offsets = torch.tensor([0, 1, 2], device=device, dtype=torch.int64)
+        torch.cuda.set_sync_debug_mode("error")
+        try:
+            tbe._prefetch(indices, offsets)
+            # Positive control, same invocation: an inert debug mode would let
+            # this through and make the prefetch above prove nothing.
+            with self.assertRaises(RuntimeError):
+                int(indices[0].item())
+        finally:
+            torch.cuda.set_sync_debug_mode("default")
 
     def _drain_tbe(
         self,
@@ -491,6 +635,9 @@ class ResEnabledTablesTest(unittest.TestCase):
         # second, so the shape of this test is load-bearing.
         rows = ROWS
         tbe = self._drain_tbe()
+        # The cached half of the dual type: a plain int here, a CUDA tensor
+        # with no UVM cache. The HBM-only branch returns before reading it.
+        self.assertIsInstance(tbe.total_cache_hash_size, int)
         drains = [self._mark_and_store_one_row(tbe, i, rows) for i in range(4)]
         drains.append(self._idle_iteration(tbe))
 
@@ -937,10 +1084,7 @@ class ResEnabledTablesTest(unittest.TestCase):
             torch.tensor([999], device=device, dtype=torch.int64),
             torch.tensor([0, 1], device=device, dtype=torch.int64),
         )
-        present = [
-            i for i, p in enumerate(tbe.get_buffer("_res_rows_seen").tolist()) if p
-        ]
-        self.assertEqual(present, [rows])
+        self.assertEqual(self._marked_rows(tbe), [rows])
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
@@ -961,10 +1105,7 @@ class ResEnabledTablesTest(unittest.TestCase):
             torch.tensor([-1], device=device, dtype=torch.int64),
             torch.tensor([0, 1], device=device, dtype=torch.int64),
         )
-        present = [
-            i for i, p in enumerate(tbe.get_buffer("_res_rows_seen").tolist()) if p
-        ]
-        self.assertEqual(present, [rows])
+        self.assertEqual(self._marked_rows(tbe), [rows])
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)

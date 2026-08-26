@@ -69,6 +69,9 @@ class FeatureGateName(Enum):
     # Enable warp-parallel kernel for populate_bucketized_permute
     BUCKETIZED_PERMUTE_WARP_KERNEL = auto()
 
+    # Gate raw embedding streaming (RES) of DEVICE-placed rows
+    RES_HBM_STREAMING = auto()
+
     # Gate the bounds_check_indices offsets-adjustment assertions
     DISABLE_OFFSETS_ADJUSTMENT = auto()
 

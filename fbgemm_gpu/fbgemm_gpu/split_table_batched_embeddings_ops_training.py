@@ -775,9 +775,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.enable_raw_embedding_streaming: bool = enable_raw_embedding_streaming
         # Precomputed: `_prefetch` is not `@torch.jit.ignore`, and TorchScript
         # cannot resolve `res_params` there, so we read it here instead.
+        # Every HBM streaming site reads this, so the gate below is one
+        # killswitch for all of them. Last in the chain, so a RES model with
+        # HBM streaming off never consults the knob.
         self._res_hbm_streaming: bool = bool(
             enable_raw_embedding_streaming
             and (res_params or RESParams()).enable_hbm_streaming
+            and self._feature_is_enabled(FeatureGateName.RES_HBM_STREAMING)
         )
         self._res_hbm_drain_interval: int = (
             res_params or RESParams()
@@ -1626,7 +1630,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.res_params.res_num_hbm_copy_threads,
             )
             self._register_res_enabled_feature_mask()
-            if self.res_params.enable_hbm_streaming:
+            if self._res_hbm_streaming:
                 self._precompute_res_gather_layout()
                 self._register_res_hbm_buffers()
             logging.info(
@@ -2053,12 +2057,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         vbe_metadata: invokers.lookup_args.VBEMetadata | None,
     ) -> None:
-        """Record every row this lookup touched, whatever its placement.
-
-        Must run before `_prefetch`'s `lxu_cache_weights.numel()` guard: a TBE
-        holding only DEVICE tables has an empty `lxu_cache_weights`, so nothing
-        past that guard runs for DEVICE-placed tables.
-        """
+        """Record every row this lookup touched, whatever its placement."""
         if not self._res_hbm_streaming:
             return
         # hash_size_cumsum, not cache_hash_size_cumsum: the latter is a
@@ -3475,6 +3474,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
+            if self._res_hbm_streaming:
+                self.raw_embedding_stream()
+                self._store_prefetched_tensors(
+                    indices,
+                    offsets,
+                    vbe_metadata,
+                    torch.zeros(0, dtype=indices.dtype, device=indices.device),
+                    self.lxu_cache_locations_empty,
+                    hash_zch_identities,
+                    hash_zch_runtime_meta,
+                )
             return
 
         # Clear the local_uvm_cache_stats before the prefetch instead of after
@@ -4883,9 +4893,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         with record_function(
             f"## uvm_lookup_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
+            prefetched_info = self.prefetched_info_list.pop(0)
+            # An HBM-only TBE has no UVM path to run: the join below binds to
+            # the non-HBM `join_dispatch_and_workers`, and everything under it
+            # reads UVM cache state. Ship the drained rows and leave.
+            if not self.lxu_cache_weights.numel():
+                self._ship_hbm_rows(prefetched_info)
+                return None
             if not self._res_sync_copy and self._res_require_copy:
                 self._raw_embedding_streamer.join_stream_tensor_copy_thread()
-            prefetched_info = self.prefetched_info_list.pop(0)
             updated_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 prefetched_info.linear_unique_cache_indices,
                 self.lxu_cache_state,
@@ -5221,6 +5237,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         with record_function(
             f"## uvm_save_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
+            if not self.lxu_cache_weights.numel():
+                # No UVM cache, so nothing to dedup or mask against. Every
+                # constructor field is read only by `raw_embedding_stream`'s
+                # cache block, which this TBE skips, so empties are enough to
+                # carry `res_hbm_indices` from the drain to the ship.
+                # `empty`, not `indices[:0]`: a view would pin the full-width
+                # parent for the one or two iterations this rides the queue.
+                # int64 to match what a linearized index would have been.
+                empty = torch.empty(0, dtype=torch.long, device=indices.device)
+                prefetched_info = PrefetchedInfo(
+                    empty,
+                    empty,
+                    torch.zeros(1, dtype=torch.int32, device=indices.device),
+                    None,
+                    None,
+                )
+                self._drain_hbm_rows(prefetched_info)
+                self.prefetched_info_list.append(prefetched_info)
+                return
+
             linearize_indices = torch.ops.fbgemm.linearize_cache_indices(
                 self.hash_size_cumsum,
                 indices,
