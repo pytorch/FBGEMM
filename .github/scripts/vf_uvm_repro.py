@@ -139,8 +139,18 @@ def main():
 
     try:
         import torch
-        torch.zeros(1, device="cuda")
+        # Do NOT allocate ordinary device memory here.  Under HSA_XNACK=1,
+        # torch.zeros(1, device="cuda") hangs in CUDA init on gfx950 - in a bare
+        # interpreter and under pytest alike.  The UVM tests never trip this
+        # because they only ever create zero-element tensors and managed memory.
+        torch.empty(0, device="cuda:0", dtype=torch.float)
+        arch = torch.cuda.get_device_properties(0).gcnArchName
         print(f"  device      : {torch.cuda.get_device_name(0)}")
+        # The decisive field: gcnArchName reports xnack+ only when XNACK is
+        # actually active, so this shows whether HSA_XNACK=1 took effect at all.
+        print(f"  gcnArchName : {arch}")
+        print(f"  HSA_XNACK   : {os.environ.get('HSA_XNACK', '(unset)')}"
+              f"   -> XNACK {'ACTIVE' if 'xnack+' in arch else 'INACTIVE'}")
     except Exception as e:
         print(f"  device      : torch init failed ({e})")
 
@@ -204,5 +214,38 @@ def main():
     return 0
 
 
+def run_both_regimes():
+    """Run the ladder twice in child processes: without XNACK and with it.
+
+    HSA_XNACK is read once at HSA runtime init, so it cannot be toggled inside a
+    single process.  Both arms in one job keeps them directly comparable, and
+    the same script run on bare metal gives the other half of the 2x2.
+    """
+    import subprocess
+    for label, extra in (("HSA_XNACK unset", {}), ("HSA_XNACK=1", {"HSA_XNACK": "1"})):
+        print("\n" + "#" * 78)
+        print(f"# REGIME: {label}")
+        print("#" * 78, flush=True)
+        env = dict(os.environ)
+        env.pop("HSA_XNACK", None)
+        env.update(extra)
+        env["VF_REPRO_CHILD"] = "1"
+        try:
+            p = subprocess.run([sys.executable, "-u", os.path.abspath(__file__)],
+                               env=env, timeout=1500, capture_output=True, text=True)
+            sys.stdout.write(p.stdout)
+            if p.returncode != 0:
+                print(f"!! regime exited rc={p.returncode}")
+                for l in (p.stderr or "").strip().splitlines()[-5:]:
+                    print("   ", l)
+        except subprocess.TimeoutExpired as e:
+            sys.stdout.write(e.stdout.decode() if e.stdout else "")
+            print(f"!! regime '{label}' exceeded its budget and was killed")
+        sys.stdout.flush()
+    return 0
+
+
 if __name__ == "__main__":
+    if not os.environ.get("VF_REPRO_CHILD"):
+        sys.exit(run_both_regimes())
     sys.exit(main())

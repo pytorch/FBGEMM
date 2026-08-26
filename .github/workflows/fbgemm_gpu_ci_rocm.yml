@@ -259,8 +259,14 @@ jobs:
     # the real shapes from the CI log, the same HIP call sequence, per-step
     # timing, plus the guest and cgroup memory limits that nothing in this
     # pipeline has ever reported.
+    # Runs the ladder twice, without HSA_XNACK and with HSA_XNACK=1, reporting
+    # gcnArchName in each.  The arch string is the decisive field: it reads
+    # xnack+ only when XNACK actually took effect, so this shows whether the
+    # runner can enter the fast path at all, and what allocation costs if it
+    # cannot.  test_all_fbgemm_gpu_modules sets HSA_XNACK=1 for ROCm, so the
+    # tests run in whichever regime the runner ends up in.
     - name: UVM Allocation Reproduction
-      timeout-minutes: 30
+      timeout-minutes: 55
       continue-on-error: true
       env:
         # Deliberately bounded.  Allocation cost is linear in size on bare metal
