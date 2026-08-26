@@ -144,9 +144,18 @@ class RESParams:
     table_sizes: list[int] = field(
         default_factory=list
     )  # table sizes for the global rows the TBE holds
+    res_chunk_size: int = 500000  # max rows copied into one enqueued chunk
+    res_num_consumers: int = 8  # threads draining the stream queue
+    # parallel chunk-copy threads per stream() call on the UVM cache-hit lane
+    res_num_uvm_hit_copy_threads: int = 4
+    # parallel chunk-copy threads for the dedicated HBM drain path
+    res_num_hbm_copy_threads: int = 4
     res_enabled_tables: list[str] = field(
         default_factory=list
     )  # table names that are enabled for RES (empty means all enabled)
+    # Streams DEVICE-placed tables named in `res_enabled_tables`, which the
+    # cache lane cannot reach. Costs a byte per row of the shard, so it is opt-in.
+    enable_hbm_streaming: bool = False
 
 
 class PrefetchedInfo:
@@ -366,6 +375,32 @@ def get_available_compute_device() -> ComputeDevice:
         return ComputeDevice.MTIA
     else:
         return ComputeDevice.CPU
+
+
+def res_bitmap_compact(selected: Tensor) -> tuple[Tensor, Tensor]:
+    """Turn the boolean mask `selected` into the ascending positions where it
+    is True.
+
+    Returns `(rows, count)`. `count` is a 0-dim int64 device tensor; the
+    entries of `rows` past it are uninitialised. Nothing here reads the device,
+    which is the point -- `nonzero()` and friends must size their output before
+    they can allocate.
+    """
+    n = selected.numel()
+    device = selected.device
+    # The + 1 is a junk slot, used below.
+    rows = torch.empty(n + 1, dtype=torch.long, device=device)
+    # Traced for selected = [F, T, F, T, T], so n = 5:
+    #
+    # produces each True's destination index; a False repeats the one before it
+    pos = torch.cumsum(selected, 0, dtype=torch.long).sub_(1)  # [-1, 0, 0, 1, 2]
+    # every False redirected to the junk slot at index n
+    pos.masked_fill_(selected.logical_not(), n)  # [5, 0, 5, 1, 2]
+    # scatter PUSHES a value into a slot: rows[pos[i]] = src[i]. `pos` is the
+    # slot, and src is `arange` = [0, 1, 2, 3, 4], the positions themselves:
+    # 1 -> rows[0], 3 -> rows[1], 4 -> rows[2], and both Falses onto rows[5].
+    rows.scatter_(0, pos, torch.arange(n, device=device))  # rows = [1, 3, 4, _, _, _]
+    return rows, selected.sum()  # 3
 
 
 # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
@@ -725,6 +760,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.table_names: list[str] | None = table_names
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.enable_raw_embedding_streaming: bool = enable_raw_embedding_streaming
+        # Precomputed: `_prefetch` is not `@torch.jit.ignore`, and TorchScript
+        # cannot resolve `res_params` there, so we read it here instead.
+        self._res_hbm_streaming: bool = bool(
+            enable_raw_embedding_streaming
+            and (res_params or RESParams()).enable_hbm_streaming
+        )
         self.pooling_mode = pooling_mode
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
 
@@ -1563,8 +1604,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.res_params.table_names,
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
+                self.res_params.res_chunk_size,
+                self.res_params.res_num_consumers,
+                self.res_params.res_num_uvm_hit_copy_threads,
+                self.res_params.res_num_hbm_copy_threads,
             )
             self._register_res_enabled_feature_mask()
+            if self.res_params.enable_hbm_streaming:
+                self._precompute_res_gather_layout()
+                self._register_res_hbm_buffers()
             logging.info(
                 f"{self.uuid} raw embedding streaming enabled with {self.res_params=}, {self._res_require_copy=}, {self._res_sync_copy=}"
             )
@@ -1635,6 +1683,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "res_count",
+            # new_unified_tensor mallocs and ignores the input tensor's
+            # contents, so torch.zeros below does NOT zero the result -- it
+            # only supplies dtype and device. C++ reads this as a row count.
             torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
                     1,
@@ -1643,11 +1694,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
                 (1,),
                 is_host_mapped=self.uvm_host_mapped,
-            ),
+            ).zero_(),
             persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_copy_done",
+            # Unzeroed for the same reason as res_count above. The C++ poll
+            # reads any nonzero as "the GPU is done writing the RES buffers"
+            # and then resets it, so garbage here desyncs the handshake by one
+            # iteration for the rest of the run, not just the first drain.
             torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
                     1,
@@ -1656,7 +1711,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
                 (1,),
                 is_host_mapped=self.uvm_host_mapped,
-            ),
+            ).zero_(),
             persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
 
@@ -1744,6 +1799,187 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._res_all_features_enabled: bool = bool(enabled_feature_mask.all())
 
     @torch.jit.ignore
+    def _precompute_res_gather_layout(self) -> None:
+        """Decide the gather path once, at construction."""
+        pool_dims = {
+            spec[1]
+            for spec in self.embedding_specs
+            if spec[2] == EmbeddingLocation.DEVICE
+        }
+        # Empty and one-width both count as uniform.
+        self._res_hbm_dims_equal: bool = len(pool_dims) <= 1
+        self._res_hbm_dim: int = next(iter(pool_dims)) if len(pool_dims) == 1 else 0
+        self._res_device_features: set[int] = {
+            f
+            for f, t in enumerate(self.feature_table_map)
+            if self.embedding_specs[t][2] == EmbeddingLocation.DEVICE
+        }
+        n_features = len(self.feature_table_map)
+        self._res_all_features_device_placed: bool = (
+            len(self._res_device_features) == n_features
+        )
+        # Differing widths are handled a table at a time, and that loop needs
+        # each feature's width, offset and row count as plain numbers. Reading
+        # them off the device there would sync three times per feature per
+        # drain, and they are table layout, so read them once. One entry per
+        # FEATURE, not per table.
+        self._res_weights_offsets_cpu: torch.Tensor = self.weights_offsets.cpu()
+        self._res_rows_per_table_cpu: torch.Tensor = self.rows_per_table.cpu()
+        self._res_D_offsets_cpu: torch.Tensor = self.D_offsets.cpu()
+
+    @torch.jit.ignore
+    def _gather_res_rows(
+        self,
+        res_indices: torch.Tensor,
+        res_weights: torch.Tensor,
+        weights: torch.Tensor,
+    ) -> None:
+        """Gather the rows named by `res_indices` out of `weights` into `res_weights`.
+
+        `res_indices` are in the TBE's linear index space and must exclude the
+        pruning sentinel: clamped to the last feature it becomes a row one past
+        that table's end, which device-asserts.
+
+        Zero-padding covers COLUMNS, not rows. Rows past `len(res_indices)` keep
+        the previous drain's values -- the staging buffers are grow-and-keep, so
+        callers must slice to the count.
+        """
+        if weights.numel() == 0:
+            return
+        num_indices = res_indices.size(0)
+        if num_indices == 0:
+            return
+
+        max_D = res_weights.shape[1]
+
+        uniform_device = (
+            self._res_hbm_dims_equal and self._res_all_features_device_placed
+        )
+        self.log(
+            f"[RES] gather: path={'uniform_device' if uniform_device else 'per_feature'} "
+            f"rows={num_indices}"
+        )
+
+        # Shortcut, and it needs both: one width across the pool, and every
+        # feature DEVICE-placed. Together they make a linear row id already BE
+        # the pool row, so the index goes in unmodified. Relaxing either half
+        # silently breaks that.
+        if uniform_device:
+            dim = self._res_hbm_dim
+            torch.index_select(
+                weights.view(-1, dim),
+                0,
+                res_indices.long(),
+                out=res_weights[:num_indices, :dim],
+            )
+            if dim < max_D:
+                res_weights[:num_indices, dim:].zero_()
+            return
+
+        # Flat because the loop slices by ELEMENT offset; on a 2-D weights_dev
+        # (dev_reshape, OptimType.NONE) a slice would take rows instead.
+        weights_flat = weights.flatten() if weights.dim() == 2 else weights
+        feature_indices = self._res_feature_of(res_indices)
+        # One index_select per run rather than per row. `unique_consecutive`,
+        # not `unique`: it collapses only ADJACENT equals and keeps input order,
+        # which is what lets `pos` below walk input and output together.
+        unique_features, counts = torch.unique_consecutive(
+            feature_indices, return_counts=True
+        )
+        local_indices_all = (
+            res_indices - self.hash_size_cumsum[feature_indices]
+        ).long()
+        # The syncs are here, not in the loop: the body reads host values only.
+        features: list[int] = unique_features.tolist()
+        # Free: `features` is already on the host.
+        non_device_features: list[int] = [
+            f for f in features if f not in self._res_device_features
+        ]
+        if non_device_features:
+            logging.error(
+                f"[TBE={self.uuid}] [RES] gather: SHOULD NOT HAPPEN -- features "
+                f"{non_device_features} are not DEVICE-placed, so their rows read "
+                f"from the wrong offset. _res_hbm_linear_mask marks only allowlisted "
+                f"DEVICE rows, so a drain cannot select them."
+            )
+        pos = 0
+        for feature_idx, cnt in zip(features, counts.tolist()):
+            dim = int(
+                self._res_D_offsets_cpu[feature_idx + 1]
+                - self._res_D_offsets_cpu[feature_idx]
+            )
+            w_start = int(self._res_weights_offsets_cpu[feature_idx])
+            nrows = int(self._res_rows_per_table_cpu[feature_idx])
+            table_view = weights_flat[w_start : w_start + nrows * dim].view(-1, dim)
+            torch.index_select(
+                table_view,
+                0,
+                local_indices_all[pos : pos + cnt],
+                out=res_weights[pos : pos + cnt, :dim],
+            )
+            if dim < max_D:
+                res_weights[pos : pos + cnt, dim:].zero_()
+            pos += cnt
+
+    @torch.jit.ignore
+    def _register_res_hbm_buffers(self) -> None:
+        """Allocate the map of rows touched since the last drain.
+
+        Written during prefetch from the unfiltered `linearize_cache_indices`
+        output, so every looked-up row lands here whatever its placement or
+        allowlist status. Narrowing that down is the drain's job.
+        """
+        assert (
+            self.enable_raw_embedding_streaming
+        ), "Should not register res hbm buffers when raw embedding streaming is not enabled"
+
+        # +1: the kernel dumps indices it cannot place -- pruned rows among
+        # them -- on total_hash_size, so that slot gets written and has to exist.
+        linear_size = self.total_hash_size + 1
+        self.register_buffer(
+            "_res_rows_seen",
+            torch.zeros(linear_size, device=self.current_device, dtype=torch.bool),
+            persistent=False,  # RES buffer is not checkpointed
+        )
+
+    @torch.jit.ignore
+    def _mark_res_hbm_rows(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        vbe_metadata: invokers.lookup_args.VBEMetadata | None,
+    ) -> None:
+        """Record every row this lookup touched, whatever its placement.
+
+        Must run before `_prefetch`'s `lxu_cache_weights.numel()` guard: a TBE
+        holding only DEVICE tables has an empty `lxu_cache_weights`, so nothing
+        past that guard runs for DEVICE-placed tables.
+        """
+        if not self._res_hbm_streaming:
+            return
+        # hash_size_cumsum, not cache_hash_size_cumsum: the latter is a
+        # 1-element stub on a cacheless TBE and holds -1 for every non-cached
+        # feature, which the kernel routes to the sentinel -- a whole DEVICE
+        # table collapsing onto one slot. It is also the index space
+        # `_res_rows_seen` is sized against.
+        linearize_indices = torch.ops.fbgemm.linearize_cache_indices(
+            self.hash_size_cumsum,
+            indices,
+            offsets,
+            vbe_metadata.B_offsets if vbe_metadata is not None else None,
+            vbe_metadata.max_B if vbe_metadata is not None else -1,
+        )
+        # index_fill_ asserts on out-of-range indices in release builds, so an
+        # unclamped index kills the rank instead of writing a wrong row.
+        # Reachable only under bounds_check_mode=NONE. Upper bound only: the
+        # kernel already routes negatives to the sentinel. In place -- the
+        # tensor is local and feeds nothing but the fill.
+        linearize_indices.clamp_(max=self.total_hash_size)
+        # index_fill_ rather than setitem: assigning a Python scalar into a
+        # CUDA tensor forces a host sync.
+        self._res_rows_seen.index_fill_(0, linearize_indices, True)
+
+    @torch.jit.ignore
     def _get_enabled_feature_mask_and_indices(
         self,
         linearize_indices: torch.Tensor,
@@ -1763,6 +1999,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Tensor | Module); tensor indexing is valid at runtime.
         enabled_mask = self.res_enabled_feature_mask[valid_feature_indices]
         return enabled_mask, feature_indices
+
+    @torch.jit.ignore
+    def _res_feature_of(self, linear_indices: torch.Tensor) -> torch.Tensor:
+        """Feature id owning each linear row id, clamped to a real feature.
+
+        `right=True` so a table's first row resolves to that table, not the one
+        before. The clamp catches the pruning sentinel, which owns no feature.
+        Assumes `feature_table_map` is non-decreasing, as TorchRec emits.
+        """
+        last_feature = self._res_num_features - 1
+        return torch.searchsorted(
+            self.hash_size_cumsum[1:], linear_indices, right=True
+        ).clamp(0, last_feature)
 
     @torch.jit.ignore
     def log(self, msg: str) -> None:
@@ -3116,6 +3365,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
+
+        self._mark_res_hbm_rows(indices, offsets, vbe_metadata)
 
         # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.

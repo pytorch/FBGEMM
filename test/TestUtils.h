@@ -7,11 +7,31 @@
  */
 
 #pragma once
+#include <cpuinfo.h>
 #include <gtest/gtest.h>
 #include <cmath>
 #include <vector>
 
+#include "fbgemm/Utils.h"
+
 namespace fbgemm {
+
+// Groupwise and i8 depthwise conv kernels are JIT-generated x86 asm (AVX2+)
+// with no other implementation; their entry points throw elsewhere, so tests
+// that reach them must skip or the uncaught throw aborts the whole binary.
+// Runtime checks, not #ifdefs: a non-AVX2 x86 host throws too.
+inline bool hasGroupwiseKernels() {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
+  return cpuinfo_initialize() && fbgemmHasAvx2Support();
+#else
+  return false;
+#endif
+}
+
+inline bool hasDepthwiseKernels() {
+  return hasGroupwiseKernels(); // same JIT support today; separate for intent
+}
 
 /*
  * @brief Check and validate the buffers for reference and FBGEMM result.

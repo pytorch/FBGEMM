@@ -9,6 +9,7 @@
 #define FBGEMM_EXPORTS
 #include "./RefImplementations.h" // @manual
 
+#include "./EmbeddingSpMDMPrefetch.h" // @manual
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
@@ -1471,10 +1472,33 @@ bool EmbeddingSpMDMNBit_ref(
       WARN_ONCE("no_bag is only supported for int4 to int4");
       return false;
     }
+    // This loop is not reference-only on x86: the asmjit nbit generator is
+    // gated on !no_bag and the autovec one needs SVE2, so the sequence gather
+    // lands here and this is its only chance to prefetch. Each iteration is one
+    // scattered row from a table far larger than the TLB reach, with no
+    // arithmetic to hide the miss behind, so look ahead by whole rows.
+    const int64_t prefetch_distance = tbe_resolve_l1_prefetch_distance(
+        tbe_l1_prefetch_distance(), input_stride, output_size);
+    const int64_t last_index = std::max<int64_t>(output_size - 1, 0);
     for (int64_t i = 0; i < output_size; ++i) {
       const auto idx = indices[i];
-      if (idx < 0 || idx > data_size) {
+      if (idx < 0 || idx >= data_size) {
         return false;
+      }
+      // Stop once there is no row left to look ahead to: tbe_prefetch_row
+      // clamps to last_index, so past this point every iteration would
+      // re-prefetch the final row for no benefit. Short batches, where the
+      // distance is clamped to the index count, would otherwise prefetch that
+      // one row on every single iteration.
+      if (prefetch_distance > 0 && i + prefetch_distance < output_size) {
+        tbe_prefetch_row<prefetch_row_l1>(
+            input,
+            indices,
+            i,
+            last_index,
+            input_stride,
+            data_size,
+            prefetch_distance);
       }
       const uint8_t* input_row = input + input_stride * idx;
       memcpy(out, input_row, sizeof(uint8_t) * input_stride);

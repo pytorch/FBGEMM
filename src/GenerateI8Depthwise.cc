@@ -8,15 +8,21 @@
 
 #include "./GenerateI8Depthwise.h" // @manual
 
+#include <cpuinfo.h>
+
 #include <cassert>
-#include <iostream>
 #include <numeric>
+#include <stdexcept>
 
 #include "./CodeCache.h" // @manual
 #include "./CodeGenHelpers.h" // @manual
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
+
+// The entire generator is asmjit x86 codegen; off x86, getOrCreate at the
+// bottom of the file throws instead.
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 
 namespace {
 asmjit::JitRuntime& runtime() {
@@ -562,8 +568,12 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << '\n';
-      return nullptr;
+      // Callers dereference the returned pointer unconditionally; nullptr
+      // here would turn a codegen failure into a SIGSEGV at address 0.
+      throw std::runtime_error(
+          "[FBGEMM_CONV_ERROR] failed to register JIT-generated i8 depthwise "
+          "kernel with the asmjit runtime (asmjit error " +
+          std::to_string(err) + ")");
     }
 
 #ifdef FBGEMM_LOG_CODE
@@ -574,5 +584,28 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     return fn;
   });
 }
+
+#else // non-x86
+
+GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
+    int /*D*/,
+    std::array<int, 3> /*F*/,
+    int /*oc_per_g*/,
+    bool /*compute_a_sum*/,
+    int /*remainder*/,
+    int /*prev_skip*/,
+    int /*next_skip*/,
+    int /*top_skip*/,
+    int /*bottom_skip*/,
+    int /*left_skip*/,
+    int /*right_skip*/) {
+  // Callers invoke the returned pointer directly; a diagnosable error beats
+  // a null function pointer that faults at address 0.
+  throw std::runtime_error(
+      "[FBGEMM_CONV_ERROR] i8 depthwise convolution is not implemented for "
+      "this architecture (the compute kernel is JIT-generated x86 assembly)");
+}
+
+#endif // x86
 
 } // namespace fbgemm
