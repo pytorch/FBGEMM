@@ -1645,6 +1645,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "res_count",
+            # new_unified_tensor mallocs and ignores the input tensor's
+            # contents, so torch.zeros below does NOT zero the result -- it
+            # only supplies dtype and device. C++ reads this as a row count.
             torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
                     1,
@@ -1653,11 +1656,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
                 (1,),
                 is_host_mapped=self.uvm_host_mapped,
-            ),
+            ).zero_(),
             persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
         self.register_buffer(
             "res_copy_done",
+            # Unzeroed for the same reason as res_count above. The C++ poll
+            # reads any nonzero as "the GPU is done writing the RES buffers"
+            # and then resets it, so garbage here desyncs the handshake by one
+            # iteration for the rest of the run, not just the first drain.
             torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
                     1,
@@ -1666,7 +1673,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
                 (1,),
                 is_host_mapped=self.uvm_host_mapped,
-            ),
+            ).zero_(),
             persistent=False,  # RES buffer is not checkpointed since it is used as intermediate buffer for copying
         )
 
