@@ -232,7 +232,7 @@ def run_both_regimes():
         env["VF_REPRO_CHILD"] = "1"
         try:
             p = subprocess.run([sys.executable, "-u", os.path.abspath(__file__)],
-                               env=env, timeout=1500, capture_output=True, text=True)
+                               env=env, timeout=900, capture_output=True, text=True)
             sys.stdout.write(p.stdout)
             if p.returncode != 0:
                 print(f"!! regime exited rc={p.returncode}")
