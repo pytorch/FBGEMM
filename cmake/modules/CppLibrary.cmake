@@ -139,7 +139,20 @@ function(fbgemm_get_warning_flags)
     # Warns where clang accepts something gcc will not. Genuinely useful here
     # because OSS builds with both, and this flag is the only one in the set
     # that actively protects the gcc leg from clang-only constructs.
-    -Wgcc-compat)
+    -Wgcc-compat
+    # ---- A2.3: conversions and literals --------------------------------
+    # All four are g++-rejected (probed).
+    #
+    # `-Wstring-conversion` is already enabled for `deeplearning/` in fbcode
+    # and globally at 100%, so this is OSS-only catch-up.
+    -Wstring-conversion
+    -Wimplicitly-unsigned-literal
+    -Wuninitialized-const-reference
+    # Inert unless the code carries clang thread-safety annotations
+    # (`guarded_by` and friends). FBGEMM does not use them, so this is list
+    # parity rather than new coverage. Kept because it costs nothing and the
+    # annotations may arrive later.
+    -Wthread-safety)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`
