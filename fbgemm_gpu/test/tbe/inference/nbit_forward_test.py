@@ -27,7 +27,11 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
-from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
+from fbgemm_gpu.tbe.config.embedding_config import (
+    BoundsCheckMode,
+    EmbeddingLocation,
+    PoolingMode,
+)
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     dequantize_embs,
@@ -1449,6 +1453,38 @@ class NBitFowardTest(NBitFowardTestCommon):
             indices_dtype=indices_dtype,
             output_dtype=SparseType.INT4,
         )
+
+    def test_nbit_forward_cpu_seq_rejects_index_at_row_count(self) -> None:
+        """The sequence gather rejects an index equal to the table's row count.
+
+        ``BoundsCheckMode.NONE`` is load bearing: the frontend bounds check
+        clamps against the *logical* row count, which is never larger than the
+        *padded* row count the kernel checks against, so with it enabled this
+        boundary is unreachable and the op cannot be tested here at all.
+        """
+        E, D = 64, 128
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[("", E, D, SparseType.INT4, EmbeddingLocation.HOST)],
+            pooling_mode=PoolingMode.NONE,
+            output_dtype=SparseType.INT4,
+            bounds_check_mode=BoundsCheckMode.NONE,
+            device="cpu",
+        )
+        op.fill_random_weights()
+
+        # Derive what the kernel uses as data_size rather than assuming it is E:
+        # it divides the whole cacheline-padded weight buffer by the fused row
+        # size, and this table's slice runs to the end of that buffer.
+        row_bytes = op.split_embedding_weights_with_scale_bias(0)[0][0].shape[1]
+        num_rows = op.weights_host.numel() // row_bytes
+        self.assertGreaterEqual(num_rows, E)
+
+        offsets = torch.tensor([0, 1], dtype=torch.int)
+        # Positive control: the last row the buffer actually holds.
+        op(torch.tensor([num_rows - 1], dtype=torch.int), offsets)
+
+        with self.assertRaisesRegex(RuntimeError, "out of bounds"):
+            op(torch.tensor([num_rows], dtype=torch.int), offsets)
 
     def test_nbit_forward_cpu_seq_ragged_matches_flat(self) -> None:
         for weights_ty, output_dtype in [

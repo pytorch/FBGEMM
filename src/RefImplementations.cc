@@ -1482,7 +1482,7 @@ bool EmbeddingSpMDMNBit_ref(
     const int64_t last_index = std::max<int64_t>(output_size - 1, 0);
     for (int64_t i = 0; i < output_size; ++i) {
       const auto idx = indices[i];
-      if (idx < 0 || idx > data_size) {
+      if (idx < 0 || idx >= data_size) {
         return false;
       }
       // Stop once there is no row left to look ahead to: tbe_prefetch_row
