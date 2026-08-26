@@ -85,7 +85,12 @@ function(fbgemm_get_warning_flags)
     # (probed). Subplan 04 grouped it with the clang-only A2.2 flags, which
     # would have stranded it behind the clang guard and silently lost gcc-leg
     # coverage. It belongs here.
-    -Wmismatched-tags)
+    -Wmismatched-tags
+    # ---- A2.4 (portable half) ------------------------------------------
+    # Accepted and diagnosing on BOTH g++ 11.5 and clang 22 (probed), so it
+    # goes here rather than behind the clang guard. Subplan 04 called this out
+    # correctly.
+    -Waddress-of-packed-member)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
@@ -152,7 +157,12 @@ function(fbgemm_get_warning_flags)
     # (`guarded_by` and friends). FBGEMM does not use them, so this is list
     # parity rather than new coverage. Kept because it costs nothing and the
     # annotations may arrive later.
-    -Wthread-safety)
+    -Wthread-safety
+    # ---- A2.4 (clang half) ---------------------------------------------
+    # Intentionally enable clang's full lifetime-diagnostic umbrella. g++ 11.5
+    # has no bare `-Wdangling` (it has `-Wdangling-pointer` and
+    # `-Wdangling-reference` instead), so this spelling is clang-only.
+    -Wdangling)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`
