@@ -15,6 +15,10 @@ Hypotheses under test:
   H4  small device->host copies are slow
   H5  host access to managed memory is slow (in FBGEMM's advised config)
   H7  allocation is slow
+  H8  deallocation is slow (only managed free was ever measured)
+  H9  pinned host allocation is slow
+  H10 allocation churn at varying sizes is slow
+  H11 the slow test's actual hot loop: sort + unique_consecutive + D->H sync
 """
 
 import ctypes
@@ -82,6 +86,8 @@ if hip is not None:
     hip.hipMemcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
     hip.hipMemAdvise.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int]
     hip.hipDeviceSynchronize.argtypes = []
+    hip.hipHostMalloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t, ctypes.c_uint]
+    hip.hipHostFree.argtypes = [ctypes.c_void_p]
 
 
 def require_hip(tag):
@@ -439,6 +445,131 @@ def h7_alloc(iters=200):
 
 # Each test runs in its own process with a wall-clock budget, so one wedged HIP
 # call cannot take the suite down or discard the results already collected.
+# --------------------------------------------------------------------------- #
+# H8 - deallocation.  H7 timed allocation only; the one free that was measured
+# (managed memory, in the UVM ladder) was 119x slower on the VF.  Ordinary
+# device free has never been timed, and every caching-allocator eviction hits it.
+# --------------------------------------------------------------------------- #
+
+def h8_device_free(iters=300, size=1 << 20):
+    print("-- H8  hipFree of device memory " + "-" * 44)
+    if not require_hip("H8_device_free"):
+        return
+    allocs, frees = [], []
+    for _ in range(iters):
+        p = ctypes.c_void_p()
+        t0 = ns()
+        rc = hip.hipMalloc(ctypes.byref(p), size)
+        allocs.append(ns() - t0)
+        if rc != 0:
+            continue
+        t0 = ns()
+        hip.hipFree(p)
+        frees.append(ns() - t0)
+    am, _, ap = stats(allocs)
+    fm, fmean, fp = stats(frees)
+    result("H8_device_free", iters=iters, size_MiB=size // 2**20,
+           alloc_median_us=f"{am:.2f}", free_median_us=f"{fm:.2f}",
+           free_mean_us=f"{fmean:.2f}", free_p99_us=f"{fp:.2f}")
+    histogram(frees, "H8 hipFree device")
+    print()
+
+
+# --------------------------------------------------------------------------- #
+# H9 - pinned host memory.  Never measured, and it is the other host-adjacent
+# allocator besides managed memory.
+# --------------------------------------------------------------------------- #
+
+def h9_pinned(iters=200, size=1 << 20):
+    print("-- H9  hipHostMalloc / hipHostFree (pinned) " + "-" * 32)
+    if not require_hip("H9_pinned"):
+        return
+    allocs, frees = [], []
+    for _ in range(iters):
+        p = ctypes.c_void_p()
+        t0 = ns()
+        rc = hip.hipHostMalloc(ctypes.byref(p), size, 0)
+        allocs.append(ns() - t0)
+        if rc != 0:
+            result("H9_pinned", status=f"hipHostMalloc failed rc={rc}")
+            print()
+            return
+        t0 = ns()
+        hip.hipHostFree(p)
+        frees.append(ns() - t0)
+    am, _, ap = stats(allocs)
+    fm, _, fp = stats(frees)
+    result("H9_pinned", iters=iters, size_MiB=size // 2**20,
+           alloc_median_us=f"{am:.2f}", alloc_p99_us=f"{ap:.2f}",
+           free_median_us=f"{fm:.2f}", free_p99_us=f"{fp:.2f}")
+    print()
+
+
+# --------------------------------------------------------------------------- #
+# H10 - allocation churn at torch level, with sizes that vary per iteration so
+# the caching allocator cannot simply hand back the same block.  This is what
+# gradcheck does and what the H1 steady-state loop never did.
+# --------------------------------------------------------------------------- #
+
+def h10_alloc_churn(iters=2000):
+    print("-- H10  torch alloc/free churn, varying sizes " + "-" * 30)
+    import torch
+    for _ in range(50):
+        torch.empty(1024, device="cuda")
+    torch.cuda.synchronize()
+    samples = []
+    for i in range(iters):
+        n = 1024 + (i % 97) * 512          # varies, defeats block reuse
+        t0 = ns()
+        x = torch.empty(n, device="cuda")
+        del x
+        samples.append(ns() - t0)
+    med, mean, p99 = stats(samples)
+    result("H10_alloc_churn", iters=iters, median_us=f"{med:.2f}",
+           mean_us=f"{mean:.2f}", p99_us=f"{p99:.2f}")
+    histogram(samples, "H10 torch alloc+free")
+    print()
+
+
+# --------------------------------------------------------------------------- #
+# H11 - the actual hot loop of the slow test.
+#
+# index_select_dim0's backward calls at::unique_consecutive, which the FBGEMM
+# source itself documents as doing a D->H transfer that forces host-device
+# synchronization (sparse_index_add.cu:144-152), followed by allocations whose
+# size is only known after that sync.  gradcheck runs this thousands of times.
+# at::unique_consecutive is torch.unique_consecutive in Python, so this needs no
+# compiler and no FBGEMM - which matters, because this step runs before the
+# FBGEMM wheel is installed.
+# --------------------------------------------------------------------------- #
+
+def h11_unique_consecutive_loop(iters=500, n=32, u=33):
+    print("-- H11  sort + unique_consecutive + D->H sync loop " + "-" * 25)
+    import torch
+    idx = torch.randint(u, (n,), device="cuda")
+    for _ in range(20):
+        s, _o = idx.sort()
+        uq, cnt = torch.unique_consecutive(s, return_counts=True)
+        _ = uq.numel()
+    torch.cuda.synchronize()
+
+    samples = []
+    for _ in range(iters):
+        t0 = ns()
+        sorted_indices, orig_indices = idx.sort()
+        unique_indices, unique_count = torch.unique_consecutive(
+            sorted_indices, return_counts=True)
+        num_unique = unique_indices.numel()      # D->H transfer
+        offsets = unique_count.cumsum(0)         # size depends on the above
+        samples.append(ns() - t0)
+    med, mean, p99 = stats(samples)
+    result("H11_unique_consec", iters=iters, n=n,
+           median_us=f"{med:.1f}", mean_us=f"{mean:.1f}", p99_us=f"{p99:.1f}",
+           est_84k_calls_s=f"{mean * 84000 / 1e6:.1f}")
+    histogram(samples, "H11 unique_consecutive iteration")
+    print()
+
+
 TESTS = {
     "fingerprint": (fingerprint, 120),
     "c1": (c1_cpu_control, 180),
@@ -449,6 +580,10 @@ TESTS = {
     "h4": (h4_small_copy, 180),
     "h5": (h5_managed_host_access, 300),
     "h7": (h7_alloc, 240),
+    "h8": (h8_device_free, 240),
+    "h9": (h9_pinned, 240),
+    "h10": (h10_alloc_churn, 240),
+    "h11": (h11_unique_consecutive_loop, 300),
 }
 
 
