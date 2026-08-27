@@ -286,7 +286,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{
     {{ args_pt2.split_function_args | join(", ") }}
     {%- if not nobag %}
     , const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
-    {%- endif %})
+    {%- endif %}
+    , std::optional<std::vector<Tensor>> /*preproc_tensors*/ = std::nullopt)
     {
         // Accept the MTIA CPU-fallback 5-slot device layout too. Slots 3/4 are
         // unused here; assert they are empty so device state isn't silently dropped.
@@ -503,6 +504,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- if not nobag %}
         "    , int output_dtype=0 "
         {%- endif %}
+        "    , Tensor[]? preproc_tensors=None "
         ") -> Tensor");
     }
     DISPATCH_TO_CPU("{{ embedding_codegen_backward_op }}_wrapper", {{ embedding_codegen_backward_op }}_cpu_wrapper);

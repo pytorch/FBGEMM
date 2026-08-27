@@ -43,6 +43,49 @@ transpose_embedding_input(
     const int64_t fixed_L_per_warp = 0,
     const int64_t num_warps_per_feature = 0);
 
+std::tuple<
+    at::Tensor, // long_run_ids
+    at::Tensor, // num_long_run_ids
+    at::Tensor, // long_run_id_to_really_long_run_ids
+    at::Tensor, // num_really_long_run_ids
+    at::Tensor> // grad_accum_counter
+split_embedding_backward_codegen_find_long_segments(
+    at::Tensor sorted_linear_indices_num_runs,
+    at::Tensor sorted_linear_indices_run_lengths,
+    at::Tensor long_run_ids,
+    at::Tensor num_long_run_ids,
+    at::Tensor long_run_id_to_really_long_run_ids,
+    at::Tensor num_really_long_run_ids,
+    at::Tensor grad_accum_counter,
+    const int32_t max_segment_length_per_warp,
+    const int32_t max_segment_length_per_cta,
+    const bool use_deterministic_algorithms);
+
+// std::tuple<
+//     at::Tensor, // linear_indices
+//     at::Tensor, // linear_indices_sorted
+//     at::Tensor, // sorted_linear_indices_run
+//     at::Tensor, // sorted_linear_indices_run_lengths
+//     at::Tensor, // sorted_linear_indices_num_runs
+//     at::Tensor, // sorted_linear_indices_cumulative_run_lengths
+//     at::Tensor, // infos_sorted
+//     at::Tensor, // long_run_ids
+//     at::Tensor, // num_long_run_ids
+//     at::Tensor, // long_run_id_to_really_long_run_ids
+//     at::Tensor, // num_really_long_run_ids
+//     at::Tensor> // grad_accum_counter
+// tbe_bwd_indices_preproc_cuda(
+//     const at::Tensor& hash_size_cumsum,
+//     const int64_t total_hash_size_bits,
+//     const at::Tensor& indices,
+//     const at::Tensor& offsets,
+//     const int64_t info_B_num_bits,
+//     const int64_t info_B_mask,
+//     const int64_t total_unique_indices,
+//     const std::optional<at::Tensor>& vbe_b_t_map,
+//     const bool nobag,
+//     const bool is_index_select);
+
 // Use these functions instead of directly calling cub functions
 // to reduce code size and compilation time.
 // Arguments are the same as cub::DeviceRadixSort::SortPairs

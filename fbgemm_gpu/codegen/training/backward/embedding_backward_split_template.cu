@@ -681,6 +681,9 @@ Tensor {{ embedding_cuda_op }}(
     int64_t total_hash_size,
     c10::SymInt total_unique_indices_
     {%- endif %}
+    {%- if not is_index_select %}
+    , std::optional<std::vector<Tensor>> preproc_tensors
+    {%- endif %}
 ) {
     {%- if not nobag or is_index_select %}
     const int64_t max_D = max_D_.guard_int(__FILE__, __LINE__);
@@ -841,6 +844,28 @@ Tensor {{ embedding_cuda_op }}(
         sorted_linear_indices_run, sorted_linear_indices_run_lengths,
         sorted_linear_indices_num_runs,
         sorted_linear_indices_cumulative_run_lengths;
+    // When preproc tensors are provided, the grad-independent index preproc has
+    // already been computed off the backward critical path, so skip recomputing it.
+    std::vector<Tensor> _preproc_tensors;
+    {%- if not is_index_select %}
+    const bool skip_preproc = preproc_tensors.has_value() &&
+        preproc_tensors->size() == 12;
+    {%- else %}
+    const std::optional<std::vector<Tensor>> preproc_tensors = std::nullopt;
+    const bool skip_preproc = false;
+    {%- endif %}
+
+    if (skip_preproc) {
+        _preproc_tensors = preproc_tensors.value();
+        linear_indices=_preproc_tensors[0];
+        linear_indices_sorted=_preproc_tensors[1];
+        sorted_linear_indices_run=_preproc_tensors[2];
+        sorted_linear_indices_run_lengths=_preproc_tensors[3];
+        sorted_linear_indices_num_runs=_preproc_tensors[4];
+        sorted_linear_indices_cumulative_run_lengths=_preproc_tensors[5];
+        infos_sorted=_preproc_tensors[6];
+    }
+    else {
     std::tie(
         linear_indices,
         linear_indices_sorted,
@@ -868,7 +893,7 @@ Tensor {{ embedding_cuda_op }}(
             false // is_index_select
             {%- endif %}
         );
-
+    }
     {%- if not dense %}
     Tensor {{ locs_or_addrs_tensor }}_sorted = {{ locs_or_addrs_tensor }};
     Tensor table_unique_indices_offsets;
@@ -1078,31 +1103,37 @@ Tensor {{ embedding_cuda_op }}(
             } }
             {%- endif %}
 
-            DISPATCH_OPTIMAL_KERNEL(max_D, [&] {
-                auto long_run_ids = at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
-                auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
+            const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
 
-                const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
+            {% if is_rocm %}
+                const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
+            {% else %}
+                //optimize for B200
+                const auto device_properties = at::cuda::getCurrentDeviceProperties();
+                int default_segment_length = 1024;
+                const bool b200_feature_enabled = (device_properties->major >= 10) && fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200);
+                if (b200_feature_enabled) {
+                default_segment_length = 4096;
+                }
+                // Debug logging - remove after verification
+                TORCH_WARN_ONCE("TBE B200 optimization: device_major=", device_properties->major,
+                                ", feature_enabled=", b200_feature_enabled,
+                                ", segment_length=", default_segment_length);
+                const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : default_segment_length;
 
-                {% if is_rocm %}
-                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
-                {% else %}
-                    //optimize for B200
-                    const auto device_properties = at::cuda::getCurrentDeviceProperties();
-                    int default_segment_length = 1024;
-                    const bool b200_feature_enabled = (device_properties->major >= 10) && fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200);
-                    if (b200_feature_enabled) {
-                      default_segment_length = 4096;
-                    }
-                    // Debug logging - remove after verification
-                    TORCH_WARN_ONCE("TBE B200 optimization: device_major=", device_properties->major,
-                                    ", feature_enabled=", b200_feature_enabled,
-                                    ", segment_length=", default_segment_length);
-                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : default_segment_length;
+            {%- endif %}
 
-                {%- endif %}
-
-                Tensor long_run_id_to_really_long_run_ids;
+            Tensor long_run_ids, num_long_run_ids, long_run_id_to_really_long_run_ids, num_really_long_run_ids, grad_accum_counter;
+            if (skip_preproc) {
+                long_run_ids = _preproc_tensors[7];
+                num_long_run_ids = _preproc_tensors[8];
+                long_run_id_to_really_long_run_ids = _preproc_tensors[9];
+                num_really_long_run_ids = _preproc_tensors[10];
+                grad_accum_counter = _preproc_tensors[11];
+            }
+            else {
+                long_run_ids = at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
+                num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
                 if (use_deterministic_algorithms) {
                     long_run_id_to_really_long_run_ids =
                         at::empty(0, sorted_linear_indices_run_lengths.options());
@@ -1111,14 +1142,14 @@ Tensor {{ embedding_cuda_op }}(
                         at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
                 }
 
-                auto num_really_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
-                auto grad_accum_counter = at::empty(
+                num_really_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
+                grad_accum_counter = at::empty(
                     use_deterministic_algorithms ? 0 : (indices.numel() / max_segment_length_per_cta),
                     indices.options().dtype(at::kInt));
 
                 constexpr auto fls_ctx = "find_long_segments";
                 FBGEMM_LAUNCH_KERNEL(
-                    split_embedding_backward_codegen_find_long_segments,
+                    {{ "index_select" if is_index_select else "embedding_ops" }}::split_embedding_backward_codegen_find_long_segments,
                     utils::cuda::cap_grid_dim_x_from_workload(
                         total_unique_indices, kMaxThreads, at::cuda::getCurrentCUDAStream()),
                     kMaxThreads,
@@ -1135,6 +1166,9 @@ Tensor {{ embedding_cuda_op }}(
                     max_segment_length_per_cta,
                     use_deterministic_algorithms
                 );
+            }
+
+            DISPATCH_OPTIMAL_KERNEL(max_D, [&] {
 
                 // A temp buffer to accumulate gradients with atomics.
                 auto temp_grad_accum = at::zeros(
@@ -1669,7 +1703,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- endif %}
           "    float gwd_lower_bound, "
           {%- endif %}
-          "    {{ args.split_function_schemas | join(", ") }}"
+          "    {{ args.split_function_schemas | join(", ") }}, "
+          "    Tensor[]? preproc_tensors=None"
           ") -> Tensor");
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_backward_op }}",

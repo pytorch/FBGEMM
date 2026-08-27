@@ -209,6 +209,7 @@ enum SSDTensor {
           {%- else %}
           /*unused=*/0
           {%- endif %}
+          , std::nullopt
     );
 
     if (is_annotate_trace_enabled) {
@@ -549,7 +550,8 @@ Tensor
     {%- endif %}
     const double gwd_lower_bound,
     {%- endif %}
-    {{ args.split_function_args | join(", ") }});
+    {{ args.split_function_args | join(", ") }}
+    , std::optional<std::vector<Tensor>> preproc_tensors = std::nullopt);
 {%- endfor %} {#-/* for weighted*/#}
 
 {%- if args.split_function_args_v1 is not none %}
