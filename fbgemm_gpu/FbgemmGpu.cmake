@@ -93,6 +93,7 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/jagged_tensor_ops/jagged_to_padded_dense_forward.cu
       src/jagged_tensor_ops/jagged_unique_indices.cu
       src/jagged_tensor_ops/keyed_jagged_index_select_dim1.cu
+      src/jagged_tensor_ops/masked_select_jagged_1d.cu
       src/jagged_tensor_ops/repeat_arange.cu
       src/layout_transform_ops/layout_transform_ops.cu
       src/metric_ops/metric_ops.cu
