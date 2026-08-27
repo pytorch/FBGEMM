@@ -174,7 +174,17 @@ function(fbgemm_get_warning_flags)
     # report a non-trivial count, split the fixups by ISA
     # (src/*Avx2.cc, src/*Avx512.cc, src/*Neon.cc, src/*Sve.cc) and treat it as
     # Phase B work rather than a parity chunk.
-    -Wshift-sign-overflow)
+    -Wshift-sign-overflow
+    # ---- A2.6a: unused exception parameter ------------------------------
+    # g++-rejected (probed). Already on for `deeplearning/` in fbcode and at
+    # 100% globally, so OSS-only catch-up.
+    #
+    # NOTE: the other half of subplan 04's A2.6, `-Wheader-hygiene`, is NOT
+    # here. It reaches HIP device code through `_hipcc`, and fbcode carries
+    # `-Wno-header-hygiene` in `_hip_warning_suppressions` precisely because it
+    # fires on ROCm/CK headers. Enabling it needs a HIP-only suppression list
+    # that does not exist yet -- see the A2.6b notes in subplan 04.
+    -Wunused-exception-parameter)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`
