@@ -320,7 +320,15 @@ jobs:
       run: |
         PY="${HOME}/miniconda/envs/${BUILD_ENV}/bin/python"
         [ -x "$PY" ] || PY="$(command -v python)"
-        cd fbgemm_gpu/test
+        # test_all_fbgemm_gpu_modules installs the test dependencies as well as
+        # setting the environment; bypassing it means installing them here, or
+        # pytest is simply absent.
+        . $PRELUDE
+        cd fbgemm_gpu
+        install_fbgemm_gpu_deps "$BUILD_ENV"
+        "$PY" -m pip install --quiet pytest
+
+        cd test
         NODEID="./sparse/index_select_test.py::IndexSelectTest::test_index_select_dim0"
 
         start=$(date +%s)
