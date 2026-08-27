@@ -575,8 +575,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 if TEST_WITH_ROCM and name.startswith("int4_small"):
                     self.skipTest(
                         "Known failure on ROCm: the INT4 D=160 shape leaves "
-                        "NaNs in the output. Only these two cases are affected; "
-                        "the larger shapes still run."
+                        "NaNs in the output"
                     )
                 self._execute_nan_zero_fill(weights_ty, D, output_dtype, weighted)
 

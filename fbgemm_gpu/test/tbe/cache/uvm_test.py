@@ -72,8 +72,8 @@ class UvmTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @skipIfRocm(
-        "Known hang on the MI350 runner: cudaMemAdviseSetAccessedBy does not "
-        "return, taking out the 90 minute job timeout"
+        "Too slow on the MI350 runner, where managed memory allocation and "
+        "free are substantially slower than on gfx942"
     )
     @given(
         sizes=st.lists(
