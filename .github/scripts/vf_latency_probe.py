@@ -570,20 +570,43 @@ def h11_unique_consecutive_loop(iters=500, n=32, u=33):
     print()
 
 
+# --------------------------------------------------------------------------- #
+# H12 - is it FBGEMM's op, or gradcheck on this runner generally?
+#
+# test_index_select_dim0 is 51x slower on the VF and every primitive measured so
+# far comes back ~1x.  gradcheck over plain torch.index_select exercises the same
+# machinery - thousands of tiny forward/backward calls, autograd graph churn,
+# host-side comparison - with no FBGEMM code at all.  If this is also ~50x
+# slower, the problem is not index_select_dim0 and profiling it would mislead.
+# --------------------------------------------------------------------------- #
+
+def h12_gradcheck_torch():
+    print("-- H12  gradcheck over plain torch.index_select " + "-" * 28)
+    import torch
+    u, d, n = 33, 128, 32          # same scale as the FBGEMM test's shapes
+    x = torch.rand((u, d), dtype=torch.float32, device="cuda").requires_grad_(True)
+    idx = torch.randint(u, (n,), device="cuda")
+
+    t0 = ns()
+    ok = True
+    try:
+        torch.autograd.gradcheck(
+            lambda t: torch.index_select(t, 0, idx), (x,),
+            eps=1e-2, atol=1e-3, rtol=1e-3)
+    except Exception as e:
+        # Numerical failure is fine - we only care how long the machinery takes.
+        ok = f"{type(e).__name__}"
+    dt = (ns() - t0) / 1e9
+    result("H12_gradcheck_torch", shape=f"{u}x{d}", indices=n,
+           seconds=f"{dt:.2f}", passed=ok)
+    print()
+
+
 TESTS = {
     "fingerprint": (fingerprint, 120),
-    "c1": (c1_cpu_control, 180),
-    "c2": (c2_gpu_throughput, 240),
-    "h1": (h1_roundtrip, 240),
-    "h2": (h2_submit_vs_complete, 240),
-    "h3": (h3_interrupt_vs_polling, 360),
-    "h4": (h4_small_copy, 180),
-    "h5": (h5_managed_host_access, 300),
-    "h7": (h7_alloc, 240),
-    "h8": (h8_device_free, 240),
-    "h9": (h9_pinned, 240),
-    "h10": (h10_alloc_churn, 240),
-    "h11": (h11_unique_consecutive_loop, 300),
+    # H1-H11 all came back ~1x on the VF except managed and pinned memory, and
+    # have served their purpose; only the discriminator is kept.
+    "h12": (h12_gradcheck_torch, 600),
 }
 
 
